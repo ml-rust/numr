@@ -1,0 +1,375 @@
+//! CUDA kernel loading, caching, and launching infrastructure
+//!
+//! This module provides utilities for loading PTX kernels compiled by build.rs,
+//! caching the modules per-device, and launching kernels with type-safe wrappers.
+//!
+//! # Architecture
+//!
+//! - PTX files are compiled by `build.rs` using nvcc
+//! - Modules are loaded on first use and cached per-device
+//! - Generic launch helpers reduce boilerplate across kernel types
+//!
+//! # Thread Safety
+//!
+//! The module cache uses `OnceLock<Mutex<HashMap>>` for thread-safe initialization
+//! and concurrent access from multiple CUDA streams.
+
+use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaStream};
+pub use cudarc::driver::safe::LaunchConfig;
+use cudarc::driver::PushKernelArg;
+use cudarc::nvrtc::Ptx;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+
+use crate::dtype::DType;
+use crate::error::{Error, Result};
+
+// ============================================================================
+// PTX Sources (compiled by build.rs)
+// ============================================================================
+
+/// Directory containing compiled PTX files (set by build.rs)
+const KERNEL_DIR: &str = env!("CUDA_KERNEL_DIR");
+
+/// Load PTX from compiled file.
+fn load_ptx(name: &str) -> Ptx {
+    let path = format!("{}/{}.ptx", KERNEL_DIR, name);
+    Ptx::from_file(path)
+}
+
+// ============================================================================
+// Kernel Module Cache
+// ============================================================================
+
+/// Cache for loaded CUDA modules, keyed by (device_index, module_name)
+static MODULE_CACHE: OnceLock<Mutex<HashMap<(usize, &'static str), Arc<CudaModule>>>> =
+    OnceLock::new();
+
+/// Get or load a CUDA module from PTX.
+///
+/// Modules are cached per-device to avoid repeated loading. This is thread-safe
+/// and can be called concurrently from multiple streams.
+///
+/// # Arguments
+///
+/// * `context` - CUDA context for the target device
+/// * `device_index` - Index of the target device (used as cache key)
+/// * `module_name` - Name of the PTX file (without extension)
+///
+/// # Errors
+///
+/// Returns an error if the PTX file cannot be loaded or the module cannot be created.
+pub fn get_or_load_module(
+    context: &Arc<CudaContext>,
+    device_index: usize,
+    module_name: &'static str,
+) -> Result<Arc<CudaModule>> {
+    let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = cache.lock().unwrap();
+
+    let key = (device_index, module_name);
+    if let Some(module) = guard.get(&key) {
+        return Ok(module.clone());
+    }
+
+    // Load PTX and create module
+    let ptx = load_ptx(module_name);
+    let module = context.load_module(ptx).map_err(|e| {
+        Error::Internal(format!(
+            "Failed to load CUDA module '{}': {:?}. \
+             Ensure CUDA kernels were compiled correctly by build.rs.",
+            module_name, e
+        ))
+    })?;
+
+    guard.insert(key, module.clone());
+
+    Ok(module)
+}
+
+/// Get a kernel function from a loaded module.
+///
+/// # Arguments
+///
+/// * `module` - Loaded CUDA module
+/// * `kernel_name` - Name of the kernel function (e.g., "add_f32")
+///
+/// # Errors
+///
+/// Returns an error if the kernel function is not found in the module.
+pub fn get_kernel_function(module: &Arc<CudaModule>, kernel_name: &str) -> Result<CudaFunction> {
+    module.load_function(kernel_name).map_err(|e| {
+        Error::Internal(format!(
+            "Failed to get kernel '{}': {:?}. \
+             Check that the kernel name matches the CUDA source.",
+            kernel_name, e
+        ))
+    })
+}
+
+// ============================================================================
+// Launch Configuration
+// ============================================================================
+
+/// Block size for element-wise operations (256 threads is optimal for most GPUs)
+pub const BLOCK_SIZE: u32 = 256;
+
+/// Calculate optimal grid dimensions for element-wise operations.
+///
+/// Uses a 1D grid with blocks of `BLOCK_SIZE` threads each.
+#[inline]
+pub fn elementwise_launch_config(numel: usize) -> (u32, u32, u32) {
+    let grid_size = ((numel as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    (grid_size, 1, 1)
+}
+
+/// Calculate launch configuration for global reduction kernels.
+///
+/// Limits grid size to prevent excessive block overhead for small inputs.
+#[inline]
+#[allow(dead_code)] // Kept for potential future optimization of global reductions
+pub fn reduce_launch_config(numel: usize) -> (u32, u32) {
+    let block_size = BLOCK_SIZE;
+    let grid_size = ((numel as u32) + block_size - 1) / block_size;
+    // Limit grid size to ensure we don't launch too many blocks
+    let grid_size = grid_size.min(1024);
+    (grid_size, block_size)
+}
+
+/// Calculate launch configuration for dimension-wise reduction.
+///
+/// Uses a 2D grid where each (outer, inner) pair is processed by one thread block.
+#[inline]
+pub fn reduce_dim_launch_config(outer: usize, inner: usize) -> ((u32, u32, u32), u32) {
+    let grid = (outer as u32, inner as u32, 1);
+    let block = BLOCK_SIZE;
+    (grid, block)
+}
+
+/// Calculate launch configuration for softmax over the last dimension.
+///
+/// One block per row, with threads cooperating to compute the softmax.
+/// Returns (grid_size, block_size, shared_memory_bytes).
+#[inline]
+pub fn softmax_launch_config(outer: usize, dim_size: usize) -> (u32, u32, u32) {
+    // One block per row, threads handle the dimension
+    let block_size = BLOCK_SIZE.min(dim_size as u32);
+    let grid_size = outer as u32;
+    // Shared memory: 2 arrays of block_size floats (for max and sum reduction)
+    let shared_mem = 2 * block_size * 4; // f32
+    (grid_size, block_size, shared_mem)
+}
+
+/// Calculate launch configuration for softmax over a non-last dimension.
+///
+/// Uses a 2D grid to process all (outer, inner) pairs in parallel.
+/// Each thread processes one element position across the reduction dimension.
+#[inline]
+#[allow(dead_code)] // Available for future optimized softmax_dim kernel
+pub fn softmax_dim_launch_config(outer: usize, inner: usize) -> ((u32, u32, u32), (u32, u32, u32)) {
+    // Use 2D grid: one thread per (outer, inner) pair
+    // Each thread sequentially processes the dim_size elements
+    let total_elements = (outer * inner) as u32;
+    let grid_x = (total_elements + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    let grid = (grid_x, 1, 1);
+    let block = (BLOCK_SIZE, 1, 1);
+    (grid, block)
+}
+
+/// Create a launch configuration from grid, block, and shared memory sizes.
+#[inline]
+pub fn launch_config(
+    grid: (u32, u32, u32),
+    block: (u32, u32, u32),
+    shared_mem: u32,
+) -> LaunchConfig {
+    LaunchConfig {
+        grid_dim: grid,
+        block_dim: block,
+        shared_mem_bytes: shared_mem,
+    }
+}
+
+// ============================================================================
+// Kernel Naming
+// ============================================================================
+
+/// Kernel operation categories for consistent naming.
+pub mod kernel_names {
+    /// Binary operations (two tensor inputs)
+    pub const BINARY_MODULE: &str = "binary";
+    /// Unary operations (one tensor input)
+    pub const UNARY_MODULE: &str = "unary";
+    /// Scalar operations (tensor + scalar input)
+    pub const SCALAR_MODULE: &str = "scalar";
+    /// Reduction operations (sum, max, min)
+    pub const REDUCE_MODULE: &str = "reduce";
+    /// Comparison operations (eq, ne, lt, le, gt, ge)
+    pub const COMPARE_MODULE: &str = "compare";
+    /// Activation functions (relu, sigmoid, softmax)
+    pub const ACTIVATION_MODULE: &str = "activation";
+
+    /// Generate kernel name for reduction operations.
+    #[inline]
+    pub fn reduce_kernel(op: &str) -> String {
+        format!("reduce_{}", op)
+    }
+
+    /// Generate kernel name for dimension-wise reduction operations.
+    #[inline]
+    pub fn reduce_dim_kernel(op: &str) -> String {
+        format!("reduce_{}_dim", op)
+    }
+}
+
+/// Get the kernel name suffix for a given dtype.
+pub fn dtype_suffix(dtype: DType) -> &'static str {
+    match dtype {
+        DType::F32 => "f32",
+        DType::F64 => "f64",
+        #[cfg(feature = "f16")]
+        DType::F16 => "f16",
+        #[cfg(feature = "f16")]
+        DType::BF16 => "bf16",
+        DType::I64 => "i64",
+        DType::I32 => "i32",
+        DType::I16 => "i16",
+        DType::I8 => "i8",
+        DType::U64 => "u64",
+        DType::U32 => "u32",
+        DType::U16 => "u16",
+        DType::U8 => "u8",
+        DType::Bool => "bool",
+        #[allow(unreachable_patterns)]
+        _ => "f32",
+    }
+}
+
+/// Generate a kernel name with dtype suffix.
+///
+/// # Example
+///
+/// ```ignore
+/// let name = kernel_name("add", DType::F32); // "add_f32"
+/// ```
+#[inline]
+pub fn kernel_name(base: &str, dtype: DType) -> String {
+    format!("{}_{}", base, dtype_suffix(dtype))
+}
+
+// ============================================================================
+// Generic Kernel Launch Helpers
+// ============================================================================
+
+/// Launch an element-wise unary kernel (one input, one output).
+///
+/// This handles the common pattern for operations like neg, abs, sqrt, exp, etc.
+///
+/// # Safety
+///
+/// `input_ptr` and `output_ptr` must be valid device memory pointers with at least
+/// `numel` elements of the appropriate dtype.
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `module_name` - PTX module name (e.g., "unary", "activation")
+/// * `op` - Operation name (e.g., "neg", "relu")
+/// * `dtype` - Data type of the tensors
+/// * `input_ptr` - Device pointer to input tensor
+/// * `output_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_unary_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    module_name: &'static str,
+    op: &str,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+) -> Result<()> { unsafe {
+    let module = get_or_load_module(context, device_index, module_name)?;
+    let func_name = kernel_name(op, dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+
+    let cfg = launch_config(grid, block, 0);
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&input_ptr);
+    builder.arg(&output_ptr);
+    builder.arg(&n);
+
+    builder.launch(cfg).map_err(|e| {
+        Error::Internal(format!(
+            "CUDA {} kernel '{}' launch failed: {:?}",
+            module_name, op, e
+        ))
+    })?;
+
+    Ok(())
+}}
+
+/// Launch an element-wise binary kernel (two inputs, one output).
+///
+/// This handles the common pattern for operations like add, sub, mul, div, etc.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with at least `numel` elements.
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `module_name` - PTX module name (e.g., "binary", "compare")
+/// * `op` - Operation name (e.g., "add", "eq")
+/// * `dtype` - Data type of the tensors
+/// * `a_ptr` - Device pointer to first input tensor
+/// * `b_ptr` - Device pointer to second input tensor
+/// * `output_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_binary_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    module_name: &'static str,
+    op: &str,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+) -> Result<()> { unsafe {
+    let module = get_or_load_module(context, device_index, module_name)?;
+    let func_name = kernel_name(op, dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+
+    let cfg = launch_config(grid, block, 0);
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&a_ptr);
+    builder.arg(&b_ptr);
+    builder.arg(&output_ptr);
+    builder.arg(&n);
+
+    builder.launch(cfg).map_err(|e| {
+        Error::Internal(format!(
+            "CUDA {} kernel '{}' launch failed: {:?}",
+            module_name, op, e
+        ))
+    })?;
+
+    Ok(())
+}}
+

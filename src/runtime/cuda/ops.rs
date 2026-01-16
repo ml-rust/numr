@@ -1,25 +1,58 @@
 //! TensorOps, ScalarOps, and CompareOps implementations for CUDA runtime
 //!
 //! This module implements tensor operations for CUDA using:
+//! - Native CUDA kernels for element-wise, unary, scalar, reduction, and activation ops
 //! - cuBLAS for matrix multiplication (matmul)
-//! - CPU fallback for other operations (can be optimized with custom CUDA kernels later)
 //!
-//! # Performance Note
+//! Kernels are compiled from .cu files by build.rs and loaded at runtime.
 //!
-//! Operations other than matmul currently use CPU fallback, which involves
-//! Host-Device memory transfers. This is acceptable for Phase 2; custom CUDA
-//! kernels will be implemented in future phases for better performance.
+//! # Performance Characteristics
+//!
+//! ## Native GPU Operations (Fast Path)
+//!
+//! Operations on tensors with matching shapes run entirely on GPU:
+//! - Binary ops (add, sub, mul, div, pow, max, min)
+//! - Unary ops (neg, abs, sqrt, exp, log, sin, cos, tan, tanh, etc.)
+//! - Scalar ops (add_scalar, mul_scalar, etc.)
+//! - Reductions (sum, max, min) - single dimension
+//! - Activations (relu, sigmoid, softmax)
+//! - Matrix multiplication (via cuBLAS)
+//!
+//! ## CPU Fallback (Slow Path)
+//!
+//! The following operations trigger GPU→CPU→GPU transfers, causing significant overhead:
+//!
+//! 1. **Broadcasting binary operations**: When tensor shapes don't match (e.g., `[3, 4] + [4]`),
+//!    the operation falls back to CPU. This involves:
+//!    - Copying both tensors from GPU to CPU
+//!    - Computing the result on CPU
+//!    - Copying the result back to GPU
+//!
+//! 2. **Multi-dimension reductions**: Reducing over multiple dimensions at once
+//!    (e.g., `sum(&[0, 1])`) falls back to CPU.
+//!
+//! 3. **Unsupported dtypes for scalar ops**: Non-F32/F64 scalar operations use CPU.
+//!
+//! ## Recommendations
+//!
+//! - Pre-broadcast tensors to matching shapes before binary operations
+//! - Use single-dimension reductions and chain them if needed
+//! - Use F32 or F64 for best GPU performance
 
+use super::kernels::{
+    launch_binary_op, launch_compare_op, launch_reduce_dim_op, launch_relu,
+    launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid, launch_softmax, launch_softmax_dim,
+    launch_unary_op,
+};
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOp, CompareOp, CompareOps, ReduceOp, ScalarOps, TensorOps, UnaryOp, matmul_output_shape,
+    matmul_output_shape, normalize_softmax_dim, reduce_output_shape, CompareOps, ReduceOp,
+    ScalarOps, TensorOps,
 };
 use crate::runtime::fallback::{
-    activation_fallback, binary_op_fallback, compare_op_fallback, matmul_fallback,
-    reduce_op_fallback, scalar_op_fallback, softmax_fallback, unary_op_fallback,
-    validate_binary_dtypes,
+    compute_broadcast_shape, matmul_fallback, validate_binary_dtypes,
 };
 use crate::tensor::Tensor;
 
@@ -48,9 +81,6 @@ fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
 // ============================================================================
 
 /// Matrix multiplication using cuBLAS for F32
-///
-/// Computes C = A @ B using cuBLAS SGEMM.
-/// Handles row-major to column-major conversion internally.
 fn matmul_f32_cublas(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -64,32 +94,24 @@ fn matmul_f32_cublas(
     let a_contig = ensure_contiguous(a);
     let b_contig = ensure_contiguous(b);
 
-    // Get output shape
     let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
         expected: a.shape().to_vec(),
         got: b.shape().to_vec(),
     })?;
 
-    // Create output tensor
     let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::F32, &client.device);
 
     let m = m as i32;
     let k = k as i32;
     let n = n as i32;
 
-    // Handle row-major (C-style) vs column-major (FORTRAN/cuBLAS) mismatch
-    // For row-major: C = A @ B becomes col-major: C^T = B^T @ A^T
-    // We call cuBLAS with swapped matrices and NO transpose flags
-
     let transa = cublasOperation_t::CUBLAS_OP_N;
     let transb = cublasOperation_t::CUBLAS_OP_N;
 
-    // For the swapped operation B @ A:
     let cublas_m = n;
     let cublas_n = m;
     let cublas_k = k;
 
-    // Leading dimensions for row-major storage
     let lda = n;
     let ldb = k;
     let ldc = n;
@@ -107,7 +129,6 @@ fn matmul_f32_cublas(
         ldc,
     };
 
-    // Create temporary device slices from raw pointers
     let a_ptr = a_contig.storage().ptr();
     let b_ptr = b_contig.storage().ptr();
     let out_ptr = out.storage().ptr();
@@ -115,12 +136,10 @@ fn matmul_f32_cublas(
     let numel_b = b_contig.numel();
     let numel_out = out.numel();
 
-    // Swap B and A for cuBLAS (B becomes first arg, A becomes second)
     let b_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(b_ptr, numel_b) };
     let a_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(a_ptr, numel_a) };
     let mut out_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(out_ptr, numel_out) };
 
-    // Perform GEMM using cuBLAS
     unsafe {
         client
             .cublas
@@ -128,7 +147,6 @@ fn matmul_f32_cublas(
             .map_err(|e| Error::Internal(format!("cuBLAS GEMM failed: {:?}", e)))?;
     }
 
-    // Prevent drop from deallocating since we don't own the memory
     std::mem::forget(a_slice);
     std::mem::forget(b_slice);
     std::mem::forget(out_slice);
@@ -161,7 +179,6 @@ fn matmul_batched_f32_cublas(
     let k_i32 = k as i32;
     let n_i32 = n as i32;
 
-    // Row-major to column-major conversion
     let transa = cublasOperation_t::CUBLAS_OP_N;
     let transb = cublasOperation_t::CUBLAS_OP_N;
 
@@ -173,7 +190,6 @@ fn matmul_batched_f32_cublas(
     let ldb = k_i32;
     let ldc = n_i32;
 
-    // Strides between batches (in elements)
     let stride_a = (m * k) as i64;
     let stride_b = (n * k) as i64;
     let stride_c = (m * n) as i64;
@@ -196,10 +212,10 @@ fn matmul_batched_f32_cublas(
             cublas_n,
             cublas_k,
             &alpha,
-            b_ptr as *const f32, // B becomes first matrix
+            b_ptr as *const f32,
             lda,
             stride_b,
-            a_ptr as *const f32, // A becomes second matrix
+            a_ptr as *const f32,
             ldb,
             stride_a,
             &beta,
@@ -220,11 +236,6 @@ fn matmul_batched_f32_cublas(
     Ok(out)
 }
 
-/// Matrix multiplication using cuBLAS GemmEx for F16/BF16
-///
-/// # Requirements
-/// - F16 requires Compute Capability >= 5.3 (Maxwell+)
-/// - BF16 requires Compute Capability >= 8.0 (Ampere+)
 #[cfg(feature = "f16")]
 fn matmul_half_cublas(
     client: &CudaClient,
@@ -235,7 +246,6 @@ fn matmul_half_cublas(
     n: usize,
     dtype: DType,
 ) -> Result<Tensor<CudaRuntime>> {
-    // Validate compute capability for half-precision support
     if let Ok((major, minor)) = client.device.compute_capability() {
         let cc = major * 10 + minor;
         match dtype {
@@ -269,7 +279,6 @@ fn matmul_half_cublas(
     let k = k as i32;
     let n = n as i32;
 
-    // Row-major to column-major conversion
     let transa = cublasOperation_t::CUBLAS_OP_N;
     let transb = cublasOperation_t::CUBLAS_OP_N;
 
@@ -281,7 +290,6 @@ fn matmul_half_cublas(
     let ldb = k;
     let ldc = n;
 
-    // Select data type for cuBLAS
     let cuda_dtype = match dtype {
         DType::BF16 => cudaDataType_t::CUDA_R_16BF,
         DType::F16 => cudaDataType_t::CUDA_R_16F,
@@ -333,30 +341,279 @@ fn matmul_half_cublas(
 }
 
 // ============================================================================
+// Native Kernel Helpers
+// ============================================================================
+
+/// Launch a native binary operation on GPU.
+///
+/// # Performance
+///
+/// - **Same shape**: Runs entirely on GPU (fast)
+/// - **Different shapes**: Falls back to CPU with GPU↔CPU transfers (slow)
+///
+/// For broadcasting operations, consider pre-expanding tensors to matching shapes
+/// using `broadcast_to()` or similar operations to avoid CPU fallback.
+fn native_binary_op(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    op: &'static str,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = validate_binary_dtypes(a, b)?;
+    let out_shape = compute_broadcast_shape(a, b)?;
+
+    // Native CUDA kernels require same-shape tensors.
+    // Broadcasting requires strided kernel access patterns not yet implemented.
+    if a.shape() != b.shape() {
+        // CPU fallback: involves GPU→CPU transfer, CPU compute, CPU→GPU transfer
+        use crate::ops::BinaryOp;
+        use crate::runtime::fallback::binary_op_fallback;
+        let binary_op = match op {
+            "add" => BinaryOp::Add,
+            "sub" => BinaryOp::Sub,
+            "mul" => BinaryOp::Mul,
+            "div" => BinaryOp::Div,
+            "pow" => BinaryOp::Pow,
+            "max" => BinaryOp::Max,
+            "min" => BinaryOp::Min,
+            _ => return Err(Error::Internal(format!("Unsupported binary operation: {}", op))),
+        };
+        return binary_op_fallback(a, b, binary_op, &client.device, op);
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_binary_op(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            op,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            out.numel(),
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Launch a native unary operation.
+fn native_unary_op(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    op: &'static str,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &client.device);
+
+    unsafe {
+        launch_unary_op(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            op,
+            dtype,
+            a_contig.storage().ptr(),
+            out.storage().ptr(),
+            out.numel(),
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Launch a native scalar operation.
+fn native_scalar_op(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    op: &'static str,
+    scalar: f64,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &client.device);
+
+    unsafe {
+        match dtype {
+            DType::F32 => launch_scalar_op_f32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar as f32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            DType::F64 => launch_scalar_op_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            _ => {
+                // Fall back to CPU for unsupported dtypes
+                use crate::ops::BinaryOp;
+                use crate::runtime::fallback::scalar_op_fallback;
+                let binary_op = match op {
+                    "add_scalar" => BinaryOp::Add,
+                    "sub_scalar" => BinaryOp::Sub,
+                    "mul_scalar" => BinaryOp::Mul,
+                    "div_scalar" => BinaryOp::Div,
+                    "pow_scalar" => BinaryOp::Pow,
+                    _ => return Err(Error::Internal(format!("Unsupported scalar operation: {}", op))),
+                };
+                return scalar_op_fallback(a, binary_op, scalar, &client.device, op);
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Launch a native reduce operation.
+fn native_reduce_op(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    op: &'static str,
+    dims: &[usize],
+    keepdim: bool,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = a.dtype();
+    let out_shape = reduce_output_shape(a.shape(), dims, keepdim);
+
+    // For single-dimension reduction, use optimized kernel
+    if dims.len() == 1 {
+        let dim = dims[0];
+        let shape = a.shape();
+
+        // Calculate outer, reduce, inner sizes
+        let outer_size: usize = shape[..dim].iter().product();
+        let reduce_size = shape[dim];
+        let inner_size: usize = shape[dim + 1..].iter().product();
+
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+        unsafe {
+            launch_reduce_dim_op(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                reduce_size,
+                inner_size,
+            )?;
+        }
+
+        return Ok(out);
+    }
+
+    // For multiple dimensions or unsupported dtypes, fall back to CPU
+    use crate::runtime::fallback::reduce_op_fallback;
+    let reduce_op = match op {
+        "sum" => ReduceOp::Sum,
+        "max" => ReduceOp::Max,
+        "min" => ReduceOp::Min,
+        _ => return Err(Error::Internal(format!("Unsupported reduce operation: {}", op))),
+    };
+    reduce_op_fallback(a, reduce_op, dims, keepdim, &client.device, op)
+}
+
+/// Launch a native comparison operation on GPU.
+///
+/// # Performance
+///
+/// - **Same shape**: Runs entirely on GPU (fast)
+/// - **Different shapes**: Falls back to CPU with GPU↔CPU transfers (slow)
+fn native_compare_op(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    op: &'static str,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = validate_binary_dtypes(a, b)?;
+    let out_shape = compute_broadcast_shape(a, b)?;
+
+    // Native CUDA kernels require same-shape tensors
+    if a.shape() != b.shape() {
+        use crate::ops::CompareOp;
+        use crate::runtime::fallback::compare_op_fallback;
+        let compare_op = match op {
+            "eq" => CompareOp::Eq,
+            "ne" => CompareOp::Ne,
+            "lt" => CompareOp::Lt,
+            "le" => CompareOp::Le,
+            "gt" => CompareOp::Gt,
+            "ge" => CompareOp::Ge,
+            _ => return Err(Error::Internal(format!("Unsupported compare operation: {}", op))),
+        };
+        return compare_op_fallback(a, b, compare_op, &client.device, op);
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_compare_op(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            op,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            out.numel(),
+        )?;
+    }
+
+    Ok(out)
+}
+
+// ============================================================================
 // TensorOps Implementation
 // ============================================================================
 
 impl TensorOps<CudaRuntime> for CudaClient {
-    // ===== Binary Operations (CPU Fallback) =====
+    // ===== Binary Operations (Native CUDA Kernels) =====
 
     fn add(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Add, &self.device, "add")
+        native_binary_op(self, a, b, "add")
     }
 
     fn sub(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Sub, &self.device, "sub")
+        native_binary_op(self, a, b, "sub")
     }
 
     fn mul(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Mul, &self.device, "mul")
+        native_binary_op(self, a, b, "mul")
     }
 
     fn div(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Div, &self.device, "div")
+        native_binary_op(self, a, b, "div")
     }
 
     fn pow(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Pow, &self.device, "pow")
+        native_binary_op(self, a, b, "pow")
     }
 
     fn maximum(
@@ -364,7 +621,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Max, &self.device, "maximum")
+        native_binary_op(self, a, b, "max")
     }
 
     fn minimum(
@@ -372,65 +629,65 @@ impl TensorOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        binary_op_fallback(a, b, BinaryOp::Min, &self.device, "minimum")
+        native_binary_op(self, a, b, "min")
     }
 
-    // ===== Unary Operations (CPU Fallback) =====
+    // ===== Unary Operations (Native CUDA Kernels) =====
 
     fn neg(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Neg, &self.device, "neg")
+        native_unary_op(self, a, "neg")
     }
 
     fn abs(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Abs, &self.device, "abs")
+        native_unary_op(self, a, "abs")
     }
 
     fn sqrt(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Sqrt, &self.device, "sqrt")
+        native_unary_op(self, a, "sqrt")
     }
 
     fn exp(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Exp, &self.device, "exp")
+        native_unary_op(self, a, "exp")
     }
 
     fn log(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Log, &self.device, "log")
+        native_unary_op(self, a, "log")
     }
 
     fn sin(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Sin, &self.device, "sin")
+        native_unary_op(self, a, "sin")
     }
 
     fn cos(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Cos, &self.device, "cos")
+        native_unary_op(self, a, "cos")
     }
 
     fn tan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Tan, &self.device, "tan")
+        native_unary_op(self, a, "tan")
     }
 
     fn tanh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Tanh, &self.device, "tanh")
+        native_unary_op(self, a, "tanh")
     }
 
     fn recip(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Recip, &self.device, "recip")
+        native_unary_op(self, a, "recip")
     }
 
     fn square(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Square, &self.device, "square")
+        native_unary_op(self, a, "square")
     }
 
     fn floor(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Floor, &self.device, "floor")
+        native_unary_op(self, a, "floor")
     }
 
     fn ceil(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Ceil, &self.device, "ceil")
+        native_unary_op(self, a, "ceil")
     }
 
     fn round(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_fallback(a, UnaryOp::Round, &self.device, "round")
+        native_unary_op(self, a, "round")
     }
 
     // ===== Matrix Operations (cuBLAS) =====
@@ -440,10 +697,8 @@ impl TensorOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Validate dtypes match
         let dtype = validate_binary_dtypes(a, b)?;
 
-        // Get matrix dimensions (last two dims)
         let a_shape = a.shape();
         let b_shape = b.shape();
         let m = if a_shape.len() >= 2 {
@@ -454,7 +709,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        // Validate inner dimensions match
         let k_b = if b_shape.len() >= 2 {
             b_shape[b_shape.len() - 2]
         } else {
@@ -467,7 +721,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
             });
         }
 
-        // Calculate batch size
         let out_shape = matmul_output_shape(a_shape, b_shape).ok_or(Error::ShapeMismatch {
             expected: a_shape.to_vec(),
             got: b_shape.to_vec(),
@@ -489,14 +742,11 @@ impl TensorOps<CudaRuntime> for CudaClient {
             }
             #[cfg(feature = "f16")]
             DType::F16 | DType::BF16 => matmul_half_cublas(self, a, b, m, k, n, dtype),
-            _ => {
-                // Fallback to CPU for other dtypes
-                matmul_fallback(a, b, &out_shape, &self.device, "matmul")
-            }
+            _ => matmul_fallback(a, b, &out_shape, &self.device, "matmul"),
         }
     }
 
-    // ===== Reductions (CPU Fallback) =====
+    // ===== Reductions (Native CUDA Kernels) =====
 
     fn sum(
         &self,
@@ -504,7 +754,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_op_fallback(a, ReduceOp::Sum, dims, keepdim, &self.device, "sum")
+        native_reduce_op(self, a, "sum", dims, keepdim)
     }
 
     fn mean(
@@ -513,7 +763,10 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_op_fallback(a, ReduceOp::Mean, dims, keepdim, &self.device, "mean")
+        // Mean = sum / count
+        let sum_result = self.sum(a, dims, keepdim)?;
+        let count: usize = dims.iter().map(|&d| a.shape()[d]).product();
+        self.div_scalar(&sum_result, count as f64)
     }
 
     fn max(
@@ -522,7 +775,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_op_fallback(a, ReduceOp::Max, dims, keepdim, &self.device, "max")
+        native_reduce_op(self, a, "max", dims, keepdim)
     }
 
     fn min(
@@ -531,23 +784,99 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_op_fallback(a, ReduceOp::Min, dims, keepdim, &self.device, "min")
+        native_reduce_op(self, a, "min", dims, keepdim)
     }
 
-    // ===== Activations (CPU Fallback) =====
+    // ===== Activations (Native CUDA Kernels) =====
 
     fn relu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        activation_fallback(a, &self.device, "relu", |client, a_cpu| client.relu(a_cpu))
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_relu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
     }
 
     fn sigmoid(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        activation_fallback(a, &self.device, "sigmoid", |client, a_cpu| {
-            client.sigmoid(a_cpu)
-        })
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_sigmoid(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
     }
 
     fn softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
-        softmax_fallback(a, dim, &self.device, "softmax")
+        let dtype = a.dtype();
+        let ndim = a.ndim();
+
+        let dim_idx =
+            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        let shape = a.shape();
+        let outer_size: usize = shape[..dim_idx].iter().product();
+        let dim_size = shape[dim_idx];
+        let inner_size: usize = shape[dim_idx + 1..].iter().product();
+
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        unsafe {
+            if dim_idx == ndim - 1 {
+                // Softmax over last dimension (optimized)
+                launch_softmax(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    outer_size,
+                    dim_size,
+                )?;
+            } else {
+                // Softmax over non-last dimension
+                launch_softmax_dim(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    outer_size,
+                    dim_size,
+                    inner_size,
+                )?;
+            }
+        }
+
+        Ok(out)
     }
 }
 
@@ -557,53 +886,53 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
 impl ScalarOps<CudaRuntime> for CudaClient {
     fn add_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_fallback(a, BinaryOp::Add, scalar, &self.device, "add_scalar")
+        native_scalar_op(self, a, "add_scalar", scalar)
     }
 
     fn sub_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_fallback(a, BinaryOp::Sub, scalar, &self.device, "sub_scalar")
+        native_scalar_op(self, a, "sub_scalar", scalar)
     }
 
     fn mul_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_fallback(a, BinaryOp::Mul, scalar, &self.device, "mul_scalar")
+        native_scalar_op(self, a, "mul_scalar", scalar)
     }
 
     fn div_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_fallback(a, BinaryOp::Div, scalar, &self.device, "div_scalar")
+        native_scalar_op(self, a, "div_scalar", scalar)
     }
 
     fn pow_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_fallback(a, BinaryOp::Pow, scalar, &self.device, "pow_scalar")
+        native_scalar_op(self, a, "pow_scalar", scalar)
     }
 }
 
 // ============================================================================
-// CompareOps Implementation (CPU Fallback)
+// CompareOps Implementation
 // ============================================================================
 
 impl CompareOps<CudaRuntime> for CudaClient {
     fn eq(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Eq, &self.device, "eq")
+        native_compare_op(self, a, b, "eq")
     }
 
     fn ne(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Ne, &self.device, "ne")
+        native_compare_op(self, a, b, "ne")
     }
 
     fn lt(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Lt, &self.device, "lt")
+        native_compare_op(self, a, b, "lt")
     }
 
     fn le(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Le, &self.device, "le")
+        native_compare_op(self, a, b, "le")
     }
 
     fn gt(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Gt, &self.device, "gt")
+        native_compare_op(self, a, b, "gt")
     }
 
     fn ge(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_fallback(a, b, CompareOp::Ge, &self.device, "ge")
+        native_compare_op(self, a, b, "ge")
     }
 }
 
@@ -637,9 +966,6 @@ mod tests {
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
-        // A = [[1, 2], [3, 4]]
-        // B = [[5, 6], [7, 8]]
-        // C = A @ B = [[19, 22], [43, 50]]
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
         let b = Tensor::<CudaRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device);
 
@@ -655,9 +981,6 @@ mod tests {
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
-        // A = [[1, 2], [3, 4], [5, 6]] (3x2)
-        // B = [[1, 2, 3, 4], [5, 6, 7, 8]] (2x4)
-        // C = A @ B (3x4)
         let a =
             Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
         let b = Tensor::<CudaRuntime>::from_slice(
@@ -670,9 +993,6 @@ mod tests {
 
         assert_eq!(c.shape(), &[3, 4]);
         let result: Vec<f32> = c.to_vec();
-        // Row 0: [1*1+2*5, 1*2+2*6, 1*3+2*7, 1*4+2*8] = [11, 14, 17, 20]
-        // Row 1: [3*1+4*5, 3*2+4*6, 3*3+4*7, 3*4+4*8] = [23, 30, 37, 44]
-        // Row 2: [5*1+6*5, 5*2+6*6, 5*3+6*7, 5*4+6*8] = [35, 46, 57, 68]
         assert_eq!(
             result,
             [
@@ -698,7 +1018,6 @@ mod tests {
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
-        // Shape [2, 3] -> sum over dim 1 -> shape [2]
         let a =
             Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
 
@@ -706,6 +1025,6 @@ mod tests {
 
         assert_eq!(b.shape(), &[2]);
         let result: Vec<f32> = b.to_vec();
-        assert_eq!(result, [6.0, 15.0]); // [1+2+3, 4+5+6]
+        assert_eq!(result, [6.0, 15.0]);
     }
 }

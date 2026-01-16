@@ -24,6 +24,7 @@
 
 mod client;
 mod device;
+mod kernels;
 mod ops;
 
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
