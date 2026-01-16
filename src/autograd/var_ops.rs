@@ -369,6 +369,112 @@ where
     }
 }
 
+/// Tangent: z = tan(a)
+pub fn var_tan<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + TensorOps<R>,
+    R::Client: TensorOps<R>,
+{
+    let output = client.tan(a.tensor())?;
+
+    if a.requires_grad() {
+        let grad_fn = TanBackward::<R>::new(a.id(), a.tensor().clone());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+// ============================================================================
+// Scalar Operations
+// ============================================================================
+
+/// Add scalar: z = a + scalar
+pub fn var_add_scalar<R, C>(a: &Var<R>, scalar: f64, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + ScalarOps<R>,
+    R::Client: ScalarOps<R>,
+{
+    let output = client.add_scalar(a.tensor(), scalar)?;
+
+    if a.requires_grad() {
+        let grad_fn = AddScalarBackward::<R>::new(a.id());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Subtract scalar: z = a - scalar
+pub fn var_sub_scalar<R, C>(a: &Var<R>, scalar: f64, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + ScalarOps<R>,
+    R::Client: ScalarOps<R>,
+{
+    let output = client.sub_scalar(a.tensor(), scalar)?;
+
+    if a.requires_grad() {
+        let grad_fn = SubScalarBackward::<R>::new(a.id());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Multiply by scalar: z = a * scalar
+pub fn var_mul_scalar<R, C>(a: &Var<R>, scalar: f64, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + ScalarOps<R>,
+    R::Client: ScalarOps<R>,
+{
+    let output = client.mul_scalar(a.tensor(), scalar)?;
+
+    if a.requires_grad() {
+        let grad_fn = MulScalarBackward::<R>::new(a.id(), scalar);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Divide by scalar: z = a / scalar
+pub fn var_div_scalar<R, C>(a: &Var<R>, scalar: f64, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + ScalarOps<R>,
+    R::Client: ScalarOps<R>,
+{
+    let output = client.div_scalar(a.tensor(), scalar)?;
+
+    if a.requires_grad() {
+        let grad_fn = DivScalarBackward::<R>::new(a.id(), scalar);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Power by scalar: z = a^scalar
+pub fn var_pow_scalar<R, C>(a: &Var<R>, scalar: f64, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + ScalarOps<R> + TensorOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    let output = client.pow_scalar(a.tensor(), scalar)?;
+
+    if a.requires_grad() {
+        let grad_fn = PowScalarBackward::<R>::new(a.id(), a.tensor().clone(), scalar);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 // ============================================================================
 // Reduction Operations
 // ============================================================================
@@ -400,6 +506,40 @@ where
 
     if a.requires_grad() {
         let grad_fn = MeanBackward::<R>::new(a.id(), a.shape(), dims, keepdim);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Max along dimensions: z = max(a, dims)
+pub fn var_max<R, C>(a: &Var<R>, dims: &[usize], keepdim: bool, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + TensorOps<R> + CompareOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+{
+    let output = client.max(a.tensor(), dims, keepdim)?;
+
+    if a.requires_grad() {
+        let grad_fn = MaxBackward::<R>::new(a.id(), a.tensor().clone(), dims, keepdim);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Min along dimensions: z = min(a, dims)
+pub fn var_min<R, C>(a: &Var<R>, dims: &[usize], keepdim: bool, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + TensorOps<R> + CompareOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+{
+    let output = client.min(a.tensor(), dims, keepdim)?;
+
+    if a.requires_grad() {
+        let grad_fn = MinBackward::<R>::new(a.id(), a.tensor().clone(), dims, keepdim);
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
@@ -617,5 +757,97 @@ mod tests {
         // dC/dB = A^T @ dC/dC = [[1], [2]] @ [[1]] = [[1], [2]]
         let grad_b: Vec<f32> = grads.get(b.id()).unwrap().to_vec();
         assert_eq!(grad_b, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn test_var_tan_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // z = tan(x) where x = 0
+        // dz/dx = 1/cos²(0) = 1
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.0f32], &[1], &device),
+            true,
+        );
+
+        let z = var_tan(&x, &client).unwrap();
+
+        let grads = backward(&z, &client).unwrap();
+
+        let grad_x: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        assert!((grad_x[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_var_add_scalar_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // z = x + 5
+        // dz/dx = 1
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device),
+            true,
+        );
+
+        let z = var_add_scalar(&x, 5.0, &client).unwrap();
+
+        // Verify forward
+        let z_data: Vec<f32> = z.tensor().to_vec();
+        assert_eq!(z_data, vec![7.0]);
+
+        let grads = backward(&z, &client).unwrap();
+
+        let grad_x: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        assert!((grad_x[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_var_mul_scalar_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // z = x * 3
+        // dz/dx = 3
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device),
+            true,
+        );
+
+        let z = var_mul_scalar(&x, 3.0, &client).unwrap();
+
+        // Verify forward
+        let z_data: Vec<f32> = z.tensor().to_vec();
+        assert_eq!(z_data, vec![6.0]);
+
+        let grads = backward(&z, &client).unwrap();
+
+        let grad_x: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        assert!((grad_x[0] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_var_pow_scalar_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // z = x^2 where x = 3
+        // dz/dx = 2*x = 6
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[1], &device),
+            true,
+        );
+
+        let z = var_pow_scalar(&x, 2.0, &client).unwrap();
+
+        // Verify forward
+        let z_data: Vec<f32> = z.tensor().to_vec();
+        assert_eq!(z_data, vec![9.0]);
+
+        let grads = backward(&z, &client).unwrap();
+
+        let grad_x: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        assert!((grad_x[0] - 6.0).abs() < 1e-6);
     }
 }

@@ -431,6 +431,54 @@ where
 }
 
 // ============================================================================
+// TanBackward
+// ============================================================================
+
+/// Backward for tangent: z = tan(a)
+///
+/// Gradient: dL/da = dL/dz * sec²(a) = dL/dz / cos²(a)
+pub struct TanBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+}
+
+impl<R: Runtime> TanBackward<R> {
+    /// Create a new TanBackward
+    pub fn new(input_id: TensorId, input: Tensor<R>) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+        }
+    }
+}
+
+impl<R: Runtime> GradFn<R> for TanBackward<R>
+where
+    R::Client: TensorOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+        // dL/da = dL/dz / cos²(a)
+        let cos_a = client.cos(&self.saved_input)?;
+        let cos_squared = client.square(&cos_a)?;
+        let grad = client.div(grad_output, &cos_squared)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "TanBackward"
+    }
+}
+
+// ============================================================================
 // AbsBackward
 // ============================================================================
 
@@ -587,5 +635,22 @@ mod tests {
 
         let grad_a: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
         assert!((grad_a[0] - 6.0).abs() < 1e-6); // 2 * 3 = 6
+    }
+
+    #[test]
+    fn test_tan_backward() {
+        let device = CpuDevice::new();
+
+        // z = tan(a), dz/da = 1/cos²(a)
+        // At a = 0, cos(0) = 1, so dz/da = 1
+        let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32], &[1], &device);
+
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = TanBackward::<CpuRuntime>::new(a.id(), a.clone());
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_a: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!((grad_a[0] - 1.0).abs() < 1e-6); // 1/cos²(0) = 1/1 = 1
     }
 }

@@ -26,13 +26,12 @@
 //!    ```ignore
 //!    impl TensorOps<CudaRuntime> for CudaClient {
 //!        fn add(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-//!            // 1. Validate shapes match (broadcasting planned for Phase 1)
-//!            if a.shape() != b.shape() {
-//!                return Err(Error::ShapeMismatch { ... });
-//!            }
+//!            // 1. Validate shapes are broadcastable
+//!            let out_shape = broadcast_shape(a.shape(), b.shape())
+//!                .ok_or(Error::BroadcastError { ... })?;
 //!
 //!            // 2. Allocate output tensor
-//!            let out = Tensor::empty(a.shape(), a.dtype(), self.device());
+//!            let out = Tensor::empty(&out_shape, a.dtype(), self.device());
 //!
 //!            // 3. Dispatch kernel
 //!            cuda_add_kernel(a.storage().ptr(), b.storage().ptr(), out.storage().ptr(), ...);
@@ -50,7 +49,7 @@
 //!    - [`ActivationKind`] - Activation function kinds
 //!
 //! 3. **Use validation helpers:**
-//!    - [`broadcast_shape`] - Compute broadcast shape (not yet used by CPU backend)
+//!    - [`broadcast_shape`] - Compute broadcast shape for binary ops
 //!    - [`validate_matmul_shapes`] - Validate matmul dimensions
 //!    - [`reduce_output_shape`] - Compute reduction output shape
 //!
@@ -59,8 +58,8 @@
 //! ## Element-wise Operations
 //! Binary (add, sub, mul, div) and unary (neg, abs, sqrt, exp, log, sin, cos, tanh).
 //!
-//! **Note:** Broadcasting is not yet implemented. Binary ops currently require
-//! operands to have identical shapes. Broadcasting support is planned for Phase 1.
+//! **Note:** Broadcasting is implemented for binary arithmetic and comparison ops
+//! via strided kernels on CPU.
 //!
 //! ## Matrix Operations
 //! Matrix multiplication with batching support. Inner dimensions must match.

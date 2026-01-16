@@ -6,19 +6,22 @@
 //! # Structure
 //!
 //! - `arithmetic`: Binary operations (add, sub, mul, div, pow)
-//! - `unary`: Unary operations (neg, exp, log, sqrt, etc.)
+//! - `unary`: Unary operations (neg, exp, log, sqrt, tan, etc.)
 //! - `matmul`: Matrix multiplication
-//! - `reduce`: Reductions (sum, mean)
+//! - `reduce`: Reductions (sum, mean, max, min)
 //! - `activation`: Activation functions (relu, sigmoid, softmax)
+//! - `scalar`: Tensor-scalar operations (add_scalar, mul_scalar, etc.)
 
 mod activation;
 mod arithmetic;
 mod matmul;
 mod reduce;
+mod scalar;
 mod unary;
 
 pub use activation::*;
 pub use arithmetic::*;
 pub use matmul::*;
 pub use reduce::*;
+pub use scalar::*;
 pub use unary::*;

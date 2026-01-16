@@ -30,6 +30,8 @@ Cargo.lock
 .env.*.local
 .envrc
 resource
+AGENTS.md
+CLAUDE.md
 
 # OS-specific
 .DS_Store
