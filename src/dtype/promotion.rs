@@ -61,6 +61,9 @@ pub fn promote(lhs: DType, rhs: DType) -> DType {
 }
 
 /// Check if a dtype can be safely cast to another without data loss
+///
+/// Currently used primarily for validation logic. May be exported in future versions.
+#[allow(dead_code)]
 pub fn can_cast_safely(from: DType, to: DType) -> bool {
     use DType::*;
 

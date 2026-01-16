@@ -55,18 +55,10 @@ pub fn normalize_dims(ndim: usize, dims: &[isize]) -> Option<Vec<usize>> {
         .map(|&d| {
             if d >= 0 {
                 let d = d as usize;
-                if d < ndim {
-                    Some(d)
-                } else {
-                    None
-                }
+                if d < ndim { Some(d) } else { None }
             } else {
                 let d = ndim as isize + d;
-                if d >= 0 {
-                    Some(d as usize)
-                } else {
-                    None
-                }
+                if d >= 0 { Some(d as usize) } else { None }
             }
         })
         .collect()
@@ -91,11 +83,17 @@ mod tests {
 
         // Reduce multiple dims
         assert_eq!(reduce_output_shape(&[2, 3, 4], &[0, 2], false), vec![3]);
-        assert_eq!(reduce_output_shape(&[2, 3, 4], &[0, 2], true), vec![1, 3, 1]);
+        assert_eq!(
+            reduce_output_shape(&[2, 3, 4], &[0, 2], true),
+            vec![1, 3, 1]
+        );
 
         // Reduce all dims
         assert_eq!(reduce_output_shape(&[2, 3, 4], &[0, 1, 2], false), vec![]);
-        assert_eq!(reduce_output_shape(&[2, 3, 4], &[0, 1, 2], true), vec![1, 1, 1]);
+        assert_eq!(
+            reduce_output_shape(&[2, 3, 4], &[0, 1, 2], true),
+            vec![1, 1, 1]
+        );
     }
 
     #[test]

@@ -254,12 +254,13 @@ impl<R: Runtime> Tensor<R> {
 
     /// Transpose two dimensions (zero-copy)
     pub fn transpose(&self, dim0: isize, dim1: isize) -> Result<Self> {
-        let new_layout = self.layout.transpose(dim0, dim1).ok_or_else(|| {
-            Error::InvalidDimension {
-                dim: dim0,
-                ndim: self.ndim(),
-            }
-        })?;
+        let new_layout =
+            self.layout
+                .transpose(dim0, dim1)
+                .ok_or_else(|| Error::InvalidDimension {
+                    dim: dim0,
+                    ndim: self.ndim(),
+                })?;
 
         Ok(Self {
             id: TensorId::new(),
@@ -300,12 +301,13 @@ impl<R: Runtime> Tensor<R> {
 
     /// Add a dimension of size 1
     pub fn unsqueeze(&self, dim: isize) -> Result<Self> {
-        let new_layout = self.layout.unsqueeze(dim).ok_or_else(|| {
-            Error::InvalidDimension {
+        let new_layout = self
+            .layout
+            .unsqueeze(dim)
+            .ok_or_else(|| Error::InvalidDimension {
                 dim,
                 ndim: self.ndim(),
-            }
-        })?;
+            })?;
 
         Ok(Self {
             id: TensorId::new(),
@@ -366,10 +368,9 @@ impl<R: Runtime> Tensor<R> {
             let src_offset = self.layout.offset();
 
             // Use iterative approach to copy each element
-            let mut dst_offset: usize = 0;
             let mut indices = vec![0usize; shape.len()];
 
-            for _ in 0..numel {
+            for dst_offset in 0..numel {
                 // Calculate source offset for current indices
                 let mut src_elem_offset = src_offset as isize;
                 for (i, &idx) in indices.iter().enumerate() {
@@ -383,8 +384,6 @@ impl<R: Runtime> Tensor<R> {
                     elem_size,
                     device,
                 );
-
-                dst_offset += 1;
 
                 // Increment indices (row-major order)
                 for dim in (0..shape.len()).rev() {
@@ -449,12 +448,7 @@ impl<R: Runtime> fmt::Debug for Tensor<R> {
 
 impl<R: Runtime> fmt::Display for Tensor<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Tensor({:?}, dtype={})",
-            self.shape(),
-            self.dtype()
-        )
+        write!(f, "Tensor({:?}, dtype={})", self.shape(), self.dtype())
     }
 }
 

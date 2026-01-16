@@ -70,7 +70,10 @@ impl MatmulParams {
 /// Validate matmul shapes and return dimensions (m, k, n)
 ///
 /// Returns None if shapes are incompatible.
-pub fn validate_matmul_shapes(a_shape: &[usize], b_shape: &[usize]) -> Option<(usize, usize, usize)> {
+pub fn validate_matmul_shapes(
+    a_shape: &[usize],
+    b_shape: &[usize],
+) -> Option<(usize, usize, usize)> {
     // Handle 1D vectors
     let (a_rows, a_cols) = match a_shape.len() {
         0 => return None,
@@ -103,8 +106,16 @@ pub fn matmul_output_shape(a_shape: &[usize], b_shape: &[usize]) -> Option<Vec<u
     let (m, _k, n) = validate_matmul_shapes(a_shape, b_shape)?;
 
     // Handle batched matmul
-    let a_batch: Vec<_> = a_shape.iter().take(a_shape.len().saturating_sub(2)).copied().collect();
-    let b_batch: Vec<_> = b_shape.iter().take(b_shape.len().saturating_sub(2)).copied().collect();
+    let a_batch: Vec<_> = a_shape
+        .iter()
+        .take(a_shape.len().saturating_sub(2))
+        .copied()
+        .collect();
+    let b_batch: Vec<_> = b_shape
+        .iter()
+        .take(b_shape.len().saturating_sub(2))
+        .copied()
+        .collect();
 
     // Broadcast batch dimensions
     let batch = super::broadcast_shape(&a_batch, &b_batch)?;
@@ -138,9 +149,15 @@ mod tests {
         assert_eq!(matmul_output_shape(&[2, 3], &[3, 4]), Some(vec![2, 4]));
 
         // Batched matmul
-        assert_eq!(matmul_output_shape(&[5, 2, 3], &[5, 3, 4]), Some(vec![5, 2, 4]));
+        assert_eq!(
+            matmul_output_shape(&[5, 2, 3], &[5, 3, 4]),
+            Some(vec![5, 2, 4])
+        );
 
         // Broadcast batches
-        assert_eq!(matmul_output_shape(&[5, 2, 3], &[3, 4]), Some(vec![5, 2, 4]));
+        assert_eq!(
+            matmul_output_shape(&[5, 2, 3], &[3, 4]),
+            Some(vec![5, 2, 4])
+        );
     }
 }

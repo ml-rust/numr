@@ -49,18 +49,10 @@ impl SoftmaxParams {
 pub fn normalize_softmax_dim(ndim: usize, dim: isize) -> Option<usize> {
     if dim >= 0 {
         let d = dim as usize;
-        if d < ndim {
-            Some(d)
-        } else {
-            None
-        }
+        if d < ndim { Some(d) } else { None }
     } else {
         let d = ndim as isize + dim;
-        if d >= 0 {
-            Some(d as usize)
-        } else {
-            None
-        }
+        if d >= 0 { Some(d as usize) } else { None }
     }
 }
 

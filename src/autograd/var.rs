@@ -1,8 +1,8 @@
 //! Variable: tensor with gradient tracking
 
+use super::GradFn;
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
-use super::GradFn;
 use std::sync::Arc;
 
 /// A tensor that tracks gradients for automatic differentiation

@@ -56,7 +56,11 @@ impl Layout {
     /// Create a layout with explicit shape, strides, and offset
     pub fn new(shape: Shape, strides: Strides, offset: usize) -> Self {
         debug_assert_eq!(shape.len(), strides.len());
-        Self { shape, strides, offset }
+        Self {
+            shape,
+            strides,
+            offset,
+        }
     }
 
     /// Create a scalar (0-dimensional) layout
@@ -263,10 +267,9 @@ impl Layout {
         // Stride for the new dimension: product of strides after this position
         let new_stride = if idx < ndim {
             new_strides[idx] * new_shape[idx] as isize
-        } else if ndim > 0 {
-            1 // Last dimension, stride = 1
         } else {
-            1 // Scalar case
+            // Last dimension or scalar case: stride = 1
+            1
         };
 
         new_shape.insert(idx, 1);
@@ -294,7 +297,12 @@ impl Layout {
         }
 
         // Check compatibility and compute strides
-        for ((&s, &st), &t) in self.shape.iter().zip(self.strides.iter()).zip(&target[pad..]) {
+        for ((&s, &st), &t) in self
+            .shape
+            .iter()
+            .zip(self.strides.iter())
+            .zip(&target[pad..])
+        {
             if s == t {
                 new_shape.push(t);
                 new_strides.push(st);
@@ -329,6 +337,9 @@ impl fmt::Display for Layout {
 }
 
 /// Compute the broadcast shape of two shapes
+///
+/// Currently used primarily in validation. May be exported or used by layout operations in future.
+#[allow(dead_code)]
 pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Shape> {
     let max_ndim = a.len().max(b.len());
     let mut result = Shape::with_capacity(max_ndim);

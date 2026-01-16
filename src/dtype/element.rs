@@ -2,12 +2,35 @@
 
 use super::DType;
 use bytemuck::{Pod, Zeroable};
+use std::ops::{Add, Div, Mul, Sub};
 
 /// Trait for types that can be elements of a tensor
 ///
 /// This trait connects Rust's type system to numr's runtime dtype system.
 /// It's implemented for all primitive numeric types.
-pub trait Element: Copy + Clone + Send + Sync + Pod + Zeroable + 'static {
+///
+/// # Bounds
+/// - `Copy + Clone + Send + Sync + 'static` - Basic trait requirements
+/// - `Pod + Zeroable` - Safe memory transmutation (bytemuck)
+/// - `Add + Sub + Mul + Div` - Arithmetic operations (Output = Self)
+/// - `PartialOrd` - Comparison for min/max operations
+///
+/// Note: `Neg` is NOT required since unsigned types don't support it.
+/// Negation is handled via to_f64/from_f64 conversion in kernels.
+pub trait Element:
+    Copy
+    + Clone
+    + Send
+    + Sync
+    + Pod
+    + Zeroable
+    + 'static
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + PartialOrd
+{
     /// The corresponding DType for this Rust type
     const DTYPE: DType;
 

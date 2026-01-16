@@ -26,12 +26,13 @@
 //!    ```ignore
 //!    impl TensorOps<CudaRuntime> for CudaClient {
 //!        fn add(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-//!            // 1. Validate shapes (use helpers from arithmetic module)
-//!            let out_shape = broadcast_shape(a.shape(), b.shape())
-//!                .ok_or(Error::BroadcastError { ... })?;
+//!            // 1. Validate shapes match (broadcasting planned for Phase 1)
+//!            if a.shape() != b.shape() {
+//!                return Err(Error::ShapeMismatch { ... });
+//!            }
 //!
 //!            // 2. Allocate output tensor
-//!            let out = Tensor::empty(&out_shape, a.dtype(), self.device());
+//!            let out = Tensor::empty(a.shape(), a.dtype(), self.device());
 //!
 //!            // 3. Dispatch kernel
 //!            cuda_add_kernel(a.storage().ptr(), b.storage().ptr(), out.storage().ptr(), ...);
@@ -49,7 +50,7 @@
 //!    - [`ActivationKind`] - Activation function kinds
 //!
 //! 3. **Use validation helpers:**
-//!    - [`broadcast_shape`] - Compute output shape for broadcasting
+//!    - [`broadcast_shape`] - Compute broadcast shape (not yet used by CPU backend)
 //!    - [`validate_matmul_shapes`] - Validate matmul dimensions
 //!    - [`reduce_output_shape`] - Compute reduction output shape
 //!
@@ -57,7 +58,9 @@
 //!
 //! ## Element-wise Operations
 //! Binary (add, sub, mul, div) and unary (neg, abs, sqrt, exp, log, sin, cos, tanh).
-//! These support broadcasting - smaller tensors are expanded to match larger ones.
+//!
+//! **Note:** Broadcasting is not yet implemented. Binary ops currently require
+//! operands to have identical shapes. Broadcasting support is planned for Phase 1.
 //!
 //! ## Matrix Operations
 //! Matrix multiplication with batching support. Inner dimensions must match.
@@ -68,15 +71,15 @@
 //! ## Activations
 //! ReLU, sigmoid, softmax for neural network layers.
 
+mod activation;
 mod arithmetic;
 mod matmul;
 mod reduce;
-mod activation;
 
+pub use activation::*;
 pub use arithmetic::*;
 pub use matmul::*;
 pub use reduce::*;
-pub use activation::*;
 
 use crate::dtype::Element;
 use crate::error::Result;
@@ -121,13 +124,13 @@ use crate::tensor::Tensor;
 ///         out: *mut T,
 ///         len: usize,
 ///     ) {
-///         // SIMD-optimized path for f32
-///         if T::DTYPE == DType::F32 {
-///             simd::binary_f32(op, a as *const f32, b as *const f32, out as *mut f32, len);
-///             return;
+///         // Current: scalar loops for all types
+///         // Future: SIMD-optimized paths for f32/f64
+///         for i in 0..len {
+///             unsafe {
+///                 *out.add(i) = apply_op(op, *a.add(i), *b.add(i));
+///             }
 ///         }
-///         // Generic fallback
-///         // ...
 ///     }
 /// }
 /// ```
@@ -150,13 +153,7 @@ pub trait Kernel<R: Runtime>: Send + Sync {
     ///
     /// # Safety
     /// - `a` and `out` must be valid pointers to `len` elements
-    unsafe fn unary_op<T: Element>(
-        &self,
-        op: UnaryOp,
-        a: *const T,
-        out: *mut T,
-        len: usize,
-    );
+    unsafe fn unary_op<T: Element>(&self, op: UnaryOp, a: *const T, out: *mut T, len: usize);
 
     /// Matrix multiplication: C = A @ B
     ///
@@ -171,6 +168,7 @@ pub trait Kernel<R: Runtime>: Send + Sync {
     ///
     /// # Safety
     /// - All pointers must be valid for the specified dimensions
+    #[allow(clippy::too_many_arguments)] // Matrix ops inherently need dimension params
     unsafe fn matmul<T: Element>(
         &self,
         a: *const T,
@@ -209,24 +207,14 @@ pub trait Kernel<R: Runtime>: Send + Sync {
     ///
     /// # Safety
     /// - `out` must be a valid pointer to `len` elements
-    unsafe fn fill<T: Element>(
-        &self,
-        out: *mut T,
-        value: T,
-        len: usize,
-    );
+    unsafe fn fill<T: Element>(&self, out: *mut T, value: T, len: usize);
 
     /// Copy elements from src to dst
     ///
     /// # Safety
     /// - `src` and `dst` must be valid pointers to `len` elements
     /// - `dst` must not overlap with `src`
-    unsafe fn copy<T: Element>(
-        &self,
-        src: *const T,
-        dst: *mut T,
-        len: usize,
-    );
+    unsafe fn copy<T: Element>(&self, src: *const T, dst: *mut T, len: usize);
 }
 
 // ============================================================================

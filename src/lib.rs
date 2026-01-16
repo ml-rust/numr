@@ -34,19 +34,19 @@
 #![warn(clippy::all)]
 #![allow(clippy::module_inception)]
 
+pub mod autograd;
 pub mod dtype;
 pub mod error;
-pub mod tensor;
-pub mod runtime;
 pub mod ops;
-pub mod autograd;
+pub mod runtime;
+pub mod tensor;
 
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::dtype::DType;
-    pub use crate::tensor::{Tensor, Layout};
-    pub use crate::runtime::{Runtime, Device, RuntimeClient};
     pub use crate::error::{Error, Result};
+    pub use crate::runtime::{Device, Runtime, RuntimeClient};
+    pub use crate::tensor::{Layout, Tensor};
 
     #[cfg(feature = "cpu")]
     pub use crate::runtime::cpu::CpuRuntime;

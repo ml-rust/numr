@@ -52,12 +52,12 @@ impl<R: Runtime> Storage<R> {
     pub fn from_slice<T: Element>(data: &[T], device: &R::Device) -> Self {
         let dtype = T::DTYPE;
         let len = data.len();
-        let size_bytes = len * std::mem::size_of::<T>();
-
-        let ptr = R::allocate(size_bytes, device);
 
         // Copy data to device
         let bytes = bytemuck::cast_slice(data);
+        let size_bytes = bytes.len();
+        let ptr = R::allocate(size_bytes, device);
+
         R::copy_to_device(bytes, ptr, device);
 
         Self {
@@ -97,12 +97,7 @@ impl<R: Runtime> Storage<R> {
     /// - `ptr` must point to valid device memory
     /// - The memory must remain valid for the lifetime of this Storage
     /// - Caller is responsible for eventual deallocation
-    pub unsafe fn from_ptr(
-        ptr: u64,
-        len: usize,
-        dtype: DType,
-        device: &R::Device,
-    ) -> Self {
+    pub unsafe fn from_ptr(ptr: u64, len: usize, dtype: DType, device: &R::Device) -> Self {
         Self {
             inner: Arc::new(StorageInner {
                 ptr,
@@ -193,7 +188,11 @@ impl<R: Runtime> Clone for Storage<R> {
 impl<R: Runtime> Drop for StorageInner<R> {
     fn drop(&mut self) {
         if self.owned && self.ptr != 0 {
-            R::deallocate(self.ptr, self.len * self.dtype.size_in_bytes(), &self.device);
+            R::deallocate(
+                self.ptr,
+                self.len * self.dtype.size_in_bytes(),
+                &self.device,
+            );
         }
     }
 }
@@ -234,7 +233,11 @@ impl RawBuffer {
     /// Create an empty raw buffer
     #[inline]
     pub const fn empty() -> Self {
-        Self { ptr: 0, len: 0, dtype: DType::F32 }
+        Self {
+            ptr: 0,
+            len: 0,
+            dtype: DType::F32,
+        }
     }
 
     /// Size in bytes
