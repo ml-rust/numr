@@ -1,6 +1,9 @@
 // Activation CUDA kernels
-// Supports: relu, sigmoid, softmax
-// Types: f32, f64
+// Supports: relu, sigmoid, softmax, silu, gelu
+// Types: f32, f64, f16, bf16
+
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 
 extern "C" {
 
@@ -19,6 +22,27 @@ __global__ void sigmoid_f32(const float* a, float* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = 1.0f / (1.0f + expf(-a[idx]));
+    }
+}
+
+// SiLU (Swish): x * sigmoid(x) = x / (1 + exp(-x))
+__global__ void silu_f32(const float* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = a[idx];
+        out[idx] = x / (1.0f + expf(-x));
+    }
+}
+
+// GELU: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+// Using the tanh approximation for better performance
+__global__ void gelu_f32(const float* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = a[idx];
+        // sqrt(2/pi) ≈ 0.7978845608
+        float cdf = 0.5f * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+        out[idx] = x * cdf;
     }
 }
 
@@ -139,6 +163,23 @@ __global__ void sigmoid_f64(const double* a, double* out, unsigned int n) {
     }
 }
 
+__global__ void silu_f64(const double* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double x = a[idx];
+        out[idx] = x / (1.0 + exp(-x));
+    }
+}
+
+__global__ void gelu_f64(const double* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double x = a[idx];
+        double cdf = 0.5 * (1.0 + tanh(0.7978845608028654 * (x + 0.044715 * x * x * x)));
+        out[idx] = x * cdf;
+    }
+}
+
 __global__ void softmax_f64(
     const double* input, double* output,
     unsigned int outer_size, unsigned int dim_size
@@ -223,6 +264,261 @@ __global__ void softmax_dim_f64(
     double inv_sum = 1.0 / sum;
     for (unsigned int i = 0; i < dim_size; i++) {
         output[base + i * stride] *= inv_sum;
+    }
+}
+
+// ============================================================================
+// F16 Activation Operations
+// Note: Uses FP32 internally for accuracy where needed
+// ============================================================================
+
+__global__ void relu_f16(const __half* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        __half zero = __float2half(0.0f);
+        out[idx] = __hgt(a[idx], zero) ? a[idx] : zero;
+    }
+}
+
+__global__ void sigmoid_f16(const __half* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        // Use FP32 for accuracy
+        float x = __half2float(a[idx]);
+        out[idx] = __float2half(1.0f / (1.0f + expf(-x)));
+    }
+}
+
+__global__ void silu_f16(const __half* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __half2float(a[idx]);
+        out[idx] = __float2half(x / (1.0f + expf(-x)));
+    }
+}
+
+__global__ void gelu_f16(const __half* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __half2float(a[idx]);
+        float cdf = 0.5f * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+        out[idx] = __float2half(x * cdf);
+    }
+}
+
+// F16 Softmax: Uses FP32 accumulation internally for numerical stability
+__global__ void softmax_f16(
+    const __half* input, __half* output,
+    unsigned int outer_size, unsigned int dim_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    if (outer_idx >= outer_size) return;
+
+    extern __shared__ float shared[];
+    float* max_val = shared;
+    float* sum_exp = shared + blockDim.x;
+
+    const __half* row_in = input + outer_idx * dim_size;
+    __half* row_out = output + outer_idx * dim_size;
+
+    // Phase 1: Find max value (using FP32)
+    float thread_max = -INFINITY;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        thread_max = fmaxf(thread_max, __half2float(row_in[i]));
+    }
+    max_val[threadIdx.x] = thread_max;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            max_val[threadIdx.x] = fmaxf(max_val[threadIdx.x], max_val[threadIdx.x + s]);
+        }
+        __syncthreads();
+    }
+    float row_max = max_val[0];
+    __syncthreads();
+
+    // Phase 2: Compute exp(x - max) and sum (FP32 accumulation)
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        float val = expf(__half2float(row_in[i]) - row_max);
+        row_out[i] = __float2half(val);
+        thread_sum += val;
+    }
+    sum_exp[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_exp[threadIdx.x] += sum_exp[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    float row_sum = sum_exp[0];
+    __syncthreads();
+
+    // Phase 3: Normalize
+    float inv_sum = 1.0f / row_sum;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        row_out[i] = __float2half(__half2float(row_out[i]) * inv_sum);
+    }
+}
+
+__global__ void softmax_dim_f16(
+    const __half* input, __half* output,
+    unsigned int outer_size, unsigned int dim_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    unsigned int base = outer_idx * dim_size * inner_size + inner_idx;
+    unsigned int stride = inner_size;
+
+    // FP32 accumulation for stability
+    float max_val = -INFINITY;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        max_val = fmaxf(max_val, __half2float(input[base + i * stride]));
+    }
+
+    float sum = 0.0f;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        float val = expf(__half2float(input[base + i * stride]) - max_val);
+        output[base + i * stride] = __float2half(val);
+        sum += val;
+    }
+
+    float inv_sum = 1.0f / sum;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        output[base + i * stride] = __float2half(__half2float(output[base + i * stride]) * inv_sum);
+    }
+}
+
+// ============================================================================
+// BF16 Activation Operations
+// Note: Uses FP32 internally for accuracy where needed
+// ============================================================================
+
+__global__ void relu_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16(fmaxf(0.0f, x));
+    }
+}
+
+__global__ void sigmoid_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16(1.0f / (1.0f + expf(-x)));
+    }
+}
+
+__global__ void silu_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16(x / (1.0f + expf(-x)));
+    }
+}
+
+__global__ void gelu_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        float cdf = 0.5f * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+        out[idx] = __float2bfloat16(x * cdf);
+    }
+}
+
+// BF16 Softmax: Uses FP32 accumulation internally for numerical stability
+__global__ void softmax_bf16(
+    const __nv_bfloat16* input, __nv_bfloat16* output,
+    unsigned int outer_size, unsigned int dim_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    if (outer_idx >= outer_size) return;
+
+    extern __shared__ float shared[];
+    float* max_val = shared;
+    float* sum_exp = shared + blockDim.x;
+
+    const __nv_bfloat16* row_in = input + outer_idx * dim_size;
+    __nv_bfloat16* row_out = output + outer_idx * dim_size;
+
+    // Phase 1: Find max value (using FP32)
+    float thread_max = -INFINITY;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        thread_max = fmaxf(thread_max, __bfloat162float(row_in[i]));
+    }
+    max_val[threadIdx.x] = thread_max;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            max_val[threadIdx.x] = fmaxf(max_val[threadIdx.x], max_val[threadIdx.x + s]);
+        }
+        __syncthreads();
+    }
+    float row_max = max_val[0];
+    __syncthreads();
+
+    // Phase 2: Compute exp(x - max) and sum (FP32 accumulation)
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        float val = expf(__bfloat162float(row_in[i]) - row_max);
+        row_out[i] = __float2bfloat16(val);
+        thread_sum += val;
+    }
+    sum_exp[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_exp[threadIdx.x] += sum_exp[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    float row_sum = sum_exp[0];
+    __syncthreads();
+
+    // Phase 3: Normalize
+    float inv_sum = 1.0f / row_sum;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        row_out[i] = __float2bfloat16(__bfloat162float(row_out[i]) * inv_sum);
+    }
+}
+
+__global__ void softmax_dim_bf16(
+    const __nv_bfloat16* input, __nv_bfloat16* output,
+    unsigned int outer_size, unsigned int dim_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    unsigned int base = outer_idx * dim_size * inner_size + inner_idx;
+    unsigned int stride = inner_size;
+
+    // FP32 accumulation for stability
+    float max_val = -INFINITY;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        max_val = fmaxf(max_val, __bfloat162float(input[base + i * stride]));
+    }
+
+    float sum = 0.0f;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        float val = expf(__bfloat162float(input[base + i * stride]) - max_val);
+        output[base + i * stride] = __float2bfloat16(val);
+        sum += val;
+    }
+
+    float inv_sum = 1.0f / sum;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        output[base + i * stride] = __float2bfloat16(__bfloat162float(output[base + i * stride]) * inv_sum);
     }
 }
 

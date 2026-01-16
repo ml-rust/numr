@@ -3,9 +3,9 @@
 //! Provides launchers for activation functions (ReLU, sigmoid, softmax)
 //! commonly used in neural networks.
 
-use std::sync::Arc;
-use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 use super::loader::{
     get_kernel_function, get_or_load_module, kernel_name, kernel_names, launch_config,
@@ -34,19 +34,90 @@ pub unsafe fn launch_relu(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    launch_unary_kernel(
-        context,
-        stream,
-        device_index,
-        kernel_names::ACTIVATION_MODULE,
-        "relu",
-        dtype,
-        input_ptr,
-        output_ptr,
-        numel,
-    )
-}}
+) -> Result<()> {
+    unsafe {
+        launch_unary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::ACTIVATION_MODULE,
+            "relu",
+            dtype,
+            input_ptr,
+            output_ptr,
+            numel,
+        )
+    }
+}
+
+/// Launch a SiLU (Swish) kernel.
+///
+/// Computes: `output[i] = input[i] * sigmoid(input[i]) = input[i] / (1 + exp(-input[i]))`
+///
+/// SiLU (Sigmoid Linear Unit) is commonly used in modern architectures like LLaMA.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - Tensors must have at least `numel` elements
+pub unsafe fn launch_silu(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    unsafe {
+        launch_unary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::ACTIVATION_MODULE,
+            "silu",
+            dtype,
+            input_ptr,
+            output_ptr,
+            numel,
+        )
+    }
+}
+
+/// Launch a GELU (Gaussian Error Linear Unit) kernel.
+///
+/// Computes the tanh approximation:
+/// `output[i] = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))`
+///
+/// GELU is used in models like BERT and GPT.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - Tensors must have at least `numel` elements
+pub unsafe fn launch_gelu(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    unsafe {
+        launch_unary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::ACTIVATION_MODULE,
+            "gelu",
+            dtype,
+            input_ptr,
+            output_ptr,
+            numel,
+        )
+    }
+}
 
 /// Launch a sigmoid kernel.
 ///
@@ -64,19 +135,21 @@ pub unsafe fn launch_sigmoid(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    launch_unary_kernel(
-        context,
-        stream,
-        device_index,
-        kernel_names::ACTIVATION_MODULE,
-        "sigmoid",
-        dtype,
-        input_ptr,
-        output_ptr,
-        numel,
-    )
-}}
+) -> Result<()> {
+    unsafe {
+        launch_unary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::ACTIVATION_MODULE,
+            "sigmoid",
+            dtype,
+            input_ptr,
+            output_ptr,
+            numel,
+        )
+    }
+}
 
 // ============================================================================
 // Softmax Activations
@@ -113,35 +186,37 @@ pub unsafe fn launch_softmax(
     output_ptr: u64,
     outer_size: usize,
     dim_size: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
-    let func_name = kernel_name("softmax", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
+        let func_name = kernel_name("softmax", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let (grid_size, block_size, shared_mem) = softmax_launch_config(outer_size, dim_size);
-    let outer = outer_size as u32;
-    let dim = dim_size as u32;
+        let (grid_size, block_size, shared_mem) = softmax_launch_config(outer_size, dim_size);
+        let outer = outer_size as u32;
+        let dim = dim_size as u32;
 
-    // Adjust shared memory for f64 (double the size)
-    let shared_mem = if dtype == DType::F64 {
-        shared_mem * 2
-    } else {
-        shared_mem
-    };
+        // Adjust shared memory for f64 (double the size)
+        let shared_mem = if dtype == DType::F64 {
+            shared_mem * 2
+        } else {
+            shared_mem
+        };
 
-    let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), shared_mem);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&input_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&outer);
-    builder.arg(&dim);
+        let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), shared_mem);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&dim);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA softmax kernel launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA softmax kernel launch failed: {:?}", e)))?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}
 
 /// Launch softmax over a non-last dimension.
 ///
@@ -174,30 +249,32 @@ pub unsafe fn launch_softmax_dim(
     outer_size: usize,
     dim_size: usize,
     inner_size: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
-    let func_name = kernel_name("softmax_dim", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
+        let func_name = kernel_name("softmax_dim", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    // The kernel uses blockIdx.x for outer and blockIdx.y for inner,
-    // with each thread handling one (outer, inner) pair sequentially over dim_size.
-    // This is intentionally a 2D grid with 1 thread per block to match the kernel design.
-    let grid = (outer_size as u32, inner_size as u32, 1);
-    let outer = outer_size as u32;
-    let dim = dim_size as u32;
-    let inner = inner_size as u32;
+        // The kernel uses blockIdx.x for outer and blockIdx.y for inner,
+        // with each thread handling one (outer, inner) pair sequentially over dim_size.
+        // This is intentionally a 2D grid with 1 thread per block to match the kernel design.
+        let grid = (outer_size as u32, inner_size as u32, 1);
+        let outer = outer_size as u32;
+        let dim = dim_size as u32;
+        let inner = inner_size as u32;
 
-    let cfg = launch_config(grid, (1, 1, 1), 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&input_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&outer);
-    builder.arg(&dim);
-    builder.arg(&inner);
+        let cfg = launch_config(grid, (1, 1, 1), 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&dim);
+        builder.arg(&inner);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA softmax_dim kernel launch failed: {:?}", e))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA softmax_dim kernel launch failed: {:?}", e))
+        })?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}

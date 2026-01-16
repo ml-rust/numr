@@ -41,6 +41,7 @@ fn compile_cuda_kernels() {
         "reduce.cu",
         "compare.cu",
         "activation.cu",
+        "norm.cu",
     ];
 
     // Find nvcc with helpful error message

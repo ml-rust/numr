@@ -3,9 +3,9 @@
 //! Provides launchers for reduction operations (sum, max, min) that reduce
 //! tensors along specified dimensions.
 
-use std::sync::Arc;
-use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 use super::loader::{
     get_kernel_function, get_or_load_module, kernel_name, kernel_names, launch_config,
@@ -39,26 +39,31 @@ pub unsafe fn launch_reduce_op(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-) -> Result<u32> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
-    let func_name = kernel_name(&kernel_names::reduce_kernel(op), dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<u32> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
+        let func_name = kernel_name(&kernel_names::reduce_kernel(op), dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let (grid_size, block_size) = reduce_launch_config(numel);
-    let n = numel as u32;
+        let (grid_size, block_size) = reduce_launch_config(numel);
+        let n = numel as u32;
 
-    let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&input_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&n);
+        let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA reduce kernel '{}' launch failed: {:?}", op, e)))?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA reduce kernel '{}' launch failed: {:?}",
+                op, e
+            ))
+        })?;
 
-    Ok(grid_size)
-}}
+        Ok(grid_size)
+    }
+}
 
 /// Launch a dimension-wise reduction kernel.
 ///
@@ -95,30 +100,32 @@ pub unsafe fn launch_reduce_dim_op(
     outer_size: usize,
     reduce_size: usize,
     inner_size: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
-    let func_name = kernel_name(&kernel_names::reduce_dim_kernel(op), dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
+        let func_name = kernel_name(&kernel_names::reduce_dim_kernel(op), dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
-    let outer = outer_size as u32;
-    let reduce = reduce_size as u32;
-    let inner = inner_size as u32;
+        let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
+        let outer = outer_size as u32;
+        let reduce = reduce_size as u32;
+        let inner = inner_size as u32;
 
-    let cfg = launch_config(grid, (block, 1, 1), 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&input_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&outer);
-    builder.arg(&reduce);
-    builder.arg(&inner);
+        let cfg = launch_config(grid, (block, 1, 1), 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&reduce);
+        builder.arg(&inner);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA reduce_dim kernel '{}' launch failed: {:?}",
-            op, e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA reduce_dim kernel '{}' launch failed: {:?}",
+                op, e
+            ))
+        })?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}

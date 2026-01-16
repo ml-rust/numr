@@ -16,7 +16,8 @@
 //! - `scalar` - Tensor-scalar operations (add_scalar, mul_scalar, etc.)
 //! - `reduce` - Reduction operations (sum, max, min)
 //! - `compare` - Comparison operations (eq, ne, lt, le, gt, ge)
-//! - `activation` - Activation functions (relu, sigmoid, softmax)
+//! - `activation` - Activation functions (relu, sigmoid, softmax, silu, gelu)
+//! - `norm` - Normalization operations (rms_norm, layer_norm)
 //!
 //! # Kernel Files
 //!
@@ -26,11 +27,13 @@
 //! - `reduce.cu` - Reduction operations
 //! - `compare.cu` - Comparison operations
 //! - `activation.cu` - Activation functions
+//! - `norm.cu` - Normalization operations
 
 mod activation;
 mod binary;
 mod compare;
 mod loader;
+mod norm;
 mod reduce;
 mod scalar;
 mod unary;
@@ -38,10 +41,11 @@ mod unary;
 pub use activation::*;
 pub use binary::*;
 pub use compare::*;
+pub use norm::*;
 pub use reduce::*;
 pub use scalar::*;
 pub use unary::*;
 
 // Re-export commonly used items from loader for advanced users
 #[allow(unused_imports)]
-pub use loader::{kernel_names, BLOCK_SIZE, LaunchConfig};
+pub use loader::{BLOCK_SIZE, LaunchConfig, kernel_names};

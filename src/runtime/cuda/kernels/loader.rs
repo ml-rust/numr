@@ -14,9 +14,9 @@
 //! The module cache uses `OnceLock<Mutex<HashMap>>` for thread-safe initialization
 //! and concurrent access from multiple CUDA streams.
 
-use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaStream};
-pub use cudarc::driver::safe::LaunchConfig;
 use cudarc::driver::PushKernelArg;
+pub use cudarc::driver::safe::LaunchConfig;
+use cudarc::driver::safe::{CudaContext, CudaFunction, CudaModule, CudaStream};
 use cudarc::nvrtc::Ptx;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -206,8 +206,10 @@ pub mod kernel_names {
     pub const REDUCE_MODULE: &str = "reduce";
     /// Comparison operations (eq, ne, lt, le, gt, ge)
     pub const COMPARE_MODULE: &str = "compare";
-    /// Activation functions (relu, sigmoid, softmax)
+    /// Activation functions (relu, sigmoid, softmax, silu, gelu)
     pub const ACTIVATION_MODULE: &str = "activation";
+    /// Normalization operations (rms_norm, layer_norm)
+    pub const NORM_MODULE: &str = "norm";
 
     /// Generate kernel name for reduction operations.
     #[inline]
@@ -291,30 +293,32 @@ pub unsafe fn launch_unary_kernel(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, module_name)?;
-    let func_name = kernel_name(op, dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, module_name)?;
+        let func_name = kernel_name(op, dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
 
-    let cfg = launch_config(grid, block, 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&input_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&n);
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel '{}' launch failed: {:?}",
-            module_name, op, e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel '{}' launch failed: {:?}",
+                module_name, op, e
+            ))
+        })?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}
 
 /// Launch an element-wise binary kernel (two inputs, one output).
 ///
@@ -347,29 +351,30 @@ pub unsafe fn launch_binary_kernel(
     b_ptr: u64,
     output_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, module_name)?;
-    let func_name = kernel_name(op, dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, module_name)?;
+        let func_name = kernel_name(op, dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
 
-    let cfg = launch_config(grid, block, 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&a_ptr);
-    builder.arg(&b_ptr);
-    builder.arg(&output_ptr);
-    builder.arg(&n);
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel '{}' launch failed: {:?}",
-            module_name, op, e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel '{}' launch failed: {:?}",
+                module_name, op, e
+            ))
+        })?;
 
-    Ok(())
-}}
-
+        Ok(())
+    }
+}

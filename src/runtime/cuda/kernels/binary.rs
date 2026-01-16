@@ -3,8 +3,8 @@
 //! Provides launchers for element-wise binary operations (add, sub, mul, div, etc.)
 //! on two tensors of the same shape.
 
-use std::sync::Arc;
 use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 use super::loader::{kernel_names, launch_binary_kernel};
 use crate::dtype::DType;
@@ -51,17 +51,19 @@ pub unsafe fn launch_binary_op(
     b_ptr: u64,
     out_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    launch_binary_kernel(
-        context,
-        stream,
-        device_index,
-        kernel_names::BINARY_MODULE,
-        op,
-        dtype,
-        a_ptr,
-        b_ptr,
-        out_ptr,
-        numel,
-    )
-}}
+) -> Result<()> {
+    unsafe {
+        launch_binary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::BINARY_MODULE,
+            op,
+            dtype,
+            a_ptr,
+            b_ptr,
+            out_ptr,
+            numel,
+        )
+    }
+}

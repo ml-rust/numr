@@ -3,8 +3,8 @@
 //! Provides launchers for element-wise unary operations (neg, abs, sqrt, exp, etc.)
 //! on a single tensor.
 
-use std::sync::Arc;
 use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 use super::loader::{kernel_names, launch_unary_kernel};
 use crate::dtype::DType;
@@ -51,16 +51,18 @@ pub unsafe fn launch_unary_op(
     a_ptr: u64,
     out_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    launch_unary_kernel(
-        context,
-        stream,
-        device_index,
-        kernel_names::UNARY_MODULE,
-        op,
-        dtype,
-        a_ptr,
-        out_ptr,
-        numel,
-    )
-}}
+) -> Result<()> {
+    unsafe {
+        launch_unary_kernel(
+            context,
+            stream,
+            device_index,
+            kernel_names::UNARY_MODULE,
+            op,
+            dtype,
+            a_ptr,
+            out_ptr,
+            numel,
+        )
+    }
+}

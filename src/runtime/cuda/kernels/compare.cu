@@ -1,7 +1,10 @@
 // Comparison CUDA kernels
 // Supports: eq, ne, lt, le, gt, ge
-// Types: f32, f64, i32, i64
+// Types: f32, f64, f16, bf16, i32, i64
 // Output: same type as input (1 for true, 0 for false)
+
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
 
 extern "C" {
 
@@ -213,6 +216,126 @@ __global__ void eq_broadcast_f32(
 
     out[idx] = (a[a_offset] == b[b_offset]) ? 1.0f : 0.0f;
 }
+
+// ============================================================================
+// F16 Comparison Operations
+// ============================================================================
+
+__global__ void eq_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __heq(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void ne_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hne(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void lt_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hlt(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void le_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hle(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void gt_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hgt(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void ge_f16(const __half* a, const __half* b, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hge(a[idx], b[idx]) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+// ============================================================================
+// BF16 Comparison Operations
+// ============================================================================
+
+__global__ void eq_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __heq(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) == __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+__global__ void ne_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __hne(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) != __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+__global__ void lt_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __hlt(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) < __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+__global__ void le_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __hle(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) <= __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+__global__ void gt_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __hgt(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) > __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+__global__ void ge_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        #if __CUDA_ARCH__ >= 800
+        out[idx] = __hge(a[idx], b[idx]) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #else
+        out[idx] = (__bfloat162float(a[idx]) >= __bfloat162float(b[idx])) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+        #endif
+    }
+}
+
+// ============================================================================
+// Broadcasting Comparison Operations (F32)
+// ============================================================================
 
 __global__ void lt_broadcast_f32(
     const float* a, const float* b, float* out,

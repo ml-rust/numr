@@ -3,13 +3,13 @@
 //! Provides launchers for element-wise tensor-scalar operations
 //! (add_scalar, mul_scalar, etc.).
 
-use std::sync::Arc;
-use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 use super::loader::{
-    elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
-    kernel_names, launch_config, BLOCK_SIZE,
+    BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
+    kernel_names, launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -50,28 +50,33 @@ pub unsafe fn launch_scalar_op_f32(
     scalar: f32,
     out_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::SCALAR_MODULE)?;
-    let func_name = kernel_name(op, DType::F32);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::SCALAR_MODULE)?;
+        let func_name = kernel_name(op, DType::F32);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
 
-    let cfg = launch_config(grid, block, 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&a_ptr);
-    builder.arg(&scalar);
-    builder.arg(&out_ptr);
-    builder.arg(&n);
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&scalar);
+        builder.arg(&out_ptr);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA scalar kernel '{}' launch failed: {:?}", op, e)))?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA scalar kernel '{}' launch failed: {:?}",
+                op, e
+            ))
+        })?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}
 
 /// Launch a scalar operation kernel for f64.
 ///
@@ -89,25 +94,30 @@ pub unsafe fn launch_scalar_op_f64(
     scalar: f64,
     out_ptr: u64,
     numel: usize,
-) -> Result<()> { unsafe {
-    let module = get_or_load_module(context, device_index, kernel_names::SCALAR_MODULE)?;
-    let func_name = kernel_name(op, DType::F64);
-    let func = get_kernel_function(&module, &func_name)?;
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::SCALAR_MODULE)?;
+        let func_name = kernel_name(op, DType::F64);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
 
-    let cfg = launch_config(grid, block, 0);
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&a_ptr);
-    builder.arg(&scalar);
-    builder.arg(&out_ptr);
-    builder.arg(&n);
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&scalar);
+        builder.arg(&out_ptr);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA scalar kernel '{}' launch failed: {:?}", op, e)))?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA scalar kernel '{}' launch failed: {:?}",
+                op, e
+            ))
+        })?;
 
-    Ok(())
-}}
+        Ok(())
+    }
+}
