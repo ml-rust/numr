@@ -72,11 +72,13 @@
 
 mod activation;
 mod arithmetic;
+mod dispatch;
 mod matmul;
 mod reduce;
 
 pub use activation::*;
 pub use arithmetic::*;
+pub use dispatch::*;
 pub use matmul::*;
 pub use reduce::*;
 
