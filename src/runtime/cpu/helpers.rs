@@ -21,7 +21,8 @@ use crate::tensor::Tensor;
 /// Usage: `dispatch_dtype!(dtype, T => { code using T }, "op_name")`
 ///
 /// F16 and BF16 are supported when the "f16" feature is enabled.
-/// Without the feature, F16/BF16 return `UnsupportedDType` error.
+/// FP8E4M3 and FP8E5M2 are supported when the "fp8" feature is enabled.
+/// Without the respective feature, these types return `UnsupportedDType` error.
 macro_rules! dispatch_dtype {
     ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
         match $dtype {
@@ -33,15 +34,61 @@ macro_rules! dispatch_dtype {
                 type $T = f32;
                 $body
             }
-            #[cfg(feature = "f16")]
             DType::F16 => {
-                type $T = half::f16;
-                $body
+                #[cfg(feature = "f16")]
+                {
+                    type $T = half::f16;
+                    $body
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    return Err(Error::UnsupportedDType {
+                        dtype: $dtype,
+                        op: $error_op,
+                    });
+                }
             }
-            #[cfg(feature = "f16")]
             DType::BF16 => {
-                type $T = half::bf16;
-                $body
+                #[cfg(feature = "f16")]
+                {
+                    type $T = half::bf16;
+                    $body
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    return Err(Error::UnsupportedDType {
+                        dtype: $dtype,
+                        op: $error_op,
+                    });
+                }
+            }
+            DType::FP8E4M3 => {
+                #[cfg(feature = "fp8")]
+                {
+                    type $T = crate::dtype::FP8E4M3;
+                    $body
+                }
+                #[cfg(not(feature = "fp8"))]
+                {
+                    return Err(Error::UnsupportedDType {
+                        dtype: $dtype,
+                        op: $error_op,
+                    });
+                }
+            }
+            DType::FP8E5M2 => {
+                #[cfg(feature = "fp8")]
+                {
+                    type $T = crate::dtype::FP8E5M2;
+                    $body
+                }
+                #[cfg(not(feature = "fp8"))]
+                {
+                    return Err(Error::UnsupportedDType {
+                        dtype: $dtype,
+                        op: $error_op,
+                    });
+                }
             }
             DType::I64 => {
                 type $T = i64;
@@ -74,13 +121,6 @@ macro_rules! dispatch_dtype {
             DType::U8 => {
                 type $T = u8;
                 $body
-            }
-            #[cfg(not(feature = "f16"))]
-            DType::F16 | DType::BF16 => {
-                return Err(Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $error_op,
-                })
             }
             DType::Bool => {
                 return Err(Error::UnsupportedDType {

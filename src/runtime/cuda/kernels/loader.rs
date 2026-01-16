@@ -229,10 +229,10 @@ pub fn dtype_suffix(dtype: DType) -> &'static str {
     match dtype {
         DType::F32 => "f32",
         DType::F64 => "f64",
-        #[cfg(feature = "f16")]
         DType::F16 => "f16",
-        #[cfg(feature = "f16")]
         DType::BF16 => "bf16",
+        DType::FP8E4M3 => "fp8_e4m3",
+        DType::FP8E5M2 => "fp8_e5m2",
         DType::I64 => "i64",
         DType::I32 => "i32",
         DType::I16 => "i16",
@@ -242,8 +242,6 @@ pub fn dtype_suffix(dtype: DType) -> &'static str {
         DType::U16 => "u16",
         DType::U8 => "u8",
         DType::Bool => "bool",
-        #[allow(unreachable_patterns)]
-        _ => "f32",
     }
 }
 

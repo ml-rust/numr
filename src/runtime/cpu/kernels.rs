@@ -645,6 +645,96 @@ pub unsafe fn reduce_kernel<T: Element>(
 }
 
 // ============================================================================
+// Argmax (Index Reduction)
+// ============================================================================
+
+/// Argmax along a dimension - returns indices of maximum values
+///
+/// # Arguments
+/// * `a` - Input pointer (outer_size * reduce_size * inner_size elements)
+/// * `out` - Output pointer (outer_size * inner_size elements) for i64 indices
+/// * `outer_size` - Product of dimensions before the reduction dimension
+/// * `reduce_size` - Size of the dimension being reduced
+/// * `inner_size` - Product of dimensions after the reduction dimension
+///
+/// # Safety
+/// - `a` must point to `outer_size * reduce_size * inner_size` elements
+/// - `out` must point to `outer_size * inner_size` i64 elements
+#[inline]
+pub unsafe fn argmax_kernel<T: Element>(
+    a: *const T,
+    out: *mut i64,
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+) {
+    for outer in 0..outer_size {
+        for inner in 0..inner_size {
+            // Base index for this (outer, inner) position
+            let base_idx = outer * reduce_size * inner_size + inner;
+
+            // Find index of maximum value
+            let mut max_val = (*a.add(base_idx)).to_f64();
+            let mut max_idx: i64 = 0;
+
+            for r in 1..reduce_size {
+                let idx = base_idx + r * inner_size;
+                let val = (*a.add(idx)).to_f64();
+                if val > max_val {
+                    max_val = val;
+                    max_idx = r as i64;
+                }
+            }
+
+            *out.add(outer * inner_size + inner) = max_idx;
+        }
+    }
+}
+
+/// Argmin along a dimension - returns indices of minimum values
+///
+/// # Arguments
+/// * `a` - Input pointer (outer_size * reduce_size * inner_size elements)
+/// * `out` - Output pointer (outer_size * inner_size elements) for i64 indices
+/// * `outer_size` - Product of dimensions before the reduction dimension
+/// * `reduce_size` - Size of the dimension being reduced
+/// * `inner_size` - Product of dimensions after the reduction dimension
+///
+/// # Safety
+/// - `a` must point to `outer_size * reduce_size * inner_size` elements
+/// - `out` must point to `outer_size * inner_size` i64 elements
+#[inline]
+pub unsafe fn argmin_kernel<T: Element>(
+    a: *const T,
+    out: *mut i64,
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+) {
+    for outer in 0..outer_size {
+        for inner in 0..inner_size {
+            // Base index for this (outer, inner) position
+            let base_idx = outer * reduce_size * inner_size + inner;
+
+            // Find index of minimum value
+            let mut min_val = (*a.add(base_idx)).to_f64();
+            let mut min_idx: i64 = 0;
+
+            for r in 1..reduce_size {
+                let idx = base_idx + r * inner_size;
+                let val = (*a.add(idx)).to_f64();
+                if val < min_val {
+                    min_val = val;
+                    min_idx = r as i64;
+                }
+            }
+
+            *out.add(outer * inner_size + inner) = min_idx;
+        }
+    }
+}
+
+// ============================================================================
 // Scalar Operations
 // ============================================================================
 

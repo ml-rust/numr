@@ -49,6 +49,8 @@
 /// - `F32` -> `f32`
 /// - `F16` -> `half::f16` (requires "f16" feature)
 /// - `BF16` -> `half::bf16` (requires "f16" feature)
+/// - `FP8E4M3` -> `crate::dtype::FP8E4M3` (requires "fp8" feature)
+/// - `FP8E5M2` -> `crate::dtype::FP8E5M2` (requires "fp8" feature)
 /// - `I64` -> `i64`
 /// - `I32` -> `i32`
 /// - `I16` -> `i16`
@@ -58,6 +60,86 @@
 /// - `U16` -> `u16`
 /// - `U8` -> `u8`
 /// - `Bool` -> Returns `UnsupportedDType` error
+/// Internal helper macro to dispatch F16 type (with or without feature)
+#[macro_export]
+#[doc(hidden)]
+macro_rules! dispatch_f16 {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+        #[cfg(feature = "f16")]
+        {
+            type $T = half::f16;
+            $body
+        }
+        #[cfg(not(feature = "f16"))]
+        {
+            return Err($crate::error::Error::UnsupportedDType {
+                dtype: $dtype,
+                op: $error_op,
+            });
+        }
+    }};
+}
+
+/// Internal helper macro to dispatch BF16 type (with or without feature)
+#[macro_export]
+#[doc(hidden)]
+macro_rules! dispatch_bf16 {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+        #[cfg(feature = "f16")]
+        {
+            type $T = half::bf16;
+            $body
+        }
+        #[cfg(not(feature = "f16"))]
+        {
+            return Err($crate::error::Error::UnsupportedDType {
+                dtype: $dtype,
+                op: $error_op,
+            });
+        }
+    }};
+}
+
+/// Internal helper macro to dispatch FP8E4M3 type (with or without feature)
+#[macro_export]
+#[doc(hidden)]
+macro_rules! dispatch_fp8e4m3 {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+        #[cfg(feature = "fp8")]
+        {
+            type $T = $crate::dtype::FP8E4M3;
+            $body
+        }
+        #[cfg(not(feature = "fp8"))]
+        {
+            return Err($crate::error::Error::UnsupportedDType {
+                dtype: $dtype,
+                op: $error_op,
+            });
+        }
+    }};
+}
+
+/// Internal helper macro to dispatch FP8E5M2 type (with or without feature)
+#[macro_export]
+#[doc(hidden)]
+macro_rules! dispatch_fp8e5m2 {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+        #[cfg(feature = "fp8")]
+        {
+            type $T = $crate::dtype::FP8E5M2;
+            $body
+        }
+        #[cfg(not(feature = "fp8"))]
+        {
+            return Err($crate::error::Error::UnsupportedDType {
+                dtype: $dtype,
+                op: $error_op,
+            });
+        }
+    }};
+}
+
 #[macro_export]
 macro_rules! dispatch_dtype {
     ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
@@ -70,15 +152,17 @@ macro_rules! dispatch_dtype {
                 type $T = f32;
                 $body
             }
-            #[cfg(feature = "f16")]
             $crate::dtype::DType::F16 => {
-                type $T = half::f16;
-                $body
+                $crate::dispatch_f16!($T, $body, $dtype, $error_op)
             }
-            #[cfg(feature = "f16")]
             $crate::dtype::DType::BF16 => {
-                type $T = half::bf16;
-                $body
+                $crate::dispatch_bf16!($T, $body, $dtype, $error_op)
+            }
+            $crate::dtype::DType::FP8E4M3 => {
+                $crate::dispatch_fp8e4m3!($T, $body, $dtype, $error_op)
+            }
+            $crate::dtype::DType::FP8E5M2 => {
+                $crate::dispatch_fp8e5m2!($T, $body, $dtype, $error_op)
             }
             $crate::dtype::DType::I64 => {
                 type $T = i64;
@@ -111,13 +195,6 @@ macro_rules! dispatch_dtype {
             $crate::dtype::DType::U8 => {
                 type $T = u8;
                 $body
-            }
-            #[cfg(not(feature = "f16"))]
-            $crate::dtype::DType::F16 | $crate::dtype::DType::BF16 => {
-                return Err($crate::error::Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $error_op,
-                })
             }
             $crate::dtype::DType::Bool => {
                 return Err($crate::error::Error::UnsupportedDType {

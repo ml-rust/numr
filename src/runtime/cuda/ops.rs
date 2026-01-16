@@ -40,9 +40,10 @@
 //! - Use F32 or F64 for best GPU performance
 
 use super::kernels::{
-    launch_binary_op, launch_compare_op, launch_gelu, launch_layer_norm, launch_reduce_dim_op,
-    launch_relu, launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid,
-    launch_silu, launch_softmax, launch_softmax_dim, launch_unary_op,
+    launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_compare_op, launch_gelu,
+    launch_layer_norm, launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32,
+    launch_scalar_op_f64, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
+    launch_unary_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
@@ -1055,6 +1056,134 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+
+    // ===== Index Operations =====
+
+    fn argmax(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Calculate outer_size (product of dims before reduce dim)
+        // reduce_size (size of dim being reduced)
+        // inner_size (product of dims after reduce dim)
+        let outer_size: usize = shape[..dim].iter().product();
+        let reduce_size = shape[dim];
+        let inner_size: usize = shape[dim + 1..].iter().product();
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        // Compute output shape
+        let out_shape: Vec<usize> = if keepdim {
+            shape
+                .iter()
+                .enumerate()
+                .map(|(i, &s)| if i == dim { 1 } else { s })
+                .collect()
+        } else {
+            shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != dim)
+                .map(|(_, &s)| s)
+                .collect()
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        unsafe {
+            launch_argmax_dim(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                reduce_size,
+                inner_size,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Calculate outer_size (product of dims before reduce dim)
+        // reduce_size (size of dim being reduced)
+        // inner_size (product of dims after reduce dim)
+        let outer_size: usize = shape[..dim].iter().product();
+        let reduce_size = shape[dim];
+        let inner_size: usize = shape[dim + 1..].iter().product();
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        // Compute output shape
+        let out_shape: Vec<usize> = if keepdim {
+            shape
+                .iter()
+                .enumerate()
+                .map(|(i, &s)| if i == dim { 1 } else { s })
+                .collect()
+        } else {
+            shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != dim)
+                .map(|(_, &s)| s)
+                .collect()
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        unsafe {
+            launch_argmin_dim(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                reduce_size,
+                inner_size,
+            )?;
+        }
+
+        Ok(out)
+    }
 }
 
 // ============================================================================
@@ -1301,5 +1430,61 @@ mod tests {
         // Verify normalized outputs sum to approximately 0 (zero-centered)
         let row1_sum: f32 = result[0..4].iter().sum();
         assert!(row1_sum.abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_cuda_tensor_argmax() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        // 2D tensor: [[1, 5, 3], [4, 2, 6]]
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 4.0, 2.0, 6.0], &[2, 3], &device);
+
+        // argmax along dim=1 (find max index in each row)
+        let out = client.argmax(&a, 1, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2]);
+        assert_eq!(result, [1, 2]); // Row 0: max at index 1 (5.0), Row 1: max at index 2 (6.0)
+
+        // argmax along dim=0 (find max index in each column)
+        let out = client.argmax(&a, 0, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[3]);
+        assert_eq!(result, [1, 0, 1]); // Col 0: max at 1 (4.0), Col 1: max at 0 (5.0), Col 2: max at 1 (6.0)
+
+        // Test keepdim=true
+        let out = client.argmax(&a, 1, true).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2, 1]);
+        assert_eq!(result, [1, 2]);
+    }
+
+    #[test]
+    fn test_cuda_tensor_argmin() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        // 2D tensor: [[1, 5, 3], [4, 2, 6]]
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 4.0, 2.0, 6.0], &[2, 3], &device);
+
+        // argmin along dim=1 (find min index in each row)
+        let out = client.argmin(&a, 1, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2]);
+        assert_eq!(result, [0, 1]); // Row 0: min at index 0 (1.0), Row 1: min at index 1 (2.0)
+
+        // argmin along dim=0 (find min index in each column)
+        let out = client.argmin(&a, 0, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[3]);
+        assert_eq!(result, [0, 1, 0]); // Col 0: min at 0 (1.0), Col 1: min at 1 (2.0), Col 2: min at 0 (3.0)
+
+        // Test keepdim=true
+        let out = client.argmin(&a, 1, true).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2, 1]);
+        assert_eq!(result, [0, 1]);
     }
 }

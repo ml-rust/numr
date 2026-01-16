@@ -129,3 +129,123 @@ pub unsafe fn launch_reduce_dim_op(
         Ok(())
     }
 }
+
+/// Launch an argmax kernel along a dimension.
+///
+/// Returns indices (I64) of maximum values along the specified dimension.
+/// The tensor is conceptually reshaped to `[outer, reduce, inner]` and
+/// argmax is computed along the middle dimension.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - `input_ptr` must have `outer_size * reduce_size * inner_size` elements
+/// - `output_ptr` must have `outer_size * inner_size` I64 elements
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of the input tensor (output is always I64)
+/// * `input_ptr` - Device pointer to input tensor
+/// * `output_ptr` - Device pointer to output tensor (I64 indices)
+/// * `outer_size` - Product of dimensions before the reduction dimension
+/// * `reduce_size` - Size of the dimension being reduced
+/// * `inner_size` - Product of dimensions after the reduction dimension
+pub unsafe fn launch_argmax_dim(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
+        let func_name = kernel_name("argmax_dim", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
+        let outer = outer_size as u32;
+        let reduce = reduce_size as u32;
+        let inner = inner_size as u32;
+
+        let cfg = launch_config(grid, (block, 1, 1), 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&reduce);
+        builder.arg(&inner);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA argmax_dim kernel launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch an argmin kernel along a dimension.
+///
+/// Returns indices (I64) of minimum values along the specified dimension.
+/// The tensor is conceptually reshaped to `[outer, reduce, inner]` and
+/// argmin is computed along the middle dimension.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - `input_ptr` must have `outer_size * reduce_size * inner_size` elements
+/// - `output_ptr` must have `outer_size * inner_size` I64 elements
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of the input tensor (output is always I64)
+/// * `input_ptr` - Device pointer to input tensor
+/// * `output_ptr` - Device pointer to output tensor (I64 indices)
+/// * `outer_size` - Product of dimensions before the reduction dimension
+/// * `reduce_size` - Size of the dimension being reduced
+/// * `inner_size` - Product of dimensions after the reduction dimension
+pub unsafe fn launch_argmin_dim(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
+        let func_name = kernel_name("argmin_dim", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
+        let outer = outer_size as u32;
+        let reduce = reduce_size as u32;
+        let inner = inner_size as u32;
+
+        let cfg = launch_config(grid, (block, 1, 1), 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&reduce);
+        builder.arg(&inner);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA argmin_dim kernel launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}

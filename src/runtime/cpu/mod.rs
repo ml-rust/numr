@@ -667,6 +667,62 @@ mod tests {
     }
 
     #[test]
+    fn test_tensor_argmax() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // 2D tensor: [[1, 5, 3], [4, 2, 6]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 4.0, 2.0, 6.0], &[2, 3], &device);
+
+        // argmax along dim=1 (find max index in each row)
+        let out = client.argmax(&a, 1, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2]);
+        assert_eq!(result, [1, 2]); // Row 0: max at index 1 (5.0), Row 1: max at index 2 (6.0)
+
+        // argmax along dim=0 (find max index in each column)
+        let out = client.argmax(&a, 0, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[3]);
+        assert_eq!(result, [1, 0, 1]); // Col 0: max at 1 (4.0), Col 1: max at 0 (5.0), Col 2: max at 1 (6.0)
+
+        // Test keepdim=true
+        let out = client.argmax(&a, 1, true).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2, 1]);
+        assert_eq!(result, [1, 2]);
+    }
+
+    #[test]
+    fn test_tensor_argmin() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // 2D tensor: [[1, 5, 3], [4, 2, 6]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 4.0, 2.0, 6.0], &[2, 3], &device);
+
+        // argmin along dim=1 (find min index in each row)
+        let out = client.argmin(&a, 1, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2]);
+        assert_eq!(result, [0, 1]); // Row 0: min at index 0 (1.0), Row 1: min at index 1 (2.0)
+
+        // argmin along dim=0 (find min index in each column)
+        let out = client.argmin(&a, 0, false).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[3]);
+        assert_eq!(result, [0, 1, 0]); // Col 0: min at 0 (1.0), Col 1: min at 1 (2.0), Col 2: min at 0 (3.0)
+
+        // Test keepdim=true
+        let out = client.argmin(&a, 1, true).unwrap();
+        let result: Vec<i64> = out.to_vec();
+        assert_eq!(out.shape(), &[2, 1]);
+        assert_eq!(result, [0, 1]);
+    }
+
+    #[test]
     fn test_tensor_softmax_last_dim() {
         let device = CpuDevice::new();
         let client = CpuRuntime::default_client(&device);
@@ -1432,5 +1488,170 @@ mod tests {
             .map(f16::from_f32)
             .collect();
         assert_eq!(result, expected);
+    }
+
+    // ===== FP8 Integration Tests =====
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8e4m3_tensor_creation() {
+        use crate::dtype::{DType, FP8E4M3};
+
+        let device = CpuDevice::new();
+
+        // Create FP8E4M3 tensor from slice
+        let data: Vec<FP8E4M3> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(FP8E4M3::from_f32)
+            .collect();
+
+        let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 2], &device);
+
+        assert_eq!(tensor.shape(), &[2, 2]);
+        assert_eq!(tensor.dtype(), DType::FP8E4M3);
+        assert_eq!(tensor.numel(), 4);
+
+        // Verify data roundtrips
+        let result: Vec<FP8E4M3> = tensor.to_vec();
+        for (a, b) in data.iter().zip(result.iter()) {
+            assert!((a.to_f32() - b.to_f32()).abs() < 0.1);
+        }
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8e5m2_tensor_creation() {
+        use crate::dtype::{DType, FP8E5M2};
+
+        let device = CpuDevice::new();
+
+        // Create FP8E5M2 tensor from slice
+        let data: Vec<FP8E5M2> = vec![10.0, 20.0, 30.0, 40.0]
+            .into_iter()
+            .map(FP8E5M2::from_f32)
+            .collect();
+
+        let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[4], &device);
+
+        assert_eq!(tensor.shape(), &[4]);
+        assert_eq!(tensor.dtype(), DType::FP8E5M2);
+
+        // Verify data roundtrips (FP8E5M2 has less precision)
+        let result: Vec<FP8E5M2> = tensor.to_vec();
+        for (a, b) in data.iter().zip(result.iter()) {
+            assert!((a.to_f32() - b.to_f32()).abs() < 5.0);
+        }
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8e4m3_add() {
+        use crate::dtype::{DType, FP8E4M3};
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<FP8E4M3> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(FP8E4M3::from_f32)
+            .collect();
+        let b_data: Vec<FP8E4M3> = vec![5.0, 6.0, 7.0, 8.0]
+            .into_iter()
+            .map(FP8E4M3::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[2, 2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[2, 2], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2]);
+        assert_eq!(c.dtype(), DType::FP8E4M3);
+
+        let result: Vec<FP8E4M3> = c.to_vec();
+        let expected = [6.0, 8.0, 10.0, 12.0];
+        for (val, exp) in result.iter().zip(expected.iter()) {
+            // FP8E4M3 has ~20% tolerance
+            assert!((val.to_f32() - exp).abs() < exp * 0.25 + 0.5);
+        }
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8e4m3_mul() {
+        use crate::dtype::FP8E4M3;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<FP8E4M3> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(FP8E4M3::from_f32)
+            .collect();
+        let b_data: Vec<FP8E4M3> = vec![2.0, 2.0, 2.0, 2.0]
+            .into_iter()
+            .map(FP8E4M3::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[4], &device);
+
+        let c = client.mul(&a, &b).unwrap();
+
+        let result: Vec<FP8E4M3> = c.to_vec();
+        let expected = [2.0, 4.0, 6.0, 8.0];
+        for (val, exp) in result.iter().zip(expected.iter()) {
+            assert!((val.to_f32() - exp).abs() < exp * 0.25 + 0.5);
+        }
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8e5m2_large_values() {
+        use crate::dtype::FP8E5M2;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // FP8E5M2 has larger dynamic range (~[-57344, 57344])
+        let a_data: Vec<FP8E5M2> = vec![100.0, 200.0, 500.0, 1000.0]
+            .into_iter()
+            .map(FP8E5M2::from_f32)
+            .collect();
+        let b_data: Vec<FP8E5M2> = vec![2.0, 2.0, 2.0, 2.0]
+            .into_iter()
+            .map(FP8E5M2::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[4], &device);
+
+        let c = client.mul(&a, &b).unwrap();
+
+        let result: Vec<FP8E5M2> = c.to_vec();
+        let expected = [200.0, 400.0, 1000.0, 2000.0];
+        for (val, exp) in result.iter().zip(expected.iter()) {
+            // FP8E5M2 has ~30% tolerance for larger values
+            assert!((val.to_f32() - exp).abs() < exp * 0.35 + 10.0);
+        }
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8_full_scalar_tensor() {
+        use crate::dtype::{DType, FP8E4M3};
+
+        let device = CpuDevice::new();
+
+        // Test Tensor::full_scalar with FP8E4M3
+        let tensor = Tensor::<CpuRuntime>::full_scalar(&[2, 3], DType::FP8E4M3, 2.5, &device);
+
+        assert_eq!(tensor.shape(), &[2, 3]);
+        assert_eq!(tensor.dtype(), DType::FP8E4M3);
+
+        let result: Vec<FP8E4M3> = tensor.to_vec();
+        for val in result {
+            assert!((val.to_f32() - 2.5).abs() < 0.5);
+        }
     }
 }

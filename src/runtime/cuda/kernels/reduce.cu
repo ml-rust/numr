@@ -1355,4 +1355,374 @@ __global__ void reduce_min_dim_bf16_fp32acc(
     }
 }
 
+// ============================================================================
+// Argmax Kernels - Return indices of maximum values (output: int64_t)
+// ============================================================================
+
+// F32 argmax along dimension
+__global__ void argmax_dim_f32(
+    const float* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float max_val = -INFINITY;
+    long long max_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = input[idx];
+        if (val > max_val) {
+            max_val = val;
+            max_idx = i;
+        }
+    }
+
+    shared_val[tid] = max_val;
+    shared_idx[tid] = max_idx;
+    __syncthreads();
+
+    // Block reduction - find global max and its index
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] > shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// F64 argmax along dimension
+__global__ void argmax_dim_f64(
+    const double* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ double shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    double max_val = -INFINITY;
+    long long max_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        double val = input[idx];
+        if (val > max_val) {
+            max_val = val;
+            max_idx = i;
+        }
+    }
+
+    shared_val[tid] = max_val;
+    shared_idx[tid] = max_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] > shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// F16 argmax along dimension (uses FP32 for comparison)
+__global__ void argmax_dim_f16(
+    const __half* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float max_val = -INFINITY;
+    long long max_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = __half2float(input[idx]);
+        if (val > max_val) {
+            max_val = val;
+            max_idx = i;
+        }
+    }
+
+    shared_val[tid] = max_val;
+    shared_idx[tid] = max_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] > shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// BF16 argmax along dimension (uses FP32 for comparison)
+__global__ void argmax_dim_bf16(
+    const __nv_bfloat16* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float max_val = -INFINITY;
+    long long max_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = __bfloat162float(input[idx]);
+        if (val > max_val) {
+            max_val = val;
+            max_idx = i;
+        }
+    }
+
+    shared_val[tid] = max_val;
+    shared_idx[tid] = max_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] > shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// ============================================================================
+// Argmin Kernels - Return indices of minimum values (output: int64_t)
+// ============================================================================
+
+// F32 argmin along dimension
+__global__ void argmin_dim_f32(
+    const float* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float min_val = INFINITY;
+    long long min_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = input[idx];
+        if (val < min_val) {
+            min_val = val;
+            min_idx = i;
+        }
+    }
+
+    shared_val[tid] = min_val;
+    shared_idx[tid] = min_idx;
+    __syncthreads();
+
+    // Block reduction - find global min and its index
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] < shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// F64 argmin along dimension
+__global__ void argmin_dim_f64(
+    const double* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ double shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    double min_val = INFINITY;
+    long long min_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        double val = input[idx];
+        if (val < min_val) {
+            min_val = val;
+            min_idx = i;
+        }
+    }
+
+    shared_val[tid] = min_val;
+    shared_idx[tid] = min_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] < shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// F16 argmin along dimension (uses FP32 for comparison)
+__global__ void argmin_dim_f16(
+    const __half* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float min_val = INFINITY;
+    long long min_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = __half2float(input[idx]);
+        if (val < min_val) {
+            min_val = val;
+            min_idx = i;
+        }
+    }
+
+    shared_val[tid] = min_val;
+    shared_idx[tid] = min_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] < shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
+// BF16 argmin along dimension (uses FP32 for comparison)
+__global__ void argmin_dim_bf16(
+    const __nv_bfloat16* input, long long* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    __shared__ float shared_val[256];
+    __shared__ long long shared_idx[256];
+    unsigned int tid = threadIdx.x;
+
+    float min_val = INFINITY;
+    long long min_idx = 0;
+
+    for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
+        float val = __bfloat162float(input[idx]);
+        if (val < min_val) {
+            min_val = val;
+            min_idx = i;
+        }
+    }
+
+    shared_val[tid] = min_val;
+    shared_idx[tid] = min_idx;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            if (shared_val[tid + s] < shared_val[tid]) {
+                shared_val[tid] = shared_val[tid + s];
+                shared_idx[tid] = shared_idx[tid + s];
+            }
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+    }
+}
+
 } // extern "C"

@@ -384,6 +384,42 @@ pub trait TensorOps<R: Runtime> {
         bias: &Tensor<R>,
         eps: f32,
     ) -> Result<Tensor<R>>;
+
+    // ===== Index Operations =====
+
+    /// Argmax: returns indices of maximum values along a dimension.
+    ///
+    /// Returns a tensor of I64 indices indicating the position of the maximum
+    /// value along the specified dimension. The output shape is the input shape
+    /// with the specified dimension removed (or kept as size 1 if keepdim=true).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension along which to find the maximum index
+    /// * `keepdim` - If true, the reduced dimension is retained with size 1
+    ///
+    /// # Returns
+    ///
+    /// Tensor of I64 containing indices of maximum values
+    fn argmax(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>>;
+
+    /// Argmin: returns indices of minimum values along a dimension.
+    ///
+    /// Returns a tensor of I64 indices indicating the position of the minimum
+    /// value along the specified dimension. The output shape is the input shape
+    /// with the specified dimension removed (or kept as size 1 if keepdim=true).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension along which to find the minimum index
+    /// * `keepdim` - If true, the reduced dimension is retained with size 1
+    ///
+    /// # Returns
+    ///
+    /// Tensor of I64 containing indices of minimum values
+    fn argmin(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations

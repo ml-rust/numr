@@ -442,6 +442,136 @@ impl TensorOps<CpuRuntime> for CpuClient {
 
         Ok(out)
     }
+
+    // ===== Index Operations =====
+
+    fn argmax(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Calculate outer_size (product of dims before reduce dim)
+        // reduce_size (size of dim being reduced)
+        // inner_size (product of dims after reduce dim)
+        let outer_size: usize = shape[..dim].iter().product();
+        let reduce_size = shape[dim];
+        let inner_size: usize = shape[dim + 1..].iter().product();
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        // Compute output shape
+        let out_shape: Vec<usize> = if keepdim {
+            shape
+                .iter()
+                .enumerate()
+                .map(|(i, &s)| if i == dim { 1 } else { s })
+                .collect()
+        } else {
+            shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != dim)
+                .map(|(_, &s)| s)
+                .collect()
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmax_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmax");
+
+        Ok(out)
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Calculate outer_size (product of dims before reduce dim)
+        // reduce_size (size of dim being reduced)
+        // inner_size (product of dims after reduce dim)
+        let outer_size: usize = shape[..dim].iter().product();
+        let reduce_size = shape[dim];
+        let inner_size: usize = shape[dim + 1..].iter().product();
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        // Compute output shape
+        let out_shape: Vec<usize> = if keepdim {
+            shape
+                .iter()
+                .enumerate()
+                .map(|(i, &s)| if i == dim { 1 } else { s })
+                .collect()
+        } else {
+            shape
+                .iter()
+                .enumerate()
+                .filter(|&(i, _)| i != dim)
+                .map(|(_, &s)| s)
+                .collect()
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmin_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmin");
+
+        Ok(out)
+    }
 }
 
 /// Softmax over non-last dimension
