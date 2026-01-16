@@ -364,6 +364,142 @@ pub unsafe fn reduce_kernel<T: Element>(
 }
 
 // ============================================================================
+// Scalar Operations
+// ============================================================================
+
+/// Binary operation with a scalar (tensor op scalar)
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn scalar_op_kernel<T: Element>(
+    op: BinaryOp,
+    a: *const T,
+    scalar: f64,
+    out: *mut T,
+    len: usize,
+) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+    let s = T::from_f64(scalar);
+
+    match op {
+        BinaryOp::Add => {
+            for i in 0..len {
+                out_slice[i] = a_slice[i] + s;
+            }
+        }
+        BinaryOp::Sub => {
+            for i in 0..len {
+                out_slice[i] = a_slice[i] - s;
+            }
+        }
+        BinaryOp::Mul => {
+            for i in 0..len {
+                out_slice[i] = a_slice[i] * s;
+            }
+        }
+        BinaryOp::Div => {
+            for i in 0..len {
+                out_slice[i] = a_slice[i] / s;
+            }
+        }
+        BinaryOp::Pow => {
+            for i in 0..len {
+                let base = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(base.powf(scalar));
+            }
+        }
+        BinaryOp::Max => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] > s { a_slice[i] } else { s };
+            }
+        }
+        BinaryOp::Min => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] < s { a_slice[i] } else { s };
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Comparison Operations
+// ============================================================================
+
+/// Comparison operation kind
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CompareOp {
+    /// Equal: a == b
+    Eq,
+    /// Not equal: a != b
+    Ne,
+    /// Less than: a < b
+    Lt,
+    /// Less than or equal: a <= b
+    Le,
+    /// Greater than: a > b
+    Gt,
+    /// Greater than or equal: a >= b
+    Ge,
+}
+
+/// Execute a comparison operation element-wise
+///
+/// Returns 1.0 for true, 0.0 for false (stored in output type)
+///
+/// # Safety
+/// - `a`, `b`, and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn compare_op_kernel<T: Element>(
+    op: CompareOp,
+    a: *const T,
+    b: *const T,
+    out: *mut T,
+    len: usize,
+) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let b_slice = std::slice::from_raw_parts(b, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    let one = T::one();
+    let zero = T::zero();
+
+    match op {
+        CompareOp::Eq => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] == b_slice[i] { one } else { zero };
+            }
+        }
+        CompareOp::Ne => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] != b_slice[i] { one } else { zero };
+            }
+        }
+        CompareOp::Lt => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] < b_slice[i] { one } else { zero };
+            }
+        }
+        CompareOp::Le => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] <= b_slice[i] { one } else { zero };
+            }
+        }
+        CompareOp::Gt => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] > b_slice[i] { one } else { zero };
+            }
+        }
+        CompareOp::Ge => {
+            for i in 0..len {
+                out_slice[i] = if a_slice[i] >= b_slice[i] { one } else { zero };
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Memory Operations
 // ============================================================================
 
@@ -618,10 +754,10 @@ mod tests {
         let mut out = [0.0f32; 4];
 
         unsafe {
-            fill_kernel(out.as_mut_ptr(), 3.14f32, 4);
+            fill_kernel(out.as_mut_ptr(), 7.5f32, 4);
         }
 
-        assert_eq!(out, [3.14, 3.14, 3.14, 3.14]);
+        assert_eq!(out, [7.5, 7.5, 7.5, 7.5]);
     }
 
     #[test]

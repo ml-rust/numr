@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_element_conversions() {
-        assert_eq!(f32::from_f64(3.14).to_f64(), 3.14f32 as f64);
+        assert_eq!(f32::from_f64(2.5).to_f64(), 2.5f32 as f64);
         assert_eq!(i32::from_f64(42.0), 42);
     }
 }
