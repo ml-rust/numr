@@ -247,10 +247,4 @@ impl RawBuffer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Tests require a runtime implementation
-    // See runtime module for integration tests
-}
+// Storage tests are in runtime module (require concrete runtime implementation)

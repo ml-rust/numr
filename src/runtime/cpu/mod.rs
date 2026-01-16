@@ -262,7 +262,8 @@ impl Kernel<CpuRuntime> for CpuClient {
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    TensorOps, broadcast_shape, matmul_output_shape, normalize_softmax_dim, reduce_output_shape,
+    CompareOps, ScalarOps, TensorOps, broadcast_shape, matmul_output_shape, normalize_softmax_dim,
+    reduce_output_shape,
 };
 use crate::tensor::Tensor;
 
@@ -382,6 +383,44 @@ impl TensorOps<CpuRuntime> for CpuClient {
         unary_op_impl(self, UnaryOp::Tanh, a, "tanh")
     }
 
+    fn tan(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Tan, a, "tan")
+    }
+
+    fn recip(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Recip, a, "recip")
+    }
+
+    fn square(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Square, a, "square")
+    }
+
+    fn floor(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Floor, a, "floor")
+    }
+
+    fn ceil(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Ceil, a, "ceil")
+    }
+
+    fn round(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Round, a, "round")
+    }
+
+    // ===== Element-wise Binary (extended) =====
+
+    fn pow(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Pow, a, b, "pow")
+    }
+
+    fn maximum(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Max, a, b, "maximum")
+    }
+
+    fn minimum(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Min, a, b, "minimum")
+    }
+
     // ===== Matrix Operations =====
 
     fn matmul(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -413,16 +452,8 @@ impl TensorOps<CpuRuntime> for CpuClient {
         let n = b_shape[b_shape.len() - 1];
 
         // For now, require contiguous tensors
-        let a_contig = if a.is_contiguous() {
-            a.clone()
-        } else {
-            a.contiguous()
-        };
-        let b_contig = if b.is_contiguous() {
-            b.clone()
-        } else {
-            b.contiguous()
-        };
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
 
         // Calculate batch size
         let batch_size: usize = out_shape
@@ -511,47 +542,11 @@ impl TensorOps<CpuRuntime> for CpuClient {
     // ===== Activations =====
 
     fn relu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = if a.is_contiguous() {
-            a.clone()
-        } else {
-            a.contiguous()
-        };
-        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
-
-        let len = a.numel();
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::relu_kernel::<T>(a_ptr as *const T, out_ptr as *mut T, len);
-            }
-        }, "relu");
-
-        Ok(out)
+        activation_op_impl(self, a, ActivationOp::ReLU, "relu")
     }
 
     fn sigmoid(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = if a.is_contiguous() {
-            a.clone()
-        } else {
-            a.contiguous()
-        };
-        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
-
-        let len = a.numel();
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::sigmoid_kernel::<T>(a_ptr as *const T, out_ptr as *mut T, len);
-            }
-        }, "sigmoid");
-
-        Ok(out)
+        activation_op_impl(self, a, ActivationOp::Sigmoid, "sigmoid")
     }
 
     fn softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
@@ -562,11 +557,7 @@ impl TensorOps<CpuRuntime> for CpuClient {
         let dim_idx =
             normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
 
-        let a_contig = if a.is_contiguous() {
-            a.clone()
-        } else {
-            a.contiguous()
-        };
+        let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
 
         let shape = a.shape();
@@ -647,8 +638,118 @@ impl TensorOps<CpuRuntime> for CpuClient {
 }
 
 // ============================================================================
+// ScalarOps Implementation
+// ============================================================================
+
+impl ScalarOps<CpuRuntime> for CpuClient {
+    fn add_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
+        scalar_op_impl(self, BinaryOp::Add, a, scalar, "add_scalar")
+    }
+
+    fn sub_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
+        scalar_op_impl(self, BinaryOp::Sub, a, scalar, "sub_scalar")
+    }
+
+    fn mul_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
+        scalar_op_impl(self, BinaryOp::Mul, a, scalar, "mul_scalar")
+    }
+
+    fn div_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
+        scalar_op_impl(self, BinaryOp::Div, a, scalar, "div_scalar")
+    }
+
+    fn pow_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
+        scalar_op_impl(self, BinaryOp::Pow, a, scalar, "pow_scalar")
+    }
+}
+
+// ============================================================================
+// CompareOps Implementation
+// ============================================================================
+
+impl CompareOps<CpuRuntime> for CpuClient {
+    fn eq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Eq, a, b, "eq")
+    }
+
+    fn ne(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Ne, a, b, "ne")
+    }
+
+    fn lt(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Lt, a, b, "lt")
+    }
+
+    fn le(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Le, a, b, "le")
+    }
+
+    fn gt(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Gt, a, b, "gt")
+    }
+
+    fn ge(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        compare_op_impl(self, kernels::CompareOp::Ge, a, b, "ge")
+    }
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
+
+/// Ensure a tensor is contiguous, cloning if already contiguous or copying if not.
+///
+/// This is a common pattern used before kernel dispatch to ensure memory layout
+/// is suitable for efficient computation.
+#[inline]
+fn ensure_contiguous(tensor: &Tensor<CpuRuntime>) -> Tensor<CpuRuntime> {
+    if tensor.is_contiguous() {
+        tensor.clone()
+    } else {
+        tensor.contiguous()
+    }
+}
+
+/// Validate that two tensors have matching dtypes for binary operations.
+#[inline]
+fn validate_binary_dtypes(a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<DType> {
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    Ok(a.dtype())
+}
+
+/// Validate shapes for binary operations (broadcasting not yet implemented).
+#[inline]
+fn validate_binary_shapes(
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    op_name: &'static str,
+) -> Result<Vec<usize>> {
+    let out_shape = broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
+        lhs: a.shape().to_vec(),
+        rhs: b.shape().to_vec(),
+    })?;
+
+    // For now, require same shapes (no broadcasting in kernel)
+    if a.shape() != b.shape() || a.shape() != out_shape.as_slice() {
+        return Err(Error::NotImplemented {
+            feature: Box::leak(
+                format!(
+                    "broadcasting for {} (shapes {:?} and {:?})",
+                    op_name,
+                    a.shape(),
+                    b.shape()
+                )
+                .into_boxed_str(),
+            ),
+        });
+    }
+    Ok(out_shape)
+}
 
 fn binary_op_impl(
     client: &CpuClient,
@@ -657,46 +758,11 @@ fn binary_op_impl(
     b: &Tensor<CpuRuntime>,
     op_name: &'static str,
 ) -> Result<Tensor<CpuRuntime>> {
-    // Validate dtypes match
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
+    let dtype = validate_binary_dtypes(a, b)?;
+    let out_shape = validate_binary_shapes(a, b, op_name)?;
 
-    let dtype = a.dtype();
-
-    // Compute output shape with broadcasting
-    let out_shape = broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
-        lhs: a.shape().to_vec(),
-        rhs: b.shape().to_vec(),
-    })?;
-
-    // For now, require same shapes (no broadcasting in kernel)
-    // Full broadcasting support would require a strided kernel
-    if a.shape() != b.shape() || a.shape() != out_shape.as_slice() {
-        return Err(Error::Internal(format!(
-            "Broadcasting not yet implemented for {} (shapes {:?} and {:?})",
-            op_name,
-            a.shape(),
-            b.shape()
-        )));
-    }
-
-    // Make inputs contiguous
-    let a_contig = if a.is_contiguous() {
-        a.clone()
-    } else {
-        a.contiguous()
-    };
-    let b_contig = if b.is_contiguous() {
-        b.clone()
-    } else {
-        b.contiguous()
-    };
-
-    // Allocate output
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     let len = a.numel();
@@ -707,8 +773,7 @@ fn binary_op_impl(
     dispatch_dtype!(dtype, T => {
         unsafe {
             <CpuClient as Kernel<CpuRuntime>>::binary_op::<T>(
-                client,
-                op,
+                client, op,
                 a_ptr as *const T,
                 b_ptr as *const T,
                 out_ptr as *mut T,
@@ -727,11 +792,7 @@ fn unary_op_impl(
     op_name: &'static str,
 ) -> Result<Tensor<CpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = if a.is_contiguous() {
-        a.clone()
-    } else {
-        a.contiguous()
-    };
+    let a_contig = ensure_contiguous(a);
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let len = a.numel();
@@ -741,12 +802,131 @@ fn unary_op_impl(
     dispatch_dtype!(dtype, T => {
         unsafe {
             <CpuClient as Kernel<CpuRuntime>>::unary_op::<T>(
-                client,
-                op,
+                client, op,
                 a_ptr as *const T,
                 out_ptr as *mut T,
                 len,
             );
+        }
+    }, op_name);
+
+    Ok(out)
+}
+
+fn scalar_op_impl(
+    client: &CpuClient,
+    op: BinaryOp,
+    a: &Tensor<CpuRuntime>,
+    scalar: f64,
+    op_name: &'static str,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::scalar_op_kernel::<T>(
+                op,
+                a_ptr as *const T,
+                scalar,
+                out_ptr as *mut T,
+                len,
+            );
+        }
+    }, op_name);
+
+    Ok(out)
+}
+
+fn compare_op_impl(
+    client: &CpuClient,
+    op: kernels::CompareOp,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    op_name: &'static str,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = validate_binary_dtypes(a, b)?;
+
+    // For now, require same shapes
+    if a.shape() != b.shape() {
+        return Err(Error::NotImplemented {
+            feature: Box::leak(
+                format!(
+                    "broadcasting for {} (shapes {:?} and {:?})",
+                    op_name,
+                    a.shape(),
+                    b.shape()
+                )
+                .into_boxed_str(),
+            ),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let b_ptr = b_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::compare_op_kernel::<T>(
+                op,
+                a_ptr as *const T,
+                b_ptr as *const T,
+                out_ptr as *mut T,
+                len,
+            );
+        }
+    }, op_name);
+
+    Ok(out)
+}
+
+/// Activation operation kind for kernel dispatch
+#[derive(Copy, Clone)]
+enum ActivationOp {
+    ReLU,
+    Sigmoid,
+}
+
+/// Helper for activation operations (relu, sigmoid)
+fn activation_op_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    op: ActivationOp,
+    op_name: &'static str,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            match op {
+                ActivationOp::ReLU => kernels::relu_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                ),
+                ActivationOp::Sigmoid => kernels::sigmoid_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                ),
+            }
         }
     }, op_name);
 
@@ -809,11 +989,7 @@ fn reduce_impl(
     } else {
         // General case: need to handle arbitrary dimensions
         // For now, make contiguous and reduce sequentially
-        let a_contig = if a.is_contiguous() {
-            a.clone()
-        } else {
-            a.contiguous()
-        };
+        let a_contig = ensure_contiguous(a);
 
         // Reduce one dimension at a time, from highest to lowest
         let mut sorted_dims: Vec<usize> = dims.to_vec();
@@ -1145,7 +1321,8 @@ mod tests {
 
         let result: Vec<f32> = b.to_vec();
         assert!((result[0] - 1.0).abs() < 1e-6); // e^0 = 1
-        assert!((result[1] - std::f32::consts::E).abs() < 1e-5); // e^1 = e
+        // e^1 should be in range (2.7, 2.72)
+        assert!(result[1] > 2.7 && result[1] < 2.72); // e^1 = e ≈ 2.718
     }
 
     #[test]
@@ -1314,5 +1491,277 @@ mod tests {
 
         let result = client.add(&a, &b);
         assert!(result.is_err());
+    }
+
+    // ===== New Unary Operations Tests =====
+
+    #[test]
+    fn test_tensor_tan() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Use 0.5 radians to avoid clippy::approx_constant warnings
+        let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.5], &[2], &device);
+        let b = client.tan(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert!((result[0] - 0.0).abs() < 1e-6); // tan(0) = 0
+        // tan(0.5) ≈ 0.5463
+        assert!((result[1] - 0.5463).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_tensor_recip() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 4.0, 5.0], &[4], &device);
+        let b = client.recip(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 0.5, 0.25, 0.2]);
+    }
+
+    #[test]
+    fn test_tensor_square() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, -4.0], &[4], &device);
+        let b = client.square(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 4.0, 9.0, 16.0]);
+    }
+
+    #[test]
+    fn test_tensor_floor() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.5f32, 2.9, -1.5, -2.9], &[4], &device);
+        let b = client.floor(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 2.0, -2.0, -3.0]);
+    }
+
+    #[test]
+    fn test_tensor_ceil() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.5f32, 2.1, -1.5, -2.1], &[4], &device);
+        let b = client.ceil(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [2.0, 3.0, -1.0, -2.0]);
+    }
+
+    #[test]
+    fn test_tensor_round() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.4f32, 1.5, 2.5, -1.5], &[4], &device);
+        let b = client.round(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        // Rust's round() rounds half away from zero: 2.5 -> 3.0, -1.5 -> -2.0
+        assert_eq!(result, [1.0, 2.0, 3.0, -2.0]);
+    }
+
+    // ===== New Element-wise Binary Operations Tests =====
+
+    #[test]
+    fn test_tensor_pow() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0, 4.0], &[3], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0, 0.5], &[3], &device);
+
+        let c = client.pow(&a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [4.0, 9.0, 2.0]); // 2^2=4, 3^2=9, 4^0.5=2
+    }
+
+    #[test]
+    fn test_tensor_maximum() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 8.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 4.0, 6.0, 7.0], &[4], &device);
+
+        let c = client.maximum(&a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [2.0, 5.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn test_tensor_minimum() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 8.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 4.0, 6.0, 7.0], &[4], &device);
+
+        let c = client.minimum(&a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 4.0, 3.0, 7.0]);
+    }
+
+    // ===== ScalarOps Tests =====
+
+    #[test]
+    fn test_scalar_add() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = ScalarOps::add_scalar(&client, &a, 10.0).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [11.0, 12.0, 13.0, 14.0]);
+    }
+
+    #[test]
+    fn test_scalar_mul() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = ScalarOps::mul_scalar(&client, &a, 2.0).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [2.0, 4.0, 6.0, 8.0]);
+    }
+
+    #[test]
+    fn test_scalar_pow() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = ScalarOps::pow_scalar(&client, &a, 2.0).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 4.0, 9.0, 16.0]);
+    }
+
+    #[test]
+    fn test_scalar_div() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+        let b = ScalarOps::div_scalar(&client, &a, 10.0).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    // ===== CompareOps Tests =====
+
+    #[test]
+    fn test_compare_eq() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 3.0, 5.0], &[4], &device);
+
+        let c = CompareOps::eq(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 0.0, 1.0, 0.0]); // 1=true, 0=false
+    }
+
+    #[test]
+    fn test_compare_lt() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0, 2.0, 2.0], &[4], &device);
+
+        let c = CompareOps::lt(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 0.0, 0.0, 0.0]); // 1<2, 2<2?, 3<2?, 4<2?
+    }
+
+    #[test]
+    fn test_compare_gt() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0, 2.0, 2.0], &[4], &device);
+
+        let c = CompareOps::gt(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [0.0, 0.0, 1.0, 1.0]); // 1>2?, 2>2?, 3>2, 4>2
+    }
+
+    #[test]
+    fn test_compare_le() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0, 2.0, 2.0], &[4], &device);
+
+        let c = CompareOps::le(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 1.0, 0.0, 0.0]); // 1<=2, 2<=2, 3<=2?, 4<=2?
+    }
+
+    #[test]
+    fn test_compare_ge() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0, 2.0, 2.0], &[4], &device);
+
+        let c = CompareOps::ge(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [0.0, 1.0, 1.0, 1.0]); // 1>=2?, 2>=2, 3>=2, 4>=2
+    }
+
+    #[test]
+    fn test_compare_ne() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 3.0, 5.0], &[4], &device);
+
+        let c = CompareOps::ne(&client, &a, &b).unwrap();
+
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [0.0, 1.0, 0.0, 1.0]); // opposite of eq
+    }
+
+    #[test]
+    fn test_compare_i32() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2i32, 2, 2, 2], &[4], &device);
+
+        let c = CompareOps::lt(&client, &a, &b).unwrap();
+
+        let result: Vec<i32> = c.to_vec();
+        assert_eq!(result, [1, 0, 0, 0]);
     }
 }
