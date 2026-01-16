@@ -290,6 +290,60 @@ impl Element for u8 {
 // Note: bool doesn't implement Pod, so we can't implement Element for it directly.
 // Boolean tensors use u8 internally.
 
+// ============================================================================
+// Half-precision floating point types (requires "f16" feature)
+// ============================================================================
+
+#[cfg(feature = "f16")]
+impl Element for half::f16 {
+    const DTYPE: DType = DType::F16;
+
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.to_f64()
+    }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        half::f16::from_f64(v)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        half::f16::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        half::f16::ONE
+    }
+}
+
+#[cfg(feature = "f16")]
+impl Element for half::bf16 {
+    const DTYPE: DType = DType::BF16;
+
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.to_f64()
+    }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        half::bf16::from_f64(v)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        half::bf16::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        half::bf16::ONE
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

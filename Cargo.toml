@@ -29,7 +29,7 @@ parking_lot = "0.12"
 rayon = { version = "1.11", optional = true }
 
 # Optional: Half-precision floats
-half = { version = "2.7", optional = true }
+half = { version = "2.7", optional = true, features = ["bytemuck"] }
 
 # Optional: CUDA backend
 cudarc = { version = "0.18", optional = true }

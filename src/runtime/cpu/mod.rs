@@ -275,7 +275,10 @@ use crate::tensor::Tensor;
 /// Macro for dtype dispatch to typed kernel calls
 ///
 /// This macro matches on dtype and executes the code block with the appropriate type.
-/// Usage: dispatch_dtype!(dtype, T => { code using T }, "op_name")
+/// Usage: `dispatch_dtype!(dtype, T => { code using T }, "op_name")`
+///
+/// F16 and BF16 are supported when the "f16" feature is enabled.
+/// Without the feature, F16/BF16 return `UnsupportedDType` error.
 macro_rules! dispatch_dtype {
     ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
         match $dtype {
@@ -285,6 +288,16 @@ macro_rules! dispatch_dtype {
             }
             DType::F32 => {
                 type $T = f32;
+                $body
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                type $T = half::f16;
+                $body
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                type $T = half::bf16;
                 $body
             }
             DType::I64 => {
@@ -319,7 +332,14 @@ macro_rules! dispatch_dtype {
                 type $T = u8;
                 $body
             }
-            DType::F16 | DType::BF16 | DType::Bool => {
+            #[cfg(not(feature = "f16"))]
+            DType::F16 | DType::BF16 => {
+                return Err(Error::UnsupportedDType {
+                    dtype: $dtype,
+                    op: $error_op,
+                })
+            }
+            DType::Bool => {
                 return Err(Error::UnsupportedDType {
                     dtype: $dtype,
                     op: $error_op,
@@ -418,11 +438,19 @@ impl TensorOps<CpuRuntime> for CpuClient {
         binary_op_impl(self, BinaryOp::Pow, a, b, "pow")
     }
 
-    fn maximum(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    fn maximum(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
         binary_op_impl(self, BinaryOp::Max, a, b, "maximum")
     }
 
-    fn minimum(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    fn minimum(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
         binary_op_impl(self, BinaryOp::Min, a, b, "minimum")
     }
 
@@ -731,10 +759,7 @@ fn validate_binary_dtypes(a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Res
 ///
 /// Returns the output shape after broadcasting, or an error if shapes are incompatible.
 #[inline]
-fn compute_broadcast_shape(
-    a: &Tensor<CpuRuntime>,
-    b: &Tensor<CpuRuntime>,
-) -> Result<Vec<usize>> {
+fn compute_broadcast_shape(a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Vec<usize>> {
     broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
         lhs: a.shape().to_vec(),
         rhs: b.shape().to_vec(),
@@ -1831,11 +1856,8 @@ mod tests {
         let client = CpuRuntime::default_client(&device);
 
         // [2, 3] + [3] -> [2, 3] (broadcast along rows)
-        let a = Tensor::<CpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-            &device,
-        );
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
         let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0], &[3], &device);
 
         let c = client.add(&a, &b).unwrap();
@@ -1851,11 +1873,8 @@ mod tests {
         let client = CpuRuntime::default_client(&device);
 
         // [2, 3] + [2, 1] -> [2, 3] (broadcast along columns)
-        let a = Tensor::<CpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-            &device,
-        );
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
         let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 100.0], &[2, 1], &device);
 
         let c = client.add(&a, &b).unwrap();
@@ -1883,7 +1902,9 @@ mod tests {
         // Row 2: 3 + [10, 20, 30, 40] = [13, 23, 33, 43]
         assert_eq!(
             result,
-            [11.0, 21.0, 31.0, 41.0, 12.0, 22.0, 32.0, 42.0, 13.0, 23.0, 33.0, 43.0]
+            [
+                11.0, 21.0, 31.0, 41.0, 12.0, 22.0, 32.0, 42.0, 13.0, 23.0, 33.0, 43.0
+            ]
         );
     }
 
@@ -1893,11 +1914,8 @@ mod tests {
         let client = CpuRuntime::default_client(&device);
 
         // [2, 3] * [1] -> [2, 3]
-        let a = Tensor::<CpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-            &device,
-        );
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
         let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device);
 
         let c = client.mul(&a, &b).unwrap();
@@ -1946,7 +1964,9 @@ mod tests {
 
         // [2, 2, 3] + [3] -> [2, 2, 3]
         let a = Tensor::<CpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[
+                1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+            ],
             &[2, 2, 3],
             &device,
         );
@@ -1986,11 +2006,8 @@ mod tests {
         let client = CpuRuntime::default_client(&device);
 
         // max([2, 3], [3]) -> [2, 3]
-        let a = Tensor::<CpuRuntime>::from_slice(
-            &[1.0f32, 5.0, 2.0, 4.0, 0.0, 6.0],
-            &[2, 3],
-            &device,
-        );
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 2.0, 4.0, 0.0, 6.0], &[2, 3], &device);
         let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0, 3.0], &[3], &device);
 
         let c = client.maximum(&a, &b).unwrap();
@@ -2088,5 +2105,182 @@ mod tests {
         // Row 1: [2==1, 2==2, 2==3] = [0, 1, 0]
         // Row 2: [3==1, 3==2, 3==3] = [0, 0, 1]
         assert_eq!(result, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+    }
+
+    // ========================================================================
+    // Half-Precision Tests (requires "f16" feature)
+    // ========================================================================
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_tensor_add() {
+        use half::f16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<f16> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        let b_data: Vec<f16> = vec![0.5, 1.5, 2.5, 3.5]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[4], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[4]);
+        let result: Vec<f16> = c.to_vec();
+        let expected: Vec<f16> = vec![1.5, 3.5, 5.5, 7.5]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_matmul() {
+        use half::f16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<f16> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        let b_data: Vec<f16> = vec![5.0, 6.0, 7.0, 8.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[2, 2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[2, 2], &device);
+
+        let c = TensorOps::matmul(&client, &a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2]);
+        let result: Vec<f16> = c.to_vec();
+        let expected: Vec<f16> = vec![19.0, 22.0, 43.0, 50.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_bf16_tensor_mul() {
+        use half::bf16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<bf16> = vec![2.0, 3.0, 4.0]
+            .into_iter()
+            .map(bf16::from_f32)
+            .collect();
+        let b_data: Vec<bf16> = vec![1.5, 2.5, 3.5]
+            .into_iter()
+            .map(bf16::from_f32)
+            .collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[3], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[3], &device);
+
+        let c = client.mul(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[3]);
+        let result: Vec<bf16> = c.to_vec();
+        let expected: Vec<bf16> = vec![3.0, 7.5, 14.0]
+            .into_iter()
+            .map(bf16::from_f32)
+            .collect();
+        assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_unary_ops() {
+        use half::f16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let data: Vec<f16> = vec![1.0, 4.0, 9.0, 16.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        let a = Tensor::<CpuRuntime>::from_slice(&data, &[4], &device);
+
+        let sqrt_result = client.sqrt(&a).unwrap();
+        let sqrt_vec: Vec<f16> = sqrt_result.to_vec();
+        let expected_sqrt: Vec<f16> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        assert_eq!(sqrt_vec, expected_sqrt);
+
+        let neg_result = client.neg(&a).unwrap();
+        let neg_vec: Vec<f16> = neg_result.to_vec();
+        let expected_neg: Vec<f16> = vec![-1.0, -4.0, -9.0, -16.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        assert_eq!(neg_vec, expected_neg);
+    }
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_reduce() {
+        use half::f16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let data: Vec<f16> = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        let a = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &device);
+
+        let sum = client.sum(&a, &[1], false).unwrap();
+        assert_eq!(sum.shape(), &[2]);
+        let sum_vec: Vec<f16> = sum.to_vec();
+        let expected: Vec<f16> = vec![6.0, 15.0].into_iter().map(f16::from_f32).collect();
+        assert_eq!(sum_vec, expected);
+    }
+
+    #[cfg(feature = "f16")]
+    #[test]
+    fn test_f16_broadcast() {
+        use half::f16;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a_data: Vec<f16> = vec![1.0, 2.0, 3.0, 4.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        let b_data: Vec<f16> = vec![10.0, 20.0].into_iter().map(f16::from_f32).collect();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[2, 2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[2], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2]);
+        let result: Vec<f16> = c.to_vec();
+        let expected: Vec<f16> = vec![11.0, 22.0, 13.0, 24.0]
+            .into_iter()
+            .map(f16::from_f32)
+            .collect();
+        assert_eq!(result, expected);
     }
 }
