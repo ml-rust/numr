@@ -23,6 +23,10 @@ pub mod cuda;
 #[cfg(feature = "wgpu")]
 pub mod wgpu;
 
+// CPU fallback utilities for GPU backends
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+pub mod fallback;
+
 pub use allocator::{Allocator, DefaultAllocator};
 
 /// Core trait for compute backends
