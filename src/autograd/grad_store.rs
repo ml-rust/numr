@@ -1,5 +1,6 @@
 //! Gradient storage and accumulation
 
+use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::collections::HashMap;
@@ -84,6 +85,24 @@ impl<R: Runtime> GradStore<R> {
             // First gradient for this tensor
             self.grads.insert(id, grad);
         }
+    }
+
+    /// Accumulate a gradient with a fallible addition function
+    ///
+    /// Like `accumulate`, but the addition function can fail and return a Result.
+    /// This is the preferred method for use in backward passes where tensor
+    /// operations may fail.
+    pub fn try_accumulate<F>(&mut self, id: TensorId, grad: Tensor<R>, add_fn: F) -> Result<()>
+    where
+        F: FnOnce(Tensor<R>, Tensor<R>) -> Result<Tensor<R>>,
+    {
+        if let Some(existing) = self.grads.remove(&id) {
+            let accumulated = add_fn(existing, grad)?;
+            self.grads.insert(id, accumulated);
+        } else {
+            self.grads.insert(id, grad);
+        }
+        Ok(())
     }
 
     /// Accumulate a gradient, storing if none exists
