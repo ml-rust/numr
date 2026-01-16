@@ -344,6 +344,60 @@ impl Element for half::bf16 {
     }
 }
 
+// ============================================================================
+// 8-bit floating point types (requires "fp8" feature)
+// ============================================================================
+
+#[cfg(feature = "fp8")]
+impl Element for super::fp8::FP8E4M3 {
+    const DTYPE: DType = DType::FP8E4M3;
+
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.to_f32() as f64
+    }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        Self::from_f32(v as f32)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
+#[cfg(feature = "fp8")]
+impl Element for super::fp8::FP8E5M2 {
+    const DTYPE: DType = DType::FP8E5M2;
+
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.to_f32() as f64
+    }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        Self::from_f32(v as f32)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +414,33 @@ mod tests {
     fn test_element_conversions() {
         assert_eq!(f32::from_f64(2.5).to_f64(), 2.5f32 as f64);
         assert_eq!(i32::from_f64(42.0), 42);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8_element_dtype() {
+        use super::super::fp8::{FP8E4M3, FP8E5M2};
+        assert_eq!(FP8E4M3::DTYPE, DType::FP8E4M3);
+        assert_eq!(FP8E5M2::DTYPE, DType::FP8E5M2);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_fp8_element_conversions() {
+        use super::super::fp8::{FP8E4M3, FP8E5M2};
+
+        // FP8E4M3 roundtrip
+        let e4m3 = FP8E4M3::from_f64(2.0);
+        assert!((e4m3.to_f64() - 2.0).abs() < 0.1);
+
+        // FP8E5M2 roundtrip
+        let e5m2 = FP8E5M2::from_f64(100.0);
+        assert!((e5m2.to_f64() - 100.0).abs() < 15.0);
+
+        // Zero and one
+        assert_eq!(FP8E4M3::zero().to_f32(), 0.0);
+        assert!((FP8E4M3::one().to_f32() - 1.0).abs() < 0.01);
+        assert_eq!(FP8E5M2::zero().to_f32(), 0.0);
+        assert!((FP8E5M2::one().to_f32() - 1.0).abs() < 0.01);
     }
 }

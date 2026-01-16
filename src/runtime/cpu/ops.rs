@@ -12,7 +12,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     BinaryOp, CompareOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps, UnaryOp,
-    normalize_softmax_dim,
+    compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::tensor::Tensor;
 
@@ -463,30 +463,8 @@ impl TensorOps<CpuRuntime> for CpuClient {
             });
         }
 
-        // Calculate outer_size (product of dims before reduce dim)
-        // reduce_size (size of dim being reduced)
-        // inner_size (product of dims after reduce dim)
-        let outer_size: usize = shape[..dim].iter().product();
-        let reduce_size = shape[dim];
-        let inner_size: usize = shape[dim + 1..].iter().product();
-        let outer_size = outer_size.max(1);
-        let inner_size = inner_size.max(1);
-
-        // Compute output shape
-        let out_shape: Vec<usize> = if keepdim {
-            shape
-                .iter()
-                .enumerate()
-                .map(|(i, &s)| if i == dim { 1 } else { s })
-                .collect()
-        } else {
-            shape
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != dim)
-                .map(|(_, &s)| s)
-                .collect()
-        };
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
 
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
@@ -527,30 +505,8 @@ impl TensorOps<CpuRuntime> for CpuClient {
             });
         }
 
-        // Calculate outer_size (product of dims before reduce dim)
-        // reduce_size (size of dim being reduced)
-        // inner_size (product of dims after reduce dim)
-        let outer_size: usize = shape[..dim].iter().product();
-        let reduce_size = shape[dim];
-        let inner_size: usize = shape[dim + 1..].iter().product();
-        let outer_size = outer_size.max(1);
-        let inner_size = inner_size.max(1);
-
-        // Compute output shape
-        let out_shape: Vec<usize> = if keepdim {
-            shape
-                .iter()
-                .enumerate()
-                .map(|(i, &s)| if i == dim { 1 } else { s })
-                .collect()
-        } else {
-            shape
-                .iter()
-                .enumerate()
-                .filter(|&(i, _)| i != dim)
-                .map(|(_, &s)| s)
-                .collect()
-        };
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
 
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);

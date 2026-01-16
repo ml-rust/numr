@@ -12,127 +12,13 @@ use crate::ops::{
 use crate::tensor::Tensor;
 
 // ============================================================================
-// DType Dispatch Macro
+// DType Dispatch Macro (re-exported from crate root)
 // ============================================================================
+//
+// Use the canonical dispatch_dtype! macro from src/ops/dispatch.rs.
+// This avoids duplicating the macro logic and ensures a single source of truth.
 
-/// Macro for dtype dispatch to typed kernel calls
-///
-/// This macro matches on dtype and executes the code block with the appropriate type.
-/// Usage: `dispatch_dtype!(dtype, T => { code using T }, "op_name")`
-///
-/// F16 and BF16 are supported when the "f16" feature is enabled.
-/// FP8E4M3 and FP8E5M2 are supported when the "fp8" feature is enabled.
-/// Without the respective feature, these types return `UnsupportedDType` error.
-macro_rules! dispatch_dtype {
-    ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
-        match $dtype {
-            DType::F64 => {
-                type $T = f64;
-                $body
-            }
-            DType::F32 => {
-                type $T = f32;
-                $body
-            }
-            DType::F16 => {
-                #[cfg(feature = "f16")]
-                {
-                    type $T = half::f16;
-                    $body
-                }
-                #[cfg(not(feature = "f16"))]
-                {
-                    return Err(Error::UnsupportedDType {
-                        dtype: $dtype,
-                        op: $error_op,
-                    });
-                }
-            }
-            DType::BF16 => {
-                #[cfg(feature = "f16")]
-                {
-                    type $T = half::bf16;
-                    $body
-                }
-                #[cfg(not(feature = "f16"))]
-                {
-                    return Err(Error::UnsupportedDType {
-                        dtype: $dtype,
-                        op: $error_op,
-                    });
-                }
-            }
-            DType::FP8E4M3 => {
-                #[cfg(feature = "fp8")]
-                {
-                    type $T = crate::dtype::FP8E4M3;
-                    $body
-                }
-                #[cfg(not(feature = "fp8"))]
-                {
-                    return Err(Error::UnsupportedDType {
-                        dtype: $dtype,
-                        op: $error_op,
-                    });
-                }
-            }
-            DType::FP8E5M2 => {
-                #[cfg(feature = "fp8")]
-                {
-                    type $T = crate::dtype::FP8E5M2;
-                    $body
-                }
-                #[cfg(not(feature = "fp8"))]
-                {
-                    return Err(Error::UnsupportedDType {
-                        dtype: $dtype,
-                        op: $error_op,
-                    });
-                }
-            }
-            DType::I64 => {
-                type $T = i64;
-                $body
-            }
-            DType::I32 => {
-                type $T = i32;
-                $body
-            }
-            DType::I16 => {
-                type $T = i16;
-                $body
-            }
-            DType::I8 => {
-                type $T = i8;
-                $body
-            }
-            DType::U64 => {
-                type $T = u64;
-                $body
-            }
-            DType::U32 => {
-                type $T = u32;
-                $body
-            }
-            DType::U16 => {
-                type $T = u16;
-                $body
-            }
-            DType::U8 => {
-                type $T = u8;
-                $body
-            }
-            DType::Bool => {
-                return Err(Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $error_op,
-                })
-            }
-        }
-    };
-}
-
-pub(super) use dispatch_dtype;
+pub(super) use crate::dispatch_dtype;
 
 // ============================================================================
 // Helper Functions

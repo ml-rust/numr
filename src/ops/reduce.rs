@@ -69,6 +69,48 @@ pub fn all_dims(ndim: usize) -> Vec<usize> {
     (0..ndim).collect()
 }
 
+/// Compute the strides for a single-dimension reduction (used by argmax/argmin).
+///
+/// Returns `(outer_size, reduce_size, inner_size)` where:
+/// - `outer_size`: product of dimensions before the reduced dimension
+/// - `reduce_size`: size of the dimension being reduced
+/// - `inner_size`: product of dimensions after the reduced dimension
+///
+/// This is the standard decomposition for implementing reduce operations that
+/// iterate over outer × inner combinations, each reducing over reduce_size elements.
+///
+/// # Arguments
+/// * `shape` - Shape of the input tensor
+/// * `dim` - The dimension to reduce over
+///
+/// # Example
+/// ```ignore
+/// let shape = &[2, 3, 4];
+/// let (outer, reduce, inner) = compute_reduce_strides(shape, 1);
+/// assert_eq!((outer, reduce, inner), (2, 3, 4));
+/// ```
+#[inline]
+pub fn compute_reduce_strides(shape: &[usize], dim: usize) -> (usize, usize, usize) {
+    let outer_size: usize = shape[..dim].iter().product::<usize>().max(1);
+    let reduce_size = shape[dim];
+    let inner_size: usize = shape[dim + 1..].iter().product::<usize>().max(1);
+    (outer_size, reduce_size, inner_size)
+}
+
+/// Compute output shape for a single-dimension reduction (used by argmax/argmin).
+///
+/// This is a convenience wrapper around [`reduce_output_shape`] for the common
+/// case of reducing over exactly one dimension.
+///
+/// # Arguments
+/// * `shape` - Shape of the input tensor
+/// * `dim` - The dimension to reduce over
+/// * `keepdim` - If true, keep the reduced dimension as size 1
+#[inline]
+pub fn reduce_dim_output_shape(shape: &[usize], dim: usize, keepdim: bool) -> Vec<usize> {
+    reduce_output_shape(shape, &[dim], keepdim)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

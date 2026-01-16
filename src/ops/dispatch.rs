@@ -60,14 +60,26 @@
 /// - `U16` -> `u16`
 /// - `U8` -> `u8`
 /// - `Bool` -> Returns `UnsupportedDType` error
-/// Internal helper macro to dispatch F16 type (with or without feature)
+
+// =============================================================================
+// Feature-Gated Type Dispatch Helpers
+// =============================================================================
+//
+// These two parameterized macros replace what would otherwise be 4 separate
+// macros (one per type). The type is passed as a parameter, reducing duplication.
+//
+// - dispatch_f16_type!: For F16/BF16 types (requires "f16" feature)
+// - dispatch_fp8_type!: For FP8E4M3/FP8E5M2 types (requires "fp8" feature)
+
+/// Internal helper macro to dispatch types requiring the "f16" feature.
+/// Parameterized by type to avoid duplicating macro for F16 vs BF16.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! dispatch_f16 {
-    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+macro_rules! dispatch_f16_type {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr, $type:ty) => {{
         #[cfg(feature = "f16")]
         {
-            type $T = half::f16;
+            type $T = $type;
             $body
         }
         #[cfg(not(feature = "f16"))]
@@ -80,34 +92,15 @@ macro_rules! dispatch_f16 {
     }};
 }
 
-/// Internal helper macro to dispatch BF16 type (with or without feature)
+/// Internal helper macro to dispatch types requiring the "fp8" feature.
+/// Parameterized by type to avoid duplicating macro for FP8E4M3 vs FP8E5M2.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! dispatch_bf16 {
-    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
-        #[cfg(feature = "f16")]
-        {
-            type $T = half::bf16;
-            $body
-        }
-        #[cfg(not(feature = "f16"))]
-        {
-            return Err($crate::error::Error::UnsupportedDType {
-                dtype: $dtype,
-                op: $error_op,
-            });
-        }
-    }};
-}
-
-/// Internal helper macro to dispatch FP8E4M3 type (with or without feature)
-#[macro_export]
-#[doc(hidden)]
-macro_rules! dispatch_fp8e4m3 {
-    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
+macro_rules! dispatch_fp8_type {
+    ($T:ident, $body:block, $dtype:expr, $error_op:expr, $type:ty) => {{
         #[cfg(feature = "fp8")]
         {
-            type $T = $crate::dtype::FP8E4M3;
+            type $T = $type;
             $body
         }
         #[cfg(not(feature = "fp8"))]
@@ -120,26 +113,11 @@ macro_rules! dispatch_fp8e4m3 {
     }};
 }
 
-/// Internal helper macro to dispatch FP8E5M2 type (with or without feature)
-#[macro_export]
-#[doc(hidden)]
-macro_rules! dispatch_fp8e5m2 {
-    ($T:ident, $body:block, $dtype:expr, $error_op:expr) => {{
-        #[cfg(feature = "fp8")]
-        {
-            type $T = $crate::dtype::FP8E5M2;
-            $body
-        }
-        #[cfg(not(feature = "fp8"))]
-        {
-            return Err($crate::error::Error::UnsupportedDType {
-                dtype: $dtype,
-                op: $error_op,
-            });
-        }
-    }};
-}
-
+/// Macro for runtime dtype dispatch to typed operations.
+///
+/// This macro takes a `DType` value and executes a code block with `T` bound
+/// to the corresponding Rust type. Feature-gated types (F16, BF16, FP8) use
+/// parameterized helper macros to avoid code duplication.
 #[macro_export]
 macro_rules! dispatch_dtype {
     ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
@@ -153,16 +131,16 @@ macro_rules! dispatch_dtype {
                 $body
             }
             $crate::dtype::DType::F16 => {
-                $crate::dispatch_f16!($T, $body, $dtype, $error_op)
+                $crate::dispatch_f16_type!($T, $body, $dtype, $error_op, half::f16)
             }
             $crate::dtype::DType::BF16 => {
-                $crate::dispatch_bf16!($T, $body, $dtype, $error_op)
+                $crate::dispatch_f16_type!($T, $body, $dtype, $error_op, half::bf16)
             }
             $crate::dtype::DType::FP8E4M3 => {
-                $crate::dispatch_fp8e4m3!($T, $body, $dtype, $error_op)
+                $crate::dispatch_fp8_type!($T, $body, $dtype, $error_op, $crate::dtype::FP8E4M3)
             }
             $crate::dtype::DType::FP8E5M2 => {
-                $crate::dispatch_fp8e5m2!($T, $body, $dtype, $error_op)
+                $crate::dispatch_fp8_type!($T, $body, $dtype, $error_op, $crate::dtype::FP8E5M2)
             }
             $crate::dtype::DType::I64 => {
                 type $T = i64;

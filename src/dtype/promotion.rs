@@ -16,21 +16,25 @@ pub fn promote(lhs: DType, rhs: DType) -> DType {
     }
 
     // Promotion priority (higher = wins)
+    // FP8 types have low priority since they're storage formats
+    // that should promote to higher precision for computation
     let priority = |dt: DType| -> u8 {
         match dt {
             F64 => 100,
             F32 => 90,
             BF16 => 85,
             F16 => 80,
-            I64 => 70,
-            U64 => 65,
-            I32 => 60,
-            U32 => 55,
-            I16 => 50,
-            U16 => 45,
-            I8 => 40,
-            U8 => 35,
-            Bool => 30,
+            FP8E4M3 => 75, // Higher precision FP8 (3 mantissa bits)
+            FP8E5M2 => 70, // Lower precision FP8 (2 mantissa bits)
+            I64 => 65,
+            U64 => 60,
+            I32 => 55,
+            U32 => 50,
+            I16 => 45,
+            U16 => 40,
+            I8 => 35,
+            U8 => 30,
+            Bool => 25,
         }
     };
 
@@ -72,6 +76,9 @@ pub fn can_cast_safely(from: DType, to: DType) -> bool {
     }
 
     match (from, to) {
+        // FP8 can safely cast to wider floats
+        (FP8E4M3 | FP8E5M2, F16 | BF16 | F32 | F64) => true,
+
         // Floats can always accept wider floats
         (F16 | BF16, F32 | F64) => true,
         (F32, F64) => true,
@@ -134,5 +141,58 @@ mod tests {
         assert!(can_cast_safely(U8, I32));
         assert!(!can_cast_safely(I64, I32));
         assert!(!can_cast_safely(F64, F32));
+    }
+
+    // ========== FP8 Promotion Tests ==========
+
+    #[test]
+    fn test_fp8_same_type_promotion() {
+        assert_eq!(promote(FP8E4M3, FP8E4M3), FP8E4M3);
+        assert_eq!(promote(FP8E5M2, FP8E5M2), FP8E5M2);
+    }
+
+    #[test]
+    fn test_fp8_to_wider_float_promotion() {
+        // FP8 should promote to wider floats
+        assert_eq!(promote(FP8E4M3, F16), F16);
+        assert_eq!(promote(FP8E4M3, BF16), BF16);
+        assert_eq!(promote(FP8E4M3, F32), F32);
+        assert_eq!(promote(FP8E4M3, F64), F64);
+
+        assert_eq!(promote(FP8E5M2, F16), F16);
+        assert_eq!(promote(FP8E5M2, BF16), BF16);
+        assert_eq!(promote(FP8E5M2, F32), F32);
+        assert_eq!(promote(FP8E5M2, F64), F64);
+    }
+
+    #[test]
+    fn test_fp8_e4m3_vs_e5m2_promotion() {
+        // E4M3 has higher priority (more mantissa bits = higher precision)
+        assert_eq!(promote(FP8E4M3, FP8E5M2), FP8E4M3);
+        assert_eq!(promote(FP8E5M2, FP8E4M3), FP8E4M3);
+    }
+
+    #[test]
+    fn test_fp8_vs_int_promotion() {
+        // FP8 (as float) should win over integers
+        assert_eq!(promote(FP8E4M3, I64), FP8E4M3);
+        assert_eq!(promote(FP8E5M2, I32), FP8E5M2);
+    }
+
+    #[test]
+    fn test_fp8_safe_cast() {
+        // FP8 can safely cast to wider floats
+        assert!(can_cast_safely(FP8E4M3, F16));
+        assert!(can_cast_safely(FP8E4M3, BF16));
+        assert!(can_cast_safely(FP8E4M3, F32));
+        assert!(can_cast_safely(FP8E4M3, F64));
+
+        assert!(can_cast_safely(FP8E5M2, F16));
+        assert!(can_cast_safely(FP8E5M2, F32));
+        assert!(can_cast_safely(FP8E5M2, F64));
+
+        // Cannot safely cast wider floats to FP8 (data loss)
+        assert!(!can_cast_safely(F32, FP8E4M3));
+        assert!(!can_cast_safely(F16, FP8E5M2));
     }
 }

@@ -173,6 +173,34 @@ impl<R: Runtime> Tensor<R> {
                 let half_bits = half_from_f32(value as f32, dtype);
                 slice.fill(half_bits);
             }
+            DType::FP8E4M3 => {
+                #[cfg(feature = "fp8")]
+                {
+                    let fp8_val = crate::dtype::FP8E4M3::from_f32(value as f32);
+                    bytes.fill(fp8_val.to_bits());
+                }
+                #[cfg(not(feature = "fp8"))]
+                {
+                    panic!(
+                        "FP8E4M3 dtype requires the 'fp8' feature. \
+                         Enable it with: cargo build --features fp8"
+                    );
+                }
+            }
+            DType::FP8E5M2 => {
+                #[cfg(feature = "fp8")]
+                {
+                    let fp8_val = crate::dtype::FP8E5M2::from_f32(value as f32);
+                    bytes.fill(fp8_val.to_bits());
+                }
+                #[cfg(not(feature = "fp8"))]
+                {
+                    panic!(
+                        "FP8E5M2 dtype requires the 'fp8' feature. \
+                         Enable it with: cargo build --features fp8"
+                    );
+                }
+            }
             DType::I64 => {
                 let slice: &mut [i64] = bytemuck::cast_slice_mut(&mut bytes);
                 slice.fill(value as i64);
