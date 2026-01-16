@@ -281,6 +281,35 @@ pub trait TensorOps<R: Runtime> {
     /// Hyperbolic tangent: tanh(a)
     fn tanh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Tangent: tan(a)
+    fn tan(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Reciprocal: 1/a
+    fn recip(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Square: a²
+    fn square(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Floor: floor(a)
+    fn floor(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Ceiling: ceil(a)
+    fn ceil(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Round: round(a) to nearest integer
+    fn round(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ===== Element-wise Binary Operations (extended) =====
+
+    /// Element-wise power: a^b
+    fn pow(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise maximum: max(a, b)
+    fn maximum(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise minimum: min(a, b)
+    fn minimum(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
     // ===== Matrix Operations =====
 
     /// Matrix multiplication: a @ b
