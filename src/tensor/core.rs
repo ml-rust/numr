@@ -48,6 +48,17 @@ impl<R: Runtime> Tensor<R> {
     }
 
     /// Create a tensor from a slice of data
+    ///
+    /// # Panics
+    ///
+    /// Panics if `data.len()` does not equal the product of the `shape` dimensions.
+    /// For a fallible alternative, use [`Self::try_from_slice`].
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// ```
     pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
         let expected_len: usize = shape.iter().product();
         assert_eq!(
@@ -67,6 +78,38 @@ impl<R: Runtime> Tensor<R> {
             storage,
             layout,
         }
+    }
+
+    /// Create a tensor from a slice of data (fallible version)
+    ///
+    /// Returns an error if `data.len()` does not equal the product of the `shape` dimensions.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::try_from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device)?;
+    /// ```
+    pub fn try_from_slice<T: Element>(
+        data: &[T],
+        shape: &[usize],
+        device: &R::Device,
+    ) -> Result<Self> {
+        let expected_len: usize = shape.iter().product();
+        if data.len() != expected_len {
+            return Err(Error::ShapeMismatch {
+                expected: shape.to_vec(),
+                got: vec![data.len()],
+            });
+        }
+
+        let storage = Storage::from_slice(data, device);
+        let layout = Layout::contiguous(shape);
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage,
+            layout,
+        })
     }
 
     /// Create an uninitialized tensor
