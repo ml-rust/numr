@@ -5,14 +5,14 @@
 
 use super::helpers::{
     ActivationOp, activation_op_impl, binary_op_impl, compare_op_impl, dispatch_dtype,
-    ensure_contiguous, reduce_impl, scalar_op_impl, unary_op_impl,
+    ensure_contiguous, reduce_impl, reduce_impl_with_precision, scalar_op_impl, unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOp, CompareOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps, UnaryOp,
-    compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
+    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps,
+    UnaryOp, compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::tensor::Tensor;
 
@@ -213,6 +213,16 @@ impl TensorOps<CpuRuntime> for CpuClient {
         reduce_impl(self, ReduceOp::Sum, a, dims, keepdim, "sum")
     }
 
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Sum, a, dims, keepdim, precision, "sum")
+    }
+
     fn mean(
         &self,
         a: &Tensor<CpuRuntime>,
@@ -231,6 +241,16 @@ impl TensorOps<CpuRuntime> for CpuClient {
         reduce_impl(self, ReduceOp::Max, a, dims, keepdim, "max")
     }
 
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Max, a, dims, keepdim, precision, "max")
+    }
+
     fn min(
         &self,
         a: &Tensor<CpuRuntime>,
@@ -238,6 +258,16 @@ impl TensorOps<CpuRuntime> for CpuClient {
         keepdim: bool,
     ) -> Result<Tensor<CpuRuntime>> {
         reduce_impl(self, ReduceOp::Min, a, dims, keepdim, "min")
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Min, a, dims, keepdim, precision, "min")
     }
 
     // ===== Activations =====
@@ -525,6 +555,31 @@ impl TensorOps<CpuRuntime> for CpuClient {
                 );
             }
         }, "argmin");
+
+        Ok(out)
+    }
+
+    // ===== Type Conversion =====
+
+    fn cast(&self, a: &Tensor<CpuRuntime>, target_dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        let src_dtype = a.dtype();
+
+        // No-op if types match
+        if src_dtype == target_dtype {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(shape, target_dtype, &self.device);
+
+        let src_ptr = a_contig.storage().ptr() as *const u8;
+        let dst_ptr = out.storage().ptr() as *mut u8;
+
+        unsafe {
+            kernels::cast_kernel(src_ptr, dst_ptr, numel, src_dtype, target_dtype)?;
+        }
 
         Ok(out)
     }

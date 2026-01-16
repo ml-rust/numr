@@ -6,7 +6,7 @@
 #![allow(unsafe_op_in_unsafe_fn)] // Kernels are already marked unsafe, inner unsafe is redundant
 
 use crate::dtype::Element;
-use crate::ops::{BinaryOp, CompareOp, ReduceOp, UnaryOp};
+use crate::ops::{AccumulationPrecision, BinaryOp, CompareOp, ReduceOp, UnaryOp};
 
 // ============================================================================
 // Binary Operations
@@ -644,6 +644,204 @@ pub unsafe fn reduce_kernel<T: Element>(
     }
 }
 
+/// Reduce kernel with explicit accumulation precision
+///
+/// For reduced-precision types (F16, BF16, FP8), this allows accumulating
+/// in a higher precision format for better numerical stability.
+///
+/// # Arguments
+/// * `op` - Reduction operation
+/// * `a` - Input pointer (reduce_size * outer_size elements)
+/// * `out` - Output pointer (outer_size elements)
+/// * `reduce_size` - Number of elements to reduce over
+/// * `outer_size` - Number of independent reductions
+/// * `precision` - Accumulation precision
+///
+/// # Safety
+/// - `a` must point to `reduce_size * outer_size` elements
+/// - `out` must point to `outer_size` elements
+#[inline]
+pub unsafe fn reduce_kernel_with_precision<T: Element>(
+    op: ReduceOp,
+    a: *const T,
+    out: *mut T,
+    reduce_size: usize,
+    outer_size: usize,
+    precision: AccumulationPrecision,
+) {
+    match precision {
+        AccumulationPrecision::Native => {
+            // Use native type accumulation (existing behavior)
+            reduce_kernel(op, a, out, reduce_size, outer_size);
+        }
+        AccumulationPrecision::FP32 | AccumulationPrecision::BF16 => {
+            // Accumulate in f32 for better precision
+            // BF16 uses f32 on CPU since there's no native bf16 arithmetic
+            reduce_kernel_f32_acc(op, a, out, reduce_size, outer_size);
+        }
+        AccumulationPrecision::FP64 => {
+            // Accumulate in f64 for maximum precision (math/science)
+            reduce_kernel_f64_acc(op, a, out, reduce_size, outer_size);
+        }
+    }
+}
+
+// ============================================================================
+// Accumulator Trait for Generic Precision Reduction
+// ============================================================================
+
+/// Trait for accumulation types (f32, f64) used in precision-aware reductions.
+///
+/// This allows a single generic implementation for both FP32 and FP64 accumulation,
+/// avoiding code duplication while maintaining type safety and performance.
+///
+/// Uses `Into<f64>` for output conversion, `acc_in` for input (f64 -> Self).
+pub trait Accumulator: Copy + PartialOrd + PartialEq + Into<f64> {
+    const ZERO: Self;
+    const ONE: Self;
+    /// Convert f64 input to accumulator type
+    fn acc_in(v: f64) -> Self;
+    fn acc_add(self, other: Self) -> Self;
+    fn acc_mul(self, other: Self) -> Self;
+    fn acc_div(self, n: usize) -> Self;
+}
+
+impl Accumulator for f32 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    #[inline]
+    fn acc_in(v: f64) -> Self {
+        v as f32
+    }
+    #[inline]
+    fn acc_add(self, other: Self) -> Self {
+        self + other
+    }
+    #[inline]
+    fn acc_mul(self, other: Self) -> Self {
+        self * other
+    }
+    #[inline]
+    fn acc_div(self, n: usize) -> Self {
+        self / n as f32
+    }
+}
+
+impl Accumulator for f64 {
+    const ZERO: Self = 0.0;
+    const ONE: Self = 1.0;
+    #[inline]
+    fn acc_in(v: f64) -> Self {
+        v
+    }
+    #[inline]
+    fn acc_add(self, other: Self) -> Self {
+        self + other
+    }
+    #[inline]
+    fn acc_mul(self, other: Self) -> Self {
+        self * other
+    }
+    #[inline]
+    fn acc_div(self, n: usize) -> Self {
+        self / n as f64
+    }
+}
+
+/// Generic reduce kernel with configurable accumulation precision.
+///
+/// Converts input elements to accumulator type A, performs reduction, then converts back to T.
+#[inline]
+unsafe fn reduce_kernel_acc<T: Element, A: Accumulator>(
+    op: ReduceOp,
+    a: *const T,
+    out: *mut T,
+    reduce_size: usize,
+    outer_size: usize,
+) {
+    match op {
+        ReduceOp::Sum => {
+            for o in 0..outer_size {
+                let mut sum = A::ZERO;
+                for r in 0..reduce_size {
+                    sum = sum.acc_add(A::acc_in((*a.add(o * reduce_size + r)).to_f64()));
+                }
+                *out.add(o) = T::from_f64(sum.into());
+            }
+        }
+        ReduceOp::Mean => {
+            for o in 0..outer_size {
+                let mut sum = A::ZERO;
+                for r in 0..reduce_size {
+                    sum = sum.acc_add(A::acc_in((*a.add(o * reduce_size + r)).to_f64()));
+                }
+                *out.add(o) = T::from_f64(sum.acc_div(reduce_size).into());
+            }
+        }
+        ReduceOp::Max => {
+            for o in 0..outer_size {
+                let mut max_val = A::acc_in((*a.add(o * reduce_size)).to_f64());
+                for r in 1..reduce_size {
+                    let val = A::acc_in((*a.add(o * reduce_size + r)).to_f64());
+                    if val > max_val {
+                        max_val = val;
+                    }
+                }
+                *out.add(o) = T::from_f64(max_val.into());
+            }
+        }
+        ReduceOp::Min => {
+            for o in 0..outer_size {
+                let mut min_val = A::acc_in((*a.add(o * reduce_size)).to_f64());
+                for r in 1..reduce_size {
+                    let val = A::acc_in((*a.add(o * reduce_size + r)).to_f64());
+                    if val < min_val {
+                        min_val = val;
+                    }
+                }
+                *out.add(o) = T::from_f64(min_val.into());
+            }
+        }
+        ReduceOp::Prod => {
+            for o in 0..outer_size {
+                let mut prod = A::ONE;
+                for r in 0..reduce_size {
+                    prod = prod.acc_mul(A::acc_in((*a.add(o * reduce_size + r)).to_f64()));
+                }
+                *out.add(o) = T::from_f64(prod.into());
+            }
+        }
+        ReduceOp::All | ReduceOp::Any => {
+            // Boolean reductions don't benefit from higher precision accumulation
+            reduce_kernel(op, a, out, reduce_size, outer_size);
+        }
+    }
+}
+
+/// Reduce kernel with f32 accumulation (convenience wrapper)
+#[inline]
+unsafe fn reduce_kernel_f32_acc<T: Element>(
+    op: ReduceOp,
+    a: *const T,
+    out: *mut T,
+    reduce_size: usize,
+    outer_size: usize,
+) {
+    reduce_kernel_acc::<T, f32>(op, a, out, reduce_size, outer_size)
+}
+
+/// Reduce kernel with f64 accumulation (convenience wrapper)
+#[inline]
+unsafe fn reduce_kernel_f64_acc<T: Element>(
+    op: ReduceOp,
+    a: *const T,
+    out: *mut T,
+    reduce_size: usize,
+    outer_size: usize,
+) {
+    reduce_kernel_acc::<T, f64>(op, a, out, reduce_size, outer_size)
+}
+
 // ============================================================================
 // Argmax (Index Reduction)
 // ============================================================================
@@ -1052,6 +1250,252 @@ pub unsafe fn softmax_kernel<T: Element>(
             *out.add(base + d) = T::from_f64(val * inv_sum);
         }
     }
+}
+
+// ============================================================================
+// Type Casting
+// ============================================================================
+
+/// Cast tensor data from one dtype to another.
+///
+/// Converts elements by going through f64 as an intermediate representation,
+/// which works for all numeric types via the Element trait.
+///
+/// # Safety
+/// - `src` must be valid pointer to `len` elements of `src_dtype`
+/// - `dst` must be valid pointer to `len` elements of `dst_dtype`
+/// - `src` and `dst` must not overlap
+#[inline]
+pub unsafe fn cast_kernel(
+    src: *const u8,
+    dst: *mut u8,
+    len: usize,
+    src_dtype: crate::dtype::DType,
+    dst_dtype: crate::dtype::DType,
+) -> crate::error::Result<()> {
+    use crate::dtype::DType;
+    use crate::error::Error;
+
+    // Helper macro to cast from a known source type to any destination type
+    macro_rules! cast_from {
+        ($src_ty:ty, $src_ptr:expr, $dst_ptr:expr, $len:expr, $dst_dtype:expr) => {{
+            let src_slice = std::slice::from_raw_parts($src_ptr as *const $src_ty, $len);
+            match $dst_dtype {
+                DType::F64 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut f64, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64();
+                    }
+                }
+                DType::F32 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut f32, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as f32;
+                    }
+                }
+                DType::F16 => {
+                    #[cfg(feature = "f16")]
+                    {
+                        let dst_slice =
+                            std::slice::from_raw_parts_mut($dst_ptr as *mut half::f16, $len);
+                        for i in 0..$len {
+                            dst_slice[i] = half::f16::from_f64(src_slice[i].to_f64());
+                        }
+                    }
+                    #[cfg(not(feature = "f16"))]
+                    {
+                        return Err(Error::UnsupportedDType {
+                            dtype: DType::F16,
+                            op: "cast",
+                        });
+                    }
+                }
+                DType::BF16 => {
+                    #[cfg(feature = "f16")]
+                    {
+                        let dst_slice =
+                            std::slice::from_raw_parts_mut($dst_ptr as *mut half::bf16, $len);
+                        for i in 0..$len {
+                            dst_slice[i] = half::bf16::from_f64(src_slice[i].to_f64());
+                        }
+                    }
+                    #[cfg(not(feature = "f16"))]
+                    {
+                        return Err(Error::UnsupportedDType {
+                            dtype: DType::BF16,
+                            op: "cast",
+                        });
+                    }
+                }
+                DType::FP8E4M3 => {
+                    #[cfg(feature = "fp8")]
+                    {
+                        let dst_slice = std::slice::from_raw_parts_mut(
+                            $dst_ptr as *mut crate::dtype::FP8E4M3,
+                            $len,
+                        );
+                        for i in 0..$len {
+                            dst_slice[i] =
+                                crate::dtype::FP8E4M3::from_f32(src_slice[i].to_f64() as f32);
+                        }
+                    }
+                    #[cfg(not(feature = "fp8"))]
+                    {
+                        return Err(Error::UnsupportedDType {
+                            dtype: DType::FP8E4M3,
+                            op: "cast",
+                        });
+                    }
+                }
+                DType::FP8E5M2 => {
+                    #[cfg(feature = "fp8")]
+                    {
+                        let dst_slice = std::slice::from_raw_parts_mut(
+                            $dst_ptr as *mut crate::dtype::FP8E5M2,
+                            $len,
+                        );
+                        for i in 0..$len {
+                            dst_slice[i] =
+                                crate::dtype::FP8E5M2::from_f32(src_slice[i].to_f64() as f32);
+                        }
+                    }
+                    #[cfg(not(feature = "fp8"))]
+                    {
+                        return Err(Error::UnsupportedDType {
+                            dtype: DType::FP8E5M2,
+                            op: "cast",
+                        });
+                    }
+                }
+                DType::I64 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut i64, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as i64;
+                    }
+                }
+                DType::I32 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut i32, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as i32;
+                    }
+                }
+                DType::I16 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut i16, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as i16;
+                    }
+                }
+                DType::I8 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut i8, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as i8;
+                    }
+                }
+                DType::U64 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut u64, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as u64;
+                    }
+                }
+                DType::U32 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut u32, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as u32;
+                    }
+                }
+                DType::U16 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut u16, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as u16;
+                    }
+                }
+                DType::U8 => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut u8, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = src_slice[i].to_f64() as u8;
+                    }
+                }
+                DType::Bool => {
+                    let dst_slice = std::slice::from_raw_parts_mut($dst_ptr as *mut u8, $len);
+                    for i in 0..$len {
+                        dst_slice[i] = if src_slice[i].to_f64() != 0.0 { 1 } else { 0 };
+                    }
+                }
+            }
+        }};
+    }
+
+    // Dispatch based on source dtype
+    match src_dtype {
+        DType::F64 => cast_from!(f64, src, dst, len, dst_dtype),
+        DType::F32 => cast_from!(f32, src, dst, len, dst_dtype),
+        DType::F16 => {
+            #[cfg(feature = "f16")]
+            {
+                cast_from!(half::f16, src, dst, len, dst_dtype)
+            }
+            #[cfg(not(feature = "f16"))]
+            {
+                return Err(Error::UnsupportedDType {
+                    dtype: DType::F16,
+                    op: "cast",
+                });
+            }
+        }
+        DType::BF16 => {
+            #[cfg(feature = "f16")]
+            {
+                cast_from!(half::bf16, src, dst, len, dst_dtype)
+            }
+            #[cfg(not(feature = "f16"))]
+            {
+                return Err(Error::UnsupportedDType {
+                    dtype: DType::BF16,
+                    op: "cast",
+                });
+            }
+        }
+        DType::FP8E4M3 => {
+            #[cfg(feature = "fp8")]
+            {
+                cast_from!(crate::dtype::FP8E4M3, src, dst, len, dst_dtype)
+            }
+            #[cfg(not(feature = "fp8"))]
+            {
+                return Err(Error::UnsupportedDType {
+                    dtype: DType::FP8E4M3,
+                    op: "cast",
+                });
+            }
+        }
+        DType::FP8E5M2 => {
+            #[cfg(feature = "fp8")]
+            {
+                cast_from!(crate::dtype::FP8E5M2, src, dst, len, dst_dtype)
+            }
+            #[cfg(not(feature = "fp8"))]
+            {
+                return Err(Error::UnsupportedDType {
+                    dtype: DType::FP8E5M2,
+                    op: "cast",
+                });
+            }
+        }
+        DType::I64 => cast_from!(i64, src, dst, len, dst_dtype),
+        DType::I32 => cast_from!(i32, src, dst, len, dst_dtype),
+        DType::I16 => cast_from!(i16, src, dst, len, dst_dtype),
+        DType::I8 => cast_from!(i8, src, dst, len, dst_dtype),
+        DType::U64 => cast_from!(u64, src, dst, len, dst_dtype),
+        DType::U32 => cast_from!(u32, src, dst, len, dst_dtype),
+        DType::U16 => cast_from!(u16, src, dst, len, dst_dtype),
+        DType::U8 => cast_from!(u8, src, dst, len, dst_dtype),
+        DType::Bool => {
+            // Bool is stored as u8 (0 or 1)
+            cast_from!(u8, src, dst, len, dst_dtype)
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

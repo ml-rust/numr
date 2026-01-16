@@ -1654,4 +1654,166 @@ mod tests {
             assert!((val.to_f32() - 2.5).abs() < 0.5);
         }
     }
+
+    // ===== Cast Operation Tests =====
+
+    #[test]
+    fn test_cast_f32_to_f64() {
+        use crate::dtype::DType;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.5f32, 2.5, 3.5, 4.5], &[2, 2], &device);
+        let b = client.cast(&a, DType::F64).unwrap();
+
+        assert_eq!(b.dtype(), DType::F64);
+        assert_eq!(b.shape(), &[2, 2]);
+        let result: Vec<f64> = b.to_vec();
+        assert_eq!(result, [1.5, 2.5, 3.5, 4.5]);
+    }
+
+    #[test]
+    fn test_cast_f64_to_i32() {
+        use crate::dtype::DType;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.9f64, -2.1, 3.5, -4.9], &[4], &device);
+        let b = client.cast(&a, DType::I32).unwrap();
+
+        assert_eq!(b.dtype(), DType::I32);
+        let result: Vec<i32> = b.to_vec();
+        // Truncation toward zero
+        assert_eq!(result, [1, -2, 3, -4]);
+    }
+
+    #[test]
+    fn test_cast_i32_to_f32() {
+        use crate::dtype::DType;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1i32, -2, 100, -50], &[4], &device);
+        let b = client.cast(&a, DType::F32).unwrap();
+
+        assert_eq!(b.dtype(), DType::F32);
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, -2.0, 100.0, -50.0]);
+    }
+
+    #[test]
+    fn test_cast_same_dtype_noop() {
+        use crate::dtype::DType;
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let b = client.cast(&a, DType::F32).unwrap();
+
+        assert_eq!(b.dtype(), DType::F32);
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [1.0, 2.0, 3.0]);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_cast_f32_to_fp8e4m3() {
+        use crate::dtype::{DType, FP8E4M3};
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 4.0, 8.0], &[4], &device);
+        let b = client.cast(&a, DType::FP8E4M3).unwrap();
+
+        assert_eq!(b.dtype(), DType::FP8E4M3);
+        let result: Vec<FP8E4M3> = b.to_vec();
+
+        // FP8 has limited precision, so check with tolerance
+        assert!((result[0].to_f32() - 1.0).abs() < 0.1);
+        assert!((result[1].to_f32() - 2.0).abs() < 0.2);
+        assert!((result[2].to_f32() - 4.0).abs() < 0.5);
+        assert!((result[3].to_f32() - 8.0).abs() < 1.0);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_cast_fp8e4m3_to_f32() {
+        use crate::dtype::{DType, FP8E4M3};
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Create FP8 tensor
+        let fp8_data: Vec<FP8E4M3> = vec![
+            FP8E4M3::from_f32(1.0),
+            FP8E4M3::from_f32(2.0),
+            FP8E4M3::from_f32(4.0),
+            FP8E4M3::from_f32(8.0),
+        ];
+        let a = Tensor::<CpuRuntime>::from_slice(&fp8_data, &[4], &device);
+        let b = client.cast(&a, DType::F32).unwrap();
+
+        assert_eq!(b.dtype(), DType::F32);
+        let result: Vec<f32> = b.to_vec();
+
+        // Check roundtrip - values should be close
+        assert!((result[0] - 1.0).abs() < 0.1);
+        assert!((result[1] - 2.0).abs() < 0.2);
+        assert!((result[2] - 4.0).abs() < 0.5);
+        assert!((result[3] - 8.0).abs() < 1.0);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_cast_f32_to_fp8e5m2() {
+        use crate::dtype::{DType, FP8E5M2};
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // E5M2 has larger range but less precision
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 100.0, 1000.0, 10000.0], &[4], &device);
+        let b = client.cast(&a, DType::FP8E5M2).unwrap();
+
+        assert_eq!(b.dtype(), DType::FP8E5M2);
+        let result: Vec<FP8E5M2> = b.to_vec();
+
+        // E5M2 can represent larger values but with less precision
+        assert!((result[0].to_f32() - 1.0).abs() < 0.5);
+        assert!((result[1].to_f32() - 100.0).abs() < 50.0);
+        assert!((result[2].to_f32() - 1000.0).abs() < 500.0);
+        assert!((result[3].to_f32() - 10000.0).abs() < 5000.0);
+    }
+
+    #[cfg(feature = "fp8")]
+    #[test]
+    fn test_cast_fp8e4m3_to_fp8e5m2() {
+        use crate::dtype::{DType, FP8E4M3, FP8E5M2};
+
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Create FP8E4M3 tensor
+        let fp8_data: Vec<FP8E4M3> = vec![
+            FP8E4M3::from_f32(1.0),
+            FP8E4M3::from_f32(2.0),
+            FP8E4M3::from_f32(4.0),
+        ];
+        let a = Tensor::<CpuRuntime>::from_slice(&fp8_data, &[3], &device);
+
+        // Cast E4M3 -> E5M2
+        let b = client.cast(&a, DType::FP8E5M2).unwrap();
+        assert_eq!(b.dtype(), DType::FP8E5M2);
+
+        let result: Vec<FP8E5M2> = b.to_vec();
+        // Values should be preserved (approximately)
+        assert!((result[0].to_f32() - 1.0).abs() < 0.5);
+        assert!((result[1].to_f32() - 2.0).abs() < 1.0);
+        assert!((result[2].to_f32() - 4.0).abs() < 2.0);
+    }
 }

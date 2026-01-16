@@ -40,10 +40,10 @@
 //! - Use F32 or F64 for best GPU performance
 
 use super::kernels::{
-    launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_compare_op, launch_gelu,
-    launch_layer_norm, launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32,
-    launch_scalar_op_f64, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
-    launch_unary_op,
+    AccumulationPrecision, launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_cast,
+    launch_compare_op, launch_gelu, launch_layer_norm, launch_reduce_dim_op, launch_relu,
+    launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid, launch_silu,
+    launch_softmax, launch_softmax_dim, launch_unary_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
@@ -490,16 +490,18 @@ fn native_scalar_op(
     Ok(out)
 }
 
-/// Launch a native reduce operation.
+/// Launch a native reduce operation with optional accumulation precision.
 fn native_reduce_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     op: &'static str,
     dims: &[usize],
     keepdim: bool,
+    precision: Option<AccumulationPrecision>,
 ) -> Result<Tensor<CudaRuntime>> {
     let dtype = a.dtype();
     let out_shape = reduce_output_shape(a.shape(), dims, keepdim);
+    let acc_precision = precision.unwrap_or_default();
 
     // For single-dimension reduction, use optimized kernel
     if dims.len() == 1 {
@@ -529,6 +531,7 @@ fn native_reduce_op(
                 outer_size,
                 reduce_size,
                 inner_size,
+                acc_precision,
             )?;
         }
 
@@ -773,7 +776,17 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim)
+        native_reduce_op(self, a, "sum", dims, keepdim, None)
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
     }
 
     fn mean(
@@ -794,7 +807,17 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim)
+        native_reduce_op(self, a, "max", dims, keepdim, None)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
     }
 
     fn min(
@@ -803,7 +826,17 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim)
+        native_reduce_op(self, a, "min", dims, keepdim, None)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
     }
 
     // ===== Activations (Native CUDA Kernels) =====
@@ -1135,6 +1168,37 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 outer_size,
                 reduce_size,
                 inner_size,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    // ===== Type Casting =====
+
+    fn cast(&self, a: &Tensor<CudaRuntime>, target_dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        let src_dtype = a.dtype();
+
+        // No-op if types match
+        if src_dtype == target_dtype {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(shape, target_dtype, &self.device);
+
+        unsafe {
+            launch_cast(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                src_dtype,
+                target_dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                numel,
             )?;
         }
 

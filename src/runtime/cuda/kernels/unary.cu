@@ -1,9 +1,10 @@
 // Unary element-wise CUDA kernels
 // Supports: neg, abs, sqrt, exp, log, sin, cos, tan, tanh, recip, square, floor, ceil, round
-// Types: f32, f64, f16, bf16
+// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+#include "dtype_traits.cuh"
 
 extern "C" {
 
@@ -480,6 +481,240 @@ __global__ void square_i64(const long long* a, long long* out, unsigned int n) {
     if (idx < n) {
         long long val = a[idx];
         out[idx] = val * val;
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Unary Operations
+// All computation done in F32, stored back as FP8
+// Uses Hopper PTX intrinsics on SM 8.9+, software emulation on SM 8.0+
+// ============================================================================
+
+__global__ void neg_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(-fa));
+    }
+}
+
+__global__ void abs_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fabsf(fa)));
+    }
+}
+
+__global__ void sqrt_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sqrtf(fa)));
+    }
+}
+
+__global__ void exp_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(expf(fa)));
+    }
+}
+
+__global__ void log_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(logf(fa)));
+    }
+}
+
+__global__ void sin_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sinf(fa)));
+    }
+}
+
+__global__ void cos_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(cosf(fa)));
+    }
+}
+
+__global__ void tan_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(tanf(fa)));
+    }
+}
+
+__global__ void tanh_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(tanhf(fa)));
+    }
+}
+
+__global__ void recip_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(1.0f / fa));
+    }
+}
+
+__global__ void square_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fa * fa));
+    }
+}
+
+__global__ void floor_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(floorf(fa)));
+    }
+}
+
+__global__ void ceil_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(ceilf(fa)));
+    }
+}
+
+__global__ void round_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(roundf(fa)));
+    }
+}
+
+// ============================================================================
+// FP8 E5M2 Unary Operations
+// ============================================================================
+
+__global__ void neg_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(-fa));
+    }
+}
+
+__global__ void abs_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fabsf(fa)));
+    }
+}
+
+__global__ void sqrt_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sqrtf(fa)));
+    }
+}
+
+__global__ void exp_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(expf(fa)));
+    }
+}
+
+__global__ void log_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(logf(fa)));
+    }
+}
+
+__global__ void sin_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sinf(fa)));
+    }
+}
+
+__global__ void cos_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(cosf(fa)));
+    }
+}
+
+__global__ void tan_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(tanf(fa)));
+    }
+}
+
+__global__ void tanh_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(tanhf(fa)));
+    }
+}
+
+__global__ void recip_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(1.0f / fa));
+    }
+}
+
+__global__ void square_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fa * fa));
+    }
+}
+
+__global__ void floor_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(floorf(fa)));
+    }
+}
+
+__global__ void ceil_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(ceilf(fa)));
+    }
+}
+
+__global__ void round_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(roundf(fa)));
     }
 }
 

@@ -1,9 +1,10 @@
 // Binary element-wise CUDA kernels
 // Supports: add, sub, mul, div, pow, max, min
-// Types: f32, f64, f16, bf16, i32, i64
+// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2, i32, i64
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+#include "dtype_traits.cuh"
 
 extern "C" {
 
@@ -430,6 +431,142 @@ __global__ void div_broadcast_f32(
     }
 
     out[idx] = a[a_offset] / b[b_offset];
+}
+
+// ============================================================================
+// FP8 E4M3 Binary Operations
+// All computation done in F32, stored back as FP8
+// Uses Hopper PTX intrinsics on SM 8.9+, software emulation on SM 8.0+
+// ============================================================================
+
+__global__ void add_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fa + fb));
+    }
+}
+
+__global__ void sub_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fa - fb));
+    }
+}
+
+__global__ void mul_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fa * fb));
+    }
+}
+
+__global__ void div_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fa / fb));
+    }
+}
+
+__global__ void pow_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(powf(fa, fb)));
+    }
+}
+
+__global__ void max_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fmaxf(fa, fb)));
+    }
+}
+
+__global__ void min_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e4m3_to_f32(a[idx].data);
+        float fb = fp8_e4m3_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fminf(fa, fb)));
+    }
+}
+
+// ============================================================================
+// FP8 E5M2 Binary Operations
+// ============================================================================
+
+__global__ void add_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fa + fb));
+    }
+}
+
+__global__ void sub_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fa - fb));
+    }
+}
+
+__global__ void mul_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fa * fb));
+    }
+}
+
+__global__ void div_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fa / fb));
+    }
+}
+
+__global__ void pow_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(powf(fa, fb)));
+    }
+}
+
+__global__ void max_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fmaxf(fa, fb)));
+    }
+}
+
+__global__ void min_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fa = fp8_e5m2_to_f32(a[idx].data);
+        float fb = fp8_e5m2_to_f32(b[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fminf(fa, fb)));
+    }
 }
 
 } // extern "C"

@@ -2,17 +2,64 @@
 //!
 //! Provides launchers for reduction operations (sum, max, min) that reduce
 //! tensors along specified dimensions.
+//!
+//! See [`AccumulationPrecision`] for documentation on accumulation precision options.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
 use super::loader::{
-    get_kernel_function, get_or_load_module, kernel_name, kernel_names, launch_config,
-    reduce_dim_launch_config, reduce_launch_config,
+    dtype_suffix, get_kernel_function, get_or_load_module, kernel_name, kernel_names,
+    launch_config, reduce_dim_launch_config, reduce_launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+// Re-export AccumulationPrecision from ops for convenience
+pub use crate::ops::AccumulationPrecision;
+
+/// Generate kernel name with accumulation precision suffix.
+///
+/// Kernel naming conventions:
+/// - F16/BF16: `{op}_{dtype}` (native), `{op}_{dtype}_fp32acc` (FP32), `{op}_{dtype}_fp64acc` (FP64)
+/// - FP8: `{op}_{dtype}` (FP32 default), `{op}_{dtype}_bf16acc` (BF16), `{op}_{dtype}_fp64acc` (FP64)
+/// - F32: `{op}_{dtype}` (native) or `{op}_{dtype}_fp64acc` (FP64)
+/// - F64/integers: `{op}_{dtype}` (always native, ignore acc_precision)
+fn reduce_kernel_name(base_op: &str, dtype: DType, acc_precision: AccumulationPrecision) -> String {
+    let suffix = dtype_suffix(dtype);
+
+    // Determine accumulation suffix based on dtype and requested precision
+    let acc_suffix = match dtype {
+        // F16/BF16: native by default, _fp32acc for FP32, _fp64acc for FP64
+        DType::F16 | DType::BF16 => match acc_precision {
+            AccumulationPrecision::FP32 => Some("_fp32acc"),
+            AccumulationPrecision::FP64 => Some("_fp64acc"),
+            // Native and BF16 both map to native accumulation for F16/BF16
+            AccumulationPrecision::Native | AccumulationPrecision::BF16 => None,
+        },
+        // FP8: FP32 by default (no suffix), _bf16acc for BF16, _fp64acc for FP64
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 | DType::FP8E5M2 => match acc_precision {
+            AccumulationPrecision::BF16 => Some("_bf16acc"),
+            AccumulationPrecision::FP64 => Some("_fp64acc"),
+            // Native and FP32 both map to FP32 accumulation for FP8
+            AccumulationPrecision::Native | AccumulationPrecision::FP32 => None,
+        },
+        // F32: native by default, _fp64acc for maximum precision
+        DType::F32 => match acc_precision {
+            AccumulationPrecision::FP64 => Some("_fp64acc"),
+            // Native, BF16, FP32 all use native f32 accumulation
+            _ => None,
+        },
+        // F64/integers: always native, ignore acc_precision
+        _ => None,
+    };
+
+    match acc_suffix {
+        Some(s) => format!("{}_{}{}", base_op, suffix, s),
+        None => format!("{}_{}", base_op, suffix),
+    }
+}
 
 /// Launch a global reduction kernel.
 ///
@@ -71,6 +118,14 @@ pub unsafe fn launch_reduce_op(
 /// dimensions. The tensor is conceptually reshaped to `[outer, reduce, inner]`
 /// and reduced along the middle dimension.
 ///
+/// # Accumulation Precision
+///
+/// For F16/BF16 dtypes, set `acc_precision` to control accumulation:
+/// - `AccumulationPrecision::Native`: Use native dtype (faster, default)
+/// - `AccumulationPrecision::FP32`: Use FP32 accumulation (more precise)
+///
+/// FP8 types always use FP32 accumulation regardless of this setting.
+///
 /// # Safety
 ///
 /// - All pointers must be valid device memory
@@ -89,6 +144,7 @@ pub unsafe fn launch_reduce_op(
 /// * `outer_size` - Product of dimensions before the reduction dimension
 /// * `reduce_size` - Size of the dimension being reduced
 /// * `inner_size` - Product of dimensions after the reduction dimension
+/// * `acc_precision` - Accumulation precision (affects F16/BF16 only)
 pub unsafe fn launch_reduce_dim_op(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -100,10 +156,12 @@ pub unsafe fn launch_reduce_dim_op(
     outer_size: usize,
     reduce_size: usize,
     inner_size: usize,
+    acc_precision: AccumulationPrecision,
 ) -> Result<()> {
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::REDUCE_MODULE)?;
-        let func_name = kernel_name(&kernel_names::reduce_dim_kernel(op), dtype);
+        let base_op = kernel_names::reduce_dim_kernel(op);
+        let func_name = reduce_kernel_name(&base_op, dtype, acc_precision);
         let func = get_kernel_function(&module, &func_name)?;
 
         let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
@@ -122,7 +180,7 @@ pub unsafe fn launch_reduce_dim_op(
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(
                 "CUDA reduce_dim kernel '{}' launch failed: {:?}",
-                op, e
+                func_name, e
             ))
         })?;
 

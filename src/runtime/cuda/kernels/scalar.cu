@@ -1,9 +1,13 @@
 // Scalar CUDA kernels (tensor-scalar operations)
 // Supports: add_scalar, sub_scalar, mul_scalar, div_scalar, pow_scalar
-// Types: f32, f64, f16, bf16, i32, i64
+// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2, i32, i64
+//
+// FP8 operations compute in FP32 and convert back to FP8 for storage.
+// Hopper (SM 8.9+) uses native PTX intrinsics for FP8 conversion.
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+#include "dtype_traits.cuh"
 
 extern "C" {
 
@@ -254,6 +258,97 @@ __global__ void div_scalar_i64(const long long* a, long long scalar, long long* 
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = a[idx] / scalar;
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Scalar Operations
+// Scalar is passed as float, operations compute in FP32
+// Hopper (SM 8.9+) uses native PTX intrinsics for conversion
+// ============================================================================
+
+__global__ void add_scalar_fp8_e4m3(const numr_fp8_e4m3* a, float scalar, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(af + scalar));
+    }
+}
+
+__global__ void sub_scalar_fp8_e4m3(const numr_fp8_e4m3* a, float scalar, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(af - scalar));
+    }
+}
+
+__global__ void mul_scalar_fp8_e4m3(const numr_fp8_e4m3* a, float scalar, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(af * scalar));
+    }
+}
+
+__global__ void div_scalar_fp8_e4m3(const numr_fp8_e4m3* a, float scalar, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(af / scalar));
+    }
+}
+
+__global__ void pow_scalar_fp8_e4m3(const numr_fp8_e4m3* a, float scalar, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(powf(af, scalar)));
+    }
+}
+
+// ============================================================================
+// FP8 E5M2 Scalar Operations
+// Same pattern as E4M3 but with E5M2 conversion functions
+// ============================================================================
+
+__global__ void add_scalar_fp8_e5m2(const numr_fp8_e5m2* a, float scalar, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(af + scalar));
+    }
+}
+
+__global__ void sub_scalar_fp8_e5m2(const numr_fp8_e5m2* a, float scalar, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(af - scalar));
+    }
+}
+
+__global__ void mul_scalar_fp8_e5m2(const numr_fp8_e5m2* a, float scalar, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(af * scalar));
+    }
+}
+
+__global__ void div_scalar_fp8_e5m2(const numr_fp8_e5m2* a, float scalar, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(af / scalar));
+    }
+}
+
+__global__ void pow_scalar_fp8_e5m2(const numr_fp8_e5m2* a, float scalar, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float af = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(powf(af, scalar)));
     }
 }
 

@@ -22,6 +22,43 @@ pub enum ReduceOp {
     Any,
 }
 
+/// Accumulation precision for reduction operations.
+///
+/// Controls the intermediate precision used during reduction for reduced-precision types:
+/// - F16/BF16: Can use Native, FP32, or FP64 (default: Native)
+/// - FP8: Can use BF16, FP32, or FP64 (default: FP32) - no native FP8 arithmetic
+/// - F32: Can use Native or FP64 (default: Native)
+/// - F64/integers: Always use native precision
+///
+/// # Memory vs Precision Trade-off
+///
+/// | Precision | Memory per element | Use case |
+/// |-----------|-------------------|----------|
+/// | Native | dtype size | Default, least memory |
+/// | BF16 | 2 bytes | FP8 with moderate precision |
+/// | FP32 | 4 bytes | Good numerical stability |
+/// | FP64 | 8 bytes | Maximum precision (math/science) |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AccumulationPrecision {
+    /// Use native dtype for accumulation.
+    /// Least memory usage, may have reduced precision for large reductions.
+    /// For FP8, this is equivalent to FP32 (no native FP8 arithmetic).
+    #[default]
+    Native,
+    /// Use BF16 for accumulation (for FP8 types).
+    /// Uses less shared memory than FP32 (2 bytes vs 4 bytes per element).
+    /// For F16/BF16, this is equivalent to Native or FP32 respectively.
+    BF16,
+    /// Use FP32 for accumulation.
+    /// Good numerical stability for large reductions.
+    /// Uses 4 bytes per element.
+    FP32,
+    /// Use FP64 for accumulation.
+    /// Maximum precision for math/science applications.
+    /// Uses 8 bytes per element.
+    FP64,
+}
+
 /// Compute output shape for reduction
 ///
 /// # Arguments

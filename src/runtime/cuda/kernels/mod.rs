@@ -18,6 +18,7 @@
 //! - `compare` - Comparison operations (eq, ne, lt, le, gt, ge)
 //! - `activation` - Activation functions (relu, sigmoid, softmax, silu, gelu)
 //! - `norm` - Normalization operations (rms_norm, layer_norm)
+//! - `cast` - Type casting operations
 //!
 //! # Kernel Files
 //!
@@ -28,9 +29,11 @@
 //! - `compare.cu` - Comparison operations
 //! - `activation.cu` - Activation functions
 //! - `norm.cu` - Normalization operations
+//! - `cast.cu` - Type casting operations
 
 mod activation;
 mod binary;
+mod cast;
 mod compare;
 mod loader;
 mod norm;
@@ -40,6 +43,7 @@ mod unary;
 
 pub use activation::*;
 pub use binary::*;
+pub use cast::*;
 pub use compare::*;
 pub use norm::*;
 pub use reduce::*;

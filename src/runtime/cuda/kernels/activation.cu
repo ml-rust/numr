@@ -1,9 +1,10 @@
 // Activation CUDA kernels
 // Supports: relu, sigmoid, softmax, silu, gelu
-// Types: f32, f64, f16, bf16
+// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+#include "dtype_traits.cuh"
 
 extern "C" {
 
@@ -519,6 +520,262 @@ __global__ void softmax_dim_bf16(
     float inv_sum = 1.0f / sum;
     for (unsigned int i = 0; i < dim_size; i++) {
         output[base + i * stride] = __float2bfloat16(__bfloat162float(output[base + i * stride]) * inv_sum);
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Activation Operations
+// All computation done in F32, stored back as FP8
+// Uses Hopper PTX intrinsics on SM 8.9+, software emulation on SM 8.0+
+// ============================================================================
+
+__global__ void relu_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fmaxf(0.0f, x)));
+    }
+}
+
+__global__ void sigmoid_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(1.0f / (1.0f + expf(-x))));
+    }
+}
+
+__global__ void silu_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(x / (1.0f + expf(-x))));
+    }
+}
+
+__global__ void gelu_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        float cdf = 0.5f * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(x * cdf));
+    }
+}
+
+// FP8 E4M3 Softmax: Uses FP32 accumulation internally for numerical stability
+__global__ void softmax_fp8_e4m3(
+    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
+    unsigned int outer_size, unsigned int dim_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    if (outer_idx >= outer_size) return;
+
+    extern __shared__ float shared[];
+    float* max_val = shared;
+    float* sum_exp = shared + blockDim.x;
+
+    const numr_fp8_e4m3* row_in = input + outer_idx * dim_size;
+    numr_fp8_e4m3* row_out = output + outer_idx * dim_size;
+
+    // Phase 1: Find max value (using FP32)
+    float thread_max = -INFINITY;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        thread_max = fmaxf(thread_max, fp8_e4m3_to_f32(row_in[i].data));
+    }
+    max_val[threadIdx.x] = thread_max;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            max_val[threadIdx.x] = fmaxf(max_val[threadIdx.x], max_val[threadIdx.x + s]);
+        }
+        __syncthreads();
+    }
+    float row_max = max_val[0];
+    __syncthreads();
+
+    // Phase 2: Compute exp(x - max) and sum (FP32 accumulation)
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        float val = expf(fp8_e4m3_to_f32(row_in[i].data) - row_max);
+        row_out[i] = numr_fp8_e4m3(f32_to_fp8_e4m3(val));
+        thread_sum += val;
+    }
+    sum_exp[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_exp[threadIdx.x] += sum_exp[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    float row_sum = sum_exp[0];
+    __syncthreads();
+
+    // Phase 3: Normalize
+    float inv_sum = 1.0f / row_sum;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        row_out[i] = numr_fp8_e4m3(f32_to_fp8_e4m3(fp8_e4m3_to_f32(row_out[i].data) * inv_sum));
+    }
+}
+
+__global__ void softmax_dim_fp8_e4m3(
+    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
+    unsigned int outer_size, unsigned int dim_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    unsigned int base = outer_idx * dim_size * inner_size + inner_idx;
+    unsigned int stride = inner_size;
+
+    // FP32 accumulation for stability
+    float max_val = -INFINITY;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        max_val = fmaxf(max_val, fp8_e4m3_to_f32(input[base + i * stride].data));
+    }
+
+    float sum = 0.0f;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        float val = expf(fp8_e4m3_to_f32(input[base + i * stride].data) - max_val);
+        output[base + i * stride] = numr_fp8_e4m3(f32_to_fp8_e4m3(val));
+        sum += val;
+    }
+
+    float inv_sum = 1.0f / sum;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        output[base + i * stride] = numr_fp8_e4m3(f32_to_fp8_e4m3(
+            fp8_e4m3_to_f32(output[base + i * stride].data) * inv_sum));
+    }
+}
+
+// ============================================================================
+// FP8 E5M2 Activation Operations
+// ============================================================================
+
+__global__ void relu_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fmaxf(0.0f, x)));
+    }
+}
+
+__global__ void sigmoid_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(1.0f / (1.0f + expf(-x))));
+    }
+}
+
+__global__ void silu_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(x / (1.0f + expf(-x))));
+    }
+}
+
+__global__ void gelu_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        float cdf = 0.5f * (1.0f + tanhf(0.7978845608f * (x + 0.044715f * x * x * x)));
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(x * cdf));
+    }
+}
+
+// FP8 E5M2 Softmax
+__global__ void softmax_fp8_e5m2(
+    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
+    unsigned int outer_size, unsigned int dim_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    if (outer_idx >= outer_size) return;
+
+    extern __shared__ float shared[];
+    float* max_val = shared;
+    float* sum_exp = shared + blockDim.x;
+
+    const numr_fp8_e5m2* row_in = input + outer_idx * dim_size;
+    numr_fp8_e5m2* row_out = output + outer_idx * dim_size;
+
+    // Phase 1: Find max value (using FP32)
+    float thread_max = -INFINITY;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        thread_max = fmaxf(thread_max, fp8_e5m2_to_f32(row_in[i].data));
+    }
+    max_val[threadIdx.x] = thread_max;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            max_val[threadIdx.x] = fmaxf(max_val[threadIdx.x], max_val[threadIdx.x + s]);
+        }
+        __syncthreads();
+    }
+    float row_max = max_val[0];
+    __syncthreads();
+
+    // Phase 2: Compute exp(x - max) and sum
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        float val = expf(fp8_e5m2_to_f32(row_in[i].data) - row_max);
+        row_out[i] = numr_fp8_e5m2(f32_to_fp8_e5m2(val));
+        thread_sum += val;
+    }
+    sum_exp[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_exp[threadIdx.x] += sum_exp[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+    float row_sum = sum_exp[0];
+    __syncthreads();
+
+    // Phase 3: Normalize
+    float inv_sum = 1.0f / row_sum;
+    for (unsigned int i = threadIdx.x; i < dim_size; i += blockDim.x) {
+        row_out[i] = numr_fp8_e5m2(f32_to_fp8_e5m2(fp8_e5m2_to_f32(row_out[i].data) * inv_sum));
+    }
+}
+
+__global__ void softmax_dim_fp8_e5m2(
+    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
+    unsigned int outer_size, unsigned int dim_size, unsigned int inner_size
+) {
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    unsigned int base = outer_idx * dim_size * inner_size + inner_idx;
+    unsigned int stride = inner_size;
+
+    // FP32 accumulation for stability
+    float max_val = -INFINITY;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        max_val = fmaxf(max_val, fp8_e5m2_to_f32(input[base + i * stride].data));
+    }
+
+    float sum = 0.0f;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        float val = expf(fp8_e5m2_to_f32(input[base + i * stride].data) - max_val);
+        output[base + i * stride] = numr_fp8_e5m2(f32_to_fp8_e5m2(val));
+        sum += val;
+    }
+
+    float inv_sum = 1.0f / sum;
+    for (unsigned int i = 0; i < dim_size; i++) {
+        output[base + i * stride] = numr_fp8_e5m2(f32_to_fp8_e5m2(
+            fp8_e5m2_to_f32(output[base + i * stride].data) * inv_sum));
     }
 }
 
