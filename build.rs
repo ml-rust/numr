@@ -18,10 +18,6 @@
 //! 2. Ensure nvcc is in your PATH, or set CUDA_PATH environment variable
 //! 3. Common paths: /usr/local/cuda, /opt/cuda, C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\vX.Y
 
-use std::env;
-use std::path::PathBuf;
-use std::process::Command;
-
 fn main() {
     // Only compile CUDA kernels when the cuda feature is enabled
     #[cfg(feature = "cuda")]
@@ -30,6 +26,10 @@ fn main() {
 
 #[cfg(feature = "cuda")]
 fn compile_cuda_kernels() {
+    use std::env;
+    use std::path::PathBuf;
+    use std::process::Command;
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let kernels_dir = PathBuf::from("src/runtime/cuda/kernels");
 
@@ -42,6 +42,7 @@ fn compile_cuda_kernels() {
         "compare.cu",
         "activation.cu",
         "norm.cu",
+        "cast.cu",
     ];
 
     // Find nvcc with helpful error message
@@ -154,6 +155,10 @@ fn compile_cuda_kernels() {
 
 #[cfg(feature = "cuda")]
 fn find_nvcc() -> Option<String> {
+    use std::env;
+    use std::path::PathBuf;
+    use std::process::Command;
+
     // Check CUDA_PATH environment variable first
     if let Ok(cuda_path) = env::var("CUDA_PATH") {
         let nvcc = PathBuf::from(&cuda_path).join("bin").join("nvcc");
