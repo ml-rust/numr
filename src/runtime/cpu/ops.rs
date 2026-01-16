@@ -11,7 +11,8 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps, UnaryOp, normalize_softmax_dim,
+    BinaryOp, CompareOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps, UnaryOp,
+    normalize_softmax_dim,
 };
 use crate::tensor::Tensor;
 
@@ -387,26 +388,26 @@ impl ScalarOps<CpuRuntime> for CpuClient {
 
 impl CompareOps<CpuRuntime> for CpuClient {
     fn eq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Eq, a, b, "eq")
+        compare_op_impl(self, CompareOp::Eq, a, b, "eq")
     }
 
     fn ne(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Ne, a, b, "ne")
+        compare_op_impl(self, CompareOp::Ne, a, b, "ne")
     }
 
     fn lt(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Lt, a, b, "lt")
+        compare_op_impl(self, CompareOp::Lt, a, b, "lt")
     }
 
     fn le(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Le, a, b, "le")
+        compare_op_impl(self, CompareOp::Le, a, b, "le")
     }
 
     fn gt(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Gt, a, b, "gt")
+        compare_op_impl(self, CompareOp::Gt, a, b, "gt")
     }
 
     fn ge(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        compare_op_impl(self, kernels::CompareOp::Ge, a, b, "ge")
+        compare_op_impl(self, CompareOp::Ge, a, b, "ge")
     }
 }

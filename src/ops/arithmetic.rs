@@ -91,6 +91,23 @@ pub enum UnaryOp {
     Round,
 }
 
+/// Comparison operation kind
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CompareOp {
+    /// Equal: a == b
+    Eq,
+    /// Not equal: a != b
+    Ne,
+    /// Less than: a < b
+    Lt,
+    /// Less than or equal: a <= b
+    Le,
+    /// Greater than: a > b
+    Gt,
+    /// Greater than or equal: a >= b
+    Ge,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -6,7 +6,9 @@
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
-use crate::ops::{BinaryOp, Kernel, ReduceOp, UnaryOp, broadcast_shape, reduce_output_shape};
+use crate::ops::{
+    BinaryOp, CompareOp, Kernel, ReduceOp, UnaryOp, broadcast_shape, reduce_output_shape,
+};
 use crate::tensor::Tensor;
 
 // ============================================================================
@@ -272,7 +274,7 @@ pub(super) fn scalar_op_impl(
 
 pub(super) fn compare_op_impl(
     client: &CpuClient,
-    op: kernels::CompareOp,
+    op: CompareOp,
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
     op_name: &'static str,

@@ -6,7 +6,7 @@
 #![allow(unsafe_op_in_unsafe_fn)] // Kernels are already marked unsafe, inner unsafe is redundant
 
 use crate::dtype::Element;
-use crate::ops::{BinaryOp, ReduceOp, UnaryOp};
+use crate::ops::{BinaryOp, CompareOp, ReduceOp, UnaryOp};
 
 // ============================================================================
 // Binary Operations
@@ -542,23 +542,6 @@ pub unsafe fn scalar_op_kernel<T: Element>(
 // ============================================================================
 // Comparison Operations
 // ============================================================================
-
-/// Comparison operation kind
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum CompareOp {
-    /// Equal: a == b
-    Eq,
-    /// Not equal: a != b
-    Ne,
-    /// Less than: a < b
-    Lt,
-    /// Less than or equal: a <= b
-    Le,
-    /// Greater than: a > b
-    Gt,
-    /// Greater than or equal: a >= b
-    Ge,
-}
 
 /// Execute a comparison operation element-wise
 ///
