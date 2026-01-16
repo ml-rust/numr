@@ -3,14 +3,19 @@
 //! The CPU runtime uses standard heap allocation and provides a reference
 //! implementation for all tensor operations.
 //!
-//! # Current Limitations
+//! # Broadcasting
 //!
-//! - **Broadcasting**: Binary operations (add, sub, mul, div) currently require
-//!   operands to have identical shapes. NumPy-style broadcasting is not yet
-//!   implemented.
+//! NumPy-style broadcasting is fully supported for binary arithmetic operations
+//! (add, sub, mul, div, pow, max, min). Shapes are broadcast according to standard
+//! rules: dimensions are right-aligned and expanded where one operand has size 1.
 //!
-//! - **Non-contiguous tensors**: Operations automatically make non-contiguous
-//!   tensors contiguous before processing. This may incur a copy overhead.
+//! Comparison operations (eq, ne, lt, le, gt, ge) also support broadcasting.
+//!
+//! # Non-contiguous Tensors
+//!
+//! Operations handle non-contiguous tensors via strided memory access. For
+//! broadcasting, a strided kernel is used that correctly handles stride-0
+//! dimensions (where a single value is broadcast across the dimension).
 
 mod kernels;
 
@@ -722,33 +727,18 @@ fn validate_binary_dtypes(a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Res
     Ok(a.dtype())
 }
 
-/// Validate shapes for binary operations (broadcasting not yet implemented).
+/// Compute broadcast shape for binary operations.
+///
+/// Returns the output shape after broadcasting, or an error if shapes are incompatible.
 #[inline]
-fn validate_binary_shapes(
+fn compute_broadcast_shape(
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
-    op_name: &'static str,
 ) -> Result<Vec<usize>> {
-    let out_shape = broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
+    broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
         lhs: a.shape().to_vec(),
         rhs: b.shape().to_vec(),
-    })?;
-
-    // For now, require same shapes (no broadcasting in kernel)
-    if a.shape() != b.shape() || a.shape() != out_shape.as_slice() {
-        return Err(Error::NotImplemented {
-            feature: Box::leak(
-                format!(
-                    "broadcasting for {} (shapes {:?} and {:?})",
-                    op_name,
-                    a.shape(),
-                    b.shape()
-                )
-                .into_boxed_str(),
-            ),
-        });
-    }
-    Ok(out_shape)
+    })
 }
 
 fn binary_op_impl(
@@ -759,28 +749,64 @@ fn binary_op_impl(
     op_name: &'static str,
 ) -> Result<Tensor<CpuRuntime>> {
     let dtype = validate_binary_dtypes(a, b)?;
-    let out_shape = validate_binary_shapes(a, b, op_name)?;
+    let out_shape = compute_broadcast_shape(a, b)?;
 
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    // Create output tensor
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
-
-    let len = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let b_ptr = b_contig.storage().ptr();
     let out_ptr = out.storage().ptr();
 
-    dispatch_dtype!(dtype, T => {
-        unsafe {
-            <CpuClient as Kernel<CpuRuntime>>::binary_op::<T>(
-                client, op,
-                a_ptr as *const T,
-                b_ptr as *const T,
-                out_ptr as *mut T,
-                len,
-            );
-        }
-    }, op_name);
+    // Check if we can use the fast path (same shapes, both contiguous)
+    let same_shapes = a.shape() == b.shape() && a.shape() == out_shape.as_slice();
+    let both_contiguous = a.is_contiguous() && b.is_contiguous();
+
+    if same_shapes && both_contiguous {
+        // Fast path: no broadcasting needed, use contiguous kernel
+        let len = a.numel();
+        let a_ptr = a.storage().ptr();
+        let b_ptr = b.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                <CpuClient as Kernel<CpuRuntime>>::binary_op::<T>(
+                    client, op,
+                    a_ptr as *const T,
+                    b_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                );
+            }
+        }, op_name);
+    } else {
+        // Broadcasting path: use strided kernel
+        // Broadcast both inputs to output shape (zero-copy views with stride 0 for broadcast dims)
+        let a_broadcast = a.broadcast_to(&out_shape)?;
+        let b_broadcast = b.broadcast_to(&out_shape)?;
+
+        let a_ptr = a_broadcast.storage().ptr();
+        let b_ptr = b_broadcast.storage().ptr();
+
+        // Get strides from broadcast layouts
+        let a_strides: Vec<isize> = a_broadcast.layout().strides().to_vec();
+        let b_strides: Vec<isize> = b_broadcast.layout().strides().to_vec();
+        let a_offset = a_broadcast.layout().offset();
+        let b_offset = b_broadcast.layout().offset();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::binary_op_strided_kernel::<T>(
+                    op,
+                    a_ptr as *const T,
+                    b_ptr as *const T,
+                    out_ptr as *mut T,
+                    &out_shape,
+                    &a_strides,
+                    &b_strides,
+                    a_offset,
+                    b_offset,
+                );
+            }
+        }, op_name);
+    }
 
     Ok(out)
 }
@@ -851,42 +877,58 @@ fn compare_op_impl(
     op_name: &'static str,
 ) -> Result<Tensor<CpuRuntime>> {
     let dtype = validate_binary_dtypes(a, b)?;
-
-    // For now, require same shapes
-    if a.shape() != b.shape() {
-        return Err(Error::NotImplemented {
-            feature: Box::leak(
-                format!(
-                    "broadcasting for {} (shapes {:?} and {:?})",
-                    op_name,
-                    a.shape(),
-                    b.shape()
-                )
-                .into_boxed_str(),
-            ),
-        });
-    }
-
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
-
-    let len = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let b_ptr = b_contig.storage().ptr();
+    let out_shape = compute_broadcast_shape(a, b)?;
+    let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
     let out_ptr = out.storage().ptr();
 
-    dispatch_dtype!(dtype, T => {
-        unsafe {
-            kernels::compare_op_kernel::<T>(
-                op,
-                a_ptr as *const T,
-                b_ptr as *const T,
-                out_ptr as *mut T,
-                len,
-            );
-        }
-    }, op_name);
+    // Fast path for same shapes, both contiguous
+    let same_shapes = a.shape() == b.shape() && a.shape() == out_shape.as_slice();
+    let both_contiguous = a.is_contiguous() && b.is_contiguous();
+
+    if same_shapes && both_contiguous {
+        let len = a.numel();
+        let a_ptr = a.storage().ptr();
+        let b_ptr = b.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::compare_op_kernel::<T>(
+                    op,
+                    a_ptr as *const T,
+                    b_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                );
+            }
+        }, op_name);
+    } else {
+        // Broadcasting path: use strided kernel
+        let a_broadcast = a.broadcast_to(&out_shape)?;
+        let b_broadcast = b.broadcast_to(&out_shape)?;
+
+        let a_strides: Vec<isize> = a_broadcast.layout().strides().to_vec();
+        let b_strides: Vec<isize> = b_broadcast.layout().strides().to_vec();
+        let a_offset = a_broadcast.layout().offset();
+        let b_offset = b_broadcast.layout().offset();
+        let a_ptr = a_broadcast.storage().ptr();
+        let b_ptr = b_broadcast.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::compare_op_strided_kernel::<T>(
+                    op,
+                    a_ptr as *const T,
+                    b_ptr as *const T,
+                    out_ptr as *mut T,
+                    &out_shape,
+                    &a_strides,
+                    &b_strides,
+                    a_offset,
+                    b_offset,
+                );
+            }
+        }, op_name);
+    }
 
     Ok(out)
 }
@@ -1763,5 +1805,288 @@ mod tests {
 
         let result: Vec<i32> = c.to_vec();
         assert_eq!(result, [1, 0, 0, 0]);
+    }
+
+    // ===== Broadcasting Tests =====
+
+    #[test]
+    fn test_broadcast_scalar_to_vector() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [4] + [1] -> [4]
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32], &[1], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[4]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [11.0, 12.0, 13.0, 14.0]);
+    }
+
+    #[test]
+    fn test_broadcast_vector_to_matrix_row() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 3] + [3] -> [2, 3] (broadcast along rows)
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[2, 3],
+            &device,
+        );
+        let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0], &[3], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [11.0, 22.0, 33.0, 14.0, 25.0, 36.0]);
+    }
+
+    #[test]
+    fn test_broadcast_vector_to_matrix_col() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 3] + [2, 1] -> [2, 3] (broadcast along columns)
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[2, 3],
+            &device,
+        );
+        let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 100.0], &[2, 1], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [11.0, 12.0, 13.0, 104.0, 105.0, 106.0]);
+    }
+
+    #[test]
+    fn test_broadcast_both_directions() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [3, 1] + [1, 4] -> [3, 4]
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3, 1], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[1, 4], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[3, 4]);
+        let result: Vec<f32> = c.to_vec();
+        // Row 0: 1 + [10, 20, 30, 40] = [11, 21, 31, 41]
+        // Row 1: 2 + [10, 20, 30, 40] = [12, 22, 32, 42]
+        // Row 2: 3 + [10, 20, 30, 40] = [13, 23, 33, 43]
+        assert_eq!(
+            result,
+            [11.0, 21.0, 31.0, 41.0, 12.0, 22.0, 32.0, 42.0, 13.0, 23.0, 33.0, 43.0]
+        );
+    }
+
+    #[test]
+    fn test_broadcast_mul() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 3] * [1] -> [2, 3]
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
+            &[2, 3],
+            &device,
+        );
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device);
+
+        let c = client.mul(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [2.0, 4.0, 6.0, 8.0, 10.0, 12.0]);
+    }
+
+    #[test]
+    fn test_broadcast_sub() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 2] - [2] -> [2, 2]
+        let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[2, 2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+
+        let c = client.sub(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [9.0, 18.0, 29.0, 38.0]);
+    }
+
+    #[test]
+    fn test_broadcast_div() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [4] / [1] -> [4]
+        let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device);
+
+        let c = client.div(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[4]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [5.0, 10.0, 15.0, 20.0]);
+    }
+
+    #[test]
+    fn test_broadcast_3d() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 2, 3] + [3] -> [2, 2, 3]
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0],
+            &[2, 2, 3],
+            &device,
+        );
+        let b = Tensor::<CpuRuntime>::from_slice(&[100.0f32, 200.0, 300.0], &[3], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(
+            result,
+            [
+                101.0, 202.0, 303.0, 104.0, 205.0, 306.0, 107.0, 208.0, 309.0, 110.0, 211.0, 312.0
+            ]
+        );
+    }
+
+    #[test]
+    fn test_broadcast_pow() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [3] ^ [1] -> [3]
+        let a = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0, 4.0], &[3], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device);
+
+        let c = client.pow(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [4.0, 9.0, 16.0]);
+    }
+
+    #[test]
+    fn test_broadcast_maximum() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // max([2, 3], [3]) -> [2, 3]
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 5.0, 2.0, 4.0, 0.0, 6.0],
+            &[2, 3],
+            &device,
+        );
+        let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0, 3.0], &[3], &device);
+
+        let c = client.maximum(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [3.0, 5.0, 3.0, 4.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn test_broadcast_incompatible_shapes() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [3] + [4] -> Error (incompatible)
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+        let result = client.add(&a, &b);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_broadcast_i32() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 2] + [2] -> [2, 2] (integer type)
+        let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[2, 2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[10i32, 20], &[2], &device);
+
+        let c = client.add(&a, &b).unwrap();
+
+        assert_eq!(c.shape(), &[2, 2]);
+        let result: Vec<i32> = c.to_vec();
+        assert_eq!(result, [11, 22, 13, 24]);
+    }
+
+    // ========================================================================
+    // Comparison Broadcasting Tests
+    // ========================================================================
+
+    #[test]
+    fn test_broadcast_compare_scalar() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Compare [4] with scalar [1] -> [4]
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.5f32], &[1], &device);
+
+        // a > 2.5: [false, false, true, true] -> [0, 0, 1, 1]
+        let c = client.gt(&a, &b).unwrap();
+        assert_eq!(c.shape(), &[4]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [0.0, 0.0, 1.0, 1.0]);
+
+        // a <= 2.5: [true, true, false, false] -> [1, 1, 0, 0]
+        let c = client.le(&a, &b).unwrap();
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_broadcast_compare_matrix_row() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [2, 3] compared with [3] -> [2, 3]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0, 4.0], &[3], &device);
+
+        // a < b: row0: [1<2, 2<3, 3<4]=[T,T,T], row1: [4<2, 5<3, 6<4]=[F,F,F]
+        let c = client.lt(&a, &b).unwrap();
+        assert_eq!(c.shape(), &[2, 3]);
+        let result: Vec<f32> = c.to_vec();
+        assert_eq!(result, [1.0, 1.0, 1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_broadcast_compare_eq() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [3, 1] compared with [1, 3] -> [3, 3]
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3, 1], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device);
+
+        // Result is identity matrix (1s on diagonal)
+        let c = client.eq(&a, &b).unwrap();
+        assert_eq!(c.shape(), &[3, 3]);
+        let result: Vec<f32> = c.to_vec();
+        // Row 0: [1==1, 1==2, 1==3] = [1, 0, 0]
+        // Row 1: [2==1, 2==2, 2==3] = [0, 1, 0]
+        // Row 2: [3==1, 3==2, 3==3] = [0, 0, 1]
+        assert_eq!(result, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
     }
 }
