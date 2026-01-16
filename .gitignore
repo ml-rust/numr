@@ -29,6 +29,7 @@ Cargo.lock
 .env.local
 .env.*.local
 .envrc
+resource
 
 # OS-specific
 .DS_Store
