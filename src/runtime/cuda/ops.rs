@@ -40,20 +40,18 @@
 //! - Use F32 or F64 for best GPU performance
 
 use super::kernels::{
-    launch_binary_op, launch_compare_op, launch_reduce_dim_op, launch_relu,
-    launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid, launch_softmax, launch_softmax_dim,
-    launch_unary_op,
+    launch_binary_op, launch_compare_op, launch_gelu, launch_layer_norm, launch_reduce_dim_op,
+    launch_relu, launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid,
+    launch_silu, launch_softmax, launch_softmax_dim, launch_unary_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    matmul_output_shape, normalize_softmax_dim, reduce_output_shape, CompareOps, ReduceOp,
-    ScalarOps, TensorOps,
+    CompareOps, ReduceOp, ScalarOps, TensorOps, matmul_output_shape, normalize_softmax_dim,
+    reduce_output_shape,
 };
-use crate::runtime::fallback::{
-    compute_broadcast_shape, matmul_fallback, validate_binary_dtypes,
-};
+use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
 use cudarc::cublas::Gemm;
@@ -376,7 +374,12 @@ fn native_binary_op(
             "pow" => BinaryOp::Pow,
             "max" => BinaryOp::Max,
             "min" => BinaryOp::Min,
-            _ => return Err(Error::Internal(format!("Unsupported binary operation: {}", op))),
+            _ => {
+                return Err(Error::Internal(format!(
+                    "Unsupported binary operation: {}",
+                    op
+                )));
+            }
         };
         return binary_op_fallback(a, b, binary_op, &client.device, op);
     }
@@ -471,7 +474,12 @@ fn native_scalar_op(
                     "mul_scalar" => BinaryOp::Mul,
                     "div_scalar" => BinaryOp::Div,
                     "pow_scalar" => BinaryOp::Pow,
-                    _ => return Err(Error::Internal(format!("Unsupported scalar operation: {}", op))),
+                    _ => {
+                        return Err(Error::Internal(format!(
+                            "Unsupported scalar operation: {}",
+                            op
+                        )));
+                    }
                 };
                 return scalar_op_fallback(a, binary_op, scalar, &client.device, op);
             }
@@ -532,7 +540,12 @@ fn native_reduce_op(
         "sum" => ReduceOp::Sum,
         "max" => ReduceOp::Max,
         "min" => ReduceOp::Min,
-        _ => return Err(Error::Internal(format!("Unsupported reduce operation: {}", op))),
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unsupported reduce operation: {}",
+                op
+            )));
+        }
     };
     reduce_op_fallback(a, reduce_op, dims, keepdim, &client.device, op)
 }
@@ -563,7 +576,12 @@ fn native_compare_op(
             "le" => CompareOp::Le,
             "gt" => CompareOp::Gt,
             "ge" => CompareOp::Ge,
-            _ => return Err(Error::Internal(format!("Unsupported compare operation: {}", op))),
+            _ => {
+                return Err(Error::Internal(format!(
+                    "Unsupported compare operation: {}",
+                    op
+                )));
+            }
         };
         return compare_op_fallback(a, b, compare_op, &client.device, op);
     }
@@ -829,6 +847,46 @@ impl TensorOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn silu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_silu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn gelu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_gelu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
     fn softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
         let dtype = a.dtype();
         let ndim = a.ndim();
@@ -874,6 +932,125 @@ impl TensorOps<CudaRuntime> for CudaClient {
                     inner_size,
                 )?;
             }
+        }
+
+        Ok(out)
+    }
+
+    // ===== Normalization =====
+
+    fn rms_norm(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        weight: &Tensor<CudaRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: weight.dtype(),
+            });
+        }
+
+        // Weight must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
+
+        unsafe {
+            launch_rms_norm(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                input_contig.storage().ptr(),
+                weight_contig.storage().ptr(),
+                out.storage().ptr(),
+                batch_size,
+                hidden_size,
+                eps,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn layer_norm(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        weight: &Tensor<CudaRuntime>,
+        bias: &Tensor<CudaRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype || bias.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: if weight.dtype() != dtype {
+                    weight.dtype()
+                } else {
+                    bias.dtype()
+                },
+            });
+        }
+
+        // Weight and bias must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+        if bias.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: bias.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let bias_contig = ensure_contiguous(bias);
+        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
+
+        unsafe {
+            launch_layer_norm(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                input_contig.storage().ptr(),
+                weight_contig.storage().ptr(),
+                bias_contig.storage().ptr(),
+                out.storage().ptr(),
+                batch_size,
+                hidden_size,
+                eps,
+            )?;
         }
 
         Ok(out)
@@ -1026,5 +1203,103 @@ mod tests {
         assert_eq!(b.shape(), &[2]);
         let result: Vec<f32> = b.to_vec();
         assert_eq!(result, [6.0, 15.0]);
+    }
+
+    #[test]
+    fn test_cuda_tensor_silu() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        let a = Tensor::<CudaRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+        let b = client.silu(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        // SiLU(x) = x / (1 + exp(-x))
+        // SiLU(0) = 0
+        // SiLU(1) ≈ 0.731
+        // SiLU(-1) ≈ -0.269
+        assert!((result[2] - 0.0).abs() < 1e-5); // SiLU(0) = 0
+        assert!((result[3] - 0.7310586).abs() < 1e-4); // SiLU(1) ≈ 0.731
+        assert!((result[1] - (-0.2689414)).abs() < 1e-4); // SiLU(-1) ≈ -0.269
+    }
+
+    #[test]
+    fn test_cuda_tensor_gelu() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        let a = Tensor::<CudaRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+        let b = client.gelu(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        // GELU(0) = 0
+        // GELU is approximately x for large positive x
+        // GELU is approximately 0 for large negative x
+        assert!((result[2] - 0.0).abs() < 1e-5); // GELU(0) = 0
+        assert!((result[3] - 0.8413).abs() < 0.01); // GELU(1) ≈ 0.841
+        assert!((result[4] - 1.9545).abs() < 0.01); // GELU(2) ≈ 1.955
+    }
+
+    #[test]
+    fn test_cuda_tensor_rms_norm() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        // Input: 2 rows, 4 features each
+        let input = Tensor::<CudaRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0],
+            &[2, 4],
+            &device,
+        );
+        let weight = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device);
+
+        let out = client.rms_norm(&input, &weight, 1e-5).unwrap();
+        let result: Vec<f32> = out.to_vec();
+
+        // Row 1: [1, 2, 3, 4], RMS = sqrt((1+4+9+16)/4) = sqrt(30/4) = sqrt(7.5) ≈ 2.739
+        let rms1 = (30.0f32 / 4.0 + 1e-5).sqrt();
+        assert!((result[0] - 1.0 / rms1).abs() < 1e-3); // Wider tolerance for GPU
+        assert!((result[1] - 2.0 / rms1).abs() < 1e-3);
+        assert!((result[2] - 3.0 / rms1).abs() < 1e-3);
+        assert!((result[3] - 4.0 / rms1).abs() < 1e-3);
+
+        // Row 2: [2, 4, 6, 8]
+        let rms2 = (120.0f32 / 4.0 + 1e-5).sqrt();
+        assert!((result[4] - 2.0 / rms2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_cuda_tensor_layer_norm() {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        // Input: 2 rows, 4 features each
+        let input = Tensor::<CudaRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0],
+            &[2, 4],
+            &device,
+        );
+        let weight = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device);
+        let bias = Tensor::<CudaRuntime>::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4], &device);
+
+        let out = client.layer_norm(&input, &weight, &bias, 1e-5).unwrap();
+        let result: Vec<f32> = out.to_vec();
+
+        // Row 1: [1, 2, 3, 4], mean = 2.5, var = 1.25, std = 1.118
+        let mean1 = 2.5f32;
+        let var1 = ((1.0 - mean1).powi(2)
+            + (2.0 - mean1).powi(2)
+            + (3.0 - mean1).powi(2)
+            + (4.0 - mean1).powi(2))
+            / 4.0;
+        let std1 = (var1 + 1e-5).sqrt();
+        assert!((result[0] - (1.0 - mean1) / std1).abs() < 1e-3); // Wider tolerance for GPU
+        assert!((result[1] - (2.0 - mean1) / std1).abs() < 1e-3);
+        assert!((result[2] - (3.0 - mean1) / std1).abs() < 1e-3);
+        assert!((result[3] - (4.0 - mean1) / std1).abs() < 1e-3);
+
+        // Verify normalized outputs sum to approximately 0 (zero-centered)
+        let row1_sum: f32 = result[0..4].iter().sum();
+        assert!(row1_sum.abs() < 1e-3);
     }
 }
