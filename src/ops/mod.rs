@@ -340,8 +340,50 @@ pub trait TensorOps<R: Runtime> {
     /// Sigmoid: 1 / (1 + e^(-a))
     fn sigmoid(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// SiLU (Swish): a * sigmoid(a) = a / (1 + e^(-a))
+    ///
+    /// Used in LLaMA, Mistral, and other modern transformer architectures.
+    fn silu(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// GELU (Gaussian Error Linear Unit): 0.5 * a * (1 + tanh(sqrt(2/pi) * (a + 0.044715 * a^3)))
+    ///
+    /// Uses the tanh approximation. Used in GPT, BERT, and other transformer architectures.
+    fn gelu(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
     /// Softmax along a dimension
     fn softmax(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>>;
+
+    // ===== Normalization =====
+
+    /// RMS Normalization: output = input * rsqrt(mean(input^2) + eps) * weight
+    ///
+    /// RMSNorm is used in LLaMA and other modern transformer architectures.
+    /// It normalizes over the last dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape [..., hidden_size]
+    /// * `weight` - Weight tensor of shape [hidden_size]
+    /// * `eps` - Small constant for numerical stability (typically 1e-5 or 1e-6)
+    fn rms_norm(&self, input: &Tensor<R>, weight: &Tensor<R>, eps: f32) -> Result<Tensor<R>>;
+
+    /// Layer Normalization: output = (input - mean) / sqrt(variance + eps) * weight + bias
+    ///
+    /// LayerNorm normalizes across the last dimension for each batch element.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape [..., hidden_size]
+    /// * `weight` - Weight (gamma) tensor of shape [hidden_size]
+    /// * `bias` - Bias (beta) tensor of shape [hidden_size]
+    /// * `eps` - Small constant for numerical stability (typically 1e-5)
+    fn layer_norm(
+        &self,
+        input: &Tensor<R>,
+        weight: &Tensor<R>,
+        bias: &Tensor<R>,
+        eps: f32,
+    ) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations

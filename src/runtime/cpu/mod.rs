@@ -572,6 +572,101 @@ mod tests {
     }
 
     #[test]
+    fn test_tensor_silu() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+        let b = client.silu(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        // SiLU(x) = x / (1 + exp(-x))
+        assert!((result[2] - 0.0).abs() < 1e-5); // SiLU(0) = 0
+        assert!((result[3] - 0.7310586).abs() < 1e-4); // SiLU(1) ≈ 0.731
+        assert!((result[1] - (-0.2689414)).abs() < 1e-4); // SiLU(-1) ≈ -0.269
+    }
+
+    #[test]
+    fn test_tensor_gelu() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+        let b = client.gelu(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        // GELU(0) = 0
+        assert!((result[2] - 0.0).abs() < 1e-5); // GELU(0) = 0
+        assert!((result[3] - 0.8413).abs() < 0.01); // GELU(1) ≈ 0.841
+        assert!((result[4] - 1.9545).abs() < 0.01); // GELU(2) ≈ 1.955
+    }
+
+    #[test]
+    fn test_tensor_rms_norm() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Input: 2 rows, 4 features each
+        let input = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0],
+            &[2, 4],
+            &device,
+        );
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device);
+
+        let out = client.rms_norm(&input, &weight, 1e-5).unwrap();
+        let result: Vec<f32> = out.to_vec();
+
+        // Row 1: [1, 2, 3, 4], RMS = sqrt((1+4+9+16)/4) = sqrt(30/4) = sqrt(7.5) ≈ 2.739
+        // Normalized: [0.365, 0.730, 1.095, 1.460]
+        let rms1 = (30.0f32 / 4.0 + 1e-5).sqrt();
+        assert!((result[0] - 1.0 / rms1).abs() < 1e-4);
+        assert!((result[1] - 2.0 / rms1).abs() < 1e-4);
+        assert!((result[2] - 3.0 / rms1).abs() < 1e-4);
+        assert!((result[3] - 4.0 / rms1).abs() < 1e-4);
+
+        // Row 2: [2, 4, 6, 8], values are 2x row 1, so RMS is also 2x
+        let rms2 = (120.0f32 / 4.0 + 1e-5).sqrt();
+        assert!((result[4] - 2.0 / rms2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_tensor_layer_norm() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Input: 2 rows, 4 features each
+        let input = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0, 2.0, 4.0, 6.0, 8.0],
+            &[2, 4],
+            &device,
+        );
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device);
+        let bias = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4], &device);
+
+        let out = client.layer_norm(&input, &weight, &bias, 1e-5).unwrap();
+        let result: Vec<f32> = out.to_vec();
+
+        // Row 1: [1, 2, 3, 4], mean = 2.5, var = 1.25, std = 1.118
+        // Normalized: (x - mean) / std = [-1.342, -0.447, 0.447, 1.342]
+        let mean1 = 2.5f32;
+        let var1 = ((1.0 - mean1).powi(2)
+            + (2.0 - mean1).powi(2)
+            + (3.0 - mean1).powi(2)
+            + (4.0 - mean1).powi(2))
+            / 4.0;
+        let std1 = (var1 + 1e-5).sqrt();
+        assert!((result[0] - (1.0 - mean1) / std1).abs() < 1e-4);
+        assert!((result[1] - (2.0 - mean1) / std1).abs() < 1e-4);
+        assert!((result[2] - (3.0 - mean1) / std1).abs() < 1e-4);
+        assert!((result[3] - (4.0 - mean1) / std1).abs() < 1e-4);
+
+        // Verify normalized outputs sum to approximately 0 (zero-centered)
+        let row1_sum: f32 = result[0..4].iter().sum();
+        assert!(row1_sum.abs() < 1e-4);
+    }
+
+    #[test]
     fn test_tensor_softmax_last_dim() {
         let device = CpuDevice::new();
         let client = CpuRuntime::default_client(&device);

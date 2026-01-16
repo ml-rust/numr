@@ -345,6 +345,8 @@ pub(super) fn compare_op_impl(
 pub(super) enum ActivationOp {
     ReLU,
     Sigmoid,
+    SiLU,
+    GELU,
 }
 
 /// Helper for activation operations (relu, sigmoid)
@@ -371,6 +373,16 @@ pub(super) fn activation_op_impl(
                     len,
                 ),
                 ActivationOp::Sigmoid => kernels::sigmoid_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                ),
+                ActivationOp::SiLU => kernels::silu_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                ),
+                ActivationOp::GELU => kernels::gelu_kernel::<T>(
                     a_ptr as *const T,
                     out_ptr as *mut T,
                     len,
