@@ -10,16 +10,17 @@
 //! Host-Device memory transfers. This is acceptable for Phase 2; custom CUDA
 //! kernels will be implemented in future phases for better performance.
 
-#![allow(unreachable_code)] // dispatch_dtype! macro uses early returns in all branches
-
 use super::{CudaClient, CudaRuntime};
-use crate::dtype::{DType, Element};
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOp, CompareOps, ReduceOp, ScalarOps, TensorOps, UnaryOp, broadcast_shape,
-    matmul_output_shape, reduce_output_shape,
+    BinaryOp, CompareOp, CompareOps, ReduceOp, ScalarOps, TensorOps, UnaryOp, matmul_output_shape,
 };
-use crate::runtime::{Runtime, cpu};
+use crate::runtime::fallback::{
+    activation_fallback, binary_op_fallback, compare_op_fallback, matmul_fallback,
+    reduce_op_fallback, scalar_op_fallback, softmax_fallback, unary_op_fallback,
+    validate_binary_dtypes,
+};
 use crate::tensor::Tensor;
 
 use cudarc::cublas::Gemm;
@@ -29,142 +30,8 @@ use cudarc::cublas::sys::{cublasOperation_t, cublasSgemmStridedBatched};
 use cudarc::cublas::sys::{cublasComputeType_t, cublasGemmEx, cudaDataType_t};
 
 // ============================================================================
-// DType Dispatch Macro
-// ============================================================================
-
-/// Macro for dtype dispatch to typed operations
-#[allow(unused_macros)] // Macro used within this module
-macro_rules! dispatch_dtype {
-    ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
-        match $dtype {
-            DType::F64 => {
-                type $T = f64;
-                $body
-            }
-            DType::F32 => {
-                type $T = f32;
-                $body
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 => {
-                type $T = half::f16;
-                $body
-            }
-            #[cfg(feature = "f16")]
-            DType::BF16 => {
-                type $T = half::bf16;
-                $body
-            }
-            DType::I64 => {
-                type $T = i64;
-                $body
-            }
-            DType::I32 => {
-                type $T = i32;
-                $body
-            }
-            DType::I16 => {
-                type $T = i16;
-                $body
-            }
-            DType::I8 => {
-                type $T = i8;
-                $body
-            }
-            DType::U64 => {
-                type $T = u64;
-                $body
-            }
-            DType::U32 => {
-                type $T = u32;
-                $body
-            }
-            DType::U16 => {
-                type $T = u16;
-                $body
-            }
-            DType::U8 => {
-                type $T = u8;
-                $body
-            }
-            #[cfg(not(feature = "f16"))]
-            DType::F16 | DType::BF16 => {
-                return Err(Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $error_op,
-                })
-            }
-            DType::Bool => {
-                return Err(Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $error_op,
-                })
-            }
-        }
-    };
-}
-
-// ============================================================================
 // Helper Functions
 // ============================================================================
-
-/// CPU fallback context for operations not yet implemented in CUDA.
-///
-/// This struct holds the CPU device and client needed for fallback operations.
-/// Using a struct avoids the repeated `cpu::CpuDevice::new()` and
-/// `cpu::CpuRuntime::default_client()` boilerplate in every fallback function.
-struct CpuFallback {
-    device: cpu::CpuDevice,
-    client: cpu::CpuClient,
-}
-
-impl CpuFallback {
-    /// Create a new CPU fallback context.
-    #[inline]
-    fn new() -> Self {
-        let device = cpu::CpuDevice::new();
-        let client = cpu::CpuRuntime::default_client(&device);
-        Self { device, client }
-    }
-
-    /// Create a CPU tensor from GPU tensor data.
-    #[inline]
-    fn tensor_from_gpu<T: Element>(&self, tensor: &Tensor<CudaRuntime>) -> Tensor<cpu::CpuRuntime> {
-        let data: Vec<T> = tensor.to_vec();
-        Tensor::<cpu::CpuRuntime>::from_slice(&data, tensor.shape(), &self.device)
-    }
-}
-
-/// Create a GPU tensor from CPU data.
-#[inline]
-fn tensor_from_cpu<T: Element>(
-    data: &[T],
-    shape: &[usize],
-    device: &super::CudaDevice,
-) -> Tensor<CudaRuntime> {
-    Tensor::<CudaRuntime>::from_slice(data, shape, device)
-}
-
-/// Validate that two tensors have matching dtypes for binary operations.
-#[inline]
-fn validate_binary_dtypes(a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<DType> {
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    Ok(a.dtype())
-}
-
-/// Compute broadcast shape for binary operations.
-#[inline]
-fn compute_broadcast_shape(a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Vec<usize>> {
-    broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
-        lhs: a.shape().to_vec(),
-        rhs: b.shape().to_vec(),
-    })
-}
 
 /// Ensure a tensor is contiguous.
 #[inline]
@@ -174,167 +41,6 @@ fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
     } else {
         tensor.contiguous()
     }
-}
-
-// ============================================================================
-// CPU Fallback Operations
-// ============================================================================
-
-/// Perform a binary operation using CPU fallback.
-fn binary_op_cpu_fallback(
-    client: &CudaClient,
-    op: BinaryOp,
-    a: &Tensor<CudaRuntime>,
-    b: &Tensor<CudaRuntime>,
-    op_name: &'static str,
-) -> Result<Tensor<CudaRuntime>> {
-    let dtype = validate_binary_dtypes(a, b)?;
-    let out_shape = compute_broadcast_shape(a, b)?;
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-        let b_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(b);
-
-        let result_cpu = match op {
-            BinaryOp::Add => cpu.client.add(&a_cpu, &b_cpu)?,
-            BinaryOp::Sub => cpu.client.sub(&a_cpu, &b_cpu)?,
-            BinaryOp::Mul => cpu.client.mul(&a_cpu, &b_cpu)?,
-            BinaryOp::Div => cpu.client.div(&a_cpu, &b_cpu)?,
-            BinaryOp::Pow => cpu.client.pow(&a_cpu, &b_cpu)?,
-            BinaryOp::Max => cpu.client.maximum(&a_cpu, &b_cpu)?,
-            BinaryOp::Min => cpu.client.minimum(&a_cpu, &b_cpu)?,
-        };
-
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, &out_shape, &client.device));
-    }, op_name);
-
-    unreachable!()
-}
-
-/// Perform a unary operation using CPU fallback.
-fn unary_op_cpu_fallback(
-    client: &CudaClient,
-    op: UnaryOp,
-    a: &Tensor<CudaRuntime>,
-    op_name: &'static str,
-) -> Result<Tensor<CudaRuntime>> {
-    let dtype = a.dtype();
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-
-        let result_cpu = match op {
-            UnaryOp::Neg => cpu.client.neg(&a_cpu)?,
-            UnaryOp::Abs => cpu.client.abs(&a_cpu)?,
-            UnaryOp::Sqrt => cpu.client.sqrt(&a_cpu)?,
-            UnaryOp::Exp => cpu.client.exp(&a_cpu)?,
-            UnaryOp::Log => cpu.client.log(&a_cpu)?,
-            UnaryOp::Sin => cpu.client.sin(&a_cpu)?,
-            UnaryOp::Cos => cpu.client.cos(&a_cpu)?,
-            UnaryOp::Tan => cpu.client.tan(&a_cpu)?,
-            UnaryOp::Tanh => cpu.client.tanh(&a_cpu)?,
-            UnaryOp::Recip => cpu.client.recip(&a_cpu)?,
-            UnaryOp::Square => cpu.client.square(&a_cpu)?,
-            UnaryOp::Floor => cpu.client.floor(&a_cpu)?,
-            UnaryOp::Ceil => cpu.client.ceil(&a_cpu)?,
-            UnaryOp::Round => cpu.client.round(&a_cpu)?,
-        };
-
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, a.shape(), &client.device));
-    }, op_name);
-
-    unreachable!()
-}
-
-/// Perform a scalar operation using CPU fallback.
-fn scalar_op_cpu_fallback(
-    client: &CudaClient,
-    op: BinaryOp,
-    a: &Tensor<CudaRuntime>,
-    scalar: f64,
-    op_name: &'static str,
-) -> Result<Tensor<CudaRuntime>> {
-    let dtype = a.dtype();
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-
-        let result_cpu = match op {
-            BinaryOp::Add => cpu.client.add_scalar(&a_cpu, scalar)?,
-            BinaryOp::Sub => cpu.client.sub_scalar(&a_cpu, scalar)?,
-            BinaryOp::Mul => cpu.client.mul_scalar(&a_cpu, scalar)?,
-            BinaryOp::Div => cpu.client.div_scalar(&a_cpu, scalar)?,
-            BinaryOp::Pow => cpu.client.pow_scalar(&a_cpu, scalar)?,
-            _ => return Err(Error::UnsupportedDType { dtype, op: op_name }),
-        };
-
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, a.shape(), &client.device));
-    }, op_name);
-
-    unreachable!()
-}
-
-/// Perform a reduce operation using CPU fallback.
-fn reduce_cpu_fallback(
-    client: &CudaClient,
-    op: ReduceOp,
-    a: &Tensor<CudaRuntime>,
-    dims: &[usize],
-    keepdim: bool,
-    op_name: &'static str,
-) -> Result<Tensor<CudaRuntime>> {
-    let dtype = a.dtype();
-    let out_shape = reduce_output_shape(a.shape(), dims, keepdim);
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-
-        let result_cpu = match op {
-            ReduceOp::Sum => cpu.client.sum(&a_cpu, dims, keepdim)?,
-            ReduceOp::Mean => cpu.client.mean(&a_cpu, dims, keepdim)?,
-            ReduceOp::Max => cpu.client.max(&a_cpu, dims, keepdim)?,
-            ReduceOp::Min => cpu.client.min(&a_cpu, dims, keepdim)?,
-            _ => return Err(Error::UnsupportedDType { dtype, op: op_name }),
-        };
-
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, &out_shape, &client.device));
-    }, op_name);
-
-    unreachable!()
-}
-
-/// Perform an activation operation using CPU fallback.
-///
-/// This is a generic helper for activation functions (relu, sigmoid, etc.)
-/// that share the same pattern: copy to CPU, apply function, copy back.
-fn activation_cpu_fallback<F>(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    op_name: &'static str,
-    op_fn: F,
-) -> Result<Tensor<CudaRuntime>>
-where
-    F: Fn(&CpuFallback, &Tensor<cpu::CpuRuntime>) -> Result<Tensor<cpu::CpuRuntime>>,
-{
-    let dtype = a.dtype();
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-        let result_cpu = op_fn(&cpu, &a_cpu)?;
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, a.shape(), &client.device));
-    }, op_name);
-
-    unreachable!()
 }
 
 // ============================================================================
@@ -634,83 +340,23 @@ impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Binary Operations (CPU Fallback) =====
 
     fn add(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Add, a, b, "add")
+        binary_op_fallback(a, b, BinaryOp::Add, &self.device, "add")
     }
 
     fn sub(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Sub, a, b, "sub")
+        binary_op_fallback(a, b, BinaryOp::Sub, &self.device, "sub")
     }
 
     fn mul(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Mul, a, b, "mul")
+        binary_op_fallback(a, b, BinaryOp::Mul, &self.device, "mul")
     }
 
     fn div(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Div, a, b, "div")
+        binary_op_fallback(a, b, BinaryOp::Div, &self.device, "div")
     }
-
-    // ===== Unary Operations (CPU Fallback) =====
-
-    fn neg(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Neg, a, "neg")
-    }
-
-    fn abs(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Abs, a, "abs")
-    }
-
-    fn sqrt(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Sqrt, a, "sqrt")
-    }
-
-    fn exp(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Exp, a, "exp")
-    }
-
-    fn log(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Log, a, "log")
-    }
-
-    fn sin(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Sin, a, "sin")
-    }
-
-    fn cos(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Cos, a, "cos")
-    }
-
-    fn tanh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Tanh, a, "tanh")
-    }
-
-    fn tan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Tan, a, "tan")
-    }
-
-    fn recip(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Recip, a, "recip")
-    }
-
-    fn square(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Square, a, "square")
-    }
-
-    fn floor(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Floor, a, "floor")
-    }
-
-    fn ceil(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Ceil, a, "ceil")
-    }
-
-    fn round(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        unary_op_cpu_fallback(self, UnaryOp::Round, a, "round")
-    }
-
-    // ===== Element-wise Binary (extended, CPU Fallback) =====
 
     fn pow(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Pow, a, b, "pow")
+        binary_op_fallback(a, b, BinaryOp::Pow, &self.device, "pow")
     }
 
     fn maximum(
@@ -718,7 +364,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Max, a, b, "maximum")
+        binary_op_fallback(a, b, BinaryOp::Max, &self.device, "maximum")
     }
 
     fn minimum(
@@ -726,7 +372,65 @@ impl TensorOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        binary_op_cpu_fallback(self, BinaryOp::Min, a, b, "minimum")
+        binary_op_fallback(a, b, BinaryOp::Min, &self.device, "minimum")
+    }
+
+    // ===== Unary Operations (CPU Fallback) =====
+
+    fn neg(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Neg, &self.device, "neg")
+    }
+
+    fn abs(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Abs, &self.device, "abs")
+    }
+
+    fn sqrt(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Sqrt, &self.device, "sqrt")
+    }
+
+    fn exp(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Exp, &self.device, "exp")
+    }
+
+    fn log(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Log, &self.device, "log")
+    }
+
+    fn sin(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Sin, &self.device, "sin")
+    }
+
+    fn cos(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Cos, &self.device, "cos")
+    }
+
+    fn tan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Tan, &self.device, "tan")
+    }
+
+    fn tanh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Tanh, &self.device, "tanh")
+    }
+
+    fn recip(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Recip, &self.device, "recip")
+    }
+
+    fn square(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Square, &self.device, "square")
+    }
+
+    fn floor(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Floor, &self.device, "floor")
+    }
+
+    fn ceil(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Ceil, &self.device, "ceil")
+    }
+
+    fn round(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        unary_op_fallback(a, UnaryOp::Round, &self.device, "round")
     }
 
     // ===== Matrix Operations (cuBLAS) =====
@@ -737,14 +441,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         // Validate dtypes match
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-
-        let dtype = a.dtype();
+        let dtype = validate_binary_dtypes(a, b)?;
 
         // Get matrix dimensions (last two dims)
         let a_shape = a.shape();
@@ -794,19 +491,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
             DType::F16 | DType::BF16 => matmul_half_cublas(self, a, b, m, k, n, dtype),
             _ => {
                 // Fallback to CPU for other dtypes
-                let cpu = CpuFallback::new();
-
-                dispatch_dtype!(dtype, T => {
-                    let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-                    let b_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(b);
-
-                    let result_cpu = cpu.client.matmul(&a_cpu, &b_cpu)?;
-                    let result_data: Vec<T> = result_cpu.to_vec();
-
-                    return Ok(tensor_from_cpu(&result_data, &out_shape, &self.device));
-                }, "matmul");
-
-                unreachable!()
+                matmul_fallback(a, b, &out_shape, &self.device, "matmul")
             }
         }
     }
@@ -819,7 +504,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_cpu_fallback(self, ReduceOp::Sum, a, dims, keepdim, "sum")
+        reduce_op_fallback(a, ReduceOp::Sum, dims, keepdim, &self.device, "sum")
     }
 
     fn mean(
@@ -828,7 +513,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_cpu_fallback(self, ReduceOp::Mean, a, dims, keepdim, "mean")
+        reduce_op_fallback(a, ReduceOp::Mean, dims, keepdim, &self.device, "mean")
     }
 
     fn max(
@@ -837,7 +522,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_cpu_fallback(self, ReduceOp::Max, a, dims, keepdim, "max")
+        reduce_op_fallback(a, ReduceOp::Max, dims, keepdim, &self.device, "max")
     }
 
     fn min(
@@ -846,31 +531,23 @@ impl TensorOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        reduce_cpu_fallback(self, ReduceOp::Min, a, dims, keepdim, "min")
+        reduce_op_fallback(a, ReduceOp::Min, dims, keepdim, &self.device, "min")
     }
 
     // ===== Activations (CPU Fallback) =====
 
     fn relu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        activation_cpu_fallback(self, a, "relu", |cpu, a_cpu| cpu.client.relu(a_cpu))
+        activation_fallback(a, &self.device, "relu", |client, a_cpu| client.relu(a_cpu))
     }
 
     fn sigmoid(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        activation_cpu_fallback(self, a, "sigmoid", |cpu, a_cpu| cpu.client.sigmoid(a_cpu))
+        activation_fallback(a, &self.device, "sigmoid", |client, a_cpu| {
+            client.sigmoid(a_cpu)
+        })
     }
 
     fn softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let cpu = CpuFallback::new();
-
-        dispatch_dtype!(dtype, T => {
-            let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-            let result_cpu = cpu.client.softmax(&a_cpu, dim)?;
-            let result_data: Vec<T> = result_cpu.to_vec();
-            return Ok(tensor_from_cpu(&result_data, a.shape(), &self.device));
-        }, "softmax");
-
-        unreachable!()
+        softmax_fallback(a, dim, &self.device, "softmax")
     }
 }
 
@@ -880,23 +557,23 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
 impl ScalarOps<CudaRuntime> for CudaClient {
     fn add_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_cpu_fallback(self, BinaryOp::Add, a, scalar, "add_scalar")
+        scalar_op_fallback(a, BinaryOp::Add, scalar, &self.device, "add_scalar")
     }
 
     fn sub_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_cpu_fallback(self, BinaryOp::Sub, a, scalar, "sub_scalar")
+        scalar_op_fallback(a, BinaryOp::Sub, scalar, &self.device, "sub_scalar")
     }
 
     fn mul_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_cpu_fallback(self, BinaryOp::Mul, a, scalar, "mul_scalar")
+        scalar_op_fallback(a, BinaryOp::Mul, scalar, &self.device, "mul_scalar")
     }
 
     fn div_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_cpu_fallback(self, BinaryOp::Div, a, scalar, "div_scalar")
+        scalar_op_fallback(a, BinaryOp::Div, scalar, &self.device, "div_scalar")
     }
 
     fn pow_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
-        scalar_op_cpu_fallback(self, BinaryOp::Pow, a, scalar, "pow_scalar")
+        scalar_op_fallback(a, BinaryOp::Pow, scalar, &self.device, "pow_scalar")
     }
 }
 
@@ -906,59 +583,28 @@ impl ScalarOps<CudaRuntime> for CudaClient {
 
 impl CompareOps<CudaRuntime> for CudaClient {
     fn eq(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "eq", a, b)
+        compare_op_fallback(a, b, CompareOp::Eq, &self.device, "eq")
     }
 
     fn ne(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "ne", a, b)
+        compare_op_fallback(a, b, CompareOp::Ne, &self.device, "ne")
     }
 
     fn lt(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "lt", a, b)
+        compare_op_fallback(a, b, CompareOp::Lt, &self.device, "lt")
     }
 
     fn le(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "le", a, b)
+        compare_op_fallback(a, b, CompareOp::Le, &self.device, "le")
     }
 
     fn gt(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "gt", a, b)
+        compare_op_fallback(a, b, CompareOp::Gt, &self.device, "gt")
     }
 
     fn ge(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        compare_op_cpu_fallback(self, "ge", a, b)
+        compare_op_fallback(a, b, CompareOp::Ge, &self.device, "ge")
     }
-}
-
-fn compare_op_cpu_fallback(
-    client: &CudaClient,
-    op_name: &'static str,
-    a: &Tensor<CudaRuntime>,
-    b: &Tensor<CudaRuntime>,
-) -> Result<Tensor<CudaRuntime>> {
-    let dtype = validate_binary_dtypes(a, b)?;
-    let out_shape = compute_broadcast_shape(a, b)?;
-    let cpu = CpuFallback::new();
-
-    dispatch_dtype!(dtype, T => {
-        let a_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(a);
-        let b_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T>(b);
-
-        let result_cpu = match op_name {
-            "eq" => cpu.client.eq(&a_cpu, &b_cpu)?,
-            "ne" => cpu.client.ne(&a_cpu, &b_cpu)?,
-            "lt" => cpu.client.lt(&a_cpu, &b_cpu)?,
-            "le" => cpu.client.le(&a_cpu, &b_cpu)?,
-            "gt" => cpu.client.gt(&a_cpu, &b_cpu)?,
-            "ge" => cpu.client.ge(&a_cpu, &b_cpu)?,
-            _ => return Err(Error::Internal(format!("Unknown compare op: {}", op_name))),
-        };
-
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(tensor_from_cpu(&result_data, &out_shape, &client.device));
-    }, op_name);
-
-    unreachable!()
 }
 
 // ============================================================================
@@ -968,6 +614,7 @@ fn compare_op_cpu_fallback(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::Runtime;
     use crate::runtime::cuda::CudaDevice;
 
     #[test]
