@@ -1,0 +1,51 @@
+[package]
+name = "numr"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A high-performance numerical computing library for Rust with GPU acceleration"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ml-rust/numr"
+keywords = ["tensor", "numerical", "gpu", "cuda", "scientific-computing"]
+categories = ["science", "mathematics", "algorithms"]
+
+[features]
+default = ["cpu", "rayon"]
+cpu = []
+cuda = ["dep:cudarc"]
+wgpu = ["dep:wgpu", "dep:pollster"]
+rayon = ["dep:rayon"]
+f16 = ["dep:half"]
+
+[dependencies]
+# Core
+thiserror = "2.0"
+smallvec = "1"
+bytemuck = { version = "1.24", features = ["derive"] }
+num-traits = "0.2"
+parking_lot = "0.12"
+
+# Optional: Parallelism
+rayon = { version = "1.11", optional = true }
+
+# Optional: Half-precision floats
+half = { version = "2.7", optional = true }
+
+# Optional: CUDA backend
+cudarc = { version = "0.18", optional = true }
+
+# Optional: WebGPU backend
+wgpu = { version = "28.0", optional = true }
+pollster = { version = "0.4", optional = true }
+
+[dev-dependencies]
+approx = "0.5"
+rand = "0.9"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1

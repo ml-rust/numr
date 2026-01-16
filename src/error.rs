@@ -1,0 +1,120 @@
+//! Error types for numr
+
+use crate::dtype::DType;
+use thiserror::Error;
+
+/// Result type alias using numr's Error
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// Errors that can occur in numr operations
+#[derive(Error, Debug)]
+pub enum Error {
+    /// Shape mismatch in an operation
+    #[error("Shape mismatch: expected {expected:?}, got {got:?}")]
+    ShapeMismatch {
+        /// Expected shape
+        expected: Vec<usize>,
+        /// Actual shape
+        got: Vec<usize>,
+    },
+
+    /// Shapes cannot be broadcast together
+    #[error("Cannot broadcast shapes {lhs:?} and {rhs:?}")]
+    BroadcastError {
+        /// Left-hand side shape
+        lhs: Vec<usize>,
+        /// Right-hand side shape
+        rhs: Vec<usize>,
+    },
+
+    /// Invalid dimension index
+    #[error("Invalid dimension {dim} for tensor with {ndim} dimensions")]
+    InvalidDimension {
+        /// The invalid dimension
+        dim: isize,
+        /// Number of dimensions
+        ndim: usize,
+    },
+
+    /// Unsupported dtype for an operation
+    #[error("Unsupported dtype {dtype:?} for operation '{op}'")]
+    UnsupportedDType {
+        /// The unsupported dtype
+        dtype: DType,
+        /// The operation name
+        op: &'static str,
+    },
+
+    /// DType mismatch between operands
+    #[error("DType mismatch: {lhs:?} vs {rhs:?}")]
+    DTypeMismatch {
+        /// Left-hand side dtype
+        lhs: DType,
+        /// Right-hand side dtype
+        rhs: DType,
+    },
+
+    /// Device mismatch between operands
+    #[error("Device mismatch: tensors must be on the same device")]
+    DeviceMismatch,
+
+    /// Out of memory
+    #[error("Out of memory: failed to allocate {size} bytes")]
+    OutOfMemory {
+        /// Requested size in bytes
+        size: usize,
+    },
+
+    /// Index out of bounds
+    #[error("Index {index} out of bounds for dimension of size {size}")]
+    IndexOutOfBounds {
+        /// The invalid index
+        index: usize,
+        /// Size of the dimension
+        size: usize,
+    },
+
+    /// Tensor is not contiguous when contiguous memory is required
+    #[error("Operation requires contiguous tensor")]
+    NotContiguous,
+
+    /// Missing gradient in backward pass
+    #[error("Missing gradient for tensor")]
+    MissingGradient,
+
+    /// Backend-specific error
+    #[error("Backend error: {0}")]
+    Backend(String),
+
+    /// CUDA-specific error
+    #[cfg(feature = "cuda")]
+    #[error("CUDA error: {0}")]
+    Cuda(#[from] cudarc::driver::DriverError),
+
+    /// Generic internal error
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
+
+impl Error {
+    /// Create a shape mismatch error
+    pub fn shape_mismatch(expected: &[usize], got: &[usize]) -> Self {
+        Self::ShapeMismatch {
+            expected: expected.to_vec(),
+            got: got.to_vec(),
+        }
+    }
+
+    /// Create a broadcast error
+    pub fn broadcast(lhs: &[usize], rhs: &[usize]) -> Self {
+        Self::BroadcastError {
+            lhs: lhs.to_vec(),
+            rhs: rhs.to_vec(),
+        }
+    }
+
+    /// Create an unsupported dtype error
+    pub fn unsupported_dtype(dtype: DType, op: &'static str) -> Self {
+        Self::UnsupportedDType { dtype, op }
+    }
+}

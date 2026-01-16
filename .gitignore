@@ -1,0 +1,94 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.project
+.pydevproject
+.cproject
+.factorypath
+.recommenders/
+*.e4product
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+.envrc
+
+# OS-specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Node (if applicable)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Benchmark and profiling
+*.prof
+*.flame
+perf.data
+perf.data.old
+flamegraph.html
+
+# Misc
+.cache/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.bak
+*.tmp
+*.log
+.gradle/
