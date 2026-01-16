@@ -94,6 +94,13 @@ pub enum Error {
     /// Generic internal error
     #[error("Internal error: {0}")]
     Internal(String),
+
+    /// Feature not yet implemented
+    #[error("Not implemented: {feature}")]
+    NotImplemented {
+        /// Description of the unimplemented feature
+        feature: &'static str,
+    },
 }
 
 impl Error {

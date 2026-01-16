@@ -1,6 +1,14 @@
 //! CUDA runtime implementation (requires `cuda` feature)
 //!
 //! This module provides GPU acceleration via NVIDIA CUDA.
+//!
+//! # Status: NOT IMPLEMENTED
+//!
+//! **WARNING:** This module is a placeholder stub. All runtime methods will
+//! panic if called. CUDA backend implementation is planned for Phase 2.
+//!
+//! Do not enable the `cuda` feature unless you are developing the CUDA backend.
+//! Production code should use `CpuRuntime` until CUDA support is complete.
 
 use super::{Device, Runtime, RuntimeClient};
 
@@ -64,27 +72,36 @@ impl Runtime for CudaRuntime {
     }
 
     fn allocate(size_bytes: usize, device: &Self::Device) -> u64 {
-        // TODO: Implement CUDA allocation via cudarc
         let _ = (size_bytes, device);
-        todo!("CUDA allocation not yet implemented")
+        panic!(
+            "CUDA backend not implemented (Phase 2). \
+             Use CpuRuntime for production code. \
+             See NUMR_TDD.md for implementation roadmap."
+        )
     }
 
     fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
-        // TODO: Implement CUDA deallocation
         let _ = (ptr, size_bytes, device);
-        todo!("CUDA deallocation not yet implemented")
+        panic!(
+            "CUDA backend not implemented (Phase 2). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) {
-        // TODO: Implement host to device copy
         let _ = (src, dst, device);
-        todo!("CUDA copy_to_device not yet implemented")
+        panic!(
+            "CUDA backend not implemented (Phase 2). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn copy_from_device(src: u64, dst: &mut [u8], device: &Self::Device) {
-        // TODO: Implement device to host copy
         let _ = (src, dst, device);
-        todo!("CUDA copy_from_device not yet implemented")
+        panic!(
+            "CUDA backend not implemented (Phase 2). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn default_device() -> Self::Device {

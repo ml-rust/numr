@@ -1,7 +1,13 @@
 //! Backward pass implementation
+//!
+//! **STATUS: NOT IMPLEMENTED**
+//!
+//! This module is a placeholder for the autograd backward pass.
+//! The `backward()` function is exposed to allow API design validation,
+//! but calling it will return an error until Phase 4 implementation.
 
 use super::{GradStore, Var};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 
 /// Compute gradients via reverse-mode automatic differentiation
@@ -17,21 +23,25 @@ use crate::runtime::Runtime;
 /// # Returns
 ///
 /// A `GradStore` containing gradients for all tensors in the graph.
+///
+/// # Errors
+///
+/// Currently returns `Error::NotImplemented` as autograd is not yet implemented.
+/// This is planned for Phase 4 of the numr roadmap.
+///
+/// # Example
+///
+/// ```ignore
+/// // Will return Error::NotImplemented until Phase 4
+/// let grads = backward(&loss)?;
+/// ```
 pub fn backward<R: Runtime>(loss: &Var<R>) -> Result<GradStore<R>> {
-    // TODO: Implement backward pass
-    // 1. Initialize grads[loss.id] = ones_like(loss)
-    // 2. Topological sort of computation graph
-    // 3. For each node in reverse order:
-    //    - Get grad_output from grads
-    //    - Call grad_fn.backward(grad_output)
-    //    - Accumulate results into grads for each input
-
-    let grads = GradStore::new();
-
-    // Placeholder implementation
+    // Autograd backward pass is not yet implemented (Phase 4)
+    // Return an explicit error rather than silently returning empty gradients
     let _ = loss;
-
-    Ok(grads)
+    Err(Error::NotImplemented {
+        feature: "autograd backward pass",
+    })
 }
 
 // TODO: Implement topological sort helper

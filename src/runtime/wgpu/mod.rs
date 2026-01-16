@@ -1,6 +1,14 @@
 //! WebGPU runtime implementation (requires `wgpu` feature)
 //!
 //! This module provides cross-platform GPU acceleration via WebGPU.
+//!
+//! # Status: NOT IMPLEMENTED
+//!
+//! **WARNING:** This module is a placeholder stub. All runtime methods will
+//! panic if called. WebGPU backend implementation is planned for Phase 3.
+//!
+//! Do not enable the `wgpu` feature unless you are developing the WebGPU backend.
+//! Production code should use `CpuRuntime` until WebGPU support is complete.
 
 use super::{Device, Runtime, RuntimeClient};
 
@@ -64,27 +72,36 @@ impl Runtime for WgpuRuntime {
     }
 
     fn allocate(size_bytes: usize, device: &Self::Device) -> u64 {
-        // TODO: Implement WebGPU buffer allocation
         let _ = (size_bytes, device);
-        todo!("WebGPU allocation not yet implemented")
+        panic!(
+            "WebGPU backend not implemented (Phase 3). \
+             Use CpuRuntime for production code. \
+             See NUMR_TDD.md for implementation roadmap."
+        )
     }
 
     fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
-        // TODO: Implement WebGPU buffer deallocation
         let _ = (ptr, size_bytes, device);
-        todo!("WebGPU deallocation not yet implemented")
+        panic!(
+            "WebGPU backend not implemented (Phase 3). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) {
-        // TODO: Implement host to device copy
         let _ = (src, dst, device);
-        todo!("WebGPU copy_to_device not yet implemented")
+        panic!(
+            "WebGPU backend not implemented (Phase 3). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn copy_from_device(src: u64, dst: &mut [u8], device: &Self::Device) {
-        // TODO: Implement device to host copy
         let _ = (src, dst, device);
-        todo!("WebGPU copy_from_device not yet implemented")
+        panic!(
+            "WebGPU backend not implemented (Phase 3). \
+             Use CpuRuntime for production code."
+        )
     }
 
     fn default_device() -> Self::Device {
