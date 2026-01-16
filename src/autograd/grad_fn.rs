@@ -3,6 +3,7 @@
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
+use std::sync::Arc;
 
 /// Trait for computing gradients during backward pass
 ///
@@ -19,6 +20,14 @@ pub trait GradFn<R: Runtime>: Send + Sync {
     ///
     /// Used for topological sorting during backward pass.
     fn inputs(&self) -> &[TensorId];
+
+    /// Get the grad_fns of input tensors for graph traversal
+    ///
+    /// Returns a vector of optional grad_fns - one per input.
+    /// `None` indicates a leaf tensor.
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![None; self.inputs().len()]
+    }
 
     /// Get tensors saved during forward pass
     ///
