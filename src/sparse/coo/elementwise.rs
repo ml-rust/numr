@@ -495,6 +495,17 @@ impl<R: Runtime> CooData<R> {
     where
         R::Client: ScalarOps<R>,
     {
+        // Handle empty tensor case (no values to add to)
+        if self.values.numel() == 0 {
+            return Ok(Self {
+                row_indices: self.row_indices.clone(),
+                col_indices: self.col_indices.clone(),
+                values: self.values.clone(),
+                shape: self.shape,
+                sorted: self.sorted,
+            });
+        }
+
         let device = self.values.device();
         let client = R::default_client(device);
 

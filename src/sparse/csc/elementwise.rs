@@ -460,6 +460,16 @@ impl<R: Runtime> CscData<R> {
     where
         R::Client: ScalarOps<R>,
     {
+        // Handle empty tensor case (no values to add to)
+        if self.values.numel() == 0 {
+            return Ok(Self {
+                col_ptrs: self.col_ptrs.clone(),
+                row_indices: self.row_indices.clone(),
+                values: self.values.clone(),
+                shape: self.shape,
+            });
+        }
+
         let device = self.values.device();
         let client = R::default_client(device);
 
@@ -775,7 +785,7 @@ mod tests {
     fn test_csc_sub_self() {
         let device = <CpuRuntime as Runtime>::Device::default();
 
-        // A - A should be all zeros
+        // A - A should be all zeros (empty sparse matrix)
         let a = CscData::<CpuRuntime>::from_slices(
             &[0i64, 2, 3],
             &[0i64, 1, 0],
@@ -786,12 +796,8 @@ mod tests {
         .unwrap();
 
         let c = a.sub(&a).unwrap();
-        assert_eq!(c.nnz(), 3); // Still has elements, but they're all zero
-
-        let vals: Vec<f32> = c.values().to_vec();
-        for v in vals {
-            assert_eq!(v, 0.0);
-        }
+        // Sparse matrices don't store explicit zeros - result should be empty
+        assert_eq!(c.nnz(), 0);
     }
 
     // =========================================================================
