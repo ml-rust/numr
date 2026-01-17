@@ -21,6 +21,10 @@
 //! - `cast` - Type casting operations
 //! - `utility` - Utility operations (fill)
 //! - `ternary` - Ternary operations (where)
+//! - `sparse_spmv` - Sparse matrix operations (SpMV, SpMM)
+//! - `sparse_merge` - Sparse matrix merge operations
+//! - `sparse_convert` - Sparse format conversions (COO/CSR/CSC)
+//! - `scan` - Prefix sum operations
 //!
 //! # Kernel Files
 //!
@@ -34,6 +38,10 @@
 //! - `cast.cu` - Type casting operations
 //! - `utility.cu` - Utility operations
 //! - `ternary.cu` - Ternary operations
+//! - `sparse_spmv.cu` - Sparse matrix operations
+//! - `sparse_merge.cu` - Sparse matrix merge operations
+//! - `sparse_convert.cu` - Sparse format conversions
+//! - `scan.cu` - Prefix sum operations
 
 mod activation;
 mod binary;
@@ -43,6 +51,14 @@ mod loader;
 mod norm;
 mod reduce;
 mod scalar;
+#[cfg(feature = "sparse")]
+mod scan;
+#[cfg(feature = "sparse")]
+mod sparse_convert;
+#[cfg(feature = "sparse")]
+mod sparse_merge;
+#[cfg(feature = "sparse")]
+mod sparse_spmv;
 mod ternary;
 mod unary;
 mod utility;
@@ -54,6 +70,15 @@ pub use compare::*;
 pub use norm::*;
 pub use reduce::*;
 pub use scalar::*;
+#[cfg(feature = "sparse")]
+#[allow(unused_imports)]
+pub use scan::*;
+#[cfg(feature = "sparse")]
+pub use sparse_convert::*;
+#[cfg(feature = "sparse")]
+pub use sparse_merge::*;
+#[cfg(feature = "sparse")]
+pub use sparse_spmv::*;
 pub use ternary::*;
 pub use unary::*;
 #[allow(unused_imports)] // Prepared for future tensor creation optimization

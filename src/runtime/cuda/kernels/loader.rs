@@ -217,6 +217,12 @@ pub mod kernel_names {
     /// Ternary operations (where)
     #[allow(dead_code)]
     pub const TERNARY_MODULE: &str = "ternary";
+    /// Sparse matrix operations (SpMV, SpMM)
+    #[cfg(feature = "sparse")]
+    pub const SPARSE_SPMV_MODULE: &str = "sparse_spmv";
+    /// Sparse matrix element-wise operations (add, sub, mul)
+    #[cfg(feature = "sparse")]
+    pub const SPARSE_MERGE_MODULE: &str = "sparse_merge";
 
     /// Generate kernel name for reduction operations.
     #[inline]
