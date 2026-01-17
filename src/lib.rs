@@ -29,6 +29,8 @@
 //! - `wgpu`: Cross-platform GPU via WebGPU
 //! - `rayon` (default): Parallel CPU operations
 //! - `f16`: Half-precision float support
+//! - `fp8`: 8-bit float support (FP8E4M3, FP8E5M2)
+//! - `sparse`: Sparse tensor formats (CSR, CSC, COO)
 
 #![warn(missing_docs)]
 #![warn(clippy::all)]
@@ -39,6 +41,8 @@ pub mod dtype;
 pub mod error;
 pub mod ops;
 pub mod runtime;
+#[cfg(feature = "sparse")]
+pub mod sparse;
 pub mod tensor;
 
 /// Prelude module for convenient imports
@@ -56,6 +60,9 @@ pub mod prelude {
 
     #[cfg(feature = "wgpu")]
     pub use crate::runtime::wgpu::WgpuRuntime;
+
+    #[cfg(feature = "sparse")]
+    pub use crate::sparse::{SparseFormat, SparseOps, SparseTensor};
 }
 
 /// Default runtime based on enabled features

@@ -1,0 +1,530 @@
+//! Sparse operations trait
+//!
+//! Defines the interface for sparse tensor operations that backends implement.
+
+use crate::error::Result;
+use crate::runtime::Runtime;
+use crate::tensor::Tensor;
+
+use super::SparseTensor;
+
+/// Trait for sparse tensor operations
+///
+/// This trait defines sparse matrix operations that are implemented by each
+/// backend (CPU, CUDA, WebGPU). Operations follow scipy.sparse conventions.
+///
+/// # Architecture
+///
+/// This trait has two levels of operations:
+/// 1. **Low-level format-specific operations** (spmv_csr, add_csr, etc.)
+///    - Work directly with raw CSR/COO/CSC data (row_ptrs, col_indices, values)
+///    - Backend-specific implementations (no .to_vec() calls)
+///    - Stay on device (GPU ops stay on GPU)
+///
+/// 2. **High-level format-agnostic operations** (spmv, sparse_add, etc.)
+///    - Work with SparseTensor wrapper
+///    - Dispatch to format-specific low-level methods
+///    - Convenience API for users
+///
+/// # Implementation Notes
+///
+/// - All operations preserve sparsity when possible
+/// - SpMV/SpMM are the most performance-critical operations
+/// - Format conversion may be needed for optimal performance
+/// - Backends implement low-level operations; high-level ones auto-delegate
+///
+/// # Example
+///
+/// ```ignore
+/// use numr::sparse::SparseOps;
+///
+/// // High-level API
+/// let y = client.spmv(&sparse_a, &dense_x)?;  // y = A * x
+///
+/// // Low-level API (format-specific)
+/// let y = client.spmv_csr::<f32>(&row_ptrs, &col_indices, &values, &x, shape)?;
+/// ```
+pub trait SparseOps<R: Runtime>: Sized {
+    // =========================================================================
+    // Low-Level Format-Specific Operations (Backend Implementation Required)
+    // =========================================================================
+    //
+    // These methods work directly with raw CSR/COO/CSC data and must be
+    // implemented by each backend. They operate on device-native tensors
+    // without data transfer (GPU tensors stay on GPU).
+
+    /// CSR sparse matrix-vector multiplication: y = A * x
+    ///
+    /// # Arguments
+    ///
+    /// * `row_ptrs` - CSR row pointers [nrows + 1] (dtype I64)
+    /// * `col_indices` - CSR column indices [nnz] (dtype I64)
+    /// * `values` - CSR values [nnz] (dtype T)
+    /// * `x` - Dense vector [ncols]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [nrows]
+    fn spmv_csr<T: crate::dtype::Element>(
+        &self,
+        row_ptrs: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        x: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<R>>;
+
+    /// CSR sparse matrix-dense matrix multiplication: C = A * B
+    ///
+    /// # Arguments
+    ///
+    /// * `row_ptrs` - CSR row pointers [nrows + 1]
+    /// * `col_indices` - CSR column indices [nnz]
+    /// * `values` - CSR values [nnz]
+    /// * `b` - Dense matrix [ncols, n]
+    /// * `shape` - Sparse matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Dense matrix [nrows, n]
+    fn spmm_csr<T: crate::dtype::Element>(
+        &self,
+        row_ptrs: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        b: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<R>>;
+
+    /// CSR element-wise addition: C = A + B
+    ///
+    /// Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_ptrs, col_indices, values) for result CSR matrix
+    fn add_csr<T: crate::dtype::Element>(
+        &self,
+        a_row_ptrs: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_ptrs: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSR element-wise subtraction: C = A - B
+    fn sub_csr<T: crate::dtype::Element>(
+        &self,
+        a_row_ptrs: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_ptrs: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSR element-wise multiplication (Hadamard product): C = A .* B
+    fn mul_csr<T: crate::dtype::Element>(
+        &self,
+        a_row_ptrs: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_ptrs: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    // -------------------------------------------------------------------------
+    // CSC Operations
+    // -------------------------------------------------------------------------
+
+    /// CSC element-wise addition: C = A + B
+    ///
+    /// Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (col_ptrs, row_indices, values) for result CSC matrix
+    fn add_csc<T: crate::dtype::Element>(
+        &self,
+        a_col_ptrs: &Tensor<R>,
+        a_row_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_col_ptrs: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSC element-wise subtraction: C = A - B
+    fn sub_csc<T: crate::dtype::Element>(
+        &self,
+        a_col_ptrs: &Tensor<R>,
+        a_row_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_col_ptrs: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSC element-wise multiplication (Hadamard product): C = A .* B
+    fn mul_csc<T: crate::dtype::Element>(
+        &self,
+        a_col_ptrs: &Tensor<R>,
+        a_row_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_col_ptrs: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    // -------------------------------------------------------------------------
+    // COO Operations
+    // -------------------------------------------------------------------------
+
+    /// COO element-wise addition: C = A + B
+    ///
+    /// Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_indices, col_indices, values) for result COO matrix
+    fn add_coo<T: crate::dtype::Element>(
+        &self,
+        a_row_indices: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// COO element-wise subtraction: C = A - B
+    fn sub_coo<T: crate::dtype::Element>(
+        &self,
+        a_row_indices: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// COO element-wise multiplication (Hadamard product): C = A .* B
+    fn mul_coo<T: crate::dtype::Element>(
+        &self,
+        a_row_indices: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    // =========================================================================
+    // High-Level Format-Agnostic Operations
+    // =========================================================================
+    //
+    // These methods work with SparseTensor and will dispatch to format-specific
+    // low-level methods in their implementations.
+
+    /// Sparse matrix-vector multiplication: y = A * x (format-agnostic)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Sparse matrix [M, K]
+    /// * `x` - Dense vector [K] or [K, 1]
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [M] or [M, 1]
+    ///
+    /// # Performance
+    ///
+    /// - CSR format is optimal for this operation
+    /// - Automatically converts from other formats if needed
+    fn spmv(&self, a: &SparseTensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Sparse matrix-dense matrix multiplication: C = A * B
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Sparse matrix [M, K]
+    /// * `b` - Dense matrix [K, N]
+    ///
+    /// # Returns
+    ///
+    /// Dense matrix [M, N]
+    fn spmm(&self, a: &SparseTensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Dense matrix-sparse matrix multiplication: C = A * B
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Dense matrix [M, K]
+    /// * `b` - Sparse matrix [K, N]
+    ///
+    /// # Returns
+    ///
+    /// Dense matrix [M, N]
+    ///
+    /// # Performance
+    ///
+    /// - CSC format is optimal for this operation
+    fn dsmm(&self, a: &Tensor<R>, b: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    // =========================================================================
+    // Sparse-Sparse Operations
+    // =========================================================================
+
+    /// Sparse matrix addition: C = A + B
+    ///
+    /// Both matrices must have the same shape.
+    fn sparse_add(&self, a: &SparseTensor<R>, b: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+
+    /// Sparse matrix subtraction: C = A - B
+    fn sparse_sub(&self, a: &SparseTensor<R>, b: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+
+    /// Sparse matrix-sparse matrix multiplication: C = A * B
+    ///
+    /// # Returns
+    ///
+    /// Sparse matrix (result may be denser than inputs)
+    fn sparse_matmul(&self, a: &SparseTensor<R>, b: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+
+    /// Element-wise multiplication (Hadamard product): C = A .* B
+    ///
+    /// Result is sparse (only non-zero where both are non-zero).
+    fn sparse_mul(&self, a: &SparseTensor<R>, b: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+
+    // =========================================================================
+    // Sparse-Scalar Operations
+    // =========================================================================
+
+    /// Multiply sparse matrix by scalar: B = alpha * A
+    fn sparse_scale(&self, a: &SparseTensor<R>, scalar: f64) -> Result<SparseTensor<R>>;
+
+    /// Add scalar to non-zero elements: B = A + alpha (on non-zeros only)
+    ///
+    /// Note: This does NOT add to zero elements (would destroy sparsity).
+    fn sparse_add_scalar(&self, a: &SparseTensor<R>, scalar: f64) -> Result<SparseTensor<R>>;
+
+    // =========================================================================
+    // Reductions
+    // =========================================================================
+
+    /// Sum of all non-zero elements
+    fn sparse_sum(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    /// Sum along rows: result[i] = sum(A[i, :])
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [M]
+    fn sparse_sum_rows(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    /// Sum along columns: result[j] = sum(A[:, j])
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [N]
+    fn sparse_sum_cols(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    /// Number of non-zeros per row
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [M] with counts
+    fn sparse_nnz_per_row(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    /// Number of non-zeros per column
+    ///
+    /// # Returns
+    ///
+    /// Dense vector [N] with counts
+    fn sparse_nnz_per_col(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    // =========================================================================
+    // Conversion
+    // =========================================================================
+
+    /// Convert sparse tensor to dense
+    fn sparse_to_dense(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
+
+    /// Convert dense tensor to sparse (COO format)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Dense 2D tensor
+    /// * `threshold` - Values with |value| < threshold become zero
+    fn dense_to_sparse(&self, a: &Tensor<R>, threshold: f64) -> Result<SparseTensor<R>>;
+
+    // =========================================================================
+    // Format Conversions (Low-Level)
+    // =========================================================================
+    //
+    // These methods convert between sparse formats while staying on device.
+    // They are implemented by backends to avoid GPU→CPU transfers.
+
+    /// COO → CSR: Sort by row and build row pointers
+    ///
+    /// # Arguments
+    ///
+    /// * `row_indices` - COO row indices [nnz]
+    /// * `col_indices` - COO column indices [nnz]
+    /// * `values` - COO values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_ptrs [nrows+1], col_indices [nnz], values [nnz])
+    ///
+    /// # Performance
+    ///
+    /// - CPU: Parallel sort + prefix sum
+    /// - CUDA: Radix sort + CUB prefix sum
+    fn coo_to_csr<T: crate::dtype::Element>(
+        &self,
+        row_indices: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// COO → CSC: Sort by column and build column pointers
+    ///
+    /// # Arguments
+    ///
+    /// * `row_indices` - COO row indices [nnz]
+    /// * `col_indices` - COO column indices [nnz]
+    /// * `values` - COO values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (col_ptrs [ncols+1], row_indices [nnz], values [nnz])
+    fn coo_to_csc<T: crate::dtype::Element>(
+        &self,
+        row_indices: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSR → COO: Expand row pointers to explicit row indices
+    ///
+    /// # Arguments
+    ///
+    /// * `row_ptrs` - CSR row pointers [nrows+1]
+    /// * `col_indices` - CSR column indices [nnz]
+    /// * `values` - CSR values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_indices [nnz], col_indices [nnz], values [nnz])
+    fn csr_to_coo<T: crate::dtype::Element>(
+        &self,
+        row_ptrs: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSC → COO: Expand column pointers to explicit column indices
+    ///
+    /// # Arguments
+    ///
+    /// * `col_ptrs` - CSC column pointers [ncols+1]
+    /// * `row_indices` - CSC row indices [nnz]
+    /// * `values` - CSC values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_indices [nnz], col_indices [nnz], values [nnz])
+    fn csc_to_coo<T: crate::dtype::Element>(
+        &self,
+        col_ptrs: &Tensor<R>,
+        row_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSR → CSC: Direct transpose without COO intermediary
+    ///
+    /// # Arguments
+    ///
+    /// * `row_ptrs` - CSR row pointers [nrows+1]
+    /// * `col_indices` - CSR column indices [nnz]
+    /// * `values` - CSR values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (col_ptrs [ncols+1], row_indices [nnz], values [nnz])
+    ///
+    /// # Performance
+    ///
+    /// Much faster than CSR→COO→CSC as it avoids sorting.
+    fn csr_to_csc<T: crate::dtype::Element>(
+        &self,
+        row_ptrs: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    /// CSC → CSR: Direct transpose without COO intermediary
+    ///
+    /// # Arguments
+    ///
+    /// * `col_ptrs` - CSC column pointers [ncols+1]
+    /// * `row_indices` - CSC row indices [nnz]
+    /// * `values` - CSC values [nnz]
+    /// * `shape` - Matrix shape [nrows, ncols]
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_ptrs [nrows+1], col_indices [nnz], values [nnz])
+    fn csc_to_csr<T: crate::dtype::Element>(
+        &self,
+        col_ptrs: &Tensor<R>,
+        row_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    // =========================================================================
+    // Transpose
+    // =========================================================================
+
+    /// Transpose sparse matrix
+    ///
+    /// For CSR, this produces CSC (and vice versa) efficiently.
+    fn sparse_transpose(&self, a: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Tests require a backend implementation
+    // These are placeholder tests for the trait definition
+
+    #[test]
+    fn test_sparse_ops_trait_exists() {
+        // Trait compiles correctly
+        fn _accepts_sparse_ops<R: Runtime, T: SparseOps<R>>(_: &T) {}
+    }
+}
