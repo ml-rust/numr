@@ -20,14 +20,18 @@
 mod helpers;
 mod kernels;
 mod ops;
+#[cfg(feature = "sparse")]
+pub(crate) mod sparse;
 
 use super::{DefaultAllocator, Device, Runtime, RuntimeClient};
 use crate::dtype::Element;
 use crate::ops::{BinaryOp, Kernel, ReduceOp, UnaryOp};
 use std::alloc::{Layout as AllocLayout, alloc_zeroed, dealloc};
 
-// Re-export TensorOps, ScalarOps, CompareOps traits for convenience
+// Re-export TensorOps, ScalarOps, CompareOps, SparseOps traits for convenience
 pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
+#[cfg(feature = "sparse")]
+pub use crate::sparse::SparseOps;
 
 // Re-export Tensor for tests
 pub use crate::tensor::Tensor;
