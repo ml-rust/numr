@@ -11,8 +11,9 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, Kernel, ReduceOp, ScalarOps, TensorOps,
-    UnaryOp, compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
+    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, Kernel, LogicalOps, ReduceOp,
+    ScalarOps, TensorOps, UnaryOp, compute_reduce_strides, normalize_softmax_dim,
+    reduce_dim_output_shape,
 };
 use crate::tensor::Tensor;
 
@@ -96,6 +97,54 @@ impl TensorOps<CpuRuntime> for CpuClient {
 
     fn round(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         unary_op_impl(self, UnaryOp::Round, a, "round")
+    }
+
+    fn sign(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Sign, a, "sign")
+    }
+
+    fn isnan(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+        let numel = a.numel();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::isnan_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut u8,
+                    numel,
+                );
+            }
+        }, "isnan");
+
+        Ok(out)
+    }
+
+    fn isinf(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+        let numel = a.numel();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::isinf_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut u8,
+                    numel,
+                );
+            }
+        }, "isinf");
+
+        Ok(out)
     }
 
     // ===== Element-wise Binary (extended) =====
@@ -273,7 +322,7 @@ impl TensorOps<CpuRuntime> for CpuClient {
     // ===== Activations =====
 
     fn relu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::ReLU, "relu")
+        activation_op_impl(self, a, ActivationOp::Relu, "relu")
     }
 
     fn sigmoid(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -281,11 +330,11 @@ impl TensorOps<CpuRuntime> for CpuClient {
     }
 
     fn silu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::SiLU, "silu")
+        activation_op_impl(self, a, ActivationOp::Silu, "silu")
     }
 
     fn gelu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::GELU, "gelu")
+        activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
     }
 
     fn softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
@@ -583,6 +632,110 @@ impl TensorOps<CpuRuntime> for CpuClient {
 
         Ok(out)
     }
+
+    // ===== Conditional Operations =====
+
+    fn where_cond(
+        &self,
+        cond: &Tensor<CpuRuntime>,
+        x: &Tensor<CpuRuntime>,
+        y: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::ops::broadcast_shape;
+
+        // Validate that x and y have the same dtype
+        if x.dtype() != y.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: x.dtype(),
+                rhs: y.dtype(),
+            });
+        }
+        let dtype = x.dtype();
+
+        // Validate condition tensor is U8 (boolean)
+        if cond.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: cond.dtype(),
+            });
+        }
+
+        // Compute broadcast shape (cond, x, y) -> out
+        let xy_shape = broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
+            lhs: x.shape().to_vec(),
+            rhs: y.shape().to_vec(),
+        })?;
+        let out_shape =
+            broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| Error::BroadcastError {
+                lhs: cond.shape().to_vec(),
+                rhs: xy_shape.clone(),
+            })?;
+
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+
+        // Fast path: all same shape, use simple kernel
+        if cond.shape() == x.shape() && x.shape() == y.shape() {
+            let cond_contig = ensure_contiguous(cond);
+            let x_contig = ensure_contiguous(x);
+            let y_contig = ensure_contiguous(y);
+
+            let cond_ptr = cond_contig.storage().ptr();
+            let x_ptr = x_contig.storage().ptr();
+            let y_ptr = y_contig.storage().ptr();
+            let numel = x.numel();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    kernels::where_kernel::<T>(
+                        cond_ptr as *const u8,
+                        x_ptr as *const T,
+                        y_ptr as *const T,
+                        out_ptr as *mut T,
+                        numel,
+                    );
+                }
+            }, "where_cond");
+        } else {
+            // Broadcasting path: use strided kernel
+            // Broadcast all inputs to output shape (zero-copy views with stride 0 for broadcast dims)
+            let cond_broadcast = cond.broadcast_to(&out_shape)?;
+            let x_broadcast = x.broadcast_to(&out_shape)?;
+            let y_broadcast = y.broadcast_to(&out_shape)?;
+
+            let cond_ptr = cond_broadcast.storage().ptr();
+            let x_ptr = x_broadcast.storage().ptr();
+            let y_ptr = y_broadcast.storage().ptr();
+
+            // Get strides from broadcast layouts
+            let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();
+            let x_strides: Vec<isize> = x_broadcast.layout().strides().to_vec();
+            let y_strides: Vec<isize> = y_broadcast.layout().strides().to_vec();
+            let cond_offset = cond_broadcast.layout().offset();
+            let x_offset = x_broadcast.layout().offset();
+            let y_offset = y_broadcast.layout().offset();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    kernels::where_strided_kernel::<T>(
+                        cond_ptr as *const u8,
+                        x_ptr as *const T,
+                        y_ptr as *const T,
+                        out_ptr as *mut T,
+                        &out_shape,
+                        &cond_strides,
+                        &x_strides,
+                        &y_strides,
+                        cond_offset,
+                        x_offset,
+                        y_offset,
+                    );
+                }
+            }, "where_cond");
+        }
+
+        Ok(out)
+    }
 }
 
 /// Softmax over non-last dimension
@@ -682,5 +835,163 @@ impl CompareOps<CpuRuntime> for CpuClient {
 
     fn ge(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         compare_op_impl(self, CompareOp::Ge, a, b, "ge")
+    }
+}
+
+// ============================================================================
+// LogicalOps Implementation
+// ============================================================================
+
+impl LogicalOps<CpuRuntime> for CpuClient {
+    fn logical_and(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr() as *const u8;
+        let b_ptr = b_contig.storage().ptr() as *const u8;
+        let out_ptr = out.storage().ptr() as *mut u8;
+        let numel = a.numel();
+
+        unsafe {
+            kernels::logical_and_kernel(a_ptr, b_ptr, out_ptr, numel);
+        }
+
+        Ok(out)
+    }
+
+    fn logical_or(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr() as *const u8;
+        let b_ptr = b_contig.storage().ptr() as *const u8;
+        let out_ptr = out.storage().ptr() as *mut u8;
+        let numel = a.numel();
+
+        unsafe {
+            kernels::logical_or_kernel(a_ptr, b_ptr, out_ptr, numel);
+        }
+
+        Ok(out)
+    }
+
+    fn logical_xor(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr() as *const u8;
+        let b_ptr = b_contig.storage().ptr() as *const u8;
+        let out_ptr = out.storage().ptr() as *mut u8;
+        let numel = a.numel();
+
+        unsafe {
+            kernels::logical_xor_kernel(a_ptr, b_ptr, out_ptr, numel);
+        }
+
+        Ok(out)
+    }
+
+    fn logical_not(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        // Validate tensor is U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        let a_ptr = a_contig.storage().ptr() as *const u8;
+        let out_ptr = out.storage().ptr() as *mut u8;
+        let numel = a.numel();
+
+        unsafe {
+            kernels::logical_not_kernel(a_ptr, out_ptr, numel);
+        }
+
+        Ok(out)
     }
 }

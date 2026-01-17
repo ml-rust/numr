@@ -275,6 +275,7 @@ impl Kernel<CpuRuntime> for CpuClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ops::LogicalOps;
     use crate::runtime::Allocator;
 
     #[test]
@@ -1815,5 +1816,171 @@ mod tests {
         assert!((result[0].to_f32() - 1.0).abs() < 0.5);
         assert!((result[1].to_f32() - 2.0).abs() < 1.0);
         assert!((result[2].to_f32() - 4.0).abs() < 2.0);
+    }
+
+    // ========================================================================
+    // New Operations Tests (sign, isnan, isinf, logical ops, where_cond)
+    // ========================================================================
+
+    #[test]
+    fn test_tensor_sign() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[-3.0f32, -0.5, 0.0, 0.5, 3.0], &[5], &device);
+        let b = client.sign(&a).unwrap();
+
+        let result: Vec<f32> = b.to_vec();
+        assert_eq!(result, [-1.0, -1.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_tensor_isnan() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, f32::NAN, 3.0, f32::NAN, 5.0],
+            &[5],
+            &device,
+        );
+        let b = client.isnan(&a).unwrap();
+
+        let result: Vec<u8> = b.to_vec();
+        assert_eq!(result, [0, 1, 0, 1, 0]); // NaN at positions 1 and 3
+    }
+
+    #[test]
+    fn test_tensor_isinf() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, f32::INFINITY, 3.0, f32::NEG_INFINITY, 5.0],
+            &[5],
+            &device,
+        );
+        let b = client.isinf(&a).unwrap();
+
+        let result: Vec<u8> = b.to_vec();
+        assert_eq!(result, [0, 1, 0, 1, 0]); // Inf at positions 1 and 3
+    }
+
+    #[test]
+    fn test_tensor_logical_not() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[0u8, 1, 0, 1, 1], &[5], &device);
+        let b = client.logical_not(&a).unwrap();
+
+        let result: Vec<u8> = b.to_vec();
+        assert_eq!(result, [1, 0, 1, 0, 0]); // Inverted
+    }
+
+    #[test]
+    fn test_tensor_logical_and() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 1, 1], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[0u8, 1, 0, 1], &[4], &device);
+        let c = client.logical_and(&a, &b).unwrap();
+
+        let result: Vec<u8> = c.to_vec();
+        assert_eq!(result, [0, 0, 0, 1]); // AND truth table
+    }
+
+    #[test]
+    fn test_tensor_logical_or() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 1, 1], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[0u8, 1, 0, 1], &[4], &device);
+        let c = client.logical_or(&a, &b).unwrap();
+
+        let result: Vec<u8> = c.to_vec();
+        assert_eq!(result, [0, 1, 1, 1]); // OR truth table
+    }
+
+    #[test]
+    fn test_tensor_logical_xor() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 1, 1], &[4], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[0u8, 1, 0, 1], &[4], &device);
+        let c = client.logical_xor(&a, &b).unwrap();
+
+        let result: Vec<u8> = c.to_vec();
+        assert_eq!(result, [0, 1, 1, 0]); // XOR truth table
+    }
+
+    #[test]
+    fn test_tensor_where_cond_same_shape() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // cond ? x : y
+        let cond = Tensor::<CpuRuntime>::from_slice(&[1u8, 0, 1, 0], &[4], &device);
+        let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+        let result = client.where_cond(&cond, &x, &y).unwrap();
+
+        let data: Vec<f32> = result.to_vec();
+        assert_eq!(data, [10.0, 2.0, 30.0, 4.0]); // Select x where cond=1, y where cond=0
+    }
+
+    #[test]
+    fn test_tensor_where_cond_broadcast_cond() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Broadcast condition: [1] with x,y: [4]
+        let cond = Tensor::<CpuRuntime>::from_slice(&[1u8], &[1], &device);
+        let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+        let result = client.where_cond(&cond, &x, &y).unwrap();
+
+        assert_eq!(result.shape(), &[4]);
+        let data: Vec<f32> = result.to_vec();
+        assert_eq!(data, [10.0, 20.0, 30.0, 40.0]); // All from x since cond=1
+    }
+
+    #[test]
+    fn test_tensor_where_cond_broadcast_xy() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Broadcast x,y: cond: [4], x: [1], y: [4]
+        let cond = Tensor::<CpuRuntime>::from_slice(&[1u8, 0, 1, 0], &[4], &device);
+        let x = Tensor::<CpuRuntime>::from_slice(&[100.0f32], &[1], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+        let result = client.where_cond(&cond, &x, &y).unwrap();
+
+        assert_eq!(result.shape(), &[4]);
+        let data: Vec<f32> = result.to_vec();
+        assert_eq!(data, [100.0, 2.0, 100.0, 4.0]); // 100 where cond=1, y values where cond=0
+    }
+
+    #[test]
+    fn test_tensor_where_cond_2d() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // 2D where: cond: [2,2], x: [2,2], y: [2,2]
+        let cond = Tensor::<CpuRuntime>::from_slice(&[1u8, 0, 0, 1], &[2, 2], &device);
+        let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[2, 2], &device);
+
+        let result = client.where_cond(&cond, &x, &y).unwrap();
+
+        assert_eq!(result.shape(), &[2, 2]);
+        let data: Vec<f32> = result.to_vec();
+        assert_eq!(data, [1.0, 20.0, 30.0, 4.0]);
     }
 }

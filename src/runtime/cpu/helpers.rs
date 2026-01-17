@@ -271,10 +271,10 @@ pub(super) fn compare_op_impl(
 /// Activation operation kind for kernel dispatch
 #[derive(Copy, Clone)]
 pub(super) enum ActivationOp {
-    ReLU,
+    Relu,
     Sigmoid,
-    SiLU,
-    GELU,
+    Silu,
+    Gelu,
 }
 
 /// Helper for activation operations (relu, sigmoid)
@@ -295,7 +295,7 @@ pub(super) fn activation_op_impl(
     dispatch_dtype!(dtype, T => {
         unsafe {
             match op {
-                ActivationOp::ReLU => kernels::relu_kernel::<T>(
+                ActivationOp::Relu => kernels::relu_kernel::<T>(
                     a_ptr as *const T,
                     out_ptr as *mut T,
                     len,
@@ -305,12 +305,12 @@ pub(super) fn activation_op_impl(
                     out_ptr as *mut T,
                     len,
                 ),
-                ActivationOp::SiLU => kernels::silu_kernel::<T>(
+                ActivationOp::Silu => kernels::silu_kernel::<T>(
                     a_ptr as *const T,
                     out_ptr as *mut T,
                     len,
                 ),
-                ActivationOp::GELU => kernels::gelu_kernel::<T>(
+                ActivationOp::Gelu => kernels::gelu_kernel::<T>(
                     a_ptr as *const T,
                     out_ptr as *mut T,
                     len,
@@ -398,7 +398,16 @@ pub(super) fn reduce_impl(
     }
 }
 
-/// Reduce a single dimension
+/// Reduce a single dimension of a tensor using native precision.
+///
+/// This is an optimized path for single-dimension reductions. Uses chunked
+/// iteration for non-last dimensions to handle strided memory access.
+///
+/// # Arguments
+/// * `op` - Reduction operation (Sum, Max, Min)
+/// * `dim` - Dimension to reduce
+/// * `keepdim` - Whether to keep the reduced dimension as size 1
+/// * `op_name` - Name for error messages
 fn reduce_single_dim(
     client: &CpuClient,
     op: ReduceOp,
@@ -621,7 +630,18 @@ pub(super) fn reduce_impl_with_precision(
     }
 }
 
-/// Reduce a single dimension with explicit precision
+/// Reduce a single dimension with explicit accumulation precision.
+///
+/// Similar to [`reduce_single_dim`], but allows specifying higher precision
+/// for accumulation. This is important for numerical stability when summing
+/// many small values (e.g., F16 tensors accumulated in F32).
+///
+/// # Arguments
+/// * `op` - Reduction operation (Sum, Max, Min)
+/// * `dim` - Dimension to reduce
+/// * `keepdim` - Whether to keep the reduced dimension as size 1
+/// * `precision` - Accumulation precision (Native, F32, or F64)
+/// * `op_name` - Name for error messages
 fn reduce_single_dim_with_precision(
     client: &CpuClient,
     op: ReduceOp,

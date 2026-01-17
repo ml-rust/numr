@@ -293,6 +293,19 @@ pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T,
                 out_slice[i] = T::from_f64(v.round());
             }
         }
+        UnaryOp::Sign => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                let sign = if v > 0.0 {
+                    1.0
+                } else if v < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                };
+                out_slice[i] = T::from_f64(sign);
+            }
+        }
     }
 }
 
@@ -423,10 +436,9 @@ pub unsafe fn rms_norm_kernel<T: Element>(
         let inv_rms = 1.0 / rms;
 
         // Apply normalization and weight
-        for i in 0..hidden_size {
+        for (i, &w) in weight_slice.iter().enumerate() {
             let x = (*input.add(row_start + i)).to_f64();
-            let w = weight_slice[i].to_f64();
-            let result = x * inv_rms * w;
+            let result = x * inv_rms * w.to_f64();
             *out.add(row_start + i) = T::from_f64(result);
         }
     }
@@ -1496,6 +1508,251 @@ pub unsafe fn cast_kernel(
     }
 
     Ok(())
+}
+
+// ============================================================================
+// Special Unary Operations (with different output dtype)
+// ============================================================================
+
+/// Check for NaN values element-wise
+///
+/// Returns 1 (u8) if the value is NaN, 0 otherwise.
+///
+/// # Safety
+/// - `a` must be valid pointer to `len` elements
+/// - `out` must be valid pointer to `len` u8 elements
+#[inline]
+pub unsafe fn isnan_kernel<T: Element>(a: *const T, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        let v = a_slice[i].to_f64();
+        out_slice[i] = if v.is_nan() { 1 } else { 0 };
+    }
+}
+
+/// Check for Inf values element-wise
+///
+/// Returns 1 (u8) if the value is infinite (positive or negative), 0 otherwise.
+///
+/// # Safety
+/// - `a` must be valid pointer to `len` elements
+/// - `out` must be valid pointer to `len` u8 elements
+#[inline]
+pub unsafe fn isinf_kernel<T: Element>(a: *const T, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        let v = a_slice[i].to_f64();
+        out_slice[i] = if v.is_infinite() { 1 } else { 0 };
+    }
+}
+
+// ============================================================================
+// Ternary Operations
+// ============================================================================
+
+/// Where (conditional select): out[i] = cond[i] ? x[i] : y[i]
+///
+/// # Safety
+/// - `cond` must be valid pointer to `len` u8 elements
+/// - `x`, `y`, and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn where_kernel<T: Element>(
+    cond: *const u8,
+    x: *const T,
+    y: *const T,
+    out: *mut T,
+    len: usize,
+) {
+    let cond_slice = std::slice::from_raw_parts(cond, len);
+    let x_slice = std::slice::from_raw_parts(x, len);
+    let y_slice = std::slice::from_raw_parts(y, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        out_slice[i] = if cond_slice[i] != 0 {
+            x_slice[i]
+        } else {
+            y_slice[i]
+        };
+    }
+}
+
+/// Where (conditional select) with broadcasting support
+///
+/// Uses strides to handle arbitrary broadcasting patterns. Stride of 0 means
+/// the dimension is broadcast (all indices access the same element).
+///
+/// # Arguments
+/// * `cond` - Pointer to condition tensor data (U8)
+/// * `x` - Pointer to "true" values tensor data
+/// * `y` - Pointer to "false" values tensor data
+/// * `out` - Pointer to output tensor data
+/// * `out_shape` - Shape of output tensor
+/// * `cond_strides` - Strides for cond tensor (0 = broadcast dim)
+/// * `x_strides` - Strides for x tensor (0 = broadcast dim)
+/// * `y_strides` - Strides for y tensor (0 = broadcast dim)
+/// * `cond_offset`, `x_offset`, `y_offset` - Starting offsets for each tensor
+///
+/// # Safety
+/// - All pointers must be valid for the specified shapes and strides
+/// - `out` must not overlap with input tensors
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn where_strided_kernel<T: Element>(
+    cond: *const u8,
+    x: *const T,
+    y: *const T,
+    out: *mut T,
+    out_shape: &[usize],
+    cond_strides: &[isize],
+    x_strides: &[isize],
+    y_strides: &[isize],
+    cond_offset: usize,
+    x_offset: usize,
+    y_offset: usize,
+) {
+    let ndim = out_shape.len();
+    let total = out_shape.iter().product::<usize>();
+
+    if total == 0 {
+        return;
+    }
+
+    // Optimize for common case: all inputs are contiguous and same shape
+    let is_simple = ndim > 0 && {
+        let mut expected_stride = 1isize;
+        let mut simple = true;
+        for i in (0..ndim).rev() {
+            if cond_strides[i] != expected_stride
+                || x_strides[i] != expected_stride
+                || y_strides[i] != expected_stride
+            {
+                simple = false;
+                break;
+            }
+            expected_stride *= out_shape[i] as isize;
+        }
+        simple && cond_offset == 0 && x_offset == 0 && y_offset == 0
+    };
+
+    if is_simple {
+        // Fast path: use contiguous kernel
+        where_kernel(cond, x, y, out, total);
+        return;
+    }
+
+    // General strided iteration with incremental offset updates
+    let mut indices = vec![0usize; ndim];
+    let mut cond_idx = cond_offset as isize;
+    let mut x_idx = x_offset as isize;
+    let mut y_idx = y_offset as isize;
+
+    for out_idx in 0..total {
+        let cond_val = *cond.offset(cond_idx);
+        let result = if cond_val != 0 {
+            *x.offset(x_idx)
+        } else {
+            *y.offset(y_idx)
+        };
+
+        *out.add(out_idx) = result;
+
+        // Increment multi-dimensional index with incremental offset updates
+        for dim in (0..ndim).rev() {
+            indices[dim] += 1;
+            cond_idx += cond_strides[dim];
+            x_idx += x_strides[dim];
+            y_idx += y_strides[dim];
+
+            if indices[dim] < out_shape[dim] {
+                break;
+            }
+
+            // Reset this dimension and adjust offsets
+            indices[dim] = 0;
+            cond_idx -= (out_shape[dim] as isize) * cond_strides[dim];
+            x_idx -= (out_shape[dim] as isize) * x_strides[dim];
+            y_idx -= (out_shape[dim] as isize) * y_strides[dim];
+        }
+    }
+}
+
+// ============================================================================
+// Logical Operations (U8 only)
+// ============================================================================
+
+/// Logical AND: out[i] = a[i] && b[i]
+///
+/// # Safety
+/// - `a`, `b`, and `out` must be valid pointers to `len` u8 elements
+#[inline]
+pub unsafe fn logical_and_kernel(a: *const u8, b: *const u8, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let b_slice = std::slice::from_raw_parts(b, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        out_slice[i] = if a_slice[i] != 0 && b_slice[i] != 0 {
+            1
+        } else {
+            0
+        };
+    }
+}
+
+/// Logical OR: out[i] = a[i] || b[i]
+///
+/// # Safety
+/// - `a`, `b`, and `out` must be valid pointers to `len` u8 elements
+#[inline]
+pub unsafe fn logical_or_kernel(a: *const u8, b: *const u8, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let b_slice = std::slice::from_raw_parts(b, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        out_slice[i] = if a_slice[i] != 0 || b_slice[i] != 0 {
+            1
+        } else {
+            0
+        };
+    }
+}
+
+/// Logical XOR: out[i] = a[i] ^ b[i]
+///
+/// # Safety
+/// - `a`, `b`, and `out` must be valid pointers to `len` u8 elements
+#[inline]
+pub unsafe fn logical_xor_kernel(a: *const u8, b: *const u8, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let b_slice = std::slice::from_raw_parts(b, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        // XOR: true if exactly one is true
+        let a_bool = a_slice[i] != 0;
+        let b_bool = b_slice[i] != 0;
+        out_slice[i] = if a_bool != b_bool { 1 } else { 0 };
+    }
+}
+
+/// Logical NOT: out[i] = !a[i]
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` u8 elements
+#[inline]
+pub unsafe fn logical_not_kernel(a: *const u8, out: *mut u8, len: usize) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        out_slice[i] = if a_slice[i] == 0 { 1 } else { 0 };
+    }
 }
 
 #[cfg(test)]
