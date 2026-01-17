@@ -300,6 +300,15 @@ pub trait TensorOps<R: Runtime> {
     /// Round: round(a) to nearest integer
     fn round(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
+    fn sign(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Check for NaN values: returns U8 tensor (1 if NaN, 0 otherwise)
+    fn isnan(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Check for Inf values: returns U8 tensor (1 if Inf, 0 otherwise)
+    fn isinf(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
     // ===== Element-wise Binary Operations (extended) =====
 
     /// Element-wise power: a^b
@@ -482,6 +491,24 @@ pub trait TensorOps<R: Runtime> {
     /// Returns `UnsupportedDType` if the conversion is not supported
     /// (e.g., Bool↔numeric without explicit handling).
     fn cast(&self, a: &Tensor<R>, dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+
+    // ===== Conditional Operations =====
+
+    /// Conditional select: where(cond, x, y) = cond ? x : y
+    ///
+    /// Performs element-wise conditional selection. For each position,
+    /// returns x if condition is true (non-zero), otherwise y.
+    ///
+    /// # Arguments
+    ///
+    /// * `cond` - Condition tensor (U8: 0 = false, non-zero = true)
+    /// * `x` - Values to select when condition is true
+    /// * `y` - Values to select when condition is false
+    ///
+    /// # Returns
+    ///
+    /// Tensor with same shape and dtype as x and y
+    fn where_cond(&self, cond: &Tensor<R>, x: &Tensor<R>, y: &Tensor<R>) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations
@@ -521,4 +548,21 @@ pub trait CompareOps<R: Runtime>: TensorOps<R> {
 
     /// Element-wise greater than or equal: a >= b
     fn ge(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+}
+
+/// Logical operations trait for boolean tensors
+///
+/// All operations work on U8 tensors where 0 = false, non-zero = true.
+pub trait LogicalOps<R: Runtime>: TensorOps<R> {
+    /// Element-wise logical AND: a && b
+    fn logical_and(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise logical OR: a || b
+    fn logical_or(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise logical XOR: a ^ b
+    fn logical_xor(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise logical NOT: !a
+    fn logical_not(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 }

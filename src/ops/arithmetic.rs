@@ -89,6 +89,8 @@ pub enum UnaryOp {
     Ceil,
     /// Round: round(a)
     Round,
+    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
+    Sign,
 }
 
 /// Comparison operation kind
