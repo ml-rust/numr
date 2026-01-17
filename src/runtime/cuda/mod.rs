@@ -26,7 +26,11 @@ mod client;
 mod device;
 mod kernels;
 mod ops;
+#[cfg(feature = "sparse")]
+mod sparse;
 
+#[cfg(feature = "sparse")]
+pub use crate::sparse::SparseOps;
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
 pub use device::{CudaDevice, CudaError};
 
