@@ -34,7 +34,7 @@ fn compile_cuda_kernels() {
     let kernels_dir = PathBuf::from("src/runtime/cuda/kernels");
 
     // List of kernel files to compile
-    let kernel_files = [
+    let mut kernel_files = vec![
         "binary.cu",
         "unary.cu",
         "scalar.cu",
@@ -46,6 +46,15 @@ fn compile_cuda_kernels() {
         "utility.cu",
         "ternary.cu",
     ];
+
+    // Add sparse kernels if sparse feature is enabled
+    #[cfg(feature = "sparse")]
+    {
+        kernel_files.push("sparse_spmv.cu");
+        kernel_files.push("sparse_merge.cu");
+        kernel_files.push("sparse_convert.cu");
+        kernel_files.push("scan.cu");
+    }
 
     // Find nvcc with helpful error message
     let nvcc = find_nvcc().unwrap_or_else(|| {
