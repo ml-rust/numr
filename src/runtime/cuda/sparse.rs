@@ -594,7 +594,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        // TODO: Implement GPU-native CSR div kernel (intersection semantics like mul)
+        // TODO: Implement GPU-native CSR division kernel (intersection semantics: keep only positions where both matrices have values)
         // For now, fallback to CPU implementation
         crate::runtime::fallback::csr_elementwise_fallback::<T, CudaRuntime>(
             a_row_ptrs,
@@ -708,7 +708,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        // TODO: Implement GPU-native CSC merge kernel
+        // TODO: Implement GPU-native CSC division kernel (intersection semantics: keep only positions where both matrices have values)
         crate::runtime::fallback::csc_elementwise_fallback::<T, CudaRuntime>(
             a_col_ptrs,
             a_row_indices,
@@ -820,7 +820,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        // TODO: Implement GPU-native COO sort-merge kernel
+        // TODO: Implement GPU-native COO division kernel (intersection semantics: keep only positions where both matrices have values)
         crate::runtime::fallback::coo_elementwise_fallback::<T, CudaRuntime>(
             a_row_indices,
             a_col_indices,
