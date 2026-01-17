@@ -139,6 +139,18 @@ pub trait SparseOps<R: Runtime>: Sized {
         shape: [usize; 2],
     ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
 
+    /// CSR element-wise division: C = A ./ B
+    fn div_csr<T: crate::dtype::Element>(
+        &self,
+        a_row_ptrs: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_ptrs: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
     // -------------------------------------------------------------------------
     // CSC Operations
     // -------------------------------------------------------------------------
@@ -185,6 +197,17 @@ pub trait SparseOps<R: Runtime>: Sized {
         shape: [usize; 2],
     ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
 
+    fn div_csc<T: crate::dtype::Element>(
+        &self,
+        a_col_ptrs: &Tensor<R>,
+        a_row_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_col_ptrs: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
     // -------------------------------------------------------------------------
     // COO Operations
     // -------------------------------------------------------------------------
@@ -221,6 +244,17 @@ pub trait SparseOps<R: Runtime>: Sized {
 
     /// COO element-wise multiplication (Hadamard product): C = A .* B
     fn mul_coo<T: crate::dtype::Element>(
+        &self,
+        a_row_indices: &Tensor<R>,
+        a_col_indices: &Tensor<R>,
+        a_values: &Tensor<R>,
+        b_row_indices: &Tensor<R>,
+        b_col_indices: &Tensor<R>,
+        b_values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+
+    fn div_coo<T: crate::dtype::Element>(
         &self,
         a_row_indices: &Tensor<R>,
         a_col_indices: &Tensor<R>,

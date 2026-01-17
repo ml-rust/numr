@@ -580,6 +580,34 @@ impl SparseOps<CudaRuntime> for CudaClient {
         }
     }
 
+    fn div_csr<T: Element>(
+        &self,
+        a_row_ptrs: &Tensor<CudaRuntime>,
+        a_col_indices: &Tensor<CudaRuntime>,
+        a_values: &Tensor<CudaRuntime>,
+        b_row_ptrs: &Tensor<CudaRuntime>,
+        b_col_indices: &Tensor<CudaRuntime>,
+        b_values: &Tensor<CudaRuntime>,
+        shape: [usize; 2],
+    ) -> Result<(
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+    )> {
+        // TODO: Implement GPU-native CSR div kernel (intersection semantics like mul)
+        // For now, fallback to CPU implementation
+        crate::runtime::fallback::csr_elementwise_fallback::<T, CudaRuntime>(
+            a_row_ptrs,
+            a_col_indices,
+            a_values,
+            b_row_ptrs,
+            b_col_indices,
+            b_values,
+            shape,
+            |a, b| T::from_f64(a.to_f64() / b.to_f64()),
+        )
+    }
+
     // =========================================================================
     // CSC Operations (CPU fallback - TODO: Implement GPU-native kernels)
     // =========================================================================
@@ -666,6 +694,33 @@ impl SparseOps<CudaRuntime> for CudaClient {
         )
     }
 
+    fn div_csc<T: Element>(
+        &self,
+        a_col_ptrs: &Tensor<CudaRuntime>,
+        a_row_indices: &Tensor<CudaRuntime>,
+        a_values: &Tensor<CudaRuntime>,
+        b_col_ptrs: &Tensor<CudaRuntime>,
+        b_row_indices: &Tensor<CudaRuntime>,
+        b_values: &Tensor<CudaRuntime>,
+        shape: [usize; 2],
+    ) -> Result<(
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+    )> {
+        // TODO: Implement GPU-native CSC merge kernel
+        crate::runtime::fallback::csc_elementwise_fallback::<T, CudaRuntime>(
+            a_col_ptrs,
+            a_row_indices,
+            a_values,
+            b_col_ptrs,
+            b_row_indices,
+            b_values,
+            shape,
+            |a, b| T::from_f64(a.to_f64() / b.to_f64()),
+        )
+    }
+
     // =========================================================================
     // COO Operations (CPU fallback - TODO: Implement GPU-native kernels)
     // =========================================================================
@@ -748,6 +803,33 @@ impl SparseOps<CudaRuntime> for CudaClient {
             b_values,
             shape,
             |a, b| T::from_f64(a.to_f64() * b.to_f64()),
+        )
+    }
+
+    fn div_coo<T: Element>(
+        &self,
+        a_row_indices: &Tensor<CudaRuntime>,
+        a_col_indices: &Tensor<CudaRuntime>,
+        a_values: &Tensor<CudaRuntime>,
+        b_row_indices: &Tensor<CudaRuntime>,
+        b_col_indices: &Tensor<CudaRuntime>,
+        b_values: &Tensor<CudaRuntime>,
+        shape: [usize; 2],
+    ) -> Result<(
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+    )> {
+        // TODO: Implement GPU-native COO sort-merge kernel
+        crate::runtime::fallback::coo_elementwise_fallback::<T, CudaRuntime>(
+            a_row_indices,
+            a_col_indices,
+            a_values,
+            b_row_indices,
+            b_col_indices,
+            b_values,
+            shape,
+            |a, b| T::from_f64(a.to_f64() / b.to_f64()),
         )
     }
 
@@ -1025,6 +1107,11 @@ impl SparseOps<CudaRuntime> for CudaClient {
     ) -> Result<crate::sparse::SparseTensor<CudaRuntime>> {
         use crate::ops::ScalarOps;
         use crate::sparse::SparseTensor;
+
+        // Handle empty tensors without calling mul_scalar
+        if a.nnz() == 0 {
+            return Ok(a.clone());
+        }
 
         // Scale values tensor directly on GPU using ScalarOps
         match a {

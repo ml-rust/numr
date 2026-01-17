@@ -288,11 +288,51 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// Division by zero in the result will produce inf or nan according to
     /// IEEE 754 floating point rules.
-    pub fn div(&self, _other: &Self) -> Result<Self> {
-        // TODO: Implement division using SparseOps::div_csr
-        Err(Error::Internal(
-            "CSR element-wise division not yet implemented".to_string(),
-        ))
+    pub fn div(&self, other: &Self) -> Result<Self>
+    where
+        R::Client: SparseOps<R>,
+    {
+        // Validate shapes match
+        if self.shape != other.shape {
+            return Err(Error::ShapeMismatch {
+                expected: vec![self.shape[0], self.shape[1]],
+                got: vec![other.shape[0], other.shape[1]],
+            });
+        }
+
+        // Validate dtypes match
+        if self.dtype() != other.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: self.dtype(),
+                rhs: other.dtype(),
+            });
+        }
+
+        let dtype = self.dtype();
+        let device = self.values.device();
+
+        // Get client for runtime dispatch
+        let client = R::default_client(device);
+
+        // Dispatch to runtime-specific implementation
+        crate::dispatch_dtype!(dtype, T => {
+            let (out_row_ptrs, out_col_indices, out_values) = client.div_csr::<T>(
+                &self.row_ptrs,
+                &self.col_indices,
+                &self.values,
+                &other.row_ptrs,
+                &other.col_indices,
+                &other.values,
+                self.shape,
+            )?;
+
+            Ok(Self {
+                row_ptrs: out_row_ptrs,
+                col_indices: out_col_indices,
+                values: out_values,
+                shape: self.shape,
+            })
+        }, "csr_div")
     }
 
     /// Scalar multiplication: C = A * s
