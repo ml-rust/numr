@@ -43,6 +43,8 @@ fn compile_cuda_kernels() {
         "activation.cu",
         "norm.cu",
         "cast.cu",
+        "utility.cu",
+        "ternary.cu",
     ];
 
     // Find nvcc with helpful error message
