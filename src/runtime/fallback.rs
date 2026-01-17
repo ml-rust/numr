@@ -470,3 +470,113 @@ where
 
     unreachable!()
 }
+
+// ============================================================================
+// Sparse Matrix Fallback Helpers
+// ============================================================================
+
+#[cfg(feature = "sparse")]
+/// CSC element-wise operation fallback (GPU → CPU → GPU)
+pub fn csc_elementwise_fallback<T: Element, R: Runtime>(
+    a_col_ptrs: &Tensor<R>,
+    a_row_indices: &Tensor<R>,
+    a_values: &Tensor<R>,
+    b_col_ptrs: &Tensor<R>,
+    b_row_indices: &Tensor<R>,
+    b_values: &Tensor<R>,
+    shape: [usize; 2],
+    op: impl Fn(T, T) -> T,
+) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>
+where
+    R::Device: Device + Clone,
+{
+    let device = a_values.device();
+    let cpu = CpuFallbackContext::new();
+
+    // Copy to CPU
+    let a_col_ptrs_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(a_col_ptrs);
+    let a_row_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(a_row_indices);
+    let a_values_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(a_values);
+    let b_col_ptrs_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(b_col_ptrs);
+    let b_row_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(b_row_indices);
+    let b_values_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(b_values);
+
+    // Execute on CPU using the merge_csc_impl from cpu/sparse.rs
+    let (result_col_ptrs_cpu, result_row_indices_cpu, result_values_cpu) =
+        super::cpu::sparse::merge_csc_impl(
+            &a_col_ptrs_cpu,
+            &a_row_indices_cpu,
+            &a_values_cpu,
+            &b_col_ptrs_cpu,
+            &b_row_indices_cpu,
+            &b_values_cpu,
+            shape,
+            op,
+        )?;
+
+    // Copy back to GPU
+    let col_ptrs_data: Vec<i64> = result_col_ptrs_cpu.to_vec();
+    let row_indices_data: Vec<i64> = result_row_indices_cpu.to_vec();
+    let values_data: Vec<T> = result_values_cpu.to_vec();
+
+    let result_col_ptrs =
+        Tensor::<R>::from_slice(&col_ptrs_data, result_col_ptrs_cpu.shape(), device);
+    let result_row_indices =
+        Tensor::<R>::from_slice(&row_indices_data, result_row_indices_cpu.shape(), device);
+    let result_values = Tensor::<R>::from_slice(&values_data, result_values_cpu.shape(), device);
+
+    Ok((result_col_ptrs, result_row_indices, result_values))
+}
+
+#[cfg(feature = "sparse")]
+/// COO element-wise operation fallback (GPU → CPU → GPU)
+pub fn coo_elementwise_fallback<T: Element, R: Runtime>(
+    a_row_indices: &Tensor<R>,
+    a_col_indices: &Tensor<R>,
+    a_values: &Tensor<R>,
+    b_row_indices: &Tensor<R>,
+    b_col_indices: &Tensor<R>,
+    b_values: &Tensor<R>,
+    shape: [usize; 2],
+    op: impl Fn(T, T) -> T,
+) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>
+where
+    R::Device: Device + Clone,
+{
+    let device = a_values.device();
+    let cpu = CpuFallbackContext::new();
+
+    // Copy to CPU
+    let a_row_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(a_row_indices);
+    let a_col_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(a_col_indices);
+    let a_values_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(a_values);
+    let b_row_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(b_row_indices);
+    let b_col_indices_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<i64, R>(b_col_indices);
+    let b_values_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(b_values);
+
+    // Execute on CPU using the merge_coo_impl from cpu/sparse.rs
+    let (result_row_indices_cpu, result_col_indices_cpu, result_values_cpu) =
+        super::cpu::sparse::merge_coo_impl(
+            &a_row_indices_cpu,
+            &a_col_indices_cpu,
+            &a_values_cpu,
+            &b_row_indices_cpu,
+            &b_col_indices_cpu,
+            &b_values_cpu,
+            shape,
+            op,
+        )?;
+
+    // Copy back to GPU
+    let row_indices_data: Vec<i64> = result_row_indices_cpu.to_vec();
+    let col_indices_data: Vec<i64> = result_col_indices_cpu.to_vec();
+    let values_data: Vec<T> = result_values_cpu.to_vec();
+
+    let result_row_indices =
+        Tensor::<R>::from_slice(&row_indices_data, result_row_indices_cpu.shape(), device);
+    let result_col_indices =
+        Tensor::<R>::from_slice(&col_indices_data, result_col_indices_cpu.shape(), device);
+    let result_values = Tensor::<R>::from_slice(&values_data, result_values_cpu.shape(), device);
+
+    Ok((result_row_indices, result_col_indices, result_values))
+}
