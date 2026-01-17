@@ -210,6 +210,13 @@ pub mod kernel_names {
     pub const ACTIVATION_MODULE: &str = "activation";
     /// Normalization operations (rms_norm, layer_norm)
     pub const NORM_MODULE: &str = "norm";
+    /// Utility operations (fill)
+    /// Note: Currently unused; will be used when tensor creation (zeros/ones/full) is optimized
+    #[allow(dead_code)]
+    pub const UTILITY_MODULE: &str = "utility";
+    /// Ternary operations (where)
+    #[allow(dead_code)]
+    pub const TERNARY_MODULE: &str = "ternary";
 
     /// Generate kernel name for reduction operations.
     #[inline]

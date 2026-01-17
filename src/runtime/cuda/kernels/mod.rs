@@ -11,14 +11,16 @@
 //! # Module Organization
 //!
 //! - `loader` - Kernel loading, caching, and generic launch infrastructure
-//! - `binary` - Binary element-wise operations (add, sub, mul, div, pow, max, min)
-//! - `unary` - Unary element-wise operations (neg, abs, sqrt, exp, log, etc.)
+//! - `binary` - Binary element-wise operations (add, sub, mul, div, pow, max, min, logical_and/or/xor)
+//! - `unary` - Unary element-wise operations (neg, abs, sqrt, exp, log, sign, isnan, isinf, logical_not, etc.)
 //! - `scalar` - Tensor-scalar operations (add_scalar, mul_scalar, etc.)
 //! - `reduce` - Reduction operations (sum, max, min)
 //! - `compare` - Comparison operations (eq, ne, lt, le, gt, ge)
 //! - `activation` - Activation functions (relu, sigmoid, softmax, silu, gelu)
 //! - `norm` - Normalization operations (rms_norm, layer_norm)
 //! - `cast` - Type casting operations
+//! - `utility` - Utility operations (fill)
+//! - `ternary` - Ternary operations (where)
 //!
 //! # Kernel Files
 //!
@@ -30,6 +32,8 @@
 //! - `activation.cu` - Activation functions
 //! - `norm.cu` - Normalization operations
 //! - `cast.cu` - Type casting operations
+//! - `utility.cu` - Utility operations
+//! - `ternary.cu` - Ternary operations
 
 mod activation;
 mod binary;
@@ -39,7 +43,9 @@ mod loader;
 mod norm;
 mod reduce;
 mod scalar;
+mod ternary;
 mod unary;
+mod utility;
 
 pub use activation::*;
 pub use binary::*;
@@ -48,7 +54,10 @@ pub use compare::*;
 pub use norm::*;
 pub use reduce::*;
 pub use scalar::*;
+pub use ternary::*;
 pub use unary::*;
+#[allow(unused_imports)] // Prepared for future tensor creation optimization
+pub use utility::*;
 
 // Re-export commonly used items from loader for advanced users
 #[allow(unused_imports)]

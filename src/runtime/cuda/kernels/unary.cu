@@ -1,10 +1,72 @@
 // Unary element-wise CUDA kernels
-// Supports: neg, abs, sqrt, exp, log, sin, cos, tan, tanh, recip, square, floor, ceil, round
-// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2
+// Supports: neg, abs, sqrt, exp, log, sin, cos, tan, tanh, recip, square, floor, ceil, round, clamp, sign, isnan, isinf, logical_not
+// Types: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2, i32, i64, u8 (bool)
+// Clamp operation: clamp(x, min_scalar, max_scalar) = min(max(x, lo), hi)
+// Sign operation: returns -1, 0, or +1
+// IsNaN/IsInf: returns u8 (bool) - 1 if true, 0 if false
+// Logical NOT: boolean negation (u8 input/output)
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "dtype_traits.cuh"
+
+// ============================================================================
+// Clamp Helper Device Function (Templated - must be outside extern "C")
+// ============================================================================
+
+template<typename T>
+__device__ __forceinline__ T clamp_impl(T val, T min_val, T max_val) {
+    return (val < min_val) ? min_val : (val > max_val ? max_val : val);
+}
+
+// Specialization for float
+template<>
+__device__ __forceinline__ float clamp_impl(float val, float min_val, float max_val) {
+    return fminf(fmaxf(val, min_val), max_val);
+}
+
+// Specialization for double
+template<>
+__device__ __forceinline__ double clamp_impl(double val, double min_val, double max_val) {
+    return fmin(fmax(val, min_val), max_val);
+}
+
+// Specialization for half
+template<>
+__device__ __forceinline__ __half clamp_impl(__half val, __half min_val, __half max_val) {
+    return __hmin(__hmax(val, min_val), max_val);
+}
+
+// Specialization for bfloat16
+template<>
+__device__ __forceinline__ __nv_bfloat16 clamp_impl(__nv_bfloat16 val, __nv_bfloat16 min_val, __nv_bfloat16 max_val) {
+    #if __CUDA_ARCH__ >= 800
+    return __hmin(__hmax(val, min_val), max_val);
+    #else
+    float vf = __bfloat162float(val);
+    float minf = __bfloat162float(min_val);
+    float maxf = __bfloat162float(max_val);
+    return __float2bfloat16(fminf(fmaxf(vf, minf), maxf));
+    #endif
+}
+
+// Specialization for FP8E4M3 (clamp in F32)
+template<>
+__device__ __forceinline__ numr_fp8_e4m3 clamp_impl(numr_fp8_e4m3 val, numr_fp8_e4m3 min_val, numr_fp8_e4m3 max_val) {
+    float vf = fp8_e4m3_to_f32(val.data);
+    float minf = fp8_e4m3_to_f32(min_val.data);
+    float maxf = fp8_e4m3_to_f32(max_val.data);
+    return numr_fp8_e4m3(f32_to_fp8_e4m3(fminf(fmaxf(vf, minf), maxf)));
+}
+
+// Specialization for FP8E5M2 (clamp in F32)
+template<>
+__device__ __forceinline__ numr_fp8_e5m2 clamp_impl(numr_fp8_e5m2 val, numr_fp8_e5m2 min_val, numr_fp8_e5m2 max_val) {
+    float vf = fp8_e5m2_to_f32(val.data);
+    float minf = fp8_e5m2_to_f32(min_val.data);
+    float maxf = fp8_e5m2_to_f32(max_val.data);
+    return numr_fp8_e5m2(f32_to_fp8_e5m2(fminf(fmaxf(vf, minf), maxf)));
+}
 
 extern "C" {
 
@@ -715,6 +777,243 @@ __global__ void round_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsig
     if (idx < n) {
         float fa = fp8_e5m2_to_f32(a[idx].data);
         out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(roundf(fa)));
+    }
+}
+
+// ============================================================================
+// Clamp Operations (tensor, min_val, max_val) - Kernel Wrappers
+// ============================================================================
+
+__global__ void clamp_f32(const float* a, float min_val, float max_val, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<float>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_f64(const double* a, double min_val, double max_val, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<double>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_f16(const __half* a, __half min_val, __half max_val, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<__half>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_bf16(const __nv_bfloat16* a, __nv_bfloat16 min_val, __nv_bfloat16 max_val, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<__nv_bfloat16>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_i32(const int* a, int min_val, int max_val, int* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<int>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_i64(const long long* a, long long min_val, long long max_val, long long* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<long long>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3 min_val, numr_fp8_e4m3 max_val, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<numr_fp8_e4m3>(a[idx], min_val, max_val);
+    }
+}
+
+__global__ void clamp_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2 min_val, numr_fp8_e5m2 max_val, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = clamp_impl<numr_fp8_e5m2>(a[idx], min_val, max_val);
+    }
+}
+
+// ============================================================================
+// Sign Operations - Returns -1, 0, or +1
+// ============================================================================
+
+__global__ void sign_f32(const float* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = a[idx];
+        out[idx] = (val > 0.0f) ? 1.0f : ((val < 0.0f) ? -1.0f : 0.0f);
+    }
+}
+
+__global__ void sign_f64(const double* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double val = a[idx];
+        out[idx] = (val > 0.0) ? 1.0 : ((val < 0.0) ? -1.0 : 0.0);
+    }
+}
+
+__global__ void sign_f16(const __half* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = __half2float(a[idx]);
+        out[idx] = __float2half((val > 0.0f) ? 1.0f : ((val < 0.0f) ? -1.0f : 0.0f));
+    }
+}
+
+__global__ void sign_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16((val > 0.0f) ? 1.0f : ((val < 0.0f) ? -1.0f : 0.0f));
+    }
+}
+
+__global__ void sign_i32(const int* a, int* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        int val = a[idx];
+        out[idx] = (val > 0) ? 1 : ((val < 0) ? -1 : 0);
+    }
+}
+
+__global__ void sign_i64(const long long* a, long long* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        long long val = a[idx];
+        out[idx] = (val > 0) ? 1 : ((val < 0) ? -1 : 0);
+    }
+}
+
+__global__ void sign_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e4m3_to_f32(a[idx].data);
+        float sign = (val > 0.0f) ? 1.0f : ((val < 0.0f) ? -1.0f : 0.0f);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sign));
+    }
+}
+
+__global__ void sign_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e5m2_to_f32(a[idx].data);
+        float sign = (val > 0.0f) ? 1.0f : ((val < 0.0f) ? -1.0f : 0.0f);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sign));
+    }
+}
+
+// ============================================================================
+// IsNaN Operations - Returns 1 if NaN, 0 otherwise (output is u8)
+// ============================================================================
+
+__global__ void isnan_f32(const float* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isnan(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isnan_f64(const double* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isnan(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isnan_f16(const __half* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hisnan(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isnan_bf16(const __nv_bfloat16* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isnan(__bfloat162float(a[idx])) ? 1 : 0;
+    }
+}
+
+__global__ void isnan_fp8_e4m3(const numr_fp8_e4m3* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = isnan(val) ? 1 : 0;
+    }
+}
+
+__global__ void isnan_fp8_e5m2(const numr_fp8_e5m2* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = isnan(val) ? 1 : 0;
+    }
+}
+
+// ============================================================================
+// IsInf Operations - Returns 1 if Inf, 0 otherwise (output is u8)
+// ============================================================================
+
+__global__ void isinf_f32(const float* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isinf(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isinf_f64(const double* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isinf(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isinf_f16(const __half* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __hisinf(a[idx]) ? 1 : 0;
+    }
+}
+
+__global__ void isinf_bf16(const __nv_bfloat16* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = isinf(__bfloat162float(a[idx])) ? 1 : 0;
+    }
+}
+
+__global__ void isinf_fp8_e4m3(const numr_fp8_e4m3* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = isinf(val) ? 1 : 0;
+    }
+}
+
+__global__ void isinf_fp8_e5m2(const numr_fp8_e5m2* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = isinf(val) ? 1 : 0;
+    }
+}
+
+// ============================================================================
+// Logical NOT - Boolean negation (input and output are u8)
+// ============================================================================
+
+__global__ void logical_not_u8(const unsigned char* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = a[idx] ? 0 : 1;
     }
 }
 
