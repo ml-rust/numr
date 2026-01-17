@@ -189,7 +189,6 @@ mod tests {
     use crate::runtime::Runtime;
     use crate::runtime::cpu::CpuRuntime;
     use crate::sparse::SparseFormat;
-    use crate::tensor::Tensor;
 
     #[test]
     fn test_csc_creation() {

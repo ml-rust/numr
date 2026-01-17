@@ -131,7 +131,7 @@ mod tests {
     use crate::dtype::DType;
     use crate::runtime::Runtime;
     use crate::runtime::cpu::CpuRuntime;
-    use crate::sparse::{SparseFormat, SparseStorage};
+    use crate::sparse::SparseFormat;
     use crate::tensor::Tensor;
 
     // =========================================================================
