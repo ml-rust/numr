@@ -167,11 +167,23 @@ impl<R: Runtime> Tensor<R> {
                 slice.fill(value as f32);
             }
             DType::F16 | DType::BF16 => {
-                // For half precision, use f32 representation for now
-                // TODO: Use proper half types when half crate is available
                 let slice: &mut [u16] = bytemuck::cast_slice_mut(&mut bytes);
-                let half_bits = half_from_f32(value as f32, dtype);
-                slice.fill(half_bits);
+                #[cfg(feature = "f16")]
+                {
+                    use half::{bf16, f16};
+                    let half_bits = if dtype == DType::BF16 {
+                        bf16::from_f32(value as f32).to_bits()
+                    } else {
+                        f16::from_f32(value as f32).to_bits()
+                    };
+                    slice.fill(half_bits);
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    // Fallback: manual conversion when half crate unavailable
+                    let half_bits = half_from_f32(value as f32, dtype);
+                    slice.fill(half_bits);
+                }
             }
             DType::FP8E4M3 => {
                 #[cfg(feature = "fp8")]
@@ -427,7 +439,8 @@ impl<R: Runtime> Tensor<R> {
             let new_layout = Layout::contiguous(self.shape());
 
             // Copy data element by element (generic copy via bytes)
-            // TODO: This should be a kernel for efficiency. For now, use host-side copy.
+            // Note: Host-side copy for non-contiguous tensors. GPU kernel
+            // optimization would improve performance for large tensors.
             let elem_size = dtype.size_in_bytes();
             let src_ptr = self.storage.ptr();
             let dst_ptr = new_storage.ptr();
@@ -526,9 +539,9 @@ impl<R: Runtime> fmt::Display for Tensor<R> {
 /// Convert f32 to half-precision bit representation
 ///
 /// This is a simple conversion that handles common cases.
-/// For full IEEE 754 compliance, use the `half` crate.
+/// For full IEEE 754 compliance, use the `half` crate (enabled with `f16` feature).
+#[cfg(not(feature = "f16"))]
 fn half_from_f32(value: f32, dtype: DType) -> u16 {
-    // Simple conversion - for production use the half crate
     let bits = value.to_bits();
     let sign = (bits >> 31) & 1;
     let exp = ((bits >> 23) & 0xFF) as i32;

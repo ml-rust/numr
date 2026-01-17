@@ -121,7 +121,10 @@ pub unsafe fn launch_isnan_op(
         builder.arg(&n);
 
         builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!("CUDA isnan kernel '{}' launch failed: {:?}", func_name, e))
+            Error::Internal(format!(
+                "CUDA isnan kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
         })?;
 
         Ok(())
@@ -177,7 +180,10 @@ pub unsafe fn launch_isinf_op(
         builder.arg(&n);
 
         builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!("CUDA isinf kernel '{}' launch failed: {:?}", func_name, e))
+            Error::Internal(format!(
+                "CUDA isinf kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
         })?;
 
         Ok(())
@@ -226,10 +232,7 @@ pub unsafe fn launch_logical_not_op(
         builder.arg(&n);
 
         builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA logical_not kernel launch failed: {:?}",
-                e
-            ))
+            Error::Internal(format!("CUDA logical_not kernel launch failed: {:?}", e))
         })?;
 
         Ok(())

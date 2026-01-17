@@ -661,10 +661,11 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }
 
         // Compute broadcast shape (cond, x, y) -> out
-        let xy_shape = broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
-            lhs: x.shape().to_vec(),
-            rhs: y.shape().to_vec(),
-        })?;
+        let xy_shape =
+            broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
+                lhs: x.shape().to_vec(),
+                rhs: y.shape().to_vec(),
+            })?;
         let out_shape =
             broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| Error::BroadcastError {
                 lhs: cond.shape().to_vec(),

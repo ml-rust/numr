@@ -203,6 +203,7 @@ where
             UnaryOp::Floor => cpu.client.floor(&a_cpu)?,
             UnaryOp::Ceil => cpu.client.ceil(&a_cpu)?,
             UnaryOp::Round => cpu.client.round(&a_cpu)?,
+            UnaryOp::Sign => cpu.client.sign(&a_cpu)?,
         };
 
         let result_data: Vec<T> = result_cpu.to_vec();
@@ -390,6 +391,79 @@ where
             CompareOp::Ge => cpu.client.ge(&a_cpu, &b_cpu)?,
         };
 
+        let result_data: Vec<T> = result_cpu.to_vec();
+        return Ok(Tensor::<R>::from_slice(&result_data, &out_shape, device));
+    }, op_name);
+
+    unreachable!()
+}
+
+/// Compute broadcast shape for ternary operations (where_cond).
+///
+/// Returns the broadcasted shape of all three tensors.
+#[inline]
+pub fn compute_ternary_broadcast_shape<R: Runtime>(
+    cond: &Tensor<R>,
+    x: &Tensor<R>,
+    y: &Tensor<R>,
+) -> Result<Vec<usize>> {
+    // First compute broadcast of x and y
+    let xy_shape = broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
+        lhs: x.shape().to_vec(),
+        rhs: y.shape().to_vec(),
+    })?;
+
+    // Then broadcast cond with the x-y broadcast result
+    broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| Error::BroadcastError {
+        lhs: cond.shape().to_vec(),
+        rhs: xy_shape,
+    })
+}
+
+/// Perform a where_cond (ternary conditional select) operation using CPU fallback.
+///
+/// This supports full broadcasting across cond, x, and y tensors.
+///
+/// # Arguments
+///
+/// * `cond` - Condition tensor (U8/boolean) on GPU
+/// * `x` - "True" values tensor on GPU
+/// * `y` - "False" values tensor on GPU
+/// * `device` - GPU device to create output tensor on
+/// * `op_name` - Operation name for error messages
+pub fn where_cond_fallback<R, D>(
+    cond: &Tensor<R>,
+    x: &Tensor<R>,
+    y: &Tensor<R>,
+    device: &D,
+    op_name: &'static str,
+) -> Result<Tensor<R>>
+where
+    R: Runtime<Device = D>,
+    D: Device + Clone,
+{
+    // Validate dtypes
+    let dtype = validate_binary_dtypes(x, y)?;
+    if cond.dtype() != DType::U8 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U8,
+            rhs: cond.dtype(),
+        });
+    }
+
+    let out_shape = compute_ternary_broadcast_shape(cond, x, y)?;
+    let cpu = CpuFallbackContext::new();
+
+    dispatch_dtype!(dtype, T => {
+        // Copy all three tensors to CPU
+        let cond_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<u8, R>(cond);
+        let x_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(x);
+        let y_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(y);
+
+        // Execute where_cond on CPU
+        let result_cpu = cpu.client.where_cond(&cond_cpu, &x_cpu, &y_cpu)?;
+
+        // Copy result back to GPU
         let result_data: Vec<T> = result_cpu.to_vec();
         return Ok(Tensor::<R>::from_slice(&result_data, &out_shape, device));
     }, op_name);

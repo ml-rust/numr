@@ -19,51 +19,39 @@
 //!     unreachable!()
 //! }
 //! ```
+//!
+//! # Macro Details
+//!
+//! The `dispatch_dtype!` macro takes a `DType` value and executes a code block
+//! with `T` bound to the corresponding Rust type. It handles all supported dtypes
+//! including conditional compilation for F16/BF16.
+//!
+//! ## Arguments
+//!
+//! * `$dtype` - Expression evaluating to a `DType` value
+//! * `$T` - Identifier to bind to the concrete type in the body
+//! * `$body` - Code block to execute with `T` bound
+//! * `$error_op` - Operation name for error messages (used when dtype is unsupported)
+//!
+//! ## Supported Types
+//!
+//! - `F64` -> `f64`
+//! - `F32` -> `f32`
+//! - `F16` -> `half::f16` (requires "f16" feature)
+//! - `BF16` -> `half::bf16` (requires "f16" feature)
+//! - `FP8E4M3` -> `crate::dtype::FP8E4M3` (requires "fp8" feature)
+//! - `FP8E5M2` -> `crate::dtype::FP8E5M2` (requires "fp8" feature)
+//! - `I64` -> `i64`
+//! - `I32` -> `i32`
+//! - `I16` -> `i16`
+//! - `I8` -> `i8`
+//! - `U64` -> `u64`
+//! - `U32` -> `u32`
+//! - `U16` -> `u16`
+//! - `U8` -> `u8`
+//! - `Bool` -> Returns `UnsupportedDType` error
 
-/// Macro for runtime dtype dispatch to typed operations.
-///
-/// This macro takes a `DType` value and executes a code block with `T` bound
-/// to the corresponding Rust type. It handles all supported dtypes including
-/// conditional compilation for F16/BF16.
-///
-/// # Arguments
-///
-/// * `$dtype` - Expression evaluating to a `DType` value
-/// * `$T` - Identifier to bind to the concrete type in the body
-/// * `$body` - Code block to execute with `T` bound
-/// * `$error_op` - Operation name for error messages (used when dtype is unsupported)
-///
-/// # Example
-///
-/// ```ignore
-/// dispatch_dtype!(tensor.dtype(), T => {
-///     let data: Vec<T> = tensor.to_vec();
-///     // Process typed data...
-///     return Ok(result);
-/// }, "my_operation");
-/// ```
-///
-/// # Supported Types
-///
-/// - `F64` -> `f64`
-/// - `F32` -> `f32`
-/// - `F16` -> `half::f16` (requires "f16" feature)
-/// - `BF16` -> `half::bf16` (requires "f16" feature)
-/// - `FP8E4M3` -> `crate::dtype::FP8E4M3` (requires "fp8" feature)
-/// - `FP8E5M2` -> `crate::dtype::FP8E5M2` (requires "fp8" feature)
-/// - `I64` -> `i64`
-/// - `I32` -> `i32`
-/// - `I16` -> `i16`
-/// - `I8` -> `i8`
-/// - `U64` -> `u64`
-/// - `U32` -> `u32`
-/// - `U16` -> `u16`
-/// - `U8` -> `u8`
-/// - `Bool` -> Returns `UnsupportedDType` error
-
-// =============================================================================
 // Feature-Gated Type Dispatch Helpers
-// =============================================================================
 //
 // These two parameterized macros replace what would otherwise be 4 separate
 // macros (one per type). The type is passed as a parameter, reducing duplication.
