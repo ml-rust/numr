@@ -41,16 +41,18 @@
 
 use super::kernels::{
     AccumulationPrecision, launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_cast,
-    launch_compare_op, launch_gelu, launch_layer_norm, launch_reduce_dim_op, launch_relu,
-    launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64, launch_sigmoid, launch_silu,
-    launch_softmax, launch_softmax_dim, launch_unary_op,
+    launch_compare_op, launch_gelu, launch_isinf_op, launch_isnan_op, launch_layer_norm,
+    launch_logical_and_op, launch_logical_not_op, launch_logical_or_op, launch_logical_xor_op,
+    launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64,
+    launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim, launch_unary_op,
+    launch_where_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    CompareOps, ReduceOp, ScalarOps, TensorOps, compute_reduce_strides, matmul_output_shape,
-    normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
+    CompareOps, LogicalOps, ReduceOp, ScalarOps, TensorOps, compute_reduce_strides,
+    matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::tensor::Tensor;
@@ -65,7 +67,14 @@ use cudarc::cublas::sys::{cublasComputeType_t, cublasGemmEx, cudaDataType_t};
 // Helper Functions
 // ============================================================================
 
-/// Ensure a tensor is contiguous.
+/// Ensure a tensor is contiguous in memory.
+///
+/// If the tensor is already contiguous (elements laid out consecutively),
+/// returns a clone (zero-copy, just increments refcount). Otherwise,
+/// creates a new contiguous copy of the data.
+///
+/// This is required before passing tensors to cuBLAS or CUDA kernels
+/// that expect contiguous memory layout.
 #[inline]
 fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
     if tensor.is_contiguous() {
@@ -79,7 +88,15 @@ fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
 // cuBLAS GEMM Implementation
 // ============================================================================
 
-/// Matrix multiplication using cuBLAS for F32
+/// Matrix multiplication using cuBLAS SGEMM for F32 tensors.
+///
+/// Uses column-major storage convention expected by cuBLAS, with appropriate
+/// transposition to handle row-major tensor layouts. Computes C = A @ B.
+///
+/// # Arguments
+/// * `m` - Number of rows in A (and C)
+/// * `k` - Number of columns in A / rows in B
+/// * `n` - Number of columns in B (and C)
 fn matmul_f32_cublas(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -153,7 +170,16 @@ fn matmul_f32_cublas(
     Ok(out)
 }
 
-/// Batched matrix multiplication using cuBLAS for F32
+/// Batched matrix multiplication using cuBLAS strided batched GEMM for F32.
+///
+/// Performs `batch` independent matrix multiplications: C[i] = A[i] @ B[i].
+/// Uses cublasSgemmStridedBatched for efficient batched execution.
+///
+/// # Arguments
+/// * `batch` - Number of matrix multiplications to perform
+/// * `m` - Number of rows in each A matrix (and C)
+/// * `k` - Number of columns in each A / rows in each B
+/// * `n` - Number of columns in each B (and C)
 fn matmul_batched_f32_cublas(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -235,6 +261,16 @@ fn matmul_batched_f32_cublas(
     Ok(out)
 }
 
+/// Matrix multiplication using cuBLAS HGEMM for half-precision tensors.
+///
+/// Supports both F16 (requires SM 5.3+) and BF16 (requires SM 8.0+).
+/// Falls back to F32 compute internally on older architectures if needed.
+///
+/// # Arguments
+/// * `m` - Number of rows in A (and C)
+/// * `k` - Number of columns in A / rows in B
+/// * `n` - Number of columns in B (and C)
+/// * `dtype` - Either F16 or BF16
 #[cfg(feature = "f16")]
 fn matmul_half_cublas(
     client: &CudaClient,
@@ -406,7 +442,13 @@ fn native_binary_op(
     Ok(out)
 }
 
-/// Launch a native unary operation.
+/// Launch a native CUDA unary operation (element-wise, single input).
+///
+/// Dispatches to CUDA kernels for operations like neg, abs, sqrt, exp, log,
+/// sin, cos, sigmoid, relu, etc. The operation runs entirely on GPU.
+///
+/// # Arguments
+/// * `op` - Operation name (must match kernel function suffix, e.g., "neg", "exp")
 fn native_unary_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -432,7 +474,14 @@ fn native_unary_op(
     Ok(out)
 }
 
-/// Launch a native scalar operation.
+/// Launch a native CUDA tensor-scalar operation.
+///
+/// Dispatches to CUDA kernels for operations like add_scalar, mul_scalar, etc.
+/// For F32/F64, runs on GPU. For other dtypes, falls back to CPU.
+///
+/// # Arguments
+/// * `op` - Operation name (e.g., "add_scalar", "mul_scalar")
+/// * `scalar` - Scalar value to apply to each element
 fn native_scalar_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -490,7 +539,18 @@ fn native_scalar_op(
     Ok(out)
 }
 
-/// Launch a native reduce operation with optional accumulation precision.
+/// Launch a native CUDA reduction operation (sum, max, min along dimensions).
+///
+/// # Performance
+///
+/// - **Single dimension**: Uses optimized CUDA kernel with warp-level reductions (fast)
+/// - **Multiple dimensions**: Falls back to CPU with GPU↔CPU transfers (slow)
+///
+/// # Arguments
+/// * `op` - Operation name ("sum", "max", "min")
+/// * `dims` - Dimensions to reduce over
+/// * `keepdim` - Whether to keep reduced dimensions as size 1
+/// * `precision` - Optional accumulation precision (higher precision for sum)
 fn native_reduce_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -710,6 +770,52 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
     fn round(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_unary_op(self, a, "round")
+    }
+
+    fn sign(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "sign")
+    }
+
+    fn isnan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        // Output is always U8 (boolean)
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_isnan_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn isinf(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        // Output is always U8 (boolean)
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_isinf_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
     }
 
     // ===== Matrix Operations (cuBLAS) =====
@@ -1204,6 +1310,56 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+
+    // ===== Conditional Operations =====
+
+    fn where_cond(
+        &self,
+        cond: &Tensor<CudaRuntime>,
+        x: &Tensor<CudaRuntime>,
+        y: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::runtime::fallback::where_cond_fallback;
+
+        // Validate that x and y have the same dtype
+        let dtype = validate_binary_dtypes(x, y)?;
+
+        // Validate condition tensor is U8 (boolean)
+        if cond.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: cond.dtype(),
+            });
+        }
+
+        // For same shapes, use optimized element-wise kernel on GPU
+        if cond.shape() == x.shape() && x.shape() == y.shape() {
+            let cond_contig = ensure_contiguous(cond);
+            let x_contig = ensure_contiguous(x);
+            let y_contig = ensure_contiguous(y);
+            let out = Tensor::<CudaRuntime>::empty(x.shape(), dtype, &self.device);
+
+            unsafe {
+                launch_where_op(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    cond_contig.storage().ptr(),
+                    x_contig.storage().ptr(),
+                    y_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    out.numel(),
+                )?;
+            }
+
+            return Ok(out);
+        }
+
+        // For different shapes, fall back to CPU with broadcasting support
+        // (GPU→CPU→GPU transfer, but supports full NumPy-style broadcasting)
+        where_cond_fallback(cond, x, y, &self.device, "where_cond")
+    }
 }
 
 // ============================================================================
@@ -1259,6 +1415,176 @@ impl CompareOps<CudaRuntime> for CudaClient {
 
     fn ge(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_compare_op(self, a, b, "ge")
+    }
+}
+
+// ============================================================================
+// LogicalOps Implementation
+// ============================================================================
+
+impl LogicalOps<CudaRuntime> for CudaClient {
+    fn logical_and(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_logical_and_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                a_contig.storage().ptr(),
+                b_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn logical_or(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_logical_or_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                a_contig.storage().ptr(),
+                b_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn logical_xor(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Validate both tensors are U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+        if b.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: b.dtype(),
+            });
+        }
+
+        // Validate same shape
+        if a.shape() != b.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_logical_xor_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                a_contig.storage().ptr(),
+                b_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn logical_not(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        // Validate tensor is U8 (boolean)
+        if a.dtype() != DType::U8 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::U8,
+                rhs: a.dtype(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
+
+        unsafe {
+            launch_logical_not_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
     }
 }
 
