@@ -140,6 +140,30 @@ pub trait SparseOps<R: Runtime>: Sized {
     ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
 
     /// CSR element-wise division: C = A ./ B
+    ///
+    /// Computes element-wise division of two sparse matrices using intersection semantics.
+    /// Only positions where BOTH matrices have non-zero values are included in the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `a_row_ptrs`, `a_col_indices`, `a_values` - CSR format for numerator matrix A
+    /// * `b_row_ptrs`, `b_col_indices`, `b_values` - CSR format for denominator matrix B
+    /// * `shape` - Matrix dimensions [rows, cols]. Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_ptrs, col_indices, values) for result matrix C in CSR format
+    ///
+    /// # Semantics
+    ///
+    /// - **Intersection strategy**: Result contains only positions where both A and B have values
+    /// - **Mathematical**: C[i,j] = A[i,j] / B[i,j] when both exist
+    /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
+    /// - **Example**: A=[1,0,3], B=[2,4,0] → C=[0.5] (only position 0 has both values)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if matrix shapes don't match
     fn div_csr<T: crate::dtype::Element>(
         &self,
         a_row_ptrs: &Tensor<R>,
@@ -197,6 +221,31 @@ pub trait SparseOps<R: Runtime>: Sized {
         shape: [usize; 2],
     ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
 
+    /// CSC element-wise division: C = A ./ B
+    ///
+    /// Computes element-wise division of two sparse matrices using intersection semantics.
+    /// Only positions where BOTH matrices have non-zero values are included in the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `a_col_ptrs`, `a_row_indices`, `a_values` - CSC format for numerator matrix A
+    /// * `b_col_ptrs`, `b_row_indices`, `b_values` - CSC format for denominator matrix B
+    /// * `shape` - Matrix dimensions [rows, cols]. Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (col_ptrs, row_indices, values) for result matrix C in CSC format
+    ///
+    /// # Semantics
+    ///
+    /// - **Intersection strategy**: Result contains only positions where both A and B have values
+    /// - **Mathematical**: C[i,j] = A[i,j] / B[i,j] when both exist
+    /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
+    /// - **Example**: A=[1,0,3], B=[2,4,0] → C=[0.5] (only position 0 has both values)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if matrix shapes don't match
     fn div_csc<T: crate::dtype::Element>(
         &self,
         a_col_ptrs: &Tensor<R>,
@@ -254,6 +303,31 @@ pub trait SparseOps<R: Runtime>: Sized {
         shape: [usize; 2],
     ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
 
+    /// COO element-wise division: C = A ./ B
+    ///
+    /// Computes element-wise division of two sparse matrices using intersection semantics.
+    /// Only positions where BOTH matrices have non-zero values are included in the result.
+    ///
+    /// # Arguments
+    ///
+    /// * `a_row_indices`, `a_col_indices`, `a_values` - COO format for numerator matrix A
+    /// * `b_row_indices`, `b_col_indices`, `b_values` - COO format for denominator matrix B
+    /// * `shape` - Matrix dimensions [rows, cols]. Both matrices must have the same shape.
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (row_indices, col_indices, values) for result matrix C in COO format
+    ///
+    /// # Semantics
+    ///
+    /// - **Intersection strategy**: Result contains only positions where both A and B have values
+    /// - **Mathematical**: C[i,j] = A[i,j] / B[i,j] when both exist
+    /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
+    /// - **Example**: A=[1,0,3], B=[2,4,0] → C=[0.5] (only position 0 has both values)
+    ///
+    /// # Errors
+    ///
+    /// Returns error if matrix shapes don't match
     fn div_coo<T: crate::dtype::Element>(
         &self,
         a_row_indices: &Tensor<R>,
