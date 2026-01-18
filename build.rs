@@ -53,6 +53,7 @@ fn compile_cuda_kernels() {
         kernel_files.push("sparse_spmv.cu");
         kernel_files.push("sparse_merge.cu");
         kernel_files.push("sparse_convert.cu");
+        kernel_files.push("sparse_coo.cu");
         kernel_files.push("scan.cu");
     }
 
