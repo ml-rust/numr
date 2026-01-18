@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::ops::{CompareOps, ScalarOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
-use std::marker::PhantomData;
+use std::sync::Arc;
 
 // ============================================================================
 // Helper Functions
@@ -38,18 +38,24 @@ pub struct SumBackward<R: Runtime> {
     input_shape: Vec<usize>,
     dims: Vec<usize>,
     keepdim: bool,
-    _marker: PhantomData<R>,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> SumBackward<R> {
     /// Create a new SumBackward
-    pub fn new(input_id: TensorId, input_shape: &[usize], dims: &[usize], keepdim: bool) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input_shape: &[usize],
+        dims: &[usize],
+        keepdim: bool,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             input_shape: input_shape.to_vec(),
             dims: dims.to_vec(),
             keepdim,
-            _marker: PhantomData,
+            input_grad_fn,
         }
     }
 }
@@ -82,6 +88,10 @@ impl<R: Runtime> GradFn<R> for SumBackward<R> {
         std::slice::from_ref(&self.input_id)
     }
 
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
     fn name(&self) -> &'static str {
         "SumBackward"
     }
@@ -100,18 +110,24 @@ pub struct MeanBackward<R: Runtime> {
     input_shape: Vec<usize>,
     dims: Vec<usize>,
     keepdim: bool,
-    _marker: PhantomData<R>,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> MeanBackward<R> {
     /// Create a new MeanBackward
-    pub fn new(input_id: TensorId, input_shape: &[usize], dims: &[usize], keepdim: bool) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input_shape: &[usize],
+        dims: &[usize],
+        keepdim: bool,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             input_shape: input_shape.to_vec(),
             dims: dims.to_vec(),
             keepdim,
-            _marker: PhantomData,
+            input_grad_fn,
         }
     }
 }
@@ -152,6 +168,10 @@ where
         std::slice::from_ref(&self.input_id)
     }
 
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
     fn name(&self) -> &'static str {
         "MeanBackward"
     }
@@ -170,16 +190,24 @@ pub struct MaxBackward<R: Runtime> {
     saved_input: Tensor<R>,
     dims: Vec<usize>,
     keepdim: bool,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> MaxBackward<R> {
     /// Create a new MaxBackward
-    pub fn new(input_id: TensorId, input: Tensor<R>, dims: &[usize], keepdim: bool) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_input: input,
             dims: dims.to_vec(),
             keepdim,
+            input_grad_fn,
         }
     }
 }
@@ -231,6 +259,10 @@ where
         std::slice::from_ref(&self.input_id)
     }
 
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
     fn saved_tensors(&self) -> &[Tensor<R>] {
         std::slice::from_ref(&self.saved_input)
     }
@@ -253,16 +285,24 @@ pub struct MinBackward<R: Runtime> {
     saved_input: Tensor<R>,
     dims: Vec<usize>,
     keepdim: bool,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> MinBackward<R> {
     /// Create a new MinBackward
-    pub fn new(input_id: TensorId, input: Tensor<R>, dims: &[usize], keepdim: bool) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_input: input,
             dims: dims.to_vec(),
             keepdim,
+            input_grad_fn,
         }
     }
 }
@@ -314,6 +354,10 @@ where
         std::slice::from_ref(&self.input_id)
     }
 
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
     fn saved_tensors(&self) -> &[Tensor<R>] {
         std::slice::from_ref(&self.saved_input)
     }
@@ -345,6 +389,7 @@ mod tests {
             &[2, 3],
             &[1],
             true, // keepdim
+            None, // input_grad_fn
         );
         let grads = backward.backward(&grad_out).unwrap();
 
@@ -371,6 +416,7 @@ mod tests {
             &[2, 3],
             &[1],
             false, // no keepdim
+            None,  // input_grad_fn
         );
         let grads = backward.backward(&grad_out).unwrap();
 
@@ -397,6 +443,7 @@ mod tests {
             &[2, 3],
             &[1],
             true, // keepdim
+            None, // input_grad_fn
         );
         let grads = backward.backward(&grad_out).unwrap();
 
@@ -423,7 +470,7 @@ mod tests {
             Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 2.0, 4.0, 2.0, 5.0], &[2, 3], &device);
         let grad_out = Tensor::<CpuRuntime>::ones(&[2, 1], DType::F32, &device);
 
-        let backward = MaxBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true);
+        let backward = MaxBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_a = grads[0].as_ref().unwrap();
@@ -447,7 +494,7 @@ mod tests {
             Tensor::<CpuRuntime>::from_slice(&[3.0f32, 1.0, 2.0, 4.0, 2.0, 5.0], &[2, 3], &device);
         let grad_out = Tensor::<CpuRuntime>::ones(&[2, 1], DType::F32, &device);
 
-        let backward = MinBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true);
+        let backward = MinBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_a = grads[0].as_ref().unwrap();
@@ -470,7 +517,7 @@ mod tests {
         let a = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0, 1.0], &[1, 3], &device);
         let grad_out = Tensor::<CpuRuntime>::ones(&[1, 1], DType::F32, &device);
 
-        let backward = MaxBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true);
+        let backward = MaxBackward::<CpuRuntime>::new(a.id(), a.clone(), &[1], true, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_a = grads[0].as_ref().unwrap();
