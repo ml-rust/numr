@@ -407,3 +407,65 @@ __global__ void sparse_nnz_per_row_csr_i64(
 }
 
 } // extern "C"
+
+// ============================================================================
+// COO → CSR/CSC: Build Pointers from Sorted Indices
+// ============================================================================
+
+extern "C" {
+
+/// Build row_ptrs/col_ptrs from sorted row/column indices
+///
+/// After sorting COO entries by row (for CSR) or column (for CSC),
+/// this kernel builds the compressed pointer array.
+///
+/// Algorithm:
+/// - row_ptrs[0] = 0 (first row starts at position 0)
+/// - For each position i, if row_indices[i] != row_indices[i-1], record transition
+/// - row_ptrs[row+1] = position where row ends
+/// - row_ptrs[n_rows] = nnz (total entries)
+__global__ void build_ptrs_from_sorted_indices_i64(
+    const int64_t* sorted_indices,  // Sorted row or column indices
+    int64_t* ptrs_out,              // Output row_ptrs or col_ptrs
+    unsigned int nnz,               // Total number of non-zeros
+    unsigned int n_rows_or_cols     // Number of rows (for CSR) or columns (for CSC)
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // Initialize first element
+    if (idx == 0) {
+        ptrs_out[0] = 0;
+        if (nnz == 0) {
+            // Empty matrix - set all pointers to 0
+            for (unsigned int i = 1; i <= n_rows_or_cols; i++) {
+                ptrs_out[i] = 0;
+            }
+            return;
+        }
+    }
+
+    // Process transitions
+    if (idx > 0 && idx < nnz) {
+        int64_t prev_idx_val = sorted_indices[idx - 1];
+        int64_t curr_idx_val = sorted_indices[idx];
+
+        // If we transition to a new row/column
+        if (curr_idx_val != prev_idx_val) {
+            // Fill in pointers for all rows/cols between prev and curr
+            for (int64_t r = prev_idx_val + 1; r <= curr_idx_val; r++) {
+                ptrs_out[r] = idx;
+            }
+        }
+    }
+
+    // Last thread handles final row/column and fills remaining
+    if (idx == nnz - 1 || (idx == 0 && nnz > 0)) {
+        int64_t last_idx_val = sorted_indices[nnz - 1];
+        // Fill from last row/col to end
+        for (int64_t r = last_idx_val + 1; r <= (int64_t)n_rows_or_cols; r++) {
+            ptrs_out[r] = nnz;
+        }
+    }
+}
+
+} // extern "C"

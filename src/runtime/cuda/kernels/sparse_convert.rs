@@ -2,12 +2,21 @@
 //!
 //! This module provides Rust wrappers for GPU-native sparse format conversion kernels.
 
+use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
-use super::loader::{get_kernel_function, get_or_load_module, launch_config};
+use super::loader::{
+    BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_names, launch_config,
+};
 use crate::error::{Error, Result};
+
+/// Helper to compute launch config from element count
+fn compute_launch_config(n: usize) -> super::loader::LaunchConfig {
+    let grid_size = (n as u32 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0)
+}
 
 // ============================================================================
 // Pointer Expansion (CSR/CSC → COO)
@@ -35,27 +44,24 @@ pub unsafe fn launch_expand_ptrs(
 ) -> Result<()> {
     let kernel_name = "expand_ptrs_i64";
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(n_major);
+    let cfg = compute_launch_config(n_major);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                ptrs.as_kernel_param(),
-                indices_out.as_kernel_param(),
-                (n_major as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let n_major_i32 = n_major as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&ptrs);
+    builder.arg(&indices_out);
+    builder.arg(&n_major_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -95,32 +101,30 @@ pub unsafe fn launch_csc_to_csr_transpose<T: CudaTypeName>(
         }
     };
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(ncols);
+    let cfg = compute_launch_config(ncols);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                csc_col_ptrs.as_kernel_param(),
-                csc_row_indices.as_kernel_param(),
-                csc_values.as_kernel_param(),
-                csr_row_ptrs.as_kernel_param(),
-                csr_col_indices.as_kernel_param(),
-                csr_values.as_kernel_param(),
-                (nrows as u32).as_kernel_param(),
-                (ncols as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nrows_i32 = nrows as i32;
+    let ncols_i32 = ncols as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&csc_col_ptrs);
+    builder.arg(&csc_row_indices);
+    builder.arg(&csc_values);
+    builder.arg(&csr_row_ptrs);
+    builder.arg(&csr_col_indices);
+    builder.arg(&csr_values);
+    builder.arg(&nrows_i32);
+    builder.arg(&ncols_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -156,34 +160,30 @@ pub unsafe fn launch_sparse_scale<T: CudaTypeName>(
         }
     };
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nnz);
+    let cfg = compute_launch_config(nnz);
 
-    let scalar_typed = if T::NAME == "f32" {
-        scalar as f32
+    let nnz_i32 = nnz as i32;
+    let scalar_f32 = scalar as f32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&values_in);
+    builder.arg(&values_out);
+    if T::NAME == "f32" {
+        builder.arg(&scalar_f32);
     } else {
-        scalar
-    };
-
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                values_in.as_kernel_param(),
-                values_out.as_kernel_param(),
-                scalar_typed.as_kernel_param(),
-                (nnz as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+        builder.arg(&scalar);
+    }
+    builder.arg(&nnz_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -219,27 +219,24 @@ pub unsafe fn launch_sparse_sum<T: CudaTypeName>(
         }
     };
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nnz);
+    let cfg = compute_launch_config(nnz);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                values.as_kernel_param(),
-                result.as_kernel_param(),
-                (nnz as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nnz_i32 = nnz as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&values);
+    builder.arg(&result);
+    builder.arg(&nnz_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -273,28 +270,25 @@ pub unsafe fn launch_sparse_sum_rows_csr<T: CudaTypeName>(
         }
     };
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nrows);
+    let cfg = compute_launch_config(nrows);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                row_ptrs.as_kernel_param(),
-                values.as_kernel_param(),
-                row_sums.as_kernel_param(),
-                (nrows as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nrows_i32 = nrows as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&row_ptrs);
+    builder.arg(&values);
+    builder.arg(&row_sums);
+    builder.arg(&nrows_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -317,27 +311,24 @@ pub unsafe fn launch_sparse_nnz_per_row_csr(
 ) -> Result<()> {
     let kernel_name = "sparse_nnz_per_row_csr_i64";
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nrows);
+    let cfg = compute_launch_config(nrows);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                row_ptrs.as_kernel_param(),
-                row_nnz.as_kernel_param(),
-                (nrows as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nrows_i32 = nrows as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&row_ptrs);
+    builder.arg(&row_nnz);
+    builder.arg(&nrows_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -366,28 +357,25 @@ pub unsafe fn launch_histogram_csr_columns(
 ) -> Result<()> {
     let kernel_name = "histogram_csr_columns_i64";
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nrows);
+    let cfg = compute_launch_config(nrows);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                row_ptrs.as_kernel_param(),
-                col_indices.as_kernel_param(),
-                col_counts.as_kernel_param(),
-                (nrows as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nrows_i32 = nrows as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&row_ptrs);
+    builder.arg(&col_indices);
+    builder.arg(&col_counts);
+    builder.arg(&nrows_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -412,28 +400,25 @@ pub unsafe fn launch_histogram_csc_rows(
 ) -> Result<()> {
     let kernel_name = "histogram_csc_rows_i64";
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(ncols);
+    let cfg = compute_launch_config(ncols);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                col_ptrs.as_kernel_param(),
-                row_indices.as_kernel_param(),
-                row_counts.as_kernel_param(),
-                (ncols as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let ncols_i32 = ncols as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&col_ptrs);
+    builder.arg(&row_indices);
+    builder.arg(&row_counts);
+    builder.arg(&ncols_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
 
     Ok(())
 }
@@ -477,32 +462,83 @@ pub unsafe fn launch_csr_to_csc_transpose<T: CudaTypeName>(
         }
     };
 
-    let module = get_or_load_module(context, device_index, "sparse_convert")?;
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
     let function = get_kernel_function(&module, kernel_name)?;
 
-    let (grid, block) = launch_config(nrows);
+    let cfg = compute_launch_config(nrows);
 
-    stream
-        .launch_kernel(
-            function,
-            grid,
-            block,
-            0,
-            &[
-                csr_row_ptrs.as_kernel_param(),
-                csr_col_indices.as_kernel_param(),
-                csr_values.as_kernel_param(),
-                csc_col_ptrs.as_kernel_param(),
-                csc_row_indices.as_kernel_param(),
-                csc_values.as_kernel_param(),
-                (nrows as u32).as_kernel_param(),
-                (ncols as u32).as_kernel_param(),
-            ],
-        )
-        .map_err(|e| Error::CudaKernelLaunchError {
-            kernel: kernel_name.to_string(),
-            source: e,
+    let nrows_i32 = nrows as i32;
+    let ncols_i32 = ncols as i32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&csr_row_ptrs);
+    builder.arg(&csr_col_indices);
+    builder.arg(&csr_values);
+    builder.arg(&csc_col_ptrs);
+    builder.arg(&csc_row_indices);
+    builder.arg(&csc_values);
+    builder.arg(&nrows_i32);
+    builder.arg(&ncols_i32);
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
         })?;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// COO → CSR/CSC: Build Pointers from Sorted Indices
+// ============================================================================
+
+/// Launch kernel to build row_ptrs or col_ptrs from sorted indices
+///
+/// After sorting COO entries, this builds the compressed pointer array.
+/// For CSR: pass sorted row_indices to get row_ptrs
+/// For CSC: pass sorted col_indices to get col_ptrs
+///
+/// # Safety
+///
+/// Caller must ensure:
+/// - sorted_indices is sorted array of row/col indices (length nnz)
+/// - ptrs_out is allocated with size n_rows_or_cols + 1
+/// - All pointers are valid device pointers
+pub unsafe fn launch_build_ptrs_from_sorted(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    sorted_indices: u64,
+    ptrs_out: u64,
+    nnz: usize,
+    n_rows_or_cols: usize,
+) -> Result<()> {
+    let kernel_name = "build_ptrs_from_sorted_indices_i64";
+
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_CONVERT_MODULE)?;
+    let function = get_kernel_function(&module, kernel_name)?;
+
+    let cfg = compute_launch_config(nnz.max(1)); // At least 1 thread
+
+    let nnz_u32 = nnz as u32;
+    let n_rows_or_cols_u32 = n_rows_or_cols as u32;
+
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&sorted_indices);
+    builder.arg(&ptrs_out);
+    builder.arg(&nnz_u32);
+    builder.arg(&n_rows_or_cols_u32);
+
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed (nnz={}, n_rows_or_cols={}): {:?}",
+                kernel_name, nnz, n_rows_or_cols, e
+            ))
+        })?;
+    }
 
     Ok(())
 }
