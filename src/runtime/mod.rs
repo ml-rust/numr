@@ -13,7 +13,6 @@
 //! └── RawHandle (escape hatch for custom kernels)
 //! ```
 
-pub mod algorithm;
 mod allocator;
 pub mod sparse_utils;
 

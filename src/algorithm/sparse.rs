@@ -67,15 +67,6 @@ pub trait SparseAlgorithms<R: Runtime> {
     ///     Filter values below zero_tolerance
     ///     Write to output arrays
     /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `a_csr` - Sparse matrix A in CSR format [M, K]
-    /// * `b_csr` - Sparse matrix B in CSR format [K, N]
-    ///
-    /// # Returns
-    ///
-    /// Sparse matrix C = A @ B in CSR format [M, N], with values filtered by zero_tolerance
     fn esc_spgemm_csr(&self, a_csr: &CsrData<R>, b_csr: &CsrData<R>) -> Result<CsrData<R>>;
 
     /// Column-Parallel DSMM: Dense × Sparse matrix multiplication
@@ -87,20 +78,6 @@ pub trait SparseAlgorithms<R: Runtime> {
     ///   For each non-zero B[k,j] in column j:
     ///     C[:,j] += A[:,k] * B[k,j]
     /// ```
-    ///
-    /// Where:
-    /// - A is dense [M, K] (row-major)
-    /// - B is sparse CSC [K, N]
-    /// - C is dense [M, N] (row-major)
-    ///
-    /// # Arguments
-    ///
-    /// * `dense_a` - Dense matrix A [M, K]
-    /// * `sparse_b_csc` - Sparse matrix B in CSC format [K, N]
-    ///
-    /// # Returns
-    ///
-    /// Dense matrix C = A @ B [M, N]
     fn column_parallel_dsmm(
         &self,
         dense_a: &Tensor<R>,
@@ -113,8 +90,6 @@ pub trait SparseAlgorithms<R: Runtime> {
 // ============================================================================
 
 /// Zero tolerance threshold for filtering small values
-///
-/// Re-exported from sparse_utils for convenience. See sparse_utils::zero_tolerance for details.
 pub use crate::runtime::sparse_utils::zero_tolerance;
 
 /// Validate CSR matrix dimensions for SpGEMM
