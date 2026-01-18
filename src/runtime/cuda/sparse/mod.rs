@@ -31,8 +31,35 @@ macro_rules! sparse_dtype_dispatch {
 
 // Submodules
 mod conversions;
-mod cusparse_helpers;
+mod dsmm;
 mod esc_spgemm;
 mod high_level_ops;
 mod merge;
 mod spmv;
+
+// ============================================================================
+// SparseAlgorithms Trait Implementation (Backend Parity Contract)
+// ============================================================================
+
+use super::{CudaClient, CudaRuntime};
+use crate::error::Result;
+use crate::sparse::{CscData, CsrData};
+use crate::tensor::Tensor;
+
+impl crate::runtime::algorithm::sparse::SparseAlgorithms<CudaRuntime> for CudaClient {
+    fn esc_spgemm_csr(
+        &self,
+        a_csr: &CsrData<CudaRuntime>,
+        b_csr: &CsrData<CudaRuntime>,
+    ) -> Result<CsrData<CudaRuntime>> {
+        esc_spgemm::esc_spgemm_csr(self, a_csr, b_csr)
+    }
+
+    fn column_parallel_dsmm(
+        &self,
+        dense_a: &Tensor<CudaRuntime>,
+        sparse_b_csc: &CscData<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        dsmm::column_parallel_dsmm(self, dense_a, sparse_b_csc)
+    }
+}

@@ -10,6 +10,8 @@ use crate::sparse::SparseOps;
 use crate::tensor::Tensor;
 
 // Submodules
+mod dsmm;
+mod esc_spgemm;
 pub(crate) mod merge;
 #[cfg(test)]
 mod tests;
@@ -18,7 +20,7 @@ mod tests;
 // Module merge is also accessible as cpu::sparse::merge::* if needed
 pub(crate) use merge::{
     MergeStrategy, OperationSemantics, intersect_coo_impl, merge_coo_impl, merge_csc_impl,
-    merge_csr_impl, zero_tolerance,
+    merge_csr_impl,
 };
 
 impl SparseOps<CpuRuntime> for CpuClient {
@@ -511,72 +513,18 @@ impl SparseOps<CpuRuntime> for CpuClient {
         a: &Tensor<CpuRuntime>,
         b: &crate::sparse::SparseTensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
+        use crate::runtime::algorithm::sparse::SparseAlgorithms;
         use crate::sparse::SparseTensor;
 
         // Convert to CSC format (optimal for dense * sparse)
-        // A [M, K] * B [K, N] where B is sparse
         let csc = match b {
             SparseTensor::Csc(data) => data.clone(),
             SparseTensor::Coo(data) => data.to_csc()?,
             SparseTensor::Csr(data) => data.to_csc()?,
         };
 
-        let [k, n] = csc.shape;
-        let dtype = csc.values.dtype();
-
-        // Validate A dimensions
-        if a.ndim() != 2 {
-            return Err(Error::Internal(format!(
-                "Expected 2D tensor for dense matrix, got {}D",
-                a.ndim()
-            )));
-        }
-
-        let a_shape = a.shape();
-        let m = a_shape[0];
-        let a_k = a_shape[1];
-
-        if a_k != k {
-            return Err(Error::ShapeMismatch {
-                expected: vec![k],
-                got: vec![a_k],
-            });
-        }
-
-        // Dense * Sparse CSC: For each column in B, multiply with corresponding rows of A
-        let device = a.device();
-
-        crate::dispatch_dtype!(dtype, T => {
-            let a_data: Vec<T> = a.to_vec();
-            let col_ptrs_data: Vec<i64> = csc.col_ptrs.to_vec();
-            let row_indices_data: Vec<i64> = csc.row_indices.to_vec();
-            let b_values: Vec<T> = csc.values.to_vec();
-
-            // Result C [M, N]
-            let mut c_data: Vec<T> = vec![T::zero(); m * n];
-
-            // For each column j in B
-            for col in 0..n {
-                let start = col_ptrs_data[col] as usize;
-                let end = col_ptrs_data[col + 1] as usize;
-
-                // For each non-zero in column j
-                for idx in start..end {
-                    let row_b = row_indices_data[idx] as usize; // row in B
-                    let b_val = b_values[idx].to_f64();
-
-                    // Update column j of C: C[:, j] += A[:, row_b] * b_val
-                    for row_a in 0..m {
-                        let a_val = a_data[row_a * k + row_b].to_f64();
-                        let c_idx = row_a * n + col;
-                        let current = c_data[c_idx].to_f64();
-                        c_data[c_idx] = T::from_f64(current + a_val * b_val);
-                    }
-                }
-            }
-
-            Ok(Tensor::from_slice(&c_data, &[m, n], device))
-        }, "dsmm")
+        // Delegate to algorithm trait (backend-consistent implementation)
+        self.column_parallel_dsmm(a, &csc)
     }
 
     fn sparse_add(
@@ -666,8 +614,8 @@ impl SparseOps<CpuRuntime> for CpuClient {
         a: &crate::sparse::SparseTensor<CpuRuntime>,
         b: &crate::sparse::SparseTensor<CpuRuntime>,
     ) -> Result<crate::sparse::SparseTensor<CpuRuntime>> {
+        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
-        use std::collections::HashMap;
 
         // Convert both to CSR format for efficient row-wise computation
         let csr_a = match a {
@@ -682,144 +630,13 @@ impl SparseOps<CpuRuntime> for CpuClient {
             SparseTensor::Csc(data) => data.to_csr()?,
         };
 
-        let [m, k_a] = csr_a.shape;
-        let [k_b, n] = csr_b.shape;
-
-        // Validate dimensions
-        if k_a != k_b {
-            return Err(Error::ShapeMismatch {
-                expected: vec![k_a],
-                got: vec![k_b],
-            });
-        }
-
         // Validate dtypes match
-        if csr_a.values.dtype() != csr_b.values.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: csr_a.values.dtype(),
-                rhs: csr_b.values.dtype(),
-            });
-        }
+        validate_dtype_match(csr_a.values.dtype(), csr_b.values.dtype())?;
 
-        let dtype = csr_a.values.dtype();
-        let device = csr_a.values.device();
+        // Delegate to ESC SpGEMM algorithm (backend-consistent implementation)
+        let result_csr = self.esc_spgemm_csr(&csr_a, &csr_b)?;
 
-        // Perform CSR × CSR multiplication using ESC (Exact Symbolic Computation) + Hash Accumulation
-        // This is the SOTA algorithm that both CPU and GPU will use for backend parity
-        crate::dispatch_dtype!(dtype, T => {
-            let a_row_ptrs: Vec<i64> = csr_a.row_ptrs.to_vec();
-            let a_col_indices: Vec<i64> = csr_a.col_indices.to_vec();
-            let a_values: Vec<T> = csr_a.values.to_vec();
-
-            let b_row_ptrs: Vec<i64> = csr_b.row_ptrs.to_vec();
-            let b_col_indices: Vec<i64> = csr_b.col_indices.to_vec();
-            let b_values: Vec<T> = csr_b.values.to_vec();
-
-            // ========================================================================
-            // PHASE 1: Symbolic (Count NNZ per output row)
-            // ========================================================================
-            let mut row_nnz: Vec<i64> = vec![0; m];
-
-            for i in 0..m {
-                let a_start = a_row_ptrs[i] as usize;
-                let a_end = a_row_ptrs[i + 1] as usize;
-
-                // Use HashSet to track unique column indices in output row i
-                use std::collections::HashSet;
-                let mut col_set: HashSet<usize> = HashSet::new();
-
-                // For each non-zero A[i, k]
-                for a_idx in a_start..a_end {
-                    let k = a_col_indices[a_idx] as usize;
-
-                    // Scan row k of B and collect column indices
-                    let b_start = b_row_ptrs[k] as usize;
-                    let b_end = b_row_ptrs[k + 1] as usize;
-
-                    for b_idx in b_start..b_end {
-                        let j = b_col_indices[b_idx] as usize;
-                        col_set.insert(j);
-                    }
-                }
-
-                row_nnz[i] = col_set.len() as i64;
-            }
-
-            // Build row_ptrs via exclusive scan
-            let mut c_row_ptrs: Vec<i64> = Vec::with_capacity(m + 1);
-            c_row_ptrs.push(0);
-            for i in 0..m {
-                c_row_ptrs.push(c_row_ptrs[i] + row_nnz[i]);
-            }
-            let _total_nnz = c_row_ptrs[m] as usize;
-
-            // ========================================================================
-            // PHASE 2: Numeric (Compute values with pre-sized hash accumulator)
-            // ========================================================================
-            let mut c_col_indices: Vec<i64> = Vec::new();
-            let mut c_values: Vec<T> = Vec::new();
-
-            // Rebuild row_ptrs to account for zero_tolerance filtering
-            let mut c_row_ptrs_final: Vec<i64> = Vec::with_capacity(m + 1);
-            c_row_ptrs_final.push(0);
-
-            for i in 0..m {
-                let a_start = a_row_ptrs[i] as usize;
-                let a_end = a_row_ptrs[i + 1] as usize;
-                let capacity = row_nnz[i] as usize;
-
-                // Pre-sized hash accumulator (no resizing!)
-                let mut row_accum: HashMap<usize, f64> = HashMap::with_capacity(capacity);
-
-                // For each non-zero A[i, k]
-                for a_idx in a_start..a_end {
-                    let k = a_col_indices[a_idx] as usize;
-                    let a_val = a_values[a_idx].to_f64();
-
-                    // Multiply with row k of B
-                    let b_start = b_row_ptrs[k] as usize;
-                    let b_end = b_row_ptrs[k + 1] as usize;
-
-                    for b_idx in b_start..b_end {
-                        let j = b_col_indices[b_idx] as usize;
-                        let b_val = b_values[b_idx].to_f64();
-
-                        *row_accum.entry(j).or_insert(0.0) += a_val * b_val;
-                    }
-                }
-
-                // Sort by column index and write to output
-                let mut row_entries: Vec<(usize, f64)> = row_accum.into_iter().collect();
-                row_entries.sort_by_key(|&(col, _)| col);
-
-                // Filter and write row
-                for (col, val) in row_entries {
-                    if val.abs() > zero_tolerance::<T>() {
-                        c_col_indices.push(col as i64);
-                        c_values.push(T::from_f64(val));
-                    }
-                }
-
-                // Update row_ptr
-                c_row_ptrs_final.push(c_col_indices.len() as i64);
-            }
-
-            let final_nnz = c_col_indices.len();
-
-            // Create result CSR tensors
-            let result_row_ptrs = Tensor::from_slice(&c_row_ptrs_final, &[m + 1], device);
-            let result_col_indices = Tensor::from_slice(&c_col_indices, &[final_nnz], device);
-            let result_values = Tensor::from_slice(&c_values, &[final_nnz], device);
-
-            let result_csr = crate::sparse::CsrData {
-                row_ptrs: result_row_ptrs,
-                col_indices: result_col_indices,
-                values: result_values,
-                shape: [m, n],
-            };
-
-            Ok(SparseTensor::Csr(result_csr))
-        }, "sparse_matmul")
+        Ok(SparseTensor::Csr(result_csr))
     }
 
     fn sparse_mul(
@@ -1493,5 +1310,27 @@ impl SparseOps<CpuRuntime> for CpuClient {
                 Ok(SparseTensor::Coo(transposed))
             }
         }
+    }
+}
+
+// ============================================================================
+// SparseAlgorithms Trait Implementation (Backend Parity Contract)
+// ============================================================================
+
+impl crate::runtime::algorithm::sparse::SparseAlgorithms<CpuRuntime> for CpuClient {
+    fn esc_spgemm_csr(
+        &self,
+        a_csr: &crate::sparse::CsrData<CpuRuntime>,
+        b_csr: &crate::sparse::CsrData<CpuRuntime>,
+    ) -> Result<crate::sparse::CsrData<CpuRuntime>> {
+        esc_spgemm::esc_spgemm_csr(self, a_csr, b_csr)
+    }
+
+    fn column_parallel_dsmm(
+        &self,
+        dense_a: &Tensor<CpuRuntime>,
+        sparse_b_csc: &crate::sparse::CscData<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        dsmm::column_parallel_dsmm(self, dense_a, sparse_b_csc)
     }
 }

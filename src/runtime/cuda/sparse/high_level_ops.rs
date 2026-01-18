@@ -8,6 +8,18 @@ use crate::error::{Error, Result};
 use crate::sparse::SparseOps;
 use crate::tensor::Tensor;
 
+// ============================================================================
+// Private Helper Methods
+// ============================================================================
+
+impl CudaClient {
+    // Private helper methods moved to algorithm-specific files (dsmm.rs, esc_spgemm.rs)
+}
+
+// ============================================================================
+// SparseOps Trait Implementation
+// ============================================================================
+
 impl SparseOps<CudaRuntime> for CudaClient {
     // =========================================================================
     // Low-Level Format-Specific Operations
@@ -489,34 +501,11 @@ impl SparseOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
+        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
 
-        // Validate dimensions
-        let a_shape = a.shape();
-        if a_shape.len() != 2 {
-            return Err(Error::ShapeMismatch {
-                expected: vec![2], // Expected 2D tensor
-                got: vec![a_shape.len()],
-            });
-        }
-
-        let [m, k_a] = [a_shape[0], a_shape[1]];
-        let [k_b, n] = b.shape();
-
-        if k_a != k_b {
-            return Err(Error::ShapeMismatch {
-                expected: vec![k_a],
-                got: vec![k_b],
-            });
-        }
-
         // Validate dtypes match
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
+        validate_dtype_match(a.dtype(), b.dtype())?;
 
         // Convert B to CSC format (optimal for dense × sparse)
         let csc_b = match b {
@@ -525,19 +514,8 @@ impl SparseOps<CudaRuntime> for CudaClient {
             SparseTensor::Coo(data) => data.to_csc()?,
         };
 
-        let dtype = a.dtype();
-
-        // Dispatch to dtype-specific cusparseSpMM implementation
-        crate::dispatch_dtype!(dtype, T => {
-            self.dsmm_cusparse::<T>(
-                a,
-                &csc_b.col_ptrs,
-                &csc_b.row_indices,
-                &csc_b.values,
-                [m, k_a],
-                [k_b, n],
-            )
-        }, "dsmm")
+        // Delegate to algorithm trait (backend-consistent implementation)
+        self.column_parallel_dsmm(a, &csc_b)
     }
 
     fn sparse_add(
@@ -625,27 +603,13 @@ impl SparseOps<CudaRuntime> for CudaClient {
         a: &crate::sparse::SparseTensor<CudaRuntime>,
         b: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<crate::sparse::SparseTensor<CudaRuntime>> {
+        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
 
-        // Validate shapes - inner dimensions must match
-        let [m, k_a] = a.shape();
-        let [k_b, n] = b.shape();
-        if k_a != k_b {
-            return Err(Error::ShapeMismatch {
-                expected: vec![k_a],
-                got: vec![k_b],
-            });
-        }
-
         // Validate dtypes match
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
+        validate_dtype_match(a.dtype(), b.dtype())?;
 
-        // Convert both to CSR format (optimal for cusparseSpGEMM)
+        // Convert both to CSR format (optimal for ESC+Hash algorithm)
         let csr_a = match a {
             SparseTensor::Csr(data) => data.clone(),
             SparseTensor::Coo(data) => data.to_csr()?,
@@ -658,23 +622,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
             SparseTensor::Csc(data) => data.to_csr()?,
         };
 
-        let dtype = csr_a.values.dtype();
+        // Delegate to ESC SpGEMM algorithm (backend-consistent implementation)
+        let result_csr = self.esc_spgemm_csr(&csr_a, &csr_b)?;
 
-        // Dispatch to dtype-specific native ESC+Hash implementation
-        // This uses the SAME algorithm as CPU for backend parity
-        crate::dispatch_dtype!(dtype, T => {
-            self.sparse_matmul_csr_esc::<T>(
-                &csr_a.row_ptrs,
-                &csr_a.col_indices,
-                &csr_a.values,
-                &csr_b.row_ptrs,
-                &csr_b.col_indices,
-                &csr_b.values,
-                [m, k_a],
-                [k_b, n],
-            )
-            .map(|csr| SparseTensor::Csr(csr))
-        }, "sparse_matmul")
+        Ok(SparseTensor::Csr(result_csr))
     }
 
     fn sparse_mul(

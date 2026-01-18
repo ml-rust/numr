@@ -12,9 +12,38 @@ use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels::{
     exclusive_scan_i32_gpu, launch_cast, spgemm_numeric_phase, spgemm_symbolic_phase,
 };
+use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 use cudarc::driver::DeviceRepr;
 use cudarc::types::CudaTypeName;
+
+/// Public function to be called from the combined trait implementation
+pub(super) fn esc_spgemm_csr(
+    client: &CudaClient,
+    a_csr: &CsrData<CudaRuntime>,
+    b_csr: &CsrData<CudaRuntime>,
+) -> Result<CsrData<CudaRuntime>> {
+    use crate::runtime::algorithm::sparse::validate_spgemm_shapes;
+
+    // Validate shapes
+    let ([_m, _n], _k) = validate_spgemm_shapes(a_csr.shape, b_csr.shape)?;
+
+    let dtype = a_csr.values.dtype();
+
+    // Dispatch to typed implementation
+    crate::dispatch_dtype!(dtype, T => {
+        client.sparse_matmul_csr_esc::<T>(
+            &a_csr.row_ptrs,
+            &a_csr.col_indices,
+            &a_csr.values,
+            &b_csr.row_ptrs,
+            &b_csr.col_indices,
+            &b_csr.values,
+            a_csr.shape,
+            b_csr.shape,
+        )
+    }, "esc_spgemm")
+}
 
 impl CudaClient {
     /// Sparse × Sparse matrix multiplication using native ESC+Hash algorithm

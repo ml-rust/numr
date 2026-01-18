@@ -23,11 +23,21 @@ impl CudaClient {
     )> {
         let [nrows, _ncols] = shape;
         let nnz = row_indices.numel();
-        let nnz_u32 = u32::try_from(nnz)
-            .map_err(|_| Error::Internal(format!("COO->CSR nnz exceeds u32 limit: {}", nnz)))?;
+
+        // Validate nnz fits in i32 (Thrust sort uses i32 permutation indices)
+        // This limits sparse matrices to 2^31-1 (~2.1 billion) non-zeros
+        if nnz > i32::MAX as usize {
+            return Err(Error::Internal(format!(
+                "COO->CSR nnz ({}) exceeds i32::MAX ({}). Matrices with > 2.1B non-zeros not supported.",
+                nnz,
+                i32::MAX
+            )));
+        }
+        let nnz_u32 = nnz as u32;
         let device = values.device();
 
-        // Step 1: Allocate temporary arrays for sorting (use i32 for indices)
+        // Step 1: Allocate temporary arrays for sorting (use i32 for permutation indices)
+        // Note: Thrust sort requires i32 permutation array (limits nnz to 2^31-1)
         let perm_indices = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I32, device);
         let sorted_rows = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I64, device);
         let sorted_cols = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I64, device);
@@ -160,11 +170,21 @@ impl CudaClient {
     )> {
         let [_nrows, ncols] = shape;
         let nnz = row_indices.numel();
-        let nnz_u32 = u32::try_from(nnz)
-            .map_err(|_| Error::Internal(format!("COO->CSC nnz exceeds u32 limit: {}", nnz)))?;
+
+        // Validate nnz fits in i32 (Thrust sort uses i32 permutation indices)
+        // This limits sparse matrices to 2^31-1 (~2.1 billion) non-zeros
+        if nnz > i32::MAX as usize {
+            return Err(Error::Internal(format!(
+                "COO->CSC nnz ({}) exceeds i32::MAX ({}). Matrices with > 2.1B non-zeros not supported.",
+                nnz,
+                i32::MAX
+            )));
+        }
+        let nnz_u32 = nnz as u32;
         let device = values.device();
 
-        // Step 1: Allocate temporary arrays for sorting
+        // Step 1: Allocate temporary arrays for sorting (use i32 for permutation indices)
+        // Note: Thrust sort requires i32 permutation array (limits nnz to 2^31-1)
         let perm_indices = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I32, device);
         let sorted_cols = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I64, device);
         let sorted_rows = Tensor::<CudaRuntime>::zeros(&[nnz], DType::I64, device);

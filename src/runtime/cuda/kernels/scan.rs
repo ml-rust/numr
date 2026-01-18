@@ -184,34 +184,36 @@ unsafe fn launch_scan_multi_block_i32(
     })?;
 
     // Step 2: Recursively scan the block sums
+    // Check size limit BEFORE allocating/launching (safety: avoid unsynchronized return)
+    if num_blocks > SCAN_BLOCK_SIZE {
+        // Recursively scan block sums (very rare for typical sparse matrices)
+        // Maximum elements = SCAN_BLOCK_SIZE^2 = 512^2 = 262,144
+        return Err(Error::Internal(
+            "Scan of more than 262,144 elements not yet implemented (requires recursive multi-level scan)".to_string()
+        ));
+    }
+
     // Allocate buffer for scanned block sums (size num_blocks + 1)
     let scanned_block_sums =
         Tensor::<CudaRuntime>::zeros(&[num_blocks as usize + 1], DType::I32, device);
     let scanned_block_sums_ptr = scanned_block_sums.storage().ptr();
 
-    if num_blocks <= SCAN_BLOCK_SIZE {
-        // Block sums fit in single block
-        let func_scan = get_kernel_function(&module, "exclusive_scan_i32")?;
-        let grid = (1, 1, 1);
-        let block = (SCAN_BLOCK_SIZE, 1, 1);
-        let cfg = launch_config(grid, block, 0);
+    // Block sums fit in single block
+    let func_scan = get_kernel_function(&module, "exclusive_scan_i32")?;
+    let grid = (1, 1, 1);
+    let block = (SCAN_BLOCK_SIZE, 1, 1);
+    let cfg = launch_config(grid, block, 0);
 
-        let mut builder = stream.launch_builder(&func_scan);
-        builder.arg(&block_sums_ptr);
-        builder.arg(&scanned_block_sums_ptr);
-        builder.arg(&num_blocks);
-        unsafe { builder.launch(cfg) }.map_err(|e| {
-            Error::Internal(format!(
-                "CUDA scan block sums kernel launch failed: {:?}",
-                e
-            ))
-        })?;
-    } else {
-        // Recursively scan block sums (very rare for typical sparse matrices)
-        return Err(Error::Internal(
-            "Scan of more than 262,144 elements not yet implemented (requires recursive multi-level scan)".to_string()
-        ));
-    }
+    let mut builder = stream.launch_builder(&func_scan);
+    builder.arg(&block_sums_ptr);
+    builder.arg(&scanned_block_sums_ptr);
+    builder.arg(&num_blocks);
+    unsafe { builder.launch(cfg) }.map_err(|e| {
+        Error::Internal(format!(
+            "CUDA scan block sums kernel launch failed: {:?}",
+            e
+        ))
+    })?;
 
     // Synchronize after step 2
     stream.synchronize().map_err(|e| {
@@ -406,34 +408,36 @@ unsafe fn launch_scan_multi_block_i64(
     })?;
 
     // Step 2: Recursively scan the block sums
+    // Check size limit BEFORE allocating/launching (safety: avoid unsynchronized return)
+    if num_blocks > SCAN_BLOCK_SIZE {
+        // Recursively scan block sums (very rare for typical sparse matrices)
+        // Maximum elements = SCAN_BLOCK_SIZE^2 = 512^2 = 262,144
+        return Err(Error::Internal(
+            "Scan of more than 262,144 elements not yet implemented (requires recursive multi-level scan)".to_string()
+        ));
+    }
+
     // Allocate buffer for scanned block sums (size num_blocks + 1)
     let scanned_block_sums =
         Tensor::<CudaRuntime>::zeros(&[num_blocks as usize + 1], DType::I64, device);
     let scanned_block_sums_ptr = scanned_block_sums.storage().ptr();
 
-    if num_blocks <= SCAN_BLOCK_SIZE {
-        // Block sums fit in single block
-        let func_scan = get_kernel_function(&module, "exclusive_scan_i64")?;
-        let grid = (1, 1, 1);
-        let block = (SCAN_BLOCK_SIZE, 1, 1);
-        let cfg = launch_config(grid, block, 0);
+    // Block sums fit in single block
+    let func_scan = get_kernel_function(&module, "exclusive_scan_i64")?;
+    let grid = (1, 1, 1);
+    let block = (SCAN_BLOCK_SIZE, 1, 1);
+    let cfg = launch_config(grid, block, 0);
 
-        let mut builder = stream.launch_builder(&func_scan);
-        builder.arg(&block_sums_ptr);
-        builder.arg(&scanned_block_sums_ptr);
-        builder.arg(&num_blocks);
-        unsafe { builder.launch(cfg) }.map_err(|e| {
-            Error::Internal(format!(
-                "CUDA scan i64 block sums kernel launch failed: {:?}",
-                e
-            ))
-        })?;
-    } else {
-        // Recursively scan block sums (very rare for typical sparse matrices)
-        return Err(Error::Internal(
-            "Scan of more than 262,144 elements not yet implemented (requires recursive multi-level scan)".to_string()
-        ));
-    }
+    let mut builder = stream.launch_builder(&func_scan);
+    builder.arg(&block_sums_ptr);
+    builder.arg(&scanned_block_sums_ptr);
+    builder.arg(&num_blocks);
+    unsafe { builder.launch(cfg) }.map_err(|e| {
+        Error::Internal(format!(
+            "CUDA scan i64 block sums kernel launch failed: {:?}",
+            e
+        ))
+    })?;
 
     // Step 3: Add scanned block sums as offsets
     let func_step3 = get_kernel_function(&module, "add_block_offsets_i64_step3")?;

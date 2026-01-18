@@ -65,9 +65,11 @@ pub unsafe fn spgemm_symbolic_phase(
     builder.arg(&m_u32);
     builder.arg(&n_u32);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA spgemm_symbolic_phase launch failed: {:?}", e))
-    })?;
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA spgemm_symbolic_phase launch failed: {:?}", e))
+        })?;
+    }
 
     // CRITICAL: Synchronize to ensure kernel completes before returning
     // Otherwise the next kernel (exclusive_scan) will read uninitialized data
@@ -157,9 +159,11 @@ pub unsafe fn spgemm_numeric_phase<T: CudaTypeName + Copy + cudarc::driver::Devi
     builder.arg(&n_u32);
     builder.arg(&threshold);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA spgemm_numeric_phase launch failed: {:?}", e))
-    })?;
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA spgemm_numeric_phase launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
