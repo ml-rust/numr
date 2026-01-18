@@ -234,6 +234,8 @@ pub mod kernel_names {
     /// Dense × Sparse matrix multiplication (DSMM / SpMM)
     #[cfg(feature = "sparse")]
     pub const DSMM_MODULE: &str = "dsmm";
+    /// Linear algebra operations (LU, Cholesky, QR, triangular solve, etc.)
+    pub const LINALG_MODULE: &str = "linalg";
 
     /// Generate kernel name for reduction operations.
     #[inline]

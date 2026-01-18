@@ -45,6 +45,7 @@ fn compile_cuda_kernels() {
         "cast.cu",
         "utility.cu",
         "ternary.cu",
+        "linalg.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

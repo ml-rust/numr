@@ -25,6 +25,7 @@
 mod client;
 mod device;
 mod kernels;
+mod linalg;
 mod ops;
 #[cfg(feature = "sparse")]
 mod sparse;
