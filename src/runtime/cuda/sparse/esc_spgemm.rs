@@ -23,7 +23,7 @@ pub(super) fn esc_spgemm_csr(
     a_csr: &CsrData<CudaRuntime>,
     b_csr: &CsrData<CudaRuntime>,
 ) -> Result<CsrData<CudaRuntime>> {
-    use crate::runtime::algorithm::sparse::validate_spgemm_shapes;
+    use crate::algorithm::sparse::validate_spgemm_shapes;
 
     // Validate shapes
     let ([_m, _n], _k) = validate_spgemm_shapes(a_csr.shape, b_csr.shape)?;

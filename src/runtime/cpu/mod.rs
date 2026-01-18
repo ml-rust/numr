@@ -35,7 +35,7 @@ pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
 pub use crate::sparse::SparseOps;
 
 // Re-export linear algebra algorithm trait
-pub use crate::runtime::algorithm::LinearAlgebraAlgorithms;
+pub use crate::algorithm::LinearAlgebraAlgorithms;
 
 // Re-export Tensor for tests
 pub use crate::tensor::Tensor;

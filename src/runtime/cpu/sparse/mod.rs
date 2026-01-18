@@ -513,7 +513,7 @@ impl SparseOps<CpuRuntime> for CpuClient {
         a: &Tensor<CpuRuntime>,
         b: &crate::sparse::SparseTensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
-        use crate::runtime::algorithm::sparse::SparseAlgorithms;
+        use crate::algorithm::sparse::SparseAlgorithms;
         use crate::sparse::SparseTensor;
 
         // Convert to CSC format (optimal for dense * sparse)
@@ -614,7 +614,7 @@ impl SparseOps<CpuRuntime> for CpuClient {
         a: &crate::sparse::SparseTensor<CpuRuntime>,
         b: &crate::sparse::SparseTensor<CpuRuntime>,
     ) -> Result<crate::sparse::SparseTensor<CpuRuntime>> {
-        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
+        use crate::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
 
         // Convert both to CSR format for efficient row-wise computation
@@ -1317,7 +1317,7 @@ impl SparseOps<CpuRuntime> for CpuClient {
 // SparseAlgorithms Trait Implementation (Backend Parity Contract)
 // ============================================================================
 
-impl crate::runtime::algorithm::sparse::SparseAlgorithms<CpuRuntime> for CpuClient {
+impl crate::algorithm::sparse::SparseAlgorithms<CpuRuntime> for CpuClient {
     fn esc_spgemm_csr(
         &self,
         a_csr: &crate::sparse::CsrData<CpuRuntime>,

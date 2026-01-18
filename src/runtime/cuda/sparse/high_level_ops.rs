@@ -501,7 +501,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
+        use crate::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
 
         // Validate dtypes match
@@ -603,7 +603,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         a: &crate::sparse::SparseTensor<CudaRuntime>,
         b: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<crate::sparse::SparseTensor<CudaRuntime>> {
-        use crate::runtime::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
+        use crate::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
         use crate::sparse::SparseTensor;
 
         // Validate dtypes match

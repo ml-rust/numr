@@ -26,9 +26,9 @@
 //!
 //! This algorithm matches the CUDA implementation for backend parity.
 
+use crate::algorithm::sparse::{validate_spgemm_shapes, zero_tolerance};
 use crate::dtype::Element;
 use crate::error::Result;
-use crate::runtime::algorithm::sparse::{validate_spgemm_shapes, zero_tolerance};
 use crate::runtime::cpu::{CpuClient, CpuRuntime};
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;

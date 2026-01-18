@@ -18,8 +18,8 @@
 //!
 //! This algorithm matches the CPU implementation for backend parity.
 
+use crate::algorithm::sparse::validate_dsmm_shapes;
 use crate::error::Result;
-use crate::runtime::algorithm::sparse::validate_dsmm_shapes;
 use crate::runtime::cuda::kernels::launch_dsmm_csc;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::sparse::CscData;

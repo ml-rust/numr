@@ -46,7 +46,7 @@ use crate::error::Result;
 use crate::sparse::{CscData, CsrData};
 use crate::tensor::Tensor;
 
-impl crate::runtime::algorithm::sparse::SparseAlgorithms<CudaRuntime> for CudaClient {
+impl crate::algorithm::sparse::SparseAlgorithms<CudaRuntime> for CudaClient {
     fn esc_spgemm_csr(
         &self,
         a_csr: &CsrData<CudaRuntime>,

@@ -5,13 +5,13 @@
 //! to ensure backend parity with CUDA/WebGPU implementations.
 
 use super::{CpuClient, CpuRuntime};
-use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
-use crate::runtime::RuntimeClient;
-use crate::runtime::algorithm::linalg::{
+use crate::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
     validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
+use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
@@ -986,7 +986,7 @@ impl LinalgElement for f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::algorithm::LinearAlgebraAlgorithms;
+    use crate::algorithm::LinearAlgebraAlgorithms;
 
     fn create_client() -> CpuClient {
         let device = super::super::CpuDevice::new();

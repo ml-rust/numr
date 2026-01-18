@@ -17,11 +17,11 @@
 //! | solve       | O(N³)      | O(N³)      | One solve + one matmul          |
 //! | cholesky    | O(N³)      | O(N³)      | Two triangular solves + matmul  |
 
+use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::autograd::GradFn;
 use crate::error::Result;
 use crate::ops::{ScalarOps, TensorOps};
 use crate::runtime::Runtime;
-use crate::runtime::algorithm::LinearAlgebraAlgorithms;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
 
