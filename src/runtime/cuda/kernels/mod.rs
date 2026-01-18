@@ -24,6 +24,7 @@
 //! - `sparse_spmv` - Sparse matrix operations (SpMV, SpMM)
 //! - `sparse_merge` - Sparse matrix merge operations
 //! - `sparse_convert` - Sparse format conversions (COO/CSR/CSC)
+//! - `sparse_coo` - COO sparse element-wise operations with GPU sorting
 //! - `scan` - Prefix sum operations
 //!
 //! # Kernel Files
@@ -41,6 +42,7 @@
 //! - `sparse_spmv.cu` - Sparse matrix operations
 //! - `sparse_merge.cu` - Sparse matrix merge operations
 //! - `sparse_convert.cu` - Sparse format conversions
+//! - `sparse_coo.cu` - COO sparse element-wise operations with GPU sorting
 //! - `scan.cu` - Prefix sum operations
 
 mod activation;
@@ -56,9 +58,13 @@ mod scan;
 #[cfg(feature = "sparse")]
 mod sparse_convert;
 #[cfg(feature = "sparse")]
+mod sparse_coo;
+#[cfg(feature = "sparse")]
 mod sparse_merge;
 #[cfg(feature = "sparse")]
 mod sparse_spmv;
+#[cfg(feature = "sparse")]
+mod sparse_strategy;
 mod ternary;
 mod unary;
 mod utility;
@@ -76,9 +82,13 @@ pub use scan::*;
 #[cfg(feature = "sparse")]
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
+pub use sparse_coo::*;
+#[cfg(feature = "sparse")]
 pub use sparse_merge::*;
 #[cfg(feature = "sparse")]
 pub use sparse_spmv::*;
+#[cfg(feature = "sparse")]
+pub use sparse_strategy::*;
 pub use ternary::*;
 pub use unary::*;
 #[allow(unused_imports)] // Prepared for future tensor creation optimization
