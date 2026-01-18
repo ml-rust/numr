@@ -14,6 +14,7 @@ use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue};
 
 use super::WgpuRuntime;
 use super::device::{WgpuDevice, WgpuError, query_adapter_info_blocking};
+use super::shaders::PipelineCache;
 use crate::runtime::{Allocator, RuntimeClient};
 
 // ============================================================================
@@ -46,6 +47,9 @@ pub struct WgpuClient {
 
     /// Raw handle for custom kernel access
     pub(crate) raw_handle: WgpuRawHandle,
+
+    /// Pipeline cache for compute shaders
+    pub(crate) pipeline_cache: Arc<PipelineCache>,
 }
 
 impl std::fmt::Debug for WgpuClient {
@@ -104,6 +108,8 @@ impl WgpuClient {
             queue: queue.clone(),
         };
 
+        let pipeline_cache = Arc::new(PipelineCache::new(wgpu_device.clone(), queue.clone()));
+
         let device_with_info = WgpuDevice::with_info(device.index, info);
 
         Ok(Self {
@@ -112,6 +118,7 @@ impl WgpuClient {
             queue,
             allocator,
             raw_handle,
+            pipeline_cache,
         })
     }
 
@@ -131,6 +138,12 @@ impl WgpuClient {
     #[inline]
     pub fn wgpu_queue(&self) -> &Queue {
         &self.queue
+    }
+
+    /// Get reference to the pipeline cache.
+    #[inline]
+    pub fn pipeline_cache(&self) -> &PipelineCache {
+        &self.pipeline_cache
     }
 
     /// Create a storage buffer for tensor data.

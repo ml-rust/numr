@@ -96,6 +96,30 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// Copy data within device (device to device)
     fn copy_within_device(src: u64, dst: u64, size_bytes: usize, device: &Self::Device);
 
+    /// Copy strided data to a contiguous buffer
+    ///
+    /// This is the proper way to make a non-contiguous tensor contiguous.
+    /// Each backend implements this according to its memory model:
+    /// - CPU/CUDA: can use pointer arithmetic (src_handle + byte_offset)
+    /// - WGPU: must use compute shader with buffer binding + offset uniform
+    ///
+    /// # Parameters
+    /// - `src_handle`: Source buffer handle (pointer for CUDA, buffer ID for WGPU)
+    /// - `src_byte_offset`: Byte offset into source buffer
+    /// - `dst_handle`: Destination buffer handle
+    /// - `shape`: Shape of the tensor
+    /// - `strides`: Strides of the source tensor (in elements, not bytes)
+    /// - `elem_size`: Size of each element in bytes
+    fn copy_strided(
+        src_handle: u64,
+        src_byte_offset: usize,
+        dst_handle: u64,
+        shape: &[usize],
+        strides: &[isize],
+        elem_size: usize,
+        device: &Self::Device,
+    );
+
     /// Get the default device
     fn default_device() -> Self::Device;
 

@@ -1,0 +1,663 @@
+//! WGSL shader source code for linear algebra operations
+//!
+//! All shaders follow the same algorithm as CPU/CUDA implementations
+//! to ensure backend parity.
+
+/// Linear algebra shader module source (F32 only - WGSL doesn't support F64)
+pub const LINALG_SHADER: &str = r#"
+// ============================================================================
+// Workgroup Configuration
+// ============================================================================
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+// ============================================================================
+// Trace - Sum of diagonal elements
+// ============================================================================
+
+struct TraceParams {
+    n: u32,
+    stride: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> trace_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> trace_output: array<f32>;
+@group(0) @binding(2) var<uniform> trace_params: TraceParams;
+
+var<workgroup> trace_shared: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn trace_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+             @builtin(local_invocation_id) local_id: vec3<u32>,
+             @builtin(workgroup_id) group_id: vec3<u32>) {
+    let tid = local_id.x;
+    let gid = global_id.x;
+    let n = trace_params.n;
+    let stride = trace_params.stride;
+
+    // Each thread loads one diagonal element
+    var val: f32 = 0.0;
+    if (gid < n) {
+        let idx = gid * stride + gid;
+        val = trace_input[idx];
+    }
+    trace_shared[tid] = val;
+    workgroupBarrier();
+
+    // Parallel reduction
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            trace_shared[tid] = trace_shared[tid] + trace_shared[tid + s];
+        }
+        workgroupBarrier();
+    }
+
+    // First thread writes result (atomic add for multi-workgroup)
+    if (tid == 0u) {
+        // Use atomicAdd for f32 - requires WGSL atomics extension
+        // For now, assume single workgroup for small matrices
+        trace_output[0] = trace_output[0] + trace_shared[0];
+    }
+}
+
+// ============================================================================
+// Diag - Extract diagonal elements
+// ============================================================================
+
+struct DiagParams {
+    min_dim: u32,
+    n_cols: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> diag_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> diag_output: array<f32>;
+@group(0) @binding(2) var<uniform> diag_params: DiagParams;
+
+@compute @workgroup_size(256)
+fn diag_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let min_dim = diag_params.min_dim;
+    let n_cols = diag_params.n_cols;
+
+    if (gid < min_dim) {
+        let idx = gid * n_cols + gid;
+        diag_output[gid] = diag_input[idx];
+    }
+}
+
+// ============================================================================
+// Diagflat - Create diagonal matrix from vector
+// ============================================================================
+
+struct DiagflatParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> diagflat_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> diagflat_output: array<f32>;
+@group(0) @binding(2) var<uniform> diagflat_params: DiagflatParams;
+
+@compute @workgroup_size(256)
+fn diagflat_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let n = diagflat_params.n;
+    let total = n * n;
+
+    if (gid < total) {
+        let row = gid / n;
+        let col = gid % n;
+        if (row == col) {
+            diagflat_output[gid] = diagflat_input[row];
+        } else {
+            diagflat_output[gid] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// Create Identity Matrix
+// ============================================================================
+
+struct IdentityParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> identity_output: array<f32>;
+@group(0) @binding(1) var<uniform> identity_params: IdentityParams;
+
+@compute @workgroup_size(256)
+fn create_identity_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let n = identity_params.n;
+    let total = n * n;
+
+    if (gid < total) {
+        let row = gid / n;
+        let col = gid % n;
+        if (row == col) {
+            identity_output[gid] = 1.0;
+        } else {
+            identity_output[gid] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// Forward Substitution - Solve Lx = b
+// ============================================================================
+
+struct ForwardSubParams {
+    n: u32,
+    unit_diagonal: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> forward_l: array<f32>;
+@group(0) @binding(1) var<storage, read_write> forward_b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> forward_x: array<f32>;
+@group(0) @binding(3) var<uniform> forward_params: ForwardSubParams;
+
+@compute @workgroup_size(1)
+fn forward_sub_f32() {
+    let n = forward_params.n;
+    let unit_diag = forward_params.unit_diagonal != 0u;
+
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        var sum: f32 = forward_b[i];
+
+        for (var j: u32 = 0u; j < i; j = j + 1u) {
+            let l_idx = i * n + j;
+            sum = sum - forward_l[l_idx] * forward_x[j];
+        }
+
+        if (unit_diag) {
+            forward_x[i] = sum;
+        } else {
+            let diag_idx = i * n + i;
+            forward_x[i] = sum / forward_l[diag_idx];
+        }
+    }
+}
+
+// ============================================================================
+// Backward Substitution - Solve Ux = b
+// ============================================================================
+
+struct BackwardSubParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> backward_u: array<f32>;
+@group(0) @binding(1) var<storage, read_write> backward_b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> backward_x: array<f32>;
+@group(0) @binding(3) var<uniform> backward_params: BackwardSubParams;
+
+@compute @workgroup_size(1)
+fn backward_sub_f32() {
+    let n = backward_params.n;
+
+    // Start from last row
+    for (var ii: u32 = 0u; ii < n; ii = ii + 1u) {
+        let i = n - 1u - ii;
+
+        var sum: f32 = backward_b[i];
+
+        for (var j: u32 = i + 1u; j < n; j = j + 1u) {
+            let u_idx = i * n + j;
+            sum = sum - backward_u[u_idx] * backward_x[j];
+        }
+
+        let diag_idx = i * n + i;
+        backward_x[i] = sum / backward_u[diag_idx];
+    }
+}
+
+// ============================================================================
+// LU Decomposition with Partial Pivoting
+// ============================================================================
+
+struct LuParams {
+    m: u32,
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> lu_matrix: array<f32>;
+@group(0) @binding(1) var<storage, read_write> lu_pivots: array<i32>;
+@group(0) @binding(2) var<storage, read_write> lu_num_swaps: atomic<i32>;
+@group(0) @binding(3) var<storage, read_write> lu_singular_flag: atomic<i32>;
+@group(0) @binding(4) var<uniform> lu_params: LuParams;
+
+@compute @workgroup_size(1)
+fn lu_decompose_f32() {
+    let m = lu_params.m;
+    let n = lu_params.n;
+    let k = min(m, n);
+
+    var num_swaps: i32 = 0;
+
+    for (var col: u32 = 0u; col < k; col = col + 1u) {
+        // Find pivot (max absolute value in column)
+        var max_val: f32 = abs(lu_matrix[col * n + col]);
+        var max_row: u32 = col;
+
+        for (var row: u32 = col + 1u; row < m; row = row + 1u) {
+            let val = abs(lu_matrix[row * n + col]);
+            if (val > max_val) {
+                max_val = val;
+                max_row = row;
+            }
+        }
+
+        // Store pivot
+        lu_pivots[col] = i32(max_row);
+
+        // Swap rows if needed
+        if (max_row != col) {
+            num_swaps = num_swaps + 1;
+            for (var j: u32 = 0u; j < n; j = j + 1u) {
+                let tmp = lu_matrix[col * n + j];
+                lu_matrix[col * n + j] = lu_matrix[max_row * n + j];
+                lu_matrix[max_row * n + j] = tmp;
+            }
+        }
+
+        // Check for singularity
+        let pivot = lu_matrix[col * n + col];
+        if (abs(pivot) < 1e-10) {
+            atomicStore(&lu_singular_flag, 1);
+            return;
+        }
+
+        // Eliminate below pivot
+        for (var row: u32 = col + 1u; row < m; row = row + 1u) {
+            let factor = lu_matrix[row * n + col] / pivot;
+            lu_matrix[row * n + col] = factor; // Store L factor
+
+            for (var j: u32 = col + 1u; j < n; j = j + 1u) {
+                lu_matrix[row * n + j] = lu_matrix[row * n + j] - factor * lu_matrix[col * n + j];
+            }
+        }
+    }
+
+    atomicStore(&lu_num_swaps, num_swaps);
+}
+
+// ============================================================================
+// Cholesky Decomposition
+// ============================================================================
+
+struct CholeskyParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> chol_matrix: array<f32>;
+@group(0) @binding(1) var<storage, read_write> chol_not_pd_flag: atomic<i32>;
+@group(0) @binding(2) var<uniform> chol_params: CholeskyParams;
+
+@compute @workgroup_size(1)
+fn cholesky_decompose_f32() {
+    let n = chol_params.n;
+
+    for (var j: u32 = 0u; j < n; j = j + 1u) {
+        // Compute L[j,j]
+        var sum: f32 = chol_matrix[j * n + j];
+        for (var k: u32 = 0u; k < j; k = k + 1u) {
+            let ljk = chol_matrix[j * n + k];
+            sum = sum - ljk * ljk;
+        }
+
+        if (sum <= 0.0) {
+            atomicStore(&chol_not_pd_flag, 1);
+            return;
+        }
+
+        let ljj = sqrt(sum);
+        chol_matrix[j * n + j] = ljj;
+
+        // Compute L[i,j] for i > j
+        for (var i: u32 = j + 1u; i < n; i = i + 1u) {
+            var s: f32 = chol_matrix[i * n + j];
+            for (var k: u32 = 0u; k < j; k = k + 1u) {
+                s = s - chol_matrix[i * n + k] * chol_matrix[j * n + k];
+            }
+            chol_matrix[i * n + j] = s / ljj;
+        }
+
+        // Zero out upper triangle
+        for (var i: u32 = 0u; i < j; i = i + 1u) {
+            chol_matrix[i * n + j] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// QR Decomposition (Householder)
+// ============================================================================
+
+struct QrParams {
+    m: u32,
+    n: u32,
+    thin: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> qr_q: array<f32>;
+@group(0) @binding(1) var<storage, read_write> qr_r: array<f32>;
+@group(0) @binding(2) var<storage, read_write> qr_workspace: array<f32>;
+@group(0) @binding(3) var<uniform> qr_params: QrParams;
+
+@compute @workgroup_size(1)
+fn qr_decompose_f32() {
+    let m = qr_params.m;
+    let n = qr_params.n;
+    let thin = qr_params.thin != 0u;
+    let k = min(m, n);
+    let q_cols = select(m, k, thin);
+
+    // Initialize Q to identity
+    for (var i: u32 = 0u; i < m; i = i + 1u) {
+        for (var j: u32 = 0u; j < q_cols; j = j + 1u) {
+            if (i == j) {
+                qr_q[i * q_cols + j] = 1.0;
+            } else {
+                qr_q[i * q_cols + j] = 0.0;
+            }
+        }
+    }
+
+    // Householder reflections
+    // Only iterate min(m-1, n) times - no need to reflect the last 1x1 block
+    let num_reflections = min(m - 1u, n);
+    for (var col: u32 = 0u; col < num_reflections; col = col + 1u) {
+        // Compute norm of column below diagonal
+        var norm_sq: f32 = 0.0;
+        for (var i: u32 = col; i < m; i = i + 1u) {
+            let val = qr_r[i * n + col];
+            norm_sq = norm_sq + val * val;
+        }
+        let norm = sqrt(norm_sq);
+
+        if (norm < 1e-10) {
+            continue;
+        }
+
+        // Compute Householder vector
+        let x0 = qr_r[col * n + col];
+        let sign_x0 = select(-1.0, 1.0, x0 >= 0.0);
+        let alpha = -sign_x0 * norm;
+
+        // v = x - alpha * e1 (stored in workspace)
+        for (var i: u32 = 0u; i < col; i = i + 1u) {
+            qr_workspace[i] = 0.0;
+        }
+        qr_workspace[col] = x0 - alpha;
+        for (var i: u32 = col + 1u; i < m; i = i + 1u) {
+            qr_workspace[i] = qr_r[i * n + col];
+        }
+
+        // Normalize v
+        var v_norm_sq: f32 = 0.0;
+        for (var i: u32 = col; i < m; i = i + 1u) {
+            v_norm_sq = v_norm_sq + qr_workspace[i] * qr_workspace[i];
+        }
+
+        if (v_norm_sq < 1e-20) {
+            continue;
+        }
+
+        let v_norm = sqrt(v_norm_sq);
+        for (var i: u32 = col; i < m; i = i + 1u) {
+            qr_workspace[i] = qr_workspace[i] / v_norm;
+        }
+
+        // Apply H = I - 2vv^T to R
+        for (var j: u32 = col; j < n; j = j + 1u) {
+            var dot: f32 = 0.0;
+            for (var i: u32 = col; i < m; i = i + 1u) {
+                dot = dot + qr_workspace[i] * qr_r[i * n + j];
+            }
+            for (var i: u32 = col; i < m; i = i + 1u) {
+                qr_r[i * n + j] = qr_r[i * n + j] - 2.0 * qr_workspace[i] * dot;
+            }
+        }
+
+        // Apply H to Q
+        for (var j: u32 = 0u; j < q_cols; j = j + 1u) {
+            var dot: f32 = 0.0;
+            for (var i: u32 = col; i < m; i = i + 1u) {
+                dot = dot + qr_workspace[i] * qr_q[i * q_cols + j];
+            }
+            for (var i: u32 = col; i < m; i = i + 1u) {
+                qr_q[i * q_cols + j] = qr_q[i * q_cols + j] - 2.0 * qr_workspace[i] * dot;
+            }
+        }
+    }
+
+    // Zero out below diagonal in R
+    for (var i: u32 = 1u; i < m; i = i + 1u) {
+        for (var j: u32 = 0u; j < min(i, n); j = j + 1u) {
+            qr_r[i * n + j] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// Determinant from LU
+// ============================================================================
+
+struct DetParams {
+    n: u32,
+    num_swaps: i32,
+}
+
+@group(0) @binding(0) var<storage, read_write> det_lu: array<f32>;
+@group(0) @binding(1) var<storage, read_write> det_output: array<f32>;
+@group(0) @binding(2) var<uniform> det_params: DetParams;
+
+@compute @workgroup_size(1)
+fn det_from_lu_f32() {
+    let n = det_params.n;
+    let num_swaps = det_params.num_swaps;
+
+    var det: f32 = 1.0;
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        det = det * det_lu[i * n + i];
+    }
+
+    // Apply sign based on number of row swaps
+    if ((num_swaps % 2) != 0) {
+        det = -det;
+    }
+
+    det_output[0] = det;
+}
+
+// ============================================================================
+// Apply LU Permutation
+// ============================================================================
+
+struct PermParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> perm_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> perm_output: array<f32>;
+@group(0) @binding(2) var<storage, read_write> perm_pivots: array<i32>;
+@group(0) @binding(3) var<uniform> perm_params: PermParams;
+
+@compute @workgroup_size(1)
+fn apply_lu_permutation_f32() {
+    let n = perm_params.n;
+
+    // Copy input to output first
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        perm_output[i] = perm_input[i];
+    }
+
+    // Apply swaps in order
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        let pivot = u32(perm_pivots[i]);
+        if (pivot != i) {
+            let tmp = perm_output[i];
+            perm_output[i] = perm_output[pivot];
+            perm_output[pivot] = tmp;
+        }
+    }
+}
+
+// ============================================================================
+// Scatter Column
+// ============================================================================
+
+struct ScatterParams {
+    n: u32,
+    col: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> scatter_vec: array<f32>;
+@group(0) @binding(1) var<storage, read_write> scatter_matrix: array<f32>;
+@group(0) @binding(2) var<uniform> scatter_params: ScatterParams;
+
+@compute @workgroup_size(256)
+fn scatter_column_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let n = scatter_params.n;
+    let col = scatter_params.col;
+
+    if (gid < n) {
+        scatter_matrix[gid * n + col] = scatter_vec[gid];
+    }
+}
+
+// ============================================================================
+// Extract Column
+// ============================================================================
+
+struct ExtractParams {
+    m: u32,
+    n_cols: u32,
+    col: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> extract_matrix: array<f32>;
+@group(0) @binding(1) var<storage, read_write> extract_vec: array<f32>;
+@group(0) @binding(2) var<uniform> extract_params: ExtractParams;
+
+@compute @workgroup_size(256)
+fn extract_column_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let m = extract_params.m;
+    let n_cols = extract_params.n_cols;
+    let col = extract_params.col;
+
+    if (gid < m) {
+        extract_vec[gid] = extract_matrix[gid * n_cols + col];
+    }
+}
+
+// ============================================================================
+// Max Absolute Value (for matrix_rank)
+// ============================================================================
+
+struct MaxAbsParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> maxabs_values: array<f32>;
+@group(0) @binding(1) var<storage, read_write> maxabs_output: array<f32>;
+@group(0) @binding(2) var<uniform> maxabs_params: MaxAbsParams;
+
+var<workgroup> maxabs_shared: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn max_abs_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+               @builtin(local_invocation_id) local_id: vec3<u32>) {
+    let tid = local_id.x;
+    let gid = global_id.x;
+    let n = maxabs_params.n;
+
+    var val: f32 = 0.0;
+    if (gid < n) {
+        val = abs(maxabs_values[gid]);
+    }
+    maxabs_shared[tid] = val;
+    workgroupBarrier();
+
+    // Parallel reduction for max
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            maxabs_shared[tid] = max(maxabs_shared[tid], maxabs_shared[tid + s]);
+        }
+        workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+        // For multi-workgroup, this would need atomicMax
+        // For now, take max with existing value
+        maxabs_output[0] = max(maxabs_output[0], maxabs_shared[0]);
+    }
+}
+
+// ============================================================================
+// Count Above Threshold (for matrix_rank)
+// ============================================================================
+
+struct CountParams {
+    n: u32,
+    threshold: f32,
+}
+
+@group(0) @binding(0) var<storage, read_write> count_values: array<f32>;
+@group(0) @binding(1) var<storage, read_write> count_output: atomic<u32>;
+@group(0) @binding(2) var<uniform> count_params: CountParams;
+
+var<workgroup> count_shared: array<u32, 256>;
+
+@compute @workgroup_size(256)
+fn count_above_threshold_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+                             @builtin(local_invocation_id) local_id: vec3<u32>) {
+    let tid = local_id.x;
+    let gid = global_id.x;
+    let n = count_params.n;
+    let threshold = count_params.threshold;
+
+    var count: u32 = 0u;
+    if (gid < n && abs(count_values[gid]) > threshold) {
+        count = 1u;
+    }
+    count_shared[tid] = count;
+    workgroupBarrier();
+
+    // Parallel reduction for sum
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            count_shared[tid] = count_shared[tid] + count_shared[tid + s];
+        }
+        workgroupBarrier();
+    }
+
+    if (tid == 0u) {
+        atomicAdd(&count_output, count_shared[0]);
+    }
+}
+
+// ============================================================================
+// Matrix Copy
+// ============================================================================
+
+struct CopyParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> copy_src: array<f32>;
+@group(0) @binding(1) var<storage, read_write> copy_dst: array<f32>;
+@group(0) @binding(2) var<uniform> copy_params: CopyParams;
+
+@compute @workgroup_size(256)
+fn matrix_copy_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let n = copy_params.n;
+
+    if (gid < n) {
+        copy_dst[gid] = copy_src[gid];
+    }
+}
+"#;

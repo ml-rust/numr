@@ -34,6 +34,7 @@ fn compile_cuda_kernels() {
     let kernels_dir = PathBuf::from("src/runtime/cuda/kernels");
 
     // List of kernel files to compile
+    #[allow(unused_mut)]
     let mut kernel_files = vec![
         "binary.cu",
         "unary.cu",
@@ -46,6 +47,7 @@ fn compile_cuda_kernels() {
         "utility.cu",
         "ternary.cu",
         "linalg.cu",
+        "strided_copy.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

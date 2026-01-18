@@ -425,6 +425,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// If the tensor is already contiguous, returns a view (zero-copy).
     /// Otherwise, allocates new storage and copies the data to a contiguous layout.
+    ///
+    /// # Backend Support
+    ///
+    /// This method uses `Runtime::copy_strided` which handles strided copies
+    /// correctly for each backend:
+    /// - CPU/CUDA: Uses pointer arithmetic (handles can be offset directly)
+    /// - WGPU: Uses compute shader (buffer IDs don't support arithmetic)
     pub fn contiguous(&self) -> Self {
         if self.is_contiguous() {
             self.clone()
@@ -438,46 +445,21 @@ impl<R: Runtime> Tensor<R> {
             let new_storage = Storage::new(numel, dtype, device);
             let new_layout = Layout::contiguous(self.shape());
 
-            // Copy data element by element (generic copy via bytes)
-            // Note: Host-side copy for non-contiguous tensors. GPU kernel
-            // optimization would improve performance for large tensors.
+            // Use Runtime::copy_strided which handles buffer ID vs pointer correctly
             let elem_size = dtype.size_in_bytes();
-            let src_ptr = self.storage.ptr();
-            let dst_ptr = new_storage.ptr();
+            let src_handle = self.storage.ptr();
+            let dst_handle = new_storage.ptr();
+            let src_byte_offset = self.layout.offset() * elem_size;
 
-            // For non-contiguous tensors, we need to iterate over each element
-            // and copy it to the correct position in the new storage
-            let shape = self.shape();
-            let src_strides = self.strides();
-            let src_offset = self.layout.offset();
-
-            // Use iterative approach to copy each element
-            let mut indices = vec![0usize; shape.len()];
-
-            for dst_offset in 0..numel {
-                // Calculate source offset for current indices
-                let mut src_elem_offset = src_offset as isize;
-                for (i, &idx) in indices.iter().enumerate() {
-                    src_elem_offset += (idx as isize) * src_strides[i];
-                }
-
-                // Copy element
-                R::copy_within_device(
-                    src_ptr + (src_elem_offset as usize * elem_size) as u64,
-                    dst_ptr + (dst_offset * elem_size) as u64,
-                    elem_size,
-                    device,
-                );
-
-                // Increment indices (row-major order)
-                for dim in (0..shape.len()).rev() {
-                    indices[dim] += 1;
-                    if indices[dim] < shape[dim] {
-                        break;
-                    }
-                    indices[dim] = 0;
-                }
-            }
+            R::copy_strided(
+                src_handle,
+                src_byte_offset,
+                dst_handle,
+                self.shape(),
+                self.strides(),
+                elem_size,
+                device,
+            );
 
             Self {
                 id: TensorId::new(),

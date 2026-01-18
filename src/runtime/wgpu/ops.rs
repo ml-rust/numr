@@ -12,7 +12,8 @@
 use super::{WgpuClient, WgpuRuntime};
 use crate::error::Result;
 use crate::ops::{
-    BinaryOp, CompareOp, CompareOps, ReduceOp, ScalarOps, TensorOps, UnaryOp, matmul_output_shape,
+    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, ReduceOp, ScalarOps, TensorOps,
+    UnaryOp, matmul_output_shape,
 };
 use crate::runtime::fallback::{
     activation_fallback, binary_op_fallback, compare_op_fallback, matmul_fallback,
@@ -193,6 +194,174 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     fn softmax(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
         softmax_fallback(a, dim, &self.device_id, "softmax")
+    }
+
+    fn silu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "silu", |client, a_cpu| {
+            client.silu(a_cpu)
+        })
+    }
+
+    fn gelu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "gelu", |client, a_cpu| {
+            client.gelu(a_cpu)
+        })
+    }
+
+    // --- Additional Unary Operations ---
+
+    fn sign(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        unary_op_fallback(a, UnaryOp::Sign, &self.device_id, "sign")
+    }
+
+    fn isnan(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "isnan", |client, a_cpu| {
+            client.isnan(a_cpu)
+        })
+    }
+
+    fn isinf(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "isinf", |client, a_cpu| {
+            client.isinf(a_cpu)
+        })
+    }
+
+    // --- Precision-Aware Reductions ---
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Fall back to regular sum (precision handling happens on CPU)
+        self.sum(a, dims, keepdim)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        self.max(a, dims, keepdim)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        self.min(a, dims, keepdim)
+    }
+
+    // --- Normalization ---
+
+    fn rms_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        weight: &Tensor<WgpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "rms_norm", |client, a_cpu| {
+            let weight_data: Vec<f32> = weight.to_vec();
+            let cpu_device = crate::runtime::cpu::CpuDevice::new();
+            let weight_cpu = crate::tensor::Tensor::<crate::runtime::cpu::CpuRuntime>::from_slice(
+                &weight_data,
+                weight.shape(),
+                &cpu_device,
+            );
+            client.rms_norm(a_cpu, &weight_cpu, eps)
+        })
+    }
+
+    fn layer_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        weight: &Tensor<WgpuRuntime>,
+        bias: &Tensor<WgpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "layer_norm", |client, a_cpu| {
+            let weight_data: Vec<f32> = weight.to_vec();
+            let cpu_device = crate::runtime::cpu::CpuDevice::new();
+            let weight_cpu = crate::tensor::Tensor::<crate::runtime::cpu::CpuRuntime>::from_slice(
+                &weight_data,
+                weight.shape(),
+                &cpu_device,
+            );
+            let bias_data: Vec<f32> = bias.to_vec();
+            let bias_cpu = crate::tensor::Tensor::<crate::runtime::cpu::CpuRuntime>::from_slice(
+                &bias_data,
+                bias.shape(),
+                &cpu_device,
+            );
+            client.layer_norm(a_cpu, &weight_cpu, &bias_cpu, eps)
+        })
+    }
+
+    // --- Argmax/Argmin ---
+
+    fn argmax(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "argmax", |client, a_cpu| {
+            client.argmax(a_cpu, dim, keepdim)
+        })
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "argmin", |client, a_cpu| {
+            client.argmin(a_cpu, dim, keepdim)
+        })
+    }
+
+    // --- Cast ---
+
+    fn cast(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dtype: crate::dtype::DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::dispatch_dtype;
+
+        let src_dtype = a.dtype();
+        let cpu = crate::runtime::fallback::CpuFallbackContext::new();
+
+        dispatch_dtype!(src_dtype, T => {
+            let a_cpu: crate::tensor::Tensor<crate::runtime::cpu::CpuRuntime> =
+                cpu.tensor_from_gpu::<T, WgpuRuntime>(a);
+            let result_cpu = cpu.client.cast(&a_cpu, dtype)?;
+
+            // Copy back based on target dtype
+            dispatch_dtype!(dtype, U => {
+                let result_data: Vec<U> = result_cpu.to_vec();
+                return Ok(Tensor::<WgpuRuntime>::from_slice(&result_data, result_cpu.shape(), &self.device_id));
+            }, "cast_output");
+        }, "cast_input");
+    }
+
+    // --- Where/Conditional ---
+
+    fn where_cond(
+        &self,
+        cond: &Tensor<WgpuRuntime>,
+        x: &Tensor<WgpuRuntime>,
+        y: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        crate::runtime::fallback::where_cond_fallback(cond, x, y, &self.device_id, "where_cond")
     }
 }
 
