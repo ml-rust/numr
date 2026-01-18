@@ -8,76 +8,9 @@ use crate::dtype::Element;
 use crate::error::{Error, Result};
 use crate::tensor::Tensor;
 
-/// - F16/BF16: Lower precision, use 1e-3
-/// - FP8: Very low precision, use 1e-2
-#[inline]
-/// Returns the zero-elimination tolerance for a given element type.
-///
-/// This function provides dtype-specific tolerance values used to filter out
-/// near-zero values from sparse matrix results. Values with absolute value
-/// below the tolerance are treated as zero and eliminated from the sparse
-/// representation.
-///
-/// # Rationale
-///
-/// Sparse matrix operations can produce tiny values due to floating-point
-/// rounding errors, especially when subtracting nearly equal numbers or
-/// accumulating many small values. Without zero-elimination:
-/// - Memory usage increases unnecessarily
-/// - Subsequent operations become slower (more non-zeros to process)
-/// - Numerical stability can degrade
-///
-/// # Tolerance Values
-///
-/// Tolerances are chosen based on dtype precision and typical numerical error:
-///
-/// - **8-byte types** (F64, I64, U64): `1e-15`
-///   - F64 has ~15-16 decimal digits of precision
-///   - Tolerance captures rounding errors from ~15 operations
-///
-/// - **4-byte types** (F32, I32, U32): `1e-7`
-///   - F32 has ~6-7 decimal digits of precision
-///   - Tolerance is ~7 ULPs (units in last place)
-///
-/// - **2-byte types** (F16, BF16, I16, U16): `1e-3`
-///   - F16/BF16 have limited mantissa precision
-///   - More aggressive filtering due to accumulated errors
-///
-/// - **1-byte types** (FP8, I8, U8): `1e-2`
-///   - Extremely limited precision (FP8: 3-4 bits mantissa)
-///   - Very aggressive filtering to maintain sparsity
-///
-/// # Design Considerations
-///
-/// 1. **Conservative for high precision**: F64 tolerance is 15 orders of
-///    magnitude below typical values, preserving mathematically significant
-///    numbers while eliminating numerical noise.
-///
-/// 2. **Aggressive for low precision**: FP8/F16 have inherent rounding,
-///    so we eliminate more aggressively to maintain sparsity benefits.
-///
-/// 3. **Integer types**: Use same tolerance as corresponding float types
-///    to maintain consistent behavior across dtype families.
-///
-/// # Examples
-///
-/// ```ignore
-/// // F32: eliminates values < 1e-7
-/// let result = a - b;  // If result is 1e-8, it's eliminated
-///
-/// // F64: preserves more precision
-/// let result = a - b;  // Values down to 1e-15 are kept
-/// ```
-pub(crate) fn zero_tolerance<T: Element>() -> f64 {
-    use std::mem::size_of;
-    match size_of::<T>() {
-        8 => 1e-15, // F64, I64, U64: ~machine epsilon
-        4 => 1e-7,  // F32, I32, U32: ~7 ULPs
-        2 => 1e-3,  // F16, BF16, I16, U16: aggressive due to limited precision
-        1 => 1e-2,  // FP8, I8, U8: very aggressive due to extreme quantization
-        _ => 1e-15, // Default: fallback to highest precision
-    }
-}
+// Re-export zero_tolerance from shared utilities module
+// See runtime::sparse_utils::zero_tolerance for full documentation
+pub(crate) use crate::runtime::sparse_utils::zero_tolerance;
 
 // =============================================================================
 // Merge Strategy and Operation Semantics
@@ -885,4 +818,3 @@ where
 
     Ok((out_rows, out_cols, out_vals))
 }
-

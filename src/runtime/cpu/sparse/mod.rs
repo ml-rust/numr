@@ -10,14 +10,15 @@ use crate::sparse::SparseOps;
 use crate::tensor::Tensor;
 
 // Submodules
-mod merge;
+pub(crate) mod merge;
 #[cfg(test)]
 mod tests;
 
-// Re-export merge functions for use in trait implementation
-use merge::{
-    merge_coo_impl, merge_csc_impl, merge_csr_impl, intersect_coo_impl,
-    zero_tolerance, MergeStrategy, OperationSemantics,
+// Re-export merge functions at module root for convenient access
+// Module merge is also accessible as cpu::sparse::merge::* if needed
+pub(crate) use merge::{
+    MergeStrategy, OperationSemantics, intersect_coo_impl, merge_coo_impl, merge_csc_impl,
+    merge_csr_impl, zero_tolerance,
 };
 
 impl SparseOps<CpuRuntime> for CpuClient {
