@@ -14,7 +14,6 @@ use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
 use super::CudaRuntime;
-use super::cusparse::CudaSparse;
 use super::device::{CudaDevice, CudaError};
 use crate::runtime::{Allocator, RuntimeClient};
 
@@ -76,9 +75,6 @@ pub struct CudaClient {
 
     /// cuBLAS handle for GEMM operations
     pub(crate) cublas: Arc<CudaBlas>,
-
-    /// cusparse handle for sparse operations
-    pub(crate) cusparse: Arc<CudaSparse>,
 
     /// Allocator for memory management
     pub(crate) allocator: CudaAllocator,
@@ -216,9 +212,6 @@ impl CudaClient {
         let cublas = CudaBlas::new(stream.clone())
             .map_err(|e| CudaError::CublasError(format!("Failed to initialize cuBLAS: {:?}", e)))?;
 
-        // Initialize cusparse handle for sparse operations
-        let cusparse = CudaSparse::new(stream.clone())?;
-
         let allocator = CudaAllocator {
             stream: stream.clone(),
         };
@@ -233,7 +226,6 @@ impl CudaClient {
             context,
             stream,
             cublas: Arc::new(cublas),
-            cusparse: Arc::new(cusparse),
             allocator,
             raw_handle,
         })
@@ -263,12 +255,6 @@ impl CudaClient {
     #[inline]
     pub fn cublas(&self) -> &CudaBlas {
         &self.cublas
-    }
-
-    /// Get reference to the cusparse handle.
-    #[inline]
-    pub fn cusparse(&self) -> &CudaSparse {
-        &self.cusparse
     }
 }
 
