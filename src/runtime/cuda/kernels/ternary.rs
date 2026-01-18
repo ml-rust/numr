@@ -7,10 +7,13 @@ use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
+use super::binary::compute_broadcast_strides;
 use super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     kernel_names, launch_config,
 };
+use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::tensor::Tensor;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -82,8 +85,7 @@ pub unsafe fn launch_where_op(
 /// # Safety
 ///
 /// - All pointers must be valid device memory
-/// - Stride and shape arrays must have `ndim` elements
-/// - Output tensor must have `numel` elements
+/// - Shape arrays must be valid
 /// - Condition tensor must be U8 (boolean: 0 = false, non-zero = true)
 ///
 /// # Arguments
@@ -91,57 +93,83 @@ pub unsafe fn launch_where_op(
 /// * `context` - CUDA context
 /// * `stream` - CUDA stream for async execution
 /// * `device_index` - Device index for module caching
+/// * `device` - CUDA device for tensor allocation
 /// * `dtype` - Data type of x, y, and output tensors
 /// * `cond_ptr` - Device pointer to condition tensor (U8)
 /// * `x_ptr` - Device pointer to "true" values tensor
 /// * `y_ptr` - Device pointer to "false" values tensor
 /// * `out_ptr` - Device pointer to output tensor
-/// * `cond_strides` - Device pointer to condition tensor strides
-/// * `x_strides` - Device pointer to x tensor strides
-/// * `y_strides` - Device pointer to y tensor strides
-/// * `shape` - Device pointer to output shape
-/// * `ndim` - Number of dimensions
-/// * `numel` - Number of output elements
-// Currently unused: CUDA where_cond uses CPU fallback for broadcasting
-// This is available for future optimization of GPU-native broadcasting
-#[allow(dead_code)]
+/// * `cond_shape` - Shape of condition tensor
+/// * `x_shape` - Shape of x tensor
+/// * `y_shape` - Shape of y tensor
+/// * `out_shape` - Shape of output tensor (broadcast result)
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_where_broadcast_op(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
+    device: &CudaDevice,
     dtype: DType,
     cond_ptr: u64,
     x_ptr: u64,
     y_ptr: u64,
     out_ptr: u64,
-    cond_strides: u64,
-    x_strides: u64,
-    y_strides: u64,
-    shape: u64,
-    ndim: usize,
-    numel: usize,
+    cond_shape: &[usize],
+    x_shape: &[usize],
+    y_shape: &[usize],
+    out_shape: &[usize],
 ) -> Result<()> {
+    let numel: usize = out_shape.iter().product();
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let ndim = out_shape.len();
+
+    // Compute broadcast strides
+    let cond_strides = compute_broadcast_strides(cond_shape, out_shape);
+    let x_strides = compute_broadcast_strides(x_shape, out_shape);
+    let y_strides = compute_broadcast_strides(y_shape, out_shape);
+    let shape_u32: Vec<u32> = out_shape.iter().map(|&x| x as u32).collect();
+
+    // Allocate device memory for strides and shape using Tensor
+    let cond_strides_tensor = Tensor::<CudaRuntime>::from_slice(&cond_strides, &[ndim], device);
+    let x_strides_tensor = Tensor::<CudaRuntime>::from_slice(&x_strides, &[ndim], device);
+    let y_strides_tensor = Tensor::<CudaRuntime>::from_slice(&y_strides, &[ndim], device);
+    let shape_tensor = Tensor::<CudaRuntime>::from_slice(&shape_u32, &[ndim], device);
+
+    // Get device pointers
+    let cond_strides_ptr = cond_strides_tensor.storage().ptr();
+    let x_strides_ptr = x_strides_tensor.storage().ptr();
+    let y_strides_ptr = y_strides_tensor.storage().ptr();
+    let shape_ptr = shape_tensor.storage().ptr();
+
+    // Get kernel function
+    let module = get_or_load_module(context, device_index, kernel_names::TERNARY_MODULE)?;
+    let func_name = format!(
+        "where_broadcast_{}",
+        super::loader::dtype_suffix(dtype)
+    );
+    let func = get_kernel_function(&module, &func_name)?;
+
+    // Launch kernel
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+    let ndim_u32 = ndim as u32;
+
+    let cfg = launch_config(grid, block, 0);
+
     unsafe {
-        let module = get_or_load_module(context, device_index, kernel_names::TERNARY_MODULE)?;
-        let func_name = format!("where_broadcast_{}", super::loader::dtype_suffix(dtype));
-        let func = get_kernel_function(&module, &func_name)?;
-
-        let grid = elementwise_launch_config(numel);
-        let block = (BLOCK_SIZE, 1, 1);
-        let n = numel as u32;
-        let ndim_u32 = ndim as u32;
-
-        let cfg = launch_config(grid, block, 0);
         let mut builder = stream.launch_builder(&func);
         builder.arg(&cond_ptr);
         builder.arg(&x_ptr);
         builder.arg(&y_ptr);
         builder.arg(&out_ptr);
-        builder.arg(&cond_strides);
-        builder.arg(&x_strides);
-        builder.arg(&y_strides);
-        builder.arg(&shape);
+        builder.arg(&cond_strides_ptr);
+        builder.arg(&x_strides_ptr);
+        builder.arg(&y_strides_ptr);
+        builder.arg(&shape_ptr);
         builder.arg(&ndim_u32);
         builder.arg(&n);
 
@@ -151,7 +179,12 @@ pub unsafe fn launch_where_broadcast_op(
                 func_name, e
             ))
         })?;
-
-        Ok(())
     }
+
+    // Synchronize to ensure the kernel completes before freeing temporary allocations
+    stream
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("Stream sync failed: {:?}", e)))?;
+
+    Ok(())
 }

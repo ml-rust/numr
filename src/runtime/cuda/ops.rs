@@ -46,13 +46,13 @@ use super::kernels::{
     launch_logical_xor_op, launch_matmul_batched_kernel, launch_matmul_kernel, launch_rand,
     launch_randn, launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32,
     launch_scalar_op_f64, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
-    launch_unary_op, launch_where_op,
+    launch_unary_op, launch_where_broadcast_op, launch_where_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    CompareOps, LogicalOps, ReduceOp, ScalarOps, TensorOps, compute_reduce_strides,
+    CompareOps, LogicalOps, ScalarOps, TensorOps, compute_reduce_strides,
     matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
@@ -183,48 +183,53 @@ fn native_binary_op(
     b: &Tensor<CudaRuntime>,
     op: &'static str,
 ) -> Result<Tensor<CudaRuntime>> {
+    use super::kernels::launch_broadcast_binary_op;
+
     let dtype = validate_binary_dtypes(a, b)?;
     let out_shape = compute_broadcast_shape(a, b)?;
 
-    // Native CUDA kernels require same-shape tensors.
-    // Broadcasting requires strided kernel access patterns not yet implemented.
-    if a.shape() != b.shape() {
-        // CPU fallback: involves GPU→CPU transfer, CPU compute, CPU→GPU transfer
-        use crate::ops::BinaryOp;
-        use crate::runtime::fallback::binary_op_fallback;
-        let binary_op = match op {
-            "add" => BinaryOp::Add,
-            "sub" => BinaryOp::Sub,
-            "mul" => BinaryOp::Mul,
-            "div" => BinaryOp::Div,
-            "pow" => BinaryOp::Pow,
-            "max" => BinaryOp::Max,
-            "min" => BinaryOp::Min,
-            _ => {
-                return Err(Error::Internal(format!(
-                    "Unsupported binary operation: {}",
-                    op
-                )));
-            }
-        };
-        return binary_op_fallback(a, b, binary_op, &client.device, op);
+    // For same-shape tensors, use the optimized element-wise kernel
+    if a.shape() == b.shape() {
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+        unsafe {
+            launch_binary_op(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                dtype,
+                a_contig.storage().ptr(),
+                b_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        return Ok(out);
     }
 
+    // For different shapes, use the broadcast kernel (stays on GPU)
     let a_contig = ensure_contiguous(a);
     let b_contig = ensure_contiguous(b);
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
-        launch_binary_op(
+        launch_broadcast_binary_op(
             &client.context,
             &client.stream,
             client.device.index,
+            &client.device,
             op,
             dtype,
             a_contig.storage().ptr(),
             b_contig.storage().ptr(),
             out.storage().ptr(),
-            out.numel(),
+            a.shape(),
+            b.shape(),
+            &out_shape,
         )?;
     }
 
@@ -277,9 +282,18 @@ fn native_scalar_op(
     op: &'static str,
     scalar: f64,
 ) -> Result<Tensor<CudaRuntime>> {
+    use super::kernels::{launch_scalar_op_i32, launch_scalar_op_i64};
+    #[cfg(any(feature = "f16", feature = "fp8"))]
+    use super::kernels::launch_scalar_op_half;
+
     let dtype = a.dtype();
     let a_contig = ensure_contiguous(a);
     let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &client.device);
+
+    // Check if pow is supported for this dtype (integers don't have pow kernel)
+    if op == "pow_scalar" && matches!(dtype, DType::I32 | DType::I64) {
+        return Err(Error::UnsupportedDType { dtype, op: "pow_scalar" });
+    }
 
     unsafe {
         match dtype {
@@ -303,24 +317,53 @@ fn native_scalar_op(
                 out.storage().ptr(),
                 out.numel(),
             )?,
+            DType::I32 => launch_scalar_op_i32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar as i32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            DType::I64 => launch_scalar_op_i64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar as i64,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => launch_scalar_op_half(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                dtype,
+                a_contig.storage().ptr(),
+                scalar as f32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 | DType::FP8E5M2 => launch_scalar_op_half(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                dtype,
+                a_contig.storage().ptr(),
+                scalar as f32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
             _ => {
-                // Fall back to CPU for unsupported dtypes
-                use crate::ops::BinaryOp;
-                use crate::runtime::fallback::scalar_op_fallback;
-                let binary_op = match op {
-                    "add_scalar" => BinaryOp::Add,
-                    "sub_scalar" => BinaryOp::Sub,
-                    "mul_scalar" => BinaryOp::Mul,
-                    "div_scalar" => BinaryOp::Div,
-                    "pow_scalar" => BinaryOp::Pow,
-                    _ => {
-                        return Err(Error::Internal(format!(
-                            "Unsupported scalar operation: {}",
-                            op
-                        )));
-                    }
-                };
-                return scalar_op_fallback(a, binary_op, scalar, &client.device, op);
+                // Remaining types (U8, Bool, etc.) return unsupported
+                return Err(Error::UnsupportedDType { dtype, op });
             }
         }
     }
@@ -387,73 +430,90 @@ fn native_reduce_op(
         return Ok(out);
     }
 
-    // For multiple dimensions or unsupported dtypes, fall back to CPU
-    use crate::runtime::fallback::reduce_op_fallback;
-    let reduce_op = match op {
-        "sum" => ReduceOp::Sum,
-        "max" => ReduceOp::Max,
-        "min" => ReduceOp::Min,
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported reduce operation: {}",
-                op
-            )));
-        }
-    };
-    reduce_op_fallback(a, reduce_op, dims, keepdim, &client.device, op)
+    // For multiple dimensions: chain single-dimension reductions on GPU
+    // This keeps all computation on the GPU instead of falling back to CPU
+
+    // Sort dimensions from highest to lowest to avoid index shifting issues
+    let mut sorted_dims: Vec<usize> = dims.to_vec();
+    sorted_dims.sort_unstable();
+    sorted_dims.reverse();
+
+    // Reduce one dimension at a time
+    let mut current = a.clone();
+    for (i, &dim) in sorted_dims.iter().enumerate() {
+        // For all but the last dimension, always keepdim to preserve indexing
+        let keep = if i == sorted_dims.len() - 1 { keepdim } else { true };
+        current = native_reduce_op(client, &current, op, &[dim], keep, precision)?;
+    }
+
+    // If keepdim was false but we kept dims during iteration, squeeze them now
+    if !keepdim && sorted_dims.len() > 1 {
+        // The output shape is already correct from the final reduction with keepdim=false
+        // We just need to return what we have
+    }
+
+    Ok(current)
 }
 
 /// Launch a native comparison operation on GPU.
 ///
 /// # Performance
 ///
-/// - **Same shape**: Runs entirely on GPU (fast)
-/// - **Different shapes**: Falls back to CPU with GPU↔CPU transfers (slow)
+/// - **Same shape**: Uses optimized element-wise kernel (fast)
+/// - **Different shapes**: Uses broadcast kernel with strided access (stays on GPU)
 fn native_compare_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
     op: &'static str,
 ) -> Result<Tensor<CudaRuntime>> {
+    use super::kernels::launch_broadcast_compare_op;
+
     let dtype = validate_binary_dtypes(a, b)?;
     let out_shape = compute_broadcast_shape(a, b)?;
 
-    // Native CUDA kernels require same-shape tensors
-    if a.shape() != b.shape() {
-        use crate::ops::CompareOp;
-        use crate::runtime::fallback::compare_op_fallback;
-        let compare_op = match op {
-            "eq" => CompareOp::Eq,
-            "ne" => CompareOp::Ne,
-            "lt" => CompareOp::Lt,
-            "le" => CompareOp::Le,
-            "gt" => CompareOp::Gt,
-            "ge" => CompareOp::Ge,
-            _ => {
-                return Err(Error::Internal(format!(
-                    "Unsupported compare operation: {}",
-                    op
-                )));
-            }
-        };
-        return compare_op_fallback(a, b, compare_op, &client.device, op);
+    // For same-shape tensors, use the optimized element-wise kernel
+    if a.shape() == b.shape() {
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+        unsafe {
+            launch_compare_op(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                dtype,
+                a_contig.storage().ptr(),
+                b_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        return Ok(out);
     }
 
+    // For different shapes, use the broadcast kernel (stays on GPU)
     let a_contig = ensure_contiguous(a);
     let b_contig = ensure_contiguous(b);
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
-        launch_compare_op(
+        launch_broadcast_compare_op(
             &client.context,
             &client.stream,
             client.device.index,
+            &client.device,
             op,
             dtype,
             a_contig.storage().ptr(),
             b_contig.storage().ptr(),
             out.storage().ptr(),
-            out.numel(),
+            a.shape(),
+            b.shape(),
+            &out_shape,
         )?;
     }
 
@@ -1128,8 +1188,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         x: &Tensor<CudaRuntime>,
         y: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        use crate::runtime::fallback::where_cond_fallback;
-
         // Validate that x and y have the same dtype
         let dtype = validate_binary_dtypes(x, y)?;
 
@@ -1165,9 +1223,39 @@ impl TensorOps<CudaRuntime> for CudaClient {
             return Ok(out);
         }
 
-        // For different shapes, fall back to CPU with broadcasting support
-        // (GPU→CPU→GPU transfer, but supports full NumPy-style broadcasting)
-        where_cond_fallback(cond, x, y, &self.device, "where_cond")
+        // For different shapes, use the broadcast kernel (stays on GPU)
+        // Compute broadcast shape for all three tensors
+        let xy_shape = compute_broadcast_shape(x, y)?;
+        let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape)
+            .ok_or_else(|| Error::BroadcastError {
+                lhs: cond.shape().to_vec(),
+                rhs: xy_shape.clone(),
+            })?;
+
+        let cond_contig = ensure_contiguous(cond);
+        let x_contig = ensure_contiguous(x);
+        let y_contig = ensure_contiguous(y);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
+
+        unsafe {
+            launch_where_broadcast_op(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                &self.device,
+                dtype,
+                cond_contig.storage().ptr(),
+                x_contig.storage().ptr(),
+                y_contig.storage().ptr(),
+                out.storage().ptr(),
+                cond.shape(),
+                x.shape(),
+                y.shape(),
+                &out_shape,
+            )?;
+        }
+
+        Ok(out)
     }
 
     // ===== Utility Operations =====
