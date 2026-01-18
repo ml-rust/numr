@@ -36,6 +36,7 @@
 #![warn(clippy::all)]
 #![allow(clippy::module_inception)]
 
+pub mod algorithm;
 pub mod autograd;
 pub mod dtype;
 pub mod error;

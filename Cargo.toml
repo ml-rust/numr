@@ -30,6 +30,10 @@ parking_lot = "0.12"
 # Optional: Parallelism
 rayon = { version = "1.11", optional = true }
 
+# Random number generation (required for rand/randn operations)
+rand = "0.9"
+rand_distr = "0.5"
+
 # Optional: Half-precision floats
 half = { version = "2.7", optional = true, features = ["bytemuck"] }
 

@@ -509,6 +509,114 @@ pub trait TensorOps<R: Runtime> {
     ///
     /// Tensor with same shape and dtype as x and y
     fn where_cond(&self, cond: &Tensor<R>, x: &Tensor<R>, y: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ===== Utility Operations =====
+
+    /// Clamp tensor values to a range: clamp(x, min, max) = min(max(x, min), max)
+    ///
+    /// Element-wise clamps each value to be within [min_val, max_val].
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `min_val` - Minimum value (inclusive)
+    /// * `max_val` - Maximum value (inclusive)
+    ///
+    /// # Returns
+    ///
+    /// Tensor with same shape and dtype as input, with values clamped to range
+    fn clamp(&self, a: &Tensor<R>, min_val: f64, max_val: f64) -> Result<Tensor<R>>;
+
+    /// Fill tensor with a constant value
+    ///
+    /// Creates a new tensor with the specified shape and dtype, filled with the given value.
+    ///
+    /// # Arguments
+    ///
+    /// * `shape` - Shape of the output tensor
+    /// * `value` - Value to fill the tensor with
+    /// * `dtype` - Data type of the output tensor
+    ///
+    /// # Returns
+    ///
+    /// New tensor filled with the constant value
+    fn fill(&self, shape: &[usize], value: f64, dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+
+    // ===== Statistical Operations =====
+
+    /// Variance along specified dimensions
+    ///
+    /// Computes the variance of elements along the specified dimensions.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dims` - Dimensions to reduce over
+    /// * `keepdim` - If true, reduced dimensions are kept with size 1
+    /// * `correction` - Degrees of freedom correction (0 for population, 1 for sample)
+    ///
+    /// # Returns
+    ///
+    /// Tensor containing variance values
+    fn var(
+        &self,
+        a: &Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<R>>;
+
+    /// Standard deviation along specified dimensions
+    ///
+    /// Computes the standard deviation (sqrt of variance) along the specified dimensions.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dims` - Dimensions to reduce over
+    /// * `keepdim` - If true, reduced dimensions are kept with size 1
+    /// * `correction` - Degrees of freedom correction (0 for population, 1 for sample)
+    ///
+    /// # Returns
+    ///
+    /// Tensor containing standard deviation values
+    fn std(
+        &self,
+        a: &Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<R>>;
+
+    // ===== Random Operations =====
+
+    /// Generate uniform random values in [0, 1)
+    ///
+    /// Creates a tensor filled with random values uniformly distributed in [0, 1).
+    ///
+    /// # Arguments
+    ///
+    /// * `shape` - Shape of the output tensor
+    /// * `dtype` - Data type of the output tensor (must be floating point)
+    ///
+    /// # Returns
+    ///
+    /// Tensor filled with uniform random values
+    fn rand(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+
+    /// Generate standard normal random values (mean=0, std=1)
+    ///
+    /// Creates a tensor filled with random values from standard normal distribution N(0, 1).
+    ///
+    /// # Arguments
+    ///
+    /// * `shape` - Shape of the output tensor
+    /// * `dtype` - Data type of the output tensor (must be floating point)
+    ///
+    /// # Returns
+    ///
+    /// Tensor filled with normally distributed random values
+    fn randn(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations
