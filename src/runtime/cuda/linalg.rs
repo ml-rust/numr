@@ -9,12 +9,12 @@
 use super::CudaRuntime;
 use super::client::CudaClient;
 use super::kernels;
-use crate::dtype::DType;
-use crate::error::{Error, Result};
-use crate::runtime::algorithm::linalg::{
+use crate::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
     validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
+use crate::dtype::DType;
+use crate::error::{Error, Result};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
 

@@ -1,8 +1,8 @@
 //! TensorOps, ScalarOps, and CompareOps implementations for CUDA runtime
 //!
-//! This module implements tensor operations for CUDA using:
-//! - Native CUDA kernels for element-wise, unary, scalar, reduction, and activation ops
-//! - cuBLAS for matrix multiplication (matmul)
+//! This module implements tensor operations for CUDA using native CUDA kernels:
+//! - Element-wise, unary, scalar, reduction, and activation ops
+//! - Native tiled matrix multiplication (shared memory optimization)
 //!
 //! Kernels are compiled from .cu files by build.rs and loaded at runtime.
 //!
@@ -16,7 +16,7 @@
 //! - Scalar ops (add_scalar, mul_scalar, etc.)
 //! - Reductions (sum, max, min) - single dimension
 //! - Activations (relu, sigmoid, softmax)
-//! - Matrix multiplication (via cuBLAS)
+//! - Matrix multiplication (native tiled GEMM with shared memory)
 //!
 //! ## CPU Fallback (Slow Path)
 //!
@@ -41,11 +41,12 @@
 
 use super::kernels::{
     AccumulationPrecision, launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_cast,
-    launch_compare_op, launch_gelu, launch_isinf_op, launch_isnan_op, launch_layer_norm,
-    launch_logical_and_op, launch_logical_not_op, launch_logical_or_op, launch_logical_xor_op,
-    launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64,
-    launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim, launch_unary_op,
-    launch_where_op,
+    launch_compare_op, launch_fill_with_f64, launch_gelu, launch_isinf_op, launch_isnan_op,
+    launch_layer_norm, launch_logical_and_op, launch_logical_not_op, launch_logical_or_op,
+    launch_logical_xor_op, launch_matmul_batched_kernel, launch_matmul_kernel, launch_rand,
+    launch_randn, launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32,
+    launch_scalar_op_f64, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
+    launch_unary_op, launch_where_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
@@ -57,12 +58,6 @@ use crate::ops::{
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
-use cudarc::cublas::Gemm;
-use cudarc::cublas::sys::{cublasOperation_t, cublasSgemmStridedBatched};
-
-#[cfg(feature = "f16")]
-use cudarc::cublas::sys::{cublasComputeType_t, cublasGemmEx, cudaDataType_t};
-
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -73,7 +68,7 @@ use cudarc::cublas::sys::{cublasComputeType_t, cublasGemmEx, cudaDataType_t};
 /// returns a clone (zero-copy, just increments refcount). Otherwise,
 /// creates a new contiguous copy of the data.
 ///
-/// This is required before passing tensors to cuBLAS or CUDA kernels
+/// This is required before passing tensors to CUDA kernels
 /// that expect contiguous memory layout.
 #[inline]
 fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
@@ -85,28 +80,22 @@ fn ensure_contiguous(tensor: &Tensor<CudaRuntime>) -> Tensor<CudaRuntime> {
 }
 
 // ============================================================================
-// cuBLAS GEMM Implementation
+// Native Tiled GEMM Implementation
 // ============================================================================
 
-/// Matrix multiplication using cuBLAS SGEMM for F32 tensors.
+/// Native matrix multiplication using tiled CUDA kernel.
 ///
-/// Uses column-major storage convention expected by cuBLAS, with appropriate
-/// transposition to handle row-major tensor layouts. Computes C = A @ B.
-///
-/// # Arguments
-/// * `m` - Number of rows in A (and C)
-/// * `k` - Number of columns in A / rows in B
-/// * `n` - Number of columns in B (and C)
-fn matmul_f32_cublas(
+/// Uses shared memory tiling for cache efficiency. This is the default
+/// implementation that works without any vendor dependencies.
+fn matmul_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
+    dtype: DType,
     m: usize,
     k: usize,
     n: usize,
 ) -> Result<Tensor<CudaRuntime>> {
-    use cudarc::cublas::GemmConfig;
-
     let a_contig = ensure_contiguous(a);
     let b_contig = ensure_contiguous(b);
 
@@ -115,75 +104,32 @@ fn matmul_f32_cublas(
         got: b.shape().to_vec(),
     })?;
 
-    let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::F32, &client.device);
-
-    let m = m as i32;
-    let k = k as i32;
-    let n = n as i32;
-
-    let transa = cublasOperation_t::CUBLAS_OP_N;
-    let transb = cublasOperation_t::CUBLAS_OP_N;
-
-    let cublas_m = n;
-    let cublas_n = m;
-    let cublas_k = k;
-
-    let lda = n;
-    let ldb = k;
-    let ldc = n;
-
-    let cfg = GemmConfig {
-        transa,
-        transb,
-        m: cublas_m,
-        n: cublas_n,
-        k: cublas_k,
-        alpha: 1.0f32,
-        lda,
-        ldb,
-        beta: 0.0f32,
-        ldc,
-    };
-
-    let a_ptr = a_contig.storage().ptr();
-    let b_ptr = b_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
-    let numel_a = a_contig.numel();
-    let numel_b = b_contig.numel();
-    let numel_out = out.numel();
-
-    let b_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(b_ptr, numel_b) };
-    let a_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(a_ptr, numel_a) };
-    let mut out_slice = unsafe { client.stream.upgrade_device_ptr::<f32>(out_ptr, numel_out) };
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
-        client
-            .cublas
-            .gemm(cfg, &b_slice, &a_slice, &mut out_slice)
-            .map_err(|e| Error::Internal(format!("cuBLAS GEMM failed: {:?}", e)))?;
+        launch_matmul_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            m,
+            n,
+            k,
+        )?;
     }
-
-    std::mem::forget(a_slice);
-    std::mem::forget(b_slice);
-    std::mem::forget(out_slice);
 
     Ok(out)
 }
 
-/// Batched matrix multiplication using cuBLAS strided batched GEMM for F32.
-///
-/// Performs `batch` independent matrix multiplications: C[i] = A[i] @ B[i].
-/// Uses cublasSgemmStridedBatched for efficient batched execution.
-///
-/// # Arguments
-/// * `batch` - Number of matrix multiplications to perform
-/// * `m` - Number of rows in each A matrix (and C)
-/// * `k` - Number of columns in each A / rows in each B
-/// * `n` - Number of columns in each B (and C)
-fn matmul_batched_f32_cublas(
+/// Native batched matrix multiplication using tiled CUDA kernel.
+fn matmul_batched_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
+    dtype: DType,
     batch: usize,
     m: usize,
     k: usize,
@@ -197,179 +143,22 @@ fn matmul_batched_f32_cublas(
         got: b.shape().to_vec(),
     })?;
 
-    let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::F32, &client.device);
-
-    let batch = batch as i32;
-    let m_i32 = m as i32;
-    let k_i32 = k as i32;
-    let n_i32 = n as i32;
-
-    let transa = cublasOperation_t::CUBLAS_OP_N;
-    let transb = cublasOperation_t::CUBLAS_OP_N;
-
-    let cublas_m = n_i32;
-    let cublas_n = m_i32;
-    let cublas_k = k_i32;
-
-    let lda = n_i32;
-    let ldb = k_i32;
-    let ldc = n_i32;
-
-    let stride_a = (m * k) as i64;
-    let stride_b = (n * k) as i64;
-    let stride_c = (m * n) as i64;
-
-    let alpha: f32 = 1.0;
-    let beta: f32 = 0.0;
-
-    let a_ptr = a_contig.storage().ptr();
-    let b_ptr = b_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
-
-    unsafe {
-        let handle = *client.cublas.handle();
-
-        let status = cublasSgemmStridedBatched(
-            handle,
-            transa,
-            transb,
-            cublas_m,
-            cublas_n,
-            cublas_k,
-            &alpha,
-            b_ptr as *const f32,
-            lda,
-            stride_b,
-            a_ptr as *const f32,
-            ldb,
-            stride_a,
-            &beta,
-            out_ptr as *mut f32,
-            ldc,
-            stride_c,
-            batch,
-        );
-
-        if status != cudarc::cublas::sys::cublasStatus_t::CUBLAS_STATUS_SUCCESS {
-            return Err(Error::Internal(format!(
-                "cuBLAS strided batched GEMM failed: {:?}",
-                status
-            )));
-        }
-    }
-
-    Ok(out)
-}
-
-/// Matrix multiplication using cuBLAS HGEMM for half-precision tensors.
-///
-/// Supports both F16 (requires SM 5.3+) and BF16 (requires SM 8.0+).
-/// Falls back to F32 compute internally on older architectures if needed.
-///
-/// # Arguments
-/// * `m` - Number of rows in A (and C)
-/// * `k` - Number of columns in A / rows in B
-/// * `n` - Number of columns in B (and C)
-/// * `dtype` - Either F16 or BF16
-#[cfg(feature = "f16")]
-fn matmul_half_cublas(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    b: &Tensor<CudaRuntime>,
-    m: usize,
-    k: usize,
-    n: usize,
-    dtype: DType,
-) -> Result<Tensor<CudaRuntime>> {
-    if let Ok((major, minor)) = client.device.compute_capability() {
-        let cc = major * 10 + minor;
-        match dtype {
-            DType::F16 if cc < 53 => {
-                return Err(Error::Internal(format!(
-                    "F16 matmul requires Compute Capability >= 5.3, got {}.{}",
-                    major, minor
-                )));
-            }
-            DType::BF16 if cc < 80 => {
-                return Err(Error::Internal(format!(
-                    "BF16 matmul requires Compute Capability >= 8.0, got {}.{}",
-                    major, minor
-                )));
-            }
-            _ => {}
-        }
-    }
-
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-
-    let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
-        expected: a.shape().to_vec(),
-        got: b.shape().to_vec(),
-    })?;
-
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let m = m as i32;
-    let k = k as i32;
-    let n = n as i32;
-
-    let transa = cublasOperation_t::CUBLAS_OP_N;
-    let transb = cublasOperation_t::CUBLAS_OP_N;
-
-    let cublas_m = n;
-    let cublas_n = m;
-    let cublas_k = k;
-
-    let lda = n;
-    let ldb = k;
-    let ldc = n;
-
-    let cuda_dtype = match dtype {
-        DType::BF16 => cudaDataType_t::CUDA_R_16BF,
-        DType::F16 => cudaDataType_t::CUDA_R_16F,
-        _ => unreachable!(),
-    };
-
-    let compute_type = cublasComputeType_t::CUBLAS_COMPUTE_32F;
-    let alpha: f32 = 1.0;
-    let beta: f32 = 0.0;
-
-    let a_ptr = a_contig.storage().ptr();
-    let b_ptr = b_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
-
     unsafe {
-        let handle = *client.cublas.handle();
-
-        let status = cublasGemmEx(
-            handle,
-            transa,
-            transb,
-            cublas_m,
-            cublas_n,
-            cublas_k,
-            &alpha as *const f32 as *const std::ffi::c_void,
-            b_ptr as *const std::ffi::c_void,
-            cuda_dtype,
-            lda,
-            a_ptr as *const std::ffi::c_void,
-            cuda_dtype,
-            ldb,
-            &beta as *const f32 as *const std::ffi::c_void,
-            out_ptr as *mut std::ffi::c_void,
-            cuda_dtype,
-            ldc,
-            compute_type,
-            cudarc::cublas::sys::cublasGemmAlgo_t::CUBLAS_GEMM_DEFAULT,
-        );
-
-        if status != cudarc::cublas::sys::cublasStatus_t::CUBLAS_STATUS_SUCCESS {
-            return Err(Error::Internal(format!(
-                "cuBLAS GemmEx ({:?}) failed: {:?}",
-                dtype, status
-            )));
-        }
+        launch_matmul_batched_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            batch,
+            m,
+            n,
+            k,
+        )?;
     }
 
     Ok(out)
@@ -818,7 +607,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
-    // ===== Matrix Operations (cuBLAS) =====
+    // ===== Matrix Operations (Native CUDA Kernels) =====
 
     fn matmul(
         &self,
@@ -860,16 +649,23 @@ impl TensorOps<CudaRuntime> for CudaClient {
             .product();
         let batch_size = batch_size.max(1);
 
+        // Native tiled CUDA kernel
         match dtype {
-            DType::F32 => {
+            DType::F32 | DType::F64 => {
                 if batch_size > 1 {
-                    matmul_batched_f32_cublas(self, a, b, batch_size, m, k, n)
+                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
                 } else {
-                    matmul_f32_cublas(self, a, b, m, k, n)
+                    matmul_native(self, a, b, dtype, m, k, n)
                 }
             }
             #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => matmul_half_cublas(self, a, b, m, k, n, dtype),
+            DType::F16 | DType::BF16 => {
+                if batch_size > 1 {
+                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
+                } else {
+                    matmul_native(self, a, b, dtype, m, k, n)
+                }
+            }
             _ => matmul_fallback(a, b, &out_shape, &self.device, "matmul"),
         }
     }
@@ -902,8 +698,21 @@ impl TensorOps<CudaRuntime> for CudaClient {
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
         // Mean = sum / count
-        let sum_result = self.sum(a, dims, keepdim)?;
-        let count: usize = dims.iter().map(|&d| a.shape()[d]).product();
+        // When dims is empty, reduce over all dimensions
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| a.shape()[d]).product()
+        };
+
+        // For empty dims, we need to reduce all dimensions
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..a.shape().len()).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        let sum_result = self.sum(a, &actual_dims, keepdim)?;
         self.div_scalar(&sum_result, count as f64)
     }
 
@@ -1360,6 +1169,213 @@ impl TensorOps<CudaRuntime> for CudaClient {
         // (GPU→CPU→GPU transfer, but supports full NumPy-style broadcasting)
         where_cond_fallback(cond, x, y, &self.device, "where_cond")
     }
+
+    // ===== Utility Operations =====
+
+    fn clamp(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        min_val: f64,
+        max_val: f64,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Use native CUDA implementation via composition of maximum and minimum
+        // clamp(x, min, max) = min(max(x, min), max)
+        // This approach uses existing optimized kernels
+
+        // Create scalar tensors for min and max
+        let min_scalar = self.fill(&[], min_val, a.dtype())?;
+        let max_scalar = self.fill(&[], max_val, a.dtype())?;
+
+        // First: max(x, min_val)
+        let clamped_low = self.maximum(a, &min_scalar)?;
+
+        // Then: min(result, max_val)
+        self.minimum(&clamped_low, &max_scalar)
+    }
+
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            // Empty tensor - just allocate
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        // Allocate output tensor
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        // Launch native CUDA fill kernel
+        unsafe {
+            launch_fill_with_f64(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                value,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    // ===== Statistical Operations =====
+
+    fn var(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Variance implementation using existing ops
+        // var(x) = mean((x - mean(x))^2) * N / (N - correction)
+
+        let shape = a.shape();
+
+        // When dims is empty, reduce over all dimensions
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..shape.len()).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        // Compute count of elements being reduced
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| shape[d]).product()
+        };
+
+        // Compute mean (mean already handles empty dims internally)
+        let mean_val = self.mean(a, dims, true)?;
+
+        // Compute (x - mean)
+        let diff = self.sub(a, &mean_val)?;
+
+        // Compute (x - mean)^2
+        let diff_squared = self.square(&diff)?;
+
+        // Compute sum of squared differences over all dims when dims is empty
+        let sum_sq = self.sum(&diff_squared, &actual_dims, keepdim)?;
+
+        // Divide by (N - correction)
+        let divisor = (count.saturating_sub(correction)).max(1) as f64;
+        self.div_scalar(&sum_sq, divisor)
+    }
+
+    fn std(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Standard deviation is sqrt of variance
+        let variance = self.var(a, dims, keepdim, correction)?;
+        self.sqrt(&variance)
+    }
+
+    // ===== Random Operations =====
+
+    fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // Only F32 and F64 have native CUDA kernels
+        if !matches!(dtype, DType::F32 | DType::F64) {
+            return Err(Error::UnsupportedDType { dtype, op: "rand" });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            // Empty tensor - just allocate
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        // Allocate output tensor
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        // Generate seed using atomic counter + time for better entropy
+        let seed = generate_random_seed();
+
+        // Launch native CUDA rand kernel
+        unsafe {
+            launch_rand(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // Only F32 and F64 have native CUDA kernels
+        if !matches!(dtype, DType::F32 | DType::F64) {
+            return Err(Error::UnsupportedDType { dtype, op: "randn" });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            // Empty tensor - just allocate
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        // Allocate output tensor
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        // Generate seed using atomic counter + time for better entropy
+        let seed = generate_random_seed();
+
+        // Launch native CUDA randn kernel (uses Box-Muller transform)
+        unsafe {
+            launch_randn(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// Random Seed Generation
+// ============================================================================
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Global atomic counter for generating unique seeds
+static SEED_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a random seed combining atomic counter and system time.
+///
+/// This provides good entropy for parallel random number generation:
+/// - Atomic counter ensures uniqueness across calls
+/// - System time adds unpredictability
+#[inline]
+fn generate_random_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let time_component = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+
+    // Combine counter and time using splitmix64-style mixing
+    let mut z = counter.wrapping_add(time_component);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    z ^ (z >> 31)
 }
 
 // ============================================================================

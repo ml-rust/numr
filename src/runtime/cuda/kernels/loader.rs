@@ -236,6 +236,8 @@ pub mod kernel_names {
     pub const DSMM_MODULE: &str = "dsmm";
     /// Linear algebra operations (LU, Cholesky, QR, triangular solve, etc.)
     pub const LINALG_MODULE: &str = "linalg";
+    /// Matrix multiplication operations (native tiled GEMM)
+    pub const MATMUL_MODULE: &str = "matmul";
 
     /// Generate kernel name for reduction operations.
     #[inline]
@@ -401,4 +403,282 @@ pub unsafe fn launch_binary_kernel(
 
         Ok(())
     }
+}
+
+// ============================================================================
+// Matrix Multiplication Launch Helpers
+// ============================================================================
+
+use crate::algorithm::TileConfig;
+
+/// Calculate launch configuration for register-tiled matrix multiplication.
+///
+/// Uses configurable tile sizes - no hardcoded values.
+/// Grid: ceil(N/block_n) × ceil(M/block_m)
+/// Block: (block_n/thread_n) × (block_m/thread_m) threads
+#[inline]
+pub fn matmul_launch_config(
+    m: usize,
+    n: usize,
+    cfg: &TileConfig,
+    elem_size: usize,
+) -> LaunchConfig {
+    let grid_x = ((n as u32) + cfg.block_n as u32 - 1) / cfg.block_n as u32;
+    let grid_y = ((m as u32) + cfg.block_m as u32 - 1) / cfg.block_m as u32;
+    let threads_x = cfg.block_n / cfg.thread_n;
+    let threads_y = cfg.block_m / cfg.thread_m;
+
+    // Dynamic shared memory: As[block_m][block_k] + Bs[block_k][block_n]
+    let shared_mem_bytes = (cfg.block_m * cfg.block_k + cfg.block_k * cfg.block_n) * elem_size;
+
+    LaunchConfig {
+        grid_dim: (grid_x, grid_y, 1),
+        block_dim: (threads_x as u32, threads_y as u32, 1),
+        shared_mem_bytes: shared_mem_bytes as u32,
+    }
+}
+
+/// Calculate launch configuration for batched register-tiled matrix multiplication.
+///
+/// Uses 3D grid: (tiles_x, tiles_y, batch)
+#[inline]
+pub fn matmul_batched_launch_config(
+    batch: usize,
+    m: usize,
+    n: usize,
+    cfg: &TileConfig,
+    elem_size: usize,
+) -> LaunchConfig {
+    let grid_x = ((n as u32) + cfg.block_n as u32 - 1) / cfg.block_n as u32;
+    let grid_y = ((m as u32) + cfg.block_m as u32 - 1) / cfg.block_m as u32;
+    let grid_z = batch as u32;
+    let threads_x = cfg.block_n / cfg.thread_n;
+    let threads_y = cfg.block_m / cfg.thread_m;
+
+    let shared_mem_bytes = (cfg.block_m * cfg.block_k + cfg.block_k * cfg.block_n) * elem_size;
+
+    LaunchConfig {
+        grid_dim: (grid_x, grid_y, grid_z),
+        block_dim: (threads_x as u32, threads_y as u32, 1),
+        shared_mem_bytes: shared_mem_bytes as u32,
+    }
+}
+
+/// Get default tile configuration for a dtype.
+///
+/// These are reasonable defaults; can be overridden via autotuning.
+#[inline]
+pub fn default_tile_config(dtype: DType) -> TileConfig {
+    match dtype {
+        // F64 uses smaller tiles due to larger element size
+        DType::F64 => TileConfig {
+            block_m: 64,
+            block_n: 64,
+            block_k: 8,
+            thread_m: 4,
+            thread_n: 4,
+        },
+        // F32/F16/BF16 use larger tiles
+        _ => TileConfig::CUDA,
+    }
+}
+
+/// Launch native tiled matmul kernel: C[M,N] = A[M,K] @ B[K,N]
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes:
+/// - A: M * K elements
+/// - B: K * N elements
+/// - C: M * N elements
+pub unsafe fn launch_matmul_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    unsafe {
+        launch_matmul_kernel_with_config(
+            context,
+            stream,
+            device_index,
+            dtype,
+            a_ptr,
+            b_ptr,
+            c_ptr,
+            m,
+            n,
+            k,
+            &default_tile_config(dtype),
+        )
+    }
+}
+
+/// Launch native tiled matmul kernel with custom tile configuration.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub unsafe fn launch_matmul_kernel_with_config(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+    tile_cfg: &TileConfig,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
+    let func_name = kernel_name("matmul", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let elem_size = dtype.size_in_bytes();
+    // For F16/BF16, shared memory uses F32 for accumulation
+    let shared_elem_size = match dtype {
+        DType::F16 | DType::BF16 => 4, // F32 accumulator
+        _ => elem_size,
+    };
+
+    let cfg = matmul_launch_config(m, n, tile_cfg, shared_elem_size);
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+    let block_m = tile_cfg.block_m as u32;
+    let block_n = tile_cfg.block_n as u32;
+    let block_k = tile_cfg.block_k as u32;
+    let thread_m = tile_cfg.thread_m as u32;
+    let thread_n = tile_cfg.thread_n as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.arg(&block_m);
+        builder.arg(&block_n);
+        builder.arg(&block_k);
+        builder.arg(&thread_m);
+        builder.arg(&thread_n);
+
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA matmul kernel launch failed: {:?}", e)))?;
+    }
+
+    Ok(())
+}
+
+/// Launch native batched tiled matmul kernel: C[batch,M,N] = A[batch,M,K] @ B[batch,K,N]
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes:
+/// - A: batch * M * K elements
+/// - B: batch * K * N elements
+/// - C: batch * M * N elements
+pub unsafe fn launch_matmul_batched_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    unsafe {
+        launch_matmul_batched_kernel_with_config(
+            context,
+            stream,
+            device_index,
+            dtype,
+            a_ptr,
+            b_ptr,
+            c_ptr,
+            batch,
+            m,
+            n,
+            k,
+            &default_tile_config(dtype),
+        )
+    }
+}
+
+/// Launch native batched tiled matmul kernel with custom tile configuration.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub unsafe fn launch_matmul_batched_kernel_with_config(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+    tile_cfg: &TileConfig,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
+    let func_name = kernel_name("matmul_batched", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let elem_size = dtype.size_in_bytes();
+    let shared_elem_size = match dtype {
+        DType::F16 | DType::BF16 => 4,
+        _ => elem_size,
+    };
+
+    let cfg = matmul_batched_launch_config(batch, m, n, tile_cfg, shared_elem_size);
+    let batch_u32 = batch as u32;
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+    let block_m = tile_cfg.block_m as u32;
+    let block_n = tile_cfg.block_n as u32;
+    let block_k = tile_cfg.block_k as u32;
+    let thread_m = tile_cfg.thread_m as u32;
+    let thread_n = tile_cfg.thread_n as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&batch_u32);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.arg(&block_m);
+        builder.arg(&block_n);
+        builder.arg(&block_k);
+        builder.arg(&thread_m);
+        builder.arg(&thread_n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA batched matmul kernel launch failed: {:?}", e))
+        })?;
+    }
+
+    Ok(())
 }

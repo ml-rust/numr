@@ -48,6 +48,7 @@ fn compile_cuda_kernels() {
         "ternary.cu",
         "linalg.cu",
         "strided_copy.cu",
+        "matmul.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

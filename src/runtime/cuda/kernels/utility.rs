@@ -1,12 +1,9 @@
 //! Utility CUDA kernel launchers
 //!
-//! Provides launchers for utility operations like fill (initialize tensor with constant value).
-//!
-//! Note: These launchers are prepared for future optimization of tensor creation methods
-//! (zeros, ones, full_scalar) which currently use CPU-to-GPU copy. Once wired up, these
-//! will allow direct GPU fill operations for better performance.
-
-#![allow(dead_code)] // Prepared for future tensor creation optimization
+//! Provides launchers for utility operations:
+//! - `fill` - Initialize tensor with constant value
+//! - `rand` - Generate uniform random values in [0, 1)
+//! - `randn` - Generate normal random values (mean=0, std=1)
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -190,4 +187,118 @@ pub unsafe fn launch_fill_with_f64(
             numel,
         )
     }
+}
+
+// ============================================================================
+// Random Number Generation Kernels
+// ============================================================================
+
+/// Launch a uniform random kernel: generates values in [0, 1).
+///
+/// Uses xorshift128+ PRNG with per-element seeding based on global thread index.
+/// This ensures reproducibility for a given seed.
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `numel` elements
+/// - Only F32 and F64 dtypes are supported
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type (must be F32 or F64)
+/// * `seed` - Random seed for reproducibility
+/// * `out_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_rand(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    seed: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("rand", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&out_ptr);
+        builder.arg(&seed);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA rand kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Launch a normal random kernel: generates values from N(0, 1).
+///
+/// Uses Box-Muller transform with xorshift128+ PRNG.
+/// Each thread generates a pair of normal random values for efficiency.
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `numel` elements
+/// - Only F32 and F64 dtypes are supported
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type (must be F32 or F64)
+/// * `seed` - Random seed for reproducibility
+/// * `out_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_randn(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    seed: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("randn", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    // Box-Muller processes pairs, so we launch half the threads (rounded up)
+    let thread_count = (numel + 1) / 2;
+    let grid = elementwise_launch_config(thread_count);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&out_ptr);
+        builder.arg(&seed);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA randn kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
 }
