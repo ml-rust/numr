@@ -210,19 +210,27 @@ pub mod kernel_names {
     pub const ACTIVATION_MODULE: &str = "activation";
     /// Normalization operations (rms_norm, layer_norm)
     pub const NORM_MODULE: &str = "norm";
+    /// Type casting operations (cast between dtypes)
+    pub const CAST_MODULE: &str = "cast";
     /// Utility operations (fill)
-    /// Note: Currently unused; will be used when tensor creation (zeros/ones/full) is optimized
-    #[allow(dead_code)]
     pub const UTILITY_MODULE: &str = "utility";
     /// Ternary operations (where)
-    #[allow(dead_code)]
     pub const TERNARY_MODULE: &str = "ternary";
+    /// Prefix sum operations (exclusive scan)
+    #[cfg(feature = "sparse")]
+    pub const SCAN_MODULE: &str = "scan";
     /// Sparse matrix operations (SpMV, SpMM)
     #[cfg(feature = "sparse")]
     pub const SPARSE_SPMV_MODULE: &str = "sparse_spmv";
     /// Sparse matrix element-wise operations (add, sub, mul)
     #[cfg(feature = "sparse")]
     pub const SPARSE_MERGE_MODULE: &str = "sparse_merge";
+    /// Sparse format conversion operations (COO↔CSR↔CSC)
+    #[cfg(feature = "sparse")]
+    pub const SPARSE_CONVERT_MODULE: &str = "sparse_convert";
+    /// COO sparse element-wise operations with CUB sort
+    #[cfg(feature = "sparse")]
+    pub const SPARSE_COO_MODULE: &str = "sparse_coo";
 
     /// Generate kernel name for reduction operations.
     #[inline]

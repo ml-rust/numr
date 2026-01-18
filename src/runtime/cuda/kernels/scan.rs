@@ -26,13 +26,10 @@ use crate::tensor::Tensor;
 use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
 use std::sync::Arc;
 
-use super::loader::{get_kernel_function, get_or_load_module, launch_config};
+use super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 
 /// Scan-specific block size (must match SCAN_BLOCK_SIZE in scan.cu)
 const SCAN_BLOCK_SIZE: u32 = 512;
-
-/// Module name for scan kernels
-const SCAN_MODULE: &str = "scan";
 
 // ============================================================================
 // I32 Exclusive Scan
@@ -125,7 +122,7 @@ unsafe fn launch_scan_single_block_i32(
     output_ptr: u64,
     n: u32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SCAN_MODULE)?;
+    let module = get_or_load_module(context, device_index, kernel_names::SCAN_MODULE)?;
     let func = get_kernel_function(&module, "exclusive_scan_i32")?;
 
     // Single block with SCAN_BLOCK_SIZE threads
@@ -158,7 +155,7 @@ unsafe fn launch_scan_multi_block_i32(
     output_ptr: u64,
     n: u32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SCAN_MODULE)?;
+    let module = get_or_load_module(context, device_index, kernel_names::SCAN_MODULE)?;
 
     // Calculate number of blocks needed
     let num_blocks = (n + SCAN_BLOCK_SIZE - 1) / SCAN_BLOCK_SIZE;
@@ -332,7 +329,7 @@ unsafe fn launch_scan_single_block_i64(
     output_ptr: u64,
     n: u32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SCAN_MODULE)?;
+    let module = get_or_load_module(context, device_index, kernel_names::SCAN_MODULE)?;
     let func = get_kernel_function(&module, "exclusive_scan_i64")?;
 
     // Single block with SCAN_BLOCK_SIZE threads
@@ -365,7 +362,7 @@ unsafe fn launch_scan_multi_block_i64(
     output_ptr: u64,
     n: u32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SCAN_MODULE)?;
+    let module = get_or_load_module(context, device_index, kernel_names::SCAN_MODULE)?;
 
     // Calculate number of blocks needed
     let num_blocks = (n + SCAN_BLOCK_SIZE - 1) / SCAN_BLOCK_SIZE;

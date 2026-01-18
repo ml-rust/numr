@@ -8,13 +8,10 @@ use std::sync::Arc;
 
 use super::loader::{
     BLOCK_SIZE, dtype_suffix, elementwise_launch_config, get_kernel_function, get_or_load_module,
-    launch_config,
+    kernel_names, launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-
-/// Cast module name
-pub const CAST_MODULE: &str = "cast";
 
 /// Launch a cast operation kernel.
 ///
@@ -100,7 +97,7 @@ pub unsafe fn launch_cast(
     }
 
     unsafe {
-        let module = get_or_load_module(context, device_index, CAST_MODULE)?;
+        let module = get_or_load_module(context, device_index, kernel_names::CAST_MODULE)?;
         let func_name = format!(
             "cast_{}_{}",
             dtype_suffix(src_dtype),
