@@ -363,6 +363,100 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     ) -> Result<Tensor<WgpuRuntime>> {
         crate::runtime::fallback::where_cond_fallback(cond, x, y, &self.device_id, "where_cond")
     }
+
+    // --- Utility Operations ---
+
+    fn clamp(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        min_val: f64,
+        max_val: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        activation_fallback(a, &self.device_id, "clamp", |client, a_cpu| {
+            client.clamp(a_cpu, min_val, max_val)
+        })
+    }
+
+    fn fill(
+        &self,
+        shape: &[usize],
+        value: f64,
+        dtype: crate::dtype::DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Implement fill using zeros + add_scalar (no CPU fallback)
+        let zeros = self.zeros(shape, dtype)?;
+        self.add_scalar(&zeros, value)
+    }
+
+    // --- Statistical Operations ---
+
+    fn var(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Native implementation using existing GPU operations
+        // var(x) = sum((x - mean(x))^2) / (N - correction)
+
+        let shape = a.shape();
+
+        // Compute count of elements being reduced
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| shape[d]).product()
+        };
+
+        // Compute mean(x) with keepdim=true for broadcasting
+        let mean_val = self.mean(a, dims, true)?;
+
+        // Compute (x - mean)
+        let diff = self.sub(a, &mean_val)?;
+
+        // Compute (x - mean)^2
+        let diff_squared = self.square(&diff)?;
+
+        // Compute sum of squared differences
+        let sum_sq = self.sum(&diff_squared, dims, keepdim)?;
+
+        // Divide by (N - correction)
+        let divisor = (count.saturating_sub(correction)).max(1) as f64;
+        self.div_scalar(&sum_sq, divisor)
+    }
+
+    fn std(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Native implementation: std = sqrt(var)
+        let variance = self.var(a, dims, keepdim, correction)?;
+        self.sqrt(&variance)
+    }
+
+    // --- Random Operations ---
+
+    fn rand(&self, _shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<WgpuRuntime>> {
+        // Native WGSL PRNG not yet implemented
+        // Returning Unsupported is more honest than silent CPU fallback
+        Err(Error::UnsupportedDType {
+            dtype,
+            op: "rand (WebGPU native PRNG not implemented)",
+        })
+    }
+
+    fn randn(&self, _shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<WgpuRuntime>> {
+        // Native WGSL PRNG not yet implemented
+        // Returning Unsupported is more honest than silent CPU fallback
+        Err(Error::UnsupportedDType {
+            dtype,
+            op: "randn (WebGPU native PRNG not implemented)",
+        })
+    }
 }
 
 // ============================================================================

@@ -1755,6 +1755,133 @@ pub unsafe fn logical_not_kernel(a: *const u8, out: *mut u8, len: usize) {
     }
 }
 
+// ============================================================================
+// Clamp Operation
+// ============================================================================
+
+/// Clamp values to a range: out[i] = min(max(a[i], min_val), max_val)
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn clamp_kernel<T: Element>(
+    a: *const T,
+    out: *mut T,
+    len: usize,
+    min_val: f64,
+    max_val: f64,
+) {
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for i in 0..len {
+        let val = a_slice[i].to_f64();
+        let clamped = if val < min_val {
+            min_val
+        } else if val > max_val {
+            max_val
+        } else {
+            val
+        };
+        out_slice[i] = T::from_f64(clamped);
+    }
+}
+
+// ============================================================================
+// Variance and Standard Deviation
+// ============================================================================
+
+/// Compute variance along a dimension
+///
+/// variance = sum((x - mean)^2) / (N - correction)
+///
+/// # Arguments
+/// * `a` - Input data pointer
+/// * `out` - Output pointer (for variance values)
+/// * `outer_size` - Product of dimensions before the reduce dimension
+/// * `reduce_size` - Size of the dimension being reduced
+/// * `inner_size` - Product of dimensions after the reduce dimension
+/// * `correction` - Degrees of freedom correction (0 for population, 1 for sample)
+///
+/// # Safety
+/// - `a` must point to `outer_size * reduce_size * inner_size` elements
+/// - `out` must point to `outer_size * inner_size` elements
+#[inline]
+pub unsafe fn variance_kernel<T: Element>(
+    a: *const T,
+    out: *mut T,
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+    correction: usize,
+) {
+    let total_size = reduce_size;
+    let divisor = (total_size.saturating_sub(correction)).max(1) as f64;
+
+    for outer in 0..outer_size {
+        for inner in 0..inner_size {
+            // First pass: compute mean
+            let mut sum = 0.0f64;
+            for r in 0..reduce_size {
+                let idx = outer * reduce_size * inner_size + r * inner_size + inner;
+                sum += (*a.add(idx)).to_f64();
+            }
+            let mean = sum / (reduce_size as f64);
+
+            // Second pass: compute variance
+            let mut var_sum = 0.0f64;
+            for r in 0..reduce_size {
+                let idx = outer * reduce_size * inner_size + r * inner_size + inner;
+                let diff = (*a.add(idx)).to_f64() - mean;
+                var_sum += diff * diff;
+            }
+
+            let out_idx = outer * inner_size + inner;
+            *out.add(out_idx) = T::from_f64(var_sum / divisor);
+        }
+    }
+}
+
+// ============================================================================
+// Random Number Generation
+// ============================================================================
+
+/// Fill output with uniform random values in [0, 1)
+///
+/// # Safety
+/// - `out` must be a valid pointer to `len` elements
+#[inline]
+pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
+    use rand::Rng;
+    let mut rng = rand::rng();
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for elem in out_slice.iter_mut() {
+        let val: f64 = rng.random();
+        *elem = T::from_f64(val);
+    }
+}
+
+/// Fill output with standard normal random values (mean=0, std=1)
+///
+/// Uses the Box-Muller transform for generating normally distributed values.
+///
+/// # Safety
+/// - `out` must be a valid pointer to `len` elements
+#[inline]
+pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
+    use rand_distr::{Distribution, StandardNormal};
+
+    let mut rng = rand::rng();
+    let normal = StandardNormal;
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for elem in out_slice.iter_mut() {
+        let val: f64 = normal.sample(&mut rng);
+        *elem = T::from_f64(val);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
