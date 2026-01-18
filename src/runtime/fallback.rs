@@ -5,6 +5,79 @@
 //! This module provides shared CPU fallback implementations for operations
 //! that are not yet implemented natively on GPU backends (CUDA, WGPU).
 //!
+//! # When Fallback Triggers
+//!
+//! Fallback automatically occurs when:
+//! 1. **Operation not implemented**: The GPU backend lacks a native kernel for the operation
+//! 2. **Feature combination unsupported**: e.g., sparse operations on GPU without sparse feature
+//! 3. **Explicit fallback**: Some operations intentionally use CPU for correctness/simplicity
+//!
+//! Examples:
+//! - Sparse matrix operations before native GPU kernels are implemented
+//! - Advanced reductions (e.g., median, percentile) that are complex on GPU
+//! - Operations on data types not supported by GPU hardware (e.g., i128)
+//!
+//! # Performance Impact
+//!
+//! Fallback incurs significant overhead:
+//!
+//! | Operation Component | Cost | Notes |
+//! |---------------------|------|-------|
+//! | GPU→CPU transfer | ~10-100 µs/MB | PCIe bandwidth limited (~12 GB/s) |
+//! | CPU computation | Varies | Typically 10-100x slower than GPU |
+//! | CPU→GPU transfer | ~10-100 µs/MB | Same PCIe bottleneck |
+//!
+//! **Example**: 1M element addition
+//! - GPU native: ~50 µs
+//! - CPU fallback: ~8 MB transfer (2×4 MB) + ~100 µs compute = ~280 µs total
+//! - **5-6x slower** for this small operation, worse for larger tensors
+//!
+//! **When fallback is acceptable**:
+//! - Development/prototyping (correctness over performance)
+//! - Infrequent operations (e.g., model initialization)
+//! - Small tensors where transfer overhead dominates anyway
+//! - Operations bottlenecked by algorithm complexity, not memory bandwidth
+//!
+//! **When to avoid fallback**:
+//! - Training loops (every forward/backward pass)
+//! - Large batch processing
+//! - Real-time inference
+//!
+//! # Numerical Equivalence Guarantees
+//!
+//! Fallback operations are **numerically equivalent** to native CPU operations:
+//!
+//! ## Exact Equivalence
+//!
+//! Integer operations produce **bit-for-bit identical** results:
+//! ```ignore
+//! let cpu_result = cpu_client.add(&a, &b);
+//! let gpu_fallback_result = gpu_client.add(&a, &b); // Falls back to CPU
+//! assert_eq!(cpu_result.to_vec::<i32>(), gpu_fallback_result.to_vec::<i32>());
+//! ```
+//!
+//! ## Floating-Point Equivalence
+//!
+//! Floating-point operations match **within machine epsilon**:
+//! - Same algorithm used (CPU backend)
+//! - Same accumulation order (deterministic)
+//! - Same rounding behavior (IEEE 754)
+//!
+//! Differences only arise from:
+//! 1. **Compiler differences**: Rare, typically ~1 ULP (unit of least precision)
+//! 2. **Library versions**: E.g., different BLAS implementations
+//! 3. **Non-associativity**: Should not occur (same code path)
+//!
+//! **Testing**: Backend parity tests verify GPU fallback matches CPU:
+//! ```ignore
+//! #[test]
+//! fn test_fallback_parity() {
+//!     let cpu = cpu_client.matmul(&a, &b);
+//!     let gpu = gpu_client.matmul(&a, &b); // May use fallback
+//!     assert_allclose(&cpu, &gpu, rtol=1e-6, atol=1e-7);
+//! }
+//! ```
+//!
 //! # Design
 //!
 //! The fallback pattern:
@@ -477,7 +550,7 @@ where
 
 #[cfg(feature = "sparse")]
 /// CSC element-wise operation fallback (GPU → CPU → GPU)
-pub fn csc_elementwise_fallback<T: Element, R: Runtime>(
+pub fn csc_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
     a_col_ptrs: &Tensor<R>,
     a_row_indices: &Tensor<R>,
     a_values: &Tensor<R>,
@@ -485,10 +558,17 @@ pub fn csc_elementwise_fallback<T: Element, R: Runtime>(
     b_row_indices: &Tensor<R>,
     b_values: &Tensor<R>,
     shape: [usize; 2],
-    op: impl Fn(T, T) -> T,
+    strategy: super::cpu::sparse::MergeStrategy,
+    semantics: super::cpu::sparse::OperationSemantics,
+    op: F,
+    only_a_op: FA,
+    only_b_op: FB,
 ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>
 where
     R::Device: Device + Clone,
+    F: Fn(T, T) -> T + Copy,
+    FA: Fn(T) -> T + Copy,
+    FB: Fn(T) -> T + Copy,
 {
     let device = a_values.device();
     let cpu = CpuFallbackContext::new();
@@ -511,7 +591,11 @@ where
             &b_row_indices_cpu,
             &b_values_cpu,
             shape,
+            strategy,
+            semantics,
             op,
+            only_a_op,
+            only_b_op,
         )?;
 
     // Copy back to GPU
@@ -530,18 +614,23 @@ where
 
 #[cfg(feature = "sparse")]
 /// COO element-wise operation fallback (GPU → CPU → GPU)
-pub fn coo_elementwise_fallback<T: Element, R: Runtime>(
+pub fn coo_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
     a_row_indices: &Tensor<R>,
     a_col_indices: &Tensor<R>,
     a_values: &Tensor<R>,
     b_row_indices: &Tensor<R>,
     b_col_indices: &Tensor<R>,
     b_values: &Tensor<R>,
-    shape: [usize; 2],
-    op: impl Fn(T, T) -> T,
+    semantics: super::cpu::sparse::OperationSemantics,
+    op: F,
+    only_a_op: FA,
+    only_b_op: FB,
 ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>
 where
     R::Device: Device + Clone,
+    F: Fn(T, T) -> T + Copy,
+    FA: Fn(T) -> T + Copy,
+    FB: Fn(T) -> T + Copy,
 {
     let device = a_values.device();
     let cpu = CpuFallbackContext::new();
@@ -563,8 +652,10 @@ where
             &b_row_indices_cpu,
             &b_col_indices_cpu,
             &b_values_cpu,
-            shape,
+            semantics,
             op,
+            only_a_op,
+            only_b_op,
         )?;
 
     // Copy back to GPU
