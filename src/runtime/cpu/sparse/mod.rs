@@ -704,7 +704,8 @@ impl SparseOps<CpuRuntime> for CpuClient {
         let dtype = csr_a.values.dtype();
         let device = csr_a.values.device();
 
-        // Perform CSR × CSR multiplication: C = A * B
+        // Perform CSR × CSR multiplication using ESC (Exact Symbolic Computation) + Hash Accumulation
+        // This is the SOTA algorithm that both CPU and GPU will use for backend parity
         crate::dispatch_dtype!(dtype, T => {
             let a_row_ptrs: Vec<i64> = csr_a.row_ptrs.to_vec();
             let a_col_indices: Vec<i64> = csr_a.col_indices.to_vec();
@@ -714,20 +715,61 @@ impl SparseOps<CpuRuntime> for CpuClient {
             let b_col_indices: Vec<i64> = csr_b.col_indices.to_vec();
             let b_values: Vec<T> = csr_b.values.to_vec();
 
-            // Build result CSR
-            let mut c_row_ptrs: Vec<i64> = Vec::with_capacity(m + 1);
-            let mut c_col_indices: Vec<i64> = Vec::new();
-            let mut c_values: Vec<T> = Vec::new();
+            // ========================================================================
+            // PHASE 1: Symbolic (Count NNZ per output row)
+            // ========================================================================
+            let mut row_nnz: Vec<i64> = vec![0; m];
 
-            c_row_ptrs.push(0);
-
-            // For each row i in A
             for i in 0..m {
                 let a_start = a_row_ptrs[i] as usize;
                 let a_end = a_row_ptrs[i + 1] as usize;
 
-                // Accumulator for row i of C: maps column index -> value
-                let mut row_accum: HashMap<usize, f64> = HashMap::new();
+                // Use HashSet to track unique column indices in output row i
+                use std::collections::HashSet;
+                let mut col_set: HashSet<usize> = HashSet::new();
+
+                // For each non-zero A[i, k]
+                for a_idx in a_start..a_end {
+                    let k = a_col_indices[a_idx] as usize;
+
+                    // Scan row k of B and collect column indices
+                    let b_start = b_row_ptrs[k] as usize;
+                    let b_end = b_row_ptrs[k + 1] as usize;
+
+                    for b_idx in b_start..b_end {
+                        let j = b_col_indices[b_idx] as usize;
+                        col_set.insert(j);
+                    }
+                }
+
+                row_nnz[i] = col_set.len() as i64;
+            }
+
+            // Build row_ptrs via exclusive scan
+            let mut c_row_ptrs: Vec<i64> = Vec::with_capacity(m + 1);
+            c_row_ptrs.push(0);
+            for i in 0..m {
+                c_row_ptrs.push(c_row_ptrs[i] + row_nnz[i]);
+            }
+            let _total_nnz = c_row_ptrs[m] as usize;
+
+            // ========================================================================
+            // PHASE 2: Numeric (Compute values with pre-sized hash accumulator)
+            // ========================================================================
+            let mut c_col_indices: Vec<i64> = Vec::new();
+            let mut c_values: Vec<T> = Vec::new();
+
+            // Rebuild row_ptrs to account for zero_tolerance filtering
+            let mut c_row_ptrs_final: Vec<i64> = Vec::with_capacity(m + 1);
+            c_row_ptrs_final.push(0);
+
+            for i in 0..m {
+                let a_start = a_row_ptrs[i] as usize;
+                let a_end = a_row_ptrs[i + 1] as usize;
+                let capacity = row_nnz[i] as usize;
+
+                // Pre-sized hash accumulator (no resizing!)
+                let mut row_accum: HashMap<usize, f64> = HashMap::with_capacity(capacity);
 
                 // For each non-zero A[i, k]
                 for a_idx in a_start..a_end {
@@ -746,10 +788,11 @@ impl SparseOps<CpuRuntime> for CpuClient {
                     }
                 }
 
-                // Sort and add non-zeros to result
+                // Sort by column index and write to output
                 let mut row_entries: Vec<(usize, f64)> = row_accum.into_iter().collect();
                 row_entries.sort_by_key(|&(col, _)| col);
 
+                // Filter and write row
                 for (col, val) in row_entries {
                     if val.abs() > zero_tolerance::<T>() {
                         c_col_indices.push(col as i64);
@@ -757,13 +800,16 @@ impl SparseOps<CpuRuntime> for CpuClient {
                     }
                 }
 
-                c_row_ptrs.push(c_col_indices.len() as i64);
+                // Update row_ptr
+                c_row_ptrs_final.push(c_col_indices.len() as i64);
             }
 
+            let final_nnz = c_col_indices.len();
+
             // Create result CSR tensors
-            let result_row_ptrs = Tensor::from_slice(&c_row_ptrs, &[m + 1], device);
-            let result_col_indices = Tensor::from_slice(&c_col_indices, &[c_col_indices.len()], device);
-            let result_values = Tensor::from_slice(&c_values, &[c_values.len()], device);
+            let result_row_ptrs = Tensor::from_slice(&c_row_ptrs_final, &[m + 1], device);
+            let result_col_indices = Tensor::from_slice(&c_col_indices, &[final_nnz], device);
+            let result_values = Tensor::from_slice(&c_values, &[final_nnz], device);
 
             let result_csr = crate::sparse::CsrData {
                 row_ptrs: result_row_ptrs,

@@ -5,15 +5,18 @@
 use super::super::{CudaClient, CudaRuntime};
 use crate::dtype::Element;
 use crate::error::Result;
-use crate::sparse::SparseOps;
+use crate::runtime::cuda::kernels::{
+    coo_add_merge, coo_div_merge, coo_mul_merge, coo_sub_merge, csc_add_merge, csc_div_merge,
+    csc_mul_merge, csc_sub_merge, csr_add_merge, csr_div_merge, csr_mul_merge, csr_sub_merge,
+};
 use crate::tensor::Tensor;
 
-impl SparseOps<CudaRuntime> for CudaClient {
+impl CudaClient {
     // =========================================================================
     // CSR Operations
     // =========================================================================
 
-    fn add_csr<T: Element>(
+    pub(crate) fn add_csr_impl<T: Element>(
         &self,
         a_row_ptrs: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -27,21 +30,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csr!(
+        let [nrows, _] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csr_add_merge,
-            self,
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            "CSR addition"
+            dtype,
+            "CSR addition",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_ptrs,
+                a_col_indices,
+                a_values,
+                b_row_ptrs,
+                b_col_indices,
+                b_values,
+                nrows,
+            )
         )
     }
 
-    fn sub_csr<T: Element>(
+    pub(crate) fn sub_csr_impl<T: Element>(
         &self,
         a_row_ptrs: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -55,21 +69,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csr!(
+        let [nrows, _] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csr_sub_merge,
-            self,
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            "CSR subtraction"
+            dtype,
+            "CSR subtraction",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_ptrs,
+                a_col_indices,
+                a_values,
+                b_row_ptrs,
+                b_col_indices,
+                b_values,
+                nrows,
+            )
         )
     }
 
-    fn mul_csr<T: Element>(
+    pub(crate) fn mul_csr_impl<T: Element>(
         &self,
         a_row_ptrs: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -83,21 +108,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csr!(
+        let [nrows, _] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csr_mul_merge,
-            self,
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            "CSR multiplication"
+            dtype,
+            "CSR multiplication",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_ptrs,
+                a_col_indices,
+                a_values,
+                b_row_ptrs,
+                b_col_indices,
+                b_values,
+                nrows,
+            )
         )
     }
 
-    fn div_csr<T: Element>(
+    pub(crate) fn div_csr_impl<T: Element>(
         &self,
         a_row_ptrs: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -111,17 +147,28 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csr!(
+        let [nrows, _] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csr_div_merge,
-            self,
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            "CSR division"
+            dtype,
+            "CSR division",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_ptrs,
+                a_col_indices,
+                a_values,
+                b_row_ptrs,
+                b_col_indices,
+                b_values,
+                nrows,
+            )
         )
     }
 
@@ -129,7 +176,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
     // CSC Operations
     // =========================================================================
 
-    fn add_csc<T: Element>(
+    pub(crate) fn add_csc_impl<T: Element>(
         &self,
         a_col_ptrs: &Tensor<CudaRuntime>,
         a_row_indices: &Tensor<CudaRuntime>,
@@ -143,21 +190,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csc!(
+        let [_, ncols] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csc_add_merge,
-            self,
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            "CSC addition"
+            dtype,
+            "CSC addition",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_col_ptrs,
+                a_row_indices,
+                a_values,
+                b_col_ptrs,
+                b_row_indices,
+                b_values,
+                ncols,
+            )
         )
     }
 
-    fn sub_csc<T: Element>(
+    pub(crate) fn sub_csc_impl<T: Element>(
         &self,
         a_col_ptrs: &Tensor<CudaRuntime>,
         a_row_indices: &Tensor<CudaRuntime>,
@@ -171,21 +229,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csc!(
+        let [_, ncols] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csc_sub_merge,
-            self,
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            "CSC subtraction"
+            dtype,
+            "CSC subtraction",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_col_ptrs,
+                a_row_indices,
+                a_values,
+                b_col_ptrs,
+                b_row_indices,
+                b_values,
+                ncols,
+            )
         )
     }
 
-    fn mul_csc<T: Element>(
+    pub(crate) fn mul_csc_impl<T: Element>(
         &self,
         a_col_ptrs: &Tensor<CudaRuntime>,
         a_row_indices: &Tensor<CudaRuntime>,
@@ -199,21 +268,32 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csc!(
+        let [_, ncols] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csc_mul_merge,
-            self,
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            "CSC multiplication"
+            dtype,
+            "CSC multiplication",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_col_ptrs,
+                a_row_indices,
+                a_values,
+                b_col_ptrs,
+                b_row_indices,
+                b_values,
+                ncols,
+            )
         )
     }
 
-    fn div_csc<T: Element>(
+    pub(crate) fn div_csc_impl<T: Element>(
         &self,
         a_col_ptrs: &Tensor<CudaRuntime>,
         a_row_indices: &Tensor<CudaRuntime>,
@@ -227,17 +307,28 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_csc!(
+        let [_, ncols] = shape;
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             csc_div_merge,
-            self,
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            "CSC division"
+            dtype,
+            "CSC division",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_col_ptrs,
+                a_row_indices,
+                a_values,
+                b_col_ptrs,
+                b_row_indices,
+                b_values,
+                ncols,
+            )
         )
     }
 
@@ -245,7 +336,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
     // COO Operations
     // =========================================================================
 
-    fn add_coo<T: Element>(
+    pub(crate) fn add_coo_impl<T: Element>(
         &self,
         a_row_indices: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -259,21 +350,31 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_coo!(
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             coo_add_merge,
-            self,
-            a_row_indices,
-            a_col_indices,
-            a_values,
-            b_row_indices,
-            b_col_indices,
-            b_values,
-            shape,
-            "COO addition"
+            dtype,
+            "COO addition",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_indices,
+                a_col_indices,
+                a_values,
+                b_row_indices,
+                b_col_indices,
+                b_values,
+                shape,
+            )
         )
     }
 
-    fn sub_coo<T: Element>(
+    pub(crate) fn sub_coo_impl<T: Element>(
         &self,
         a_row_indices: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -287,21 +388,31 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_coo!(
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             coo_sub_merge,
-            self,
-            a_row_indices,
-            a_col_indices,
-            a_values,
-            b_row_indices,
-            b_col_indices,
-            b_values,
-            shape,
-            "COO subtraction"
+            dtype,
+            "COO subtraction",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_indices,
+                a_col_indices,
+                a_values,
+                b_row_indices,
+                b_col_indices,
+                b_values,
+                shape,
+            )
         )
     }
 
-    fn mul_coo<T: Element>(
+    pub(crate) fn mul_coo_impl<T: Element>(
         &self,
         a_row_indices: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -315,21 +426,31 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_coo!(
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             coo_mul_merge,
-            self,
-            a_row_indices,
-            a_col_indices,
-            a_values,
-            b_row_indices,
-            b_col_indices,
-            b_values,
-            shape,
-            "COO multiplication"
+            dtype,
+            "COO multiplication",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_indices,
+                a_col_indices,
+                a_values,
+                b_row_indices,
+                b_col_indices,
+                b_values,
+                shape,
+            )
         )
     }
 
-    fn div_coo<T: Element>(
+    pub(crate) fn div_coo_impl<T: Element>(
         &self,
         a_row_indices: &Tensor<CudaRuntime>,
         a_col_indices: &Tensor<CudaRuntime>,
@@ -343,17 +464,27 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        sparse_dtype_dispatch_coo!(
+        let device = a_values.device();
+        let dtype = a_values.dtype();
+
+        sparse_dtype_dispatch!(
             coo_div_merge,
-            self,
-            a_row_indices,
-            a_col_indices,
-            a_values,
-            b_row_indices,
-            b_col_indices,
-            b_values,
-            shape,
-            "COO division"
+            dtype,
+            "COO division",
+            (
+                &self.context,
+                &self.stream,
+                self.device.index,
+                device,
+                dtype,
+                a_row_indices,
+                a_col_indices,
+                a_values,
+                b_row_indices,
+                b_col_indices,
+                b_values,
+                shape,
+            )
         )
     }
 }

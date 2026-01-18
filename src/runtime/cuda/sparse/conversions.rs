@@ -3,13 +3,14 @@
 //! GPU-native conversions between COO, CSR, and CSC formats using Thrust sorting.
 
 use super::super::{CudaClient, CudaRuntime};
-use crate::dtype::{DType, Element};
+use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::sparse::SparseOps;
+use crate::runtime::Runtime;
+use crate::runtime::cuda::kernels;
 use crate::tensor::Tensor;
 
-impl SparseOps<CudaRuntime> for CudaClient {
-    fn coo_to_csr<T: crate::dtype::Element>(
+impl CudaClient {
+    pub(crate) fn coo_to_csr_impl<T: crate::dtype::Element>(
         &self,
         row_indices: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,
@@ -20,10 +21,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        use super::kernels::{launch_build_ptrs_from_sorted, launch_thrust_sort_pairs_i64_i32};
-
         let [nrows, _ncols] = shape;
         let nnz = row_indices.numel();
+        let nnz_u32 = u32::try_from(nnz)
+            .map_err(|_| Error::Internal(format!("COO->CSR nnz exceeds u32 limit: {}", nnz)))?;
         let device = values.device();
 
         // Step 1: Allocate temporary arrays for sorting (use i32 for indices)
@@ -34,10 +35,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Step 2: Initialize permutation indices [0, 1, 2, ..., nnz-1]
         unsafe {
-            super::kernels::launch_coo_init_indices(
+            kernels::launch_coo_init_indices(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 perm_indices.storage().ptr(),
                 nnz,
             )?;
@@ -47,34 +48,76 @@ impl SparseOps<CudaRuntime> for CudaClient {
         // This sorts the permutation array based on row indices
         unsafe {
             // Copy row_indices to sorted_rows for in-place sorting
-            super::cuda_ops::copy_tensor_async(row_indices, &sorted_rows, &self.stream)?;
+            CudaRuntime::copy_within_device(
+                row_indices.storage().ptr(),
+                sorted_rows.storage().ptr(),
+                row_indices.storage().size_in_bytes(),
+                device,
+            );
 
-            launch_thrust_sort_pairs_i64_i32(
+            kernels::launch_thrust_sort_pairs_i64_i32(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 sorted_rows.storage().ptr(),
                 perm_indices.storage().ptr(),
-                nnz,
+                nnz_u32,
             )?;
         }
 
         // Step 4: Gather col_indices and values using sorted permutation
         unsafe {
-            super::kernels::launch_coo_gather::<T>(
-                &self.context,
-                &self.stream,
-                self.device_index,
-                values.storage().ptr(),
-                perm_indices.storage().ptr(),
-                sorted_values.storage().ptr(),
-                nnz,
-            )?;
+            match values.dtype() {
+                DType::F32 => kernels::launch_coo_gather::<f32>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                DType::F64 => kernels::launch_coo_gather::<f64>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                #[cfg(feature = "f16")]
+                DType::F16 => kernels::launch_coo_gather::<half::f16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                #[cfg(feature = "f16")]
+                DType::BF16 => kernels::launch_coo_gather::<half::bf16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "Unsupported dtype for COO gather: {:?}",
+                        values.dtype()
+                    )));
+                }
+            }
 
-            super::kernels::launch_coo_gather_i64(
+            kernels::launch_coo_gather_i64(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 col_indices.storage().ptr(),
                 perm_indices.storage().ptr(),
                 sorted_cols.storage().ptr(),
@@ -85,10 +128,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
         // Step 5: Build row_ptrs from sorted row indices
         let row_ptrs = Tensor::<CudaRuntime>::zeros(&[nrows + 1], DType::I64, device);
         unsafe {
-            launch_build_ptrs_from_sorted(
+            kernels::launch_build_ptrs_from_sorted(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 sorted_rows.storage().ptr(),
                 row_ptrs.storage().ptr(),
                 nnz,
@@ -104,7 +147,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((row_ptrs, sorted_cols, sorted_values))
     }
 
-    fn coo_to_csc<T: crate::dtype::Element>(
+    pub(crate) fn coo_to_csc_impl<T: crate::dtype::Element>(
         &self,
         row_indices: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,
@@ -115,10 +158,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        use super::kernels::{launch_build_ptrs_from_sorted, launch_thrust_sort_pairs_i64_i32};
-
         let [_nrows, ncols] = shape;
         let nnz = row_indices.numel();
+        let nnz_u32 = u32::try_from(nnz)
+            .map_err(|_| Error::Internal(format!("COO->CSC nnz exceeds u32 limit: {}", nnz)))?;
         let device = values.device();
 
         // Step 1: Allocate temporary arrays for sorting
@@ -129,10 +172,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Step 2: Initialize permutation indices
         unsafe {
-            super::kernels::launch_coo_init_indices(
+            kernels::launch_coo_init_indices(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 perm_indices.storage().ptr(),
                 nnz,
             )?;
@@ -140,34 +183,76 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Step 3: Sort by column indices using Thrust
         unsafe {
-            super::cuda_ops::copy_tensor_async(col_indices, &sorted_cols, &self.stream)?;
+            CudaRuntime::copy_within_device(
+                col_indices.storage().ptr(),
+                sorted_cols.storage().ptr(),
+                col_indices.storage().size_in_bytes(),
+                device,
+            );
 
-            launch_thrust_sort_pairs_i64_i32(
+            kernels::launch_thrust_sort_pairs_i64_i32(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 sorted_cols.storage().ptr(),
                 perm_indices.storage().ptr(),
-                nnz,
+                nnz_u32,
             )?;
         }
 
         // Step 4: Gather row_indices and values using sorted permutation
         unsafe {
-            super::kernels::launch_coo_gather::<T>(
-                &self.context,
-                &self.stream,
-                self.device_index,
-                values.storage().ptr(),
-                perm_indices.storage().ptr(),
-                sorted_values.storage().ptr(),
-                nnz,
-            )?;
+            match values.dtype() {
+                DType::F32 => kernels::launch_coo_gather::<f32>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                DType::F64 => kernels::launch_coo_gather::<f64>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                #[cfg(feature = "f16")]
+                DType::F16 => kernels::launch_coo_gather::<half::f16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                #[cfg(feature = "f16")]
+                DType::BF16 => kernels::launch_coo_gather::<half::bf16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    values.storage().ptr(),
+                    perm_indices.storage().ptr(),
+                    sorted_values.storage().ptr(),
+                    nnz,
+                )?,
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "Unsupported dtype for COO gather: {:?}",
+                        values.dtype()
+                    )));
+                }
+            }
 
-            super::kernels::launch_coo_gather_i64(
+            kernels::launch_coo_gather_i64(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 row_indices.storage().ptr(),
                 perm_indices.storage().ptr(),
                 sorted_rows.storage().ptr(),
@@ -178,10 +263,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
         // Step 5: Build col_ptrs from sorted column indices
         let col_ptrs = Tensor::<CudaRuntime>::zeros(&[ncols + 1], DType::I64, device);
         unsafe {
-            launch_build_ptrs_from_sorted(
+            kernels::launch_build_ptrs_from_sorted(
                 &self.context,
                 &self.stream,
-                self.device_index,
+                self.device.index,
                 sorted_cols.storage().ptr(),
                 col_ptrs.storage().ptr(),
                 nnz,
@@ -197,7 +282,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((col_ptrs, sorted_rows, sorted_values))
     }
 
-    fn csr_to_coo<T: crate::dtype::Element>(
+    pub(crate) fn csr_to_coo_impl<T: crate::dtype::Element>(
         &self,
         row_ptrs: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,
@@ -212,7 +297,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         let [nrows, _ncols] = shape;
         let nnz = values.numel();
         let device = values.device();
-        let dtype = values.dtype();
+        let _dtype = values.dtype();
 
         // Allocate output row_indices on GPU
         let row_indices = Tensor::<CudaRuntime>::zeros(&[nnz], crate::dtype::DType::I64, device);
@@ -223,7 +308,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Launch pointer expansion kernel
         unsafe {
-            launch_expand_ptrs(
+            kernels::launch_expand_ptrs(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -243,7 +328,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((row_indices, col_indices_out, values_out))
     }
 
-    fn csc_to_coo<T: crate::dtype::Element>(
+    pub(crate) fn csc_to_coo_impl<T: crate::dtype::Element>(
         &self,
         col_ptrs: &Tensor<CudaRuntime>,
         row_indices: &Tensor<CudaRuntime>,
@@ -258,7 +343,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         let [_nrows, ncols] = shape;
         let nnz = values.numel();
         let device = values.device();
-        let dtype = values.dtype();
+        let _dtype = values.dtype();
 
         // Allocate output col_indices on GPU
         let col_indices = Tensor::<CudaRuntime>::zeros(&[nnz], crate::dtype::DType::I64, device);
@@ -269,7 +354,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Launch pointer expansion kernel
         unsafe {
-            launch_expand_ptrs(
+            kernels::launch_expand_ptrs(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -289,7 +374,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((row_indices_out, col_indices, values_out))
     }
 
-    fn csr_to_csc<T: crate::dtype::Element>(
+    pub(crate) fn csr_to_csc_impl<T: crate::dtype::Element>(
         &self,
         row_ptrs: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,
@@ -310,7 +395,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         let col_counts = Tensor::<CudaRuntime>::zeros(&[ncols], crate::dtype::DType::I64, device);
 
         unsafe {
-            launch_histogram_csr_columns(
+            kernels::launch_histogram_csr_columns(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -323,7 +408,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Step 2: Exclusive scan to build column pointers
         let (col_ptrs, _total_nnz) = unsafe {
-            exclusive_scan_i64_gpu(
+            kernels::exclusive_scan_i64_gpu(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -344,7 +429,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         use crate::dtype::DType;
         match dtype {
             DType::F32 => unsafe {
-                launch_csr_to_csc_transpose::<f32>(
+                kernels::launch_csr_to_csc_transpose::<f32>(
                     &self.context,
                     &self.stream,
                     self.device.index,
@@ -359,7 +444,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
                 )?;
             },
             DType::F64 => unsafe {
-                launch_csr_to_csc_transpose::<f64>(
+                kernels::launch_csr_to_csc_transpose::<f64>(
                     &self.context,
                     &self.stream,
                     self.device.index,
@@ -388,7 +473,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((col_ptrs, row_indices_out, values_out))
     }
 
-    fn csc_to_csr<T: crate::dtype::Element>(
+    pub(crate) fn csc_to_csr_impl<T: crate::dtype::Element>(
         &self,
         col_ptrs: &Tensor<CudaRuntime>,
         row_indices: &Tensor<CudaRuntime>,
@@ -409,7 +494,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         let row_counts = Tensor::<CudaRuntime>::zeros(&[nrows], crate::dtype::DType::I64, device);
 
         unsafe {
-            launch_histogram_csc_rows(
+            kernels::launch_histogram_csc_rows(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -422,7 +507,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         // Step 2: Exclusive scan to build row pointers
         let (row_ptrs, _total_nnz) = unsafe {
-            exclusive_scan_i64_gpu(
+            kernels::exclusive_scan_i64_gpu(
                 &self.context,
                 &self.stream,
                 self.device.index,
@@ -443,7 +528,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         use crate::dtype::DType;
         match dtype {
             DType::F32 => unsafe {
-                launch_csc_to_csr_transpose::<f32>(
+                kernels::launch_csc_to_csr_transpose::<f32>(
                     &self.context,
                     &self.stream,
                     self.device.index,
@@ -458,7 +543,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
                 )?;
             },
             DType::F64 => unsafe {
-                launch_csc_to_csr_transpose::<f64>(
+                kernels::launch_csc_to_csr_transpose::<f64>(
                     &self.context,
                     &self.stream,
                     self.device.index,
@@ -487,7 +572,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok((row_ptrs, col_indices_out, values_out))
     }
 
-    fn sparse_transpose(
+    pub(crate) fn sparse_transpose_impl(
         &self,
         a: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<crate::sparse::SparseTensor<CudaRuntime>> {

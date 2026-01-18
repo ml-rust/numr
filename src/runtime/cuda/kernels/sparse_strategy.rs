@@ -21,7 +21,7 @@
 //! └── Div - a / b
 //! ```
 
-use std::marker::PhantomData;
+#![allow(dead_code)]
 
 /// Sparse element-wise operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

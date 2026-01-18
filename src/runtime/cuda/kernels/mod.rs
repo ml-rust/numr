@@ -65,6 +65,10 @@ mod sparse_merge;
 mod sparse_spmv;
 #[cfg(feature = "sparse")]
 mod sparse_strategy;
+#[cfg(feature = "sparse")]
+mod sparse_utils;
+#[cfg(feature = "sparse")]
+mod spgemm;
 mod ternary;
 mod unary;
 mod utility;
@@ -88,7 +92,13 @@ pub use sparse_merge::*;
 #[cfg(feature = "sparse")]
 pub use sparse_spmv::*;
 #[cfg(feature = "sparse")]
+#[allow(unused_imports)]
+// Sparse strategy types (AddMerge, SubMerge, etc.) used internally in sparse_merge
 pub use sparse_strategy::*;
+#[cfg(feature = "sparse")]
+pub use sparse_utils::*;
+#[cfg(feature = "sparse")]
+pub use spgemm::*;
 pub use ternary::*;
 pub use unary::*;
 #[allow(unused_imports)] // Prepared for future tensor creation optimization

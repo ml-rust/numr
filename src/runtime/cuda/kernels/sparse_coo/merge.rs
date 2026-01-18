@@ -3,6 +3,8 @@
 //! GPU-native implementations of COO sparse matrix element-wise operations.
 //! Uses sort-merge algorithm with Thrust sorting for high performance.
 
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
@@ -530,7 +532,7 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         }
     }
 
-    let nnz_out = out_keys.len();
+    let _nnz_out = out_keys.len();
 
     // Filter zeros
     let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();

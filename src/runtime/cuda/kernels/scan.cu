@@ -19,6 +19,10 @@
 
 #include <cuda_runtime.h>
 
+// CUDA warp size - guaranteed to be 32 for all NVIDIA GPUs (backward compatibility)
+// NOTE: For future AMD ROCm support, wavefront size is 64 (CDNA/GCN) or 32 (RDNA)
+#define WARP_SIZE 32
+
 // Maximum block size for scan operations
 #define SCAN_BLOCK_SIZE 512
 
@@ -31,9 +35,9 @@
 template<typename T>
 __device__ __forceinline__ T warp_scan_inclusive(T val) {
     #pragma unroll
-    for (int offset = 1; offset < 32; offset *= 2) {
+    for (int offset = 1; offset < WARP_SIZE; offset *= 2) {
         T temp = __shfl_up_sync(0xffffffff, val, offset);
-        if (threadIdx.x % 32 >= offset) {
+        if (threadIdx.x % WARP_SIZE >= offset) {
             val += temp;
         }
     }
@@ -46,7 +50,7 @@ __device__ __forceinline__ T warp_scan_exclusive(T val) {
     T inclusive = warp_scan_inclusive(val);
     // Shift right by 1 within warp
     T exclusive = __shfl_up_sync(0xffffffff, inclusive, 1);
-    if (threadIdx.x % 32 == 0) {
+    if (threadIdx.x % WARP_SIZE == 0) {
         exclusive = 0;
     }
     return exclusive;
@@ -61,15 +65,16 @@ __device__ __forceinline__ T warp_scan_exclusive(T val) {
 template<typename T>
 __device__ T block_scan_exclusive(T val, T* shared, T& block_sum) {
     int tid = threadIdx.x;
-    int lane = tid % 32;
-    int warp_id = tid / 32;
+    int lane = tid % WARP_SIZE;
+    int warp_id = tid / WARP_SIZE;
+    int num_warps = (blockDim.x + WARP_SIZE - 1) / WARP_SIZE;
 
     // Step 1: Warp-level scan
     T warp_sum = warp_scan_inclusive(val);
 
     // Step 2: Last thread in each warp writes warp sum to shared memory
-    __shared__ T warp_sums[32];  // Support up to 1024 threads (32 warps)
-    if (lane == 31) {
+    __shared__ T warp_sums[WARP_SIZE];  // Support up to 1024 threads (32 warps max)
+    if (lane == WARP_SIZE - 1) {
         warp_sums[warp_id] = warp_sum;
     }
     __syncthreads();
@@ -77,11 +82,11 @@ __device__ T block_scan_exclusive(T val, T* shared, T& block_sum) {
     // Step 3: First warp scans the warp sums
     T warp_offset = 0;
     if (warp_id == 0) {
-        T warp_val = (tid < 32) ? warp_sums[tid] : 0;
+        T warp_val = (tid < num_warps) ? warp_sums[tid] : 0;
         warp_val = warp_scan_inclusive(warp_val);
         warp_sums[tid] = warp_val;
-        if (tid == 31) {
-            block_sum = warp_val;  // Total block sum
+        if (tid == WARP_SIZE - 1) {
+            block_sum = warp_val;  // Total block sum (computed by last thread in warp 0)
         }
     }
     __syncthreads();
@@ -203,8 +208,8 @@ __global__ void exclusive_scan_i32(
         output[tid] = scanned;
     }
 
-    // Last thread writes the total sum at output[n]
-    if (tid == 0) {
+    // Last thread in warp 0 computed the total, have it write directly to output[n]
+    if (tid == WARP_SIZE - 1) {
         output[n] = block_sum;
     }
 }
@@ -233,8 +238,8 @@ __global__ void scan_blocks_i32_step1(
         output[global_idx] = scanned;
     }
 
-    // Last thread in block writes the block sum
-    if (tid == SCAN_BLOCK_SIZE - 1 || global_idx == n - 1) {
+    // Last thread in warp 0 computed block_sum, so only it writes
+    if (tid == WARP_SIZE - 1) {
         block_sums[blockIdx.x] = block_sum;
     }
 }
@@ -248,7 +253,21 @@ __global__ void add_block_offsets_i32_step3(
     int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (global_idx < n && blockIdx.x > 0) {
-        output[global_idx] += block_offsets[blockIdx.x - 1];
+        // block_offsets is the exclusive scan of block sums
+        // Block i should add block_offsets[i] (sum of all blocks before i)
+        output[global_idx] += block_offsets[blockIdx.x];
+    }
+}
+
+/// I32 multi-block scan - write total to output[n]
+__global__ void write_total_i32(
+    int* output,
+    const int* block_offsets,
+    unsigned int n,
+    unsigned int num_blocks
+) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        output[n] = block_offsets[num_blocks];
     }
 }
 
@@ -271,7 +290,8 @@ __global__ void exclusive_scan_i64(
         output[tid] = scanned;
     }
 
-    if (tid == 0) {
+    // Last thread in warp 0 computed the total, have it write directly to output[n]
+    if (tid == WARP_SIZE - 1) {
         output[n] = block_sum;
     }
 }
@@ -298,7 +318,8 @@ __global__ void scan_blocks_i64_step1(
         output[global_idx] = scanned;
     }
 
-    if (tid == SCAN_BLOCK_SIZE - 1 || global_idx == n - 1) {
+    // Last thread in warp 0 computed block_sum, so only it writes
+    if (tid == WARP_SIZE - 1) {
         block_sums[blockIdx.x] = block_sum;
     }
 }
@@ -312,7 +333,21 @@ __global__ void add_block_offsets_i64_step3(
     int global_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     if (global_idx < n && blockIdx.x > 0) {
-        output[global_idx] += block_offsets[blockIdx.x - 1];
+        // block_offsets is the exclusive scan of block sums
+        // Block i should add block_offsets[i] (sum of all blocks before i)
+        output[global_idx] += block_offsets[blockIdx.x];
+    }
+}
+
+/// I64 multi-block scan - write total to output[n]
+__global__ void write_total_i64(
+    long long* output,
+    const long long* block_offsets,
+    unsigned int n,
+    unsigned int num_blocks
+) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        output[n] = block_offsets[num_blocks];
     }
 }
 

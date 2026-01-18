@@ -2,6 +2,9 @@
 //!
 //! This module provides Rust wrappers for GPU-native sparse format conversion kernels.
 
+#![allow(dead_code)]
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::types::CudaTypeName;

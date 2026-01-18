@@ -54,6 +54,8 @@ fn compile_cuda_kernels() {
         kernel_files.push("sparse_merge.cu");
         kernel_files.push("sparse_convert.cu");
         kernel_files.push("sparse_coo.cu");
+        kernel_files.push("sparse_utils.cu");
+        kernel_files.push("spgemm.cu");
         kernel_files.push("scan.cu");
     }
 
@@ -80,9 +82,6 @@ fn compile_cuda_kernels() {
         eprintln!();
         panic!("nvcc not found - CUDA Toolkit must be installed for the 'cuda' feature");
     });
-
-    // Print CUDA info for debugging
-    println!("cargo:warning=Using nvcc: {}", nvcc);
 
     for kernel_file in kernel_files {
         let cu_path = kernels_dir.join(kernel_file);
@@ -142,7 +141,6 @@ fn compile_cuda_kernels() {
                     eprintln!();
                     panic!("nvcc compilation failed for {}", kernel_file);
                 }
-                println!("cargo:warning=Compiled {} to PTX", kernel_file);
             }
             Err(e) => {
                 eprintln!();

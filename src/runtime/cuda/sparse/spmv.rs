@@ -6,11 +6,10 @@ use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels::{
     launch_csr_spmm, launch_csr_spmv, launch_csr_spmv_warp, should_use_warp_kernel,
 };
-use crate::sparse::SparseOps;
 use crate::tensor::Tensor;
 
-impl SparseOps<CudaRuntime> for CudaClient {
-    fn spmv_csr<T: Element>(
+impl CudaClient {
+    pub(crate) fn spmv_csr_impl<T: Element>(
         &self,
         row_ptrs: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,
@@ -171,7 +170,7 @@ impl SparseOps<CudaRuntime> for CudaClient {
         Ok(y)
     }
 
-    fn spmm_csr<T: Element>(
+    pub(crate) fn spmm_csr_impl<T: Element>(
         &self,
         row_ptrs: &Tensor<CudaRuntime>,
         col_indices: &Tensor<CudaRuntime>,

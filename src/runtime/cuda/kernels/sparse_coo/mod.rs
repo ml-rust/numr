@@ -18,3 +18,9 @@ mod merge;
 
 // Re-export public high-level merge operations
 pub use merge::{coo_add_merge, coo_div_merge, coo_mul_merge, coo_sub_merge};
+
+// Re-export kernel launch functions for format conversions
+pub use kernels::{
+    launch_coo_gather, launch_coo_gather_i64, launch_coo_init_indices,
+    launch_thrust_sort_pairs_i64_i32,
+};

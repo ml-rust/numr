@@ -23,6 +23,7 @@
 //! an unrecoverable out-of-memory condition.
 
 mod client;
+mod cusparse;
 mod device;
 mod kernels;
 mod ops;
@@ -32,6 +33,7 @@ mod sparse;
 #[cfg(feature = "sparse")]
 pub use crate::sparse::SparseOps;
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
+pub use cusparse::CudaSparse;
 pub use device::{CudaDevice, CudaError};
 
 use crate::runtime::Runtime;

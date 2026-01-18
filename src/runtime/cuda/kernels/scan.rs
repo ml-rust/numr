@@ -178,6 +178,11 @@ unsafe fn launch_scan_multi_block_i32(
     unsafe { builder.launch(cfg) }
         .map_err(|e| Error::Internal(format!("CUDA scan step 1 kernel launch failed: {:?}", e)))?;
 
+    // Synchronize after step 1
+    stream.synchronize().map_err(|e| {
+        Error::Internal(format!("Failed to synchronize after scan step 1: {:?}", e))
+    })?;
+
     // Step 2: Recursively scan the block sums
     // Allocate buffer for scanned block sums (size num_blocks + 1)
     let scanned_block_sums =
@@ -208,6 +213,11 @@ unsafe fn launch_scan_multi_block_i32(
         ));
     }
 
+    // Synchronize after step 2
+    stream.synchronize().map_err(|e| {
+        Error::Internal(format!("Failed to synchronize after scan step 2: {:?}", e))
+    })?;
+
     // Step 3: Add scanned block sums as offsets
     let func_step3 = get_kernel_function(&module, "add_block_offsets_i32_step3")?;
     let grid = (num_blocks, 1, 1);
@@ -221,19 +231,25 @@ unsafe fn launch_scan_multi_block_i32(
     unsafe { builder.launch(cfg) }
         .map_err(|e| Error::Internal(format!("CUDA scan step 3 kernel launch failed: {:?}", e)))?;
 
-    // Copy the total sum to output[n]
-    // Total = scanned_block_sums[num_blocks]
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Failed to synchronize after scan steps: {:?}", e)))?;
+    // Synchronize after step 3
+    stream.synchronize().map_err(|e| {
+        Error::Internal(format!("Failed to synchronize after scan step 3: {:?}", e))
+    })?;
 
-    let total_vec: Vec<i32> = scanned_block_sums.to_vec();
-    let _total = total_vec[num_blocks as usize];
-
-    // Note: output[n] needs to be set, but for now we skip this
-    // since the function interface doesn't require it to be exact.
-    // The calling code reads total from the returned tuple.
-    // TODO: Add a simple kernel or memcpy to set output[n] = total
+    // Step 4: Write total sum to output[n]
+    let func_total = get_kernel_function(&module, "write_total_i32")?;
+    let cfg = launch_config((1, 1, 1), (1, 1, 1), 0);
+    let mut builder = stream.launch_builder(&func_total);
+    builder.arg(&output_ptr);
+    builder.arg(&scanned_block_sums_ptr);
+    builder.arg(&n);
+    builder.arg(&num_blocks);
+    unsafe { builder.launch(cfg) }.map_err(|e| {
+        Error::Internal(format!(
+            "CUDA scan total write kernel launch failed: {:?}",
+            e
+        ))
+    })?;
 
     Ok(())
 }
@@ -432,6 +448,21 @@ unsafe fn launch_scan_multi_block_i64(
     unsafe { builder.launch(cfg) }.map_err(|e| {
         Error::Internal(format!(
             "CUDA scan i64 step 3 kernel launch failed: {:?}",
+            e
+        ))
+    })?;
+
+    // Step 4: Write total sum to output[n]
+    let func_total = get_kernel_function(&module, "write_total_i64")?;
+    let cfg = launch_config((1, 1, 1), (1, 1, 1), 0);
+    let mut builder = stream.launch_builder(&func_total);
+    builder.arg(&output_ptr);
+    builder.arg(&scanned_block_sums_ptr);
+    builder.arg(&n);
+    builder.arg(&num_blocks);
+    unsafe { builder.launch(cfg) }.map_err(|e| {
+        Error::Internal(format!(
+            "CUDA scan i64 total write kernel launch failed: {:?}",
             e
         ))
     })?;

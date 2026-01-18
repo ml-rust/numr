@@ -3,6 +3,9 @@
 //! Low-level kernel wrappers for COO sparse operations.
 //! All functions are pub(crate) for use by high-level merge operations.
 
+#![allow(dead_code)]
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::types::CudaTypeName;
@@ -589,7 +592,7 @@ pub(crate) unsafe fn launch_coo_compact<T: CudaTypeName>(
 
 /// Sort (i64 keys, i32 indices) using Thrust stable_sort_by_key - FULLY ON GPU
 /// Sorts IN-PLACE, so keys and indices are both input and output
-pub(crate) unsafe fn launch_thrust_sort_pairs_i64_i32(
+pub unsafe fn launch_thrust_sort_pairs_i64_i32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
@@ -627,7 +630,7 @@ pub(crate) unsafe fn launch_thrust_sort_pairs_i64_i32(
 // ============================================================================
 
 /// Initialize indices array [0, 1, 2, ..., n-1]
-pub(crate) unsafe fn launch_coo_init_indices(
+pub unsafe fn launch_coo_init_indices(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
@@ -657,7 +660,7 @@ pub(crate) unsafe fn launch_coo_init_indices(
 }
 
 /// Gather values using indices (permutation)
-pub(crate) unsafe fn launch_coo_gather<T: CudaTypeName>(
+pub unsafe fn launch_coo_gather<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
@@ -734,7 +737,7 @@ pub(crate) unsafe fn launch_coo_gather_i32(
 }
 
 /// Gather i64 values using indices (for row/col indices)
-pub(crate) unsafe fn launch_coo_gather_i64(
+pub unsafe fn launch_coo_gather_i64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,

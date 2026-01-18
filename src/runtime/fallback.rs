@@ -550,6 +550,7 @@ where
 
 #[cfg(feature = "sparse")]
 /// CSC element-wise operation fallback (GPU → CPU → GPU)
+#[allow(private_interfaces)]
 pub fn csc_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
     a_col_ptrs: &Tensor<R>,
     a_row_indices: &Tensor<R>,
@@ -614,6 +615,7 @@ where
 
 #[cfg(feature = "sparse")]
 /// COO element-wise operation fallback (GPU → CPU → GPU)
+#[allow(private_interfaces)]
 pub fn coo_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
     a_row_indices: &Tensor<R>,
     a_col_indices: &Tensor<R>,

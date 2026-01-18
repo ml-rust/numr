@@ -5,6 +5,9 @@
 //! 2. Exclusive scan to get row_ptrs
 //! 3. Compute merged output
 
+#![allow(dead_code)]
+#![allow(unsafe_op_in_unsafe_fn)]
+
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use cudarc::types::CudaTypeName;
