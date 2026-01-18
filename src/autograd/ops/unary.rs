@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{ScalarOps, TensorOps};
+use crate::ops::{CompareOps, ScalarOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 
@@ -528,6 +528,82 @@ where
 
     fn name(&self) -> &'static str {
         "AbsBackward"
+    }
+}
+
+// ============================================================================
+// ClampBackward
+// ============================================================================
+
+/// Backward for clamp: z = clamp(a, min, max)
+///
+/// Gradient: dL/da = dL/dz where min < a < max, 0 otherwise
+/// The gradient flows through only where the value is within the clamped range.
+pub struct ClampBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+    min_val: f64,
+    max_val: f64,
+}
+
+impl<R: Runtime> ClampBackward<R> {
+    /// Create a new ClampBackward
+    pub fn new(input_id: TensorId, input: Tensor<R>, min_val: f64, max_val: f64) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+            min_val,
+            max_val,
+        }
+    }
+}
+
+impl<R: Runtime> GradFn<R> for ClampBackward<R>
+where
+    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // Create mask where min < a < max (gradient flows through)
+        // gradient is zero at boundaries
+        let min_tensor = Tensor::<R>::full_scalar(
+            self.saved_input.shape(),
+            self.saved_input.dtype(),
+            self.min_val,
+            self.saved_input.device(),
+        );
+        let max_tensor = Tensor::<R>::full_scalar(
+            self.saved_input.shape(),
+            self.saved_input.dtype(),
+            self.max_val,
+            self.saved_input.device(),
+        );
+
+        // Check if value is greater than min
+        let gt_min = client.gt(&self.saved_input, &min_tensor)?;
+        // Check if value is less than max
+        let lt_max = client.lt(&self.saved_input, &max_tensor)?;
+
+        // Combine: gradient flows where min < a < max
+        let mask = client.mul(&gt_min, &lt_max)?;
+
+        // Apply mask to gradient
+        let grad = client.mul(grad_output, &mask)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "ClampBackward"
     }
 }
 

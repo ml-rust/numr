@@ -367,6 +367,228 @@ where
     }
 }
 
+// ============================================================================
+// VarBackward
+// ============================================================================
+
+/// Backward for variance reduction: z = var(a, dims, correction)
+///
+/// The gradient of variance is:
+/// dL/da = dL/dz * 2 * (a - mean(a)) / (N - correction)
+///
+/// where N is the number of elements being reduced.
+pub struct VarBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+    dims: Vec<usize>,
+    keepdim: bool,
+    correction: usize,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> VarBackward<R> {
+    /// Create a new VarBackward
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+            dims: dims.to_vec(),
+            keepdim,
+            correction,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime> GradFn<R> for VarBackward<R>
+where
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // Calculate N (number of elements in reduction)
+        let n: usize = self
+            .dims
+            .iter()
+            .map(|&d| self.saved_input.shape()[d])
+            .product();
+        let n_minus_corr = (n - self.correction) as f64;
+
+        // Compute mean of input
+        let mean = client.mean(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast mean to input shape
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+
+        // a - mean(a)
+        let centered = client.sub(&self.saved_input, &mean_broadcast)?;
+
+        // 2 * (a - mean) / (N - correction)
+        let scale = 2.0 / n_minus_corr;
+        let grad_contrib = client.mul_scalar(&centered, scale)?;
+
+        // Handle grad_output shape - broadcast to input shape
+        let mut grad = grad_output.clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad = grad.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?);
+
+        // Final gradient
+        let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "VarBackward"
+    }
+}
+
+// ============================================================================
+// StdBackward
+// ============================================================================
+
+/// Backward for standard deviation reduction: z = std(a, dims, correction)
+///
+/// std = sqrt(var), so by chain rule:
+/// dL/da = dL/dz * d(sqrt(var))/dvar * dvar/da
+///       = dL/dz * 1/(2*std) * 2*(a - mean) / (N - correction)
+///       = dL/dz * (a - mean) / ((N - correction) * std)
+pub struct StdBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+    saved_output: Tensor<R>, // std(a)
+    dims: Vec<usize>,
+    keepdim: bool,
+    correction: usize,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> StdBackward<R> {
+    /// Create a new StdBackward
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        output: Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+            saved_output: output,
+            dims: dims.to_vec(),
+            keepdim,
+            correction,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime> GradFn<R> for StdBackward<R>
+where
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // Calculate N (number of elements in reduction)
+        let n: usize = self
+            .dims
+            .iter()
+            .map(|&d| self.saved_input.shape()[d])
+            .product();
+        let n_minus_corr = (n - self.correction) as f64;
+
+        // Compute mean of input
+        let mean = client.mean(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast mean and std to input shape
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+
+        let std_for_broadcast = if self.keepdim {
+            self.saved_output.clone()
+        } else {
+            let mut std_expanded = self.saved_output.clone();
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                std_expanded = std_expanded.unsqueeze(dim as isize)?;
+            }
+            std_expanded
+        };
+        let std_broadcast =
+            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?);
+
+        // (a - mean)
+        let centered = client.sub(&self.saved_input, &mean_broadcast)?;
+
+        // (a - mean) / ((N - correction) * std)
+        let denominator = client.mul_scalar(&std_broadcast, n_minus_corr)?;
+        let grad_contrib = client.div(&centered, &denominator)?;
+
+        // Handle grad_output shape - broadcast to input shape
+        let mut grad = grad_output.clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad = grad.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?);
+
+        // Final gradient
+        let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        // Return both saved tensors - but we can only return a slice, so just input for now
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "StdBackward"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
