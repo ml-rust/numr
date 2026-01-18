@@ -214,3 +214,76 @@ pub fn should_use_warp_kernel(avg_nnz_per_row: f32) -> bool {
     // Warp kernel is better when rows are very sparse (< 32 nnz per row)
     avg_nnz_per_row < 32.0
 }
+
+// ============================================================================
+// DSMM Launcher (Dense × Sparse Matrix Multiplication)
+// ============================================================================
+
+/// Launch DSMM (Dense × Sparse) kernel using CSC format
+///
+/// Computes C = A @ B where:
+/// - A is dense [M, K] row-major
+/// - B is sparse CSC [K, N]
+/// - C is dense [M, N] row-major
+///
+/// # Safety
+///
+/// Caller must ensure:
+/// - A, C are valid dense matrices with correct dimensions
+/// - col_ptrs, row_indices, values describe valid CSC matrix
+/// - All pointers are device pointers
+pub unsafe fn launch_dsmm_csc<T: CudaTypeName>(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    a: u64,           // Dense [M, K]
+    col_ptrs: u64,    // CSC [N+1]
+    row_indices: u64, // CSC [nnz]
+    values: u64,      // CSC [nnz]
+    c: u64,           // Dense [M, N]
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<()> {
+    let kernel_name = match T::NAME {
+        "float" => "dsmm_csc_f32",
+        "double" => "dsmm_csc_f64",
+        "__half" => "dsmm_csc_f16",
+        "__nv_bfloat16" => "dsmm_csc_bf16",
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unsupported dtype for DSMM: {}",
+                T::NAME
+            )));
+        }
+    };
+
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::DSMM_MODULE)?;
+        let func = get_kernel_function(&module, kernel_name)?;
+
+        // One block per column, BLOCK_SIZE threads per block
+        let block_size = 256;
+        let cfg = launch_config((n as u32, 1, 1), (block_size, 1, 1), 0);
+
+        let m_u32 = m as u32;
+        let k_u32 = k as u32;
+        let n_u32 = n as u32;
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a);
+        builder.arg(&col_ptrs);
+        builder.arg(&row_indices);
+        builder.arg(&values);
+        builder.arg(&c);
+        builder.arg(&m_u32);
+        builder.arg(&k_u32);
+        builder.arg(&n_u32);
+
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA DSMM kernel launch failed: {:?}", e)))?;
+
+        Ok(())
+    }
+}

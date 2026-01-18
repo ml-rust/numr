@@ -231,6 +231,9 @@ pub mod kernel_names {
     /// COO sparse element-wise operations with CUB sort
     #[cfg(feature = "sparse")]
     pub const SPARSE_COO_MODULE: &str = "sparse_coo";
+    /// Dense × Sparse matrix multiplication (DSMM / SpMM)
+    #[cfg(feature = "sparse")]
+    pub const DSMM_MODULE: &str = "dsmm";
 
     /// Generate kernel name for reduction operations.
     #[inline]

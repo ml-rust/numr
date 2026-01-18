@@ -57,6 +57,7 @@ fn compile_cuda_kernels() {
         kernel_files.push("sparse_utils.cu");
         kernel_files.push("spgemm.cu");
         kernel_files.push("scan.cu");
+        kernel_files.push("dsmm.cu");
     }
 
     // Find nvcc with helpful error message
