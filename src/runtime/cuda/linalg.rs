@@ -6,16 +6,16 @@
 //!
 //! Native CUDA kernels are used - NO cuSOLVER dependency.
 
+use super::CudaRuntime;
 use super::client::CudaClient;
 use super::kernels;
-use super::CudaRuntime;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::runtime::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
     validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
+use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
 
 impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
@@ -76,7 +76,8 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
 
         // Clean up flag allocations
         self.allocator().deallocate(num_swaps_ptr, num_swaps_size);
-        self.allocator().deallocate(singular_flag_ptr, singular_flag_size);
+        self.allocator()
+            .deallocate(singular_flag_ptr, singular_flag_size);
 
         if singular {
             self.allocator().deallocate(lu_ptr, lu_size);
@@ -141,7 +142,8 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         CudaRuntime::copy_from_device(not_pd_flag_ptr, &mut not_pd_bytes, device);
         let not_pd = i32::from_ne_bytes(not_pd_bytes) != 0;
 
-        self.allocator().deallocate(not_pd_flag_ptr, not_pd_flag_size);
+        self.allocator()
+            .deallocate(not_pd_flag_ptr, not_pd_flag_size);
 
         if not_pd {
             self.allocator().deallocate(l_ptr, l_size);
@@ -164,7 +166,11 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         self.qr_decompose_internal(a, true)
     }
 
-    fn solve(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+    fn solve(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
         validate_linalg_dtype(a.dtype())?;
         if a.dtype() != b.dtype() {
             return Err(Error::DTypeMismatch {
@@ -528,12 +534,7 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
             if num_rhs == 1 {
                 // Single RHS: qtb is already [m, 1], just use first n elements
                 // Copy first n elements to qtb_col_ptr
-                CudaRuntime::copy_within_device(
-                    qtb.storage().ptr(),
-                    qtb_col_ptr,
-                    col_size,
-                    device,
-                );
+                CudaRuntime::copy_within_device(qtb.storage().ptr(), qtb_col_ptr, col_size, device);
             } else {
                 // Multi-RHS: extract column rhs from qtb [m, num_rhs]
                 // But we only need first n elements
@@ -906,7 +907,11 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
-    fn matrix_rank(&self, a: &Tensor<CudaRuntime>, tol: Option<f64>) -> Result<Tensor<CudaRuntime>> {
+    fn matrix_rank(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        tol: Option<f64>,
+    ) -> Result<Tensor<CudaRuntime>> {
         validate_linalg_dtype(a.dtype())?;
         let (m, n) = validate_matrix_2d(a.shape())?;
         let dtype = a.dtype();
@@ -1027,7 +1032,11 @@ impl CudaClient {
         dtype: DType,
         device: &super::CudaDevice,
     ) -> Tensor<CudaRuntime> {
-        let len = if shape.is_empty() { 1 } else { shape.iter().product() };
+        let len = if shape.is_empty() {
+            1
+        } else {
+            shape.iter().product()
+        };
         let storage = unsafe { Storage::<CudaRuntime>::from_ptr(ptr, len, dtype, device) };
         let layout = Layout::contiguous(shape);
         Tensor::from_parts(storage, layout)
@@ -1108,8 +1117,8 @@ impl CudaClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::cuda::{CudaDevice, CudaRuntime};
     use crate::runtime::Runtime;
+    use crate::runtime::cuda::{CudaDevice, CudaRuntime};
 
     fn create_client() -> CudaClient {
         let device = CudaDevice::new(0);
@@ -1137,11 +1146,8 @@ mod tests {
         let device = client.device();
 
         // 2x3 matrix
-        let a = Tensor::<CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-            device,
-        );
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device);
 
         let d = client.diag(&a).unwrap();
         let result: Vec<f32> = d.to_vec();
@@ -1164,7 +1170,7 @@ mod tests {
         assert_eq!(m.shape(), &[3, 3]);
         // Expected: [[1, 0, 0], [0, 2, 0], [0, 0, 3]]
         assert!((result[0] - 1.0).abs() < 1e-5); // [0,0]
-        assert!((result[1]).abs() < 1e-5);       // [0,1]
+        assert!((result[1]).abs() < 1e-5); // [0,1]
         assert!((result[4] - 2.0).abs() < 1e-5); // [1,1]
         assert!((result[8] - 3.0).abs() < 1e-5); // [2,2]
     }
@@ -1246,10 +1252,10 @@ mod tests {
 
         // Check inverse values (det = 4*6 - 7*2 = 10)
         // inv = (1/10) * [[6, -7], [-2, 4]]
-        assert!((result[0] - 0.6).abs() < 1e-4);  // [0,0]
-        assert!((result[1] - (-0.7)).abs() < 1e-4);  // [0,1]
-        assert!((result[2] - (-0.2)).abs() < 1e-4);  // [1,0]
-        assert!((result[3] - 0.4).abs() < 1e-4);  // [1,1]
+        assert!((result[0] - 0.6).abs() < 1e-4); // [0,0]
+        assert!((result[1] - (-0.7)).abs() < 1e-4); // [0,1]
+        assert!((result[2] - (-0.2)).abs() < 1e-4); // [1,0]
+        assert!((result[3] - 0.4).abs() < 1e-4); // [1,1]
     }
 
     #[test]
@@ -1266,10 +1272,10 @@ mod tests {
         let result: Vec<f32> = product.to_vec();
 
         // Should be identity matrix
-        assert!((result[0] - 1.0).abs() < 1e-4);  // [0,0]
-        assert!((result[1]).abs() < 1e-4);        // [0,1]
-        assert!((result[2]).abs() < 1e-4);        // [1,0]
-        assert!((result[3] - 1.0).abs() < 1e-4);  // [1,1]
+        assert!((result[0] - 1.0).abs() < 1e-4); // [0,0]
+        assert!((result[1]).abs() < 1e-4); // [0,1]
+        assert!((result[2]).abs() < 1e-4); // [1,0]
+        assert!((result[3] - 1.0).abs() < 1e-4); // [1,1]
     }
 
     #[test]
@@ -1345,10 +1351,26 @@ mod tests {
         // X[:, 0] = [1, 1] -> result[0], result[2]
         // X[:, 1] = [1, 2] -> result[1], result[3]
         // Row-major: X[0,0]=result[0], X[0,1]=result[1], X[1,0]=result[2], X[1,1]=result[3]
-        assert!((result[0] - 1.0).abs() < 1e-4, "X[0,0] = {} expected 1", result[0]);
-        assert!((result[1] - 1.0).abs() < 1e-4, "X[0,1] = {} expected 1", result[1]);
-        assert!((result[2] - 1.0).abs() < 1e-4, "X[1,0] = {} expected 1", result[2]);
-        assert!((result[3] - 2.0).abs() < 1e-4, "X[1,1] = {} expected 2", result[3]);
+        assert!(
+            (result[0] - 1.0).abs() < 1e-4,
+            "X[0,0] = {} expected 1",
+            result[0]
+        );
+        assert!(
+            (result[1] - 1.0).abs() < 1e-4,
+            "X[0,1] = {} expected 1",
+            result[1]
+        );
+        assert!(
+            (result[2] - 1.0).abs() < 1e-4,
+            "X[1,0] = {} expected 1",
+            result[2]
+        );
+        assert!(
+            (result[3] - 2.0).abs() < 1e-4,
+            "X[1,1] = {} expected 2",
+            result[3]
+        );
     }
 
     #[test]
@@ -1359,11 +1381,8 @@ mod tests {
         // Overdetermined system: A is 3x2, b is 3x1
         // A = [[1, 1], [1, 2], [1, 3]], b = [1, 2, 3]
         // Least squares solution minimizes ||Ax - b||^2
-        let a = Tensor::<CudaRuntime>::from_slice(
-            &[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0],
-            &[3, 2],
-            device,
-        );
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device);
         let b = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
         let x = client.lstsq(&a, &b).unwrap();
@@ -1373,7 +1392,11 @@ mod tests {
         // For this system, the solution is approximately x = [0, 1]
         // (regression line through points (1,1), (2,2), (3,3))
         assert!((result[0]).abs() < 0.1, "x[0] = {} expected ~0", result[0]);
-        assert!((result[1] - 1.0).abs() < 0.1, "x[1] = {} expected ~1", result[1]);
+        assert!(
+            (result[1] - 1.0).abs() < 0.1,
+            "x[1] = {} expected ~1",
+            result[1]
+        );
     }
 
     #[test]
@@ -1383,17 +1406,11 @@ mod tests {
 
         // Overdetermined system with multiple RHS
         // A is 3x2, B is 3x2
-        let a = Tensor::<CudaRuntime>::from_slice(
-            &[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0],
-            &[3, 2],
-            device,
-        );
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device);
         // B = [[1, 2], [2, 4], [3, 6]] (second column is 2x first)
-        let b = Tensor::<CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 2.0, 4.0, 3.0, 6.0],
-            &[3, 2],
-            device,
-        );
+        let b =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0, 3.0, 6.0], &[3, 2], device);
 
         let x = client.lstsq(&a, &b).unwrap();
         assert_eq!(x.shape(), &[2, 2]);
@@ -1401,9 +1418,25 @@ mod tests {
 
         // Second solution should be 2x the first
         // X[:, 0] ≈ [0, 1], X[:, 1] ≈ [0, 2]
-        assert!((result[0]).abs() < 0.1, "X[0,0] = {} expected ~0", result[0]);
-        assert!((result[1]).abs() < 0.1, "X[0,1] = {} expected ~0", result[1]);
-        assert!((result[2] - 1.0).abs() < 0.1, "X[1,0] = {} expected ~1", result[2]);
-        assert!((result[3] - 2.0).abs() < 0.1, "X[1,1] = {} expected ~2", result[3]);
+        assert!(
+            (result[0]).abs() < 0.1,
+            "X[0,0] = {} expected ~0",
+            result[0]
+        );
+        assert!(
+            (result[1]).abs() < 0.1,
+            "X[0,1] = {} expected ~0",
+            result[1]
+        );
+        assert!(
+            (result[2] - 1.0).abs() < 0.1,
+            "X[1,0] = {} expected ~1",
+            result[2]
+        );
+        assert!(
+            (result[3] - 2.0).abs() < 0.1,
+            "X[1,1] = {} expected ~2",
+            result[3]
+        );
     }
 }

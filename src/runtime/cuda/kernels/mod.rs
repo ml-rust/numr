@@ -70,6 +70,7 @@ mod sparse_strategy;
 mod sparse_utils;
 #[cfg(feature = "sparse")]
 mod spgemm;
+mod strided_copy;
 mod ternary;
 mod unary;
 mod utility;
@@ -101,6 +102,7 @@ pub use sparse_strategy::*;
 pub use sparse_utils::*;
 #[cfg(feature = "sparse")]
 pub use spgemm::*;
+pub use strided_copy::*;
 pub use ternary::*;
 pub use unary::*;
 #[allow(unused_imports)] // Prepared for future tensor creation optimization

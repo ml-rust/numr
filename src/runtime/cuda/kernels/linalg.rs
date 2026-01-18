@@ -10,8 +10,8 @@ use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
 use super::loader::{
-    elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_names, launch_config,
-    BLOCK_SIZE,
+    BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_names,
+    launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -42,12 +42,7 @@ pub unsafe fn launch_trace(
     let func_name = match dtype {
         DType::F32 => "trace_f32",
         DType::F64 => "trace_f64",
-        _ => {
-            return Err(Error::UnsupportedDType {
-                dtype,
-                op: "trace",
-            })
-        }
+        _ => return Err(Error::UnsupportedDType { dtype, op: "trace" }),
     };
 
     let func = get_kernel_function(&module, func_name)?;
@@ -67,9 +62,8 @@ pub unsafe fn launch_trace(
     builder.arg(&n_u32);
     builder.arg(&stride_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!("CUDA trace kernel launch failed: {:?}", e))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA trace kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -99,9 +93,7 @@ pub unsafe fn launch_diag(
     let func_name = match dtype {
         DType::F32 => "diag_f32",
         DType::F64 => "diag_f64",
-        _ => {
-            return Err(Error::UnsupportedDType { dtype, op: "diag" })
-        }
+        _ => return Err(Error::UnsupportedDType { dtype, op: "diag" }),
     };
 
     let func = get_kernel_function(&module, func_name)?;
@@ -118,9 +110,8 @@ pub unsafe fn launch_diag(
     builder.arg(&min_dim_u32);
     builder.arg(&n_cols_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!("CUDA diag kernel launch failed: {:?}", e))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA diag kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -153,7 +144,7 @@ pub unsafe fn launch_diagflat(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "diagflat",
-            })
+            });
         }
     };
 
@@ -170,9 +161,8 @@ pub unsafe fn launch_diagflat(
     builder.arg(&output_ptr);
     builder.arg(&n_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!("CUDA diagflat kernel launch failed: {:?}", e))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA diagflat kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -208,7 +198,7 @@ pub unsafe fn launch_forward_sub(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "forward_sub",
-            })
+            });
         }
     };
 
@@ -226,12 +216,8 @@ pub unsafe fn launch_forward_sub(
     builder.arg(&n_u32);
     builder.arg(&unit_diag_i32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA forward_sub kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA forward_sub kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -266,7 +252,7 @@ pub unsafe fn launch_backward_sub(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "backward_sub",
-            })
+            });
         }
     };
 
@@ -282,12 +268,8 @@ pub unsafe fn launch_backward_sub(
     builder.arg(&x_ptr);
     builder.arg(&n_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA backward_sub kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA backward_sub kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -327,7 +309,7 @@ pub unsafe fn launch_lu_decompose(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "lu_decompose",
-            })
+            });
         }
     };
 
@@ -346,12 +328,8 @@ pub unsafe fn launch_lu_decompose(
     builder.arg(&n_u32);
     builder.arg(&singular_flag_ptr);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA lu_decompose kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA lu_decompose kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -386,7 +364,7 @@ pub unsafe fn launch_cholesky_decompose(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "cholesky_decompose",
-            })
+            });
         }
     };
 
@@ -442,7 +420,7 @@ pub unsafe fn launch_qr_decompose(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "qr_decompose",
-            })
+            });
         }
     };
 
@@ -461,12 +439,8 @@ pub unsafe fn launch_qr_decompose(
     builder.arg(&n_u32);
     builder.arg(&thin_i32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA qr_decompose kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA qr_decompose kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -500,7 +474,7 @@ pub unsafe fn launch_det_from_lu(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "det_from_lu",
-            })
+            });
         }
     };
 
@@ -515,12 +489,8 @@ pub unsafe fn launch_det_from_lu(
     builder.arg(&n_u32);
     builder.arg(&num_swaps);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA det_from_lu kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA det_from_lu kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -555,7 +525,7 @@ pub unsafe fn launch_apply_lu_permutation(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "apply_lu_permutation",
-            })
+            });
         }
     };
 
@@ -608,7 +578,7 @@ pub unsafe fn launch_matrix_copy(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "matrix_copy",
-            })
+            });
         }
     };
 
@@ -624,9 +594,8 @@ pub unsafe fn launch_matrix_copy(
     builder.arg(&dst_ptr);
     builder.arg(&n_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!("CUDA matrix_copy kernel launch failed: {:?}", e))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA matrix_copy kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -661,7 +630,7 @@ pub unsafe fn launch_scatter_column(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "scatter_column",
-            })
+            });
         }
     };
 
@@ -715,7 +684,7 @@ pub unsafe fn launch_count_above_threshold(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "count_above_threshold",
-            })
+            });
         }
     };
 
@@ -785,7 +754,7 @@ pub unsafe fn launch_max_abs(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "max_abs",
-            })
+            });
         }
     };
 
@@ -804,9 +773,8 @@ pub unsafe fn launch_max_abs(
     builder.arg(&max_ptr);
     builder.arg(&n_u32);
 
-    unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!("CUDA max_abs kernel launch failed: {:?}", e))
-    })?;
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA max_abs kernel launch failed: {:?}", e)))?;
 
     Ok(())
 }
@@ -837,7 +805,7 @@ pub unsafe fn launch_create_identity(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "create_identity",
-            })
+            });
         }
     };
 
@@ -894,7 +862,7 @@ pub unsafe fn launch_extract_column(
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "extract_column",
-            })
+            });
         }
     };
 
@@ -915,10 +883,7 @@ pub unsafe fn launch_extract_column(
     builder.arg(&col_u32);
 
     unsafe { builder.launch(cfg) }.map_err(|e| {
-        Error::Internal(format!(
-            "CUDA extract_column kernel launch failed: {:?}",
-            e
-        ))
+        Error::Internal(format!("CUDA extract_column kernel launch failed: {:?}", e))
     })?;
 
     Ok(())

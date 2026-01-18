@@ -207,6 +207,58 @@ impl Runtime for CpuRuntime {
         }
     }
 
+    fn copy_strided(
+        src_handle: u64,
+        src_byte_offset: usize,
+        dst_handle: u64,
+        shape: &[usize],
+        strides: &[isize],
+        elem_size: usize,
+        _device: &Self::Device,
+    ) {
+        if src_handle == 0 || dst_handle == 0 || shape.is_empty() {
+            return;
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return;
+        }
+
+        // For CPU, we can use pointer arithmetic directly
+        let src_base = (src_handle as usize + src_byte_offset) as *const u8;
+        let dst_base = dst_handle as *mut u8;
+
+        // Iterate over all elements using indices
+        let mut indices = vec![0usize; shape.len()];
+
+        for dst_offset in 0..numel {
+            // Calculate source byte offset for current indices
+            let mut src_elem_offset: isize = 0;
+            for (i, &idx) in indices.iter().enumerate() {
+                src_elem_offset += (idx as isize) * strides[i];
+            }
+
+            // Copy element
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    src_base.offset(src_elem_offset * elem_size as isize),
+                    dst_base.add(dst_offset * elem_size),
+                    elem_size,
+                );
+            }
+
+            // Increment indices (row-major order)
+            for dim in (0..shape.len()).rev() {
+                indices[dim] += 1;
+                if indices[dim] < shape[dim] {
+                    break;
+                }
+                indices[dim] = 0;
+            }
+        }
+    }
+
     fn default_device() -> Self::Device {
         CpuDevice::new()
     }
