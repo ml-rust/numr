@@ -24,7 +24,10 @@ pub use index::{
     scatter_kernel, where_kernel, where_strided_kernel,
 };
 pub use matmul::matmul_kernel;
-pub use memory::{cast_kernel, copy_kernel, fill_kernel, rand_normal_kernel, rand_uniform_kernel};
+pub use memory::{
+    arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
+    rand_normal_kernel, rand_uniform_kernel,
+};
 pub use norm::{layer_norm_kernel, rms_norm_kernel};
 pub use reduce::{
     Accumulator, argmax_kernel, argmin_kernel, reduce_kernel, reduce_kernel_with_precision,

@@ -298,3 +298,62 @@ pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
         *elem = T::from_f64(val);
     }
 }
+
+/// Fill output with evenly spaced values in [start, stop)
+///
+/// Generates values: start + step * i for i in 0..len
+///
+/// # Safety
+/// - `out` must be a valid pointer to `len` elements
+#[inline]
+pub unsafe fn arange_kernel<T: Element>(out: *mut T, start: f64, step: f64, len: usize) {
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for (i, elem) in out_slice.iter_mut().enumerate() {
+        let val = start + step * (i as f64);
+        *elem = T::from_f64(val);
+    }
+}
+
+/// Fill output with evenly spaced values from start to stop (inclusive)
+///
+/// Generates values: start + (stop - start) * i / (steps - 1) for i in 0..steps
+///
+/// # Safety
+/// - `out` must be a valid pointer to `steps` elements
+/// - `steps` must be >= 2
+#[inline]
+pub unsafe fn linspace_kernel<T: Element>(out: *mut T, start: f64, stop: f64, steps: usize) {
+    let out_slice = std::slice::from_raw_parts_mut(out, steps);
+
+    if steps == 1 {
+        out_slice[0] = T::from_f64(start);
+        return;
+    }
+
+    let divisor = (steps - 1) as f64;
+    let delta = stop - start;
+
+    for (i, elem) in out_slice.iter_mut().enumerate() {
+        let val = start + delta * (i as f64) / divisor;
+        *elem = T::from_f64(val);
+    }
+}
+
+/// Fill output with identity matrix (1s on diagonal, 0s elsewhere)
+///
+/// # Safety
+/// - `out` must be a valid pointer to `n * m` elements
+#[inline]
+pub unsafe fn eye_kernel<T: Element>(out: *mut T, n: usize, m: usize) {
+    let out_slice = std::slice::from_raw_parts_mut(out, n * m);
+
+    // Fill with zeros first
+    out_slice.fill(T::from_f64(0.0));
+
+    // Set diagonal to 1
+    let diag_len = n.min(m);
+    for i in 0..diag_len {
+        out_slice[i * m + i] = T::from_f64(1.0);
+    }
+}
