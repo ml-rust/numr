@@ -41,14 +41,15 @@
 
 use super::kernels::{
     AccumulationPrecision, launch_argmax_dim, launch_argmin_dim, launch_binary_op, launch_cast,
-    launch_compare_op, launch_copy, launch_elu, launch_fill_with_f64, launch_gather, launch_gelu,
-    launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm, launch_leaky_relu,
-    launch_logical_and_op, launch_logical_not_op, launch_logical_or_op, launch_logical_xor_op,
-    launch_masked_count, launch_masked_fill, launch_masked_prefix_sum, launch_masked_select,
-    launch_matmul_batched_kernel, launch_matmul_kernel, launch_rand, launch_randn,
-    launch_reduce_dim_op, launch_relu, launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64,
-    launch_scatter, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
-    launch_unary_op, launch_where_broadcast_op, launch_where_op,
+    launch_cat_copy, launch_compare_op, launch_copy, launch_elu, launch_fill_with_f64,
+    launch_gather, launch_gelu, launch_index_select, launch_isinf_op, launch_isnan_op,
+    launch_layer_norm, launch_leaky_relu, launch_logical_and_op, launch_logical_not_op,
+    launch_logical_or_op, launch_logical_xor_op, launch_masked_count, launch_masked_fill,
+    launch_masked_prefix_sum, launch_masked_select, launch_matmul_batched_kernel,
+    launch_matmul_kernel, launch_rand, launch_randn, launch_reduce_dim_op, launch_relu,
+    launch_rms_norm, launch_scalar_op_f32, launch_scalar_op_f64, launch_scatter, launch_sigmoid,
+    launch_silu, launch_softmax, launch_softmax_dim, launch_unary_op, launch_where_broadcast_op,
+    launch_where_op,
 };
 use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
@@ -58,6 +59,7 @@ use crate::ops::{
     normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
+use crate::runtime::shape_ops::{self, validate_cat, validate_stack};
 use crate::runtime::{Runtime, compute_contiguous_strides};
 use crate::tensor::Tensor;
 
@@ -1936,6 +1938,74 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    // ===== Shape Operations =====
+
+    fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {
+        let params = validate_cat(tensors, dim)?;
+
+        // Allocate output
+        let out = Tensor::<CudaRuntime>::empty(&params.out_shape, params.dtype, &self.device);
+
+        // Copy data from each tensor using CUDA kernel
+        let mut cat_offset = 0usize;
+        for &tensor in tensors {
+            let tensor_contig = ensure_contiguous(tensor);
+            let src_cat_size = tensor.shape()[params.dim_idx];
+
+            unsafe {
+                launch_cat_copy(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    params.dtype,
+                    tensor_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    params.outer_size,
+                    src_cat_size,
+                    params.cat_dim_total,
+                    cat_offset,
+                    params.inner_size,
+                )?;
+            }
+
+            cat_offset += src_cat_size;
+        }
+
+        Ok(out)
+    }
+
+    fn stack(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {
+        // Validate tensors and get normalized dimension
+        let _ = validate_stack(tensors, dim)?;
+
+        // stack(tensors, dim) = cat([t.unsqueeze(dim) for t in tensors], dim)
+        let unsqueezed: Vec<Tensor<CudaRuntime>> = tensors
+            .iter()
+            .map(|t| t.unsqueeze(dim))
+            .collect::<Result<_>>()?;
+
+        let refs: Vec<&Tensor<CudaRuntime>> = unsqueezed.iter().collect();
+        self.cat(&refs, dim)
+    }
+
+    fn split(
+        &self,
+        tensor: &Tensor<CudaRuntime>,
+        split_size: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CudaRuntime>>> {
+        shape_ops::split_impl(tensor, split_size, dim)
+    }
+
+    fn chunk(
+        &self,
+        tensor: &Tensor<CudaRuntime>,
+        chunks: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CudaRuntime>>> {
+        shape_ops::chunk_impl(tensor, chunks, dim)
     }
 }
 

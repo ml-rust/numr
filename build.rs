@@ -50,6 +50,7 @@ fn compile_cuda_kernels() {
         "strided_copy.cu",
         "matmul.cu",
         "index.cu",
+        "shape.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

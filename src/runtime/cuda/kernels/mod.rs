@@ -57,6 +57,7 @@ mod reduce;
 mod scalar;
 #[cfg(feature = "sparse")]
 mod scan;
+mod shape;
 #[cfg(feature = "sparse")]
 mod sparse_convert;
 #[cfg(feature = "sparse")]
@@ -88,6 +89,7 @@ pub use scalar::*;
 #[cfg(feature = "sparse")]
 #[allow(unused_imports)]
 pub use scan::*;
+pub use shape::*;
 #[cfg(feature = "sparse")]
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
