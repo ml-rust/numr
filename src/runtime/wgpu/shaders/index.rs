@@ -1,0 +1,456 @@
+//! Index operation WGSL kernel launchers
+//!
+//! Provides launchers for indexing operations including:
+//! - gather: Select elements along a dimension using an index tensor
+//! - scatter: Scatter values to positions specified by an index tensor
+//! - index_select: Select elements along a dimension using a 1D index tensor
+//! - masked_select: Select elements where mask is true (returns flattened 1D tensor)
+//! - masked_fill: Fill elements where mask is true with a scalar value
+//!
+//! All operations run entirely on GPU with no CPU fallback.
+
+use wgpu::{Buffer, Queue};
+
+use super::generator::{
+    generate_gather_shader, generate_index_select_shader, generate_masked_fill_shader,
+    generate_masked_select_shader, generate_scatter_shader,
+};
+use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::dtype::DType;
+use crate::error::{Error, Result};
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Check if dtype is supported for index operations on WebGPU.
+fn check_dtype_supported(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 | DType::I32 | DType::U32 => Ok(()),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
+
+/// Get the static module/entry point name for an index operation.
+///
+/// Returns the kernel name in format `{op}_{dtype_suffix}`.
+/// For WebGPU index operations, module name and entry point are identical.
+fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
+    match (op, dtype) {
+        ("index_select", DType::F32) => Ok("index_select_f32"),
+        ("index_select", DType::I32) => Ok("index_select_i32"),
+        ("index_select", DType::U32) => Ok("index_select_u32"),
+        ("gather", DType::F32) => Ok("gather_f32"),
+        ("gather", DType::I32) => Ok("gather_i32"),
+        ("gather", DType::U32) => Ok("gather_u32"),
+        ("scatter", DType::F32) => Ok("scatter_f32"),
+        ("scatter", DType::I32) => Ok("scatter_i32"),
+        ("scatter", DType::U32) => Ok("scatter_u32"),
+        ("copy", DType::F32) => Ok("copy_f32"),
+        ("copy", DType::I32) => Ok("copy_i32"),
+        ("copy", DType::U32) => Ok("copy_u32"),
+        ("masked_fill", DType::F32) => Ok("masked_fill_f32"),
+        ("masked_fill", DType::I32) => Ok("masked_fill_i32"),
+        ("masked_fill", DType::U32) => Ok("masked_fill_u32"),
+        ("masked_select", DType::F32) => Ok("masked_select_f32"),
+        ("masked_select", DType::I32) => Ok("masked_select_i32"),
+        ("masked_select", DType::U32) => Ok("masked_select_u32"),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
+
+// ============================================================================
+// Index Select Operation
+// ============================================================================
+
+/// Launch an index_select operation kernel.
+///
+/// Selects elements from input along the specified dimension using indices.
+/// Output shape is the same as input except the dimension size becomes index_len.
+pub fn launch_index_select(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_output: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "index_select")?;
+
+    let name = kernel_name("index_select", dtype)?;
+    let shader_source = generate_index_select_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("index_select"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("index_select"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Gather Operation
+// ============================================================================
+
+/// Launch a gather operation kernel.
+///
+/// Gathers elements from input using indices along the specified dimension.
+pub fn launch_gather(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "gather")?;
+
+    let name = kernel_name("gather", dtype)?;
+    let shader_source = generate_gather_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gather"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("gather"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Scatter Operation
+// ============================================================================
+
+/// Launch a copy operation kernel (for scatter initialization).
+pub fn launch_copy(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "copy")?;
+
+    // Copy kernel is defined in the scatter shader module
+    let mod_name = kernel_name("scatter", dtype)?;
+    let entry_point = kernel_name("copy", dtype)?;
+
+    let shader_source = generate_scatter_shader(dtype)?;
+    let module = cache.get_or_create_module(mod_name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("copy"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("copy"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch a scatter operation kernel.
+///
+/// Scatters values from src to output at positions specified by indices along dim.
+pub fn launch_scatter(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    src_total: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "scatter")?;
+
+    let name = kernel_name("scatter", dtype)?;
+    let shader_source = generate_scatter_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(src_total), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Masked Fill Operation
+// ============================================================================
+
+/// Launch a masked_fill operation kernel.
+///
+/// Fills elements in output with fill_value where mask is non-zero.
+pub fn launch_masked_fill(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    mask: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "masked_fill")?;
+
+    let name = kernel_name("masked_fill", dtype)?;
+    let shader_source = generate_masked_fill_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[input, mask, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("masked_fill"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("masked_fill"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Masked Select Operation (3-phase)
+// ============================================================================
+
+/// Launch the masked_count phase of masked_select.
+///
+/// Counts the number of elements where mask is non-zero using atomic operations.
+pub fn launch_masked_count(
+    cache: &PipelineCache,
+    queue: &Queue,
+    mask: &Buffer,
+    count_result: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "masked_count")?;
+
+    let mod_name = kernel_name("masked_select", dtype)?;
+    let shader_source = generate_masked_select_shader(dtype)?;
+    let module = cache.get_or_create_module(mod_name, &shader_source);
+
+    // For count: mask (read), count_result (atomic), params
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(mod_name, "masked_count", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[mask, count_result, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("masked_count"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("masked_count"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch the masked_prefix_sum phase of masked_select.
+///
+/// Computes exclusive prefix sum of mask for determining output positions.
+pub fn launch_masked_prefix_sum(
+    cache: &PipelineCache,
+    queue: &Queue,
+    mask: &Buffer,
+    prefix_sum: &Buffer,
+    params_buffer: &Buffer,
+    _numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "masked_prefix_sum")?;
+
+    let mod_name = kernel_name("masked_select", dtype)?;
+    let shader_source = generate_masked_select_shader(dtype)?;
+    let module = cache.get_or_create_module(mod_name, &shader_source);
+
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(mod_name, "masked_prefix_sum", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[mask, prefix_sum, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("masked_prefix_sum"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("masked_prefix_sum"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        // Sequential kernel - only 1 workgroup needed
+        pass.dispatch_workgroups(1, 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch the masked_select gather phase.
+///
+/// Gathers elements from input where mask is non-zero into output.
+pub fn launch_masked_select(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    mask: &Buffer,
+    prefix_sum: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "masked_select")?;
+
+    let mod_name = kernel_name("masked_select", dtype)?;
+    let entry_point = kernel_name("masked_select", dtype)?;
+
+    let shader_source = generate_masked_select_shader(dtype)?;
+    let module = cache.get_or_create_module(mod_name, &shader_source);
+
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 4,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
+
+    let bind_group =
+        cache.create_bind_group(&layout, &[input, mask, prefix_sum, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("masked_select"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("masked_select"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}

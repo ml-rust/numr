@@ -915,6 +915,478 @@ fn batched_matmul_{suffix}(@builtin(global_invocation_id) global_id: vec3<u32>,
 }
 
 // ============================================================================
+// Cast Operation Shader Generation
+// ============================================================================
+
+/// Generate WGSL shader for dtype cast operations
+///
+/// WebGPU-supported casts:
+/// - F32 ↔ I32 ↔ U32
+///
+/// Each cast direction requires a separate entry point since WGSL
+/// doesn't support templates.
+pub fn generate_cast_shader(src_dtype: DType, dst_dtype: DType) -> Result<String> {
+    let src_t = wgsl_type(src_dtype)?;
+    let dst_t = wgsl_type(dst_dtype)?;
+    let src_suffix = dtype_suffix(src_dtype)?;
+    let dst_suffix = dtype_suffix(dst_dtype)?;
+
+    // For same-type cast, just return a no-op shader (shouldn't be called)
+    if src_dtype == dst_dtype {
+        return Ok(format!(
+            r#"// No-op cast shader for {src_t} -> {dst_t}
+// This should be optimized away at dispatch time
+"#
+        ));
+    }
+
+    Ok(format!(
+        r#"// Auto-generated cast operation: {src_t} -> {dst_t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct CastParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> cast_input: array<{src_t}>;
+@group(0) @binding(1) var<storage, read_write> cast_output: array<{dst_t}>;
+@group(0) @binding(2) var<uniform> cast_params: CastParams;
+
+@compute @workgroup_size(256)
+fn cast_{src_suffix}_to_{dst_suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < cast_params.numel) {{
+        cast_output[idx] = {dst_t}(cast_input[idx]);
+    }}
+}}
+"#,
+        src_t = src_t,
+        dst_t = dst_t,
+        src_suffix = src_suffix,
+        dst_suffix = dst_suffix
+    ))
+}
+
+// ============================================================================
+// Index Operation Shader Generation
+// ============================================================================
+
+/// Generate WGSL shader for index_select operation
+pub fn generate_index_select_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated index_select operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct IndexSelectParams {{
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    index_len: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> output: array<{t}>;
+@group(0) @binding(3) var<uniform> params: IndexSelectParams;
+
+@compute @workgroup_size(256)
+fn index_select_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = params.outer_size * params.index_len * params.inner_size;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let inner = idx % params.inner_size;
+    let sel_idx = (idx / params.inner_size) % params.index_len;
+    let outer = idx / (params.index_len * params.inner_size);
+
+    let index_val = indices[sel_idx];
+    if (index_val < 0 || u32(index_val) >= params.dim_size) {{
+        output[idx] = {zero};
+        return;
+    }}
+
+    let src_offset = outer * params.dim_size * params.inner_size + u32(index_val) * params.inner_size + inner;
+    output[idx] = input[src_offset];
+}}
+"#,
+        t = t,
+        suffix = suffix,
+        zero = match dtype {
+            DType::F32 | DType::F16 => "0.0",
+            _ => "0",
+        },
+    ))
+}
+
+/// Generate WGSL shader for gather operation
+pub fn generate_gather_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    // For simplicity, we implement gather with max 4 dimensions
+    // This is sufficient for most use cases
+    Ok(format!(
+        r#"// Auto-generated gather operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+const MAX_DIMS: u32 = 4u;
+
+struct GatherParams {{
+    ndim: u32,
+    dim: u32,
+    total_elements: u32,
+    _padding: u32,
+    // Shape and strides packed: [input_shape[0..4], input_strides[0..4], output_shape[0..4], output_strides[0..4]]
+    input_shape: vec4<u32>,
+    input_strides: vec4<u32>,
+    output_shape: vec4<u32>,
+    output_strides: vec4<u32>,
+}}
+
+@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> output: array<{t}>;
+@group(0) @binding(3) var<uniform> params: GatherParams;
+
+fn get_shape(arr: vec4<u32>, d: u32) -> u32 {{
+    if (d == 0u) {{ return arr.x; }}
+    else if (d == 1u) {{ return arr.y; }}
+    else if (d == 2u) {{ return arr.z; }}
+    else {{ return arr.w; }}
+}}
+
+@compute @workgroup_size(256)
+fn gather_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= params.total_elements) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var src_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < params.ndim; d = d + 1u) {{
+        let out_stride = get_shape(params.output_strides, d);
+        let coord = remaining / out_stride;
+        remaining = remaining % out_stride;
+
+        if (d == params.dim) {{
+            let index_val = indices[idx];
+            let dim_size = get_shape(params.input_shape, d);
+            if (index_val < 0 || u32(index_val) >= dim_size) {{
+                output[idx] = {zero};
+                return;
+            }}
+            src_offset = src_offset + u32(index_val) * get_shape(params.input_strides, d);
+        }} else {{
+            src_offset = src_offset + coord * get_shape(params.input_strides, d);
+        }}
+    }}
+
+    output[idx] = input[src_offset];
+}}
+"#,
+        t = t,
+        suffix = suffix,
+        zero = match dtype {
+            DType::F32 | DType::F16 => "0.0",
+            _ => "0",
+        },
+    ))
+}
+
+/// Generate WGSL shader for scatter operation
+pub fn generate_scatter_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated scatter operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct ScatterParams {{
+    ndim: u32,
+    dim: u32,
+    src_total: u32,
+    _padding: u32,
+    output_shape: vec4<u32>,
+    output_strides: vec4<u32>,
+    src_shape: vec4<u32>,
+    src_strides: vec4<u32>,
+}}
+
+@group(0) @binding(0) var<storage, read> src: array<{t}>;
+@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> output: array<{t}>;
+@group(0) @binding(3) var<uniform> params: ScatterParams;
+
+fn get_shape(arr: vec4<u32>, d: u32) -> u32 {{
+    if (d == 0u) {{ return arr.x; }}
+    else if (d == 1u) {{ return arr.y; }}
+    else if (d == 2u) {{ return arr.z; }}
+    else {{ return arr.w; }}
+}}
+
+@compute @workgroup_size(256)
+fn scatter_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= params.src_total) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var dst_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < params.ndim; d = d + 1u) {{
+        let src_stride = get_shape(params.src_strides, d);
+        let coord = remaining / src_stride;
+        remaining = remaining % src_stride;
+
+        if (d == params.dim) {{
+            let index_val = indices[idx];
+            let dim_size = get_shape(params.output_shape, d);
+            if (index_val < 0 || u32(index_val) >= dim_size) {{
+                return;
+            }}
+            dst_offset = dst_offset + u32(index_val) * get_shape(params.output_strides, d);
+        }} else {{
+            dst_offset = dst_offset + coord * get_shape(params.output_strides, d);
+        }}
+    }}
+
+    output[dst_offset] = src[idx];
+}}
+
+// Copy kernel for initializing output from input
+@group(0) @binding(0) var<storage, read> copy_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> copy_dst: array<{t}>;
+
+struct CopyParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(2) var<uniform> copy_params: CopyParams;
+
+@compute @workgroup_size(256)
+fn copy_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < copy_params.numel) {{
+        copy_dst[idx] = copy_src[idx];
+    }}
+}}
+"#,
+        t = t,
+        suffix = suffix,
+    ))
+}
+
+/// Generate WGSL shader for masked_fill operation
+pub fn generate_masked_fill_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated masked_fill operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct MaskedFillParams {{
+    numel: u32,
+    fill_value: f32,
+}}
+
+@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(1) var<storage, read> mask: array<u32>;
+@group(0) @binding(2) var<storage, read_write> output: array<{t}>;
+@group(0) @binding(3) var<uniform> params: MaskedFillParams;
+
+@compute @workgroup_size(256)
+fn masked_fill_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= params.numel) {{
+        return;
+    }}
+
+    if (mask[idx] != 0u) {{
+        output[idx] = {t}(params.fill_value);
+    }} else {{
+        output[idx] = input[idx];
+    }}
+}}
+"#,
+        t = t,
+        suffix = suffix,
+    ))
+}
+
+/// Generate WGSL shader for masked_select operation
+/// This is a two-phase operation:
+/// 1. Count phase: count how many elements are selected (uses atomic)
+/// 2. Prefix sum phase: compute exclusive prefix sum of mask
+/// 3. Gather phase: copy selected elements to output
+pub fn generate_masked_select_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated masked_select operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Phase 1: Count masked elements
+struct CountParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> count_mask: array<u32>;
+@group(0) @binding(1) var<storage, read_write> count_result: atomic<u32>;
+@group(0) @binding(2) var<uniform> count_params: CountParams;
+
+var<workgroup> shared_count: atomic<u32>;
+
+@compute @workgroup_size(256)
+fn masked_count(@builtin(global_invocation_id) gid: vec3<u32>,
+                @builtin(local_invocation_id) lid: vec3<u32>) {{
+    if (lid.x == 0u) {{
+        atomicStore(&shared_count, 0u);
+    }}
+    workgroupBarrier();
+
+    var local_count: u32 = 0u;
+    var i = gid.x;
+    while (i < count_params.numel) {{
+        if (count_mask[i] != 0u) {{
+            local_count = local_count + 1u;
+        }}
+        i = i + 256u * 256u; // Grid stride
+    }}
+
+    atomicAdd(&shared_count, local_count);
+    workgroupBarrier();
+
+    if (lid.x == 0u) {{
+        atomicAdd(&count_result, atomicLoad(&shared_count));
+    }}
+}}
+
+// Phase 2: Compute prefix sum (sequential - for small arrays)
+struct PrefixSumParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> prefix_mask: array<u32>;
+@group(0) @binding(1) var<storage, read_write> prefix_sum: array<u32>;
+@group(0) @binding(2) var<uniform> prefix_params: PrefixSumParams;
+
+@compute @workgroup_size(1)
+fn masked_prefix_sum(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    if (gid.x != 0u) {{
+        return;
+    }}
+
+    var sum: u32 = 0u;
+    for (var i: u32 = 0u; i < prefix_params.numel; i = i + 1u) {{
+        prefix_sum[i] = sum;
+        if (prefix_mask[i] != 0u) {{
+            sum = sum + 1u;
+        }}
+    }}
+}}
+
+// Phase 3: Gather selected elements
+struct SelectParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> select_input: array<{t}>;
+@group(0) @binding(1) var<storage, read> select_mask: array<u32>;
+@group(0) @binding(2) var<storage, read> select_prefix: array<u32>;
+@group(0) @binding(3) var<storage, read_write> select_output: array<{t}>;
+@group(0) @binding(4) var<uniform> select_params: SelectParams;
+
+@compute @workgroup_size(256)
+fn masked_select_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= select_params.numel) {{
+        return;
+    }}
+
+    if (select_mask[idx] != 0u) {{
+        let out_idx = select_prefix[idx];
+        select_output[out_idx] = select_input[idx];
+    }}
+}}
+"#,
+        t = t,
+        suffix = suffix,
+    ))
+}
+
+/// Generate all cast shaders for a given source dtype
+///
+/// Returns a combined shader with all casts from the source type.
+pub fn generate_all_casts_from(src_dtype: DType) -> Result<String> {
+    let src_t = wgsl_type(src_dtype)?;
+    let src_suffix = dtype_suffix(src_dtype)?;
+
+    let targets: &[DType] = match src_dtype {
+        DType::F32 => &[DType::I32, DType::U32],
+        DType::I32 => &[DType::F32, DType::U32],
+        DType::U32 => &[DType::F32, DType::I32],
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype: src_dtype,
+                op: "cast",
+            });
+        }
+    };
+
+    let mut shader = format!(
+        r#"// Auto-generated cast operations from {src_t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct CastParams {{
+    numel: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> cast_input: array<{src_t}>;
+"#
+    );
+
+    for &dst_dtype in targets {
+        let dst_t = wgsl_type(dst_dtype)?;
+        let dst_suffix = dtype_suffix(dst_dtype)?;
+
+        shader.push_str(&format!(
+            r#"
+// Cast {src_t} -> {dst_t}
+@group(0) @binding(1) var<storage, read_write> cast_output_{dst_suffix}: array<{dst_t}>;
+@group(0) @binding(2) var<uniform> cast_params_{dst_suffix}: CastParams;
+
+@compute @workgroup_size(256)
+fn cast_{src_suffix}_to_{dst_suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < cast_params_{dst_suffix}.numel) {{
+        cast_output_{dst_suffix}[idx] = {dst_t}(cast_input[idx]);
+    }}
+}}
+"#
+        ));
+    }
+
+    Ok(shader)
+}
+
+// ============================================================================
 // Normalization Shader Generation
 // ============================================================================
 
@@ -1315,5 +1787,53 @@ mod tests {
                 dtype
             );
         }
+    }
+
+    #[test]
+    fn test_generate_cast_shader() {
+        // F32 -> I32
+        let shader = generate_cast_shader(DType::F32, DType::I32).unwrap();
+        assert!(shader.contains("fn cast_f32_to_i32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("array<i32>"));
+
+        // I32 -> F32
+        let shader = generate_cast_shader(DType::I32, DType::F32).unwrap();
+        assert!(shader.contains("fn cast_i32_to_f32"));
+
+        // U32 -> F32
+        let shader = generate_cast_shader(DType::U32, DType::F32).unwrap();
+        assert!(shader.contains("fn cast_u32_to_f32"));
+    }
+
+    #[test]
+    fn test_cast_shader_syntax_all_combinations() {
+        let dtypes = [DType::F32, DType::I32, DType::U32];
+
+        for &src in &dtypes {
+            for &dst in &dtypes {
+                if src == dst {
+                    continue;
+                }
+
+                let shader = generate_cast_shader(src, dst).unwrap_or_else(|_| {
+                    panic!("Failed to generate cast shader for {:?} -> {:?}", src, dst)
+                });
+
+                validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+                    panic!(
+                        "Invalid WGSL for cast {:?} -> {:?}:\n{}\n\nShader:\n{}",
+                        src, dst, e, shader
+                    )
+                });
+            }
+        }
+    }
+
+    #[test]
+    fn test_cast_shader_same_type_is_noop() {
+        let shader = generate_cast_shader(DType::F32, DType::F32).unwrap();
+        assert!(shader.contains("No-op"));
+        assert!(!shader.contains("@compute"));
     }
 }
