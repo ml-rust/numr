@@ -806,3 +806,66 @@ pub fn launch_svd_jacobi(
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
+
+// ============================================================================
+// Eigendecomposition (Jacobi Algorithm for Symmetric Matrices)
+// ============================================================================
+
+/// Launch eigendecomposition kernel using Jacobi algorithm for symmetric matrices.
+///
+/// # Arguments
+/// * `work` - Working matrix buffer [n * n], will be diagonalized
+/// * `eigenvectors` - Eigenvector matrix buffer [n * n], stores column eigenvectors
+/// * `eigenvalues` - Eigenvalue vector buffer [n]
+/// * `converged_flag` - Convergence flag buffer (atomic i32): 0 if converged, 1 if not
+/// * `params_buffer` - Parameters buffer with n (matrix dimension)
+pub fn launch_eig_jacobi_symmetric(
+    cache: &PipelineCache,
+    queue: &Queue,
+    work: &Buffer,
+    eigenvectors: &Buffer,
+    eigenvalues: &Buffer,
+    converged_flag: &Buffer,
+    params_buffer: &Buffer,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_f32!(dtype, "eig_jacobi_symmetric");
+
+    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 4,
+        num_uniform_buffers: 1,
+    });
+    let pipeline =
+        cache.get_or_create_pipeline("linalg", "eig_jacobi_symmetric_f32", &module, &layout);
+
+    let bind_group = cache.create_bind_group(
+        &layout,
+        &[
+            work,
+            eigenvectors,
+            eigenvalues,
+            converged_flag,
+            params_buffer,
+        ],
+    );
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("eig_jacobi_symmetric"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("eig_jacobi_symmetric"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(1, 1, 1); // Single thread for sequential algorithm
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}

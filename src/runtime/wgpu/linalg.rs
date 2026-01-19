@@ -12,8 +12,8 @@ use super::client::get_buffer;
 use super::shaders::linalg as kernels;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    CholeskyDecomposition, EigenDecomposition, LinearAlgebraAlgorithms, LuDecomposition,
+    MatrixNormOrder, QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
     validate_square_matrix,
 };
 use crate::dtype::DType;
@@ -1324,15 +1324,172 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
 
         Ok(SvdDecomposition { u, s, vt })
     }
+
+    fn eig_decompose_symmetric(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+    ) -> Result<EigenDecomposition<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "WGPU eig_decompose_symmetric (only F32 supported)",
+            });
+        }
+
+        // Edge cases
+        if n == 0 {
+            // Empty matrix: return empty eigenvalues and eigenvectors
+            let eigenvalues = Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0], device);
+            let eigenvectors = Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0, 0], device);
+            return Ok(EigenDecomposition {
+                eigenvalues,
+                eigenvectors,
+            });
+        }
+
+        if n == 1 {
+            // 1x1 matrix: eigenvalue is the single element, eigenvector is [1]
+            let a_data: Vec<f32> = a.to_vec();
+            let eigenvalues = Tensor::<WgpuRuntime>::from_slice(&a_data, &[1], device);
+            let eigenvectors = Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device);
+            return Ok(EigenDecomposition {
+                eigenvalues,
+                eigenvectors,
+            });
+        }
+
+        // Allocate buffers for Jacobi computation
+        // Work matrix: [n * n] - working copy, will be diagonalized
+        let work_size = n * n * dtype.size_in_bytes();
+        let work_ptr = self.allocator().allocate(work_size);
+        let work_buffer = get_buffer_or_err!(work_ptr, "work (working matrix)");
+
+        // Eigenvector matrix: [n * n]
+        let eigenvectors_size = n * n * dtype.size_in_bytes();
+        let eigenvectors_ptr = self.allocator().allocate(eigenvectors_size);
+        let eigenvectors_buffer = get_buffer_or_err!(eigenvectors_ptr, "eigenvectors");
+
+        // Eigenvalues vector: [n]
+        let eigenvalues_size = n * dtype.size_in_bytes();
+        let eigenvalues_ptr = self.allocator().allocate(eigenvalues_size);
+        let eigenvalues_buffer = get_buffer_or_err!(eigenvalues_ptr, "eigenvalues");
+
+        // Converged flag
+        let converged_flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(converged_flag_size);
+        let converged_flag_buffer =
+            get_buffer_or_err!(converged_flag_ptr, "eigendecomposition convergence flag");
+
+        // Copy input to work buffer
+        WgpuRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device);
+
+        // Zero-initialize converged flag
+        let zero_i32: [i32; 1] = [0];
+        self.write_buffer(&converged_flag_buffer, &zero_i32);
+
+        // Create params buffer: [n]
+        let params: [u32; 1] = [n as u32];
+        let params_buffer = self.create_uniform_buffer("eig_params", 4);
+        self.write_buffer(&params_buffer, &params);
+
+        // Launch eigendecomposition kernel
+        kernels::launch_eig_jacobi_symmetric(
+            self.pipeline_cache(),
+            &self.queue,
+            &work_buffer,
+            &eigenvectors_buffer,
+            &eigenvalues_buffer,
+            &converged_flag_buffer,
+            &params_buffer,
+            dtype,
+        )?;
+
+        self.synchronize();
+
+        // Read back converged flag
+        let staging = self.create_staging_buffer("eig_converged_staging", 4);
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("eig_converged_copy"),
+                });
+        encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
+        self.submit_and_wait(encoder);
+
+        let mut converged_val = [0i32; 1];
+        self.read_buffer(&staging, &mut converged_val);
+
+        // Clean up work buffer and converged flag
+        self.allocator().deallocate(work_ptr, work_size);
+        self.allocator()
+            .deallocate(converged_flag_ptr, converged_flag_size);
+
+        if converged_val[0] != 0 {
+            // Cleanup on failure
+            self.allocator()
+                .deallocate(eigenvectors_ptr, eigenvectors_size);
+            self.allocator()
+                .deallocate(eigenvalues_ptr, eigenvalues_size);
+            return Err(Error::Internal(
+                "Eigendecomposition did not converge within maximum iterations".to_string(),
+            ));
+        }
+
+        // Create output tensors from GPU memory
+        let eigenvalues = unsafe { Self::tensor_from_raw(eigenvalues_ptr, &[n], dtype, device) };
+        let eigenvectors =
+            unsafe { Self::tensor_from_raw(eigenvectors_ptr, &[n, n], dtype, device) };
+
+        Ok(EigenDecomposition {
+            eigenvalues,
+            eigenvectors,
+        })
+    }
 }
 
 // Helper methods
 impl WgpuClient {
-    /// Create a tensor from a raw GPU pointer
+    /// Create a tensor from a raw WebGPU buffer pointer.
+    ///
+    /// This is a low-level helper function used internally to wrap GPU memory
+    /// allocations as tensors. The caller is responsible for ensuring all safety
+    /// invariants are met.
     ///
     /// # Safety
-    /// - `ptr` must point to valid GPU memory
-    /// - The memory must remain valid for the lifetime of the returned tensor
+    ///
+    /// The caller MUST ensure all of the following:
+    ///
+    /// 1. **Valid GPU Memory**: `ptr` must be a valid WebGPU buffer ID
+    ///    allocated via `WgpuRuntime::allocate()` or equivalent wgpu allocation.
+    ///
+    /// 2. **Sufficient Size**: The allocation must contain at least
+    ///    `shape.iter().product() * dtype.size_in_bytes()` bytes. For empty
+    ///    shapes (scalars), this is `1 * dtype.size_in_bytes()` bytes.
+    ///
+    /// 3. **Lifetime**: The GPU buffer must remain valid for the entire lifetime
+    ///    of the returned tensor. The tensor takes ownership of the buffer and
+    ///    will deallocate it when dropped.
+    ///
+    /// 4. **No Aliasing**: No other tensor or reference may hold ownership of
+    ///    the same buffer. Creating multiple tensors from the same `ptr`
+    ///    causes undefined behavior (double-free on drop).
+    ///
+    /// 5. **Device Affinity**: `ptr` must have been allocated on the same WebGPU
+    ///    device as specified by `device`. Cross-device buffers are UB.
+    ///
+    /// # Undefined Behavior
+    ///
+    /// Violating any of the above safety requirements results in undefined
+    /// behavior, which may include:
+    /// - GPU validation errors
+    /// - Double-free memory corruption
+    /// - Use-after-free bugs
+    /// - Silent data corruption
     unsafe fn tensor_from_raw(
         ptr: u64,
         shape: &[usize],
