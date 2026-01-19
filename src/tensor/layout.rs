@@ -278,6 +278,99 @@ impl Layout {
         Some(Self::new(new_shape, new_strides, self.offset))
     }
 
+    /// Create a permuted layout by reordering dimensions
+    ///
+    /// # Arguments
+    /// * `dims` - New order of dimensions (permutation of 0..ndim)
+    ///
+    /// # Returns
+    /// None if dims is invalid (wrong length, duplicates, or out-of-range values)
+    ///
+    /// # Example
+    /// ```
+    /// use numr::tensor::Layout;
+    /// let layout = Layout::contiguous(&[2, 3, 4]);
+    /// let permuted = layout.permute(&[2, 0, 1]).unwrap();
+    /// assert_eq!(permuted.shape(), &[4, 2, 3]);
+    /// assert_eq!(permuted.strides(), &[1, 12, 4]);
+    /// ```
+    pub fn permute(&self, dims: &[usize]) -> Option<Self> {
+        let ndim = self.ndim();
+
+        // dims must have same length as number of dimensions
+        if dims.len() != ndim {
+            return None;
+        }
+
+        // Validate dims is a valid permutation: each index 0..ndim appears exactly once
+        let mut seen = vec![false; ndim];
+        for &d in dims {
+            if d >= ndim || seen[d] {
+                return None;
+            }
+            seen[d] = true;
+        }
+
+        // Create new shape and strides by reordering
+        let mut new_shape = Shape::with_capacity(ndim);
+        let mut new_strides = Strides::with_capacity(ndim);
+
+        for &d in dims {
+            new_shape.push(self.shape[d]);
+            new_strides.push(self.strides[d]);
+        }
+
+        Some(Self::new(new_shape, new_strides, self.offset))
+    }
+
+    /// Create a narrowed layout (slice along a dimension)
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension to narrow
+    /// * `start` - Starting index
+    /// * `length` - Number of elements to keep
+    ///
+    /// # Returns
+    /// None if parameters are out of bounds
+    ///
+    /// # Example
+    /// ```
+    /// use numr::tensor::Layout;
+    /// let layout = Layout::contiguous(&[4, 5, 6]);
+    /// let narrowed = layout.narrow(1, 1, 3).unwrap();
+    /// assert_eq!(narrowed.shape(), &[4, 3, 6]);
+    /// assert_eq!(narrowed.offset(), 6); // Skip first row of dim 1
+    /// ```
+    pub fn narrow(&self, dim: usize, start: usize, length: usize) -> Option<Self> {
+        if dim >= self.ndim() {
+            return None;
+        }
+
+        let dim_size = self.shape[dim];
+        if start >= dim_size || start + length > dim_size {
+            return None;
+        }
+
+        if length == 0 {
+            return None;
+        }
+
+        // New shape: same as original but with dim narrowed
+        let mut new_shape = self.shape.clone();
+        new_shape[dim] = length;
+
+        // Strides remain the same
+        let new_strides = self.strides.clone();
+
+        // Offset increases by start * stride[dim]
+        let new_offset = self.offset as isize + start as isize * self.strides[dim];
+        if new_offset < 0 {
+            return None;
+        }
+
+        Some(Self::new(new_shape, new_strides, new_offset as usize))
+    }
+
     /// Create a broadcast layout to a target shape
     ///
     /// Returns None if shapes are not broadcastable
@@ -436,5 +529,66 @@ mod tests {
         assert_eq!(layout.index(&[1, 0]), Some(3));
         assert_eq!(layout.index(&[1, 2]), Some(5));
         assert_eq!(layout.index(&[2, 0]), None); // Out of bounds
+    }
+
+    #[test]
+    fn test_permute() {
+        let layout = Layout::contiguous(&[2, 3, 4]);
+        // Original strides: [12, 4, 1]
+
+        // Permute to [4, 2, 3] -> dims [2, 0, 1]
+        let permuted = layout.permute(&[2, 0, 1]).unwrap();
+        assert_eq!(permuted.shape(), &[4, 2, 3]);
+        assert_eq!(permuted.strides(), &[1, 12, 4]);
+        assert!(!permuted.is_contiguous());
+
+        // Identity permutation should preserve layout
+        let identity = layout.permute(&[0, 1, 2]).unwrap();
+        assert_eq!(identity.shape(), &[2, 3, 4]);
+        assert_eq!(identity.strides(), &[12, 4, 1]);
+        assert!(identity.is_contiguous());
+
+        // Invalid permutation: wrong length
+        assert!(layout.permute(&[0, 1]).is_none());
+
+        // Invalid permutation: duplicate
+        assert!(layout.permute(&[0, 0, 1]).is_none());
+
+        // Invalid permutation: out of range
+        assert!(layout.permute(&[0, 1, 5]).is_none());
+    }
+
+    #[test]
+    fn test_narrow() {
+        let layout = Layout::contiguous(&[4, 5, 6]);
+        // Original strides: [30, 6, 1]
+
+        // Narrow dim 1: take elements 1..4 (3 elements)
+        let narrowed = layout.narrow(1, 1, 3).unwrap();
+        assert_eq!(narrowed.shape(), &[4, 3, 6]);
+        assert_eq!(narrowed.strides(), &[30, 6, 1]);
+        assert_eq!(narrowed.offset(), 6); // 1 * stride[1] = 1 * 6 = 6
+
+        // Narrow dim 0: take elements 2..4 (2 elements)
+        let narrowed2 = layout.narrow(0, 2, 2).unwrap();
+        assert_eq!(narrowed2.shape(), &[2, 5, 6]);
+        assert_eq!(narrowed2.offset(), 60); // 2 * stride[0] = 2 * 30 = 60
+
+        // Narrow last dim
+        let narrowed3 = layout.narrow(2, 0, 3).unwrap();
+        assert_eq!(narrowed3.shape(), &[4, 5, 3]);
+        assert_eq!(narrowed3.offset(), 0);
+
+        // Invalid: dim out of range
+        assert!(layout.narrow(3, 0, 1).is_none());
+
+        // Invalid: start out of range
+        assert!(layout.narrow(0, 5, 1).is_none());
+
+        // Invalid: start + length out of range
+        assert!(layout.narrow(0, 3, 3).is_none());
+
+        // Invalid: length = 0
+        assert!(layout.narrow(0, 0, 0).is_none());
     }
 }

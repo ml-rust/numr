@@ -404,6 +404,76 @@ impl<R: Runtime> Tensor<R> {
         self.reshape(shape)
     }
 
+    /// Permute dimensions (zero-copy)
+    ///
+    /// Reorders the dimensions of the tensor according to the given permutation.
+    /// This is a view operation - no data is copied.
+    ///
+    /// # Arguments
+    /// * `dims` - New order of dimensions. Must be a permutation of 0..ndim.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3, 4], &device);
+    /// let permuted = tensor.permute(&[2, 0, 1])?; // Shape becomes [4, 2, 3]
+    /// ```
+    pub fn permute(&self, dims: &[usize]) -> Result<Self> {
+        let new_layout = self
+            .layout
+            .permute(dims)
+            .ok_or_else(|| Error::InvalidDimension {
+                dim: dims.first().copied().unwrap_or(0) as isize,
+                ndim: self.ndim(),
+            })?;
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage: self.storage.clone(),
+            layout: new_layout,
+        })
+    }
+
+    /// Narrow a dimension (zero-copy slice)
+    ///
+    /// Returns a view of the tensor narrowed to a contiguous subset of elements
+    /// along a single dimension. This is a view operation - no data is copied.
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension to narrow (supports negative indexing)
+    /// * `start` - Starting index in that dimension
+    /// * `length` - Number of elements to keep
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[4, 5, 6], &device);
+    /// let narrowed = tensor.narrow(1, 1, 3)?; // Shape becomes [4, 3, 6]
+    /// ```
+    pub fn narrow(&self, dim: isize, start: usize, length: usize) -> Result<Self> {
+        let dim_idx = self
+            .layout
+            .normalize_dim(dim)
+            .ok_or(Error::InvalidDimension {
+                dim,
+                ndim: self.ndim(),
+            })?;
+
+        let new_layout =
+            self.layout
+                .narrow(dim_idx, start, length)
+                .ok_or_else(|| Error::ShapeMismatch {
+                    expected: vec![self.shape()[dim_idx]],
+                    got: vec![start, length],
+                })?;
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage: self.storage.clone(),
+            layout: new_layout,
+        })
+    }
+
     /// Broadcast to a target shape (zero-copy)
     pub fn broadcast_to(&self, shape: &[usize]) -> Result<Self> {
         let new_layout = self
@@ -481,12 +551,26 @@ impl<R: Runtime> Tensor<R> {
     // ===== Data Access =====
 
     /// Copy tensor data to a Vec on the host
+    ///
+    /// For contiguous tensors, this copies only the viewed portion of the storage,
+    /// respecting the tensor's shape and offset.
     pub fn to_vec<T: bytemuck::Pod>(&self) -> Vec<T> {
         assert!(
             self.is_contiguous(),
             "Tensor must be contiguous to copy to vec"
         );
-        self.storage.to_vec()
+
+        let numel = self.numel();
+        let offset = self.layout.offset();
+        let elem_size = std::mem::size_of::<T>();
+        let byte_offset = offset * elem_size;
+        let byte_len = numel * elem_size;
+
+        // Copy only the viewed portion of the storage
+        let mut bytes = vec![0u8; byte_len];
+        let src_ptr = self.storage.ptr() as usize + byte_offset;
+        R::copy_from_device(src_ptr as u64, &mut bytes, self.storage.device());
+        bytemuck::cast_slice(&bytes).to_vec()
     }
 }
 
