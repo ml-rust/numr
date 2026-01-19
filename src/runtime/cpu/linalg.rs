@@ -7,7 +7,8 @@
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -272,6 +273,20 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
             MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
                 "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
             )),
+        }
+    }
+
+    fn svd_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<SvdDecomposition<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (m, n) = validate_matrix_2d(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => svd_decompose_impl::<f32>(self, a, m, n),
+            DType::F64 => svd_decompose_impl::<f64>(self, a, m, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "svd_decompose",
+            }),
         }
     }
 }
@@ -971,6 +986,266 @@ fn frobenius_norm_impl<T: Element + LinalgElement>(
 
     let norm = sum_sq.sqrt_val();
     Ok(Tensor::<CpuRuntime>::from_slice(&[norm], &[], device))
+}
+
+/// SVD decomposition using One-Sided Jacobi algorithm
+///
+/// Algorithm: One-Sided Jacobi SVD
+/// 1. If m < n: Transpose A, compute SVD, swap U↔V^T
+/// 2. Initialize: B = A (working copy), V = I_n
+/// 3. REPEAT (max 30 sweeps):
+///    FOR each pair (p, q) where p < q:
+///      - Compute Gram elements: a_pp, a_qq, a_pq = B[:,p]·B[:,q]
+///      - If |a_pq| > tol: compute Jacobi rotation (c,s), apply to B and V columns
+///    Check convergence: sqrt(Σ a_pq²) < n * epsilon
+/// 4. Extract: S[j] = ||B[:,j]||, U[:,j] = B[:,j]/S[j]
+/// 5. Sort S descending, reorder U and V columns accordingly
+/// 6. Return U, S, V^T = V.transpose()
+fn svd_decompose_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
+) -> Result<SvdDecomposition<CpuRuntime>> {
+    let device = client.device();
+    let k = m.min(n);
+
+    // Handle empty matrix
+    if m == 0 || n == 0 {
+        let u = Tensor::<CpuRuntime>::from_slice::<T>(&[], &[m, k], device);
+        let s = Tensor::<CpuRuntime>::from_slice::<T>(&[], &[k], device);
+        let vt = Tensor::<CpuRuntime>::from_slice::<T>(&[], &[k, n], device);
+        return Ok(SvdDecomposition { u, s, vt });
+    }
+
+    // If m < n, transpose and swap U/V at the end
+    let transpose = m < n;
+    let (work_m, work_n) = if transpose { (n, m) } else { (m, n) };
+
+    // Get input data, transposing if needed
+    let mut b: Vec<T> = if transpose {
+        // Transpose input: A[i,j] -> A^T[j,i]
+        let a_data: Vec<T> = a.to_vec();
+        let mut b_transposed = vec![T::zero(); work_m * work_n];
+        for i in 0..m {
+            for j in 0..n {
+                b_transposed[j * work_n + i] = a_data[i * n + j];
+            }
+        }
+        b_transposed
+    } else {
+        a.to_vec()
+    };
+
+    let work_k = work_m.min(work_n);
+
+    // Initialize V as identity [work_n x work_n]
+    let mut v: Vec<T> = vec![T::zero(); work_n * work_n];
+    for i in 0..work_n {
+        v[i * work_n + i] = T::one();
+    }
+
+    // Convergence parameters
+    let eps = T::epsilon_val();
+    let tol = (work_n as f64) * eps;
+    let max_sweeps = 30;
+
+    // One-Sided Jacobi iterations
+    for _sweep in 0..max_sweeps {
+        let mut off_diag_sum = 0.0f64;
+
+        // Process all column pairs (p, q) where p < q
+        for p in 0..work_n {
+            for q in (p + 1)..work_n {
+                // Compute Gram matrix elements for columns p and q
+                // a_pp = B[:,p] · B[:,p]
+                // a_qq = B[:,q] · B[:,q]
+                // a_pq = B[:,p] · B[:,q]
+                let mut a_pp = T::zero();
+                let mut a_qq = T::zero();
+                let mut a_pq = T::zero();
+
+                for i in 0..work_m {
+                    let bp = b[i * work_n + p];
+                    let bq = b[i * work_n + q];
+                    a_pp = a_pp + bp * bp;
+                    a_qq = a_qq + bq * bq;
+                    a_pq = a_pq + bp * bq;
+                }
+
+                off_diag_sum += a_pq.to_f64() * a_pq.to_f64();
+
+                // Skip if off-diagonal is essentially zero
+                if a_pq.abs_val().to_f64() < tol * (a_pp.to_f64() * a_qq.to_f64()).sqrt() {
+                    continue;
+                }
+
+                // Compute Jacobi rotation parameters using stable LAPACK formula
+                // tau = (a_qq - a_pp) / (2 * a_pq)
+                // t = sign(tau) / (|tau| + sqrt(1 + tau^2))
+                // c = 1 / sqrt(1 + t^2)
+                // s = t * c
+                let tau_num = a_qq.to_f64() - a_pp.to_f64();
+                let tau_den = 2.0 * a_pq.to_f64();
+
+                let (c, s) = if tau_den.abs() < 1e-300 {
+                    // Avoid division by zero
+                    (1.0, 0.0)
+                } else {
+                    let tau = tau_num / tau_den;
+                    let t = if tau >= 0.0 {
+                        1.0 / (tau + (1.0 + tau * tau).sqrt())
+                    } else {
+                        -1.0 / (-tau + (1.0 + tau * tau).sqrt())
+                    };
+                    let c_val = 1.0 / (1.0 + t * t).sqrt();
+                    let s_val = t * c_val;
+                    (c_val, s_val)
+                };
+
+                let c_t = T::from_f64(c);
+                let s_t = T::from_f64(s);
+
+                // Apply rotation to B columns: B[:, [p,q]] = B[:, [p,q]] @ [[c, s], [-s, c]]
+                for i in 0..work_m {
+                    let bp = b[i * work_n + p];
+                    let bq = b[i * work_n + q];
+                    b[i * work_n + p] = c_t * bp - s_t * bq;
+                    b[i * work_n + q] = s_t * bp + c_t * bq;
+                }
+
+                // Apply rotation to V columns: V[:, [p,q]] = V[:, [p,q]] @ [[c, s], [-s, c]]
+                for i in 0..work_n {
+                    let vp = v[i * work_n + p];
+                    let vq = v[i * work_n + q];
+                    v[i * work_n + p] = c_t * vp - s_t * vq;
+                    v[i * work_n + q] = s_t * vp + c_t * vq;
+                }
+            }
+        }
+
+        // Check convergence: sqrt(sum of squared off-diagonals) < tolerance
+        if off_diag_sum.sqrt() < tol {
+            break;
+        }
+    }
+
+    // Extract singular values and normalize U columns
+    // S[j] = ||B[:,j]||
+    // U[:,j] = B[:,j] / S[j]
+    let mut singular_values: Vec<T> = vec![T::zero(); work_n];
+    let mut u_data: Vec<T> = vec![T::zero(); work_m * work_n];
+
+    for j in 0..work_n {
+        let mut norm_sq = T::zero();
+        for i in 0..work_m {
+            let val = b[i * work_n + j];
+            norm_sq = norm_sq + val * val;
+        }
+        let norm = norm_sq.sqrt_val();
+        singular_values[j] = norm;
+
+        // Normalize column j of B to get U column
+        if norm.to_f64() > eps {
+            for i in 0..work_m {
+                u_data[i * work_n + j] = b[i * work_n + j] / norm;
+            }
+        } else {
+            // Zero singular value: U column should be zero (or any orthonormal vector)
+            for i in 0..work_m {
+                u_data[i * work_n + j] = T::zero();
+            }
+        }
+    }
+
+    // Sort singular values in descending order and reorder U, V accordingly
+    let mut indices: Vec<usize> = (0..work_n).collect();
+    indices.sort_by(|&i, &j| {
+        singular_values[j]
+            .to_f64()
+            .partial_cmp(&singular_values[i].to_f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Reorder singular values
+    let mut s_sorted: Vec<T> = vec![T::zero(); work_k];
+    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+        s_sorted[new_idx] = singular_values[old_idx];
+    }
+
+    // Reorder U columns (take first work_k)
+    let mut u_sorted: Vec<T> = vec![T::zero(); work_m * work_k];
+    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+        for i in 0..work_m {
+            u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
+        }
+    }
+
+    // Reorder V columns and transpose to get V^T (take first work_k rows)
+    // V is [work_n x work_n], V^T is [work_k x work_n]
+    let mut vt_sorted: Vec<T> = vec![T::zero(); work_k * work_n];
+    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+        for j in 0..work_n {
+            // V^T[new_idx, j] = V[j, old_idx]
+            vt_sorted[new_idx * work_n + j] = v[j * work_n + old_idx];
+        }
+    }
+
+    // If we transposed at the beginning, swap U and V^T
+    if transpose {
+        // Original: A = U @ S @ V^T
+        // Transposed: A^T = U' @ S @ V'^T
+        // So: A = (U' @ S @ V'^T)^T = V' @ S @ U'^T
+        // Therefore: U_final = V', V^T_final = U'^T
+        //
+        // For original A [m x n] with m < n:
+        // - U_final should be [m x k] where k = min(m,n) = m
+        // - V^T_final should be [k x n] = [m x n]
+        //
+        // After A^T SVD:
+        // - u_sorted is [work_m x work_k] = [n x m]
+        // - vt_sorted is [work_k x work_n] = [m x m]
+
+        // U_final = V' = (vt_sorted)^T, shape [m x k] = [m x m]
+        // vt_sorted is [work_k x work_n] = [m x m], so transpose to [m x m]
+        let mut u_final: Vec<T> = vec![T::zero(); m * k];
+        for i in 0..k {
+            for j in 0..m {
+                // u_final[j, i] = vt_sorted[i, j]
+                u_final[j * k + i] = vt_sorted[i * work_n + j];
+            }
+        }
+
+        // V^T_final = U'^T, shape [k x n] = [m x n]
+        // u_sorted is [work_m x work_k] = [n x m], transpose to [m x n]
+        let mut vt_final: Vec<T> = vec![T::zero(); k * n];
+        for i in 0..work_m {
+            for j in 0..work_k {
+                // vt_final[j, i] = u_sorted[i, j]
+                vt_final[j * n + i] = u_sorted[i * work_k + j];
+            }
+        }
+
+        let u_tensor = Tensor::<CpuRuntime>::from_slice(&u_final, &[m, k], device);
+        let s_tensor = Tensor::<CpuRuntime>::from_slice(&s_sorted, &[k], device);
+        let vt_tensor = Tensor::<CpuRuntime>::from_slice(&vt_final, &[k, n], device);
+
+        Ok(SvdDecomposition {
+            u: u_tensor,
+            s: s_tensor,
+            vt: vt_tensor,
+        })
+    } else {
+        let u_tensor = Tensor::<CpuRuntime>::from_slice(&u_sorted, &[m, k], device);
+        let s_tensor = Tensor::<CpuRuntime>::from_slice(&s_sorted, &[k], device);
+        let vt_tensor = Tensor::<CpuRuntime>::from_slice(&vt_sorted, &[k, n], device);
+
+        Ok(SvdDecomposition {
+            u: u_tensor,
+            s: s_tensor,
+            vt: vt_tensor,
+        })
+    }
 }
 
 // ============================================================================
