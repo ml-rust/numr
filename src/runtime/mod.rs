@@ -14,6 +14,7 @@
 //! ```
 
 mod allocator;
+pub mod helpers;
 pub mod kernel;
 pub mod shape_ops;
 pub mod sparse_utils;
@@ -31,6 +32,7 @@ pub mod wgpu;
 pub mod fallback;
 
 pub use allocator::{Allocator, DefaultAllocator};
+pub use helpers::ensure_contiguous;
 
 /// Core trait for compute backends
 ///
