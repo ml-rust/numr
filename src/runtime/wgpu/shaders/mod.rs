@@ -3,19 +3,31 @@
 //! This module provides native WGSL compute shaders for tensor operations.
 //! All operations run entirely on the GPU without CPU fallback.
 //!
+//! # Multi-DType Support
+//!
+//! Shaders are generated per-dtype using the `generator` module:
+//! - F32, I32, U32 are always supported
+//! - F16 requires WebGPU f16 extension
+//!
 //! # Module Structure
 //!
+//! - `generator` - WGSL shader source generation per dtype
 //! - `pipeline` - Pipeline caching and dispatch utilities
-//! - `elementwise` - Element-wise operation launchers (binary, unary, scalar, compare)
-//! - `reduce` - Reduction operation launchers (sum, mean, max, min, softmax, argmax)
-//! - `matmul` - Matrix multiplication launchers
-//! - `norm` - Normalization operation launchers (rms_norm, layer_norm)
+//! - `typed_kernels` - TypedKernel<T> implementations for compile-time dtype enforcement
+//! - `elementwise` - Legacy element-wise operation launchers (deprecated)
+//! - `reduce` - Legacy reduction operation launchers (deprecated)
+//! - `matmul` - Legacy matrix multiplication launchers (deprecated)
+//! - `norm` - Legacy normalization operation launchers (deprecated)
 //! - `linalg` - Linear algebra kernel launchers
 //! - `copy` - Copy operation shaders (strided to contiguous)
 
 pub mod copy;
-pub mod elementwise;
+pub mod generator;
 pub mod linalg;
+pub mod typed_kernels;
+
+// Legacy modules (to be replaced by typed_kernels)
+pub mod elementwise;
 pub mod matmul;
 pub mod norm;
 pub mod reduce;
@@ -27,4 +39,9 @@ mod norm_wgsl;
 mod pipeline;
 mod reduce_wgsl;
 
+pub use generator::{
+    dtype_suffix, generate_binary_shader, generate_compare_shader, generate_fill_shader,
+    generate_matmul_shader, generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
+    generate_unary_shader, is_wgpu_supported, wgsl_type,
+};
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};

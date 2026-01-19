@@ -14,6 +14,7 @@
 //! ```
 
 mod allocator;
+pub mod kernel;
 pub mod sparse_utils;
 
 pub mod cpu;
