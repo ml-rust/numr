@@ -11,7 +11,8 @@ use super::client::CudaClient;
 use super::kernels;
 use crate::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -1039,6 +1040,312 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
                 "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
             )),
         }
+    }
+
+    fn svd_decompose(&self, a: &Tensor<CudaRuntime>) -> Result<SvdDecomposition<CudaRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (m, n) = validate_matrix_2d(a.shape())?;
+        let k = m.min(n);
+        let dtype = a.dtype();
+        let device = self.device();
+
+        // Handle empty matrix
+        if m == 0 || n == 0 {
+            let u_ptr = self.allocator().allocate(0);
+            let s_ptr = self.allocator().allocate(0);
+            let vt_ptr = self.allocator().allocate(0);
+            let u = unsafe { Self::tensor_from_raw(u_ptr, &[m, k], dtype, device) };
+            let s = unsafe { Self::tensor_from_raw(s_ptr, &[k], dtype, device) };
+            let vt = unsafe { Self::tensor_from_raw(vt_ptr, &[k, n], dtype, device) };
+            return Ok(SvdDecomposition { u, s, vt });
+        }
+
+        // If m < n, transpose and swap U/V at the end
+        let transpose = m < n;
+        let (work_m, work_n) = if transpose { (n, m) } else { (m, n) };
+        let work_k = work_m.min(work_n);
+
+        // Allocate working buffers on GPU
+        let b_size = work_m * work_n * dtype.size_in_bytes();
+        let b_ptr = self.allocator().allocate(b_size);
+
+        let v_size = work_n * work_n * dtype.size_in_bytes();
+        let v_ptr = self.allocator().allocate(v_size);
+
+        let s_size = work_n * dtype.size_in_bytes();
+        let s_ptr = self.allocator().allocate(s_size);
+
+        let flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(flag_size);
+
+        // Helper for cleanup on error
+        let cleanup = |allocator: &super::CudaAllocator| {
+            allocator.deallocate(b_ptr, b_size);
+            allocator.deallocate(v_ptr, v_size);
+            allocator.deallocate(s_ptr, s_size);
+            allocator.deallocate(converged_flag_ptr, flag_size);
+        };
+
+        // Copy input to B, transposing if needed using GPU transpose kernel
+        if transpose {
+            // Use optimized GPU transpose: A[m,n] -> B[n,m]
+            // No CPU fallback - full GPU acceleration
+            let result = unsafe {
+                kernels::launch_transpose(
+                    self.context(),
+                    self.stream(),
+                    device.index,
+                    dtype,
+                    a.storage().ptr(),
+                    b_ptr,
+                    m, // rows of input
+                    n, // cols of input
+                )
+            };
+            if let Err(e) = result {
+                cleanup(self.allocator());
+                return Err(e);
+            }
+        } else {
+            CudaRuntime::copy_within_device(a.storage().ptr(), b_ptr, b_size, device);
+        }
+
+        // Zero-initialize converged flag
+        let zero_i32: [u8; 4] = [0; 4];
+        CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device);
+
+        // Launch SVD Jacobi kernel
+        let result = unsafe {
+            kernels::launch_svd_jacobi(
+                self.context(),
+                self.stream(),
+                device.index,
+                dtype,
+                b_ptr,
+                v_ptr,
+                s_ptr,
+                converged_flag_ptr,
+                work_m,
+                work_n,
+            )
+        };
+
+        if let Err(e) = result {
+            cleanup(self.allocator());
+            return Err(e);
+        }
+
+        self.synchronize();
+
+        // Clean up converged flag
+        self.allocator().deallocate(converged_flag_ptr, flag_size);
+
+        // Now we need to:
+        // 1. Sort singular values in descending order
+        // 2. Reorder U and V columns accordingly
+        // 3. Extract thin U [work_m x work_k] and V^T [work_k x work_n]
+        // 4. If transposed, swap U and V^T
+
+        // Read back singular values and indices for sorting
+        let s_data: Vec<f64> = match dtype {
+            DType::F32 => {
+                let mut bytes = vec![0u8; work_n * 4];
+                CudaRuntime::copy_from_device(s_ptr, &mut bytes, device);
+                bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
+                    .collect()
+            }
+            DType::F64 => {
+                let mut bytes = vec![0u8; work_n * 8];
+                CudaRuntime::copy_from_device(s_ptr, &mut bytes, device);
+                bytes
+                    .chunks_exact(8)
+                    .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                    .collect()
+            }
+            _ => unreachable!(),
+        };
+
+        // Sort indices by descending singular value
+        let mut indices: Vec<usize> = (0..work_n).collect();
+        indices.sort_by(|&i, &j| {
+            s_data[j]
+                .partial_cmp(&s_data[i])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Read U (b_ptr after normalization) and V for reordering
+        // Then write sorted results back
+
+        // This is complex, so for initial implementation do it on CPU
+        // (Can be optimized with GPU permutation kernels later)
+
+        let u_final;
+        let s_final;
+        let vt_final;
+
+        match dtype {
+            DType::F32 => {
+                // Read B (normalized U columns)
+                let mut u_bytes = vec![0u8; work_m * work_n * 4];
+                CudaRuntime::copy_from_device(b_ptr, &mut u_bytes, device);
+                let u_data: Vec<f32> = u_bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+
+                // Read V
+                let mut v_bytes = vec![0u8; work_n * work_n * 4];
+                CudaRuntime::copy_from_device(v_ptr, &mut v_bytes, device);
+                let v_data: Vec<f32> = v_bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+
+                // Sorted singular values (take first work_k)
+                let s_sorted: Vec<f32> = indices
+                    .iter()
+                    .take(work_k)
+                    .map(|&idx| s_data[idx] as f32)
+                    .collect();
+
+                // Sorted U columns
+                let mut u_sorted = vec![0.0f32; work_m * work_k];
+                for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+                    for i in 0..work_m {
+                        u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
+                    }
+                }
+
+                // Sorted V^T rows (V columns transposed)
+                let mut vt_sorted = vec![0.0f32; work_k * work_n];
+                for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+                    for j in 0..work_n {
+                        // V^T[new_idx, j] = V[j, old_idx]
+                        vt_sorted[new_idx * work_n + j] = v_data[j * work_n + old_idx];
+                    }
+                }
+
+                if transpose {
+                    // A = V' @ S @ U'^T
+                    // For original A [m x n] with m < n:
+                    // - U_final should be [m x k] where k = min(m,n) = m
+                    // - V^T_final should be [k x n] = [m x n]
+                    //
+                    // U_final = V' = (vt_sorted)^T, shape [m x k]
+                    let mut u_final_data = vec![0.0f32; m * k];
+                    for i in 0..k {
+                        for j in 0..m {
+                            u_final_data[j * k + i] = vt_sorted[i * work_n + j];
+                        }
+                    }
+
+                    // V^T_final = U'^T = u_sorted^T, shape [k x n]
+                    let mut vt_final_data = vec![0.0f32; k * n];
+                    for i in 0..work_m {
+                        for j in 0..work_k {
+                            vt_final_data[j * n + i] = u_sorted[i * work_k + j];
+                        }
+                    }
+
+                    u_final = Tensor::<CudaRuntime>::from_slice(&u_final_data, &[m, k], device);
+                    s_final = Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device);
+                    vt_final = Tensor::<CudaRuntime>::from_slice(&vt_final_data, &[k, n], device);
+                } else {
+                    u_final = Tensor::<CudaRuntime>::from_slice(&u_sorted, &[m, k], device);
+                    s_final = Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device);
+                    vt_final = Tensor::<CudaRuntime>::from_slice(&vt_sorted, &[k, n], device);
+                }
+            }
+            DType::F64 => {
+                // Read B (normalized U columns)
+                let mut u_bytes = vec![0u8; work_m * work_n * 8];
+                CudaRuntime::copy_from_device(b_ptr, &mut u_bytes, device);
+                let u_data: Vec<f64> = u_bytes
+                    .chunks_exact(8)
+                    .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                    .collect();
+
+                // Read V
+                let mut v_bytes = vec![0u8; work_n * work_n * 8];
+                CudaRuntime::copy_from_device(v_ptr, &mut v_bytes, device);
+                let v_data: Vec<f64> = v_bytes
+                    .chunks_exact(8)
+                    .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                    .collect();
+
+                // Sorted singular values
+                let s_sorted: Vec<f64> = indices
+                    .iter()
+                    .take(work_k)
+                    .map(|&idx| s_data[idx])
+                    .collect();
+
+                // Sorted U columns
+                let mut u_sorted = vec![0.0f64; work_m * work_k];
+                for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+                    for i in 0..work_m {
+                        u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
+                    }
+                }
+
+                // Sorted V^T rows
+                let mut vt_sorted = vec![0.0f64; work_k * work_n];
+                for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
+                    for j in 0..work_n {
+                        vt_sorted[new_idx * work_n + j] = v_data[j * work_n + old_idx];
+                    }
+                }
+
+                if transpose {
+                    // For original A [m x n] with m < n:
+                    // - U_final should be [m x k] where k = min(m,n) = m
+                    // - V^T_final should be [k x n] = [m x n]
+                    let mut u_final_data = vec![0.0f64; m * k];
+                    for i in 0..k {
+                        for j in 0..m {
+                            u_final_data[j * k + i] = vt_sorted[i * work_n + j];
+                        }
+                    }
+
+                    let mut vt_final_data = vec![0.0f64; k * n];
+                    for i in 0..work_m {
+                        for j in 0..work_k {
+                            vt_final_data[j * n + i] = u_sorted[i * work_k + j];
+                        }
+                    }
+
+                    u_final = Tensor::<CudaRuntime>::from_slice(&u_final_data, &[m, k], device);
+                    s_final = Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device);
+                    vt_final = Tensor::<CudaRuntime>::from_slice(&vt_final_data, &[k, n], device);
+                } else {
+                    u_final = Tensor::<CudaRuntime>::from_slice(&u_sorted, &[m, k], device);
+                    s_final = Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device);
+                    vt_final = Tensor::<CudaRuntime>::from_slice(&vt_sorted, &[k, n], device);
+                }
+            }
+            _ => {
+                self.allocator().deallocate(b_ptr, b_size);
+                self.allocator().deallocate(v_ptr, v_size);
+                self.allocator().deallocate(s_ptr, s_size);
+                return Err(Error::UnsupportedDType {
+                    dtype,
+                    op: "svd_decompose",
+                });
+            }
+        }
+
+        // Clean up working buffers
+        self.allocator().deallocate(b_ptr, b_size);
+        self.allocator().deallocate(v_ptr, v_size);
+        self.allocator().deallocate(s_ptr, s_size);
+
+        Ok(SvdDecomposition {
+            u: u_final,
+            s: s_final,
+            vt: vt_final,
+        })
     }
 }
 

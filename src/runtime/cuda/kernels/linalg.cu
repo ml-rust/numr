@@ -849,4 +849,286 @@ __global__ void extract_column_f64(const double* __restrict__ matrix,
     }
 }
 
+// ============================================================================
+// SVD Decomposition using One-Sided Jacobi algorithm
+// Single-thread implementation for backend parity with CPU
+// ============================================================================
+
+__global__ void svd_jacobi_f32(float* __restrict__ b,      // [work_m, work_n] input, becomes U columns after normalization
+                                float* __restrict__ v,      // [work_n, work_n] accumulates V (output as V^T)
+                                float* __restrict__ s,      // [work_n] singular values
+                                unsigned int work_m, unsigned int work_n,
+                                int* __restrict__ converged_flag) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const float eps = 1.192092896e-07f;  // FLT_EPSILON
+    const float tol = (float)work_n * eps;
+    const int max_sweeps = 30;
+
+    // Initialize V as identity
+    for (unsigned int i = 0; i < work_n; i++) {
+        for (unsigned int j = 0; j < work_n; j++) {
+            v[i * work_n + j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
+
+    // One-Sided Jacobi iterations
+    for (int sweep = 0; sweep < max_sweeps; sweep++) {
+        float off_diag_sum = 0.0f;
+
+        // Process all column pairs (p, q) where p < q
+        for (unsigned int p = 0; p < work_n; p++) {
+            for (unsigned int q = p + 1; q < work_n; q++) {
+                // Compute Gram matrix elements
+                float a_pp = 0.0f, a_qq = 0.0f, a_pq = 0.0f;
+                for (unsigned int i = 0; i < work_m; i++) {
+                    float bp = b[i * work_n + p];
+                    float bq = b[i * work_n + q];
+                    a_pp += bp * bp;
+                    a_qq += bq * bq;
+                    a_pq += bp * bq;
+                }
+
+                off_diag_sum += a_pq * a_pq;
+
+                // Skip if off-diagonal is essentially zero
+                if (fabsf(a_pq) < tol * sqrtf(a_pp * a_qq)) {
+                    continue;
+                }
+
+                // Compute Jacobi rotation parameters
+                float tau_num = a_qq - a_pp;
+                float tau_den = 2.0f * a_pq;
+
+                float c, s_val;
+                if (fabsf(tau_den) < 1e-30f) {
+                    c = 1.0f;
+                    s_val = 0.0f;
+                } else {
+                    float tau = tau_num / tau_den;
+                    float t;
+                    if (tau >= 0.0f) {
+                        t = 1.0f / (tau + sqrtf(1.0f + tau * tau));
+                    } else {
+                        t = -1.0f / (-tau + sqrtf(1.0f + tau * tau));
+                    }
+                    c = 1.0f / sqrtf(1.0f + t * t);
+                    s_val = t * c;
+                }
+
+                // Apply rotation to B columns
+                for (unsigned int i = 0; i < work_m; i++) {
+                    float bp = b[i * work_n + p];
+                    float bq = b[i * work_n + q];
+                    b[i * work_n + p] = c * bp - s_val * bq;
+                    b[i * work_n + q] = s_val * bp + c * bq;
+                }
+
+                // Apply rotation to V columns
+                for (unsigned int i = 0; i < work_n; i++) {
+                    float vp = v[i * work_n + p];
+                    float vq = v[i * work_n + q];
+                    v[i * work_n + p] = c * vp - s_val * vq;
+                    v[i * work_n + q] = s_val * vp + c * vq;
+                }
+            }
+        }
+
+        // Check convergence
+        if (sqrtf(off_diag_sum) < tol) {
+            *converged_flag = 1;
+            break;
+        }
+    }
+
+    // Extract singular values (column norms of B)
+    for (unsigned int j = 0; j < work_n; j++) {
+        float norm_sq = 0.0f;
+        for (unsigned int i = 0; i < work_m; i++) {
+            float val = b[i * work_n + j];
+            norm_sq += val * val;
+        }
+        s[j] = sqrtf(norm_sq);
+
+        // Normalize B column to get U column
+        float norm = s[j];
+        if (norm > eps) {
+            for (unsigned int i = 0; i < work_m; i++) {
+                b[i * work_n + j] /= norm;
+            }
+        }
+    }
+}
+
+__global__ void svd_jacobi_f64(double* __restrict__ b,      // [work_m, work_n] input, becomes U columns
+                                double* __restrict__ v,      // [work_n, work_n] accumulates V
+                                double* __restrict__ s,      // [work_n] singular values
+                                unsigned int work_m, unsigned int work_n,
+                                int* __restrict__ converged_flag) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const double eps = 2.220446049250313e-16;  // DBL_EPSILON
+    const double tol = (double)work_n * eps;
+    const int max_sweeps = 30;
+
+    // Initialize V as identity
+    for (unsigned int i = 0; i < work_n; i++) {
+        for (unsigned int j = 0; j < work_n; j++) {
+            v[i * work_n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    // One-Sided Jacobi iterations
+    for (int sweep = 0; sweep < max_sweeps; sweep++) {
+        double off_diag_sum = 0.0;
+
+        for (unsigned int p = 0; p < work_n; p++) {
+            for (unsigned int q = p + 1; q < work_n; q++) {
+                double a_pp = 0.0, a_qq = 0.0, a_pq = 0.0;
+                for (unsigned int i = 0; i < work_m; i++) {
+                    double bp = b[i * work_n + p];
+                    double bq = b[i * work_n + q];
+                    a_pp += bp * bp;
+                    a_qq += bq * bq;
+                    a_pq += bp * bq;
+                }
+
+                off_diag_sum += a_pq * a_pq;
+
+                if (fabs(a_pq) < tol * sqrt(a_pp * a_qq)) {
+                    continue;
+                }
+
+                double tau_num = a_qq - a_pp;
+                double tau_den = 2.0 * a_pq;
+
+                double c, s_val;
+                if (fabs(tau_den) < 1e-300) {
+                    c = 1.0;
+                    s_val = 0.0;
+                } else {
+                    double tau = tau_num / tau_den;
+                    double t;
+                    if (tau >= 0.0) {
+                        t = 1.0 / (tau + sqrt(1.0 + tau * tau));
+                    } else {
+                        t = -1.0 / (-tau + sqrt(1.0 + tau * tau));
+                    }
+                    c = 1.0 / sqrt(1.0 + t * t);
+                    s_val = t * c;
+                }
+
+                for (unsigned int i = 0; i < work_m; i++) {
+                    double bp = b[i * work_n + p];
+                    double bq = b[i * work_n + q];
+                    b[i * work_n + p] = c * bp - s_val * bq;
+                    b[i * work_n + q] = s_val * bp + c * bq;
+                }
+
+                for (unsigned int i = 0; i < work_n; i++) {
+                    double vp = v[i * work_n + p];
+                    double vq = v[i * work_n + q];
+                    v[i * work_n + p] = c * vp - s_val * vq;
+                    v[i * work_n + q] = s_val * vp + c * vq;
+                }
+            }
+        }
+
+        if (sqrt(off_diag_sum) < tol) {
+            *converged_flag = 1;
+            break;
+        }
+    }
+
+    for (unsigned int j = 0; j < work_n; j++) {
+        double norm_sq = 0.0;
+        for (unsigned int i = 0; i < work_m; i++) {
+            double val = b[i * work_n + j];
+            norm_sq += val * val;
+        }
+        s[j] = sqrt(norm_sq);
+
+        double norm = s[j];
+        if (norm > eps) {
+            for (unsigned int i = 0; i < work_m; i++) {
+                b[i * work_n + j] /= norm;
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Matrix Transpose - Optimized with shared memory tiling
+// ============================================================================
+// Uses 32x32 tiles with shared memory to achieve coalesced memory access
+// for both reads and writes, avoiding strided access patterns.
+
+#define TILE_DIM 32
+#define BLOCK_ROWS 8
+
+// F32 transpose: out[j,i] = in[i,j]
+// in: [rows, cols] row-major -> out: [cols, rows] row-major
+__global__ void transpose_f32(
+    const float* __restrict__ in,
+    float* __restrict__ out,
+    unsigned int rows,
+    unsigned int cols
+) {
+    __shared__ float tile[TILE_DIM][TILE_DIM + 1];  // +1 to avoid bank conflicts
+
+    unsigned int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    unsigned int y = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    // Load tile from input with coalesced reads
+    for (unsigned int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (x < cols && (y + j) < rows) {
+            tile[threadIdx.y + j][threadIdx.x] = in[(y + j) * cols + x];
+        }
+    }
+
+    __syncthreads();
+
+    // Write tile to output with coalesced writes (transposed indices)
+    x = blockIdx.y * TILE_DIM + threadIdx.x;  // Swap x,y for output
+    y = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (unsigned int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (x < rows && (y + j) < cols) {
+            out[(y + j) * rows + x] = tile[threadIdx.x][threadIdx.y + j];
+        }
+    }
+}
+
+// F64 transpose: out[j,i] = in[i,j]
+__global__ void transpose_f64(
+    const double* __restrict__ in,
+    double* __restrict__ out,
+    unsigned int rows,
+    unsigned int cols
+) {
+    __shared__ double tile[TILE_DIM][TILE_DIM + 1];
+
+    unsigned int x = blockIdx.x * TILE_DIM + threadIdx.x;
+    unsigned int y = blockIdx.y * TILE_DIM + threadIdx.y;
+
+    // Load tile from input with coalesced reads
+    for (unsigned int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (x < cols && (y + j) < rows) {
+            tile[threadIdx.y + j][threadIdx.x] = in[(y + j) * cols + x];
+        }
+    }
+
+    __syncthreads();
+
+    // Write tile to output with coalesced writes (transposed indices)
+    x = blockIdx.y * TILE_DIM + threadIdx.x;
+    y = blockIdx.x * TILE_DIM + threadIdx.y;
+
+    for (unsigned int j = 0; j < TILE_DIM; j += BLOCK_ROWS) {
+        if (x < rows && (y + j) < cols) {
+            out[(y + j) * rows + x] = tile[threadIdx.x][threadIdx.y + j];
+        }
+    }
+}
+
 } // extern "C"
