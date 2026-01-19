@@ -157,3 +157,34 @@ pub trait RuntimeClient<R: Runtime>: Clone + Send + Sync {
     /// Get the allocator for this client
     fn allocator(&self) -> &R::Allocator;
 }
+
+// ============================================================================
+// Shared Helpers
+// ============================================================================
+
+/// Compute contiguous (row-major) strides for a given shape.
+///
+/// For a shape `[d0, d1, d2, ...]`, the strides are computed as:
+/// - `strides[i] = product of dims[i+1..]`
+/// - Last dimension always has stride 1
+///
+/// # Example
+///
+/// ```
+/// use numr::runtime::compute_contiguous_strides;
+///
+/// assert_eq!(compute_contiguous_strides(&[2, 3, 4]), vec![12, 4, 1]);
+/// assert_eq!(compute_contiguous_strides(&[5]), vec![1]);
+/// assert_eq!(compute_contiguous_strides(&[]), vec![]);
+/// ```
+#[inline]
+pub fn compute_contiguous_strides(shape: &[usize]) -> Vec<usize> {
+    if shape.is_empty() {
+        return Vec::new();
+    }
+    let mut strides = vec![1usize; shape.len()];
+    for i in (0..shape.len().saturating_sub(1)).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    strides
+}
