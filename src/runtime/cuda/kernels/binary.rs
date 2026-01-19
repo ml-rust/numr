@@ -13,10 +13,10 @@ use super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     kernel_names, launch_binary_kernel, launch_config,
 };
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
-use crate::tensor::Tensor;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::tensor::Tensor;
 
 /// Launch a binary operation kernel.
 ///
@@ -238,10 +238,7 @@ pub unsafe fn launch_logical_xor_op(
 /// - If the input dimension matches, use the original stride
 /// - If the input dimension is 1 (broadcast), use stride 0
 /// - If the input doesn't have this dimension (prepended), use stride 0
-pub fn compute_broadcast_strides(
-    input_shape: &[usize],
-    output_shape: &[usize],
-) -> Vec<u32> {
+pub fn compute_broadcast_strides(input_shape: &[usize], output_shape: &[usize]) -> Vec<u32> {
     let mut strides = vec![0u32; output_shape.len()];
     let input_ndim = input_shape.len();
     let output_ndim = output_shape.len();

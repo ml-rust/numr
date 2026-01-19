@@ -74,9 +74,7 @@ pub fn launch_binary_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -147,9 +145,7 @@ pub fn launch_unary_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -204,9 +200,7 @@ pub fn launch_scalar_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -263,9 +257,7 @@ pub fn launch_compare_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

@@ -11,8 +11,8 @@
 use wgpu::BufferUsages;
 
 use super::client::get_buffer;
-use super::{WgpuClient, WgpuRuntime};
 use super::shaders::{elementwise, matmul, norm, reduce};
+use super::{WgpuClient, WgpuRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
@@ -33,7 +33,9 @@ fn create_params_buffer<T: bytemuck::Pod>(client: &WgpuClient, data: &T) -> wgpu
         usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    client.queue.write_buffer(&buffer, 0, bytemuck::bytes_of(data));
+    client
+        .queue
+        .write_buffer(&buffer, 0, bytemuck::bytes_of(data));
     buffer
 }
 
@@ -44,11 +46,7 @@ fn get_tensor_buffer(tensor: &Tensor<WgpuRuntime>) -> Result<std::sync::Arc<wgpu
 }
 
 /// Allocate output tensor with given shape and dtype.
-fn alloc_output(
-    client: &WgpuClient,
-    shape: &[usize],
-    dtype: DType,
-) -> Tensor<WgpuRuntime> {
+fn alloc_output(client: &WgpuClient, shape: &[usize], dtype: DType) -> Tensor<WgpuRuntime> {
     Tensor::empty(shape, dtype, client.device())
 }
 
@@ -414,11 +412,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     // --- Cast ---
 
-    fn cast(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dtype: DType,
-    ) -> Result<Tensor<WgpuRuntime>> {
+    fn cast(&self, a: &Tensor<WgpuRuntime>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         // For now, only F32 -> F32 is supported natively
         // Other casts use CPU fallback
         if a.dtype() == DType::F32 && dtype == DType::F32 {
@@ -464,12 +458,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_clamp(self, a, min_val, max_val)
     }
 
-    fn fill(
-        &self,
-        shape: &[usize],
-        value: f64,
-        dtype: DType,
-    ) -> Result<Tensor<WgpuRuntime>> {
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         let zeros = Tensor::zeros(shape, dtype, self.device());
         self.add_scalar(&zeros, value)
     }
@@ -595,16 +584,16 @@ fn native_binary_op(
     let dtype = a.dtype();
 
     // Compute broadcast shape
-    let out_shape = broadcast_shape(a.shape(), b.shape())
-        .ok_or_else(|| Error::BroadcastError {
-            lhs: a.shape().to_vec(),
-            rhs: b.shape().to_vec(),
-        })?;
+    let out_shape = broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
+        lhs: a.shape().to_vec(),
+        rhs: b.shape().to_vec(),
+    })?;
 
     // Broadcasting not yet implemented natively - fall back for different shapes
     if a.shape() != b.shape() {
         return crate::runtime::fallback::binary_op_fallback(
-            a, b,
+            a,
+            b,
             match op {
                 "add" => crate::ops::BinaryOp::Add,
                 "sub" => crate::ops::BinaryOp::Sub,
@@ -630,7 +619,9 @@ fn native_binary_op(
     let b_buf = get_tensor_buffer(&b_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = BinaryParams { numel: numel as u32 };
+    let params = BinaryParams {
+        numel: numel as u32,
+    };
     let params_buf = create_params_buffer(client, &params);
 
     elementwise::launch_binary_op(
@@ -662,7 +653,9 @@ fn native_unary_op(
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = UnaryParams { numel: numel as u32 };
+    let params = UnaryParams {
+        numel: numel as u32,
+    };
     let params_buf = create_params_buffer(client, &params);
 
     elementwise::launch_unary_op(
@@ -725,7 +718,8 @@ fn native_compare_op(
     // Broadcasting not yet implemented natively
     if a.shape() != b.shape() {
         return crate::runtime::fallback::compare_op_fallback(
-            a, b,
+            a,
+            b,
             match op {
                 "eq" => crate::ops::CompareOp::Eq,
                 "ne" => crate::ops::CompareOp::Ne,
@@ -751,7 +745,9 @@ fn native_compare_op(
     let b_buf = get_tensor_buffer(&b_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = BinaryParams { numel: numel as u32 };
+    let params = BinaryParams {
+        numel: numel as u32,
+    };
     let params_buf = create_params_buffer(client, &params);
 
     elementwise::launch_compare_op(
@@ -826,7 +822,10 @@ fn native_single_dim_reduce(
     let ndim = shape.len();
 
     if dim >= ndim {
-        return Err(Error::InvalidDimension { dim: dim as isize, ndim });
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
     }
 
     let a_contig = ensure_contiguous(a);
@@ -901,7 +900,9 @@ fn native_full_reduce(
         let a_buf = get_tensor_buffer(&a_contig)?;
         let out_buf = get_tensor_buffer(&out)?;
 
-        let params = FullReduceParams { numel: numel as u32 };
+        let params = FullReduceParams {
+            numel: numel as u32,
+        };
         let params_buf = create_params_buffer(client, &params);
 
         reduce::launch_full_reduce_op(
@@ -926,7 +927,9 @@ fn native_full_reduce(
     let a_buf = get_tensor_buffer(&a_contig)?;
     let partial_buf = get_tensor_buffer(&partial)?;
 
-    let params = FullReduceParams { numel: numel as u32 };
+    let params = FullReduceParams {
+        numel: numel as u32,
+    };
     let params_buf = create_params_buffer(client, &params);
 
     reduce::launch_full_reduce_op(
@@ -944,7 +947,9 @@ fn native_full_reduce(
     let out = alloc_output(client, &[1], dtype);
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params2 = FullReduceParams { numel: num_workgroups as u32 };
+    let params2 = FullReduceParams {
+        numel: num_workgroups as u32,
+    };
     let params_buf2 = create_params_buffer(client, &params2);
 
     reduce::launch_full_reduce_op(
@@ -981,13 +986,21 @@ fn native_softmax(
     };
 
     if dim >= ndim {
-        return Err(Error::InvalidDimension { dim: dim as isize, ndim });
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
     }
 
     // Softmax is only efficient on last dimension in our implementation
     // For other dimensions, use CPU fallback
     if dim != ndim - 1 {
-        return crate::runtime::fallback::softmax_fallback(a, dim as isize, &client.device_id, "softmax");
+        return crate::runtime::fallback::softmax_fallback(
+            a,
+            dim as isize,
+            &client.device_id,
+            "softmax",
+        );
     }
 
     let a_contig = ensure_contiguous(a);
@@ -1030,7 +1043,10 @@ fn native_argreduce_op(
     let ndim = shape.len();
 
     if dim >= ndim {
-        return Err(Error::InvalidDimension { dim: dim as isize, ndim });
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
     }
 
     let a_contig = ensure_contiguous(a);
@@ -1204,7 +1220,13 @@ fn native_where_cond(
 
     // All must have same shape for native implementation
     if cond.shape() != x.shape() || x.shape() != y.shape() {
-        return crate::runtime::fallback::where_cond_fallback(cond, x, y, &client.device_id, "where_cond");
+        return crate::runtime::fallback::where_cond_fallback(
+            cond,
+            x,
+            y,
+            &client.device_id,
+            "where_cond",
+        );
     }
 
     let cond_contig = ensure_contiguous(cond);
@@ -1219,7 +1241,9 @@ fn native_where_cond(
     let y_buf = get_tensor_buffer(&y_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = WhereParams { numel: numel as u32 };
+    let params = WhereParams {
+        numel: numel as u32,
+    };
     let params_buf = create_params_buffer(client, &params);
 
     elementwise::launch_where_op(
@@ -1247,7 +1271,9 @@ fn native_rms_norm(
     let shape = a.shape();
 
     if shape.len() < 1 {
-        return Err(Error::Internal("rms_norm requires at least 1D input".to_string()));
+        return Err(Error::Internal(
+            "rms_norm requires at least 1D input".to_string(),
+        ));
     }
 
     let hidden_size = shape[shape.len() - 1];
@@ -1294,7 +1320,9 @@ fn native_layer_norm(
     let shape = a.shape();
 
     if shape.len() < 1 {
-        return Err(Error::Internal("layer_norm requires at least 1D input".to_string()));
+        return Err(Error::Internal(
+            "layer_norm requires at least 1D input".to_string(),
+        ));
     }
 
     let hidden_size = shape[shape.len() - 1];

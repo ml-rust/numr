@@ -70,9 +70,7 @@ pub fn launch_reduce_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -126,9 +124,7 @@ pub fn launch_full_reduce_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -181,9 +177,7 @@ pub fn launch_argreduce_op(
 
     let mut encoder = cache
         .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some(op),
-        });
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

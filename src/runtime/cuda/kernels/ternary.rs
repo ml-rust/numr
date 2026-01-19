@@ -12,10 +12,10 @@ use super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     kernel_names, launch_config,
 };
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
-use crate::tensor::Tensor;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::tensor::Tensor;
 
 /// Launch a where (conditional select) kernel.
 ///
@@ -146,10 +146,7 @@ pub unsafe fn launch_where_broadcast_op(
 
     // Get kernel function
     let module = get_or_load_module(context, device_index, kernel_names::TERNARY_MODULE)?;
-    let func_name = format!(
-        "where_broadcast_{}",
-        super::loader::dtype_suffix(dtype)
-    );
+    let func_name = format!("where_broadcast_{}", super::loader::dtype_suffix(dtype));
     let func = get_kernel_function(&module, &func_name)?;
 
     // Launch kernel

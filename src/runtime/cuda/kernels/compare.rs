@@ -14,10 +14,10 @@ use super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     kernel_names, launch_binary_kernel, launch_config,
 };
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
-use crate::tensor::Tensor;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::tensor::Tensor;
 
 /// Launch a comparison operation kernel.
 ///

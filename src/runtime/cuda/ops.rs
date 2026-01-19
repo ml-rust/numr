@@ -52,8 +52,8 @@ use super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    CompareOps, LogicalOps, ScalarOps, TensorOps, compute_reduce_strides,
-    matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
+    CompareOps, LogicalOps, ScalarOps, TensorOps, compute_reduce_strides, matmul_output_shape,
+    normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::tensor::Tensor;
@@ -282,9 +282,9 @@ fn native_scalar_op(
     op: &'static str,
     scalar: f64,
 ) -> Result<Tensor<CudaRuntime>> {
-    use super::kernels::{launch_scalar_op_i32, launch_scalar_op_i64};
     #[cfg(any(feature = "f16", feature = "fp8"))]
     use super::kernels::launch_scalar_op_half;
+    use super::kernels::{launch_scalar_op_i32, launch_scalar_op_i64};
 
     let dtype = a.dtype();
     let a_contig = ensure_contiguous(a);
@@ -292,7 +292,10 @@ fn native_scalar_op(
 
     // Check if pow is supported for this dtype (integers don't have pow kernel)
     if op == "pow_scalar" && matches!(dtype, DType::I32 | DType::I64) {
-        return Err(Error::UnsupportedDType { dtype, op: "pow_scalar" });
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "pow_scalar",
+        });
     }
 
     unsafe {
@@ -442,7 +445,11 @@ fn native_reduce_op(
     let mut current = a.clone();
     for (i, &dim) in sorted_dims.iter().enumerate() {
         // For all but the last dimension, always keepdim to preserve indexing
-        let keep = if i == sorted_dims.len() - 1 { keepdim } else { true };
+        let keep = if i == sorted_dims.len() - 1 {
+            keepdim
+        } else {
+            true
+        };
         current = native_reduce_op(client, &current, op, &[dim], keep, precision)?;
     }
 
@@ -1226,11 +1233,12 @@ impl TensorOps<CudaRuntime> for CudaClient {
         // For different shapes, use the broadcast kernel (stays on GPU)
         // Compute broadcast shape for all three tensors
         let xy_shape = compute_broadcast_shape(x, y)?;
-        let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape)
-            .ok_or_else(|| Error::BroadcastError {
+        let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| {
+            Error::BroadcastError {
                 lhs: cond.shape().to_vec(),
                 rhs: xy_shape.clone(),
-            })?;
+            }
+        })?;
 
         let cond_contig = ensure_contiguous(cond);
         let x_contig = ensure_contiguous(x);

@@ -104,7 +104,8 @@ pub fn launch_layer_norm(
     });
     let pipeline = cache.get_or_create_pipeline("norm", "layer_norm_f32", &module, &layout);
 
-    let bind_group = cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
+    let bind_group =
+        cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
 
     let mut encoder = cache
         .device()
