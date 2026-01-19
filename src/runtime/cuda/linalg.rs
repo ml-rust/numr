@@ -10,8 +10,8 @@ use super::CudaRuntime;
 use super::client::CudaClient;
 use super::kernels;
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    CholeskyDecomposition, EigenDecomposition, LinearAlgebraAlgorithms, LuDecomposition,
+    MatrixNormOrder, QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
     validate_square_matrix,
 };
 use crate::dtype::DType;
@@ -1347,15 +1347,297 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
             vt: vt_final,
         })
     }
+
+    fn eig_decompose_symmetric(
+        &self,
+        a: &Tensor<CudaRuntime>,
+    ) -> Result<EigenDecomposition<CudaRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        // Handle empty matrix
+        if n == 0 {
+            let eigenvalues_ptr = self.allocator().allocate(0);
+            let eigenvectors_ptr = self.allocator().allocate(0);
+            let eigenvalues =
+                unsafe { Self::tensor_from_raw(eigenvalues_ptr, &[0], dtype, device) };
+            let eigenvectors =
+                unsafe { Self::tensor_from_raw(eigenvectors_ptr, &[0, 0], dtype, device) };
+            return Ok(EigenDecomposition {
+                eigenvalues,
+                eigenvectors,
+            });
+        }
+
+        // Handle 1x1 matrix
+        if n == 1 {
+            let eigenvalues_size = dtype.size_in_bytes();
+            let eigenvectors_size = dtype.size_in_bytes();
+            let eigenvalues_ptr = self.allocator().allocate(eigenvalues_size);
+            let eigenvectors_ptr = self.allocator().allocate(eigenvectors_size);
+
+            // Copy the single element as eigenvalue
+            CudaRuntime::copy_within_device(
+                a.storage().ptr(),
+                eigenvalues_ptr,
+                eigenvalues_size,
+                device,
+            );
+
+            // Eigenvector is [1.0]
+            match dtype {
+                DType::F32 => {
+                    let one: [u8; 4] = 1.0f32.to_ne_bytes();
+                    CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device);
+                }
+                DType::F64 => {
+                    let one: [u8; 8] = 1.0f64.to_ne_bytes();
+                    CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device);
+                }
+                _ => unreachable!(),
+            }
+
+            let eigenvalues =
+                unsafe { Self::tensor_from_raw(eigenvalues_ptr, &[1], dtype, device) };
+            let eigenvectors =
+                unsafe { Self::tensor_from_raw(eigenvectors_ptr, &[1, 1], dtype, device) };
+            return Ok(EigenDecomposition {
+                eigenvalues,
+                eigenvectors,
+            });
+        }
+
+        // Allocate working buffers on GPU
+        let work_size = n * n * dtype.size_in_bytes();
+        let work_ptr = self.allocator().allocate(work_size);
+
+        let eigenvectors_size = n * n * dtype.size_in_bytes();
+        let eigenvectors_ptr = self.allocator().allocate(eigenvectors_size);
+
+        let eigenvalues_size = n * dtype.size_in_bytes();
+        let eigenvalues_ptr = self.allocator().allocate(eigenvalues_size);
+
+        let flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(flag_size);
+
+        // Helper for cleanup on error
+        let cleanup = |allocator: &super::CudaAllocator| {
+            allocator.deallocate(work_ptr, work_size);
+            allocator.deallocate(eigenvectors_ptr, eigenvectors_size);
+            allocator.deallocate(eigenvalues_ptr, eigenvalues_size);
+            allocator.deallocate(converged_flag_ptr, flag_size);
+        };
+
+        // Copy input to working buffer
+        CudaRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device);
+
+        // Zero-initialize converged flag
+        let zero_i32: [u8; 4] = [0; 4];
+        CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device);
+
+        // Launch eigendecomposition kernel
+        let result = unsafe {
+            kernels::launch_eig_jacobi_symmetric(
+                self.context(),
+                self.stream(),
+                device.index,
+                dtype,
+                work_ptr,
+                eigenvectors_ptr,
+                eigenvalues_ptr,
+                converged_flag_ptr,
+                n,
+            )
+        };
+
+        if let Err(e) = result {
+            cleanup(self.allocator());
+            return Err(e);
+        }
+
+        self.synchronize();
+
+        // Clean up converged flag
+        self.allocator().deallocate(converged_flag_ptr, flag_size);
+
+        // Read back eigenvalues for sorting
+        let eigenvalues_data: Vec<f64> = match dtype {
+            DType::F32 => {
+                let mut bytes = vec![0u8; n * 4];
+                CudaRuntime::copy_from_device(eigenvalues_ptr, &mut bytes, device);
+                bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
+                    .collect()
+            }
+            DType::F64 => {
+                let mut bytes = vec![0u8; n * 8];
+                CudaRuntime::copy_from_device(eigenvalues_ptr, &mut bytes, device);
+                bytes
+                    .chunks_exact(8)
+                    .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                    .collect()
+            }
+            _ => unreachable!(),
+        };
+
+        // Sort indices by descending magnitude
+        let mut indices: Vec<usize> = (0..n).collect();
+        indices.sort_by(|&i, &j| {
+            eigenvalues_data[j]
+                .abs()
+                .partial_cmp(&eigenvalues_data[i].abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Read eigenvectors and reorder
+        let eigenvalues_final;
+        let eigenvectors_final;
+
+        match dtype {
+            DType::F32 => {
+                // Read eigenvectors
+                let mut v_bytes = vec![0u8; n * n * 4];
+                CudaRuntime::copy_from_device(eigenvectors_ptr, &mut v_bytes, device);
+                let v_data: Vec<f32> = v_bytes
+                    .chunks_exact(4)
+                    .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect();
+
+                // Sorted eigenvalues
+                let eigenvalues_sorted: Vec<f32> = indices
+                    .iter()
+                    .map(|&idx| eigenvalues_data[idx] as f32)
+                    .collect();
+
+                // Sorted eigenvector columns
+                let mut v_sorted = vec![0.0f32; n * n];
+                for (new_idx, &old_idx) in indices.iter().enumerate() {
+                    for i in 0..n {
+                        v_sorted[i * n + new_idx] = v_data[i * n + old_idx];
+                    }
+                }
+
+                // Allocate final output
+                let eigenvalues_ptr_final = self.allocator().allocate(eigenvalues_size);
+                let eigenvectors_ptr_final = self.allocator().allocate(eigenvectors_size);
+
+                // Copy sorted results to GPU
+                let eigenvalues_bytes: Vec<u8> = eigenvalues_sorted
+                    .iter()
+                    .flat_map(|&v| v.to_ne_bytes())
+                    .collect();
+                CudaRuntime::copy_to_device(&eigenvalues_bytes, eigenvalues_ptr_final, device);
+
+                let eigenvectors_bytes: Vec<u8> =
+                    v_sorted.iter().flat_map(|&v| v.to_ne_bytes()).collect();
+                CudaRuntime::copy_to_device(&eigenvectors_bytes, eigenvectors_ptr_final, device);
+
+                eigenvalues_final =
+                    unsafe { Self::tensor_from_raw(eigenvalues_ptr_final, &[n], dtype, device) };
+                eigenvectors_final = unsafe {
+                    Self::tensor_from_raw(eigenvectors_ptr_final, &[n, n], dtype, device)
+                };
+            }
+            DType::F64 => {
+                // Read eigenvectors
+                let mut v_bytes = vec![0u8; n * n * 8];
+                CudaRuntime::copy_from_device(eigenvectors_ptr, &mut v_bytes, device);
+                let v_data: Vec<f64> = v_bytes
+                    .chunks_exact(8)
+                    .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
+                    .collect();
+
+                // Sorted eigenvalues
+                let eigenvalues_sorted: Vec<f64> =
+                    indices.iter().map(|&idx| eigenvalues_data[idx]).collect();
+
+                // Sorted eigenvector columns
+                let mut v_sorted = vec![0.0f64; n * n];
+                for (new_idx, &old_idx) in indices.iter().enumerate() {
+                    for i in 0..n {
+                        v_sorted[i * n + new_idx] = v_data[i * n + old_idx];
+                    }
+                }
+
+                // Allocate final output
+                let eigenvalues_ptr_final = self.allocator().allocate(eigenvalues_size);
+                let eigenvectors_ptr_final = self.allocator().allocate(eigenvectors_size);
+
+                // Copy sorted results to GPU
+                let eigenvalues_bytes: Vec<u8> = eigenvalues_sorted
+                    .iter()
+                    .flat_map(|&v| v.to_ne_bytes())
+                    .collect();
+                CudaRuntime::copy_to_device(&eigenvalues_bytes, eigenvalues_ptr_final, device);
+
+                let eigenvectors_bytes: Vec<u8> =
+                    v_sorted.iter().flat_map(|&v| v.to_ne_bytes()).collect();
+                CudaRuntime::copy_to_device(&eigenvectors_bytes, eigenvectors_ptr_final, device);
+
+                eigenvalues_final =
+                    unsafe { Self::tensor_from_raw(eigenvalues_ptr_final, &[n], dtype, device) };
+                eigenvectors_final = unsafe {
+                    Self::tensor_from_raw(eigenvectors_ptr_final, &[n, n], dtype, device)
+                };
+            }
+            _ => unreachable!(),
+        }
+
+        // Clean up working buffers
+        self.allocator().deallocate(work_ptr, work_size);
+        self.allocator()
+            .deallocate(eigenvectors_ptr, eigenvectors_size);
+        self.allocator()
+            .deallocate(eigenvalues_ptr, eigenvalues_size);
+
+        Ok(EigenDecomposition {
+            eigenvalues: eigenvalues_final,
+            eigenvectors: eigenvectors_final,
+        })
+    }
 }
 
 // Helper methods
 impl CudaClient {
-    /// Create a tensor from a raw GPU pointer
+    /// Create a tensor from a raw CUDA GPU pointer.
+    ///
+    /// This is a low-level helper function used internally to wrap GPU memory
+    /// allocations as tensors. The caller is responsible for ensuring all safety
+    /// invariants are met.
     ///
     /// # Safety
-    /// - `ptr` must point to valid GPU memory of at least `shape.product() * dtype.size_in_bytes()` bytes
-    /// - The memory must remain valid for the lifetime of the returned tensor
+    ///
+    /// The caller MUST ensure all of the following:
+    ///
+    /// 1. **Valid GPU Memory**: `ptr` must point to valid CUDA device memory
+    ///    allocated via `CudaRuntime::allocate()` or equivalent CUDA allocation.
+    ///
+    /// 2. **Sufficient Size**: The allocation must contain at least
+    ///    `shape.iter().product() * dtype.size_in_bytes()` bytes. For empty
+    ///    shapes (scalars), this is `1 * dtype.size_in_bytes()` bytes.
+    ///
+    /// 3. **Lifetime**: The GPU memory must remain valid for the entire lifetime
+    ///    of the returned tensor. The tensor takes ownership of the memory and
+    ///    will deallocate it when dropped.
+    ///
+    /// 4. **No Aliasing**: No other tensor or reference may hold ownership of
+    ///    the same memory region. Creating multiple tensors from the same `ptr`
+    ///    causes undefined behavior (double-free on drop).
+    ///
+    /// 5. **Device Affinity**: `ptr` must have been allocated on the same CUDA
+    ///    device as specified by `device`. Cross-device pointers are UB.
+    ///
+    /// # Undefined Behavior
+    ///
+    /// Violating any of the above safety requirements results in undefined
+    /// behavior, which may include:
+    /// - Segmentation faults / access violations
+    /// - Double-free memory corruption
+    /// - Use-after-free bugs
+    /// - Silent data corruption
     unsafe fn tensor_from_raw(
         ptr: u64,
         shape: &[usize],

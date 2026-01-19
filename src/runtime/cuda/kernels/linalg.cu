@@ -1131,4 +1131,267 @@ __global__ void transpose_f64(
     }
 }
 
+// ============================================================================
+// Eigendecomposition for Symmetric Matrices using Jacobi Algorithm
+// ============================================================================
+
+// Jacobi eigenvalue algorithm for symmetric matrices (F32)
+// Input: a [n x n] symmetric matrix (in-place working buffer)
+// Output: eigenvalues [n], eigenvectors [n x n]
+__global__ void eig_jacobi_symmetric_f32(
+    float* __restrict__ a,           // [n, n] input matrix, becomes diagonal
+    float* __restrict__ eigenvectors,// [n, n] output eigenvectors
+    float* __restrict__ eigenvalues, // [n] output eigenvalues
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const float eps = 1.192092896e-07f;  // FLT_EPSILON
+    const float tol = (float)n * eps;
+    const int max_sweeps = 30;
+
+    // Initialize eigenvector matrix as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            eigenvectors[i * n + j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
+
+    // Symmetrize input (use lower triangle)
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < i; j++) {
+            float val = a[i * n + j];
+            a[j * n + i] = val;
+        }
+    }
+
+    // Jacobi iterations
+    for (int sweep = 0; sweep < max_sweeps; sweep++) {
+        // Find maximum off-diagonal element
+        float max_off_diag = 0.0f;
+        for (unsigned int i = 0; i < n; i++) {
+            for (unsigned int j = i + 1; j < n; j++) {
+                float val = fabsf(a[i * n + j]);
+                if (val > max_off_diag) {
+                    max_off_diag = val;
+                }
+            }
+        }
+
+        // Check convergence
+        if (max_off_diag < tol) {
+            *converged_flag = 1;
+            break;
+        }
+
+        // Process all element pairs (p, q) where p < q
+        for (unsigned int p = 0; p < n; p++) {
+            for (unsigned int q = p + 1; q < n; q++) {
+                float a_pq = a[p * n + q];
+
+                // Skip if already essentially zero
+                if (fabsf(a_pq) < tol) {
+                    continue;
+                }
+
+                float a_pp = a[p * n + p];
+                float a_qq = a[q * n + q];
+
+                // Compute Jacobi rotation parameters
+                float tau_num = a_qq - a_pp;
+                float tau_den = 2.0f * a_pq;
+
+                float c, s;
+                if (fabsf(tau_den) < 1e-30f) {
+                    c = 1.0f;
+                    s = 0.0f;
+                } else {
+                    float tau = tau_num / tau_den;
+                    float t;
+                    if (tau >= 0.0f) {
+                        t = 1.0f / (tau + sqrtf(1.0f + tau * tau));
+                    } else {
+                        t = -1.0f / (-tau + sqrtf(1.0f + tau * tau));
+                    }
+                    c = 1.0f / sqrtf(1.0f + t * t);
+                    s = t * c;
+                }
+
+                // Apply Jacobi rotation: A' = J^T @ A @ J
+                // Update rows and columns p and q
+                for (unsigned int k = 0; k < n; k++) {
+                    if (k != p && k != q) {
+                        float a_kp = a[k * n + p];
+                        float a_kq = a[k * n + q];
+
+                        float new_kp = c * a_kp - s * a_kq;
+                        float new_kq = s * a_kp + c * a_kq;
+
+                        a[k * n + p] = new_kp;
+                        a[p * n + k] = new_kp;
+                        a[k * n + q] = new_kq;
+                        a[q * n + k] = new_kq;
+                    }
+                }
+
+                // Update diagonal elements
+                float c2 = c * c;
+                float s2 = s * s;
+                float cs2 = 2.0f * c * s;
+
+                float new_pp = c2 * a_pp - cs2 * a_pq + s2 * a_qq;
+                float new_qq = s2 * a_pp + cs2 * a_pq + c2 * a_qq;
+
+                a[p * n + p] = new_pp;
+                a[q * n + q] = new_qq;
+                a[p * n + q] = 0.0f;
+                a[q * n + p] = 0.0f;
+
+                // Update eigenvector matrix: V = V @ J
+                for (unsigned int i = 0; i < n; i++) {
+                    float v_ip = eigenvectors[i * n + p];
+                    float v_iq = eigenvectors[i * n + q];
+
+                    eigenvectors[i * n + p] = c * v_ip - s * v_iq;
+                    eigenvectors[i * n + q] = s * v_ip + c * v_iq;
+                }
+            }
+        }
+    }
+
+    // Extract eigenvalues (diagonal of converged matrix)
+    for (unsigned int i = 0; i < n; i++) {
+        eigenvalues[i] = a[i * n + i];
+    }
+}
+
+// Jacobi eigenvalue algorithm for symmetric matrices (F64)
+__global__ void eig_jacobi_symmetric_f64(
+    double* __restrict__ a,           // [n, n] input matrix, becomes diagonal
+    double* __restrict__ eigenvectors,// [n, n] output eigenvectors
+    double* __restrict__ eigenvalues, // [n] output eigenvalues
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const double eps = 2.220446049250313e-16;  // DBL_EPSILON
+    const double tol = (double)n * eps;
+    const int max_sweeps = 30;
+
+    // Initialize eigenvector matrix as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            eigenvectors[i * n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    // Symmetrize input (use lower triangle)
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < i; j++) {
+            double val = a[i * n + j];
+            a[j * n + i] = val;
+        }
+    }
+
+    // Jacobi iterations
+    for (int sweep = 0; sweep < max_sweeps; sweep++) {
+        // Find maximum off-diagonal element
+        double max_off_diag = 0.0;
+        for (unsigned int i = 0; i < n; i++) {
+            for (unsigned int j = i + 1; j < n; j++) {
+                double val = fabs(a[i * n + j]);
+                if (val > max_off_diag) {
+                    max_off_diag = val;
+                }
+            }
+        }
+
+        // Check convergence
+        if (max_off_diag < tol) {
+            *converged_flag = 1;
+            break;
+        }
+
+        // Process all element pairs (p, q) where p < q
+        for (unsigned int p = 0; p < n; p++) {
+            for (unsigned int q = p + 1; q < n; q++) {
+                double a_pq = a[p * n + q];
+
+                // Skip if already essentially zero
+                if (fabs(a_pq) < tol) {
+                    continue;
+                }
+
+                double a_pp = a[p * n + p];
+                double a_qq = a[q * n + q];
+
+                // Compute Jacobi rotation parameters
+                double tau_num = a_qq - a_pp;
+                double tau_den = 2.0 * a_pq;
+
+                double c, s;
+                if (fabs(tau_den) < 1e-300) {
+                    c = 1.0;
+                    s = 0.0;
+                } else {
+                    double tau = tau_num / tau_den;
+                    double t;
+                    if (tau >= 0.0) {
+                        t = 1.0 / (tau + sqrt(1.0 + tau * tau));
+                    } else {
+                        t = -1.0 / (-tau + sqrt(1.0 + tau * tau));
+                    }
+                    c = 1.0 / sqrt(1.0 + t * t);
+                    s = t * c;
+                }
+
+                // Apply Jacobi rotation: A' = J^T @ A @ J
+                for (unsigned int k = 0; k < n; k++) {
+                    if (k != p && k != q) {
+                        double a_kp = a[k * n + p];
+                        double a_kq = a[k * n + q];
+
+                        double new_kp = c * a_kp - s * a_kq;
+                        double new_kq = s * a_kp + c * a_kq;
+
+                        a[k * n + p] = new_kp;
+                        a[p * n + k] = new_kp;
+                        a[k * n + q] = new_kq;
+                        a[q * n + k] = new_kq;
+                    }
+                }
+
+                // Update diagonal elements
+                double c2 = c * c;
+                double s2 = s * s;
+                double cs2 = 2.0 * c * s;
+
+                double new_pp = c2 * a_pp - cs2 * a_pq + s2 * a_qq;
+                double new_qq = s2 * a_pp + cs2 * a_pq + c2 * a_qq;
+
+                a[p * n + p] = new_pp;
+                a[q * n + q] = new_qq;
+                a[p * n + q] = 0.0;
+                a[q * n + p] = 0.0;
+
+                // Update eigenvector matrix: V = V @ J
+                for (unsigned int i = 0; i < n; i++) {
+                    double v_ip = eigenvectors[i * n + p];
+                    double v_iq = eigenvectors[i * n + q];
+
+                    eigenvectors[i * n + p] = c * v_ip - s * v_iq;
+                    eigenvectors[i * n + q] = s * v_ip + c * v_iq;
+                }
+            }
+        }
+    }
+
+    // Extract eigenvalues (diagonal of converged matrix)
+    for (unsigned int i = 0; i < n; i++) {
+        eigenvalues[i] = a[i * n + i];
+    }
+}
+
 } // extern "C"

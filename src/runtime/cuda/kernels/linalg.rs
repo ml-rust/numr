@@ -1018,3 +1018,67 @@ pub unsafe fn launch_transpose(
 
     Ok(())
 }
+
+// ============================================================================
+// Eigendecomposition for Symmetric Matrices (Jacobi Algorithm)
+// ============================================================================
+
+/// Launch eigendecomposition kernel for symmetric matrices.
+///
+/// This implements the Jacobi eigenvalue algorithm for symmetric matrices.
+/// After this kernel:
+/// - `eigenvalues_ptr` contains the eigenvalues (unsorted)
+/// - `eigenvectors_ptr` contains the eigenvector matrix V
+///
+/// # Safety
+///
+/// - `work_ptr` must point to [n, n] matrix (working copy, will be modified)
+/// - `eigenvectors_ptr` must have space for [n, n] matrix
+/// - `eigenvalues_ptr` must have space for n elements
+/// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
+pub unsafe fn launch_eig_jacobi_symmetric(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    work_ptr: u64,
+    eigenvectors_ptr: u64,
+    eigenvalues_ptr: u64,
+    converged_flag_ptr: u64,
+    n: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::LINALG_MODULE)?;
+
+    let func_name = match dtype {
+        DType::F32 => "eig_jacobi_symmetric_f32",
+        DType::F64 => "eig_jacobi_symmetric_f64",
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "eig_jacobi_symmetric",
+            });
+        }
+    };
+
+    let func = get_kernel_function(&module, func_name)?;
+
+    // Single thread kernel for sequential algorithm (ensures backend parity)
+    let cfg = launch_config((1, 1, 1), (1, 1, 1), 0);
+    let n_u32 = n as u32;
+
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&work_ptr);
+    builder.arg(&eigenvectors_ptr);
+    builder.arg(&eigenvalues_ptr);
+    builder.arg(&n_u32);
+    builder.arg(&converged_flag_ptr);
+
+    unsafe { builder.launch(cfg) }.map_err(|e| {
+        Error::Internal(format!(
+            "CUDA eig_jacobi_symmetric kernel launch failed: {:?}",
+            e
+        ))
+    })?;
+
+    Ok(())
+}
