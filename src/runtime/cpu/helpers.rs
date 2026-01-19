@@ -21,23 +21,11 @@ use crate::tensor::Tensor;
 // This avoids duplicating the macro logic and ensures a single source of truth.
 
 pub(super) use crate::dispatch_dtype;
+pub(super) use crate::runtime::ensure_contiguous;
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-/// Ensure a tensor is contiguous, cloning if already contiguous or copying if not.
-///
-/// This is a common pattern used before kernel dispatch to ensure memory layout
-/// is suitable for efficient computation.
-#[inline]
-pub(super) fn ensure_contiguous(tensor: &Tensor<CpuRuntime>) -> Tensor<CpuRuntime> {
-    if tensor.is_contiguous() {
-        tensor.clone()
-    } else {
-        tensor.contiguous()
-    }
-}
 
 /// Validate that two tensors have matching dtypes for binary operations.
 #[inline]
