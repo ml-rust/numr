@@ -239,3 +239,50 @@ pub(super) struct EyeParams {
     pub(super) m: u32,
     pub(super) numel: u32,
 }
+
+// Cumulative operation params
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CumsumParams {
+    pub(super) scan_size: u32,
+    pub(super) outer_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CumsumStridedParams {
+    pub(super) scan_size: u32,
+    pub(super) outer_size: u32,
+    pub(super) inner_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CumprodParams {
+    pub(super) scan_size: u32,
+    pub(super) outer_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CumprodStridedParams {
+    pub(super) scan_size: u32,
+    pub(super) outer_size: u32,
+    pub(super) inner_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct LogsumexpParams {
+    pub(super) reduce_size: u32,
+    pub(super) outer_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct LogsumexpStridedParams {
+    pub(super) reduce_size: u32,
+    pub(super) outer_size: u32,
+    pub(super) inner_size: u32,
+}

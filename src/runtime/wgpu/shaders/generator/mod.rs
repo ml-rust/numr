@@ -27,6 +27,7 @@ pub mod cast;
 pub mod cat;
 pub mod common;
 pub mod compare;
+pub mod cumulative;
 pub mod index;
 pub mod masked;
 pub mod matmul;
@@ -41,6 +42,10 @@ pub use cast::{generate_all_casts_from, generate_cast_shader};
 pub use cat::generate_cat_shader;
 pub use common::{dtype_suffix, is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type};
 pub use compare::generate_compare_shader;
+pub use cumulative::{
+    generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
+    generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
+};
 pub use index::{generate_gather_shader, generate_index_select_shader, generate_scatter_shader};
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::generate_matmul_shader;

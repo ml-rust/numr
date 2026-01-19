@@ -30,8 +30,12 @@ pub struct PipelineCache {
     queue: Arc<Queue>,
     /// Cached shader modules by name
     modules: Mutex<HashMap<&'static str, Arc<ShaderModule>>>,
+    /// Cached shader modules by dynamic name (for generated shaders)
+    dynamic_modules: Mutex<HashMap<String, Arc<ShaderModule>>>,
     /// Cached pipelines by (shader_name, entry_point)
     pipelines: Mutex<HashMap<(&'static str, &'static str), Arc<ComputePipeline>>>,
+    /// Cached pipelines with dynamic keys (for generated shaders)
+    dynamic_pipelines: Mutex<HashMap<(String, String), Arc<ComputePipeline>>>,
     /// Cached bind group layouts by layout key
     layouts: Mutex<HashMap<LayoutKey, Arc<BindGroupLayout>>>,
 }
@@ -52,7 +56,9 @@ impl PipelineCache {
             device,
             queue,
             modules: Mutex::new(HashMap::new()),
+            dynamic_modules: Mutex::new(HashMap::new()),
             pipelines: Mutex::new(HashMap::new()),
+            dynamic_pipelines: Mutex::new(HashMap::new()),
             layouts: Mutex::new(HashMap::new()),
         }
     }
@@ -71,6 +77,26 @@ impl PipelineCache {
 
         let module = Arc::new(module);
         modules.insert(name, module.clone());
+        module
+    }
+
+    /// Get or create a shader module from dynamically generated source
+    ///
+    /// This variant accepts owned strings for cases where shader source is generated
+    /// at runtime (e.g., multi-dtype shader generation).
+    pub fn get_or_create_module_from_source(&self, name: &str, source: &str) -> Arc<ShaderModule> {
+        let mut modules = self.dynamic_modules.lock();
+        if let Some(module) = modules.get(name) {
+            return module.clone();
+        }
+
+        let module = self.device.create_shader_module(ShaderModuleDescriptor {
+            label: Some(name),
+            source: ShaderSource::Wgsl(source.into()),
+        });
+
+        let module = Arc::new(module);
+        modules.insert(name.to_string(), module.clone());
         module
     }
 
@@ -95,6 +121,48 @@ impl PipelineCache {
                 label: Some(&format!("{}_layout", shader_name)),
                 bind_group_layouts: &[layout],
                 immediate_size: 0, // Not using push constants
+            });
+
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(&format!("{}_{}", shader_name, entry_point)),
+                layout: Some(&pipeline_layout),
+                module,
+                entry_point: Some(entry_point),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+        let pipeline = Arc::new(pipeline);
+        pipelines.insert(key, pipeline.clone());
+        pipeline
+    }
+
+    /// Get or create a compute pipeline from dynamically named shader
+    ///
+    /// This variant accepts owned strings for cases where shader/entry point names
+    /// are generated at runtime (e.g., multi-dtype shader generation).
+    pub fn get_or_create_dynamic_pipeline(
+        &self,
+        shader_name: &str,
+        entry_point: &str,
+        module: &ShaderModule,
+        layout: &BindGroupLayout,
+    ) -> Arc<ComputePipeline> {
+        let key = (shader_name.to_string(), entry_point.to_string());
+        let mut pipelines = self.dynamic_pipelines.lock();
+
+        if let Some(pipeline) = pipelines.get(&key) {
+            return pipeline.clone();
+        }
+
+        let pipeline_layout = self
+            .device
+            .create_pipeline_layout(&PipelineLayoutDescriptor {
+                label: Some(&format!("{}_layout", shader_name)),
+                bind_group_layouts: &[layout],
+                immediate_size: 0,
             });
 
         let pipeline = self

@@ -515,6 +515,25 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         self.sqrt(&variance)
     }
 
+    // --- Cumulative Operations ---
+
+    fn cumsum(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        native_cumsum(self, a, dim)
+    }
+
+    fn cumprod(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        native_cumprod(self, a, dim)
+    }
+
+    fn logsumexp(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_logsumexp(self, a, dims, keepdim)
+    }
+
     // --- Random Operations ---
 
     fn rand(&self, _shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
