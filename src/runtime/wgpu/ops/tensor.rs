@@ -726,13 +726,30 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         let seed = time_seed.wrapping_add(counter);
 
         let range = (high - low) as u32;
-        let params = RandintParams {
-            numel: numel as u32,
-            low: low as u32,
-            range,
-            seed,
+
+        // Use dtype-specific param struct to ensure correct type handling
+        // I32 uses signed low (i32), U32 uses unsigned low (u32)
+        let params_buf = match dtype {
+            DType::I32 => {
+                let params = RandintParamsI32 {
+                    numel: numel as u32,
+                    low: low as i32, // Preserve sign for negative bounds
+                    range,
+                    seed,
+                };
+                create_params_buffer(self, &params)
+            }
+            DType::U32 => {
+                let params = RandintParamsU32 {
+                    numel: numel as u32,
+                    low: low as u32,
+                    range,
+                    seed,
+                };
+                create_params_buffer(self, &params)
+            }
+            _ => unreachable!("randint only supports I32 and U32, validated above"),
         };
-        let params_buf = create_params_buffer(self, &params);
 
         // Launch kernel
         shape::launch_randint(

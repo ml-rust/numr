@@ -13,13 +13,34 @@ use super::shaders::linalg as kernels;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
     CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TensorOps;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
+
+/// Helper macro to get a GPU buffer from a pointer with proper error context.
+///
+/// Reduces boilerplate for the common pattern:
+/// ```ignore
+/// let buffer = get_buffer(ptr)
+///     .ok_or_else(|| Error::Internal("Failed to get X buffer".to_string()))?;
+/// ```
+///
+/// Usage: `let buffer = get_buffer_or_err!(ptr, "LU");`
+macro_rules! get_buffer_or_err {
+    ($ptr:expr, $name:expr) => {
+        get_buffer($ptr).ok_or_else(|| {
+            Error::Internal(format!(
+                "Failed to get {} buffer from GPU allocation",
+                $name
+            ))
+        })?
+    };
+}
 
 impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
     fn lu_decompose(&self, a: &Tensor<WgpuRuntime>) -> Result<LuDecomposition<WgpuRuntime>> {
@@ -1084,10 +1105,224 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
                 let sum_sq = self.sum(&squared, &[], false)?;
                 self.sqrt(&sum_sq)
             }
-            MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
-                "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
-            )),
+            MatrixNormOrder::Spectral => {
+                // Spectral norm is the largest singular value
+                let svd = self.svd_decompose(a)?;
+                // S is already sorted descending, so s[0] is the largest
+                let s_vec: Vec<f32> = svd.s.to_vec();
+                let spectral_val = s_vec.first().copied().unwrap_or(0.0);
+                Ok(Tensor::<WgpuRuntime>::from_slice(
+                    &[spectral_val],
+                    &[],
+                    a.device(),
+                ))
+            }
+            MatrixNormOrder::Nuclear => {
+                // Nuclear norm is sum of singular values
+                let svd = self.svd_decompose(a)?;
+                self.sum(&svd.s, &[], false)
+            }
         }
+    }
+
+    fn svd_decompose(&self, a: &Tensor<WgpuRuntime>) -> Result<SvdDecomposition<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (m, n) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "WGPU svd_decompose (only F32 supported)",
+            });
+        }
+
+        // Handle transpose for m < n case
+        // We want to work with a matrix where rows >= cols
+        let transposed = m < n;
+        let (work_m, work_n) = if transposed { (n, m) } else { (m, n) };
+        let k = work_m.min(work_n); // k = min(m, n) = work_n for our case
+
+        // Get input data
+        let a_data: Vec<f32> = a.to_vec();
+
+        // If transposed, compute A^T
+        let work_data = if transposed {
+            let mut transposed_data = vec![0.0f32; m * n];
+            for i in 0..m {
+                for j in 0..n {
+                    transposed_data[j * m + i] = a_data[i * n + j];
+                }
+            }
+            transposed_data
+        } else {
+            a_data
+        };
+
+        // Allocate buffers for SVD computation
+        // B matrix: [work_m, work_n] - working copy, becomes U columns
+        let b_size = work_m * work_n * dtype.size_in_bytes();
+        let b_ptr = self.allocator().allocate(b_size);
+        let b_buffer = get_buffer_or_err!(b_ptr, "B (working matrix)");
+
+        // V matrix: [work_n, work_n]
+        let v_size = work_n * work_n * dtype.size_in_bytes();
+        let v_ptr = self.allocator().allocate(v_size);
+        let v_buffer = get_buffer_or_err!(v_ptr, "V (right singular vectors)");
+
+        // S vector: [work_n]
+        let s_size = work_n * dtype.size_in_bytes();
+        let s_ptr = self.allocator().allocate(s_size);
+        let s_buffer = get_buffer_or_err!(s_ptr, "S (singular values)");
+
+        // Converged flag
+        let converged_flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(converged_flag_size);
+        let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "SVD convergence flag");
+
+        // Copy working data to B buffer
+        WgpuRuntime::copy_to_device(bytemuck::cast_slice(&work_data), b_ptr, device);
+
+        // Zero-initialize converged flag
+        let zero_i32: [i32; 1] = [0];
+        self.write_buffer(&converged_flag_buffer, &zero_i32);
+
+        // Create params buffer: [work_m, work_n]
+        let params: [u32; 2] = [work_m as u32, work_n as u32];
+        let params_buffer = self.create_uniform_buffer("svd_params", 8);
+        self.write_buffer(&params_buffer, &params);
+
+        // Launch SVD kernel
+        kernels::launch_svd_jacobi(
+            self.pipeline_cache(),
+            &self.queue,
+            &b_buffer,
+            &v_buffer,
+            &s_buffer,
+            &converged_flag_buffer,
+            &params_buffer,
+            dtype,
+        )?;
+
+        self.synchronize();
+
+        // Read back converged flag
+        let staging = self.create_staging_buffer("svd_converged_staging", 4);
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("svd_converged_copy"),
+                });
+        encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
+        self.submit_and_wait(encoder);
+
+        let mut converged_val = [0i32; 1];
+        self.read_buffer(&staging, &mut converged_val);
+
+        // Clean up converged flag
+        self.allocator()
+            .deallocate(converged_flag_ptr, converged_flag_size);
+
+        if converged_val[0] != 0 {
+            // Cleanup on failure
+            self.allocator().deallocate(b_ptr, b_size);
+            self.allocator().deallocate(v_ptr, v_size);
+            self.allocator().deallocate(s_ptr, s_size);
+            return Err(Error::Internal(
+                "SVD did not converge within maximum iterations".to_string(),
+            ));
+        }
+
+        // Read results back for potential transposition
+        let b_staging = self.create_staging_buffer("svd_b_staging", b_size as u64);
+        let v_staging = self.create_staging_buffer("svd_v_staging", v_size as u64);
+
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("svd_results_copy"),
+                });
+        encoder.copy_buffer_to_buffer(&b_buffer, 0, &b_staging, 0, b_size as u64);
+        encoder.copy_buffer_to_buffer(&v_buffer, 0, &v_staging, 0, v_size as u64);
+        self.submit_and_wait(encoder);
+
+        let mut b_data = vec![0.0f32; work_m * work_n];
+        let mut v_data = vec![0.0f32; work_n * work_n];
+        self.read_buffer(&b_staging, &mut b_data);
+        self.read_buffer(&v_staging, &mut v_data);
+
+        // Deallocate working buffers
+        self.allocator().deallocate(b_ptr, b_size);
+        self.allocator().deallocate(v_ptr, v_size);
+
+        // Handle transpose: if original was m < n, swap U and V^T
+        let (u_final, vt_final) = if transposed {
+            // For A^T = U_work * S * V_work^T
+            // A = V_work * S * U_work^T
+            // So: final_U = V_work, final_V^T = U_work^T (which is B transposed)
+
+            // For original A [m x n] with m < n:
+            // - U_final should be [m x k] where k = min(m,n) = m
+            // - V^T_final should be [k x n] = [m x n]
+            //
+            // After A^T SVD (work_m = n, work_n = m):
+            // - b_data contains U_work [work_m x work_n] = [n x m]
+            // - v_data contains V_work [work_n x work_n] = [m x m]
+            //
+            // U_final = V_work, shape [m x k] = [m x m]
+            let mut u_final = vec![0.0f32; m * k];
+            for i in 0..m {
+                for j in 0..k {
+                    u_final[i * k + j] = v_data[i * work_n + j];
+                }
+            }
+
+            // V^T_final = U_work^T, shape [k x n] = [m x n]
+            // U_work is [n x m], so U_work^T is [m x n]
+            let mut vt_final = vec![0.0f32; k * n];
+            for i in 0..k {
+                for j in 0..n {
+                    vt_final[i * n + j] = b_data[j * work_n + i];
+                }
+            }
+
+            (u_final, vt_final)
+        } else {
+            // No transpose: U = B (first k columns), V^T = V^T
+            let mut u_final = vec![0.0f32; m * k];
+            for i in 0..m {
+                for j in 0..k {
+                    u_final[i * k + j] = b_data[i * n + j];
+                }
+            }
+
+            // V^T = transpose of V
+            let mut vt_final = vec![0.0f32; k * n];
+            for i in 0..k {
+                for j in 0..n {
+                    vt_final[i * n + j] = v_data[j * n + i];
+                }
+            }
+
+            (u_final, vt_final)
+        };
+
+        // Allocate final output tensors on GPU
+        let u_size = u_final.len() * dtype.size_in_bytes();
+        let u_ptr = self.allocator().allocate(u_size);
+        WgpuRuntime::copy_to_device(bytemuck::cast_slice(&u_final), u_ptr, device);
+
+        let vt_size = vt_final.len() * dtype.size_in_bytes();
+        let vt_ptr = self.allocator().allocate(vt_size);
+        WgpuRuntime::copy_to_device(bytemuck::cast_slice(&vt_final), vt_ptr, device);
+
+        // Create output tensors
+        let u = unsafe { Self::tensor_from_raw(u_ptr, &[m, k], dtype, device) };
+        let s = unsafe { Self::tensor_from_raw(s_ptr, &[k], dtype, device) };
+        let vt = unsafe { Self::tensor_from_raw(vt_ptr, &[k, n], dtype, device) };
+
+        Ok(SvdDecomposition { u, s, vt })
     }
 }
 
