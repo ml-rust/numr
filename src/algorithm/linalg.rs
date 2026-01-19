@@ -21,6 +21,66 @@ use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
 // ============================================================================
+// Matrix Norm Orders
+// ============================================================================
+
+/// Matrix norm order specification.
+///
+/// Different norms are appropriate for different use cases:
+///
+/// - **Frobenius**: General-purpose norm, similar to Euclidean distance.
+///   Use for measuring overall matrix magnitude or computing loss functions.
+///
+/// - **Spectral**: Maximum amplification factor of the matrix.
+///   Use for stability analysis, condition number estimation, or bounding
+///   operator effects in neural networks.
+///
+/// - **Nuclear**: Sum of singular values (trace norm).
+///   Use for matrix rank approximation, low-rank regularization, or
+///   compressed sensing applications.
+///
+/// # Examples
+///
+/// ```ignore
+/// use numr::algorithm::linalg::MatrixNormOrder;
+///
+/// // Frobenius norm: measures overall magnitude
+/// // ||A||_F = sqrt(sum(A[i,j]²))
+/// let fro_norm = client.matrix_norm(&matrix, MatrixNormOrder::Frobenius)?;
+///
+/// // Spectral norm: largest singular value (operator norm)
+/// // ||A||_2 = sigma_max(A)
+/// let spec_norm = client.matrix_norm(&matrix, MatrixNormOrder::Spectral)?;
+///
+/// // Nuclear norm: sum of singular values
+/// // ||A||_* = sum(sigma_i)
+/// let nuc_norm = client.matrix_norm(&matrix, MatrixNormOrder::Nuclear)?;
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatrixNormOrder {
+    /// Frobenius norm: sqrt(sum(A[i,j]²))
+    ///
+    /// The Frobenius norm treats the matrix as a flattened vector and computes
+    /// its Euclidean length. It's always available since it only requires
+    /// element-wise square, sum, and sqrt operations.
+    Frobenius,
+
+    /// Spectral norm (2-norm): maximum singular value
+    ///
+    /// The spectral norm equals the largest singular value of the matrix,
+    /// which represents the maximum factor by which the matrix can stretch
+    /// any input vector. Requires SVD computation.
+    Spectral,
+
+    /// Nuclear norm (trace norm): sum of singular values
+    ///
+    /// The nuclear norm equals the sum of all singular values. It's the
+    /// tightest convex relaxation of matrix rank and is used in low-rank
+    /// matrix recovery algorithms. Requires SVD computation.
+    Nuclear,
+}
+
+// ============================================================================
 // Decomposition Results
 // ============================================================================
 
@@ -159,6 +219,33 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
 
     /// Matrix rank via SVD
     fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
+
+    /// Matrix norm
+    ///
+    /// Computes the matrix norm of the input tensor.
+    ///
+    /// # Supported Norms
+    ///
+    /// - **Frobenius**: `sqrt(sum(A[i,j]²))` - Euclidean norm of the matrix
+    /// - **Spectral** (2-norm): Maximum singular value (requires SVD)
+    /// - **Nuclear** (trace norm): Sum of singular values (requires SVD)
+    ///
+    /// # Algorithm
+    ///
+    /// **Frobenius norm (currently implemented):**
+    /// ```text
+    /// ||A||_F = sqrt(sum_{i,j} |A[i,j]|^2) = sqrt(trace(A^T @ A))
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor
+    /// * `ord` - Norm order: "fro" for Frobenius, "nuc" for nuclear (future), 2 for spectral (future)
+    ///
+    /// # Returns
+    ///
+    /// Scalar tensor containing the norm value
+    fn matrix_norm(&self, a: &Tensor<R>, ord: MatrixNormOrder) -> Result<Tensor<R>>;
 }
 
 // ============================================================================

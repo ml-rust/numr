@@ -6,8 +6,8 @@
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
-    validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
+    QrDecomposition, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -249,6 +249,29 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
                 dtype: a.dtype(),
                 op: "matrix_rank",
             }),
+        }
+    }
+
+    fn matrix_norm(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        ord: MatrixNormOrder,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (_m, _n) = validate_matrix_2d(a.shape())?;
+
+        match ord {
+            MatrixNormOrder::Frobenius => match a.dtype() {
+                DType::F32 => frobenius_norm_impl::<f32>(self, a),
+                DType::F64 => frobenius_norm_impl::<f64>(self, a),
+                _ => Err(Error::UnsupportedDType {
+                    dtype: a.dtype(),
+                    op: "matrix_norm",
+                }),
+            },
+            MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
+                "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
+            )),
         }
     }
 }
@@ -932,6 +955,24 @@ fn matrix_rank_impl<T: Element + LinalgElement>(
     Ok(Tensor::<CpuRuntime>::from_slice(&[rank], &[], device))
 }
 
+/// Frobenius norm: ||A||_F = sqrt(sum_{i,j} |A[i,j]|^2)
+fn frobenius_norm_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    let a_data: Vec<T> = a.to_vec();
+
+    // Sum of squares of all elements
+    let mut sum_sq = T::zero();
+    for &val in &a_data {
+        sum_sq = sum_sq + val * val;
+    }
+
+    let norm = sum_sq.sqrt_val();
+    Ok(Tensor::<CpuRuntime>::from_slice(&[norm], &[], device))
+}
+
 // ============================================================================
 // Helper Trait for Numeric Operations
 // ============================================================================
@@ -1247,5 +1288,64 @@ mod tests {
         let rank_val: Vec<i64> = rank.to_vec();
 
         assert_eq!(rank_val[0], 1, "Rank-deficient matrix should have rank 1");
+    }
+
+    #[test]
+    fn test_frobenius_norm_2x2() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[1, 2], [3, 4]]
+        // ||A||_F = sqrt(1² + 2² + 3² + 4²) = sqrt(1 + 4 + 9 + 16) = sqrt(30)
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+
+        let norm = client.matrix_norm(&a, MatrixNormOrder::Frobenius).unwrap();
+        let norm_val: Vec<f32> = norm.to_vec();
+
+        let expected = (30.0f32).sqrt();
+        assert!(
+            (norm_val[0] - expected).abs() < 1e-5,
+            "Frobenius norm = {} should be {}",
+            norm_val[0],
+            expected
+        );
+    }
+
+    #[test]
+    fn test_frobenius_norm_3x3() {
+        let client = create_client();
+        let device = client.device();
+
+        // Identity matrix: ||I||_F = sqrt(3) for 3x3
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            &[3, 3],
+            device,
+        );
+
+        let norm = client.matrix_norm(&a, MatrixNormOrder::Frobenius).unwrap();
+        let norm_val: Vec<f32> = norm.to_vec();
+
+        let expected = (3.0f32).sqrt();
+        assert!(
+            (norm_val[0] - expected).abs() < 1e-5,
+            "Frobenius norm of 3x3 identity = {} should be {}",
+            norm_val[0],
+            expected
+        );
+    }
+
+    #[test]
+    fn test_spectral_norm_not_implemented() {
+        let client = create_client();
+        let device = client.device();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+
+        let result = client.matrix_norm(&a, MatrixNormOrder::Spectral);
+        assert!(
+            result.is_err(),
+            "Spectral norm should not be implemented yet"
+        );
     }
 }

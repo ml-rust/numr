@@ -12,11 +12,12 @@ use super::client::get_buffer;
 use super::shaders::linalg as kernels;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
-    validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
+    QrDecomposition, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::TensorOps;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
 
@@ -1057,6 +1058,36 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         let rank_tensor = Tensor::<WgpuRuntime>::from_slice(&rank_data, &[], device);
 
         Ok(rank_tensor)
+    }
+
+    fn matrix_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        ord: MatrixNormOrder,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (_m, _n) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "WGPU matrix_norm (only F32 supported)",
+            });
+        }
+
+        match ord {
+            MatrixNormOrder::Frobenius => {
+                // Frobenius norm: ||A||_F = sqrt(sum(A²))
+                // Use existing tensor ops to keep data on GPU
+                let squared = self.square(a)?;
+                let sum_sq = self.sum(&squared, &[], false)?;
+                self.sqrt(&sum_sq)
+            }
+            MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
+                "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
+            )),
+        }
     }
 }
 
