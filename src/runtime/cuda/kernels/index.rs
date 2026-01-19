@@ -460,35 +460,28 @@ pub unsafe fn launch_masked_fill(
         builder.arg(&mask_ptr);
         builder.arg(&output_ptr);
 
-        // Pass fill_value with appropriate type conversion
+        // Pre-convert fill_value to all possible types to avoid lifetime issues
+        let fill_f32 = fill_value as f32;
+        let fill_f64 = fill_value;
+        let fill_i32 = fill_value as i32;
+        let fill_i64 = fill_value as i64;
+        #[cfg(feature = "f16")]
+        let fill_f16 = half::f16::from_f64(fill_value).to_bits();
+        #[cfg(feature = "f16")]
+        let fill_bf16 = half::bf16::from_f64(fill_value).to_bits();
+
+        // Pass fill_value with appropriate type
         match dtype {
-            DType::F32 => {
-                let v = fill_value as f32;
-                builder.arg(&v);
-            }
-            DType::F64 => {
-                builder.arg(&fill_value);
-            }
-            DType::I32 => {
-                let v = fill_value as i32;
-                builder.arg(&v);
-            }
-            DType::I64 => {
-                let v = fill_value as i64;
-                builder.arg(&v);
-            }
+            DType::F32 => builder.arg(&fill_f32),
+            DType::F64 => builder.arg(&fill_f64),
+            DType::I32 => builder.arg(&fill_i32),
+            DType::I64 => builder.arg(&fill_i64),
             #[cfg(feature = "f16")]
-            DType::F16 => {
-                let v = half::f16::from_f64(fill_value).to_bits();
-                builder.arg(&v);
-            }
+            DType::F16 => builder.arg(&fill_f16),
             #[cfg(feature = "f16")]
-            DType::BF16 => {
-                let v = half::bf16::from_f64(fill_value).to_bits();
-                builder.arg(&v);
-            }
+            DType::BF16 => builder.arg(&fill_bf16),
             _ => unreachable!(), // Already handled above
-        }
+        };
 
         builder.arg(&n_u32);
 
