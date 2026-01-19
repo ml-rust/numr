@@ -133,6 +133,22 @@ pub struct SvdDecomposition<R: Runtime> {
     pub vt: Tensor<R>,
 }
 
+/// Eigendecomposition result for symmetric matrices: A = V @ diag(λ) @ V^T
+///
+/// For a real symmetric matrix A, all eigenvalues are real and eigenvectors
+/// form an orthonormal basis. The decomposition satisfies:
+/// - A @ V[:,i] = λ[i] * V[:,i] for each eigenpair
+/// - V^T @ V = I (eigenvectors are orthonormal)
+/// - A = V @ diag(λ) @ V^T
+pub struct EigenDecomposition<R: Runtime> {
+    /// Eigenvalues λ [n] (sorted in descending order by magnitude)
+    pub eigenvalues: Tensor<R>,
+
+    /// Eigenvector matrix V [n, n] where V[:,i] is the eigenvector for λ[i]
+    /// Columns are orthonormal: V^T @ V = I
+    pub eigenvectors: Tensor<R>,
+}
+
 // ============================================================================
 // LinearAlgebra Trait
 // ============================================================================
@@ -172,6 +188,18 @@ pub struct SvdDecomposition<R: Runtime> {
 /// - Mathematical formula (same operations in same order)
 /// - Pivot selection criteria (partial pivoting for LU)
 /// - Special case handling (singular matrices, non-positive-definite)
+///
+/// # Backend-Specific DType Support
+///
+/// | Backend | Supported DTypes | Notes |
+/// |---------|-----------------|-------|
+/// | CPU     | F32, F64        | Full precision support |
+/// | CUDA    | F32, F64        | Full precision support |
+/// | WebGPU  | F32 only        | WGSL language limitation |
+///
+/// WebGPU users requiring F64 precision should use CPU or CUDA backends instead.
+/// Some methods (like `lstsq`) may have additional WebGPU-specific limitations
+/// documented on the individual methods.
 pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// LU Decomposition with partial pivoting: PA = LU
     fn lu_decompose(&self, a: &Tensor<R>) -> Result<LuDecomposition<R>>;
@@ -200,6 +228,36 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     fn solve_triangular_upper(&self, u: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Least squares solution: minimize ||Ax - b||²
+    ///
+    /// Computes the solution x that minimizes the 2-norm of the residual ||Ax - b||².
+    /// Uses QR decomposition (Householder reflections) followed by back-substitution.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute QR decomposition: A = QR
+    /// 2. Transform: y = Q^T @ b
+    /// 3. Solve: R @ x = y (back-substitution)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Coefficient matrix [m, n]
+    /// * `b` - Right-hand side vector/matrix [m] or [m, k]
+    ///
+    /// # Returns
+    ///
+    /// Solution tensor x [n] or [n, k]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if dimensions are incompatible
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32/F64 and both 1D vectors and 2D matrices for b
+    /// - **WebGPU**: F32 only, and b must be 1D (single right-hand side vector)
     fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Matrix inverse using LU decomposition
@@ -335,6 +393,98 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// 2. Only the sorted order matters, not the sorting algorithm itself
     /// 3. Final U, S, V^T satisfy A = U @ diag(S) @ V^T with S[i] ≥ S[i+1]
     fn svd_decompose(&self, a: &Tensor<R>) -> Result<SvdDecomposition<R>>;
+
+    /// Eigendecomposition for symmetric matrices: A = V @ diag(λ) @ V^T
+    ///
+    /// Computes eigenvalues and eigenvectors of a real symmetric matrix using
+    /// the Jacobi eigenvalue algorithm. This algorithm is chosen because it
+    /// produces identical results across all backends (CPU, CUDA, WebGPU),
+    /// which is required for numerical parity.
+    ///
+    /// # Algorithm: Jacobi Eigenvalue Algorithm
+    ///
+    /// ```text
+    /// Input: A [n, n] symmetric matrix
+    /// Output: eigenvalues [n], eigenvectors [n, n]
+    ///
+    /// 1. Initialize: V = I_n (eigenvector matrix starts as identity)
+    /// 2. REPEAT (max 30 sweeps):
+    ///    FOR each pair (p, q) where p < q:
+    ///      - If |A[p,q]| > tol:
+    ///        a. Compute Jacobi rotation angle θ from A[p,p], A[q,q], A[p,q]
+    ///        b. Apply rotation: A' = J^T @ A @ J (zeros out A[p,q] and A[q,p])
+    ///        c. Update eigenvectors: V = V @ J
+    ///    Check convergence: max(|A[i,j]| for i≠j) < n * epsilon
+    /// 3. eigenvalues = diag(A) (diagonal elements after convergence)
+    /// 4. Sort eigenvalues descending by magnitude, reorder eigenvector columns
+    /// 5. Return eigenvalues, eigenvectors
+    /// ```
+    ///
+    /// # Jacobi Rotation
+    ///
+    /// For off-diagonal element A[p,q], the rotation angle θ is computed as:
+    /// ```text
+    /// τ = (A[q,q] - A[p,p]) / (2 * A[p,q])
+    /// t = sign(τ) / (|τ| + sqrt(1 + τ²))   [stable formula]
+    /// c = 1 / sqrt(1 + t²)
+    /// s = t * c
+    /// ```
+    ///
+    /// The rotation matrix J is identity except:
+    /// ```text
+    /// J[p,p] = c,  J[q,q] = c
+    /// J[p,q] = s,  J[q,p] = -s
+    /// ```
+    ///
+    /// # Properties of Output
+    ///
+    /// - **Eigenvalues are real**: Guaranteed for symmetric matrices
+    /// - **Eigenvectors are orthonormal**: V^T @ V = V @ V^T = I
+    /// - **Reconstruction**: A = V @ diag(λ) @ V^T (within tolerance)
+    /// - **Sorted by magnitude**: |λ[0]| ≥ |λ[1]| ≥ ... ≥ |λ[n-1]|
+    ///
+    /// # Numerical Stability
+    ///
+    /// - Jacobi rotations use stable formulas from LAPACK
+    /// - Convergence tolerance: n * machine_epsilon (1e-7 for F32, 1e-15 for F64)
+    /// - Maximum iterations: 30 sweeps (typically converges in 5-10)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D symmetric matrix tensor [n, n]
+    ///
+    /// # Returns
+    ///
+    /// `EigenDecomposition` containing:
+    /// - `eigenvalues`: Real eigenvalues [n] (sorted by magnitude, descending)
+    /// - `eigenvectors`: Orthonormal eigenvector matrix [n, n]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if convergence is not reached in max iterations
+    ///
+    /// # Edge Cases
+    ///
+    /// - **1×1 matrix**: Returns eigenvalue = A[0,0], eigenvector = [1.0]
+    /// - **Diagonal matrix**: Returns diagonal elements as eigenvalues, identity as eigenvectors
+    /// - **Zero matrix**: Returns all zero eigenvalues, identity eigenvectors
+    /// - **Degenerate eigenvalues**: Multiple eigenvalues with same value are handled;
+    ///   corresponding eigenvectors span the eigenspace but may not be unique
+    ///
+    /// # Note on Symmetry
+    ///
+    /// This function assumes the input matrix is symmetric (A = A^T).
+    /// Only the lower triangular part is read; the upper triangular part is ignored.
+    /// For non-symmetric matrices, use SVD instead.
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    /// - All backends use identical Jacobi eigenvalue algorithm for numerical parity
+    fn eig_decompose_symmetric(&self, a: &Tensor<R>) -> Result<EigenDecomposition<R>>;
 }
 
 // ============================================================================
