@@ -277,6 +277,15 @@ pub(super) enum ActivationOp {
     Gelu,
 }
 
+/// Parametric activation operation kind (activations that take a scalar parameter)
+#[derive(Copy, Clone)]
+pub(super) enum ParametricActivationOp {
+    /// LeakyReLU: x if x > 0, else negative_slope * x
+    LeakyRelu,
+    /// ELU: x if x > 0, else alpha * (exp(x) - 1)
+    Elu,
+}
+
 /// Helper for activation operations (relu, sigmoid)
 pub(super) fn activation_op_impl(
     client: &CpuClient,
@@ -320,6 +329,66 @@ pub(super) fn activation_op_impl(
     }, op_name);
 
     Ok(out)
+}
+
+/// Helper for parametric activation operations (leaky_relu, elu)
+///
+/// These activations take a single f64 parameter in addition to the input tensor.
+pub(super) fn parametric_activation_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    op: ParametricActivationOp,
+    param: f64,
+    op_name: &'static str,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            match op {
+                ParametricActivationOp::LeakyRelu => kernels::leaky_relu_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                    param,
+                ),
+                ParametricActivationOp::Elu => kernels::elu_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    len,
+                    param,
+                ),
+            }
+        }
+    }, op_name);
+
+    Ok(out)
+}
+
+/// Helper for leaky_relu activation
+#[inline]
+pub(super) fn leaky_relu_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    negative_slope: f64,
+) -> Result<Tensor<CpuRuntime>> {
+    parametric_activation_impl(client, a, ParametricActivationOp::LeakyRelu, negative_slope, "leaky_relu")
+}
+
+/// Helper for ELU activation
+#[inline]
+pub(super) fn elu_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    alpha: f64,
+) -> Result<Tensor<CpuRuntime>> {
+    parametric_activation_impl(client, a, ParametricActivationOp::Elu, alpha, "elu")
 }
 
 // ============================================================================
@@ -834,4 +903,296 @@ unsafe fn reduce_non_last_dim_f64_acc<T: Element>(
     inner_size: usize,
 ) {
     reduce_non_last_dim_acc::<T, f64>(op, a, out, outer_size, reduce_size, inner_size)
+}
+
+// ============================================================================
+// Indexing Operation Helpers
+// ============================================================================
+
+/// Gather elements along a dimension using an index tensor.
+pub(super) fn gather_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    dim: usize,
+    index: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    // Validate dimension
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate index dtype
+    if index.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: index.dtype(),
+        });
+    }
+
+    // Validate index dimensions
+    if index.ndim() != ndim {
+        return Err(Error::ShapeMismatch {
+            expected: shape.to_vec(),
+            got: index.shape().to_vec(),
+        });
+    }
+
+    // Output shape is same as index shape
+    let out_shape = index.shape().to_vec();
+
+    let a_contig = ensure_contiguous(a);
+    let index_contig = ensure_contiguous(index);
+    let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
+
+    let a_ptr = a_contig.storage().ptr();
+    let index_ptr = index_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::gather_kernel::<T>(
+                a_ptr as *const T,
+                index_ptr as *const i64,
+                out_ptr as *mut T,
+                shape,
+                &out_shape,
+                dim,
+            );
+        }
+    }, "gather");
+
+    Ok(out)
+}
+
+/// Scatter values into a tensor at positions specified by an index tensor.
+pub(super) fn scatter_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    dim: usize,
+    index: &Tensor<CpuRuntime>,
+    src: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    // Validate dimension
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate dtypes
+    if index.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: index.dtype(),
+        });
+    }
+
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    // Validate shapes
+    if index.shape() != src.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: src.shape().to_vec(),
+            got: index.shape().to_vec(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let index_contig = ensure_contiguous(index);
+    let src_contig = ensure_contiguous(src);
+    let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
+
+    let a_ptr = a_contig.storage().ptr();
+    let index_ptr = index_contig.storage().ptr();
+    let src_ptr = src_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::scatter_kernel::<T>(
+                a_ptr as *const T,
+                index_ptr as *const i64,
+                src_ptr as *const T,
+                out_ptr as *mut T,
+                shape,
+                index.shape(),
+                dim,
+            );
+        }
+    }, "scatter");
+
+    Ok(out)
+}
+
+/// Select elements along a dimension using a 1D index tensor.
+pub(super) fn index_select_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    dim: usize,
+    index: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    // Validate dimension
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate index dtype
+    if index.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: index.dtype(),
+        });
+    }
+
+    // Index must be 1D
+    if index.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![index.numel()],
+            got: index.shape().to_vec(),
+        });
+    }
+
+    let index_len = index.shape()[0];
+
+    // Output shape: replace dimension `dim` with index length
+    let mut out_shape = shape.to_vec();
+    out_shape[dim] = index_len;
+
+    let a_contig = ensure_contiguous(a);
+    let index_contig = ensure_contiguous(index);
+    let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
+
+    let a_ptr = a_contig.storage().ptr();
+    let index_ptr = index_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::index_select_kernel::<T>(
+                a_ptr as *const T,
+                index_ptr as *const i64,
+                out_ptr as *mut T,
+                shape,
+                dim,
+                index_len,
+            );
+        }
+    }, "index_select");
+
+    Ok(out)
+}
+
+/// Select elements where mask is true, returning a flattened 1D tensor.
+pub(super) fn masked_select_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    mask: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+
+    // Validate mask dtype
+    if mask.dtype() != DType::U8 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U8,
+            rhs: mask.dtype(),
+        });
+    }
+
+    // Broadcast mask to input shape
+    let mask_broadcast = mask.broadcast_to(a.shape())?;
+
+    let a_contig = ensure_contiguous(a);
+    let mask_contig = ensure_contiguous(&mask_broadcast);
+
+    let numel = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let mask_ptr = mask_contig.storage().ptr();
+
+    // Count true elements first
+    let count = unsafe { kernels::masked_count_kernel(mask_ptr as *const u8, numel) };
+
+    // Allocate output with correct size
+    let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::masked_select_kernel::<T>(
+                a_ptr as *const T,
+                mask_ptr as *const u8,
+                out_ptr as *mut T,
+                numel,
+            );
+        }
+    }, "masked_select");
+
+    Ok(out)
+}
+
+/// Fill elements where mask is true with a scalar value.
+pub(super) fn masked_fill_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    mask: &Tensor<CpuRuntime>,
+    value: f64,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+
+    // Validate mask dtype
+    if mask.dtype() != DType::U8 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U8,
+            rhs: mask.dtype(),
+        });
+    }
+
+    // Broadcast mask to input shape
+    let mask_broadcast = mask.broadcast_to(a.shape())?;
+
+    let a_contig = ensure_contiguous(a);
+    let mask_contig = ensure_contiguous(&mask_broadcast);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let numel = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let mask_ptr = mask_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::masked_fill_kernel::<T>(
+                a_ptr as *const T,
+                mask_ptr as *const u8,
+                out_ptr as *mut T,
+                numel,
+                value,
+            );
+        }
+    }, "masked_fill");
+
+    Ok(out)
 }

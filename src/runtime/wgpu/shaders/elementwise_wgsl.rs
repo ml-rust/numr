@@ -366,6 +366,30 @@ fn gelu_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 }
 
+// Leaky ReLU: max(negative_slope * x, x)
+// Uses scalar_params.scalar for negative_slope parameter
+@compute @workgroup_size(256)
+fn leaky_relu_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    if (gid < scalar_params.numel) {
+        let x = scalar_a[gid];
+        let negative_slope = scalar_params.scalar;
+        scalar_out[gid] = select(negative_slope * x, x, x > 0.0);
+    }
+}
+
+// ELU: x if x > 0, else alpha * (exp(x) - 1)
+// Uses scalar_params.scalar for alpha parameter
+@compute @workgroup_size(256)
+fn elu_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    if (gid < scalar_params.numel) {
+        let x = scalar_a[gid];
+        let alpha = scalar_params.scalar;
+        scalar_out[gid] = select(alpha * (exp(x) - 1.0), x, x > 0.0);
+    }
+}
+
 // ============================================================================
 // Clamp Operation
 // ============================================================================

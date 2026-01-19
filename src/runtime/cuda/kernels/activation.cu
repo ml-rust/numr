@@ -779,4 +779,112 @@ __global__ void softmax_dim_fp8_e5m2(
     }
 }
 
+// ============================================================================
+// Leaky ReLU Activation Operations
+// leaky_relu(x) = max(negative_slope * x, x)
+// ============================================================================
+
+__global__ void leaky_relu_f32(const float* a, float* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = a[idx];
+        out[idx] = x > 0.0f ? x : negative_slope * x;
+    }
+}
+
+__global__ void leaky_relu_f64(const double* a, double* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double x = a[idx];
+        double ns = (double)negative_slope;
+        out[idx] = x > 0.0 ? x : ns * x;
+    }
+}
+
+__global__ void leaky_relu_f16(const __half* a, __half* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __half2float(a[idx]);
+        out[idx] = __float2half(x > 0.0f ? x : negative_slope * x);
+    }
+}
+
+__global__ void leaky_relu_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16(x > 0.0f ? x : negative_slope * x);
+    }
+}
+
+__global__ void leaky_relu_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(x > 0.0f ? x : negative_slope * x));
+    }
+}
+
+__global__ void leaky_relu_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n, float negative_slope) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(x > 0.0f ? x : negative_slope * x));
+    }
+}
+
+// ============================================================================
+// ELU (Exponential Linear Unit) Activation Operations
+// elu(x) = x if x > 0, else alpha * (exp(x) - 1)
+// ============================================================================
+
+__global__ void elu_f32(const float* a, float* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = a[idx];
+        out[idx] = x > 0.0f ? x : alpha * (expf(x) - 1.0f);
+    }
+}
+
+__global__ void elu_f64(const double* a, double* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double x = a[idx];
+        double a_d = (double)alpha;
+        out[idx] = x > 0.0 ? x : a_d * (exp(x) - 1.0);
+    }
+}
+
+__global__ void elu_f16(const __half* a, __half* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __half2float(a[idx]);
+        out[idx] = __float2half(x > 0.0f ? x : alpha * (expf(x) - 1.0f));
+    }
+}
+
+__global__ void elu_bf16(const __nv_bfloat16* a, __nv_bfloat16* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = __bfloat162float(a[idx]);
+        out[idx] = __float2bfloat16(x > 0.0f ? x : alpha * (expf(x) - 1.0f));
+    }
+}
+
+__global__ void elu_fp8_e4m3(const numr_fp8_e4m3* a, numr_fp8_e4m3* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e4m3_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(x > 0.0f ? x : alpha * (expf(x) - 1.0f)));
+    }
+}
+
+__global__ void elu_fp8_e5m2(const numr_fp8_e5m2* a, numr_fp8_e5m2* out, unsigned int n, float alpha) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float x = fp8_e5m2_to_f32(a[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(x > 0.0f ? x : alpha * (expf(x) - 1.0f)));
+    }
+}
+
 } // extern "C"

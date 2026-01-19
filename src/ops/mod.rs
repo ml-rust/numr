@@ -392,6 +392,18 @@ pub trait TensorOps<R: Runtime> {
     /// Uses the tanh approximation. Used in GPT, BERT, and other transformer architectures.
     fn gelu(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Leaky ReLU: max(negative_slope * a, a)
+    ///
+    /// Allows small gradients for negative inputs, helping prevent "dying ReLU" problem.
+    /// Default negative_slope is typically 0.01.
+    fn leaky_relu(&self, a: &Tensor<R>, negative_slope: f64) -> Result<Tensor<R>>;
+
+    /// ELU (Exponential Linear Unit): a if a > 0, else alpha * (exp(a) - 1)
+    ///
+    /// Smooth approximation to ReLU with negative values saturating to -alpha.
+    /// Default alpha is typically 1.0.
+    fn elu(&self, a: &Tensor<R>, alpha: f64) -> Result<Tensor<R>>;
+
     /// Softmax along a dimension
     fn softmax(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>>;
 
@@ -462,6 +474,89 @@ pub trait TensorOps<R: Runtime> {
     ///
     /// Tensor of I64 containing indices of minimum values
     fn argmin(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>>;
+
+    /// Gather elements along a dimension using an index tensor.
+    ///
+    /// For a 3D tensor with dim=1:
+    /// `out[i][j][k] = input[i][index[i][j][k]][k]`
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension along which to gather
+    /// * `index` - Index tensor (I64) with same number of dimensions as input
+    ///
+    /// # Returns
+    ///
+    /// Tensor with same shape as index tensor, same dtype as input
+    fn gather(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Scatter values into a tensor at positions specified by an index tensor.
+    ///
+    /// Creates a new tensor (copy of `a`) with values from `src` scattered at positions
+    /// specified by `index` along dimension `dim`.
+    ///
+    /// For a 3D tensor with dim=1:
+    /// `out[i][index[i][j][k]][k] = src[i][j][k]`
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor (values to scatter into)
+    /// * `dim` - Dimension along which to scatter
+    /// * `index` - Index tensor (I64) specifying scatter positions
+    /// * `src` - Source tensor with values to scatter
+    ///
+    /// # Returns
+    ///
+    /// New tensor with scattered values
+    fn scatter(
+        &self,
+        a: &Tensor<R>,
+        dim: usize,
+        index: &Tensor<R>,
+        src: &Tensor<R>,
+    ) -> Result<Tensor<R>>;
+
+    /// Select elements along a dimension using a 1D index tensor.
+    ///
+    /// Simpler than gather - the index tensor is 1D and applies to all positions
+    /// in the specified dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension along which to select
+    /// * `index` - 1D index tensor (I64) of length m
+    ///
+    /// # Returns
+    ///
+    /// Tensor with dimension `dim` having size m (length of index)
+    fn index_select(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Select elements where mask is true, returning a flattened 1D tensor.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `mask` - Boolean mask tensor (U8: 0=false, non-zero=true), must be broadcastable to `a`
+    ///
+    /// # Returns
+    ///
+    /// 1D tensor containing only elements where mask is true
+    fn masked_select(&self, a: &Tensor<R>, mask: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Fill elements where mask is true with a scalar value.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `mask` - Boolean mask tensor (U8: 0=false, non-zero=true), must be broadcastable to `a`
+    /// * `value` - Value to fill where mask is true
+    ///
+    /// # Returns
+    ///
+    /// New tensor with masked positions filled with value
+    fn masked_fill(&self, a: &Tensor<R>, mask: &Tensor<R>, value: f64) -> Result<Tensor<R>>;
 
     // ===== Type Conversion =====
 

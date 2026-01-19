@@ -8,8 +8,8 @@ use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
 use super::loader::{
-    get_kernel_function, get_or_load_module, kernel_name, kernel_names, launch_config,
-    launch_unary_kernel, softmax_launch_config,
+    BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
+    kernel_names, launch_config, launch_unary_kernel, softmax_launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -148,6 +148,94 @@ pub unsafe fn launch_sigmoid(
             output_ptr,
             numel,
         )
+    }
+}
+
+/// Launch a Leaky ReLU kernel.
+///
+/// Computes: `output[i] = max(negative_slope * input[i], input[i])`
+///
+/// Allows small gradients for negative inputs, helping prevent "dying ReLU" problem.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - Tensors must have at least `numel` elements
+pub unsafe fn launch_leaky_relu(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+    negative_slope: f32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
+        let func_name = kernel_name("leaky_relu", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
+
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&n);
+        builder.arg(&negative_slope);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA leaky_relu kernel launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch an ELU (Exponential Linear Unit) kernel.
+///
+/// Computes: `output[i] = input[i] if input[i] > 0, else alpha * (exp(input[i]) - 1)`
+///
+/// Smooth approximation to ReLU with negative values saturating to -alpha.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - Tensors must have at least `numel` elements
+pub unsafe fn launch_elu(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    output_ptr: u64,
+    numel: usize,
+    alpha: f32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
+        let func_name = kernel_name("elu", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
+
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&n);
+        builder.arg(&alpha);
+
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA elu kernel launch failed: {:?}", e)))?;
+
+        Ok(())
     }
 }
 

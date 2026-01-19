@@ -1689,3 +1689,354 @@ fn test_tensor_where_cond_2d() {
     let data: Vec<f32> = result.to_vec();
     assert_eq!(data, [1.0, 20.0, 30.0, 4.0]);
 }
+
+// ========================================================================
+// Parametric Activation Tests (leaky_relu, elu)
+// ========================================================================
+
+#[test]
+fn test_tensor_leaky_relu() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+
+    // leaky_relu with negative_slope = 0.1
+    let b = client.leaky_relu(&a, 0.1).unwrap();
+
+    let result: Vec<f32> = b.to_vec();
+    // For x > 0: output = x
+    // For x <= 0: output = negative_slope * x
+    assert!((result[0] - (-0.2)).abs() < 1e-6); // -2.0 * 0.1 = -0.2
+    assert!((result[1] - (-0.1)).abs() < 1e-6); // -1.0 * 0.1 = -0.1
+    assert!((result[2] - 0.0).abs() < 1e-6); // 0.0 * 0.1 = 0.0
+    assert!((result[3] - 1.0).abs() < 1e-6); // 1.0 (positive, unchanged)
+    assert!((result[4] - 2.0).abs() < 1e-6); // 2.0 (positive, unchanged)
+}
+
+#[test]
+fn test_tensor_leaky_relu_default_slope() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-10.0f32, 5.0], &[2], &device);
+
+    // leaky_relu with default negative_slope = 0.01
+    let b = client.leaky_relu(&a, 0.01).unwrap();
+
+    let result: Vec<f32> = b.to_vec();
+    assert!((result[0] - (-0.1)).abs() < 1e-6); // -10.0 * 0.01 = -0.1
+    assert!((result[1] - 5.0).abs() < 1e-6); // 5.0 (positive, unchanged)
+}
+
+#[test]
+fn test_tensor_elu() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+
+    // elu with alpha = 1.0
+    let b = client.elu(&a, 1.0).unwrap();
+
+    let result: Vec<f32> = b.to_vec();
+    // For x > 0: output = x
+    // For x <= 0: output = alpha * (exp(x) - 1)
+    let expected_neg2 = 1.0 * ((-2.0f32).exp() - 1.0); // ≈ -0.8647
+    let expected_neg1 = 1.0 * ((-1.0f32).exp() - 1.0); // ≈ -0.6321
+
+    assert!((result[0] - expected_neg2).abs() < 1e-5);
+    assert!((result[1] - expected_neg1).abs() < 1e-5);
+    assert!((result[2] - 0.0).abs() < 1e-6); // 0 is exactly 0 in ELU
+    assert!((result[3] - 1.0).abs() < 1e-6); // 1.0 (positive, unchanged)
+    assert!((result[4] - 2.0).abs() < 1e-6); // 2.0 (positive, unchanged)
+}
+
+#[test]
+fn test_tensor_elu_custom_alpha() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-1.0f32, 1.0], &[2], &device);
+
+    // elu with alpha = 2.0
+    let b = client.elu(&a, 2.0).unwrap();
+
+    let result: Vec<f32> = b.to_vec();
+    let expected_neg1 = 2.0 * ((-1.0f32).exp() - 1.0); // ≈ -1.2642
+
+    assert!((result[0] - expected_neg1).abs() < 1e-5);
+    assert!((result[1] - 1.0).abs() < 1e-6); // 1.0 (positive, unchanged)
+}
+
+#[test]
+fn test_tensor_leaky_relu_f64() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-2.0f64, 0.0, 2.0], &[3], &device);
+
+    let b = client.leaky_relu(&a, 0.2).unwrap();
+
+    let result: Vec<f64> = b.to_vec();
+    assert!((result[0] - (-0.4)).abs() < 1e-10);
+    assert!((result[1] - 0.0).abs() < 1e-10);
+    assert!((result[2] - 2.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_tensor_elu_f64() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, 0.0, 1.0], &[3], &device);
+
+    let b = client.elu(&a, 1.0).unwrap();
+
+    let result: Vec<f64> = b.to_vec();
+    let expected_neg1 = 1.0 * ((-1.0f64).exp() - 1.0);
+
+    assert!((result[0] - expected_neg1).abs() < 1e-10);
+    assert!((result[1] - 0.0).abs() < 1e-10);
+    assert!((result[2] - 1.0).abs() < 1e-10);
+}
+
+// ===== Indexing Operation Tests =====
+
+#[test]
+fn test_tensor_index_select() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 2D tensor: [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        &device,
+    );
+
+    // Select rows 0 and 2
+    let indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 2], &[2], &device);
+    let out = client.index_select(&a, 0, &indices).unwrap();
+
+    assert_eq!(out.shape(), &[2, 3]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [1.0, 2.0, 3.0, 7.0, 8.0, 9.0]);
+
+    // Select columns 1 and 0
+    let indices = Tensor::<CpuRuntime>::from_slice(&[1i64, 0], &[2], &device);
+    let out = client.index_select(&a, 1, &indices).unwrap();
+
+    assert_eq!(out.shape(), &[3, 2]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [2.0, 1.0, 5.0, 4.0, 8.0, 7.0]);
+}
+
+#[test]
+fn test_tensor_index_select_1d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 1D tensor
+    let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0, 50.0], &[5], &device);
+
+    // Select indices 4, 2, 0
+    let indices = Tensor::<CpuRuntime>::from_slice(&[4i64, 2, 0], &[3], &device);
+    let out = client.index_select(&a, 0, &indices).unwrap();
+
+    assert_eq!(out.shape(), &[3]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [50.0, 30.0, 10.0]);
+}
+
+#[test]
+fn test_tensor_gather() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 2D tensor: [[1, 2], [3, 4], [5, 6]]
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
+
+    // Gather along dim 0 using indices [[0, 1], [2, 0]]
+    let indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2, 0], &[2, 2], &device);
+    let out = client.gather(&a, 0, &indices).unwrap();
+
+    assert_eq!(out.shape(), &[2, 2]);
+    let result: Vec<f32> = out.to_vec();
+    // For position [0,0]: index[0,0]=0 -> a[0,0] = 1
+    // For position [0,1]: index[0,1]=1 -> a[1,1] = 4
+    // For position [1,0]: index[1,0]=2 -> a[2,0] = 5
+    // For position [1,1]: index[1,1]=0 -> a[0,1] = 2
+    assert_eq!(result, [1.0, 4.0, 5.0, 2.0]);
+}
+
+#[test]
+fn test_tensor_gather_1d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 1D tensor
+    let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+
+    // Gather specific indices
+    let indices = Tensor::<CpuRuntime>::from_slice(&[3i64, 0, 2, 1, 3], &[5], &device);
+    let out = client.gather(&a, 0, &indices).unwrap();
+
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [40.0, 10.0, 30.0, 20.0, 40.0]);
+}
+
+#[test]
+fn test_tensor_scatter() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Initialize destination tensor with zeros: 3x3
+    let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 9], &[3, 3], &device);
+
+    // Source values to scatter: 2x3
+    let src = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+
+    // Indices for dim 0: [[0, 2, 1], [2, 1, 0]]
+    let indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 2, 1, 2, 1, 0], &[2, 3], &device);
+    let out = client.scatter(&a, 0, &indices, &src).unwrap();
+
+    assert_eq!(out.shape(), &[3, 3]);
+    let result: Vec<f32> = out.to_vec();
+    // Position [0,0] <- src[0,0]=1 (index 0)
+    // Position [0,1] <- src[1,1]=5 (index 1)
+    // Position [0,2] <- src[1,2]=6 (index 0)
+    // Position [1,0] <- src[0,2]=3 (index 1) -- wait, need to check
+    // Let me trace more carefully:
+    // src[0,0]=1 -> indices[0,0]=0 -> a[0,0]
+    // src[0,1]=2 -> indices[0,1]=2 -> a[2,1]
+    // src[0,2]=3 -> indices[0,2]=1 -> a[1,2]
+    // src[1,0]=4 -> indices[1,0]=2 -> a[2,0]
+    // src[1,1]=5 -> indices[1,1]=1 -> a[1,1]
+    // src[1,2]=6 -> indices[1,2]=0 -> a[0,2]
+    // Result: [[1,0,6], [0,5,3], [4,2,0]]
+    assert_eq!(result, [1.0, 0.0, 6.0, 0.0, 5.0, 3.0, 4.0, 2.0, 0.0]);
+}
+
+#[test]
+fn test_tensor_masked_fill() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Input tensor
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+
+    // Mask: true where value > 3
+    let mask = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 0, 1, 1, 1], &[2, 3], &device);
+
+    let out = client.masked_fill(&a, &mask, -1.0).unwrap();
+
+    assert_eq!(out.shape(), &[2, 3]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [1.0, 2.0, 3.0, -1.0, -1.0, -1.0]);
+}
+
+#[test]
+fn test_tensor_masked_fill_all_false() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+    let mask = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 0, 0], &[4], &device);
+
+    let out = client.masked_fill(&a, &mask, 999.0).unwrap();
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_tensor_masked_fill_all_true() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+    let mask = Tensor::<CpuRuntime>::from_slice(&[1u8, 1, 1, 1], &[4], &device);
+
+    let out = client.masked_fill(&a, &mask, 0.0).unwrap();
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [0.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn test_tensor_masked_select() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Input tensor
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+
+    // Select values where mask is true (values > 2)
+    let mask = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 1, 1, 1, 1], &[2, 3], &device);
+
+    let out = client.masked_select(&a, &mask).unwrap();
+
+    // Result should be 1D with only selected values
+    assert_eq!(out.shape(), &[4]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [3.0, 4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn test_tensor_masked_select_none() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let mask = Tensor::<CpuRuntime>::from_slice(&[0u8, 0, 0], &[3], &device);
+
+    let out = client.masked_select(&a, &mask).unwrap();
+
+    // Empty result - check shape and numel, don't call to_vec() on empty tensor
+    assert_eq!(out.shape(), &[0]);
+    assert_eq!(out.numel(), 0);
+}
+
+#[test]
+fn test_tensor_masked_select_all() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[2, 2], &device);
+    let mask = Tensor::<CpuRuntime>::from_slice(&[1u8, 1, 1, 1], &[2, 2], &device);
+
+    let out = client.masked_select(&a, &mask).unwrap();
+
+    assert_eq!(out.shape(), &[4]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [10.0, 20.0, 30.0, 40.0]);
+}
+
+#[test]
+fn test_tensor_index_select_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Test with i32 dtype
+    let a = Tensor::<CpuRuntime>::from_slice(&[10i32, 20, 30, 40, 50], &[5], &device);
+    let indices = Tensor::<CpuRuntime>::from_slice(&[4i64, 0, 2], &[3], &device);
+
+    let out = client.index_select(&a, 0, &indices).unwrap();
+    assert_eq!(out.dtype(), DType::I32);
+    let result: Vec<i32> = out.to_vec();
+    assert_eq!(result, [50, 10, 30]);
+}
+
+#[test]
+fn test_tensor_gather_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[100i32, 200, 300, 400], &[4], &device);
+    let indices = Tensor::<CpuRuntime>::from_slice(&[2i64, 0, 3, 1], &[4], &device);
+
+    let out = client.gather(&a, 0, &indices).unwrap();
+    assert_eq!(out.dtype(), DType::I32);
+    let result: Vec<i32> = out.to_vec();
+    assert_eq!(result, [300, 100, 400, 200]);
+}

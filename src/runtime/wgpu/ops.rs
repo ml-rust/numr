@@ -11,14 +11,14 @@
 use wgpu::BufferUsages;
 
 use super::client::get_buffer;
-use super::shaders::{elementwise, matmul, norm, reduce};
+use super::shaders::{elementwise, index, matmul, norm, reduce};
 use super::{WgpuClient, WgpuRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, CompareOps, ScalarOps, TensorOps, broadcast_shape, matmul_output_shape,
 };
-use crate::runtime::RuntimeClient;
+use crate::runtime::{RuntimeClient, compute_contiguous_strides};
 use crate::tensor::Tensor;
 
 // ============================================================================
@@ -93,6 +93,12 @@ struct ClampParams {
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct WhereParams {
+    numel: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CastParams {
     numel: u32,
 }
 
@@ -323,6 +329,18 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_unary_op(self, "gelu", a)
     }
 
+    fn leaky_relu(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        negative_slope: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_parametric_activation(self, "leaky_relu", a, negative_slope)
+    }
+
+    fn elu(&self, a: &Tensor<WgpuRuntime>, alpha: f64) -> Result<Tensor<WgpuRuntime>> {
+        native_parametric_activation(self, "elu", a, alpha)
+    }
+
     // --- Additional Unary Operations ---
 
     fn sign(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -413,27 +431,36 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // --- Cast ---
 
     fn cast(&self, a: &Tensor<WgpuRuntime>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        // For now, only F32 -> F32 is supported natively
-        // Other casts use CPU fallback
-        if a.dtype() == DType::F32 && dtype == DType::F32 {
-            // No-op
+        let src_dtype = a.dtype();
+
+        // Same-type cast is a no-op
+        if src_dtype == dtype {
             return Ok(a.clone());
         }
 
-        use crate::dispatch_dtype;
-        let src_dtype = a.dtype();
-        let cpu = crate::runtime::fallback::CpuFallbackContext::new();
+        // Check if both dtypes are natively supported on WebGPU
+        let wgpu_supported = [DType::F32, DType::I32, DType::U32];
+        let native_cast = wgpu_supported.contains(&src_dtype) && wgpu_supported.contains(&dtype);
 
-        dispatch_dtype!(src_dtype, T => {
-            let a_cpu: crate::tensor::Tensor<crate::runtime::cpu::CpuRuntime> =
-                cpu.tensor_from_gpu::<T, WgpuRuntime>(a);
-            let result_cpu = cpu.client.cast(&a_cpu, dtype)?;
+        if native_cast {
+            // Use native WGSL cast shader
+            native_cast_op(self, a, dtype)
+        } else {
+            // Fall back to CPU for unsupported dtypes (F64, F16, I8, etc.)
+            use crate::dispatch_dtype;
+            let cpu = crate::runtime::fallback::CpuFallbackContext::new();
 
-            dispatch_dtype!(dtype, U => {
-                let result_data: Vec<U> = result_cpu.to_vec();
-                return Ok(Tensor::<WgpuRuntime>::from_slice(&result_data, result_cpu.shape(), &self.device_id));
-            }, "cast_output");
-        }, "cast_input");
+            dispatch_dtype!(src_dtype, T => {
+                let a_cpu: crate::tensor::Tensor<crate::runtime::cpu::CpuRuntime> =
+                    cpu.tensor_from_gpu::<T, WgpuRuntime>(a);
+                let result_cpu = cpu.client.cast(&a_cpu, dtype)?;
+
+                dispatch_dtype!(dtype, U => {
+                    let result_data: Vec<U> = result_cpu.to_vec();
+                    return Ok(Tensor::<WgpuRuntime>::from_slice(&result_data, result_cpu.shape(), &self.device_id));
+                }, "cast_output");
+            }, "cast_input");
+        }
     }
 
     // --- Where/Conditional ---
@@ -512,6 +539,53 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
             dtype,
             op: "randn (WebGPU native PRNG not implemented)",
         })
+    }
+
+    // --- Indexing Operations ---
+
+    fn gather(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_gather(self, a, dim, index)
+    }
+
+    fn scatter(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_scatter(self, a, dim, index, src)
+    }
+
+    fn index_select(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_index_select(self, a, dim, index)
+    }
+
+    fn masked_select(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        mask: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_masked_select(self, a, mask)
+    }
+
+    fn masked_fill(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        mask: &Tensor<WgpuRuntime>,
+        value: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_masked_fill(self, a, mask, value)
     }
 }
 
@@ -707,6 +781,65 @@ fn native_scalar_op(
     Ok(out)
 }
 
+/// Native parametric activation operation (leaky_relu, elu).
+///
+/// These activations take an extra scalar parameter (negative_slope or alpha).
+fn native_parametric_activation(
+    client: &WgpuClient,
+    op: &'static str,
+    a: &Tensor<WgpuRuntime>,
+    param: f64,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let numel = a.numel();
+
+    let out = alloc_output(client, a.shape(), dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    // Uses ScalarParams to pass the parameter
+    let params = ScalarParams {
+        numel: numel as u32,
+        scalar: param as f32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    match op {
+        "leaky_relu" => {
+            elementwise::launch_leaky_relu(
+                client.pipeline_cache(),
+                client.wgpu_queue(),
+                &a_buf,
+                &out_buf,
+                &params_buf,
+                numel,
+                dtype,
+            )?;
+        }
+        "elu" => {
+            elementwise::launch_elu(
+                client.pipeline_cache(),
+                client.wgpu_queue(),
+                &a_buf,
+                &out_buf,
+                &params_buf,
+                numel,
+                dtype,
+            )?;
+        }
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unknown parametric activation: {}",
+                op
+            )));
+        }
+    }
+
+    Ok(out)
+}
+
 fn native_compare_op(
     client: &WgpuClient,
     op: &'static str,
@@ -760,6 +893,43 @@ fn native_compare_op(
         &params_buf,
         numel,
         dtype,
+    )?;
+
+    Ok(out)
+}
+
+/// Native cast operation using WGSL compute shader.
+///
+/// Supports F32 ↔ I32 ↔ U32 conversions on GPU.
+fn native_cast_op(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    dst_dtype: DType,
+) -> Result<Tensor<WgpuRuntime>> {
+    let src_dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let numel = a.numel();
+
+    // Allocate output with target dtype
+    let out = alloc_output(client, a.shape(), dst_dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let params = CastParams {
+        numel: numel as u32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    elementwise::launch_cast_op(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &out_buf,
+        &params_buf,
+        numel,
+        src_dtype,
+        dst_dtype,
     )?;
 
     Ok(out)
@@ -1355,6 +1525,537 @@ fn native_layer_norm(
         &out_buf,
         &params_buf,
         batch_size.max(1),
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
+// ============================================================================
+// Indexing Operation Params
+// ============================================================================
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct IndexSelectParams {
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    index_len: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GatherParams {
+    ndim: u32,
+    dim: u32,
+    total_elements: u32,
+    _padding: u32,
+    input_shape: [u32; 4],
+    input_strides: [u32; 4],
+    output_shape: [u32; 4],
+    output_strides: [u32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ScatterParams {
+    ndim: u32,
+    dim: u32,
+    src_total: u32,
+    _padding: u32,
+    output_shape: [u32; 4],
+    output_strides: [u32; 4],
+    src_shape: [u32; 4],
+    src_strides: [u32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CopyParams {
+    numel: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaskedFillParams {
+    numel: u32,
+    fill_value: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaskedCountParams {
+    numel: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct MaskedSelectParams {
+    numel: u32,
+}
+
+// ============================================================================
+// Native Indexing Operation Implementations
+// ============================================================================
+
+fn native_index_select(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    dim: usize,
+    indices: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Indices must be I32 on WebGPU (no I64 support)
+    if indices.dtype() != DType::I32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: indices.dtype(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let indices_contig = ensure_contiguous(indices);
+
+    // Compute output shape
+    let index_len = indices.numel();
+    let mut out_shape = shape.to_vec();
+    out_shape[dim] = index_len;
+
+    let outer_size: usize = shape[..dim].iter().product();
+    let dim_size = shape[dim];
+    let inner_size: usize = shape[dim + 1..].iter().product();
+    let total_output = outer_size * index_len * inner_size;
+
+    let out = alloc_output(client, &out_shape, dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let indices_buf = get_tensor_buffer(&indices_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let params = IndexSelectParams {
+        outer_size: outer_size.max(1) as u32,
+        dim_size: dim_size as u32,
+        inner_size: inner_size.max(1) as u32,
+        index_len: index_len as u32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    index::launch_index_select(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &indices_buf,
+        &out_buf,
+        &params_buf,
+        total_output.max(1),
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
+fn native_gather(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    dim: usize,
+    indices: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    if ndim > 4 {
+        return Err(Error::Internal(
+            "gather: WebGPU implementation supports max 4 dimensions".to_string(),
+        ));
+    }
+
+    // Indices must be I32 on WebGPU
+    if indices.dtype() != DType::I32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: indices.dtype(),
+        });
+    }
+
+    // Output shape is same as index shape
+    let out_shape = indices.shape().to_vec();
+    let total_elements = indices.numel();
+
+    let a_contig = ensure_contiguous(a);
+    let indices_contig = ensure_contiguous(indices);
+
+    let out = alloc_output(client, &out_shape, dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let indices_buf = get_tensor_buffer(&indices_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    // Pack shape and strides into vec4<u32> format
+    let input_strides = compute_contiguous_strides(shape);
+    let output_strides = compute_contiguous_strides(&out_shape);
+
+    let mut input_shape_arr = [1u32; 4];
+    let mut input_strides_arr = [1u32; 4];
+    let mut output_shape_arr = [1u32; 4];
+    let mut output_strides_arr = [1u32; 4];
+
+    for i in 0..ndim.min(4) {
+        input_shape_arr[i] = shape[i] as u32;
+        input_strides_arr[i] = input_strides[i] as u32;
+    }
+    for i in 0..out_shape.len().min(4) {
+        output_shape_arr[i] = out_shape[i] as u32;
+        output_strides_arr[i] = output_strides[i] as u32;
+    }
+
+    let params = GatherParams {
+        ndim: ndim as u32,
+        dim: dim as u32,
+        total_elements: total_elements as u32,
+        _padding: 0,
+        input_shape: input_shape_arr,
+        input_strides: input_strides_arr,
+        output_shape: output_shape_arr,
+        output_strides: output_strides_arr,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    index::launch_gather(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &indices_buf,
+        &out_buf,
+        &params_buf,
+        total_elements.max(1),
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
+fn native_scatter(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    dim: usize,
+    indices: &Tensor<WgpuRuntime>,
+    src: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    if ndim > 4 {
+        return Err(Error::Internal(
+            "scatter: WebGPU implementation supports max 4 dimensions".to_string(),
+        ));
+    }
+
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    // Indices must be I32 on WebGPU
+    if indices.dtype() != DType::I32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: indices.dtype(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let indices_contig = ensure_contiguous(indices);
+    let src_contig = ensure_contiguous(src);
+
+    let src_shape = src.shape();
+    let src_total = src.numel();
+
+    // Output is same shape as input
+    let out = alloc_output(client, shape, dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let indices_buf = get_tensor_buffer(&indices_contig)?;
+    let src_buf = get_tensor_buffer(&src_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    // First, copy input to output
+    let copy_params = CopyParams {
+        numel: a.numel() as u32,
+    };
+    let copy_params_buf = create_params_buffer(client, &copy_params);
+
+    index::launch_copy(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &out_buf,
+        &copy_params_buf,
+        a.numel(),
+        dtype,
+    )?;
+
+    // Then scatter src values into output
+    let output_strides = compute_contiguous_strides(shape);
+    let src_strides = compute_contiguous_strides(src_shape);
+
+    let mut output_shape_arr = [1u32; 4];
+    let mut output_strides_arr = [1u32; 4];
+    let mut src_shape_arr = [1u32; 4];
+    let mut src_strides_arr = [1u32; 4];
+
+    for i in 0..ndim.min(4) {
+        output_shape_arr[i] = shape[i] as u32;
+        output_strides_arr[i] = output_strides[i] as u32;
+    }
+    for i in 0..src_shape.len().min(4) {
+        src_shape_arr[i] = src_shape[i] as u32;
+        src_strides_arr[i] = src_strides[i] as u32;
+    }
+
+    let params = ScatterParams {
+        ndim: ndim as u32,
+        dim: dim as u32,
+        src_total: src_total as u32,
+        _padding: 0,
+        output_shape: output_shape_arr,
+        output_strides: output_strides_arr,
+        src_shape: src_shape_arr,
+        src_strides: src_strides_arr,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    index::launch_scatter(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &src_buf,
+        &indices_buf,
+        &out_buf,
+        &params_buf,
+        src_total.max(1),
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
+fn native_masked_fill(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    mask: &Tensor<WgpuRuntime>,
+    value: f64,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let numel = a.numel();
+
+    // Mask must be U32 on WebGPU (no U8 support)
+    if mask.dtype() != DType::U32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U32,
+            rhs: mask.dtype(),
+        });
+    }
+
+    if mask.shape() != a.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: mask.shape().to_vec(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let mask_contig = ensure_contiguous(mask);
+
+    let out = alloc_output(client, a.shape(), dtype);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let mask_buf = get_tensor_buffer(&mask_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let params = MaskedFillParams {
+        numel: numel as u32,
+        fill_value: value as f32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    index::launch_masked_fill(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &mask_buf,
+        &out_buf,
+        &params_buf,
+        numel,
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
+fn native_masked_select(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    mask: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let numel = a.numel();
+
+    // Mask must be U32 on WebGPU
+    if mask.dtype() != DType::U32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U32,
+            rhs: mask.dtype(),
+        });
+    }
+
+    if mask.shape() != a.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: mask.shape().to_vec(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let mask_contig = ensure_contiguous(mask);
+
+    let a_buf = get_tensor_buffer(&a_contig)?;
+    let mask_buf = get_tensor_buffer(&mask_contig)?;
+
+    // Phase 1: Count the number of selected elements
+    // Need an atomic buffer for count result
+    let count_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("masked_count_result"),
+        size: 4,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Initialize count to 0
+    client.queue.write_buffer(&count_buffer, 0, &[0u8; 4]);
+
+    let count_params = MaskedCountParams {
+        numel: numel as u32,
+    };
+    let count_params_buf = create_params_buffer(client, &count_params);
+
+    index::launch_masked_count(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &mask_buf,
+        &count_buffer,
+        &count_params_buf,
+        numel,
+        dtype,
+    )?;
+
+    // Read count back to CPU (need to synchronize)
+    let staging_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("count_staging"),
+        size: 4,
+        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = client
+        .wgpu_device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("copy_count"),
+        });
+    encoder.copy_buffer_to_buffer(&count_buffer, 0, &staging_buffer, 0, 4);
+    client.queue.submit(std::iter::once(encoder.finish()));
+
+    // Wait for GPU and read the count
+    let slice = staging_buffer.slice(..);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        sender.send(result).unwrap();
+    });
+    let _ = client.wgpu_device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(60)),
+    });
+    receiver.recv().unwrap().unwrap();
+
+    let count = {
+        let data = slice.get_mapped_range();
+        u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize
+    };
+    drop(staging_buffer);
+
+    if count == 0 {
+        // Return empty tensor
+        return Ok(Tensor::empty(&[0], dtype, client.device()));
+    }
+
+    // Phase 2: Compute prefix sum
+    let prefix_sum_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("prefix_sum"),
+        size: (numel * 4) as u64,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let prefix_params = MaskedCountParams {
+        numel: numel as u32,
+    };
+    let prefix_params_buf = create_params_buffer(client, &prefix_params);
+
+    index::launch_masked_prefix_sum(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &mask_buf,
+        &prefix_sum_buffer,
+        &prefix_params_buf,
+        numel,
+        dtype,
+    )?;
+
+    // Phase 3: Gather selected elements
+    let out = alloc_output(client, &[count], dtype);
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let select_params = MaskedSelectParams {
+        numel: numel as u32,
+    };
+    let select_params_buf = create_params_buffer(client, &select_params);
+
+    index::launch_masked_select(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &mask_buf,
+        &prefix_sum_buffer,
+        &out_buf,
+        &select_params_buf,
+        numel,
         dtype,
     )?;
 

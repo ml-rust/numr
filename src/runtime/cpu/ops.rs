@@ -4,8 +4,10 @@
 //! dispatch to the low-level kernels.
 
 use super::helpers::{
-    ActivationOp, activation_op_impl, binary_op_impl, compare_op_impl, dispatch_dtype,
-    ensure_contiguous, reduce_impl, reduce_impl_with_precision, scalar_op_impl, unary_op_impl,
+    ActivationOp, activation_op_impl, binary_op_impl, compare_op_impl, dispatch_dtype, elu_impl,
+    ensure_contiguous, gather_impl, index_select_impl, leaky_relu_impl, masked_fill_impl,
+    masked_select_impl, reduce_impl, reduce_impl_with_precision, scalar_op_impl, scatter_impl,
+    unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -337,6 +339,18 @@ impl TensorOps<CpuRuntime> for CpuClient {
         activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
     }
 
+    fn leaky_relu(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        negative_slope: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        leaky_relu_impl(self, a, negative_slope)
+    }
+
+    fn elu(&self, a: &Tensor<CpuRuntime>, alpha: f64) -> Result<Tensor<CpuRuntime>> {
+        elu_impl(self, a, alpha)
+    }
+
     fn softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
         let dtype = a.dtype();
         let ndim = a.ndim();
@@ -606,6 +620,53 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }, "argmin");
 
         Ok(out)
+    }
+
+    // ===== Indexing Operations =====
+
+    fn gather(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gather_impl(self, a, dim, index)
+    }
+
+    fn scatter(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        scatter_impl(self, a, dim, index, src)
+    }
+
+    fn index_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_select_impl(self, a, dim, index)
+    }
+
+    fn masked_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_select_impl(self, a, mask)
+    }
+
+    fn masked_fill(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_fill_impl(self, a, mask, value)
     }
 
     // ===== Type Conversion =====
