@@ -11,13 +11,14 @@
 use wgpu::BufferUsages;
 
 use super::client::get_buffer;
-use super::shaders::{elementwise, index, matmul, norm, reduce};
+use super::shaders::{elementwise, index, matmul, norm, reduce, shape};
 use super::{WgpuClient, WgpuRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, CompareOps, ScalarOps, TensorOps, broadcast_shape, matmul_output_shape,
 };
+use crate::runtime::shape_ops::{self, validate_cat, validate_stack};
 use crate::runtime::{RuntimeClient, compute_contiguous_strides};
 use crate::tensor::Tensor;
 
@@ -156,6 +157,17 @@ struct LayerNormParams {
     batch_size: u32,
     hidden_size: u32,
     eps: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CatShaderParams {
+    outer_size: u32,
+    src_cat_size: u32,
+    dst_cat_size: u32,
+    cat_offset: u32,
+    inner_size: u32,
+    total_elements: u32,
 }
 
 // ============================================================================
@@ -586,6 +598,90 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         value: f64,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_masked_fill(self, a, mask, value)
+    }
+
+    // --- Shape Operations ---
+
+    fn cat(&self, tensors: &[&Tensor<WgpuRuntime>], dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        let cat_params = validate_cat(tensors, dim)?;
+
+        // Check dtype is supported by WebGPU (F32, I32, U32 are natively supported)
+        if !matches!(cat_params.dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype: cat_params.dtype,
+                op: "cat",
+            });
+        }
+
+        // Allocate output
+        let out = alloc_output(self, &cat_params.out_shape, cat_params.dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Copy data from each tensor using WGSL kernel
+        let mut cat_offset = 0usize;
+        for &tensor in tensors {
+            let tensor_contig = ensure_contiguous(tensor);
+            let src_cat_size = tensor.shape()[cat_params.dim_idx];
+            let total_elements = cat_params.outer_size * src_cat_size * cat_params.inner_size;
+
+            let src_buf = get_tensor_buffer(&tensor_contig)?;
+
+            let shader_params = CatShaderParams {
+                outer_size: cat_params.outer_size as u32,
+                src_cat_size: src_cat_size as u32,
+                dst_cat_size: cat_params.cat_dim_total as u32,
+                cat_offset: cat_offset as u32,
+                inner_size: cat_params.inner_size as u32,
+                total_elements: total_elements as u32,
+            };
+            let params_buf = create_params_buffer(self, &shader_params);
+
+            shape::launch_cat_copy(
+                self.pipeline_cache(),
+                self.wgpu_queue(),
+                &src_buf,
+                &out_buf,
+                &params_buf,
+                total_elements,
+                cat_params.dtype,
+            )?;
+
+            cat_offset += src_cat_size;
+        }
+
+        Ok(out)
+    }
+
+    fn stack(&self, tensors: &[&Tensor<WgpuRuntime>], dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        // Validate tensors and get normalized dimension
+        let _ = validate_stack(tensors, dim)?;
+
+        // stack(tensors, dim) = cat([t.unsqueeze(dim) for t in tensors], dim)
+        let unsqueezed: Vec<Tensor<WgpuRuntime>> = tensors
+            .iter()
+            .map(|t| t.unsqueeze(dim))
+            .collect::<Result<_>>()?;
+
+        let refs: Vec<&Tensor<WgpuRuntime>> = unsqueezed.iter().collect();
+        self.cat(&refs, dim)
+    }
+
+    fn split(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        split_size: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<WgpuRuntime>>> {
+        shape_ops::split_impl(tensor, split_size, dim)
+    }
+
+    fn chunk(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        chunks: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<WgpuRuntime>>> {
+        shape_ops::chunk_impl(tensor, chunks, dim)
     }
 }
 

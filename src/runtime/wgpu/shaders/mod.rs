@@ -25,6 +25,7 @@ pub mod copy;
 pub mod generator;
 pub mod index;
 pub mod linalg;
+pub mod shape;
 pub mod typed_kernels;
 
 // Legacy modules (to be replaced by typed_kernels)
@@ -41,10 +42,10 @@ mod pipeline;
 mod reduce_wgsl;
 
 pub use generator::{
-    dtype_suffix, generate_binary_shader, generate_cast_shader, generate_compare_shader,
-    generate_fill_shader, generate_gather_shader, generate_index_select_shader,
-    generate_masked_fill_shader, generate_masked_select_shader, generate_matmul_shader,
-    generate_norm_shader, generate_reduce_shader, generate_scalar_shader, generate_scatter_shader,
-    generate_unary_shader, is_wgpu_supported, wgsl_type,
+    dtype_suffix, generate_binary_shader, generate_cast_shader, generate_cat_shader,
+    generate_compare_shader, generate_fill_shader, generate_gather_shader,
+    generate_index_select_shader, generate_masked_fill_shader, generate_masked_select_shader,
+    generate_matmul_shader, generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
+    generate_scatter_shader, generate_unary_shader, is_wgpu_supported, wgsl_type,
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
