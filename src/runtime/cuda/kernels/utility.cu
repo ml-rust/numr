@@ -215,4 +215,225 @@ __global__ void randn_f64(double* out, unsigned long long seed, unsigned int n) 
     }
 }
 
+// ============================================================================
+// Arange - Generate evenly spaced values in [start, stop)
+// ============================================================================
+
+__global__ void arange_f32(float* out, float start, float step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = start + step * (float)idx;
+    }
+}
+
+__global__ void arange_f64(double* out, double start, double step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = start + step * (double)idx;
+    }
+}
+
+__global__ void arange_f16(__half* out, float start, float step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2half(start + step * (float)idx);
+    }
+}
+
+__global__ void arange_bf16(__nv_bfloat16* out, float start, float step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2bfloat16(start + step * (float)idx);
+    }
+}
+
+__global__ void arange_i32(int* out, int start, int step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = start + step * (int)idx;
+    }
+}
+
+__global__ void arange_i64(long long* out, long long start, long long step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = start + step * (long long)idx;
+    }
+}
+
+__global__ void arange_u32(unsigned int* out, unsigned int start, int step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        // Use signed arithmetic to avoid overflow when step is negative
+        // Compute offset as signed, then add to start
+        long long offset = (long long)step * (long long)idx;
+        out[idx] = (unsigned int)((long long)start + offset);
+    }
+}
+
+__global__ void arange_u64(unsigned long long* out, unsigned long long start, long long step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        // Use signed arithmetic to avoid overflow when step is negative
+        // Cast to signed for computation, then back to unsigned
+        long long signed_start = (long long)start;
+        long long offset = step * (long long)idx;
+        out[idx] = (unsigned long long)(signed_start + offset);
+    }
+}
+
+// ============================================================================
+// Linspace - Generate evenly spaced values from start to stop (inclusive)
+// ============================================================================
+
+__global__ void linspace_f32(float* out, float start, float stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        float t = (float)idx / (float)(steps - 1);
+        out[idx] = start + (stop - start) * t;
+    }
+}
+
+__global__ void linspace_f64(double* out, double start, double stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        double t = (double)idx / (double)(steps - 1);
+        out[idx] = start + (stop - start) * t;
+    }
+}
+
+__global__ void linspace_f16(__half* out, float start, float stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        float t = (float)idx / (float)(steps - 1);
+        out[idx] = __float2half(start + (stop - start) * t);
+    }
+}
+
+__global__ void linspace_bf16(__nv_bfloat16* out, float start, float stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        float t = (float)idx / (float)(steps - 1);
+        out[idx] = __float2bfloat16(start + (stop - start) * t);
+    }
+}
+
+// Integer linspace - computation in double, then convert to integer
+// This matches NumPy behavior and allows linspace to work with all dtypes
+__global__ void linspace_i32(int* out, double start, double stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        double t = (double)idx / (double)(steps - 1);
+        out[idx] = (int)(start + (stop - start) * t);
+    }
+}
+
+__global__ void linspace_i64(long long* out, double start, double stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        double t = (double)idx / (double)(steps - 1);
+        out[idx] = (long long)(start + (stop - start) * t);
+    }
+}
+
+__global__ void linspace_u32(unsigned int* out, double start, double stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        double t = (double)idx / (double)(steps - 1);
+        out[idx] = (unsigned int)(start + (stop - start) * t);
+    }
+}
+
+__global__ void linspace_u64(unsigned long long* out, double start, double stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        double t = (double)idx / (double)(steps - 1);
+        out[idx] = (unsigned long long)(start + (stop - start) * t);
+    }
+}
+
+// ============================================================================
+// Eye - Generate identity matrix
+// ============================================================================
+
+__global__ void eye_f32(float* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1.0f : 0.0f;
+    }
+}
+
+__global__ void eye_f64(double* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1.0 : 0.0;
+    }
+}
+
+__global__ void eye_f16(__half* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? __float2half(1.0f) : __float2half(0.0f);
+    }
+}
+
+__global__ void eye_bf16(__nv_bfloat16* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? __float2bfloat16(1.0f) : __float2bfloat16(0.0f);
+    }
+}
+
+__global__ void eye_i32(int* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1 : 0;
+    }
+}
+
+__global__ void eye_i64(long long* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1LL : 0LL;
+    }
+}
+
+__global__ void eye_u32(unsigned int* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1u : 0u;
+    }
+}
+
+__global__ void eye_u64(unsigned long long* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx] = (row == col) ? 1ULL : 0ULL;
+    }
+}
+
 } // extern "C"

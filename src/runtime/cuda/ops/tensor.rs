@@ -20,7 +20,9 @@ use crate::ops::{
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
-use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
+use crate::runtime::{
+    Runtime, compute_contiguous_strides, ensure_contiguous, validate_arange, validate_eye,
+};
 use crate::tensor::Tensor;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1296,6 +1298,106 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 value,
                 out.storage().ptr(),
                 numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn arange(
+        &self,
+        start: f64,
+        stop: f64,
+        step: f64,
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Use shared validation
+        let numel = validate_arange(start, stop, step)?;
+
+        // Handle empty tensor case
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[numel], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_arange(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                start,
+                step,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn linspace(
+        &self,
+        start: f64,
+        stop: f64,
+        steps: usize,
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // linspace supports all numeric dtypes - computation is done in higher precision,
+        // then converted to the output dtype. This matches NumPy behavior.
+
+        // Handle edge cases
+        if steps == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        if steps == 1 {
+            return self.fill(&[1], start, dtype);
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[steps], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_linspace(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                start,
+                stop,
+                out.storage().ptr(),
+                steps,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // Use shared validation
+        let (rows, cols) = validate_eye(n, m);
+
+        // Handle edge cases
+        if rows == 0 || cols == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &[rows, cols],
+                dtype,
+                &self.device,
+            ));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[rows, cols], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_eye(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                rows,
+                cols,
+                out.storage().ptr(),
             )?;
         }
 

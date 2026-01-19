@@ -302,3 +302,331 @@ pub unsafe fn launch_randn(
 
     Ok(())
 }
+
+// ============================================================================
+// Arange Kernel
+// ============================================================================
+
+/// Launch an arange kernel: generates evenly spaced values in [start, stop).
+///
+/// Values are generated using: start + step * i for i in 0..numel
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `numel` elements
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of the output
+/// * `start` - Start of the interval
+/// * `step` - Step between values
+/// * `out_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_arange(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    start: f64,
+    step: f64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("arange", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    // Dispatch based on dtype to use appropriate types
+    match dtype {
+        DType::F32 => unsafe {
+            let start_f32 = start as f32;
+            let step_f32 = step as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&step_f32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::F64 => unsafe {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start);
+            builder.arg(&step);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        #[cfg(feature = "f16")]
+        DType::F16 | DType::BF16 => unsafe {
+            // F16/BF16 kernels take f32 parameters
+            let start_f32 = start as f32;
+            let step_f32 = step as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&step_f32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::I32 => unsafe {
+            let start_i32 = start as i32;
+            let step_i32 = step as i32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_i32);
+            builder.arg(&step_i32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::I64 => unsafe {
+            let start_i64 = start as i64;
+            let step_i64 = step as i64;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_i64);
+            builder.arg(&step_i64);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::U32 => unsafe {
+            let start_u32 = start as u32;
+            let step_i32 = step as i32; // step can be negative
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_u32);
+            builder.arg(&step_i32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::U64 => unsafe {
+            let start_u64 = start as u64;
+            let step_i64 = step as i64; // step can be negative
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_u64);
+            builder.arg(&step_i64);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "arange",
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Linspace Kernel
+// ============================================================================
+
+/// Launch a linspace kernel: generates evenly spaced values from start to stop (inclusive).
+///
+/// Values are generated using: start + (stop - start) * i / (steps - 1)
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `steps` elements
+/// - `steps` must be >= 2
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of the output (supports float and integer types)
+/// * `start` - Start of the interval
+/// * `stop` - End of the interval (inclusive)
+/// * `out_ptr` - Device pointer to output tensor
+/// * `steps` - Number of values to generate
+pub unsafe fn launch_linspace(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    start: f64,
+    stop: f64,
+    out_ptr: u64,
+    steps: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("linspace", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(steps);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = steps as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    match dtype {
+        DType::F32 => unsafe {
+            let start_f32 = start as f32;
+            let stop_f32 = stop as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&stop_f32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA linspace kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        DType::F64 => unsafe {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start);
+            builder.arg(&stop);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA linspace kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        #[cfg(feature = "f16")]
+        DType::F16 | DType::BF16 => unsafe {
+            let start_f32 = start as f32;
+            let stop_f32 = stop as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&stop_f32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA linspace kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        // Integer types - computation in f64, then convert
+        DType::I32 | DType::I64 | DType::U32 | DType::U64 => unsafe {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start); // Use f64 for precision
+            builder.arg(&stop);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA linspace kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "linspace",
+            });
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Eye Kernel
+// ============================================================================
+
+/// Launch an eye kernel: generates identity matrix.
+///
+/// Creates a matrix with ones on the diagonal and zeros elsewhere.
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `n * m` elements
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of the output
+/// * `n` - Number of rows
+/// * `m` - Number of columns
+/// * `out_ptr` - Device pointer to output tensor
+pub unsafe fn launch_eye(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    n: usize,
+    m: usize,
+    out_ptr: u64,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("eye", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let numel = n * m;
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n_u32 = n as u32;
+    let m_u32 = m as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&out_ptr);
+        builder.arg(&n_u32);
+        builder.arg(&m_u32);
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA eye kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
