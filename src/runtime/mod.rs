@@ -32,7 +32,7 @@ pub mod wgpu;
 pub mod fallback;
 
 pub use allocator::{Allocator, DefaultAllocator};
-pub use helpers::ensure_contiguous;
+pub use helpers::{ensure_contiguous, validate_arange, validate_eye, validate_linspace};
 
 /// Core trait for compute backends
 ///
