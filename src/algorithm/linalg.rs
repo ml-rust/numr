@@ -246,6 +246,95 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     ///
     /// Scalar tensor containing the norm value
     fn matrix_norm(&self, a: &Tensor<R>, ord: MatrixNormOrder) -> Result<Tensor<R>>;
+
+    /// Singular Value Decomposition: A = U @ diag(S) @ V^T
+    ///
+    /// Computes the thin SVD using the One-Sided Jacobi algorithm.
+    /// This algorithm is chosen because it produces identical results
+    /// across all backends (CPU, CUDA, WebGPU), which is required for
+    /// numerical parity.
+    ///
+    /// # Algorithm: One-Sided Jacobi SVD
+    ///
+    /// ```text
+    /// Input: A [m, n] where we compute thin SVD
+    /// Output: U [m, k], S [k], V^T [k, n] where k = min(m, n)
+    ///
+    /// 1. If m < n: Transpose A, compute SVD, swap U↔V^T
+    /// 2. Initialize: B = A (working copy), V = I_n
+    /// 3. REPEAT (max 30 sweeps):
+    ///    FOR each pair (p, q) where p < q:
+    ///      - Compute Gram elements: a_pp, a_qq, a_pq = B[:,p]·B[:,q]
+    ///      - If |a_pq| > tol: compute Jacobi rotation (c,s), apply to B and V columns
+    ///    Check convergence: sqrt(Σ a_pq²) < n * epsilon
+    /// 4. Extract: S[j] = ||B[:,j]||, U[:,j] = B[:,j]/S[j]
+    /// 5. Sort S descending, reorder U and V columns accordingly
+    /// 6. Return U, S, V^T = V.transpose()
+    /// ```
+    ///
+    /// # Numerical Stability
+    ///
+    /// - Jacobi rotations are computed using the stable formula from LAPACK
+    /// - Convergence tolerance: n * machine_epsilon (1e-7 for F32, 1e-15 for F64)
+    /// - Maximum iterations: 30 sweeps (typically converges in 5-10)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [m, n]
+    ///
+    /// # Returns
+    ///
+    /// `SvdDecomposition` containing:
+    /// - `u`: Left singular vectors [m, k]
+    /// - `s`: Singular values [k] (sorted in descending order)
+    /// - `vt`: Right singular vectors transposed [k, n]
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if convergence is not reached in max iterations
+    ///
+    /// # Edge Cases
+    ///
+    /// - **Empty matrices** (m=0 or n=0): Returns tensors with correct shapes
+    ///   (U: [m, 0], S: [0], V^T: [0, n]) but no computation is performed.
+    ///
+    /// - **Single element** (1×1 matrix): Returns U=[1], S=[|a|], V^T=[sign(a)]
+    ///   where sign(a) = 1 for a≥0, -1 for a<0.
+    ///
+    /// - **Rank-deficient matrices**: Zero or near-zero singular values are
+    ///   included in output. The number of non-zero singular values indicates
+    ///   the numerical rank. Use a tolerance (e.g., S > 1e-10) to determine rank.
+    ///
+    /// - **Very thin matrices** (m >> n or m << n): Works correctly via transpose.
+    ///   Performance is O(min(m,n)² × max(m,n)) regardless of orientation.
+    ///
+    /// - **Numerical precision**: For ill-conditioned matrices (high condition
+    ///   number), use F64 instead of F32. F32 may lose precision for matrices
+    ///   with singular value ratios > 10^6.
+    ///
+    /// - **Non-convergence**: Extremely rare with Jacobi method. If it occurs,
+    ///   an `Internal` error is returned. The matrix may be numerically
+    ///   pathological (e.g., contains NaN/Inf).
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    /// - All backends use identical One-Sided Jacobi algorithm for numerical parity
+    ///
+    /// # Implementation Details (Sorting)
+    ///
+    /// The core Jacobi algorithm is identical across all backends. Post-processing
+    /// (sorting singular values and reordering U/V) may differ in execution location:
+    /// - **WebGPU**: Sorting done in WGSL shader (simple selection sort, GPU-native)
+    /// - **CPU/CUDA**: Sorting done in Rust (std::sort, after kernel execution)
+    ///
+    /// Both approaches produce identical results because:
+    /// 1. Sorting algorithm is deterministic (same input → same output)
+    /// 2. Only the sorted order matters, not the sorting algorithm itself
+    /// 3. Final U, S, V^T satisfy A = U @ diag(S) @ V^T with S[i] ≥ S[i+1]
+    fn svd_decompose(&self, a: &Tensor<R>) -> Result<SvdDecomposition<R>>;
 }
 
 // ============================================================================
