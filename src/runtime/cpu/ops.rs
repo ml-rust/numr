@@ -5,9 +5,10 @@
 
 use super::helpers::{
     ActivationOp, activation_op_impl, binary_op_impl, cat_impl, chunk_impl, compare_op_impl,
-    dispatch_dtype, elu_impl, ensure_contiguous, gather_impl, index_select_impl, leaky_relu_impl,
-    masked_fill_impl, masked_select_impl, reduce_impl, reduce_impl_with_precision, scalar_op_impl,
-    scatter_impl, split_impl, stack_impl, unary_op_impl,
+    cumprod_impl, cumsum_impl, dispatch_dtype, elu_impl, ensure_contiguous, gather_impl,
+    index_select_impl, leaky_relu_impl, logsumexp_impl, masked_fill_impl, masked_select_impl,
+    reduce_impl, reduce_impl_with_precision, scalar_op_impl, scatter_impl, split_impl, stack_impl,
+    unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -320,6 +321,25 @@ impl TensorOps<CpuRuntime> for CpuClient {
         precision: AccumulationPrecision,
     ) -> Result<Tensor<CpuRuntime>> {
         reduce_impl_with_precision(self, ReduceOp::Min, a, dims, keepdim, precision, "min")
+    }
+
+    // ===== Cumulative Operations =====
+
+    fn cumsum(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cumsum_impl(self, a, dim)
+    }
+
+    fn cumprod(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cumprod_impl(self, a, dim)
+    }
+
+    fn logsumexp(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        logsumexp_impl(self, a, dims, keepdim)
     }
 
     // ===== Activations =====

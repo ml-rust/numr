@@ -7,6 +7,7 @@
 
 pub mod binary;
 pub mod compare;
+pub mod cumulative;
 pub mod index;
 pub mod matmul;
 pub mod memory;
@@ -18,6 +19,10 @@ pub mod unary;
 // Re-export all kernel functions for convenient access
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
 pub use compare::{compare_op_kernel, compare_op_strided_kernel};
+pub use cumulative::{
+    cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
+    logsumexp_strided_kernel,
+};
 pub use index::{
     gather_kernel, index_select_kernel, logical_and_kernel, logical_not_kernel, logical_or_kernel,
     logical_xor_kernel, masked_count_kernel, masked_fill_kernel, masked_select_kernel,
