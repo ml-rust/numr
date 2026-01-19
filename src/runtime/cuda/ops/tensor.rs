@@ -17,7 +17,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     ScalarOps, TensorOps, compute_reduce_strides, matmul_output_shape, normalize_softmax_dim,
-    reduce_dim_output_shape,
+    reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
@@ -316,6 +316,43 @@ impl TensorOps<CudaRuntime> for CudaClient {
         precision: AccumulationPrecision,
     ) -> Result<Tensor<CudaRuntime>> {
         native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, None)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "any", dims, keepdim, None)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "all", dims, keepdim, None)
     }
 
     // ===== Activations (Native CUDA Kernels) =====
@@ -1488,7 +1525,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(self, a)?;
+        let a_contig = ensure_contiguous(a);
 
         // Calculate dimensions for kernel launch
         let scan_size = shape[dim];
@@ -1558,7 +1595,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(self, a)?;
+        let a_contig = ensure_contiguous(a);
 
         // Calculate dimensions for kernel launch
         let scan_size = shape[dim];
@@ -1640,7 +1677,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         // Handle empty tensor
         if a.numel() == 0 {
-            let out_shape = reduce_dim_output_shape(shape, &actual_dims, keepdim);
+            let out_shape = reduce_output_shape(shape, &actual_dims, keepdim);
             return Ok(Tensor::<CudaRuntime>::empty(
                 &out_shape,
                 a.dtype(),
@@ -1661,7 +1698,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
             // Remove keepdim if not requested
             if !keepdim {
-                let out_shape = reduce_dim_output_shape(shape, &actual_dims, false);
+                let out_shape = reduce_output_shape(shape, &actual_dims, false);
                 result = result.reshape(&out_shape)?;
             }
 
@@ -1672,7 +1709,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let dim = actual_dims[0];
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(self, a)?;
+        let a_contig = ensure_contiguous(a);
 
         // Calculate dimensions for kernel launch
         let reduce_size = shape[dim];
@@ -1680,7 +1717,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let inner_size: usize = shape[dim + 1..].iter().product();
 
         // Calculate output shape
-        let out_shape = reduce_dim_output_shape(shape, &[dim], keepdim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
         let out_numel: usize = out_shape.iter().product();
 
         // Allocate output
@@ -1730,8 +1767,8 @@ impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Random Operations =====
 
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
-        // Only F32 and F64 have native CUDA kernels
-        if !matches!(dtype, DType::F32 | DType::F64) {
+        // Supported: F32, F64, F16, BF16
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
             return Err(Error::UnsupportedDType { dtype, op: "rand" });
         }
 
@@ -1764,8 +1801,8 @@ impl TensorOps<CudaRuntime> for CudaClient {
     }
 
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
-        // Only F32 and F64 have native CUDA kernels
-        if !matches!(dtype, DType::F32 | DType::F64) {
+        // Supported: F32, F64, F16, BF16
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
             return Err(Error::UnsupportedDType { dtype, op: "randn" });
         }
 
@@ -1788,6 +1825,74 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn randint(
+        &self,
+        low: i64,
+        high: i64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Validate dtype is integer
+        if !dtype.is_int() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "randint",
+            });
+        }
+
+        // Validate range
+        if high <= low {
+            return Err(Error::InvalidArgument {
+                arg: "high",
+                reason: format!(
+                    "randint requires high > low, got low={}, high={}",
+                    low, high
+                ),
+            });
+        }
+
+        // Validate range fits in unsigned dtype
+        if dtype.is_unsigned_int() && low < 0 {
+            return Err(Error::InvalidArgument {
+                arg: "low",
+                reason: format!(
+                    "randint with unsigned dtype {} requires low >= 0, got low={}",
+                    dtype, low
+                ),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            // Empty tensor - just allocate
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        // Allocate output tensor
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        // Generate seed using atomic counter + time for better entropy
+        let seed = generate_random_seed();
+        let range = high - low;
+
+        // Launch native CUDA randint kernel
+        unsafe {
+            super::super::kernels::launch_randint(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                low,
+                range,
                 seed,
                 out.storage().ptr(),
                 numel,

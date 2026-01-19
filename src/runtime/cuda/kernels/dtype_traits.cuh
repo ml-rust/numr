@@ -315,6 +315,30 @@ __device__ __forceinline__ double warp_min_f64(double val) {
     return val;
 }
 
+// Warp product reduction primitives
+__device__ __forceinline__ float warp_prod_f32(float val) {
+    for (int offset = 16; offset > 0; offset /= 2)
+        val *= __shfl_down_sync(0xffffffff, val, offset);
+    return val;
+}
+__device__ __forceinline__ double warp_prod_f64(double val) {
+    for (int offset = 16; offset > 0; offset /= 2)
+        val *= __shfl_down_sync(0xffffffff, val, offset);
+    return val;
+}
+
+// Warp boolean reduction primitives (for any/all)
+__device__ __forceinline__ int warp_or(int val) {
+    for (int offset = 16; offset > 0; offset /= 2)
+        val |= __shfl_down_sync(0xffffffff, val, offset);
+    return val;
+}
+__device__ __forceinline__ int warp_and(int val) {
+    for (int offset = 16; offset > 0; offset /= 2)
+        val &= __shfl_down_sync(0xffffffff, val, offset);
+    return val;
+}
+
 // Primary template (not defined - specializations required)
 template<typename T, typename Acc> struct AccumTraits;
 
@@ -331,7 +355,9 @@ template<> struct AccumTraits<float, float> {
     static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
     static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
     static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
     static __device__ __forceinline__ float add(float a, float b) { return a + b; }
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
 };
@@ -347,7 +373,9 @@ template<> struct AccumTraits<float, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
@@ -365,7 +393,9 @@ template<> struct AccumTraits<double, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
@@ -383,7 +413,9 @@ template<> struct AccumTraits<__half, __half> {
     static __device__ __forceinline__ __half warp_sum(__half v) { return __float2half(warp_sum_f32(__half2float(v))); }
     static __device__ __forceinline__ __half warp_max(__half v) { return __float2half(warp_max_f32(__half2float(v))); }
     static __device__ __forceinline__ __half warp_min(__half v) { return __float2half(warp_min_f32(__half2float(v))); }
+    static __device__ __forceinline__ __half warp_prod(__half v) { return __float2half(warp_prod_f32(__half2float(v))); }
     static __device__ __forceinline__ __half add(__half a, __half b) { return __hadd(a, b); }
+    static __device__ __forceinline__ __half mul(__half a, __half b) { return __hmul(a, b); }
     static __device__ __forceinline__ __half max(__half a, __half b) { return __hmax(a, b); }
     static __device__ __forceinline__ __half min(__half a, __half b) { return __hmin(a, b); }
 };
@@ -398,7 +430,9 @@ template<> struct AccumTraits<__half, float> {
     static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
     static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
     static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
     static __device__ __forceinline__ float add(float a, float b) { return a + b; }
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
 };
@@ -413,7 +447,9 @@ template<> struct AccumTraits<__half, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
@@ -431,7 +467,9 @@ template<> struct AccumTraits<__nv_bfloat16, __nv_bfloat16> {
     static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); }
+    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); }
+    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
 };
@@ -446,7 +484,9 @@ template<> struct AccumTraits<__nv_bfloat16, float> {
     static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
     static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
     static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
     static __device__ __forceinline__ float add(float a, float b) { return a + b; }
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
 };
@@ -461,7 +501,9 @@ template<> struct AccumTraits<__nv_bfloat16, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
@@ -479,7 +521,9 @@ template<> struct AccumTraits<numr_fp8_e4m3, float> {
     static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
     static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
     static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
     static __device__ __forceinline__ float add(float a, float b) { return a + b; }
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
 };
@@ -494,7 +538,9 @@ template<> struct AccumTraits<numr_fp8_e4m3, __nv_bfloat16> {
     static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); }
+    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); }
+    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
 };
@@ -509,7 +555,9 @@ template<> struct AccumTraits<numr_fp8_e4m3, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
@@ -527,7 +575,9 @@ template<> struct AccumTraits<numr_fp8_e5m2, float> {
     static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
     static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
     static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
     static __device__ __forceinline__ float add(float a, float b) { return a + b; }
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
 };
@@ -542,7 +592,9 @@ template<> struct AccumTraits<numr_fp8_e5m2, __nv_bfloat16> {
     static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); }
+    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); }
     static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); }
+    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
 };
@@ -557,7 +609,9 @@ template<> struct AccumTraits<numr_fp8_e5m2, double> {
     static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
     static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
     static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
     static __device__ __forceinline__ double add(double a, double b) { return a + b; }
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };

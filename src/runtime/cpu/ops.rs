@@ -323,6 +323,43 @@ impl TensorOps<CpuRuntime> for CpuClient {
         reduce_impl_with_precision(self, ReduceOp::Min, a, dims, keepdim, precision, "min")
     }
 
+    fn prod(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Prod, a, dims, keepdim, "prod")
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Prod, a, dims, keepdim, precision, "prod")
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Any, a, dims, keepdim, "any")
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::All, a, dims, keepdim, "all")
+    }
+
     // ===== Cumulative Operations =====
 
     fn cumsum(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
@@ -1092,8 +1129,14 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
         let numel = out.numel();
+
+        // Handle empty tensor
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -1111,14 +1154,76 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
         let numel = out.numel();
+
+        // Handle empty tensor
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
                 kernels::rand_normal_kernel::<T>(out_ptr as *mut T, numel);
             }
         }, "randn");
+
+        Ok(out)
+    }
+
+    fn randint(
+        &self,
+        low: i64,
+        high: i64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is integer
+        if !dtype.is_int() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "randint",
+            });
+        }
+
+        // Validate range
+        if high <= low {
+            return Err(Error::InvalidArgument {
+                arg: "high",
+                reason: format!(
+                    "randint requires high > low, got low={}, high={}",
+                    low, high
+                ),
+            });
+        }
+
+        // Validate range fits in unsigned dtype
+        if dtype.is_unsigned_int() && low < 0 {
+            return Err(Error::InvalidArgument {
+                arg: "low",
+                reason: format!(
+                    "randint with unsigned dtype {} requires low >= 0, got low={}",
+                    dtype, low
+                ),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+
+        // Handle empty tensor
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::randint_kernel::<T>(out_ptr as *mut T, low, high, numel);
+            }
+        }, "randint");
 
         Ok(out)
     }

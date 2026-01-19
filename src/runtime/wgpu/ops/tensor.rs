@@ -156,6 +156,33 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_reduce_op(self, "min", a, dims, keepdim)
     }
 
+    fn prod(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "prod", a, dims, keepdim)
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "any", a, dims, keepdim)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "all", a, dims, keepdim)
+    }
+
     // --- Activation Functions ---
 
     fn relu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -234,6 +261,17 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         _precision: AccumulationPrecision,
     ) -> Result<Tensor<WgpuRuntime>> {
         self.min(a, dims, keepdim)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU currently uses native precision; precision parameter reserved for future use
+        self.prod(a, dims, keepdim)
     }
 
     // --- Normalization ---
@@ -536,18 +574,177 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     // --- Random Operations ---
 
-    fn rand(&self, _shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        Err(Error::UnsupportedDType {
+    fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU rand only supports F32
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType { dtype, op: "rand" });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        // Allocate output
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params with random seed
+        // Note: WGSL doesn't support u64 natively, so we use u32 seed (truncated from timestamp).
+        // This limits the seed space but is sufficient for most use cases.
+        // For reproducible results, users should use explicit seeding (future API).
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let time_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(12345u32);
+        let seed = time_seed.wrapping_add(counter);
+
+        let params = RandParams {
+            numel: numel as u32,
+            seed,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_rand(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
             dtype,
-            op: "rand (WebGPU native PRNG not implemented)",
-        })
+        )?;
+
+        Ok(out)
     }
 
-    fn randn(&self, _shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        Err(Error::UnsupportedDType {
+    fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU randn only supports F32
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType { dtype, op: "randn" });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        // Allocate output
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params with random seed (see rand() for seed design notes)
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let time_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(12345u32);
+        let seed = time_seed.wrapping_add(counter);
+
+        let params = RandnParams {
+            numel: numel as u32,
+            seed,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_randn(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
             dtype,
-            op: "randn (WebGPU native PRNG not implemented)",
-        })
+        )?;
+
+        Ok(out)
+    }
+
+    fn randint(
+        &self,
+        low: i64,
+        high: i64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU randint only supports I32 and U32
+        if !matches!(dtype, DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "randint",
+            });
+        }
+
+        // Validate range
+        if high <= low {
+            return Err(Error::InvalidArgument {
+                arg: "high",
+                reason: format!(
+                    "randint requires high > low, got low={}, high={}",
+                    low, high
+                ),
+            });
+        }
+
+        // For unsigned types, validate low >= 0
+        if matches!(dtype, DType::U32) && low < 0 {
+            return Err(Error::InvalidArgument {
+                arg: "low",
+                reason: format!(
+                    "randint with unsigned dtype requires low >= 0, got low={}",
+                    low
+                ),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        // Allocate output
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params with random seed (see rand() for seed design notes)
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let time_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(12345u32);
+        let seed = time_seed.wrapping_add(counter);
+
+        let range = (high - low) as u32;
+        let params = RandintParams {
+            numel: numel as u32,
+            low: low as u32,
+            range,
+            seed,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_randint(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
     }
 
     // --- Indexing Operations ---
