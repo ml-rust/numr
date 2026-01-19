@@ -2041,3 +2041,226 @@ fn test_tensor_gather_i32() {
     let result: Vec<i32> = out.to_vec();
     assert_eq!(result, [300, 100, 400, 200]);
 }
+
+// ===== Utility Operations Tests (arange, linspace, eye) =====
+
+#[test]
+fn test_arange_f32_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(0, 5, 1) -> [0, 1, 2, 3, 4]
+    let out = client.arange(0.0, 5.0, 1.0, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [0.0, 1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_arange_f32_step() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(0, 10, 2) -> [0, 2, 4, 6, 8]
+    let out = client.arange(0.0, 10.0, 2.0, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [0.0, 2.0, 4.0, 6.0, 8.0]);
+}
+
+#[test]
+fn test_arange_f32_negative_step() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(5, 0, -1) -> [5, 4, 3, 2, 1]
+    let out = client.arange(5.0, 0.0, -1.0, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [5.0, 4.0, 3.0, 2.0, 1.0]);
+}
+
+#[test]
+fn test_arange_f32_fractional() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(0, 2.5, 0.5) -> [0.0, 0.5, 1.0, 1.5, 2.0]
+    let out = client.arange(0.0, 2.5, 0.5, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    for (i, &v) in result.iter().enumerate() {
+        let expected = i as f32 * 0.5;
+        assert!(
+            (v - expected).abs() < 1e-6,
+            "Expected {}, got {}",
+            expected,
+            v
+        );
+    }
+}
+
+#[test]
+fn test_arange_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(0, 5, 1) -> [0, 1, 2, 3, 4]
+    let out = client.arange(0.0, 5.0, 1.0, DType::I32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<i32> = out.to_vec();
+    assert_eq!(result, [0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn test_arange_empty() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // arange(5, 5, 1) -> [] (empty)
+    let out = client.arange(5.0, 5.0, 1.0, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[0]);
+    assert_eq!(out.numel(), 0);
+}
+
+#[test]
+fn test_arange_zero_step_error() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // step=0 should error
+    let result = client.arange(0.0, 5.0, 0.0, DType::F32);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_linspace_f32_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // linspace(0, 4, 5) -> [0, 1, 2, 3, 4]
+    let out = client.linspace(0.0, 4.0, 5, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [0.0, 1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_linspace_f32_fractional() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // linspace(0, 1, 5) -> [0.0, 0.25, 0.5, 0.75, 1.0]
+    let out = client.linspace(0.0, 1.0, 5, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[5]);
+    let result: Vec<f32> = out.to_vec();
+    let expected = [0.0, 0.25, 0.5, 0.75, 1.0];
+    for (i, (&got, &exp)) in result.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (got - exp).abs() < 1e-6,
+            "linspace[{}]: expected {}, got {}",
+            i,
+            exp,
+            got
+        );
+    }
+}
+
+#[test]
+fn test_linspace_single_step() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // linspace(5, 5, 1) -> [5]
+    let out = client.linspace(5.0, 5.0, 1, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[1]);
+    let result: Vec<f32> = out.to_vec();
+    assert_eq!(result, [5.0]);
+}
+
+#[test]
+fn test_linspace_empty() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // linspace(0, 1, 0) -> []
+    let out = client.linspace(0.0, 1.0, 0, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[0]);
+    assert_eq!(out.numel(), 0);
+}
+
+#[test]
+fn test_eye_square() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // eye(3) -> 3x3 identity
+    let out = client.eye(3, None, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[3, 3]);
+    let result: Vec<f32> = out.to_vec();
+    #[rustfmt::skip]
+    let expected = [
+        1.0, 0.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 0.0, 1.0,
+    ];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_eye_rectangular_wide() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // eye(2, 4) -> 2x4 identity-like
+    let out = client.eye(2, Some(4), DType::F32).unwrap();
+    assert_eq!(out.shape(), &[2, 4]);
+    let result: Vec<f32> = out.to_vec();
+    #[rustfmt::skip]
+    let expected = [
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+    ];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_eye_rectangular_tall() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // eye(4, 2) -> 4x2 identity-like
+    let out = client.eye(4, Some(2), DType::F32).unwrap();
+    assert_eq!(out.shape(), &[4, 2]);
+    let result: Vec<f32> = out.to_vec();
+    #[rustfmt::skip]
+    let expected = [
+        1.0, 0.0,
+        0.0, 1.0,
+        0.0, 0.0,
+        0.0, 0.0,
+    ];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_eye_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let out = client.eye(2, None, DType::I32).unwrap();
+    assert_eq!(out.shape(), &[2, 2]);
+    let result: Vec<i32> = out.to_vec();
+    assert_eq!(result, [1, 0, 0, 1]);
+}
+
+#[test]
+fn test_eye_empty() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // eye(0) -> empty 0x0
+    let out = client.eye(0, None, DType::F32).unwrap();
+    assert_eq!(out.shape(), &[0, 0]);
+    assert_eq!(out.numel(), 0);
+}
