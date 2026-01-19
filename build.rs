@@ -51,6 +51,7 @@ fn compile_cuda_kernels() {
         "matmul.cu",
         "index.cu",
         "shape.cu",
+        "cumulative.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

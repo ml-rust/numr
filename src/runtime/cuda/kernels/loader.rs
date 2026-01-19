@@ -238,6 +238,8 @@ pub mod kernel_names {
     pub const LINALG_MODULE: &str = "linalg";
     /// Matrix multiplication operations (native tiled GEMM)
     pub const MATMUL_MODULE: &str = "matmul";
+    /// Cumulative operations (cumsum, cumprod, logsumexp)
+    pub const CUMULATIVE_MODULE: &str = "cumulative";
 
     /// Generate kernel name for reduction operations.
     #[inline]
