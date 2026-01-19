@@ -2134,16 +2134,16 @@ pub unsafe fn index_select_kernel<T: Element>(
     // For each outer position
     for outer in 0..outer_size.max(1) {
         // For each selected index
-        for (sel_idx, &idx_ptr) in
-            std::slice::from_raw_parts(indices, index_len).iter().enumerate()
+        for (sel_idx, &idx_ptr) in std::slice::from_raw_parts(indices, index_len)
+            .iter()
+            .enumerate()
         {
             let idx = idx_ptr as usize;
             if idx >= dim_size {
                 // Out of bounds - fill with zeros
                 for inner in 0..inner_size.max(1) {
-                    let out_offset = outer * index_len * inner_size.max(1)
-                        + sel_idx * inner_size.max(1)
-                        + inner;
+                    let out_offset =
+                        outer * index_len * inner_size.max(1) + sel_idx * inner_size.max(1) + inner;
                     *out.add(out_offset) = T::zero();
                 }
                 continue;

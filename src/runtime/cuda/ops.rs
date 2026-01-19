@@ -1386,10 +1386,26 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let src_strides_ptr = CudaRuntime::allocate(shape_bytes, &self.device);
 
         // Copy shape/stride data to device
-        CudaRuntime::copy_to_device(bytemuck::cast_slice(&output_shape), output_shape_ptr, &self.device);
-        CudaRuntime::copy_to_device(bytemuck::cast_slice(&output_strides), output_strides_ptr, &self.device);
-        CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape), src_shape_ptr, &self.device);
-        CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_strides), src_strides_ptr, &self.device);
+        CudaRuntime::copy_to_device(
+            bytemuck::cast_slice(&output_shape),
+            output_shape_ptr,
+            &self.device,
+        );
+        CudaRuntime::copy_to_device(
+            bytemuck::cast_slice(&output_strides),
+            output_strides_ptr,
+            &self.device,
+        );
+        CudaRuntime::copy_to_device(
+            bytemuck::cast_slice(&src_shape),
+            src_shape_ptr,
+            &self.device,
+        );
+        CudaRuntime::copy_to_device(
+            bytemuck::cast_slice(&src_strides),
+            src_strides_ptr,
+            &self.device,
+        );
 
         let result = unsafe {
             launch_scatter(
@@ -1539,7 +1555,11 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         // Read count back to host
         let mut count_buf = [0u32; 1];
-        CudaRuntime::copy_from_device(count_ptr, bytemuck::bytes_of_mut(&mut count_buf), &self.device);
+        CudaRuntime::copy_from_device(
+            count_ptr,
+            bytemuck::bytes_of_mut(&mut count_buf),
+            &self.device,
+        );
         let count = count_buf[0] as usize;
 
         CudaRuntime::deallocate(count_ptr, count_bytes, &self.device);

@@ -378,7 +378,13 @@ pub(super) fn leaky_relu_impl(
     a: &Tensor<CpuRuntime>,
     negative_slope: f64,
 ) -> Result<Tensor<CpuRuntime>> {
-    parametric_activation_impl(client, a, ParametricActivationOp::LeakyRelu, negative_slope, "leaky_relu")
+    parametric_activation_impl(
+        client,
+        a,
+        ParametricActivationOp::LeakyRelu,
+        negative_slope,
+        "leaky_relu",
+    )
 }
 
 /// Helper for ELU activation

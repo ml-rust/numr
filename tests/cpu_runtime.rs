@@ -1896,7 +1896,8 @@ fn test_tensor_scatter() {
     let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 9], &[3, 3], &device);
 
     // Source values to scatter: 2x3
-    let src = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    let src =
+        Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
 
     // Indices for dim 0: [[0, 2, 1], [2, 1, 0]]
     let indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 2, 1, 2, 1, 0], &[2, 3], &device);
