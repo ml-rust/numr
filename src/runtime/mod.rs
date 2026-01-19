@@ -15,6 +15,7 @@
 
 mod allocator;
 pub mod kernel;
+pub mod shape_ops;
 pub mod sparse_utils;
 
 pub mod cpu;

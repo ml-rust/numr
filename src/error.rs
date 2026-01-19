@@ -74,6 +74,15 @@ pub enum Error {
         size: usize,
     },
 
+    /// Invalid argument provided to an operation
+    #[error("Invalid argument '{arg}': {reason}")]
+    InvalidArgument {
+        /// The argument name
+        arg: &'static str,
+        /// Reason for invalidity
+        reason: String,
+    },
+
     /// Tensor is not contiguous when contiguous memory is required
     #[error("Operation requires contiguous tensor")]
     NotContiguous,
