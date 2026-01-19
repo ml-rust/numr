@@ -1202,3 +1202,91 @@ pub(super) fn masked_fill_impl(
 
     Ok(out)
 }
+
+// ============================================================================
+// Shape Operation Helpers
+// ============================================================================
+
+use crate::runtime::shape_ops::{self, validate_cat, validate_stack};
+
+/// Concatenate tensors along a dimension
+pub(super) fn cat_impl(
+    client: &CpuClient,
+    tensors: &[&Tensor<CpuRuntime>],
+    dim: isize,
+) -> Result<Tensor<CpuRuntime>> {
+    // Use shared validation
+    let params = validate_cat(tensors, dim)?;
+
+    // Allocate output
+    let out = Tensor::<CpuRuntime>::empty(&params.out_shape, params.dtype, &client.device);
+    let out_ptr = out.storage().ptr();
+
+    // Copy data from each tensor
+    dispatch_dtype!(params.dtype, T => {
+        unsafe {
+            let mut cat_offset = 0usize;
+            for &tensor in tensors {
+                let tensor_contig = ensure_contiguous(tensor);
+                let src_ptr = tensor_contig.storage().ptr() as *const T;
+                let src_cat_size = tensor.shape()[params.dim_idx];
+
+                // Copy each row-block
+                for outer in 0..params.outer_size {
+                    for cat_i in 0..src_cat_size {
+                        let src_base = outer * src_cat_size * params.inner_size + cat_i * params.inner_size;
+                        let dst_base = outer * params.cat_dim_total * params.inner_size + (cat_offset + cat_i) * params.inner_size;
+
+                        std::ptr::copy_nonoverlapping(
+                            src_ptr.add(src_base),
+                            (out_ptr as *mut T).add(dst_base),
+                            params.inner_size,
+                        );
+                    }
+                }
+
+                cat_offset += src_cat_size;
+            }
+        }
+    }, "cat");
+
+    Ok(out)
+}
+
+/// Stack tensors along a new dimension
+pub(super) fn stack_impl(
+    client: &CpuClient,
+    tensors: &[&Tensor<CpuRuntime>],
+    dim: isize,
+) -> Result<Tensor<CpuRuntime>> {
+    // Use shared validation
+    let _dim_idx = validate_stack(tensors, dim)?;
+
+    // Unsqueeze each tensor and then cat
+    // stack(tensors, dim) = cat([t.unsqueeze(dim) for t in tensors], dim)
+    let unsqueezed: Vec<Tensor<CpuRuntime>> = tensors
+        .iter()
+        .map(|t| t.unsqueeze(dim))
+        .collect::<Result<_>>()?;
+
+    let unsqueezed_refs: Vec<&Tensor<CpuRuntime>> = unsqueezed.iter().collect();
+    cat_impl(client, &unsqueezed_refs, dim)
+}
+
+/// Split a tensor into chunks of a given size along a dimension (zero-copy)
+pub(super) fn split_impl(
+    tensor: &Tensor<CpuRuntime>,
+    split_size: usize,
+    dim: isize,
+) -> Result<Vec<Tensor<CpuRuntime>>> {
+    shape_ops::split_impl(tensor, split_size, dim)
+}
+
+/// Split a tensor into a specific number of chunks (zero-copy)
+pub(super) fn chunk_impl(
+    tensor: &Tensor<CpuRuntime>,
+    chunks: usize,
+    dim: isize,
+) -> Result<Vec<Tensor<CpuRuntime>>> {
+    shape_ops::chunk_impl(tensor, chunks, dim)
+}

@@ -4,10 +4,10 @@
 //! dispatch to the low-level kernels.
 
 use super::helpers::{
-    ActivationOp, activation_op_impl, binary_op_impl, compare_op_impl, dispatch_dtype, elu_impl,
-    ensure_contiguous, gather_impl, index_select_impl, leaky_relu_impl, masked_fill_impl,
-    masked_select_impl, reduce_impl, reduce_impl_with_precision, scalar_op_impl, scatter_impl,
-    unary_op_impl,
+    ActivationOp, activation_op_impl, binary_op_impl, cat_impl, chunk_impl, compare_op_impl,
+    dispatch_dtype, elu_impl, ensure_contiguous, gather_impl, index_select_impl, leaky_relu_impl,
+    masked_fill_impl, masked_select_impl, reduce_impl, reduce_impl_with_precision, scalar_op_impl,
+    scatter_impl, split_impl, stack_impl, unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -1014,6 +1014,34 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }, "randn");
 
         Ok(out)
+    }
+
+    // ===== Shape Operations =====
+
+    fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cat_impl(self, tensors, dim)
+    }
+
+    fn stack(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        stack_impl(self, tensors, dim)
+    }
+
+    fn split(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        split_size: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        split_impl(tensor, split_size, dim)
+    }
+
+    fn chunk(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        chunks: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        chunk_impl(tensor, chunks, dim)
     }
 }
 
