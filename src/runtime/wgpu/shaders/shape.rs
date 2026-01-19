@@ -9,7 +9,9 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::generate_cat_shader;
+use super::generator::{
+    generate_arange_shader, generate_cat_shader, generate_eye_shader, generate_linspace_shader,
+};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -95,6 +97,209 @@ pub fn launch_cat_copy(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Arange Operation
+// ============================================================================
+
+/// Get the kernel name for arange operation.
+fn arange_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("arange_f32"),
+        DType::I32 => Ok("arange_i32"),
+        DType::U32 => Ok("arange_u32"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "arange",
+        }),
+    }
+}
+
+/// Launch an arange operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing ArangeParams
+/// * `numel` - Number of elements to generate
+/// * `dtype` - Data type of output
+pub fn launch_arange(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let name = arange_kernel_name(dtype)?;
+    let shader_source = generate_arange_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("arange"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("arange"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Linspace Operation
+// ============================================================================
+
+/// Get the kernel name for linspace operation.
+fn linspace_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("linspace_f32"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "linspace",
+        }),
+    }
+}
+
+/// Launch a linspace operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing LinspaceParams
+/// * `steps` - Number of steps to generate
+/// * `dtype` - Data type of output (must be float)
+pub fn launch_linspace(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    steps: usize,
+    dtype: DType,
+) -> Result<()> {
+    if steps == 0 {
+        return Ok(());
+    }
+
+    let name = linspace_kernel_name(dtype)?;
+    let shader_source = generate_linspace_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("linspace"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("linspace"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(steps), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Eye Operation
+// ============================================================================
+
+/// Get the kernel name for eye operation.
+fn eye_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("eye_f32"),
+        DType::I32 => Ok("eye_i32"),
+        DType::U32 => Ok("eye_u32"),
+        _ => Err(Error::UnsupportedDType { dtype, op: "eye" }),
+    }
+}
+
+/// Launch an eye (identity matrix) operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing EyeParams
+/// * `numel` - Total elements (n * m)
+/// * `dtype` - Data type of output
+pub fn launch_eye(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let name = eye_kernel_name(dtype)?;
+    let shader_source = generate_eye_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("eye") });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("eye"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

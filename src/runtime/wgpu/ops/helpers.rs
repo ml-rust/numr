@@ -215,3 +215,27 @@ pub(super) struct MaskedCountParams {
 pub(super) struct MaskedSelectParams {
     pub(super) numel: u32,
 }
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct ArangeParams {
+    pub(super) numel: u32,
+    pub(super) start: f32,
+    pub(super) step: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct LinspaceParams {
+    pub(super) steps: u32,
+    pub(super) start: f32,
+    pub(super) stop: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct EyeParams {
+    pub(super) n: u32,
+    pub(super) m: u32,
+    pub(super) numel: u32,
+}

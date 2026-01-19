@@ -42,9 +42,10 @@ mod pipeline;
 mod reduce_wgsl;
 
 pub use generator::{
-    dtype_suffix, generate_all_casts_from, generate_binary_shader, generate_cast_shader,
-    generate_cat_shader, generate_compare_shader, generate_fill_shader, generate_gather_shader,
-    generate_index_select_shader, generate_masked_fill_shader, generate_masked_select_shader,
+    dtype_suffix, generate_all_casts_from, generate_arange_shader, generate_binary_shader,
+    generate_cast_shader, generate_cat_shader, generate_compare_shader, generate_eye_shader,
+    generate_fill_shader, generate_gather_shader, generate_index_select_shader,
+    generate_linspace_shader, generate_masked_fill_shader, generate_masked_select_shader,
     generate_matmul_shader, generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
     generate_scatter_shader, generate_unary_shader, is_wgpu_supported, is_wgsl_float, is_wgsl_int,
     wgsl_type,

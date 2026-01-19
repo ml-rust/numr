@@ -34,6 +34,7 @@ pub mod norm;
 pub mod reduce;
 pub mod scalar;
 pub mod unary;
+pub mod utility;
 
 pub use binary::generate_binary_shader;
 pub use cast::{generate_all_casts_from, generate_cast_shader};
@@ -47,6 +48,7 @@ pub use norm::generate_norm_shader;
 pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};
 pub use unary::generate_unary_shader;
+pub use utility::{generate_arange_shader, generate_eye_shader, generate_linspace_shader};
 
 #[cfg(test)]
 mod tests {
@@ -343,5 +345,80 @@ mod tests {
             generate_cast_shader(crate::dtype::DType::F32, crate::dtype::DType::F32).unwrap();
         assert!(shader.contains("No-op"));
         assert!(!shader.contains("@compute"));
+    }
+
+    // ========================================================================
+    // Utility Operation Shader Tests (arange, linspace, eye)
+    // ========================================================================
+
+    #[test]
+    fn test_generate_arange_shader_f32() {
+        let shader = generate_arange_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn arange_f32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("arange_params"));
+    }
+
+    #[test]
+    fn test_arange_shader_syntax_all_dtypes() {
+        for &dtype in WGPU_DTYPES {
+            let shader = generate_arange_shader(dtype)
+                .unwrap_or_else(|_| panic!("Failed to generate arange shader for {:?}", dtype));
+            validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+                panic!(
+                    "Invalid WGSL for arange shader {:?}:\n{}\n\nShader:\n{}",
+                    dtype, e, shader
+                )
+            });
+        }
+    }
+
+    #[test]
+    fn test_generate_linspace_shader_f32() {
+        let shader = generate_linspace_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn linspace_f32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("linspace_params"));
+    }
+
+    #[test]
+    fn test_linspace_shader_syntax() {
+        // linspace only supports float types
+        let shader = generate_linspace_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for linspace shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_linspace_shader_int_fails() {
+        // linspace should fail for integer types
+        assert!(generate_linspace_shader(crate::dtype::DType::I32).is_err());
+        assert!(generate_linspace_shader(crate::dtype::DType::U32).is_err());
+    }
+
+    #[test]
+    fn test_generate_eye_shader_f32() {
+        let shader = generate_eye_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn eye_f32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("eye_params"));
+    }
+
+    #[test]
+    fn test_eye_shader_syntax_all_dtypes() {
+        for &dtype in WGPU_DTYPES {
+            let shader = generate_eye_shader(dtype)
+                .unwrap_or_else(|_| panic!("Failed to generate eye shader for {:?}", dtype));
+            validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+                panic!(
+                    "Invalid WGSL for eye shader {:?}:\n{}\n\nShader:\n{}",
+                    dtype, e, shader
+                )
+            });
+        }
     }
 }
