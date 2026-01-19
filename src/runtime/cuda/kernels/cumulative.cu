@@ -17,12 +17,12 @@
 #define BLOCK_SIZE 256
 
 // ============================================================================
-// Cumulative Sum (Inclusive Scan)
+// Cumulative Sum (Inclusive Scan) - Device Functions
 // ============================================================================
 
 // Simple sequential cumsum for small arrays or when scan dimension is last
 template<typename T>
-__global__ void cumsum_simple_kernel(
+__device__ void cumsum_simple_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int scan_size,
@@ -41,7 +41,7 @@ __global__ void cumsum_simple_kernel(
 
 // Strided cumsum for non-last dimension
 template<typename T>
-__global__ void cumsum_strided_kernel(
+__device__ void cumsum_strided_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int scan_size,
@@ -64,11 +64,11 @@ __global__ void cumsum_strided_kernel(
 }
 
 // ============================================================================
-// Cumulative Product (Inclusive Scan)
+// Cumulative Product (Inclusive Scan) - Device Functions
 // ============================================================================
 
 template<typename T>
-__global__ void cumprod_simple_kernel(
+__device__ void cumprod_simple_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int scan_size,
@@ -86,7 +86,7 @@ __global__ void cumprod_simple_kernel(
 }
 
 template<typename T>
-__global__ void cumprod_strided_kernel(
+__device__ void cumprod_strided_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int scan_size,
@@ -109,14 +109,14 @@ __global__ void cumprod_strided_kernel(
 }
 
 // ============================================================================
-// Log-Sum-Exp (Numerically Stable Reduction)
+// Log-Sum-Exp (Numerically Stable Reduction) - Device Functions
 // ============================================================================
 
 // logsumexp = max(x) + log(sum(exp(x - max(x))))
 // This is a reduction operation, not a scan
 
 template<typename T>
-__global__ void logsumexp_simple_kernel(
+__device__ void logsumexp_simple_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int reduce_size,
@@ -145,7 +145,7 @@ __global__ void logsumexp_simple_kernel(
 }
 
 template<typename T>
-__global__ void logsumexp_strided_kernel(
+__device__ void logsumexp_strided_impl(
     const T* __restrict__ input,
     T* __restrict__ output,
     unsigned int reduce_size,
@@ -180,10 +180,10 @@ __global__ void logsumexp_strided_kernel(
 }
 
 // ============================================================================
-// F64 specializations (use double math)
+// F64 specializations (use double math) - Device Functions
 // ============================================================================
 
-__global__ void logsumexp_simple_f64(
+__device__ void logsumexp_simple_f64_impl(
     const double* __restrict__ input,
     double* __restrict__ output,
     unsigned int reduce_size,
@@ -208,7 +208,7 @@ __global__ void logsumexp_simple_f64(
     output[outer_idx] = max_val + log(sum);
 }
 
-__global__ void logsumexp_strided_f64(
+__device__ void logsumexp_strided_f64_impl(
     const double* __restrict__ input,
     double* __restrict__ output,
     unsigned int reduce_size,
@@ -248,122 +248,122 @@ extern "C" {
 // ===== Cumulative Sum =====
 
 __global__ void cumsum_f32(const float* in, float* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumsum_f64(const double* in, double* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumsum_i32(const int* in, int* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumsum_i64(const long long* in, long long* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumsum_u32(const unsigned int* in, unsigned int* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumsum_u64(const unsigned long long* in, unsigned long long* out, unsigned int scan_size, unsigned int outer_size) {
-    cumsum_simple_kernel(in, out, scan_size, outer_size);
+    cumsum_simple_impl(in, out, scan_size, outer_size);
 }
 
 // Strided versions
 __global__ void cumsum_strided_f32(const float* in, float* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumsum_strided_f64(const double* in, double* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumsum_strided_i32(const int* in, int* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumsum_strided_i64(const long long* in, long long* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumsum_strided_u32(const unsigned int* in, unsigned int* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumsum_strided_u64(const unsigned long long* in, unsigned long long* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumsum_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumsum_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 // ===== Cumulative Product =====
 
 __global__ void cumprod_f32(const float* in, float* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumprod_f64(const double* in, double* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumprod_i32(const int* in, int* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumprod_i64(const long long* in, long long* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumprod_u32(const unsigned int* in, unsigned int* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 __global__ void cumprod_u64(const unsigned long long* in, unsigned long long* out, unsigned int scan_size, unsigned int outer_size) {
-    cumprod_simple_kernel(in, out, scan_size, outer_size);
+    cumprod_simple_impl(in, out, scan_size, outer_size);
 }
 
 // Strided versions
 __global__ void cumprod_strided_f32(const float* in, float* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumprod_strided_f64(const double* in, double* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumprod_strided_i32(const int* in, int* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumprod_strided_i64(const long long* in, long long* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumprod_strided_u32(const unsigned int* in, unsigned int* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 __global__ void cumprod_strided_u64(const unsigned long long* in, unsigned long long* out, unsigned int scan_size, unsigned int outer_size, unsigned int inner_size) {
-    cumprod_strided_kernel(in, out, scan_size, outer_size, inner_size);
+    cumprod_strided_impl(in, out, scan_size, outer_size, inner_size);
 }
 
 // ===== Log-Sum-Exp =====
 
 __global__ void logsumexp_f32(const float* in, float* out, unsigned int reduce_size, unsigned int outer_size) {
-    logsumexp_simple_kernel(in, out, reduce_size, outer_size);
+    logsumexp_simple_impl(in, out, reduce_size, outer_size);
 }
 
 __global__ void logsumexp_f64(const double* in, double* out, unsigned int reduce_size, unsigned int outer_size) {
-    logsumexp_simple_f64(in, out, reduce_size, outer_size);
+    logsumexp_simple_f64_impl(in, out, reduce_size, outer_size);
 }
 
 // Strided versions
 __global__ void logsumexp_strided_f32(const float* in, float* out, unsigned int reduce_size, unsigned int outer_size, unsigned int inner_size) {
-    logsumexp_strided_kernel(in, out, reduce_size, outer_size, inner_size);
+    logsumexp_strided_impl(in, out, reduce_size, outer_size, inner_size);
 }
 
 __global__ void logsumexp_strided_f64(const double* in, double* out, unsigned int reduce_size, unsigned int outer_size, unsigned int inner_size) {
-    logsumexp_strided_f64(in, out, reduce_size, outer_size, inner_size);
+    logsumexp_strided_f64_impl(in, out, reduce_size, outer_size, inner_size);
 }
 
 } // extern "C"
