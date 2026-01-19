@@ -18,6 +18,7 @@
 //! dimensions (where a single value is broadcast across the dimension).
 
 mod helpers;
+pub mod jacobi;
 mod kernels;
 mod linalg;
 mod ops;

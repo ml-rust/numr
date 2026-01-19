@@ -4,10 +4,15 @@
 //! All algorithms follow the exact specification in the trait documentation
 //! to ensure backend parity with CUDA/WebGPU implementations.
 
+use super::jacobi::{
+    self, JacobiRotation, LinalgElement, apply_rotation_to_columns, apply_two_sided_rotation,
+    argsort_by_magnitude_desc, argsort_desc, compute_gram_elements, identity_matrix,
+    normalize_columns, permute_columns,
+};
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, MatrixNormOrder,
-    QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    CholeskyDecomposition, EigenDecomposition, LinearAlgebraAlgorithms, LuDecomposition,
+    MatrixNormOrder, QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
     validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
@@ -286,6 +291,23 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
             _ => Err(Error::UnsupportedDType {
                 dtype: a.dtype(),
                 op: "svd_decompose",
+            }),
+        }
+    }
+
+    fn eig_decompose_symmetric(
+        &self,
+        a: &Tensor<CpuRuntime>,
+    ) -> Result<EigenDecomposition<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => eig_decompose_symmetric_impl::<f32>(self, a, n),
+            DType::F64 => eig_decompose_symmetric_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "eig_decompose_symmetric",
             }),
         }
     }
@@ -997,7 +1019,7 @@ fn frobenius_norm_impl<T: Element + LinalgElement>(
 ///    FOR each pair (p, q) where p < q:
 ///      - Compute Gram elements: a_pp, a_qq, a_pq = B[:,p]·B[:,q]
 ///      - If |a_pq| > tol: compute Jacobi rotation (c,s), apply to B and V columns
-///    Check convergence: sqrt(Σ a_pq²) < n * epsilon
+///      - Check convergence: sqrt(Σ a_pq²) < n * epsilon
 /// 4. Extract: S[j] = ||B[:,j]||, U[:,j] = B[:,j]/S[j]
 /// 5. Sort S descending, reorder U and V columns accordingly
 /// 6. Return U, S, V^T = V.transpose()
@@ -1040,10 +1062,7 @@ fn svd_decompose_impl<T: Element + LinalgElement>(
     let work_k = work_m.min(work_n);
 
     // Initialize V as identity [work_n x work_n]
-    let mut v: Vec<T> = vec![T::zero(); work_n * work_n];
-    for i in 0..work_n {
-        v[i * work_n + i] = T::one();
-    }
+    let mut v: Vec<T> = identity_matrix(work_n);
 
     // Convergence parameters
     let eps = T::epsilon_val();
@@ -1058,20 +1077,7 @@ fn svd_decompose_impl<T: Element + LinalgElement>(
         for p in 0..work_n {
             for q in (p + 1)..work_n {
                 // Compute Gram matrix elements for columns p and q
-                // a_pp = B[:,p] · B[:,p]
-                // a_qq = B[:,q] · B[:,q]
-                // a_pq = B[:,p] · B[:,q]
-                let mut a_pp = T::zero();
-                let mut a_qq = T::zero();
-                let mut a_pq = T::zero();
-
-                for i in 0..work_m {
-                    let bp = b[i * work_n + p];
-                    let bq = b[i * work_n + q];
-                    a_pp = a_pp + bp * bp;
-                    a_qq = a_qq + bq * bq;
-                    a_pq = a_pq + bp * bq;
-                }
+                let (a_pp, a_qq, a_pq) = compute_gram_elements(&b, work_m, work_n, p, q);
 
                 off_diag_sum += a_pq.to_f64() * a_pq.to_f64();
 
@@ -1080,47 +1086,14 @@ fn svd_decompose_impl<T: Element + LinalgElement>(
                     continue;
                 }
 
-                // Compute Jacobi rotation parameters using stable LAPACK formula
-                // tau = (a_qq - a_pp) / (2 * a_pq)
-                // t = sign(tau) / (|tau| + sqrt(1 + tau^2))
-                // c = 1 / sqrt(1 + t^2)
-                // s = t * c
-                let tau_num = a_qq.to_f64() - a_pp.to_f64();
-                let tau_den = 2.0 * a_pq.to_f64();
+                // Compute Jacobi rotation using stable LAPACK formula
+                let rot = JacobiRotation::compute(a_pp.to_f64(), a_qq.to_f64(), a_pq.to_f64());
 
-                let (c, s) = if tau_den.abs() < 1e-300 {
-                    // Avoid division by zero
-                    (1.0, 0.0)
-                } else {
-                    let tau = tau_num / tau_den;
-                    let t = if tau >= 0.0 {
-                        1.0 / (tau + (1.0 + tau * tau).sqrt())
-                    } else {
-                        -1.0 / (-tau + (1.0 + tau * tau).sqrt())
-                    };
-                    let c_val = 1.0 / (1.0 + t * t).sqrt();
-                    let s_val = t * c_val;
-                    (c_val, s_val)
-                };
+                // Apply rotation to B columns
+                apply_rotation_to_columns(&mut b, work_m, work_n, p, q, &rot);
 
-                let c_t = T::from_f64(c);
-                let s_t = T::from_f64(s);
-
-                // Apply rotation to B columns: B[:, [p,q]] = B[:, [p,q]] @ [[c, s], [-s, c]]
-                for i in 0..work_m {
-                    let bp = b[i * work_n + p];
-                    let bq = b[i * work_n + q];
-                    b[i * work_n + p] = c_t * bp - s_t * bq;
-                    b[i * work_n + q] = s_t * bp + c_t * bq;
-                }
-
-                // Apply rotation to V columns: V[:, [p,q]] = V[:, [p,q]] @ [[c, s], [-s, c]]
-                for i in 0..work_n {
-                    let vp = v[i * work_n + p];
-                    let vq = v[i * work_n + q];
-                    v[i * work_n + p] = c_t * vp - s_t * vq;
-                    v[i * work_n + q] = s_t * vp + c_t * vq;
-                }
+                // Apply rotation to V columns
+                apply_rotation_to_columns(&mut v, work_n, work_n, p, q, &rot);
             }
         }
 
@@ -1130,63 +1103,28 @@ fn svd_decompose_impl<T: Element + LinalgElement>(
         }
     }
 
-    // Extract singular values and normalize U columns
-    // S[j] = ||B[:,j]||
-    // U[:,j] = B[:,j] / S[j]
-    let mut singular_values: Vec<T> = vec![T::zero(); work_n];
-    let mut u_data: Vec<T> = vec![T::zero(); work_m * work_n];
-
-    for j in 0..work_n {
-        let mut norm_sq = T::zero();
-        for i in 0..work_m {
-            let val = b[i * work_n + j];
-            norm_sq = norm_sq + val * val;
-        }
-        let norm = norm_sq.sqrt_val();
-        singular_values[j] = norm;
-
-        // Normalize column j of B to get U column
-        if norm.to_f64() > eps {
-            for i in 0..work_m {
-                u_data[i * work_n + j] = b[i * work_n + j] / norm;
-            }
-        } else {
-            // Zero singular value: U column should be zero (or any orthonormal vector)
-            for i in 0..work_m {
-                u_data[i * work_n + j] = T::zero();
-            }
-        }
-    }
+    // Extract singular values and normalize U columns using shared utility
+    // S[j] = ||B[:,j]||, U[:,j] = B[:,j] / S[j]
+    let singular_values = normalize_columns(&mut b, work_m, work_n, eps);
+    let u_data = b; // b is now U after normalization
 
     // Sort singular values in descending order and reorder U, V accordingly
-    let mut indices: Vec<usize> = (0..work_n).collect();
-    indices.sort_by(|&i, &j| {
-        singular_values[j]
-            .to_f64()
-            .partial_cmp(&singular_values[i].to_f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let indices = argsort_desc(&singular_values);
 
-    // Reorder singular values
-    let mut s_sorted: Vec<T> = vec![T::zero(); work_k];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        s_sorted[new_idx] = singular_values[old_idx];
-    }
+    // Reorder singular values (take first work_k)
+    let s_sorted: Vec<T> = jacobi::permute_vector(&singular_values, &indices)
+        .into_iter()
+        .take(work_k)
+        .collect();
 
     // Reorder U columns (take first work_k)
-    let mut u_sorted: Vec<T> = vec![T::zero(); work_m * work_k];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        for i in 0..work_m {
-            u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
-        }
-    }
+    let u_sorted = permute_columns(&u_data, work_m, work_n, &indices, work_k);
 
     // Reorder V columns and transpose to get V^T (take first work_k rows)
-    // V is [work_n x work_n], V^T is [work_k x work_n]
+    // V^T[i, j] = V[j, perm[i]]
     let mut vt_sorted: Vec<T> = vec![T::zero(); work_k * work_n];
     for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
         for j in 0..work_n {
-            // V^T[new_idx, j] = V[j, old_idx]
             vt_sorted[new_idx * work_n + j] = v[j * work_n + old_idx];
         }
     }
@@ -1248,55 +1186,131 @@ fn svd_decompose_impl<T: Element + LinalgElement>(
     }
 }
 
-// ============================================================================
-// Helper Trait for Numeric Operations
-// ============================================================================
+/// Eigendecomposition for symmetric matrices using Jacobi algorithm
+///
+/// Algorithm: Jacobi Eigenvalue Algorithm
+/// 1. Initialize: V = I_n (eigenvector matrix starts as identity)
+/// 2. REPEAT (max 30 sweeps):
+///    FOR each pair (p, q) where p < q:
+///      - If |A[p,q]| > tol:
+///        a. Compute Jacobi rotation angle θ from A[p,p], A[q,q], A[p,q]
+///        b. Apply rotation: A' = J^T @ A @ J (zeros out A[p,q] and A[q,p])
+///        c. Update eigenvectors: V = V @ J
+///      - Check convergence: max(|A[i,j]| for i≠j) < n * epsilon
+/// 3. eigenvalues = diag(A) (diagonal elements after convergence)
+/// 4. Sort eigenvalues descending by magnitude, reorder eigenvector columns
+fn eig_decompose_symmetric_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    n: usize,
+) -> Result<EigenDecomposition<CpuRuntime>> {
+    let device = client.device();
 
-/// Extension trait for linear algebra element operations.
-/// Only includes methods not already in Element trait.
-trait LinalgElement: Element {
-    fn epsilon_val() -> f64;
-    fn abs_val(self) -> Self;
-    fn sqrt_val(self) -> Self;
-    fn neg_val(self) -> Self;
-}
+    // Handle empty matrix
+    if n == 0 {
+        let eigenvalues = Tensor::<CpuRuntime>::from_slice::<T>(&[], &[0], device);
+        let eigenvectors = Tensor::<CpuRuntime>::from_slice::<T>(&[], &[0, 0], device);
+        return Ok(EigenDecomposition {
+            eigenvalues,
+            eigenvectors,
+        });
+    }
 
-impl LinalgElement for f32 {
-    #[inline]
-    fn epsilon_val() -> f64 {
-        f32::EPSILON as f64
+    // Handle 1x1 matrix
+    if n == 1 {
+        let a_data: Vec<T> = a.to_vec();
+        let eigenvalues = Tensor::<CpuRuntime>::from_slice(&[a_data[0]], &[1], device);
+        let eigenvectors = Tensor::<CpuRuntime>::from_slice(&[T::one()], &[1, 1], device);
+        return Ok(EigenDecomposition {
+            eigenvalues,
+            eigenvectors,
+        });
     }
-    #[inline]
-    fn abs_val(self) -> Self {
-        self.abs()
-    }
-    #[inline]
-    fn sqrt_val(self) -> Self {
-        self.sqrt()
-    }
-    #[inline]
-    fn neg_val(self) -> Self {
-        -self
-    }
-}
 
-impl LinalgElement for f64 {
-    #[inline]
-    fn epsilon_val() -> f64 {
-        f64::EPSILON
+    // Copy input to working matrix (will be modified in-place)
+    // We symmetrize by using only lower triangle: A[i,j] = A[j,i] for i > j
+    let a_data: Vec<T> = a.to_vec();
+    let mut work: Vec<T> = vec![T::zero(); n * n];
+    for i in 0..n {
+        for j in 0..=i {
+            // Use lower triangular part
+            let val = a_data[i * n + j];
+            work[i * n + j] = val;
+            work[j * n + i] = val;
+        }
     }
-    #[inline]
-    fn abs_val(self) -> Self {
-        self.abs()
+
+    // Initialize eigenvector matrix V as identity
+    let mut v: Vec<T> = identity_matrix(n);
+
+    // Convergence parameters
+    let eps = T::epsilon_val();
+    let tol = (n as f64) * eps;
+    let max_sweeps = 30;
+
+    // Jacobi iterations
+    for _sweep in 0..max_sweeps {
+        // Find maximum off-diagonal element
+        let mut max_off_diag = 0.0f64;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let val = work[i * n + j].abs_val().to_f64();
+                if val > max_off_diag {
+                    max_off_diag = val;
+                }
+            }
+        }
+
+        // Check convergence
+        if max_off_diag < tol {
+            break;
+        }
+
+        // Process all element pairs (p, q) where p < q
+        for p in 0..n {
+            for q in (p + 1)..n {
+                let a_pq = work[p * n + q];
+
+                // Skip if already essentially zero
+                if a_pq.abs_val().to_f64() < tol {
+                    continue;
+                }
+
+                let a_pp = work[p * n + p];
+                let a_qq = work[q * n + q];
+
+                // Compute Jacobi rotation using stable LAPACK formula
+                let rot = JacobiRotation::compute(a_pp.to_f64(), a_qq.to_f64(), a_pq.to_f64());
+
+                // Apply two-sided rotation to work matrix: A' = J^T @ A @ J
+                apply_two_sided_rotation(&mut work, n, p, q, &rot, a_pp, a_qq, a_pq);
+
+                // Update eigenvector matrix: V = V @ J
+                apply_rotation_to_columns(&mut v, n, n, p, q, &rot);
+            }
+        }
     }
-    #[inline]
-    fn sqrt_val(self) -> Self {
-        self.sqrt()
+
+    // Extract eigenvalues (diagonal of converged matrix)
+    let mut eigenvalues: Vec<T> = vec![T::zero(); n];
+    for i in 0..n {
+        eigenvalues[i] = work[i * n + i];
     }
-    #[inline]
-    fn neg_val(self) -> Self {
-        -self
-    }
+
+    // Sort eigenvalues by magnitude (descending) and reorder eigenvectors
+    let indices = argsort_by_magnitude_desc(&eigenvalues);
+
+    // Reorder eigenvalues and eigenvector columns
+    let eigenvalues_sorted = jacobi::permute_vector(&eigenvalues, &indices);
+    let v_sorted = permute_columns(&v, n, n, &indices, n);
+
+    let eigenvalues_tensor = Tensor::<CpuRuntime>::from_slice(&eigenvalues_sorted, &[n], device);
+    let eigenvectors_tensor = Tensor::<CpuRuntime>::from_slice(&v_sorted, &[n, n], device);
+
+    Ok(EigenDecomposition {
+        eigenvalues: eigenvalues_tensor,
+        eigenvectors: eigenvectors_tensor,
+    })
 }
 
 #[cfg(test)]
