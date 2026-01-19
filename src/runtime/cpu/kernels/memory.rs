@@ -299,6 +299,28 @@ pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
     }
 }
 
+/// Fill output with random integers in [low, high)
+///
+/// Generates uniformly distributed random integers.
+///
+/// # Safety
+/// - `out` must be a valid pointer to `len` elements
+/// - `low < high` must be satisfied
+#[inline]
+pub unsafe fn randint_kernel<T: Element>(out: *mut T, low: i64, high: i64, len: usize) {
+    use rand::distr::Uniform;
+    use rand::prelude::Distribution;
+
+    let mut rng = rand::rng();
+    let dist = Uniform::new(low, high).unwrap();
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+
+    for elem in out_slice.iter_mut() {
+        let val: i64 = dist.sample(&mut rng);
+        *elem = T::from_f64(val as f64);
+    }
+}
+
 /// Fill output with evenly spaced values in [start, stop)
 ///
 /// Generates values: start + step * i for i in 0..len

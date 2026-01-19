@@ -31,7 +31,7 @@ pub use index::{
 pub use matmul::matmul_kernel;
 pub use memory::{
     arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
-    rand_normal_kernel, rand_uniform_kernel,
+    rand_normal_kernel, rand_uniform_kernel, randint_kernel,
 };
 pub use norm::{layer_norm_kernel, rms_norm_kernel};
 pub use reduce::{

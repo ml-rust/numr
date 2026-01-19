@@ -215,6 +215,146 @@ __global__ void randn_f64(double* out, unsigned long long seed, unsigned int n) 
     }
 }
 
+// F16 variants
+__global__ void rand_f16(__half* out, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        out[idx] = __float2half((float)xorshift128plus_uniform(&state));
+    }
+}
+
+__global__ void randn_f16(__half* out, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int pair_idx = idx * 2;
+
+    if (pair_idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+
+        float z0, z1;
+        box_muller(&state, &z0, &z1);
+
+        out[pair_idx] = __float2half(z0);
+        if (pair_idx + 1 < n) {
+            out[pair_idx + 1] = __float2half(z1);
+        }
+    }
+}
+
+// BF16 variants
+__global__ void rand_bf16(__nv_bfloat16* out, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        out[idx] = __float2bfloat16((float)xorshift128plus_uniform(&state));
+    }
+}
+
+__global__ void randn_bf16(__nv_bfloat16* out, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int pair_idx = idx * 2;
+
+    if (pair_idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+
+        float z0, z1;
+        box_muller(&state, &z0, &z1);
+
+        out[pair_idx] = __float2bfloat16(z0);
+        if (pair_idx + 1 < n) {
+            out[pair_idx + 1] = __float2bfloat16(z1);
+        }
+    }
+}
+
+// ============================================================================
+// Random Integer [low, high) - Native CUDA kernels
+// ============================================================================
+
+__global__ void randint_i8(signed char* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (signed char)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_i16(short* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (short)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_i32(int* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (int)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_i64(long long* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = low + (long long)(r % (unsigned long long)range);
+    }
+}
+
+__global__ void randint_u8(unsigned char* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (unsigned char)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_u16(unsigned short* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (unsigned short)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_u32(unsigned int* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (unsigned int)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
+__global__ void randint_u64(unsigned long long* out, long long low, long long range, unsigned long long seed, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        XorShift128PlusState state;
+        xorshift128plus_init(&state, seed, idx);
+        unsigned long long r = xorshift128plus_next(&state);
+        out[idx] = (unsigned long long)(low + (long long)(r % (unsigned long long)range));
+    }
+}
+
 // ============================================================================
 // Arange - Generate evenly spaced values in [start, stop)
 // ============================================================================

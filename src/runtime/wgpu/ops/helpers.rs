@@ -286,3 +286,45 @@ pub(super) struct LogsumexpStridedParams {
     pub(super) outer_size: u32,
     pub(super) inner_size: u32,
 }
+
+// Random operation params
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RandParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) _pad1: u32,
+    pub(super) _pad2: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RandnParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) _pad1: u32,
+    pub(super) _pad2: u32,
+}
+
+/// Randint params for signed integer types (I32)
+/// The `low` field is i32 to properly handle negative bounds.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RandintParamsI32 {
+    pub(super) numel: u32,
+    pub(super) low: i32, // Signed low bound
+    pub(super) range: u32,
+    pub(super) seed: u32,
+}
+
+/// Randint params for unsigned integer types (U32)
+/// The `low` field is u32 for unsigned bounds.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RandintParamsU32 {
+    pub(super) numel: u32,
+    pub(super) low: u32, // Unsigned low bound
+    pub(super) range: u32,
+    pub(super) seed: u32,
+}

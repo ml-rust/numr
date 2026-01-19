@@ -11,6 +11,7 @@ use wgpu::{Buffer, Queue};
 
 use super::generator::{
     generate_arange_shader, generate_cat_shader, generate_eye_shader, generate_linspace_shader,
+    generate_rand_shader, generate_randint_shader, generate_randn_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -295,6 +296,197 @@ pub fn launch_eye(
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("eye"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Random Operations
+// ============================================================================
+
+/// Get the kernel name for rand operation.
+fn rand_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("rand_f32"),
+        _ => Err(Error::UnsupportedDType { dtype, op: "rand" }),
+    }
+}
+
+/// Launch a rand operation kernel (uniform [0, 1)).
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing RandParams
+/// * `numel` - Number of elements to generate
+/// * `dtype` - Data type of output (must be F32)
+pub fn launch_rand(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let name = rand_kernel_name(dtype)?;
+    let shader_source = generate_rand_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("rand"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("rand"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Get the kernel name for randn operation.
+fn randn_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("randn_f32"),
+        _ => Err(Error::UnsupportedDType { dtype, op: "randn" }),
+    }
+}
+
+/// Launch a randn operation kernel (standard normal N(0, 1)).
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing RandnParams
+/// * `numel` - Number of elements to generate
+/// * `dtype` - Data type of output (must be F32)
+pub fn launch_randn(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let name = randn_kernel_name(dtype)?;
+    let shader_source = generate_randn_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("randn"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("randn"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Get the kernel name for randint operation.
+fn randint_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::I32 => Ok("randint_i32"),
+        DType::U32 => Ok("randint_u32"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "randint",
+        }),
+    }
+}
+
+/// Launch a randint operation kernel (uniform integers in [low, high)).
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `out` - Output buffer
+/// * `params_buffer` - Uniform buffer containing RandintParams
+/// * `numel` - Number of elements to generate
+/// * `dtype` - Data type of output (must be I32 or U32)
+pub fn launch_randint(
+    cache: &PipelineCache,
+    queue: &Queue,
+    out: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    if numel == 0 {
+        return Ok(());
+    }
+
+    let name = randint_kernel_name(dtype)?;
+    let shader_source = generate_randint_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 1,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[out, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("randint"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("randint"),
             timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);

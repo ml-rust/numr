@@ -201,14 +201,14 @@ pub unsafe fn launch_fill_with_f64(
 /// # Safety
 ///
 /// - `out_ptr` must be valid device memory with at least `numel` elements
-/// - Only F32 and F64 dtypes are supported
+/// - Supports F32, F64, F16, BF16 dtypes
 ///
 /// # Arguments
 ///
 /// * `context` - CUDA context
 /// * `stream` - CUDA stream for async execution
 /// * `device_index` - Device index for module caching
-/// * `dtype` - Data type (must be F32 or F64)
+/// * `dtype` - Data type (must be floating point)
 /// * `seed` - Random seed for reproducibility
 /// * `out_ptr` - Device pointer to output tensor
 /// * `numel` - Number of elements
@@ -255,14 +255,14 @@ pub unsafe fn launch_rand(
 /// # Safety
 ///
 /// - `out_ptr` must be valid device memory with at least `numel` elements
-/// - Only F32 and F64 dtypes are supported
+/// - Supports F32, F64, F16, BF16 dtypes
 ///
 /// # Arguments
 ///
 /// * `context` - CUDA context
 /// * `stream` - CUDA stream for async execution
 /// * `device_index` - Device index for module caching
-/// * `dtype` - Data type (must be F32 or F64)
+/// * `dtype` - Data type (must be floating point)
 /// * `seed` - Random seed for reproducibility
 /// * `out_ptr` - Device pointer to output tensor
 /// * `numel` - Number of elements
@@ -295,6 +295,66 @@ pub unsafe fn launch_randn(
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(
                 "CUDA randn kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Launch a random integer kernel: generates integers in [low, high).
+///
+/// Uses xorshift128+ PRNG with modulo for uniform distribution.
+///
+/// # Safety
+///
+/// - `out_ptr` must be valid device memory with at least `numel` elements
+/// - Supports all integer dtypes: I8, I16, I32, I64, U8, U16, U32, U64
+/// - `range` must be positive (high - low)
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type (must be integer type)
+/// * `low` - Lower bound (inclusive)
+/// * `range` - Range size (high - low, must be > 0)
+/// * `seed` - Random seed for reproducibility
+/// * `out_ptr` - Device pointer to output tensor
+/// * `numel` - Number of elements
+pub unsafe fn launch_randint(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    low: i64,
+    range: i64,
+    seed: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = kernel_name("randint", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid = elementwise_launch_config(numel);
+    let block = (BLOCK_SIZE, 1, 1);
+    let n = numel as u32;
+    let cfg = launch_config(grid, block, 0);
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&out_ptr);
+        builder.arg(&low);
+        builder.arg(&range);
+        builder.arg(&seed);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA randint kernel '{}' launch failed: {:?}",
                 func_name, e
             ))
         })?;

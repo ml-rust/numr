@@ -53,7 +53,10 @@ pub use norm::generate_norm_shader;
 pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};
 pub use unary::generate_unary_shader;
-pub use utility::{generate_arange_shader, generate_eye_shader, generate_linspace_shader};
+pub use utility::{
+    generate_arange_shader, generate_eye_shader, generate_linspace_shader, generate_rand_shader,
+    generate_randint_shader, generate_randn_shader,
+};
 
 #[cfg(test)]
 mod tests {
@@ -425,5 +428,101 @@ mod tests {
                 )
             });
         }
+    }
+
+    // ========================================================================
+    // Random Operation Shader Tests (rand, randn, randint)
+    // ========================================================================
+
+    #[test]
+    fn test_generate_rand_shader_f32() {
+        let shader = generate_rand_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn rand_f32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("rand_params"));
+        assert!(shader.contains("pcg_hash"));
+    }
+
+    #[test]
+    fn test_rand_shader_syntax() {
+        // rand only supports F32 on WebGPU
+        let shader = generate_rand_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for rand shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_rand_shader_int_fails() {
+        // rand should fail for integer types
+        assert!(generate_rand_shader(crate::dtype::DType::I32).is_err());
+        assert!(generate_rand_shader(crate::dtype::DType::U32).is_err());
+    }
+
+    #[test]
+    fn test_generate_randn_shader_f32() {
+        let shader = generate_randn_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn randn_f32"));
+        assert!(shader.contains("array<f32>"));
+        assert!(shader.contains("randn_params"));
+        assert!(shader.contains("box_muller"));
+    }
+
+    #[test]
+    fn test_randn_shader_syntax() {
+        // randn only supports F32 on WebGPU
+        let shader = generate_randn_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for randn shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_randn_shader_int_fails() {
+        // randn should fail for integer types
+        assert!(generate_randn_shader(crate::dtype::DType::I32).is_err());
+        assert!(generate_randn_shader(crate::dtype::DType::U32).is_err());
+    }
+
+    #[test]
+    fn test_generate_randint_shader_i32() {
+        let shader = generate_randint_shader(crate::dtype::DType::I32).unwrap();
+        assert!(shader.contains("fn randint_i32"));
+        assert!(shader.contains("array<i32>"));
+        assert!(shader.contains("randint_params"));
+    }
+
+    #[test]
+    fn test_generate_randint_shader_u32() {
+        let shader = generate_randint_shader(crate::dtype::DType::U32).unwrap();
+        assert!(shader.contains("fn randint_u32"));
+        assert!(shader.contains("array<u32>"));
+    }
+
+    #[test]
+    fn test_randint_shader_syntax_int_dtypes() {
+        // randint supports I32 and U32
+        for dtype in [crate::dtype::DType::I32, crate::dtype::DType::U32] {
+            let shader = generate_randint_shader(dtype)
+                .unwrap_or_else(|_| panic!("Failed to generate randint shader for {:?}", dtype));
+            validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+                panic!(
+                    "Invalid WGSL for randint shader {:?}:\n{}\n\nShader:\n{}",
+                    dtype, e, shader
+                )
+            });
+        }
+    }
+
+    #[test]
+    fn test_randint_shader_float_fails() {
+        // randint should fail for float types
+        assert!(generate_randint_shader(crate::dtype::DType::F32).is_err());
     }
 }
