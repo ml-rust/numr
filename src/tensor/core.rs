@@ -491,6 +491,61 @@ impl<R: Runtime> Tensor<R> {
         })
     }
 
+    /// Flip (reverse) tensor along a dimension (zero-copy)
+    ///
+    /// Reverses the order of elements along the specified dimension.
+    /// This is a view operation - no data is copied.
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension to flip (supports negative indexing)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let flipped = tensor.flip(0)?; // Reverse rows: [[3, 4], [1, 2]]
+    /// let flipped = tensor.flip(-1)?; // Reverse columns: [[2, 1], [4, 3]]
+    /// ```
+    pub fn flip(&self, dim: isize) -> Result<Self> {
+        let new_layout = self.layout.flip(dim).ok_or(Error::InvalidDimension {
+            dim,
+            ndim: self.ndim(),
+        })?;
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage: self.storage.clone(),
+            layout: new_layout,
+        })
+    }
+
+    /// Flip (reverse) tensor along multiple dimensions (zero-copy)
+    ///
+    /// # Arguments
+    /// * `dims` - Dimensions to flip (supports negative indexing)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3, 4], &device);
+    /// let flipped = tensor.flip_dims(&[0, 2])?; // Flip first and last dimensions
+    /// ```
+    pub fn flip_dims(&self, dims: &[isize]) -> Result<Self> {
+        let new_layout = self
+            .layout
+            .flip_dims(dims)
+            .ok_or_else(|| Error::InvalidDimension {
+                dim: dims.first().copied().unwrap_or(0),
+                ndim: self.ndim(),
+            })?;
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage: self.storage.clone(),
+            layout: new_layout,
+        })
+    }
+
     /// Make tensor contiguous (copy if needed)
     ///
     /// If the tensor is already contiguous, returns a view (zero-copy).

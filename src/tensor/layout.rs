@@ -371,6 +371,76 @@ impl Layout {
         Some(Self::new(new_shape, new_strides, new_offset as usize))
     }
 
+    /// Create a flipped layout along a dimension (zero-copy via negative stride)
+    ///
+    /// Reverses the order of elements along the specified dimension by:
+    /// 1. Negating the stride for that dimension
+    /// 2. Adjusting the offset to point to the last element along that dimension
+    ///
+    /// # Arguments
+    /// * `dim` - Dimension to flip (supports negative indexing)
+    ///
+    /// # Returns
+    /// None if dimension is out of bounds
+    ///
+    /// # Example
+    /// ```
+    /// use numr::tensor::Layout;
+    /// let layout = Layout::contiguous(&[2, 3]); // strides [3, 1]
+    /// let flipped = layout.flip(-1).unwrap();   // flip last dim
+    /// assert_eq!(flipped.strides(), &[3, -1]);  // negative stride
+    /// assert_eq!(flipped.offset(), 2);          // points to last element of row
+    /// ```
+    pub fn flip(&self, dim: isize) -> Option<Self> {
+        let idx = self.normalize_dim(dim)?;
+
+        // If dimension size is 0 or 1, flip is a no-op
+        if self.shape[idx] <= 1 {
+            return Some(self.clone());
+        }
+
+        let mut new_strides = self.strides.clone();
+        let old_stride = self.strides[idx];
+
+        // Negate the stride
+        new_strides[idx] = -old_stride;
+
+        // Adjust offset to point to the "last" element along this dimension
+        // New offset = old_offset + (dim_size - 1) * old_stride
+        // Use checked arithmetic to prevent overflow
+        let dim_size = self.shape[idx] as isize;
+        let stride_factor = (dim_size - 1).checked_mul(old_stride)?;
+        let new_offset = (self.offset as isize).checked_add(stride_factor)?;
+
+        // Sanity check: offset should be non-negative
+        if new_offset < 0 {
+            return None;
+        }
+
+        Some(Self::new(
+            self.shape.clone(),
+            new_strides,
+            new_offset as usize,
+        ))
+    }
+
+    /// Create a flipped layout along multiple dimensions (zero-copy)
+    ///
+    /// Equivalent to calling `flip` multiple times, but more efficient.
+    ///
+    /// # Arguments
+    /// * `dims` - Dimensions to flip (supports negative indexing)
+    ///
+    /// # Returns
+    /// None if any dimension is out of bounds
+    pub fn flip_dims(&self, dims: &[isize]) -> Option<Self> {
+        let mut result = self.clone();
+        for &dim in dims {
+            result = result.flip(dim)?;
+        }
+        Some(result)
+    }
+
     /// Create a broadcast layout to a target shape
     ///
     /// Returns None if shapes are not broadcastable
@@ -590,5 +660,65 @@ mod tests {
 
         // Invalid: length = 0
         assert!(layout.narrow(0, 0, 0).is_none());
+    }
+
+    #[test]
+    fn test_flip() {
+        let layout = Layout::contiguous(&[2, 3]);
+        // Original: strides [3, 1], offset 0
+
+        // Flip last dim
+        let flipped = layout.flip(-1).unwrap();
+        assert_eq!(flipped.shape(), &[2, 3]);
+        assert_eq!(flipped.strides(), &[3, -1]); // Negated stride
+        assert_eq!(flipped.offset(), 2); // Point to last element of row (0 + 2*1)
+
+        // Flip first dim
+        let flipped2 = layout.flip(0).unwrap();
+        assert_eq!(flipped2.shape(), &[2, 3]);
+        assert_eq!(flipped2.strides(), &[-3, 1]); // Negated stride for dim 0
+        assert_eq!(flipped2.offset(), 3); // Point to last row (0 + 1*3)
+
+        // Flip dimension with size 1 - should be a no-op
+        let layout1d = Layout::contiguous(&[1, 5]);
+        let flipped1 = layout1d.flip(0).unwrap();
+        assert_eq!(flipped1.strides(), &[5, 1]); // Unchanged since size is 1
+        assert_eq!(flipped1.offset(), 0);
+
+        // Invalid dimension
+        assert!(layout.flip(5).is_none());
+        assert!(layout.flip(-5).is_none());
+    }
+
+    #[test]
+    fn test_flip_dims() {
+        let layout = Layout::contiguous(&[2, 3, 4]);
+        // Original: strides [12, 4, 1], offset 0
+
+        // Flip multiple dims
+        let flipped = layout.flip_dims(&[0, 2]).unwrap();
+        assert_eq!(flipped.strides(), &[-12, 4, -1]);
+        // Offset: dim 0 adds (2-1)*12 = 12, dim 2 adds (4-1)*1 = 3 → total = 15
+        assert_eq!(flipped.offset(), 15);
+
+        // Empty dims - no change
+        let flipped_empty = layout.flip_dims(&[]).unwrap();
+        assert_eq!(flipped_empty.strides(), layout.strides());
+        assert_eq!(flipped_empty.offset(), layout.offset());
+    }
+
+    #[test]
+    fn test_flip_index() {
+        // Test that flipped layout indexes correctly
+        let layout = Layout::contiguous(&[2, 3]);
+        // Memory: [0, 1, 2, 3, 4, 5] representing [[0,1,2], [3,4,5]]
+
+        // Flip last dim: should index as [[2,1,0], [5,4,3]]
+        let flipped = layout.flip(-1).unwrap();
+        assert_eq!(flipped.index(&[0, 0]), Some(2)); // Was index 2, now at [0,0]
+        assert_eq!(flipped.index(&[0, 1]), Some(1)); // Was index 1, now at [0,1]
+        assert_eq!(flipped.index(&[0, 2]), Some(0)); // Was index 0, now at [0,2]
+        assert_eq!(flipped.index(&[1, 0]), Some(5)); // Was index 5
+        assert_eq!(flipped.index(&[1, 2]), Some(3)); // Was index 3
     }
 }

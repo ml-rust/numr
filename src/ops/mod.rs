@@ -1200,6 +1200,78 @@ pub trait TensorOps<R: Runtime> {
     /// let chunks = client.chunk(&a, 2, 0)?; // [3], [2]
     /// ```
     fn chunk(&self, tensor: &Tensor<R>, chunks: usize, dim: isize) -> Result<Vec<Tensor<R>>>;
+
+    /// Repeat tensor along each dimension
+    ///
+    /// Creates a new tensor by repeating the input tensor along each dimension.
+    /// The `repeats` slice specifies how many times to repeat along each dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor
+    /// * `repeats` - Number of repetitions for each dimension. Length must match tensor ndim.
+    ///
+    /// # Returns
+    ///
+    /// New tensor with shape `[dim_0 * repeats[0], dim_1 * repeats[1], ...]`
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let repeated = client.repeat(&a, &[2, 3])?; // Shape: [4, 6]
+    /// // Result: [[1,2,1,2,1,2], [3,4,3,4,3,4], [1,2,1,2,1,2], [3,4,3,4,3,4]]
+    /// ```
+    fn repeat(&self, tensor: &Tensor<R>, repeats: &[usize]) -> Result<Tensor<R>>;
+
+    /// Pad tensor with a constant value
+    ///
+    /// Adds padding to the tensor along specified dimensions. The `padding` slice
+    /// contains pairs of (before, after) padding sizes, starting from the last dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor
+    /// * `padding` - Padding sizes as pairs: `[last_before, last_after, second_last_before, ...]`
+    /// * `value` - Value to use for padding
+    ///
+    /// # Returns
+    ///
+    /// New tensor with padded dimensions
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// // Pad last dim by 1 on each side
+    /// let padded = client.pad(&a, &[1, 1], 0.0)?; // Shape: [2, 4]
+    /// // Result: [[0,1,2,0], [0,3,4,0]]
+    /// ```
+    fn pad(&self, tensor: &Tensor<R>, padding: &[usize], value: f64) -> Result<Tensor<R>>;
+
+    /// Roll tensor elements along a dimension
+    ///
+    /// Shifts elements circularly along a dimension. Elements that roll beyond
+    /// the last position wrap around to the first position.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor
+    /// * `shift` - Number of positions to shift (negative = shift left, positive = shift right)
+    /// * `dim` - Dimension along which to roll (supports negative indexing)
+    ///
+    /// # Returns
+    ///
+    /// New tensor with rolled elements
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// let rolled = client.roll(&a, 1, 0)?; // [4, 1, 2, 3]
+    /// let rolled = client.roll(&a, -1, 0)?; // [2, 3, 4, 1]
+    /// ```
+    fn roll(&self, tensor: &Tensor<R>, shift: isize, dim: isize) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations

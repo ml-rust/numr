@@ -293,6 +293,174 @@ pub fn chunk_impl<R: Runtime>(
 }
 
 // ============================================================================
+// Repeat Validation
+// ============================================================================
+
+/// Parameters for repeat operation after validation.
+#[derive(Debug, Clone)]
+pub struct RepeatParams {
+    /// Output shape after repeating
+    pub out_shape: Vec<usize>,
+}
+
+/// Validate inputs for repeat operation and compute output parameters.
+pub fn validate_repeat<R: Runtime>(tensor: &Tensor<R>, repeats: &[usize]) -> Result<RepeatParams> {
+    if repeats.len() != tensor.ndim() {
+        return Err(Error::InvalidArgument {
+            arg: "repeats",
+            reason: format!(
+                "repeats length ({}) must match tensor ndim ({})",
+                repeats.len(),
+                tensor.ndim()
+            ),
+        });
+    }
+
+    // Check for zero repeats
+    for &r in repeats {
+        if r == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "repeats",
+                reason: "repeat count cannot be zero".to_string(),
+            });
+        }
+    }
+
+    // Compute output shape
+    let out_shape: Vec<usize> = tensor
+        .shape()
+        .iter()
+        .zip(repeats.iter())
+        .map(|(&d, &r)| d * r)
+        .collect();
+
+    Ok(RepeatParams { out_shape })
+}
+
+// ============================================================================
+// Pad Validation
+// ============================================================================
+
+/// Parameters for pad operation after validation.
+#[derive(Debug, Clone)]
+pub struct PadParams {
+    /// Output shape after padding
+    pub out_shape: Vec<usize>,
+    /// Padding per dimension: (before, after) pairs, aligned with dimensions (not reversed)
+    pub pad_per_dim: Vec<(usize, usize)>,
+}
+
+/// Validate inputs for pad operation and compute output parameters.
+///
+/// The `padding` slice uses PyTorch convention: pairs starting from the last dimension.
+/// E.g., for a 3D tensor, `[last_before, last_after, mid_before, mid_after]` pads
+/// dimensions 2 and 1 (not dimension 0).
+pub fn validate_pad<R: Runtime>(tensor: &Tensor<R>, padding: &[usize]) -> Result<PadParams> {
+    // Padding must come in pairs
+    if padding.len() % 2 != 0 {
+        return Err(Error::InvalidArgument {
+            arg: "padding",
+            reason: "padding must have even length (pairs of before/after)".to_string(),
+        });
+    }
+
+    let num_padded_dims = padding.len() / 2;
+    if num_padded_dims > tensor.ndim() {
+        return Err(Error::InvalidArgument {
+            arg: "padding",
+            reason: format!(
+                "padding specifies {} dimensions but tensor only has {}",
+                num_padded_dims,
+                tensor.ndim()
+            ),
+        });
+    }
+
+    // Build padding per dimension (aligned with tensor dimensions)
+    let ndim = tensor.ndim();
+    let mut pad_per_dim: Vec<(usize, usize)> = vec![(0, 0); ndim];
+
+    // Padding starts from last dimension
+    for i in 0..num_padded_dims {
+        let dim = ndim - 1 - i;
+        let before = padding[i * 2];
+        let after = padding[i * 2 + 1];
+        pad_per_dim[dim] = (before, after);
+    }
+
+    // Compute output shape
+    let out_shape: Vec<usize> = tensor
+        .shape()
+        .iter()
+        .zip(pad_per_dim.iter())
+        .map(|(&d, &(before, after))| d + before + after)
+        .collect();
+
+    Ok(PadParams {
+        out_shape,
+        pad_per_dim,
+    })
+}
+
+// ============================================================================
+// Roll Validation
+// ============================================================================
+
+/// Parameters for roll operation after validation.
+#[derive(Debug, Clone)]
+pub struct RollParams {
+    /// Normalized dimension index
+    pub dim_idx: usize,
+    /// Normalized shift (always positive, within [0, dim_size))
+    pub shift: usize,
+    /// Size of the dimension being rolled
+    pub dim_size: usize,
+}
+
+/// Validate inputs for roll operation and compute parameters.
+pub fn validate_roll<R: Runtime>(
+    tensor: &Tensor<R>,
+    shift: isize,
+    dim: isize,
+) -> Result<RollParams> {
+    let ndim = tensor.ndim();
+    if ndim == 0 {
+        return Err(Error::InvalidArgument {
+            arg: "tensor",
+            reason: "cannot roll a scalar tensor".to_string(),
+        });
+    }
+
+    let dim_idx = normalize_dim(dim, ndim).ok_or(Error::InvalidDimension { dim, ndim })?;
+    let dim_size = tensor.shape()[dim_idx];
+
+    if dim_size == 0 {
+        return Err(Error::InvalidArgument {
+            arg: "tensor",
+            reason: "cannot roll along dimension of size 0".to_string(),
+        });
+    }
+
+    // Normalize shift to [0, dim_size)
+    let shift = if shift >= 0 {
+        (shift as usize) % dim_size
+    } else {
+        let neg_shift = (-shift) as usize % dim_size;
+        if neg_shift == 0 {
+            0
+        } else {
+            dim_size - neg_shift
+        }
+    };
+
+    Ok(RollParams {
+        dim_idx,
+        shift,
+        dim_size,
+    })
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
