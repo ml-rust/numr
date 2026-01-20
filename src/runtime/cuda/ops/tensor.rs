@@ -2,12 +2,13 @@
 
 use super::super::kernels::{
     AccumulationPrecision, launch_cast, launch_cat_copy, launch_cumprod, launch_cumprod_strided,
-    launch_cumsum, launch_cumsum_strided, launch_elu, launch_fill_with_f64, launch_gather,
-    launch_gelu, launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm,
-    launch_leaky_relu, launch_logsumexp, launch_logsumexp_strided, launch_masked_count,
-    launch_masked_fill, launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_relu,
-    launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_sigmoid, launch_silu,
-    launch_softmax, launch_softmax_dim, launch_where_broadcast_op, launch_where_op,
+    launch_cumsum, launch_cumsum_strided, launch_elu, launch_embedding_lookup,
+    launch_fill_with_f64, launch_gather, launch_gelu, launch_index_select, launch_isinf_op,
+    launch_isnan_op, launch_layer_norm, launch_leaky_relu, launch_logsumexp,
+    launch_logsumexp_strided, launch_masked_count, launch_masked_fill, launch_masked_prefix_sum,
+    launch_masked_select, launch_pad, launch_relu, launch_repeat, launch_rms_norm, launch_roll,
+    launch_scatter, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
+    launch_where_broadcast_op, launch_where_op,
 };
 use super::super::{CudaClient, CudaRuntime};
 use super::helpers::{
@@ -1177,6 +1178,60 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 out.storage().ptr(),
                 value,
                 a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<CudaRuntime>,
+        indices: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = embeddings.dtype();
+        let emb_shape = embeddings.shape();
+
+        // Validate embeddings is 2D
+        if emb_shape.len() != 2 {
+            return Err(Error::ShapeMismatch {
+                expected: vec![0, 0], // Indicates 2D expected
+                got: emb_shape.to_vec(),
+            });
+        }
+
+        // Validate indices dtype
+        if indices.dtype() != DType::I64 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::I64,
+                rhs: indices.dtype(),
+            });
+        }
+
+        let vocab_size = emb_shape[0];
+        let embedding_dim = emb_shape[1];
+        let num_indices = indices.numel();
+
+        // Output shape: indices.shape() + [embedding_dim]
+        let mut out_shape = indices.shape().to_vec();
+        out_shape.push(embedding_dim);
+
+        let emb_contig = ensure_contiguous(embeddings);
+        let idx_contig = ensure_contiguous(indices);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
+
+        unsafe {
+            launch_embedding_lookup(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                emb_contig.storage().ptr(),
+                idx_contig.storage().ptr(),
+                out.storage().ptr(),
+                num_indices,
+                vocab_size,
+                embedding_dim,
             )?;
         }
 

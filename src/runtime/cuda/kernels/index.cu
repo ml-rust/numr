@@ -164,6 +164,43 @@ __global__ void masked_fill_##suffix( \
     output[idx] = (mask[idx] != 0) ? fill_value : input[idx]; \
 }
 
+// Macro for embedding_lookup kernel
+// Industry-standard embedding table lookup operation for neural networks.
+// Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
+// Output: output [num_indices, embedding_dim]
+// Each thread handles one index, copying the entire embedding row to output.
+#define DEFINE_EMBEDDING_LOOKUP_KERNEL(suffix, dtype) \
+__global__ void embedding_lookup_##suffix( \
+    const dtype* __restrict__ embeddings, \
+    const long long* __restrict__ indices, \
+    dtype* __restrict__ output, \
+    unsigned int num_indices, \
+    unsigned int vocab_size, \
+    unsigned int embedding_dim \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (idx >= num_indices) return; \
+    \
+    long long index_val = indices[idx]; \
+    dtype* out_row = output + (idx * embedding_dim); \
+    \
+    /* Check bounds */ \
+    if (index_val < 0 || (unsigned int)index_val >= vocab_size) { \
+        /* Out of bounds - fill with zeros */ \
+        for (unsigned int i = 0; i < embedding_dim; i++) { \
+            out_row[i] = (dtype)0; \
+        } \
+        return; \
+    } \
+    \
+    const dtype* emb_row = embeddings + ((unsigned int)index_val * embedding_dim); \
+    \
+    /* Copy the entire embedding row to output (coalesced writes) */ \
+    for (unsigned int i = 0; i < embedding_dim; i++) { \
+        out_row[i] = emb_row[i]; \
+    } \
+}
+
 extern "C" {
 
 // ============================================================================
@@ -228,6 +265,7 @@ DEFINE_COPY_KERNEL(f32, float)
 DEFINE_INDEX_SELECT_KERNEL(f32, float)
 DEFINE_MASKED_SELECT_KERNEL(f32, float)
 DEFINE_MASKED_FILL_KERNEL(f32, float)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(f32, float)
 
 // ============================================================================
 // F64 Kernels
@@ -239,6 +277,7 @@ DEFINE_COPY_KERNEL(f64, double)
 DEFINE_INDEX_SELECT_KERNEL(f64, double)
 DEFINE_MASKED_SELECT_KERNEL(f64, double)
 DEFINE_MASKED_FILL_KERNEL(f64, double)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(f64, double)
 
 // ============================================================================
 // F16 Kernels
@@ -250,6 +289,7 @@ DEFINE_COPY_KERNEL(f16, __half)
 DEFINE_INDEX_SELECT_KERNEL(f16, __half)
 DEFINE_MASKED_SELECT_KERNEL(f16, __half)
 DEFINE_MASKED_FILL_KERNEL(f16, __half)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(f16, __half)
 
 // ============================================================================
 // BF16 Kernels
@@ -261,6 +301,7 @@ DEFINE_COPY_KERNEL(bf16, __nv_bfloat16)
 DEFINE_INDEX_SELECT_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_SELECT_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_FILL_KERNEL(bf16, __nv_bfloat16)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(bf16, __nv_bfloat16)
 
 // ============================================================================
 // I32 Kernels
@@ -272,6 +313,7 @@ DEFINE_COPY_KERNEL(i32, int)
 DEFINE_INDEX_SELECT_KERNEL(i32, int)
 DEFINE_MASKED_SELECT_KERNEL(i32, int)
 DEFINE_MASKED_FILL_KERNEL(i32, int)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(i32, int)
 
 // ============================================================================
 // I64 Kernels
@@ -283,5 +325,6 @@ DEFINE_COPY_KERNEL(i64, long long)
 DEFINE_INDEX_SELECT_KERNEL(i64, long long)
 DEFINE_MASKED_SELECT_KERNEL(i64, long long)
 DEFINE_MASKED_FILL_KERNEL(i64, long long)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(i64, long long)
 
 } // extern "C"
