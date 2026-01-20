@@ -3,6 +3,9 @@
 //! Provides launchers for shape operations including:
 //! - cat: Concatenate tensors along a dimension
 //! - stack: Stack tensors along a new dimension (uses cat + unsqueeze)
+//! - repeat: Tile tensor along all dimensions
+//! - pad: Add padding around tensor
+//! - roll: Circular shift along a dimension
 //! - split/chunk: Zero-copy views using narrow (no kernel needed)
 //!
 //! All copy operations run entirely on GPU with no CPU fallback.
@@ -11,7 +14,8 @@ use wgpu::{Buffer, Queue};
 
 use super::generator::{
     generate_arange_shader, generate_cat_shader, generate_eye_shader, generate_linspace_shader,
-    generate_rand_shader, generate_randint_shader, generate_randn_shader,
+    generate_pad_shader, generate_rand_shader, generate_randint_shader, generate_randn_shader,
+    generate_repeat_shader, generate_roll_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -492,6 +496,214 @@ pub fn launch_randint(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Repeat Operation
+// ============================================================================
+
+/// Get the kernel name for repeat operation.
+fn repeat_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("repeat_f32"),
+        DType::I32 => Ok("repeat_i32"),
+        DType::U32 => Ok("repeat_u32"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "repeat",
+        }),
+    }
+}
+
+/// Launch a repeat operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `src` - Source tensor buffer
+/// * `dst` - Destination tensor buffer
+/// * `params_buffer` - Uniform buffer containing RepeatParams
+/// * `total_elements` - Total elements in output tensor
+/// * `dtype` - Data type of tensors
+pub fn launch_repeat(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    if total_elements == 0 {
+        return Ok(());
+    }
+
+    let name = repeat_kernel_name(dtype)?;
+    let shader_source = generate_repeat_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("repeat"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("repeat"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Pad Operation
+// ============================================================================
+
+/// Get the kernel name for pad operation.
+fn pad_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("pad_f32"),
+        DType::I32 => Ok("pad_i32"),
+        DType::U32 => Ok("pad_u32"),
+        _ => Err(Error::UnsupportedDType { dtype, op: "pad" }),
+    }
+}
+
+/// Launch a pad operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `src` - Source tensor buffer
+/// * `dst` - Destination tensor buffer
+/// * `params_buffer` - Uniform buffer containing PadParams
+/// * `total_elements` - Total elements in output tensor
+/// * `dtype` - Data type of tensors
+pub fn launch_pad(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    if total_elements == 0 {
+        return Ok(());
+    }
+
+    let name = pad_kernel_name(dtype)?;
+    let shader_source = generate_pad_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pad") });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("pad"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Roll Operation
+// ============================================================================
+
+/// Get the kernel name for roll operation.
+fn roll_kernel_name(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("roll_f32"),
+        DType::I32 => Ok("roll_i32"),
+        DType::U32 => Ok("roll_u32"),
+        _ => Err(Error::UnsupportedDType { dtype, op: "roll" }),
+    }
+}
+
+/// Launch a roll operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `src` - Source tensor buffer
+/// * `dst` - Destination tensor buffer
+/// * `params_buffer` - Uniform buffer containing RollParams
+/// * `total_elements` - Total elements in tensor
+/// * `dtype` - Data type of tensors
+pub fn launch_roll(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    if total_elements == 0 {
+        return Ok(());
+    }
+
+    let name = roll_kernel_name(dtype)?;
+    let shader_source = generate_roll_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("roll"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("roll"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

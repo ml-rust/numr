@@ -5,6 +5,10 @@
 
 use wgpu::BufferUsages;
 
+/// Maximum number of dimensions supported by WebGPU shape operation shaders.
+/// WGSL doesn't support dynamic arrays in uniform buffers, so we use fixed-size arrays.
+pub const MAX_DIMS: usize = 8;
+
 use super::super::WgpuRuntime;
 use super::super::client::get_buffer;
 use crate::dtype::DType;
@@ -327,4 +331,75 @@ pub(super) struct RandintParamsU32 {
     pub(super) low: u32, // Unsigned low bound
     pub(super) range: u32,
     pub(super) seed: u32,
+}
+
+// Shape operation params
+// Note: Array sizes must match MAX_DIMS (8) for binary layout compatibility with WGSL shaders.
+// WGSL doesn't support dynamic arrays in uniform buffers, so we use fixed-size arrays.
+
+/// Params for repeat operation (tile tensor along all dimensions)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RepeatParams {
+    pub(super) ndim: u32,
+    pub(super) total_elements: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+    /// Source tensor shape (up to MAX_DIMS dimensions)
+    pub(super) src_shape: [u32; 8],
+    /// Output tensor shape (up to MAX_DIMS dimensions)
+    pub(super) out_shape: [u32; 8],
+}
+
+/// Params for pad operation with F32 fill value
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct PadParamsF32 {
+    pub(super) ndim: u32,
+    pub(super) total_elements: u32,
+    pub(super) fill_value: f32,
+    pub(super) _pad0: u32,
+    pub(super) src_shape: [u32; 8],
+    pub(super) out_shape: [u32; 8],
+    pub(super) pad_before: [u32; 8],
+}
+
+/// Params for pad operation with I32 fill value
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct PadParamsI32 {
+    pub(super) ndim: u32,
+    pub(super) total_elements: u32,
+    pub(super) fill_value: i32,
+    pub(super) _pad0: u32,
+    pub(super) src_shape: [u32; 8],
+    pub(super) out_shape: [u32; 8],
+    pub(super) pad_before: [u32; 8],
+}
+
+/// Params for pad operation with U32 fill value
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct PadParamsU32 {
+    pub(super) ndim: u32,
+    pub(super) total_elements: u32,
+    pub(super) fill_value: u32,
+    pub(super) _pad0: u32,
+    pub(super) src_shape: [u32; 8],
+    pub(super) out_shape: [u32; 8],
+    pub(super) pad_before: [u32; 8],
+}
+
+/// Params for roll operation (circular shift along a dimension)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct RollParams {
+    pub(super) outer_size: u32,
+    pub(super) dim_size: u32,
+    pub(super) inner_size: u32,
+    pub(super) shift: u32,
+    pub(super) total_elements: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+    pub(super) _pad2: u32,
 }

@@ -898,4 +898,259 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     ) -> Result<Vec<Tensor<WgpuRuntime>>> {
         shape_ops::chunk_impl(tensor, chunks, dim)
     }
+
+    fn repeat(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        repeats: &[usize],
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let params = shape_ops::validate_repeat(tensor, repeats)?;
+
+        // No-op if all repeats are 1
+        if repeats.iter().all(|&r| r == 1) {
+            return Ok(tensor.contiguous());
+        }
+
+        // Check dtype is supported by WebGPU
+        if !matches!(tensor.dtype(), DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype: tensor.dtype(),
+                op: "repeat",
+            });
+        }
+
+        // Check ndim doesn't exceed shader limit
+        if params.out_shape.len() > MAX_DIMS {
+            return Err(Error::InvalidArgument {
+                arg: "ndim",
+                reason: format!(
+                    "repeat on WebGPU supports max {} dimensions, got {}",
+                    MAX_DIMS,
+                    params.out_shape.len()
+                ),
+            });
+        }
+
+        // Ensure contiguous input
+        let tensor_contig = if tensor.is_contiguous() {
+            tensor.clone()
+        } else {
+            tensor.contiguous()
+        };
+
+        let total_elements: usize = params.out_shape.iter().product();
+
+        // Allocate output
+        let out = alloc_output(self, &params.out_shape, tensor.dtype());
+        let out_buf = get_tensor_buffer(&out)?;
+        let src_buf = get_tensor_buffer(&tensor_contig)?;
+
+        // Create params with padded arrays
+        let ndim = params.out_shape.len();
+        let mut src_shape = [0u32; 8];
+        let mut out_shape_arr = [0u32; 8];
+        for i in 0..ndim {
+            src_shape[i] = tensor.shape()[i] as u32;
+            out_shape_arr[i] = params.out_shape[i] as u32;
+        }
+
+        let shader_params = RepeatParams {
+            ndim: ndim as u32,
+            total_elements: total_elements as u32,
+            _pad0: 0,
+            _pad1: 0,
+            src_shape,
+            out_shape: out_shape_arr,
+        };
+        let params_buf = create_params_buffer(self, &shader_params);
+
+        shape::launch_repeat(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &src_buf,
+            &out_buf,
+            &params_buf,
+            total_elements,
+            tensor.dtype(),
+        )?;
+
+        Ok(out)
+    }
+
+    fn pad(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        padding: &[usize],
+        value: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let params = shape_ops::validate_pad(tensor, padding)?;
+
+        // No-op if all padding is zero
+        if padding.iter().all(|&p| p == 0) {
+            return Ok(tensor.contiguous());
+        }
+
+        let dtype = tensor.dtype();
+
+        // Check dtype is supported by WebGPU
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType { dtype, op: "pad" });
+        }
+
+        // Check ndim doesn't exceed shader limit
+        if params.out_shape.len() > MAX_DIMS {
+            return Err(Error::InvalidArgument {
+                arg: "ndim",
+                reason: format!(
+                    "pad on WebGPU supports max {} dimensions, got {}",
+                    MAX_DIMS,
+                    params.out_shape.len()
+                ),
+            });
+        }
+
+        // Ensure contiguous input
+        let tensor_contig = if tensor.is_contiguous() {
+            tensor.clone()
+        } else {
+            tensor.contiguous()
+        };
+
+        let total_elements: usize = params.out_shape.iter().product();
+
+        // Allocate output
+        let out = alloc_output(self, &params.out_shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let src_buf = get_tensor_buffer(&tensor_contig)?;
+
+        // Create params with padded arrays
+        let ndim = params.out_shape.len();
+        let mut src_shape = [0u32; 8];
+        let mut out_shape_arr = [0u32; 8];
+        let mut pad_before = [0u32; 8];
+        for i in 0..ndim {
+            src_shape[i] = tensor.shape()[i] as u32;
+            out_shape_arr[i] = params.out_shape[i] as u32;
+            // Extract 'before' padding from pad_per_dim: (before, after)
+            pad_before[i] = params.pad_per_dim[i].0 as u32;
+        }
+
+        // Create dtype-specific params buffer
+        let params_buf = match dtype {
+            DType::F32 => {
+                let shader_params = PadParamsF32 {
+                    ndim: ndim as u32,
+                    total_elements: total_elements as u32,
+                    fill_value: value as f32,
+                    _pad0: 0,
+                    src_shape,
+                    out_shape: out_shape_arr,
+                    pad_before,
+                };
+                create_params_buffer(self, &shader_params)
+            }
+            DType::I32 => {
+                let shader_params = PadParamsI32 {
+                    ndim: ndim as u32,
+                    total_elements: total_elements as u32,
+                    fill_value: value as i32,
+                    _pad0: 0,
+                    src_shape,
+                    out_shape: out_shape_arr,
+                    pad_before,
+                };
+                create_params_buffer(self, &shader_params)
+            }
+            DType::U32 => {
+                let shader_params = PadParamsU32 {
+                    ndim: ndim as u32,
+                    total_elements: total_elements as u32,
+                    fill_value: value as u32,
+                    _pad0: 0,
+                    src_shape,
+                    out_shape: out_shape_arr,
+                    pad_before,
+                };
+                create_params_buffer(self, &shader_params)
+            }
+            _ => unreachable!("dtype validated above"),
+        };
+
+        shape::launch_pad(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &src_buf,
+            &out_buf,
+            &params_buf,
+            total_elements,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn roll(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        shift: isize,
+        dim: isize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let params = shape_ops::validate_roll(tensor, shift, dim)?;
+
+        // Zero shift is a no-op
+        if params.shift == 0 {
+            return Ok(tensor.contiguous());
+        }
+
+        // Check dtype is supported by WebGPU
+        if !matches!(tensor.dtype(), DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype: tensor.dtype(),
+                op: "roll",
+            });
+        }
+
+        // Ensure contiguous input
+        let tensor_contig = if tensor.is_contiguous() {
+            tensor.clone()
+        } else {
+            tensor.contiguous()
+        };
+
+        let total_elements = tensor.numel();
+        let shape = tensor.shape();
+
+        // Compute outer_size (product of dims before roll dim) and inner_size (product of dims after)
+        let outer_size: usize = shape[..params.dim_idx].iter().product();
+        let inner_size: usize = shape[params.dim_idx + 1..].iter().product();
+
+        // Allocate output (same shape as input)
+        let out = alloc_output(self, shape, tensor.dtype());
+        let out_buf = get_tensor_buffer(&out)?;
+        let src_buf = get_tensor_buffer(&tensor_contig)?;
+
+        let shader_params = RollParams {
+            outer_size: outer_size.max(1) as u32,
+            dim_size: params.dim_size as u32,
+            inner_size: inner_size.max(1) as u32,
+            shift: params.shift as u32,
+            total_elements: total_elements as u32,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(self, &shader_params);
+
+        shape::launch_roll(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &src_buf,
+            &out_buf,
+            &params_buf,
+            total_elements,
+            tensor.dtype(),
+        )?;
+
+        Ok(out)
+    }
 }

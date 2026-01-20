@@ -39,7 +39,9 @@ pub mod utility;
 
 pub use binary::generate_binary_shader;
 pub use cast::{generate_all_casts_from, generate_cast_shader};
-pub use cat::generate_cat_shader;
+pub use cat::{
+    generate_cat_shader, generate_pad_shader, generate_repeat_shader, generate_roll_shader,
+};
 pub use common::{dtype_suffix, is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type};
 pub use compare::generate_compare_shader;
 pub use cumulative::{

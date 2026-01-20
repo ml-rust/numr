@@ -1,4 +1,4 @@
-//! WGSL shader generation for concatenation operations
+//! WGSL shader generation for shape operations (cat, repeat, pad, roll)
 
 use super::common::{dtype_suffix, wgsl_type};
 use crate::dtype::DType;
@@ -49,6 +49,200 @@ fn cat_copy_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
                 + inner;
 
     cat_dst[dst_idx] = cat_src[idx];
+}}
+"#,
+        t = t,
+        suffix = suffix
+    ))
+}
+
+/// Generate WGSL shader for repeat operation (tile tensor along all dimensions)
+///
+/// This kernel tiles the source tensor by the given repeat factors.
+pub fn generate_repeat_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated repeat operation for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+const MAX_DIMS: u32 = 8u;
+
+struct RepeatParams {{
+    ndim: u32,
+    total_elements: u32,
+    _pad0: u32,
+    _pad1: u32,
+    src_shape: array<u32, 8>,
+    out_shape: array<u32, 8>,
+}}
+
+@group(0) @binding(0) var<storage, read> repeat_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> repeat_dst: array<{t}>;
+@group(0) @binding(2) var<uniform> repeat_params: RepeatParams;
+
+@compute @workgroup_size(256)
+fn repeat_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= repeat_params.total_elements) {{
+        return;
+    }}
+
+    // Decompose idx into multi-dimensional output coordinates
+    var remaining = idx;
+    var src_idx = 0u;
+    var src_stride = 1u;
+
+    // Compute source strides first (row-major)
+    var src_strides: array<u32, 8>;
+    var stride = 1u;
+    for (var d = i32(repeat_params.ndim) - 1; d >= 0; d = d - 1) {{
+        src_strides[d] = stride;
+        stride = stride * repeat_params.src_shape[d];
+    }}
+
+    // Process dimensions from last to first
+    for (var d = i32(repeat_params.ndim) - 1; d >= 0; d = d - 1) {{
+        let out_dim = repeat_params.out_shape[d];
+        let coord = remaining % out_dim;
+        remaining = remaining / out_dim;
+
+        // Map to source coordinate using modulo
+        let src_coord = coord % repeat_params.src_shape[d];
+        src_idx = src_idx + src_coord * src_strides[d];
+    }}
+
+    repeat_dst[idx] = repeat_src[src_idx];
+}}
+"#,
+        t = t,
+        suffix = suffix
+    ))
+}
+
+/// Generate WGSL shader for pad operation (add padding around tensor)
+///
+/// This kernel adds padding to a tensor with a fill value.
+pub fn generate_pad_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated pad operation for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+const MAX_DIMS: u32 = 8u;
+
+struct PadParams {{
+    ndim: u32,
+    total_elements: u32,
+    fill_value: {t},
+    _pad0: u32,
+    src_shape: array<u32, 8>,
+    out_shape: array<u32, 8>,
+    pad_before: array<u32, 8>,
+}}
+
+@group(0) @binding(0) var<storage, read> pad_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> pad_dst: array<{t}>;
+@group(0) @binding(2) var<uniform> pad_params: PadParams;
+
+@compute @workgroup_size(256)
+fn pad_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= pad_params.total_elements) {{
+        return;
+    }}
+
+    // Decompose idx into multi-dimensional output coordinates
+    var remaining = idx;
+    var coords: array<u32, 8>;
+    var in_bounds = true;
+
+    // Process dimensions from last to first
+    for (var d = i32(pad_params.ndim) - 1; d >= 0; d = d - 1) {{
+        let out_dim = pad_params.out_shape[d];
+        coords[d] = remaining % out_dim;
+        remaining = remaining / out_dim;
+
+        // Check if coordinate is in original tensor region
+        let pb = pad_params.pad_before[d];
+        let ss = pad_params.src_shape[d];
+        if (coords[d] < pb || coords[d] >= pb + ss) {{
+            in_bounds = false;
+        }}
+    }}
+
+    if (in_bounds) {{
+        // Compute source index
+        var src_idx = 0u;
+        var src_stride = 1u;
+        for (var d = i32(pad_params.ndim) - 1; d >= 0; d = d - 1) {{
+            let src_coord = coords[d] - pad_params.pad_before[d];
+            src_idx = src_idx + src_coord * src_stride;
+            src_stride = src_stride * pad_params.src_shape[d];
+        }}
+        pad_dst[idx] = pad_src[src_idx];
+    }} else {{
+        pad_dst[idx] = pad_params.fill_value;
+    }}
+}}
+"#,
+        t = t,
+        suffix = suffix
+    ))
+}
+
+/// Generate WGSL shader for roll operation (circular shift along dimension)
+///
+/// This kernel shifts elements along a dimension with wrapping.
+pub fn generate_roll_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated roll operation for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct RollParams {{
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    shift: u32,
+    total_elements: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> roll_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> roll_dst: array<{t}>;
+@group(0) @binding(2) var<uniform> roll_params: RollParams;
+
+@compute @workgroup_size(256)
+fn roll_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= roll_params.total_elements) {{
+        return;
+    }}
+
+    // Decompose idx into (outer, dim_coord, inner)
+    let inner = idx % roll_params.inner_size;
+    let remaining = idx / roll_params.inner_size;
+    let dim_coord = remaining % roll_params.dim_size;
+    let outer = remaining / roll_params.dim_size;
+
+    // Compute source coordinate with roll (shift goes right, so source is shift positions left)
+    let src_dim_coord = (dim_coord + roll_params.dim_size - roll_params.shift) % roll_params.dim_size;
+
+    // Compute source linear index
+    let src_idx = outer * roll_params.dim_size * roll_params.inner_size
+                + src_dim_coord * roll_params.inner_size
+                + inner;
+
+    roll_dst[idx] = roll_src[src_idx];
 }}
 "#,
         t = t,
