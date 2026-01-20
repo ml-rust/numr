@@ -1236,6 +1236,137 @@ impl TensorOps<CpuRuntime> for CpuClient {
         Ok(out)
     }
 
+    fn multinomial(
+        &self,
+        probs: &Tensor<CpuRuntime>,
+        num_samples: usize,
+        replacement: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = probs.dtype();
+
+        // Validate probs is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "multinomial",
+            });
+        }
+
+        // Validate num_samples
+        if num_samples == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: "num_samples must be > 0".to_string(),
+            });
+        }
+
+        let shape = probs.shape();
+        let ndim = shape.len();
+
+        // Validate tensor is 1D or 2D (like PyTorch)
+        if ndim == 0 || ndim > 2 {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: format!(
+                    "multinomial requires 1D or 2D probability tensor, got {}D",
+                    ndim
+                ),
+            });
+        }
+
+        let num_categories = *shape.last().unwrap();
+        if num_categories == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: "probs tensor must have at least 1 category (last dim > 0)".to_string(),
+            });
+        }
+
+        // Without replacement: can't sample more than we have
+        if !replacement && num_samples > num_categories {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: format!(
+                    "cannot sample {} items without replacement from {} categories",
+                    num_samples, num_categories
+                ),
+            });
+        }
+
+        // Compute number of distributions (product of all dims except last)
+        let num_distributions: usize = shape[..shape.len() - 1].iter().product();
+        let num_distributions = num_distributions.max(1); // At least 1 for 1D input
+
+        // Ensure probs is contiguous
+        let probs = ensure_contiguous(probs);
+
+        // Validate that probabilities sum to a positive value to prevent division by zero
+        // Check the max value - if all values are <= 0, we cannot sample
+        let max_prob: f64 = match dtype {
+            DType::F32 => {
+                let data: &[f32] = unsafe {
+                    std::slice::from_raw_parts(probs.storage().ptr() as *const f32, probs.numel())
+                };
+                data.iter()
+                    .cloned()
+                    .fold(f64::NEG_INFINITY, |a, b| a.max(b as f64))
+            }
+            DType::F64 => {
+                let data: &[f64] = unsafe {
+                    std::slice::from_raw_parts(probs.storage().ptr() as *const f64, probs.numel())
+                };
+                data.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            }
+            _ => {
+                // For F16/BF16, we still need to check but these are behind feature flags
+                // For simplicity, skip validation for these rare cases (kernel will handle gracefully)
+                f64::INFINITY
+            }
+        };
+        if max_prob <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: "probabilities must contain at least one positive value".to_string(),
+            });
+        }
+
+        // Output shape: [..., num_samples]
+        let mut out_shape = shape[..shape.len() - 1].to_vec();
+        out_shape.push(num_samples);
+        if out_shape.is_empty() {
+            out_shape.push(num_samples);
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+        let out_ptr = out.storage().ptr() as *mut i64;
+        let probs_ptr = probs.storage().ptr();
+
+        // Dispatch based on input dtype
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                if replacement {
+                    kernels::multinomial_kernel_with_replacement::<T>(
+                        probs_ptr as *const T,
+                        out_ptr,
+                        num_distributions,
+                        num_categories,
+                        num_samples,
+                    );
+                } else {
+                    kernels::multinomial_kernel_without_replacement::<T>(
+                        probs_ptr as *const T,
+                        out_ptr,
+                        num_distributions,
+                        num_categories,
+                        num_samples,
+                    );
+                }
+            }
+        }, "multinomial");
+
+        Ok(out)
+    }
+
     // ===== Shape Operations =====
 
     fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {

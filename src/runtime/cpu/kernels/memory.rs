@@ -379,3 +379,112 @@ pub unsafe fn eye_kernel<T: Element>(out: *mut T, n: usize, m: usize) {
         out_slice[i * m + i] = T::from_f64(1.0);
     }
 }
+
+/// Sample from a multinomial distribution with replacement
+///
+/// Uses inverse transform sampling (CDF method):
+/// 1. Compute cumulative sum of normalized probabilities
+/// 2. For each sample, draw uniform random u ∈ [0, 1)
+/// 3. Binary search to find smallest index i where CDF[i] ≥ u
+///
+/// # Safety
+/// - `probs` must be valid pointer to `num_distributions * num_categories` floats
+/// - `out` must be valid pointer to `num_distributions * num_samples` i64 values
+/// - All probabilities must be non-negative
+/// - Each distribution must have at least one non-zero probability
+#[inline]
+pub unsafe fn multinomial_kernel_with_replacement<T: Element>(
+    probs: *const T,
+    out: *mut i64,
+    num_distributions: usize,
+    num_categories: usize,
+    num_samples: usize,
+) {
+    let mut rng = rand::rng();
+
+    for dist in 0..num_distributions {
+        let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
+
+        // Compute sum for normalization
+        let mut sum = 0.0f64;
+        for &p in prob_row {
+            sum += p.to_f64();
+        }
+
+        // Compute CDF (normalized cumulative sum)
+        let mut cdf = Vec::with_capacity(num_categories);
+        let mut cumsum = 0.0f64;
+        for &p in prob_row {
+            cumsum += p.to_f64() / sum;
+            cdf.push(cumsum);
+        }
+        // Ensure last element is exactly 1.0 to avoid floating point issues
+        if !cdf.is_empty() {
+            *cdf.last_mut().unwrap() = 1.0;
+        }
+
+        // Sample using binary search
+        let out_row = std::slice::from_raw_parts_mut(out.add(dist * num_samples), num_samples);
+
+        for sample in out_row {
+            let u: f64 = rng.random();
+            // Binary search: find first index where cdf[i] >= u
+            let idx = cdf.partition_point(|&c| c < u);
+            *sample = idx.min(num_categories - 1) as i64;
+        }
+    }
+}
+
+/// Sample from a multinomial distribution without replacement
+///
+/// Uses the reservoir sampling approach:
+/// For each sample, draw from remaining categories weighted by their probabilities.
+///
+/// # Safety
+/// - `probs` must be valid pointer to `num_distributions * num_categories` floats
+/// - `out` must be valid pointer to `num_distributions * num_samples` i64 values
+/// - `num_samples <= num_categories`
+/// - All probabilities must be non-negative
+/// - Each distribution must have at least `num_samples` non-zero probabilities
+#[inline]
+pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
+    probs: *const T,
+    out: *mut i64,
+    num_distributions: usize,
+    num_categories: usize,
+    num_samples: usize,
+) {
+    let mut rng = rand::rng();
+
+    for dist in 0..num_distributions {
+        let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
+
+        // Copy probabilities so we can modify them
+        let mut remaining_probs: Vec<f64> = prob_row.iter().map(|p| p.to_f64()).collect();
+        let out_row = std::slice::from_raw_parts_mut(out.add(dist * num_samples), num_samples);
+
+        for sample in out_row {
+            // Compute sum of remaining probabilities
+            let sum: f64 = remaining_probs.iter().sum();
+
+            // Compute CDF for remaining probabilities
+            let mut cdf = Vec::with_capacity(num_categories);
+            let mut cumsum = 0.0f64;
+            for &p in &remaining_probs {
+                cumsum += p / sum;
+                cdf.push(cumsum);
+            }
+            if !cdf.is_empty() {
+                *cdf.last_mut().unwrap() = 1.0;
+            }
+
+            // Sample
+            let u: f64 = rng.random();
+            let idx = cdf.partition_point(|&c| c < u).min(num_categories - 1);
+            *sample = idx as i64;
+
+            // Zero out the selected category so it can't be selected again
+            remaining_probs[idx] = 0.0;
+        }
+    }
+}
