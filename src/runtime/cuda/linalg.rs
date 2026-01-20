@@ -1910,7 +1910,7 @@ impl CudaClient {
     /// - Double-free memory corruption
     /// - Use-after-free bugs
     /// - Silent data corruption
-    unsafe fn tensor_from_raw(
+    pub(crate) unsafe fn tensor_from_raw(
         ptr: u64,
         shape: &[usize],
         dtype: DType,

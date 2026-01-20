@@ -272,6 +272,8 @@ pub fn dtype_suffix(dtype: DType) -> &'static str {
         DType::U16 => "u16",
         DType::U8 => "u8",
         DType::Bool => "bool",
+        DType::Complex64 => "c64",
+        DType::Complex128 => "c128",
     }
 }
 
