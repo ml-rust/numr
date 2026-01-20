@@ -485,6 +485,192 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - **WebGPU**: F32 only (WGSL limitation)
     /// - All backends use identical Jacobi eigenvalue algorithm for numerical parity
     fn eig_decompose_symmetric(&self, a: &Tensor<R>) -> Result<EigenDecomposition<R>>;
+
+    /// Moore-Penrose pseudo-inverse via SVD: A^+ = V @ diag(1/S) @ U^T
+    ///
+    /// Computes the pseudo-inverse of a matrix using SVD. For a matrix A with
+    /// SVD decomposition A = U @ diag(S) @ V^T, the pseudo-inverse is:
+    ///
+    /// ```text
+    /// A^+ = V @ diag(1/S_i where S_i > tol, else 0) @ U^T
+    /// ```
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Compute SVD: A = U @ diag(S) @ V^T
+    /// 2. Invert non-zero singular values: S_inv[i] = 1/S[i] if S[i] > tol, else 0
+    /// 3. Compute: A^+ = V @ diag(S_inv) @ U^T
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [m, n]
+    /// * `rcond` - Cutoff ratio for small singular values. Singular values less than
+    ///             rcond * max(S) are treated as zero. Default: n * epsilon
+    ///
+    /// # Returns
+    ///
+    /// Pseudo-inverse matrix [n, m]
+    ///
+    /// # Properties
+    ///
+    /// The pseudo-inverse satisfies the Moore-Penrose conditions:
+    /// - A @ A^+ @ A = A
+    /// - A^+ @ A @ A^+ = A^+
+    /// - (A @ A^+)^T = A @ A^+
+    /// - (A^+ @ A)^T = A^+ @ A
+    ///
+    /// # Edge Cases
+    ///
+    /// - **Empty matrix** (m=0 or n=0): Returns valid tensor with shape [n, m] and 0 elements
+    /// - **Rank-deficient matrix**: Small singular values below rcond * max(S) are treated as zero
+    /// - **Ill-conditioned matrix**: Works correctly but may have numerical error in result
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>>;
+
+    /// Matrix condition number via SVD: cond(A) = σ_max / σ_min
+    ///
+    /// The condition number measures how sensitive the solution of a linear system
+    /// Ax = b is to perturbations in A and b. A high condition number indicates
+    /// an ill-conditioned matrix.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute SVD: A = U @ diag(S) @ V^T
+    /// 2. cond(A) = max(S) / min(S) where S > 0
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [m, n]
+    ///
+    /// # Returns
+    ///
+    /// Scalar tensor containing the condition number
+    ///
+    /// # Edge Cases
+    ///
+    /// - **Empty matrix** (m=0 or n=0): Returns infinity (scalar tensor)
+    /// - **Singular matrix** (min(S) ≈ 0): Returns infinity
+    /// - **Identity matrix**: cond(I) = 1.0
+    /// - **1x1 matrix**: cond([a]) = 1.0 (always well-conditioned)
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    fn cond(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Covariance matrix of a set of observations
+    ///
+    /// Computes the covariance matrix from a matrix where each row is an
+    /// observation and each column is a variable (feature).
+    ///
+    /// # Algorithm
+    ///
+    /// For input X [n_samples, n_features]:
+    ///
+    /// ```text
+    /// 1. Center data: X_centered = X - mean(X, axis=0)
+    /// 2. Compute covariance: cov = X_centered^T @ X_centered / (n_samples - ddof)
+    /// ```
+    ///
+    /// Where ddof (delta degrees of freedom) is:
+    /// - 0 for population covariance (biased)
+    /// - 1 for sample covariance (unbiased, default)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [n_samples, n_features]
+    /// * `ddof` - Delta degrees of freedom. Default: 1 (sample covariance)
+    ///
+    /// # Returns
+    ///
+    /// Covariance matrix [n_features, n_features]
+    ///
+    /// # Properties
+    ///
+    /// - The covariance matrix is symmetric: cov[i,j] = cov[j,i]
+    /// - Diagonal elements are variances: cov[i,i] = var(X[:,i])
+    /// - Off-diagonal elements are covariances: cov[i,j] = cov(X[:,i], X[:,j])
+    ///
+    /// # Edge Cases
+    ///
+    /// - **Zero features** (n_features=0): Returns empty matrix [0, 0]
+    /// - **Single feature**: Returns 1x1 matrix with variance
+    /// - **Constant feature** (zero variance): Corresponding diagonal element is 0
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not 2D
+    /// - `Internal` if n_samples <= ddof (not enough samples for specified ddof)
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>>;
+
+    /// Correlation coefficient matrix (Pearson correlation)
+    ///
+    /// Computes the correlation coefficient matrix from a matrix where each row is
+    /// an observation and each column is a variable (feature).
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute covariance matrix: C = cov(X)
+    /// 2. Extract standard deviations: std[i] = sqrt(C[i,i])
+    /// 3. Normalize: corr[i,j] = C[i,j] / (std[i] * std[j])
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [n_samples, n_features]
+    ///
+    /// # Returns
+    ///
+    /// Correlation matrix [n_features, n_features]
+    ///
+    /// # Properties
+    ///
+    /// - Diagonal elements are 1.0 for non-constant variables: corr[i,i] = 1.0
+    /// - Off-diagonal elements are in [-1, 1]: -1 ≤ corr[i,j] ≤ 1
+    /// - The matrix is symmetric: corr[i,j] = corr[j,i]
+    ///
+    /// # Edge Cases
+    ///
+    /// - **Zero features** (n_features=0): Returns empty matrix [0, 0]
+    /// - **Zero variance** (constant variable):
+    ///   - Diagonal: corr[i,i] = 0.0 (not 1.0, since variance is 0)
+    ///   - Off-diagonal: corr[i,j] = 0.0 (undefined correlation set to 0)
+    ///   - This differs from some implementations that return NaN
+    /// - **Perfect correlation**: corr[i,j] = ±1.0 (clamped to handle numerical error)
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not 2D
+    /// - `Internal` if n_samples <= 1 (need at least 2 samples for correlation)
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 }
 
 // ============================================================================
