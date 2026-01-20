@@ -993,7 +993,7 @@ mod cuda_parity {
     fn test_repeat_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_device = CudaDevice::new(0);
         let cuda_client = CudaRuntime::default_client(&cuda_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1013,7 +1013,7 @@ mod cuda_parity {
     fn test_pad_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_device = CudaDevice::new(0);
         let cuda_client = CudaRuntime::default_client(&cuda_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1034,7 +1034,7 @@ mod cuda_parity {
     fn test_roll_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_device = CudaDevice::new(0);
         let cuda_client = CudaRuntime::default_client(&cuda_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1053,7 +1053,7 @@ mod cuda_parity {
     #[test]
     fn test_flip_parity() {
         let cpu_device = CpuDevice::new();
-        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_device = CudaDevice::new(0);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
         let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
@@ -1103,7 +1103,7 @@ mod wgpu_parity {
     fn test_repeat_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_device = WgpuDevice::new(0);
         let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1123,7 +1123,7 @@ mod wgpu_parity {
     fn test_pad_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_device = WgpuDevice::new(0);
         let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1144,7 +1144,7 @@ mod wgpu_parity {
     fn test_roll_parity() {
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
-        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_device = WgpuDevice::new(0);
         let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -1163,7 +1163,7 @@ mod wgpu_parity {
     #[test]
     fn test_flip_parity() {
         let cpu_device = CpuDevice::new();
-        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_device = WgpuDevice::new(0);
 
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
         let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);

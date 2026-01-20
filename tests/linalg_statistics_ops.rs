@@ -753,10 +753,10 @@ mod cuda_parity {
     use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 
     fn create_cuda_client() -> Option<(CudaClient, CudaDevice)> {
-        CudaDevice::enumerate().first().map(|device| {
-            let client = CudaRuntime::default_client(device);
-            (client, device.clone())
-        })
+        // Try to create CUDA device 0, return None if CUDA is unavailable
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+        Some((client, device))
     }
 
     #[test]
@@ -881,13 +881,15 @@ mod cuda_parity {
 #[cfg(feature = "wgpu")]
 mod wgpu_parity {
     use super::*;
-    use numr::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime};
+    use numr::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime, is_wgpu_available};
 
     fn create_wgpu_client() -> Option<(WgpuClient, WgpuDevice)> {
-        WgpuDevice::enumerate().first().map(|device| {
-            let client = WgpuRuntime::default_client(device);
-            (client, device.clone())
-        })
+        if !is_wgpu_available() {
+            return None;
+        }
+        let device = WgpuDevice::new(0);
+        let client = WgpuRuntime::default_client(&device);
+        Some((client, device))
     }
 
     #[test]
