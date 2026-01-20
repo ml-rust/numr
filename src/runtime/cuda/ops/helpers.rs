@@ -5,14 +5,14 @@ use super::super::kernels::launch_scalar_op_half;
 use super::super::kernels::{
     AccumulationPrecision, launch_binary_op, launch_broadcast_binary_op,
     launch_broadcast_compare_op, launch_compare_op, launch_matmul_batched_kernel,
-    launch_matmul_kernel, launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64,
-    launch_unary_op,
+    launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel, launch_matmul_kernel,
+    launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64, launch_unary_op,
 };
 use super::super::kernels::{launch_scalar_op_i32, launch_scalar_op_i64};
 use super::super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{matmul_output_shape, reduce_output_shape};
+use crate::ops::{matmul_bias_output_shape, matmul_output_shape, reduce_output_shape};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::fallback::{compute_broadcast_shape, validate_binary_dtypes};
 use crate::tensor::Tensor;
@@ -91,6 +91,102 @@ pub(super) fn matmul_batched_native(
             dtype,
             a_contig.storage().ptr(),
             b_contig.storage().ptr(),
+            out.storage().ptr(),
+            batch,
+            m,
+            n,
+            k,
+        )?;
+    }
+
+    Ok(out)
+}
+
+// ============================================================================
+// Fused Matmul+Bias Native Implementation
+// ============================================================================
+
+/// Native fused matmul+bias using tiled CUDA kernel: C = A @ B + bias
+///
+/// Uses the same tiled GEMM algorithm as matmul_native, but fuses bias addition
+/// into the epilogue to avoid an extra memory round-trip.
+pub(super) fn matmul_bias_native(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    bias: &Tensor<CudaRuntime>,
+    dtype: DType,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<Tensor<CudaRuntime>> {
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let bias_contig = ensure_contiguous(bias);
+
+    let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape()).ok_or(
+        Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        },
+    )?;
+
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_matmul_bias_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            bias_contig.storage().ptr(),
+            out.storage().ptr(),
+            m,
+            n,
+            k,
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Native batched fused matmul+bias using tiled CUDA kernel:
+/// C[batch,M,N] = A[batch,M,K] @ B[batch,K,N] + bias[N]
+pub(super) fn matmul_bias_batched_native(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    bias: &Tensor<CudaRuntime>,
+    dtype: DType,
+    batch: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Result<Tensor<CudaRuntime>> {
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let bias_contig = ensure_contiguous(bias);
+
+    let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape()).ok_or(
+        Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        },
+    )?;
+
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_matmul_bias_batched_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            bias_contig.storage().ptr(),
             out.storage().ptr(),
             batch,
             m,

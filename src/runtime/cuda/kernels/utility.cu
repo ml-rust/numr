@@ -576,14 +576,17 @@ __global__ void eye_u64(unsigned long long* out, unsigned int n, unsigned int m)
     }
 }
 
+} // extern "C" - close before template functions
+
 // ============================================================================
-// Multinomial Sampling - Native CUDA kernels
+// Multinomial Sampling - Template device functions (outside extern "C")
 // ============================================================================
 
 // Multinomial with replacement: each thread samples one index for one distribution
 // Uses prefix sum (CDF) + binary search for inverse transform sampling
+// Note: This is a device function that contains the kernel logic, called from typed __global__ wrappers
 template<typename T>
-__global__ void multinomial_with_replacement_kernel(
+__device__ void multinomial_with_replacement_impl(
     const T* probs,           // [num_distributions, num_categories]
     long long* out,           // [num_distributions, num_samples]
     unsigned long long seed,
@@ -631,14 +634,16 @@ __global__ void multinomial_with_replacement_kernel(
 
 // Multinomial without replacement: requires sequential sampling within each distribution
 // Each thread block handles one distribution
+// Note: This is a device function that contains the kernel logic, called from typed __global__ wrappers
 template<typename T>
-__global__ void multinomial_without_replacement_kernel(
+__device__ void multinomial_without_replacement_impl(
     const T* probs,           // [num_distributions, num_categories]
     long long* out,           // [num_distributions, num_samples]
     unsigned long long seed,
     unsigned int num_distributions,
     unsigned int num_categories,
-    unsigned int num_samples
+    unsigned int num_samples,
+    double* shared_probs      // Shared memory passed from kernel
 ) {
     unsigned int dist = blockIdx.x;
     if (dist >= num_distributions) return;
@@ -654,9 +659,7 @@ __global__ void multinomial_without_replacement_kernel(
     const T* prob_row = probs + dist * num_categories;
     long long* out_row = out + dist * num_samples;
 
-    // Copy probabilities to local array (so we can zero them out)
-    // Use shared memory for efficiency
-    extern __shared__ double shared_probs[];
+    // Copy probabilities to shared memory (so we can zero them out)
     for (unsigned int i = 0; i < num_categories; i++) {
         shared_probs[i] = (double)prob_row[i];
     }
@@ -690,19 +693,26 @@ __global__ void multinomial_without_replacement_kernel(
     }
 }
 
+// ============================================================================
+// Multinomial Sampling - Typed kernel wrappers (inside extern "C")
+// ============================================================================
+
+extern "C" {
+
 // Instantiate for F32
 __global__ void multinomial_with_replacement_f32(
     const float* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_with_replacement_kernel<float>(probs, out, seed, num_distributions, num_categories, num_samples);
+    multinomial_with_replacement_impl<float>(probs, out, seed, num_distributions, num_categories, num_samples);
 }
 
 __global__ void multinomial_without_replacement_f32(
     const float* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_without_replacement_kernel<float>(probs, out, seed, num_distributions, num_categories, num_samples);
+    extern __shared__ double shared_probs[];
+    multinomial_without_replacement_impl<float>(probs, out, seed, num_distributions, num_categories, num_samples, shared_probs);
 }
 
 // Instantiate for F64
@@ -710,14 +720,15 @@ __global__ void multinomial_with_replacement_f64(
     const double* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_with_replacement_kernel<double>(probs, out, seed, num_distributions, num_categories, num_samples);
+    multinomial_with_replacement_impl<double>(probs, out, seed, num_distributions, num_categories, num_samples);
 }
 
 __global__ void multinomial_without_replacement_f64(
     const double* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_without_replacement_kernel<double>(probs, out, seed, num_distributions, num_categories, num_samples);
+    extern __shared__ double shared_probs[];
+    multinomial_without_replacement_impl<double>(probs, out, seed, num_distributions, num_categories, num_samples, shared_probs);
 }
 
 // Instantiate for F16
@@ -725,14 +736,15 @@ __global__ void multinomial_with_replacement_f16(
     const __half* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_with_replacement_kernel<__half>(probs, out, seed, num_distributions, num_categories, num_samples);
+    multinomial_with_replacement_impl<__half>(probs, out, seed, num_distributions, num_categories, num_samples);
 }
 
 __global__ void multinomial_without_replacement_f16(
     const __half* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_without_replacement_kernel<__half>(probs, out, seed, num_distributions, num_categories, num_samples);
+    extern __shared__ double shared_probs[];
+    multinomial_without_replacement_impl<__half>(probs, out, seed, num_distributions, num_categories, num_samples, shared_probs);
 }
 
 // Instantiate for BF16
@@ -740,14 +752,15 @@ __global__ void multinomial_with_replacement_bf16(
     const __nv_bfloat16* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_with_replacement_kernel<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples);
+    multinomial_with_replacement_impl<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples);
 }
 
 __global__ void multinomial_without_replacement_bf16(
     const __nv_bfloat16* probs, long long* out, unsigned long long seed,
     unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
 ) {
-    multinomial_without_replacement_kernel<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples);
+    extern __shared__ double shared_probs[];
+    multinomial_without_replacement_impl<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples, shared_probs);
 }
 
 } // extern "C"
