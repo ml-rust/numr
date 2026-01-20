@@ -647,3 +647,534 @@ fn test_split_u32() {
     let data0: Vec<u32> = splits[0].contiguous().to_vec();
     assert_eq!(data0, [1, 2]);
 }
+
+// ============================================================================
+// Repeat Tests
+// ============================================================================
+
+#[test]
+fn test_repeat_simple() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let result = client.repeat(&a, &[2]).unwrap();
+
+    assert_eq!(result.shape(), &[6]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 2.0, 3.0, 1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn test_repeat_2d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    let result = client.repeat(&a, &[2, 3]).unwrap();
+
+    assert_eq!(result.shape(), &[4, 6]);
+    let data: Vec<f32> = result.to_vec();
+    // Row 0: [1,2,1,2,1,2], Row 1: [3,4,3,4,3,4], Row 2: [1,2,1,2,1,2], Row 3: [3,4,3,4,3,4]
+    assert_eq!(
+        data,
+        [
+            1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 3.0, 4.0, 3.0, 4.0, 3.0, 4.0, 1.0, 2.0, 1.0, 2.0, 1.0,
+            2.0, 3.0, 4.0, 3.0, 4.0, 3.0, 4.0
+        ]
+    );
+}
+
+#[test]
+fn test_repeat_noop() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    let result = client.repeat(&a, &[1, 1]).unwrap();
+
+    assert_eq!(result.shape(), &[2, 2]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_repeat_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3], &[3], &device);
+    let result = client.repeat(&a, &[3]).unwrap();
+
+    assert_eq!(result.shape(), &[9]);
+    assert_eq!(result.dtype(), DType::I32);
+    let data: Vec<i32> = result.to_vec();
+    assert_eq!(data, [1, 2, 3, 1, 2, 3, 1, 2, 3]);
+}
+
+// ============================================================================
+// Pad Tests
+// ============================================================================
+
+#[test]
+fn test_pad_1d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    // PyTorch convention: [left, right] for 1D
+    let result = client.pad(&a, &[1, 2], 0.0).unwrap();
+
+    assert_eq!(result.shape(), &[6]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [0.0, 1.0, 2.0, 3.0, 0.0, 0.0]);
+}
+
+#[test]
+fn test_pad_2d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    // PyTorch convention: [left, right, top, bottom] for 2D
+    let result = client.pad(&a, &[1, 1, 1, 1], 0.0).unwrap();
+
+    assert_eq!(result.shape(), &[4, 4]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(
+        data,
+        [
+            0.0, 0.0, 0.0, 0.0, // top padding row
+            0.0, 1.0, 2.0, 0.0, // original row 0 with left/right padding
+            0.0, 3.0, 4.0, 0.0, // original row 1 with left/right padding
+            0.0, 0.0, 0.0, 0.0 // bottom padding row
+        ]
+    );
+}
+
+#[test]
+fn test_pad_with_value() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let result = client.pad(&a, &[1, 1], -1.0).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [-1.0, 1.0, 2.0, 3.0, -1.0]);
+}
+
+#[test]
+fn test_pad_noop() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let result = client.pad(&a, &[0, 0], 0.0).unwrap();
+
+    assert_eq!(result.shape(), &[3]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn test_pad_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3], &[3], &device);
+    let result = client.pad(&a, &[2, 0], 99.0).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    assert_eq!(result.dtype(), DType::I32);
+    let data: Vec<i32> = result.to_vec();
+    assert_eq!(data, [99, 99, 1, 2, 3]);
+}
+
+// ============================================================================
+// Roll Tests
+// ============================================================================
+
+#[test]
+fn test_roll_positive() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    let result = client.roll(&a, 2, 0).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [4.0, 5.0, 1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn test_roll_negative() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    let result = client.roll(&a, -2, 0).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [3.0, 4.0, 5.0, 1.0, 2.0]);
+}
+
+#[test]
+fn test_roll_2d() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    let result = client.roll(&a, 1, 1).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.to_vec();
+    // Each row rolled by 1: [3,1,2], [6,4,5]
+    assert_eq!(data, [3.0, 1.0, 2.0, 6.0, 4.0, 5.0]);
+}
+
+#[test]
+fn test_roll_zero_shift() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let result = client.roll(&a, 0, 0).unwrap();
+
+    assert_eq!(result.shape(), &[3]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn test_roll_full_cycle() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+    // Rolling by the full dimension size should be a no-op
+    let result = client.roll(&a, 4, 0).unwrap();
+
+    assert_eq!(result.shape(), &[4]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 2.0, 3.0, 4.0]);
+}
+
+#[test]
+fn test_roll_i32() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[4], &device);
+    let result = client.roll(&a, 1, 0).unwrap();
+
+    assert_eq!(result.shape(), &[4]);
+    assert_eq!(result.dtype(), DType::I32);
+    let data: Vec<i32> = result.to_vec();
+    assert_eq!(data, [4, 1, 2, 3]);
+}
+
+// ============================================================================
+// Flip Tests
+// ============================================================================
+
+#[test]
+fn test_flip_1d() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    let result = a.flip(0).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    let data: Vec<f32> = result.contiguous().to_vec();
+    assert_eq!(data, [5.0, 4.0, 3.0, 2.0, 1.0]);
+}
+
+#[test]
+fn test_flip_2d_dim0() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    let result = a.flip(0).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.contiguous().to_vec();
+    // Rows reversed: [4,5,6] then [1,2,3]
+    assert_eq!(data, [4.0, 5.0, 6.0, 1.0, 2.0, 3.0]);
+}
+
+#[test]
+fn test_flip_2d_dim1() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    let result = a.flip(1).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.contiguous().to_vec();
+    // Each row reversed: [3,2,1], [6,5,4]
+    assert_eq!(data, [3.0, 2.0, 1.0, 6.0, 5.0, 4.0]);
+}
+
+#[test]
+fn test_flip_both_dims() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    // Flip both dims by chaining
+    let result = a.flip(0).unwrap().flip(1).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.contiguous().to_vec();
+    // Both dimensions reversed: full reversal
+    assert_eq!(data, [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+}
+
+#[test]
+fn test_flip_i32() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[4], &device);
+    let result = a.flip(0).unwrap();
+
+    assert_eq!(result.shape(), &[4]);
+    assert_eq!(result.dtype(), DType::I32);
+    let data: Vec<i32> = result.contiguous().to_vec();
+    assert_eq!(data, [4, 3, 2, 1]);
+}
+
+#[test]
+fn test_flip_negative_dim() {
+    let device = CpuDevice::new();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    // dim=-1 should be equivalent to dim=1
+    let result = a.flip(-1).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.contiguous().to_vec();
+    assert_eq!(data, [3.0, 2.0, 1.0, 6.0, 5.0, 4.0]);
+}
+
+// ============================================================================
+// Backend Parity Tests (CUDA)
+// ============================================================================
+
+#[cfg(feature = "cuda")]
+mod cuda_parity {
+    use numr::dtype::DType;
+    use numr::ops::TensorOps;
+    use numr::runtime::Runtime;
+    use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+    use numr::runtime::cuda::{CudaDevice, CudaRuntime};
+    use numr::tensor::Tensor;
+
+    fn assert_allclose(a: &[f32], b: &[f32], rtol: f32, atol: f32) {
+        assert_eq!(a.len(), b.len(), "length mismatch");
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            let diff = (x - y).abs();
+            let tol = atol + rtol * y.abs();
+            assert!(
+                diff <= tol,
+                "mismatch at index {}: cpu={}, cuda={}, diff={}, tol={}",
+                i,
+                x,
+                y,
+                diff,
+                tol
+            );
+        }
+    }
+
+    #[test]
+    fn test_repeat_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_client = CudaRuntime::default_client(&cuda_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let cuda_tensor = Tensor::<CudaRuntime>::from_slice(&data, &[2, 3], &cuda_device);
+
+        let cpu_result = cpu_client.repeat(&cpu_tensor, &[2, 3]).unwrap();
+        let cuda_result = cuda_client.repeat(&cuda_tensor, &[2, 3]).unwrap();
+
+        assert_eq!(cpu_result.shape(), cuda_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let cuda_data: Vec<f32> = cuda_result.to_vec();
+        assert_allclose(&cpu_data, &cuda_data, 1e-6, 1e-7);
+    }
+
+    #[test]
+    fn test_pad_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_client = CudaRuntime::default_client(&cuda_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let cuda_tensor = Tensor::<CudaRuntime>::from_slice(&data, &[2, 3], &cuda_device);
+
+        // Pad last dim by (1, 2), second-to-last by (1, 1)
+        let cpu_result = cpu_client.pad(&cpu_tensor, &[1, 2, 1, 1], 0.0).unwrap();
+        let cuda_result = cuda_client.pad(&cuda_tensor, &[1, 2, 1, 1], 0.0).unwrap();
+
+        assert_eq!(cpu_result.shape(), cuda_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let cuda_data: Vec<f32> = cuda_result.to_vec();
+        assert_allclose(&cpu_data, &cuda_data, 1e-6, 1e-7);
+    }
+
+    #[test]
+    fn test_roll_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+        let cuda_client = CudaRuntime::default_client(&cuda_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let cuda_tensor = Tensor::<CudaRuntime>::from_slice(&data, &[2, 3], &cuda_device);
+
+        let cpu_result = cpu_client.roll(&cpu_tensor, 2, 1).unwrap();
+        let cuda_result = cuda_client.roll(&cuda_tensor, 2, 1).unwrap();
+
+        assert_eq!(cpu_result.shape(), cuda_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let cuda_data: Vec<f32> = cuda_result.to_vec();
+        assert_allclose(&cpu_data, &cuda_data, 1e-6, 1e-7);
+    }
+
+    #[test]
+    fn test_flip_parity() {
+        let cpu_device = CpuDevice::new();
+        let cuda_device = CudaDevice::new(0).expect("CUDA device required");
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let cuda_tensor = Tensor::<CudaRuntime>::from_slice(&data, &[2, 3], &cuda_device);
+
+        let cpu_result = cpu_tensor.flip(1).unwrap();
+        let cuda_result = cuda_tensor.flip(1).unwrap();
+
+        assert_eq!(cpu_result.shape(), cuda_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.contiguous().to_vec();
+        let cuda_data: Vec<f32> = cuda_result.contiguous().to_vec();
+        assert_allclose(&cpu_data, &cuda_data, 1e-6, 1e-7);
+    }
+}
+
+// ============================================================================
+// Backend Parity Tests (WebGPU)
+// ============================================================================
+
+#[cfg(feature = "wgpu")]
+mod wgpu_parity {
+    use numr::dtype::DType;
+    use numr::ops::TensorOps;
+    use numr::runtime::Runtime;
+    use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+    use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
+    use numr::tensor::Tensor;
+
+    fn assert_allclose(a: &[f32], b: &[f32], rtol: f32, atol: f32) {
+        assert_eq!(a.len(), b.len(), "length mismatch");
+        for (i, (x, y)) in a.iter().zip(b.iter()).enumerate() {
+            let diff = (x - y).abs();
+            let tol = atol + rtol * y.abs();
+            assert!(
+                diff <= tol,
+                "mismatch at index {}: cpu={}, wgpu={}, diff={}, tol={}",
+                i,
+                x,
+                y,
+                diff,
+                tol
+            );
+        }
+    }
+
+    #[test]
+    fn test_repeat_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let wgpu_tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3], &wgpu_device);
+
+        let cpu_result = cpu_client.repeat(&cpu_tensor, &[2, 3]).unwrap();
+        let wgpu_result = wgpu_client.repeat(&wgpu_tensor, &[2, 3]).unwrap();
+
+        assert_eq!(cpu_result.shape(), wgpu_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let wgpu_data: Vec<f32> = wgpu_result.to_vec();
+        assert_allclose(&cpu_data, &wgpu_data, 1e-5, 1e-5);
+    }
+
+    #[test]
+    fn test_pad_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let wgpu_tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3], &wgpu_device);
+
+        // Pad last dim by (1, 2), second-to-last by (1, 1)
+        let cpu_result = cpu_client.pad(&cpu_tensor, &[1, 2, 1, 1], 0.0).unwrap();
+        let wgpu_result = wgpu_client.pad(&wgpu_tensor, &[1, 2, 1, 1], 0.0).unwrap();
+
+        assert_eq!(cpu_result.shape(), wgpu_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let wgpu_data: Vec<f32> = wgpu_result.to_vec();
+        assert_allclose(&cpu_data, &wgpu_data, 1e-5, 1e-5);
+    }
+
+    #[test]
+    fn test_roll_parity() {
+        let cpu_device = CpuDevice::new();
+        let cpu_client = CpuRuntime::default_client(&cpu_device);
+        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+        let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let wgpu_tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3], &wgpu_device);
+
+        let cpu_result = cpu_client.roll(&cpu_tensor, 2, 1).unwrap();
+        let wgpu_result = wgpu_client.roll(&wgpu_tensor, 2, 1).unwrap();
+
+        assert_eq!(cpu_result.shape(), wgpu_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.to_vec();
+        let wgpu_data: Vec<f32> = wgpu_result.to_vec();
+        assert_allclose(&cpu_data, &wgpu_data, 1e-5, 1e-5);
+    }
+
+    #[test]
+    fn test_flip_parity() {
+        let cpu_device = CpuDevice::new();
+        let wgpu_device = WgpuDevice::new(0).expect("WebGPU device required");
+
+        let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let cpu_tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &cpu_device);
+        let wgpu_tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3], &wgpu_device);
+
+        let cpu_result = cpu_tensor.flip(1).unwrap();
+        let wgpu_result = wgpu_tensor.flip(1).unwrap();
+
+        assert_eq!(cpu_result.shape(), wgpu_result.shape());
+        let cpu_data: Vec<f32> = cpu_result.contiguous().to_vec();
+        let wgpu_data: Vec<f32> = wgpu_result.contiguous().to_vec();
+        assert_allclose(&cpu_data, &wgpu_data, 1e-5, 1e-5);
+    }
+}
