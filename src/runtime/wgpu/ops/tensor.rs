@@ -118,6 +118,15 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_matmul(self, a, b)
     }
 
+    fn matmul_bias(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        bias: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_matmul_bias(self, a, b, bias)
+    }
+
     // --- Reduction Operations ---
 
     fn sum(

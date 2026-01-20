@@ -53,7 +53,7 @@ pub use index::{
     generate_scatter_shader,
 };
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
-pub use matmul::generate_matmul_shader;
+pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};
 pub use norm::generate_norm_shader;
 pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};
@@ -125,6 +125,18 @@ mod tests {
         assert!(shader.contains("fn batched_matmul_f32"));
         assert!(shader.contains("tile_a"));
         assert!(shader.contains("tile_b"));
+    }
+
+    #[test]
+    fn test_generate_matmul_bias_shader() {
+        let shader = generate_matmul_bias_shader(crate::dtype::DType::F32).unwrap();
+        assert!(shader.contains("fn matmul_bias_f32"));
+        assert!(shader.contains("fn batched_matmul_bias_f32"));
+        assert!(shader.contains("matmul_bias")); // bias buffer binding
+        assert!(shader.contains("tile_a"));
+        assert!(shader.contains("tile_b"));
+        // Verify fused epilogue pattern
+        assert!(shader.contains("sum + matmul_bias[col]"));
     }
 
     #[test]
@@ -253,6 +265,21 @@ mod tests {
             validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
                 panic!(
                     "Invalid WGSL for matmul shader {:?}:\n{}\n\nShader:\n{}",
+                    dtype, e, shader
+                )
+            });
+        }
+    }
+
+    #[test]
+    fn test_matmul_bias_shader_syntax_all_dtypes() {
+        for &dtype in WGPU_DTYPES {
+            let shader = generate_matmul_bias_shader(dtype).unwrap_or_else(|_| {
+                panic!("Failed to generate matmul_bias shader for {:?}", dtype)
+            });
+            validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+                panic!(
+                    "Invalid WGSL for matmul_bias shader {:?}:\n{}\n\nShader:\n{}",
                     dtype, e, shader
                 )
             });
