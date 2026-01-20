@@ -408,3 +408,283 @@ fn test_randint_high_dimensional() {
         assert!(*v >= 0 && *v < 10);
     }
 }
+
+// ============================================================================
+// Multinomial Tests (Categorical sampling)
+// ============================================================================
+
+use numr::tensor::Tensor;
+
+#[test]
+fn test_multinomial_1d_with_replacement() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Create probability distribution: [0.1, 0.3, 0.6]
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.3, 0.6], &[3], &device);
+
+    let result = client.multinomial(&probs, 10, true).unwrap();
+
+    assert_eq!(result.shape(), &[10]);
+    assert_eq!(result.dtype(), DType::I64);
+
+    // All indices should be in [0, 3)
+    let data: Vec<i64> = result.to_vec();
+    for v in &data {
+        assert!(
+            *v >= 0 && *v < 3,
+            "multinomial index {} out of range [0, 3)",
+            v
+        );
+    }
+}
+
+#[test]
+fn test_multinomial_2d_with_replacement() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 2 distributions, 4 categories each
+    let probs = Tensor::<CpuRuntime>::from_slice(
+        &[0.1f32, 0.2, 0.3, 0.4, 0.25, 0.25, 0.25, 0.25],
+        &[2, 4],
+        &device,
+    );
+
+    let result = client.multinomial(&probs, 5, true).unwrap();
+
+    assert_eq!(result.shape(), &[2, 5]);
+    assert_eq!(result.dtype(), DType::I64);
+
+    // All indices should be in [0, 4)
+    let data: Vec<i64> = result.to_vec();
+    for v in &data {
+        assert!(
+            *v >= 0 && *v < 4,
+            "multinomial index {} out of range [0, 4)",
+            v
+        );
+    }
+}
+
+#[test]
+fn test_multinomial_without_replacement() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Create uniform distribution
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.25f32, 0.25, 0.25, 0.25], &[4], &device);
+
+    let result = client.multinomial(&probs, 4, false).unwrap();
+
+    assert_eq!(result.shape(), &[4]);
+    assert_eq!(result.dtype(), DType::I64);
+
+    // All indices should be unique for without replacement
+    let data: Vec<i64> = result.to_vec();
+    let mut sorted = data.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        4,
+        "all indices should be unique without replacement"
+    );
+
+    // Should be exactly [0, 1, 2, 3] in some order
+    assert_eq!(sorted, vec![0, 1, 2, 3]);
+}
+
+#[test]
+fn test_multinomial_2d_without_replacement() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // 3 distributions, 5 categories each
+    let probs = Tensor::<CpuRuntime>::from_slice(
+        &[0.2f32; 15], // 3 x 5 uniform
+        &[3, 5],
+        &device,
+    );
+
+    let result = client.multinomial(&probs, 3, false).unwrap();
+
+    assert_eq!(result.shape(), &[3, 3]);
+    assert_eq!(result.dtype(), DType::I64);
+
+    // For each distribution, indices should be unique
+    let data: Vec<i64> = result.to_vec();
+    for i in 0..3 {
+        let mut row: Vec<i64> = vec![data[i * 3], data[i * 3 + 1], data[i * 3 + 2]];
+        row.sort();
+        row.dedup();
+        assert_eq!(row.len(), 3, "row {} should have unique indices", i);
+    }
+}
+
+#[test]
+fn test_multinomial_respects_probabilities() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Heavily biased distribution: category 2 has 90% probability
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.05f32, 0.05, 0.90], &[3], &device);
+
+    // Sample many times
+    let result = client.multinomial(&probs, 1000, true).unwrap();
+    let data: Vec<i64> = result.to_vec();
+
+    // Count occurrences
+    let count_0 = data.iter().filter(|&&x| x == 0).count();
+    let count_1 = data.iter().filter(|&&x| x == 1).count();
+    let count_2 = data.iter().filter(|&&x| x == 2).count();
+
+    // Category 2 should dominate (should be around 900)
+    assert!(
+        count_2 > 700,
+        "category 2 count {} should be dominant (expected ~900)",
+        count_2
+    );
+    assert!(
+        count_0 < 150 && count_1 < 150,
+        "categories 0 ({}) and 1 ({}) should be rare",
+        count_0,
+        count_1
+    );
+}
+
+#[test]
+fn test_multinomial_single_category() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Only one category - should always sample 0
+    let probs = Tensor::<CpuRuntime>::from_slice(&[1.0f32], &[1], &device);
+
+    let result = client.multinomial(&probs, 10, true).unwrap();
+    let data: Vec<i64> = result.to_vec();
+
+    for v in &data {
+        assert_eq!(*v, 0, "single category should always produce index 0");
+    }
+}
+
+#[test]
+fn test_multinomial_unnormalized_probs() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Unnormalized probabilities (sum = 10, not 1)
+    let probs = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.multinomial(&probs, 100, true).unwrap();
+
+    // Should still work - multinomial normalizes internally
+    assert_eq!(result.shape(), &[100]);
+
+    let data: Vec<i64> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0 && *v < 4, "index {} out of range", v);
+    }
+}
+
+#[test]
+fn test_multinomial_f64_input() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.3f64, 0.3, 0.4], &[3], &device);
+
+    let result = client.multinomial(&probs, 10, true).unwrap();
+
+    assert_eq!(result.shape(), &[10]);
+    assert_eq!(result.dtype(), DType::I64);
+}
+
+// ============================================================================
+// Multinomial Error Cases
+// ============================================================================
+
+#[test]
+fn test_multinomial_zero_samples_fails() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.5f32, 0.5], &[2], &device);
+
+    let result = client.multinomial(&probs, 0, true);
+    assert!(result.is_err(), "num_samples=0 should fail");
+}
+
+#[test]
+fn test_multinomial_integer_input_fails() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let probs = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3], &[3], &device);
+
+    let result = client.multinomial(&probs, 5, true);
+    assert!(result.is_err(), "integer input should fail");
+}
+
+#[test]
+fn test_multinomial_without_replacement_too_many_samples() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.25f32, 0.25, 0.25, 0.25], &[4], &device);
+
+    // Requesting 5 samples without replacement from 4 categories should fail
+    let result = client.multinomial(&probs, 5, false);
+    assert!(
+        result.is_err(),
+        "without replacement with num_samples > num_categories should fail"
+    );
+}
+
+#[test]
+fn test_multinomial_3d_input_fails() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.5f32; 8], &[2, 2, 2], &device);
+
+    let result = client.multinomial(&probs, 5, true);
+    assert!(
+        result.is_err(),
+        "3D input should fail (only 1D or 2D supported)"
+    );
+}
+
+#[test]
+fn test_multinomial_all_zero_probs_fails() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // All zero probabilities - should fail
+    let probs = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0], &[3], &device);
+
+    let result = client.multinomial(&probs, 1, true);
+    assert!(result.is_err(), "all zero probabilities should fail");
+}
+
+#[test]
+fn test_multinomial_negative_probs_treated_as_zero() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Some negative, some positive - should work (negatives treated as zero)
+    let probs = Tensor::<CpuRuntime>::from_slice(&[-1.0f32, 0.5, 0.5], &[3], &device);
+
+    let result = client.multinomial(&probs, 100, true).unwrap();
+    let data: Vec<i64> = result.to_vec();
+
+    // Should never sample category 0 (negative prob)
+    for v in &data {
+        assert!(
+            *v == 1 || *v == 2,
+            "should not sample category with negative prob, got {}",
+            v
+        );
+    }
+}
