@@ -8,6 +8,7 @@
 pub mod binary;
 pub mod compare;
 pub mod cumulative;
+pub mod fft;
 pub mod index;
 pub mod matmul;
 pub mod memory;
@@ -22,6 +23,10 @@ pub use compare::{compare_op_kernel, compare_op_strided_kernel};
 pub use cumulative::{
     cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
     logsumexp_strided_kernel,
+};
+pub use fft::{
+    fftshift_c64, fftshift_c128, ifftshift_c64, ifftshift_c128, irfft_c64, irfft_c128, rfft_c64,
+    rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
 };
 pub use index::{
     embedding_lookup_kernel, gather_kernel, index_select_kernel, logical_and_kernel,

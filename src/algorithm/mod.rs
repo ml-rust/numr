@@ -16,6 +16,7 @@
 //!
 //! - [`MatmulAlgorithm`] - Tiled GEMM with register blocking for dense matmul
 //! - [`LinearAlgebraAlgorithms`] - LU, Cholesky, QR, solve, inverse, det, trace
+//! - [`FftAlgorithms`] - FFT, IFFT, RFFT using Stockham autosort algorithm
 //! - [`SparseAlgorithms`] - SpGEMM, SpMV, DSMM (requires `sparse` feature)
 //!
 //! # Universal Algorithm Design
@@ -37,6 +38,7 @@
 //! └─────────┘      └──────────┘      └───────────┘
 //! ```
 
+pub mod fft;
 pub mod linalg;
 pub mod matmul;
 

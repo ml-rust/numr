@@ -337,6 +337,9 @@ pub fn accumulator_dtype(input_dtype: DType) -> DType {
         DType::F32 => DType::F32,
         DType::F16 | DType::BF16 => DType::F32, // F32 accumulation for half precision
         DType::FP8E4M3 | DType::FP8E5M2 => DType::F32, // FP8 always uses F32 accumulator
+        // Complex types accumulate in same precision
+        DType::Complex64 => DType::Complex64,
+        DType::Complex128 => DType::Complex128,
         // Integer types
         DType::I8 => DType::I32,
         DType::I16 => DType::I32,

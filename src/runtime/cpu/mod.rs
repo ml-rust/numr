@@ -17,6 +17,7 @@
 //! broadcasting, a strided kernel is used that correctly handles stride-0
 //! dimensions (where a single value is broadcast across the dimension).
 
+mod fft;
 mod helpers;
 pub mod jacobi;
 mod kernels;
@@ -35,8 +36,9 @@ pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
 #[cfg(feature = "sparse")]
 pub use crate::sparse::SparseOps;
 
-// Re-export linear algebra algorithm trait
+// Re-export algorithm traits
 pub use crate::algorithm::LinearAlgebraAlgorithms;
+pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
 
 // Re-export Tensor for tests
 pub use crate::tensor::Tensor;
