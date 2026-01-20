@@ -1957,6 +1957,110 @@ impl TensorOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn multinomial(
+        &self,
+        probs: &Tensor<CudaRuntime>,
+        num_samples: usize,
+        replacement: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = probs.dtype();
+
+        // Validate probs is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "multinomial",
+            });
+        }
+
+        // Validate num_samples
+        if num_samples == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: "num_samples must be > 0".to_string(),
+            });
+        }
+
+        let shape = probs.shape();
+        if shape.is_empty() {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: "probs tensor must have at least 1 dimension".to_string(),
+            });
+        }
+
+        let num_categories = *shape.last().unwrap();
+        if num_categories == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: "probs tensor must have at least 1 category (last dim > 0)".to_string(),
+            });
+        }
+
+        // Without replacement: can't sample more than we have
+        if !replacement && num_samples > num_categories {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: format!(
+                    "cannot sample {} items without replacement from {} categories",
+                    num_samples, num_categories
+                ),
+            });
+        }
+
+        // Compute number of distributions (product of all dims except last)
+        let num_distributions: usize = shape[..shape.len() - 1].iter().product();
+        let num_distributions = num_distributions.max(1); // At least 1 for 1D input
+
+        // Ensure probs is contiguous
+        let probs = ensure_contiguous(probs);
+
+        // Output shape: [..., num_samples]
+        let mut out_shape = shape[..shape.len() - 1].to_vec();
+        out_shape.push(num_samples);
+        if out_shape.is_empty() {
+            out_shape.push(num_samples);
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        // Generate seed
+        let seed = generate_random_seed();
+
+        // Launch CUDA kernel
+        unsafe {
+            if replacement {
+                super::super::kernels::launch_multinomial_with_replacement(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    probs.storage().ptr(),
+                    out.storage().ptr(),
+                    seed,
+                    num_distributions,
+                    num_categories,
+                    num_samples,
+                )?;
+            } else {
+                super::super::kernels::launch_multinomial_without_replacement(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    probs.storage().ptr(),
+                    out.storage().ptr(),
+                    seed,
+                    num_distributions,
+                    num_categories,
+                    num_samples,
+                )?;
+            }
+        }
+
+        Ok(out)
+    }
+
     // ===== Shape Operations =====
 
     fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {

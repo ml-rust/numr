@@ -690,3 +690,164 @@ pub unsafe fn launch_eye(
 
     Ok(())
 }
+
+// ============================================================================
+// Multinomial Sampling Kernels
+// ============================================================================
+
+/// Launch a multinomial sampling kernel with replacement.
+///
+/// Uses inverse transform sampling (CDF method):
+/// 1. Compute cumulative sum of normalized probabilities
+/// 2. For each sample, draw uniform random u ∈ [0, 1)
+/// 3. Find smallest index i where CDF[i] ≥ u
+///
+/// # Safety
+///
+/// - `probs_ptr` must be valid device memory with at least `num_distributions * num_categories` elements
+/// - `out_ptr` must be valid device memory with at least `num_distributions * num_samples` i64 elements
+/// - Supports F32, F64, F16, BF16 dtypes
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of probabilities (must be floating point)
+/// * `probs_ptr` - Device pointer to probability tensor
+/// * `out_ptr` - Device pointer to output tensor (i64)
+/// * `seed` - Random seed for reproducibility
+/// * `num_distributions` - Number of independent distributions
+/// * `num_categories` - Number of categories per distribution
+/// * `num_samples` - Number of samples to draw per distribution
+pub unsafe fn launch_multinomial_with_replacement(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    probs_ptr: u64,
+    out_ptr: u64,
+    seed: u64,
+    num_distributions: usize,
+    num_categories: usize,
+    num_samples: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = format!("multinomial_with_replacement_{}", dtype_suffix(dtype)?);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let total = num_distributions * num_samples;
+    let grid = elementwise_launch_config(total);
+    let block = (BLOCK_SIZE, 1, 1);
+    let cfg = launch_config(grid, block, 0);
+
+    let num_distributions_u32 = num_distributions as u32;
+    let num_categories_u32 = num_categories as u32;
+    let num_samples_u32 = num_samples as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&probs_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&seed);
+        builder.arg(&num_distributions_u32);
+        builder.arg(&num_categories_u32);
+        builder.arg(&num_samples_u32);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA multinomial_with_replacement kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Launch a multinomial sampling kernel without replacement.
+///
+/// Uses sequential sampling within each distribution where each thread block
+/// handles one distribution. Selected categories are zeroed out to prevent resampling.
+///
+/// # Safety
+///
+/// - `probs_ptr` must be valid device memory with at least `num_distributions * num_categories` elements
+/// - `out_ptr` must be valid device memory with at least `num_distributions * num_samples` i64 elements
+/// - `num_samples <= num_categories`
+/// - Supports F32, F64, F16, BF16 dtypes
+///
+/// # Arguments
+///
+/// * `context` - CUDA context
+/// * `stream` - CUDA stream for async execution
+/// * `device_index` - Device index for module caching
+/// * `dtype` - Data type of probabilities (must be floating point)
+/// * `probs_ptr` - Device pointer to probability tensor
+/// * `out_ptr` - Device pointer to output tensor (i64)
+/// * `seed` - Random seed for reproducibility
+/// * `num_distributions` - Number of independent distributions
+/// * `num_categories` - Number of categories per distribution
+/// * `num_samples` - Number of samples to draw per distribution
+pub unsafe fn launch_multinomial_without_replacement(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    probs_ptr: u64,
+    out_ptr: u64,
+    seed: u64,
+    num_distributions: usize,
+    num_categories: usize,
+    num_samples: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::UTILITY_MODULE)?;
+    let func_name = format!("multinomial_without_replacement_{}", dtype_suffix(dtype)?);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    // Each block handles one distribution
+    let grid = (num_distributions as u32, 1, 1);
+    let block = (BLOCK_SIZE, 1, 1);
+    // Shared memory for probabilities array
+    let shared_mem = num_categories * std::mem::size_of::<f64>();
+    let cfg = launch_config(grid, block, shared_mem as u32);
+
+    let num_distributions_u32 = num_distributions as u32;
+    let num_categories_u32 = num_categories as u32;
+    let num_samples_u32 = num_samples as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&probs_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&seed);
+        builder.arg(&num_distributions_u32);
+        builder.arg(&num_categories_u32);
+        builder.arg(&num_samples_u32);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA multinomial_without_replacement kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Helper function to get dtype suffix for kernel name
+fn dtype_suffix(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("f32"),
+        DType::F64 => Ok("f64"),
+        #[cfg(feature = "f16")]
+        DType::F16 => Ok("f16"),
+        #[cfg(feature = "f16")]
+        DType::BF16 => Ok("bf16"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "multinomial",
+        }),
+    }
+}

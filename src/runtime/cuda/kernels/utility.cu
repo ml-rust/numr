@@ -576,4 +576,178 @@ __global__ void eye_u64(unsigned long long* out, unsigned int n, unsigned int m)
     }
 }
 
+// ============================================================================
+// Multinomial Sampling - Native CUDA kernels
+// ============================================================================
+
+// Multinomial with replacement: each thread samples one index for one distribution
+// Uses prefix sum (CDF) + binary search for inverse transform sampling
+template<typename T>
+__global__ void multinomial_with_replacement_kernel(
+    const T* probs,           // [num_distributions, num_categories]
+    long long* out,           // [num_distributions, num_samples]
+    unsigned long long seed,
+    unsigned int num_distributions,
+    unsigned int num_categories,
+    unsigned int num_samples
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = num_distributions * num_samples;
+    if (idx >= total) return;
+
+    unsigned int dist = idx / num_samples;
+    unsigned int sample = idx % num_samples;
+
+    // Initialize RNG for this thread
+    XorShift128PlusState state;
+    xorshift128plus_init(&state, seed, idx);
+
+    // Get pointer to this distribution's probabilities
+    const T* prob_row = probs + dist * num_categories;
+
+    // Compute sum of probabilities for normalization
+    double sum = 0.0;
+    for (unsigned int i = 0; i < num_categories; i++) {
+        sum += (double)prob_row[i];
+    }
+
+    // Generate uniform random value
+    double u = xorshift128plus_uniform(&state);
+
+    // Binary search using CDF (on-the-fly computation)
+    // Find smallest index where cumsum/sum >= u
+    double cumsum = 0.0;
+    unsigned int result = num_categories - 1;  // Default to last category
+    for (unsigned int i = 0; i < num_categories; i++) {
+        cumsum += (double)prob_row[i];
+        if (cumsum / sum >= u) {
+            result = i;
+            break;
+        }
+    }
+
+    out[dist * num_samples + sample] = (long long)result;
+}
+
+// Multinomial without replacement: requires sequential sampling within each distribution
+// Each thread block handles one distribution
+template<typename T>
+__global__ void multinomial_without_replacement_kernel(
+    const T* probs,           // [num_distributions, num_categories]
+    long long* out,           // [num_distributions, num_samples]
+    unsigned long long seed,
+    unsigned int num_distributions,
+    unsigned int num_categories,
+    unsigned int num_samples
+) {
+    unsigned int dist = blockIdx.x;
+    if (dist >= num_distributions) return;
+
+    // Only thread 0 does the work (sequential sampling requirement)
+    if (threadIdx.x != 0) return;
+
+    // Initialize RNG
+    XorShift128PlusState state;
+    xorshift128plus_init(&state, seed, dist);
+
+    // Get pointers
+    const T* prob_row = probs + dist * num_categories;
+    long long* out_row = out + dist * num_samples;
+
+    // Copy probabilities to local array (so we can zero them out)
+    // Use shared memory for efficiency
+    extern __shared__ double shared_probs[];
+    for (unsigned int i = 0; i < num_categories; i++) {
+        shared_probs[i] = (double)prob_row[i];
+    }
+
+    // Sample without replacement
+    for (unsigned int s = 0; s < num_samples; s++) {
+        // Compute sum of remaining probabilities
+        double sum = 0.0;
+        for (unsigned int i = 0; i < num_categories; i++) {
+            sum += shared_probs[i];
+        }
+
+        // Generate uniform random value
+        double u = xorshift128plus_uniform(&state);
+
+        // Binary search using CDF
+        double cumsum = 0.0;
+        unsigned int result = num_categories - 1;
+        for (unsigned int i = 0; i < num_categories; i++) {
+            cumsum += shared_probs[i];
+            if (cumsum / sum >= u) {
+                result = i;
+                break;
+            }
+        }
+
+        out_row[s] = (long long)result;
+
+        // Zero out selected category
+        shared_probs[result] = 0.0;
+    }
+}
+
+// Instantiate for F32
+__global__ void multinomial_with_replacement_f32(
+    const float* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_with_replacement_kernel<float>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+__global__ void multinomial_without_replacement_f32(
+    const float* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_without_replacement_kernel<float>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+// Instantiate for F64
+__global__ void multinomial_with_replacement_f64(
+    const double* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_with_replacement_kernel<double>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+__global__ void multinomial_without_replacement_f64(
+    const double* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_without_replacement_kernel<double>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+// Instantiate for F16
+__global__ void multinomial_with_replacement_f16(
+    const __half* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_with_replacement_kernel<__half>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+__global__ void multinomial_without_replacement_f16(
+    const __half* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_without_replacement_kernel<__half>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+// Instantiate for BF16
+__global__ void multinomial_with_replacement_bf16(
+    const __nv_bfloat16* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_with_replacement_kernel<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
+__global__ void multinomial_without_replacement_bf16(
+    const __nv_bfloat16* probs, long long* out, unsigned long long seed,
+    unsigned int num_distributions, unsigned int num_categories, unsigned int num_samples
+) {
+    multinomial_without_replacement_kernel<__nv_bfloat16>(probs, out, seed, num_distributions, num_categories, num_samples);
+}
+
 } // extern "C"
