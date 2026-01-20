@@ -7,8 +7,8 @@ use super::helpers::{
     ActivationOp, activation_op_impl, binary_op_impl, cat_impl, chunk_impl, compare_op_impl,
     cumprod_impl, cumsum_impl, dispatch_dtype, elu_impl, ensure_contiguous, gather_impl,
     index_select_impl, leaky_relu_impl, logsumexp_impl, masked_fill_impl, masked_select_impl,
-    reduce_impl, reduce_impl_with_precision, scalar_op_impl, scatter_impl, split_impl, stack_impl,
-    unary_op_impl,
+    pad_impl, reduce_impl, reduce_impl_with_precision, repeat_impl, roll_impl, scalar_op_impl,
+    scatter_impl, split_impl, stack_impl, unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -1254,6 +1254,28 @@ impl TensorOps<CpuRuntime> for CpuClient {
         dim: isize,
     ) -> Result<Vec<Tensor<CpuRuntime>>> {
         chunk_impl(tensor, chunks, dim)
+    }
+
+    fn repeat(&self, tensor: &Tensor<CpuRuntime>, repeats: &[usize]) -> Result<Tensor<CpuRuntime>> {
+        repeat_impl(self, tensor, repeats)
+    }
+
+    fn pad(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        padding: &[usize],
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        pad_impl(self, tensor, padding, value)
+    }
+
+    fn roll(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        shift: isize,
+        dim: isize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        roll_impl(self, tensor, shift, dim)
     }
 }
 
