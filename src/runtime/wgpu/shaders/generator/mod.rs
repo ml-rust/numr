@@ -59,8 +59,9 @@ pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};
 pub use unary::generate_unary_shader;
 pub use utility::{
-    generate_arange_shader, generate_eye_shader, generate_linspace_shader, generate_rand_shader,
-    generate_randint_shader, generate_randn_shader,
+    generate_arange_shader, generate_eye_shader, generate_linspace_shader,
+    generate_multinomial_with_replacement_shader, generate_multinomial_without_replacement_shader,
+    generate_rand_shader, generate_randint_shader, generate_randn_shader,
 };
 
 #[cfg(test)]

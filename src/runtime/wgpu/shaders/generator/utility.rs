@@ -339,3 +339,159 @@ fn randint_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         ))
     }
 }
+
+/// Generate WGSL shader for multinomial sampling with replacement
+///
+/// Uses inverse transform sampling (CDF method):
+/// 1. Compute cumulative sum of normalized probabilities
+/// 2. For each sample, draw uniform random u ∈ [0, 1)
+/// 3. Find smallest index i where CDF[i] ≥ u (linear search)
+pub fn generate_multinomial_with_replacement_shader() -> Result<String> {
+    Ok(format!(
+        r#"// Auto-generated multinomial_with_replacement operation for f32
+{pcg_hash}
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct MultinomialParams {{
+    num_distributions: u32,
+    num_categories: u32,
+    num_samples: u32,
+    seed: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> probs: array<f32>;
+@group(0) @binding(1) var<storage, read_write> multinomial_out: array<i32>;
+@group(0) @binding(2) var<uniform> multinomial_params: MultinomialParams;
+
+@compute @workgroup_size(256)
+fn multinomial_with_replacement_f32(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = multinomial_params.num_distributions * multinomial_params.num_samples;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let dist = idx / multinomial_params.num_samples;
+    let sample = idx % multinomial_params.num_samples;
+
+    // Initialize RNG for this thread
+    var state = pcg_init(multinomial_params.seed, idx);
+
+    // Get pointer to this distribution's probabilities
+    let prob_offset = dist * multinomial_params.num_categories;
+
+    // Compute sum of probabilities for normalization
+    var sum: f32 = 0.0;
+    for (var i: u32 = 0u; i < multinomial_params.num_categories; i = i + 1u) {{
+        sum = sum + probs[prob_offset + i];
+    }}
+
+    // Generate uniform random value
+    let u = pcg_uniform(&state);
+
+    // Linear search using CDF (on-the-fly computation)
+    // Find smallest index where cumsum/sum >= u
+    var cumsum: f32 = 0.0;
+    var result: u32 = multinomial_params.num_categories - 1u;  // Default to last category
+    for (var i: u32 = 0u; i < multinomial_params.num_categories; i = i + 1u) {{
+        cumsum = cumsum + probs[prob_offset + i];
+        if (cumsum / sum >= u) {{
+            result = i;
+            break;
+        }}
+    }}
+
+    multinomial_out[dist * multinomial_params.num_samples + sample] = i32(result);
+}}
+"#,
+        pcg_hash = PCG_HASH_WGSL
+    ))
+}
+
+/// Generate WGSL shader for multinomial sampling without replacement
+///
+/// Uses sequential sampling within each distribution. Each workgroup handles
+/// one distribution. Selected categories are zeroed out in shared memory to
+/// prevent resampling.
+///
+/// Note: This kernel is less parallelizable than with-replacement because
+/// samples within a distribution must be sequential to ensure uniqueness.
+pub fn generate_multinomial_without_replacement_shader() -> Result<String> {
+    Ok(format!(
+        r#"// Auto-generated multinomial_without_replacement operation for f32
+{pcg_hash}
+const WORKGROUP_SIZE: u32 = 256u;
+const MAX_CATEGORIES: u32 = 1024u;  // Maximum supported categories
+
+struct MultinomialParams {{
+    num_distributions: u32,
+    num_categories: u32,
+    num_samples: u32,
+    seed: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> probs: array<f32>;
+@group(0) @binding(1) var<storage, read_write> multinomial_out: array<i32>;
+@group(0) @binding(2) var<uniform> multinomial_params: MultinomialParams;
+
+var<workgroup> shared_probs: array<f32, MAX_CATEGORIES>;
+
+@compute @workgroup_size(256)
+fn multinomial_without_replacement_f32(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {{
+    let dist = gid.x / WORKGROUP_SIZE;
+    if (dist >= multinomial_params.num_distributions) {{
+        return;
+    }}
+
+    // Copy probabilities to shared memory (each thread copies some elements)
+    let prob_offset = dist * multinomial_params.num_categories;
+    let elements_per_thread = (multinomial_params.num_categories + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+    for (var i: u32 = 0u; i < elements_per_thread; i = i + 1u) {{
+        let idx = lid.x * elements_per_thread + i;
+        if (idx < multinomial_params.num_categories) {{
+            shared_probs[idx] = probs[prob_offset + idx];
+        }}
+    }}
+
+    workgroupBarrier();
+
+    // Only thread 0 does the sequential sampling
+    if (lid.x != 0u) {{
+        return;
+    }}
+
+    // Initialize RNG
+    var state = pcg_init(multinomial_params.seed, dist);
+
+    // Sample without replacement
+    for (var s: u32 = 0u; s < multinomial_params.num_samples; s = s + 1u) {{
+        // Compute sum of remaining probabilities
+        var sum: f32 = 0.0;
+        for (var i: u32 = 0u; i < multinomial_params.num_categories; i = i + 1u) {{
+            sum = sum + shared_probs[i];
+        }}
+
+        // Generate uniform random value
+        let u = pcg_uniform(&state);
+
+        // Linear search using CDF
+        var cumsum: f32 = 0.0;
+        var result: u32 = multinomial_params.num_categories - 1u;
+        for (var i: u32 = 0u; i < multinomial_params.num_categories; i = i + 1u) {{
+            cumsum = cumsum + shared_probs[i];
+            if (cumsum / sum >= u) {{
+                result = i;
+                break;
+            }}
+        }}
+
+        multinomial_out[dist * multinomial_params.num_samples + s] = i32(result);
+
+        // Zero out selected category
+        shared_probs[result] = 0.0;
+    }}
+}}
+"#,
+        pcg_hash = PCG_HASH_WGSL
+    ))
+}

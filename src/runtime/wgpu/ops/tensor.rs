@@ -764,6 +764,152 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         Ok(out)
     }
 
+    fn multinomial(
+        &self,
+        probs: &Tensor<WgpuRuntime>,
+        num_samples: usize,
+        replacement: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Validate input dtype - must be float for probabilities
+        let dtype = probs.dtype();
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "multinomial (WebGPU only supports F32 probabilities)",
+            });
+        }
+
+        // Validate num_samples > 0
+        if num_samples == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: "multinomial requires num_samples > 0".to_string(),
+            });
+        }
+
+        let shape = probs.shape();
+        let ndim = shape.len();
+
+        // Determine shape: 1D tensor [K] or 2D tensor [N, K]
+        let (num_distributions, num_categories) = match ndim {
+            1 => (1usize, shape[0]),
+            2 => (shape[0], shape[1]),
+            _ => {
+                return Err(Error::InvalidArgument {
+                    arg: "probs",
+                    reason: format!(
+                        "multinomial requires 1D or 2D probability tensor, got {}D",
+                        ndim
+                    ),
+                });
+            }
+        };
+
+        // Validate num_categories > 0
+        if num_categories == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "probs",
+                reason: "multinomial requires at least 1 category".to_string(),
+            });
+        }
+
+        // For without replacement, num_samples must not exceed num_categories
+        if !replacement && num_samples > num_categories {
+            return Err(Error::InvalidArgument {
+                arg: "num_samples",
+                reason: format!(
+                    "multinomial without replacement: num_samples ({}) cannot exceed num_categories ({})",
+                    num_samples, num_categories
+                ),
+            });
+        }
+
+        // Check category limit for without replacement (shared memory limit)
+        const MAX_CATEGORIES_WITHOUT_REPLACEMENT: usize = 1024;
+        if !replacement && num_categories > MAX_CATEGORIES_WITHOUT_REPLACEMENT {
+            return Err(Error::InvalidArgument {
+                arg: "num_categories",
+                reason: format!(
+                    "multinomial without replacement on WebGPU supports max {} categories, got {}",
+                    MAX_CATEGORIES_WITHOUT_REPLACEMENT, num_categories
+                ),
+            });
+        }
+
+        // Ensure input is contiguous
+        let probs_contig = if probs.is_contiguous() {
+            probs.clone()
+        } else {
+            probs.contiguous()
+        };
+
+        // Output dtype: I32 for WebGPU (no I64 support in WGSL)
+        let out_dtype = DType::I32;
+        let out_shape = if ndim == 1 {
+            vec![num_samples]
+        } else {
+            vec![num_distributions, num_samples]
+        };
+
+        // Allocate output
+        let out = alloc_output(self, &out_shape, out_dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let probs_buf = get_tensor_buffer(&probs_contig)?;
+
+        // Generate random seed
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let time_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u32)
+            .unwrap_or(54321u32);
+        let seed = time_seed.wrapping_add(counter);
+
+        if replacement {
+            // With replacement: parallel sampling
+            let params = MultinomialWithReplacementParams {
+                num_distributions: num_distributions as u32,
+                num_categories: num_categories as u32,
+                num_samples: num_samples as u32,
+                seed,
+            };
+            let params_buf = create_params_buffer(self, &params);
+
+            let total_samples = num_distributions * num_samples;
+            shape::launch_multinomial_with_replacement(
+                self.pipeline_cache(),
+                self.wgpu_queue(),
+                &probs_buf,
+                &out_buf,
+                &params_buf,
+                total_samples,
+                dtype,
+            )?;
+        } else {
+            // Without replacement: sequential sampling with shared memory
+            let params = MultinomialWithoutReplacementParams {
+                num_distributions: num_distributions as u32,
+                num_categories: num_categories as u32,
+                num_samples: num_samples as u32,
+                seed,
+            };
+            let params_buf = create_params_buffer(self, &params);
+
+            shape::launch_multinomial_without_replacement(
+                self.pipeline_cache(),
+                self.wgpu_queue(),
+                &probs_buf,
+                &out_buf,
+                &params_buf,
+                num_distributions,
+                dtype,
+            )?;
+        }
+
+        Ok(out)
+    }
+
     // --- Indexing Operations ---
 
     fn gather(

@@ -415,3 +415,26 @@ pub(super) struct EmbeddingLookupParams {
     pub(super) embedding_dim: u32,
     pub(super) _pad0: u32,
 }
+
+/// Params for multinomial sampling operation (with replacement)
+/// Samples indices from categorical distributions defined by probability rows.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct MultinomialWithReplacementParams {
+    pub(super) num_distributions: u32,
+    pub(super) num_categories: u32,
+    pub(super) num_samples: u32,
+    pub(super) seed: u32,
+}
+
+/// Params for multinomial sampling operation (without replacement)
+/// Samples indices from categorical distributions without replacement.
+/// Uses workgroup shared memory for modified probabilities.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct MultinomialWithoutReplacementParams {
+    pub(super) num_distributions: u32,
+    pub(super) num_categories: u32,
+    pub(super) num_samples: u32,
+    pub(super) seed: u32,
+}
