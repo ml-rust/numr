@@ -5,10 +5,10 @@
 
 use super::helpers::{
     ActivationOp, activation_op_impl, binary_op_impl, cat_impl, chunk_impl, compare_op_impl,
-    cumprod_impl, cumsum_impl, dispatch_dtype, elu_impl, ensure_contiguous, gather_impl,
-    index_select_impl, leaky_relu_impl, logsumexp_impl, masked_fill_impl, masked_select_impl,
-    pad_impl, reduce_impl, reduce_impl_with_precision, repeat_impl, roll_impl, scalar_op_impl,
-    scatter_impl, split_impl, stack_impl, unary_op_impl,
+    cumprod_impl, cumsum_impl, dispatch_dtype, elu_impl, embedding_lookup_impl, ensure_contiguous,
+    gather_impl, index_select_impl, leaky_relu_impl, logsumexp_impl, masked_fill_impl,
+    masked_select_impl, pad_impl, reduce_impl, reduce_impl_with_precision, repeat_impl, roll_impl,
+    scalar_op_impl, scatter_impl, split_impl, stack_impl, unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -725,6 +725,14 @@ impl TensorOps<CpuRuntime> for CpuClient {
         value: f64,
     ) -> Result<Tensor<CpuRuntime>> {
         masked_fill_impl(self, a, mask, value)
+    }
+
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<CpuRuntime>,
+        indices: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        embedding_lookup_impl(self, embeddings, indices)
     }
 
     // ===== Type Conversion =====

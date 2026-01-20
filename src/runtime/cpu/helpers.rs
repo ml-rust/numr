@@ -1191,6 +1191,69 @@ pub(super) fn masked_fill_impl(
     Ok(out)
 }
 
+/// Look up embeddings from an embedding table using indices.
+///
+/// # Algorithm
+/// For each index i in the flattened indices tensor:
+///   output[i, :] = embeddings[indices[i], :]
+///
+/// Output shape: indices.shape() + [embedding_dim]
+pub(super) fn embedding_lookup_impl(
+    client: &CpuClient,
+    embeddings: &Tensor<CpuRuntime>,
+    indices: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = embeddings.dtype();
+    let emb_shape = embeddings.shape();
+
+    // Validate embeddings is 2D
+    if emb_shape.len() != 2 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![0, 0], // Indicates 2D expected
+            got: emb_shape.to_vec(),
+        });
+    }
+
+    // Validate indices dtype
+    if indices.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: indices.dtype(),
+        });
+    }
+
+    let vocab_size = emb_shape[0];
+    let embedding_dim = emb_shape[1];
+    let num_indices = indices.numel();
+
+    // Output shape: indices.shape() + [embedding_dim]
+    let mut out_shape = indices.shape().to_vec();
+    out_shape.push(embedding_dim);
+
+    let emb_contig = ensure_contiguous(embeddings);
+    let idx_contig = ensure_contiguous(indices);
+    let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
+
+    let emb_ptr = emb_contig.storage().ptr();
+    let idx_ptr = idx_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::embedding_lookup_kernel::<T>(
+                emb_ptr as *const T,
+                idx_ptr as *const i64,
+                out_ptr as *mut T,
+                num_indices,
+                vocab_size,
+                embedding_dim,
+            );
+        }
+    }, "embedding_lookup");
+
+    Ok(out)
+}
+
 // ============================================================================
 // Shape Operation Helpers
 // ============================================================================
