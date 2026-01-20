@@ -28,7 +28,7 @@ pub use index::{
     logical_not_kernel, logical_or_kernel, logical_xor_kernel, masked_count_kernel,
     masked_fill_kernel, masked_select_kernel, scatter_kernel, where_kernel, where_strided_kernel,
 };
-pub use matmul::matmul_kernel;
+pub use matmul::{matmul_bias_kernel, matmul_kernel};
 pub use memory::{
     arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
     multinomial_kernel_with_replacement, multinomial_kernel_without_replacement,
