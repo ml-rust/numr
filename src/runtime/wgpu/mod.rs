@@ -27,6 +27,7 @@
 
 mod client;
 mod device;
+mod fft;
 mod linalg;
 mod ops;
 pub mod shaders;

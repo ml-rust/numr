@@ -28,6 +28,7 @@ pub mod cat;
 pub mod common;
 pub mod compare;
 pub mod cumulative;
+pub mod fft;
 pub mod index;
 pub mod masked;
 pub mod matmul;
@@ -47,6 +48,11 @@ pub use compare::generate_compare_shader;
 pub use cumulative::{
     generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
     generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
+};
+pub use fft::{
+    MAX_WORKGROUP_FFT_SIZE, generate_copy_complex_shader, generate_fftshift_shader,
+    generate_hermitian_extend_shader, generate_irfft_unpack_shader, generate_rfft_pack_shader,
+    generate_rfft_truncate_shader, generate_stockham_fft_shader,
 };
 pub use index::{
     generate_embedding_lookup_shader, generate_gather_shader, generate_index_select_shader,
