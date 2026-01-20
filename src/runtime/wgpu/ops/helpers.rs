@@ -403,3 +403,15 @@ pub(super) struct RollParams {
     pub(super) _pad1: u32,
     pub(super) _pad2: u32,
 }
+
+/// Params for embedding lookup operation
+/// Looks up embeddings from a 2D embedding table [vocab_size, embedding_dim]
+/// using indices [num_indices]. Output shape is [num_indices, embedding_dim].
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct EmbeddingLookupParams {
+    pub(super) num_indices: u32,
+    pub(super) vocab_size: u32,
+    pub(super) embedding_dim: u32,
+    pub(super) _pad0: u32,
+}

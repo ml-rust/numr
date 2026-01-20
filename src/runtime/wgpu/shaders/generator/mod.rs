@@ -48,7 +48,10 @@ pub use cumulative::{
     generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
     generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
 };
-pub use index::{generate_gather_shader, generate_index_select_shader, generate_scatter_shader};
+pub use index::{
+    generate_embedding_lookup_shader, generate_gather_shader, generate_index_select_shader,
+    generate_scatter_shader,
+};
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::generate_matmul_shader;
 pub use norm::generate_norm_shader;

@@ -1216,6 +1216,76 @@ pub(super) fn native_masked_fill(
     Ok(out)
 }
 
+pub(super) fn native_embedding_lookup(
+    client: &WgpuClient,
+    embeddings: &Tensor<WgpuRuntime>,
+    indices: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = embeddings.dtype();
+    let emb_shape = embeddings.shape();
+
+    // Validate embeddings is 2D
+    if emb_shape.len() != 2 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![0, 0], // Indicates 2D expected
+            got: emb_shape.to_vec(),
+        });
+    }
+
+    // Validate indices dtype - WebGPU uses I32 for indices
+    if indices.dtype() != DType::I32 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: indices.dtype(),
+        });
+    }
+
+    // Only F32, I32, U32 are supported on WebGPU natively
+    if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "embedding_lookup",
+        });
+    }
+
+    let vocab_size = emb_shape[0];
+    let embedding_dim = emb_shape[1];
+    let num_indices = indices.numel();
+
+    // Output shape: indices.shape() + [embedding_dim]
+    let mut out_shape = indices.shape().to_vec();
+    out_shape.push(embedding_dim);
+
+    let emb_contig = ensure_contiguous(embeddings);
+    let idx_contig = ensure_contiguous(indices);
+    let out = alloc_output(client, &out_shape, dtype);
+
+    let emb_buf = get_tensor_buffer(&emb_contig)?;
+    let idx_buf = get_tensor_buffer(&idx_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let params = EmbeddingLookupParams {
+        num_indices: num_indices as u32,
+        vocab_size: vocab_size as u32,
+        embedding_dim: embedding_dim as u32,
+        _pad0: 0,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    index::launch_embedding_lookup(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &emb_buf,
+        &idx_buf,
+        &out_buf,
+        &params_buf,
+        num_indices,
+        dtype,
+    )?;
+
+    Ok(out)
+}
+
 pub(super) fn native_masked_select(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,

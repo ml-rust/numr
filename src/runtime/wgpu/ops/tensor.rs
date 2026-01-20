@@ -811,6 +811,14 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_masked_fill(self, a, mask, value)
     }
 
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<WgpuRuntime>,
+        indices: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_embedding_lookup(self, embeddings, indices)
+    }
+
     // --- Shape Operations ---
 
     fn cat(&self, tensors: &[&Tensor<WgpuRuntime>], dim: isize) -> Result<Tensor<WgpuRuntime>> {

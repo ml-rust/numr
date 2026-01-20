@@ -12,8 +12,8 @@
 use wgpu::{Buffer, Queue};
 
 use super::generator::{
-    generate_gather_shader, generate_index_select_shader, generate_masked_fill_shader,
-    generate_masked_select_shader, generate_scatter_shader,
+    generate_embedding_lookup_shader, generate_gather_shader, generate_index_select_shader,
+    generate_masked_fill_shader, generate_masked_select_shader, generate_scatter_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -55,6 +55,9 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("masked_select", DType::F32) => Ok("masked_select_f32"),
         ("masked_select", DType::I32) => Ok("masked_select_i32"),
         ("masked_select", DType::U32) => Ok("masked_select_u32"),
+        ("embedding_lookup", DType::F32) => Ok("embedding_lookup_f32"),
+        ("embedding_lookup", DType::I32) => Ok("embedding_lookup_i32"),
+        ("embedding_lookup", DType::U32) => Ok("embedding_lookup_u32"),
         _ => Err(Error::UnsupportedDType { dtype, op }),
     }
 }
@@ -449,6 +452,62 @@ pub fn launch_masked_select(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Embedding Lookup Operation
+// ============================================================================
+
+/// Launch an embedding_lookup operation kernel.
+///
+/// Looks up embeddings from a 2D embedding table using indices.
+/// Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
+/// Output: output [num_indices, embedding_dim]
+///
+/// This is the industry-standard embedding lookup operation used in neural networks
+/// for word embeddings, entity embeddings, etc.
+pub fn launch_embedding_lookup(
+    cache: &PipelineCache,
+    queue: &Queue,
+    embeddings: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    num_indices: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "embedding_lookup")?;
+
+    let name = kernel_name("embedding_lookup", dtype)?;
+    let shader_source = generate_embedding_lookup_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group =
+        cache.create_bind_group(&layout, &[embeddings, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("embedding_lookup"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("embedding_lookup"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
