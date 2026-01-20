@@ -818,6 +818,59 @@ pub trait TensorOps<R: Runtime> {
     /// New tensor with masked positions filled with value
     fn masked_fill(&self, a: &Tensor<R>, mask: &Tensor<R>, value: f64) -> Result<Tensor<R>>;
 
+    /// Look up embeddings from an embedding table using indices.
+    ///
+    /// This is the standard embedding lookup operation used in neural networks
+    /// for word embeddings, entity embeddings, etc. It is equivalent to
+    /// `index_select(embeddings, 0, indices)` but optimized for the common case
+    /// where the embedding table is 2D and indices index into the first dimension.
+    ///
+    /// # Algorithm
+    ///
+    /// For each index value i in the indices tensor:
+    /// ```text
+    /// output[..., i, :] = embeddings[indices[..., i], :]
+    /// ```
+    ///
+    /// The output shape is `indices.shape() + [embedding_dim]` where `embedding_dim`
+    /// is `embeddings.shape()[1]`.
+    ///
+    /// # Arguments
+    ///
+    /// * `embeddings` - 2D embedding table of shape `[vocab_size, embedding_dim]`
+    /// * `indices` - Index tensor of any shape containing indices into the embedding table.
+    ///   Must be I64 (or I32 on WebGPU). Values must be in range `[0, vocab_size)`.
+    ///
+    /// # Returns
+    ///
+    /// Tensor of shape `indices.shape() + [embedding_dim]` containing the looked-up embeddings.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// embeddings = [[1.0, 2.0],   # word 0
+    ///               [3.0, 4.0],   # word 1
+    ///               [5.0, 6.0]]   # word 2
+    /// indices = [2, 0, 1]
+    ///
+    /// output = [[5.0, 6.0],   # word 2
+    ///           [1.0, 2.0],   # word 0
+    ///           [3.0, 4.0]]   # word 1
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if embeddings is not 2D
+    /// * `DTypeMismatch` - if indices is not I64 (or I32 on WebGPU)
+    /// * Index out of bounds results in undefined behavior (implementation may return zeros)
+    ///
+    /// # Performance
+    ///
+    /// On GPU, this operation is memory-bound and optimized for coalesced reads
+    /// from the embedding table. Each thread handles one index lookup and writes
+    /// a full embedding vector.
+    fn embedding_lookup(&self, embeddings: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>;
+
     // ===== Type Conversion =====
 
     /// Cast tensor to a different data type.
