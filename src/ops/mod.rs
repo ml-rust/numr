@@ -1160,6 +1160,88 @@ pub trait TensorOps<R: Runtime> {
         dtype: crate::dtype::DType,
     ) -> Result<Tensor<R>>;
 
+    /// Sample from a multinomial (categorical) distribution
+    ///
+    /// Given a tensor of probabilities for each category, samples indices according
+    /// to those probabilities. This is the fundamental operation for categorical
+    /// sampling in machine learning, including LLM next-token selection.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses inverse transform sampling (CDF method):
+    /// 1. Compute cumulative sum of probabilities (CDF)
+    /// 2. For each sample, draw uniform random u ∈ [0, 1)
+    /// 3. Find smallest index i where CDF[i] ≥ u (binary search)
+    ///
+    /// ```text
+    /// probs:  [0.1, 0.2, 0.3, 0.4]
+    /// CDF:    [0.1, 0.3, 0.6, 1.0]
+    ///          ↑    ↑    ↑    ↑
+    /// u=0.05 → 0    │    │    │   (u < 0.1)
+    /// u=0.25 ──────→ 1   │    │   (0.1 ≤ u < 0.3)
+    /// u=0.55 ─────────→ 2│    │   (0.3 ≤ u < 0.6)
+    /// u=0.80 ──────────────────→ 3 (0.6 ≤ u < 1.0)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `probs` - Probability tensor with shape `[..., num_categories]`
+    ///   - Probabilities must be non-negative
+    ///   - Probabilities are normalized automatically (do not need to sum to 1)
+    ///   - Must be floating point dtype (F32, F64, F16, BF16)
+    /// * `num_samples` - Number of samples to draw per distribution
+    /// * `replacement` - Whether to sample with replacement
+    ///   - `true`: Same category can be sampled multiple times
+    ///   - `false`: Each category sampled at most once (requires num_samples ≤ num_categories)
+    ///
+    /// # Returns
+    ///
+    /// Tensor of sampled indices with shape `[..., num_samples]` and dtype I64 (I32 on WGPU).
+    /// Each index is in the range `[0, num_categories)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InvalidArgument` if:
+    /// - `probs` is empty or has zero categories
+    /// - `num_samples` is 0
+    /// - `replacement` is false and `num_samples > num_categories`
+    /// - `probs` contains negative values
+    /// - All probabilities in a row are zero (no valid category to sample)
+    ///
+    /// Returns `Error::UnsupportedDType` if `probs` is not floating point.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Sample one index from a 4-category distribution
+    /// let probs = Tensor::from_slice(&[0.1, 0.2, 0.3, 0.4], &[4], &device);
+    /// let sample = client.multinomial(&probs, 1, true)?;  // Shape: [1]
+    ///
+    /// // Sample 3 indices without replacement
+    /// let samples = client.multinomial(&probs, 3, false)?;  // Shape: [3]
+    ///
+    /// // Batch sampling: 2 distributions, 5 samples each
+    /// let batch_probs = Tensor::from_slice(
+    ///     &[0.1, 0.9, 0.5, 0.5],  // 2 rows of 2 categories
+    ///     &[2, 2], &device
+    /// );
+    /// let batch_samples = client.multinomial(&batch_probs, 5, true)?;  // Shape: [2, 5]
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// - Input probabilities are normalized per distribution (per row)
+    /// - Zero-probability categories are never sampled
+    /// - When `replacement=false`, samples within each distribution are unique
+    /// - Each call produces independent random samples (not reproducible without seeding)
+    /// - This is the PyTorch `torch.multinomial` equivalent
+    fn multinomial(
+        &self,
+        probs: &Tensor<R>,
+        num_samples: usize,
+        replacement: bool,
+    ) -> Result<Tensor<R>>;
+
     // ===== Shape Operations =====
 
     /// Concatenate tensors along a dimension
