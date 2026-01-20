@@ -1325,6 +1325,228 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         Ok(SvdDecomposition { u, s, vt })
     }
 
+    fn pinverse(&self, a: &Tensor<WgpuRuntime>, rcond: Option<f64>) -> Result<Tensor<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (m, n) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "pinverse",
+            });
+        }
+
+        // Handle empty matrix
+        if m == 0 || n == 0 {
+            let out_ptr = self.allocator().allocate(0);
+            return Ok(unsafe { Self::tensor_from_raw(out_ptr, &[n, m], dtype, device) });
+        }
+
+        // Compute SVD: A = U @ diag(S) @ V^T
+        let svd = self.svd_decompose(a)?;
+
+        // Get singular values to determine cutoff
+        let k = m.min(n);
+        let s_data: Vec<f32> = svd.s.to_vec();
+
+        // Determine cutoff threshold
+        let max_sv = s_data.iter().cloned().fold(0.0_f32, f32::max) as f64;
+        let default_rcond = (m.max(n) as f64) * (f32::EPSILON as f64);
+        let rcond_val = rcond.unwrap_or(default_rcond);
+        let cutoff = (rcond_val * max_sv) as f32;
+
+        // Compute S_inv: invert singular values above cutoff, zero otherwise
+        let s_inv_data: Vec<f32> = s_data
+            .iter()
+            .map(|&s| if s > cutoff { 1.0 / s } else { 0.0 })
+            .collect();
+
+        // Create S_inv diagonal matrix [k x k] on GPU
+        let s_inv_diag = Tensor::<WgpuRuntime>::from_slice(&s_inv_data, &[k], device);
+
+        // Create diagonal matrix from vector
+        let s_inv_mat = self.diagflat(&s_inv_diag)?;
+
+        // Compute A^+ = V @ S_inv @ U^T
+        // V^T is [k x n], so V is [n x k]
+        // U is [m x k], so U^T is [k x m]
+        // A^+ = V @ S_inv @ U^T = [n x k] @ [k x k] @ [k x m] = [n x m]
+
+        // V = (V^T)^T
+        let v = svd.vt.transpose(0, 1)?.contiguous();
+        // U^T
+        let ut = svd.u.transpose(0, 1)?.contiguous();
+
+        // V @ S_inv
+        let v_sinv = TensorOps::matmul(self, &v, &s_inv_mat)?;
+        // (V @ S_inv) @ U^T
+        let pinv = TensorOps::matmul(self, &v_sinv, &ut)?;
+
+        Ok(pinv)
+    }
+
+    fn cond(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (m, n) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType { dtype, op: "cond" });
+        }
+
+        // Handle empty matrix
+        if m == 0 || n == 0 {
+            return Ok(Tensor::<WgpuRuntime>::from_slice(
+                &[f32::INFINITY],
+                &[],
+                device,
+            ));
+        }
+
+        // Compute SVD to get singular values
+        let svd = self.svd_decompose(a)?;
+
+        // Get singular values
+        let s_data: Vec<f32> = svd.s.to_vec();
+
+        // Condition number = max(S) / min(S)
+        let max_sv = s_data.iter().cloned().fold(0.0_f32, f32::max);
+        let min_sv = s_data.iter().cloned().fold(f32::INFINITY, f32::min);
+
+        let cond_val = if min_sv == 0.0 || !min_sv.is_finite() {
+            f32::INFINITY
+        } else {
+            max_sv / min_sv
+        };
+
+        Ok(Tensor::<WgpuRuntime>::from_slice(&[cond_val], &[], device))
+    }
+
+    fn cov(&self, a: &Tensor<WgpuRuntime>, ddof: Option<usize>) -> Result<Tensor<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (n_samples, _n_features) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+        let ddof_val = ddof.unwrap_or(1);
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType { dtype, op: "cov" });
+        }
+
+        // Need at least ddof + 1 samples
+        if n_samples <= ddof_val {
+            return Err(Error::Internal(format!(
+                "cov: need at least {} samples for ddof={}, got {}",
+                ddof_val + 1,
+                ddof_val,
+                n_samples
+            )));
+        }
+
+        // Compute mean along axis 0 (mean of each column/feature)
+        let sum = TensorOps::sum(self, a, &[0], true)?; // [1, n_features]
+        let n_samples_tensor = Tensor::<WgpuRuntime>::from_slice(&[n_samples as f32], &[], device);
+        let mean = TensorOps::div(self, &sum, &n_samples_tensor)?; // [1, n_features]
+
+        // Center the data: X_centered = X - mean (broadcast subtraction)
+        let centered = TensorOps::sub(self, a, &mean)?; // [n_samples, n_features]
+
+        // Compute covariance: C = X_centered^T @ X_centered / (n - ddof)
+        let centered_t = centered.transpose(0, 1)?.contiguous(); // [n_features, n_samples]
+        let centered_contig = centered.contiguous();
+        let cov_unnorm = TensorOps::matmul(self, &centered_t, &centered_contig)?; // [n_features, n_features]
+
+        // Normalize by (n - ddof)
+        let divisor = (n_samples - ddof_val) as f32;
+        let divisor_tensor = Tensor::<WgpuRuntime>::from_slice(&[divisor], &[], device);
+        let cov_mat = TensorOps::div(self, &cov_unnorm, &divisor_tensor)?;
+
+        Ok(cov_mat)
+    }
+
+    fn corrcoef(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "corrcoef",
+            });
+        }
+
+        // Need at least 2 samples
+        if n_samples < 2 {
+            return Err(Error::Internal(format!(
+                "corrcoef: need at least 2 samples, got {}",
+                n_samples
+            )));
+        }
+
+        // Handle edge case: no features
+        if n_features == 0 {
+            return Ok(Tensor::<WgpuRuntime>::from_slice::<f32>(
+                &[],
+                &[0, 0],
+                device,
+            ));
+        }
+
+        // Compute covariance matrix
+        let cov_mat = self.cov(a, Some(1))?; // [n_features, n_features]
+
+        // Extract diagonal (variances) and compute standard deviations
+        let variances = self.diag(&cov_mat)?; // [n_features]
+        let std_devs = self.sqrt(&variances)?; // [n_features]
+
+        // Pull data to CPU for zero-variance detection
+        // This ensures exact parity with CPU implementation
+        let std_vec: Vec<f64> = std_devs
+            .to_vec::<f32>()
+            .into_iter()
+            .map(|x| x as f64)
+            .collect();
+        let cov_vec: Vec<f64> = cov_mat
+            .to_vec::<f32>()
+            .into_iter()
+            .map(|x| x as f64)
+            .collect();
+
+        // Build correlation matrix with proper zero-variance handling
+        // This matches CPU semantics exactly:
+        // - diagonal: 1.0 if std > 0, else 0.0
+        // - off-diagonal: cov[i,j]/(std[i]*std[j]) if both > 0, else 0.0
+        let mut corr_data: Vec<f32> = vec![0.0; n_features * n_features];
+        for i in 0..n_features {
+            for j in 0..n_features {
+                if i == j {
+                    // Diagonal: 1.0 if std > 0, else 0.0
+                    corr_data[i * n_features + j] = if std_vec[i] > 0.0 { 1.0 } else { 0.0 };
+                } else {
+                    // Off-diagonal: correlation if both stds > 0, else 0.0
+                    let std_prod = std_vec[i] * std_vec[j];
+                    corr_data[i * n_features + j] = if std_prod > 0.0 {
+                        // Clamp to [-1, 1] to handle numerical errors
+                        ((cov_vec[i * n_features + j] / std_prod).clamp(-1.0, 1.0)) as f32
+                    } else {
+                        0.0
+                    };
+                }
+            }
+        }
+
+        Ok(Tensor::<WgpuRuntime>::from_slice(
+            &corr_data,
+            &[n_features, n_features],
+            device,
+        ))
+    }
+
     fn eig_decompose_symmetric(
         &self,
         a: &Tensor<WgpuRuntime>,
