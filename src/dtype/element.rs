@@ -35,9 +35,22 @@ pub trait Element:
     const DTYPE: DType;
 
     /// Convert to f64 for generic numeric operations
+    ///
+    /// # Complex Number Behavior
+    ///
+    /// For complex types (Complex64, Complex128), this returns the **magnitude** (|z|),
+    /// not the real part. This is consistent with:
+    /// - PartialOrd using magnitude for comparison
+    /// - The need for a single scalar representation
+    ///
+    /// If you need the real part, access `.re` directly on the complex type.
     fn to_f64(self) -> f64;
 
-    /// Convert from f64
+    /// Convert from f64 to this type
+    ///
+    /// # Complex Number Behavior
+    ///
+    /// For complex types, this creates a **real number** (imaginary part = 0).
     fn from_f64(v: f64) -> Self;
 
     /// Zero value
@@ -385,6 +398,72 @@ impl Element for super::fp8::FP8E5M2 {
     #[inline]
     fn from_f64(v: f64) -> Self {
         Self::from_f32(v as f32)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
+// ============================================================================
+// Complex types
+//
+// Complex number conversion semantics:
+// - to_f64(): Returns magnitude (|z| = sqrt(re² + im²))
+//   This is intentional - a lossy conversion that provides a single scalar.
+//   For the real part, use z.re directly.
+// - from_f64(): Creates a real number (im = 0)
+//
+// These semantics are consistent with PartialOrd (compare by magnitude).
+// ============================================================================
+
+impl Element for super::complex::Complex64 {
+    const DTYPE: DType = DType::Complex64;
+
+    /// Returns magnitude (|z|) - this is a lossy conversion.
+    /// For the real part, use `.re` directly.
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.magnitude() as f64
+    }
+
+    /// Creates a real complex number (im = 0)
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        Self::new(v as f32, 0.0)
+    }
+
+    #[inline]
+    fn zero() -> Self {
+        Self::ZERO
+    }
+
+    #[inline]
+    fn one() -> Self {
+        Self::ONE
+    }
+}
+
+impl Element for super::complex::Complex128 {
+    const DTYPE: DType = DType::Complex128;
+
+    /// Returns magnitude (|z|) - this is a lossy conversion.
+    /// For the real part, use `.re` directly.
+    #[inline]
+    fn to_f64(self) -> f64 {
+        self.magnitude()
+    }
+
+    /// Creates a real complex number (im = 0)
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        Self::new(v, 0.0)
     }
 
     #[inline]

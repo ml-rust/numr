@@ -247,6 +247,16 @@ impl<R: Runtime> Tensor<R> {
             DType::Bool => {
                 bytes.fill(if value != 0.0 { 1 } else { 0 });
             }
+            DType::Complex64 => {
+                let slice: &mut [crate::dtype::Complex64] = bytemuck::cast_slice_mut(&mut bytes);
+                // Fill with complex number where re = value, im = 0
+                slice.fill(crate::dtype::Complex64::new(value as f32, 0.0));
+            }
+            DType::Complex128 => {
+                let slice: &mut [crate::dtype::Complex128] = bytemuck::cast_slice_mut(&mut bytes);
+                // Fill with complex number where re = value, im = 0
+                slice.fill(crate::dtype::Complex128::new(value, 0.0));
+            }
         }
 
         // Allocate and copy to device

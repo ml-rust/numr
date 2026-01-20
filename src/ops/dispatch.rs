@@ -168,6 +168,14 @@ macro_rules! dispatch_dtype {
                     op: $error_op,
                 })
             }
+            $crate::dtype::DType::Complex64 => {
+                type $T = $crate::dtype::Complex64;
+                $body
+            }
+            $crate::dtype::DType::Complex128 => {
+                type $T = $crate::dtype::Complex128;
+                $body
+            }
         }
     };
 }

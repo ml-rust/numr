@@ -189,6 +189,25 @@ pub unsafe fn cast_kernel(
                         dst_slice[i] = if src_slice[i].to_f64() != 0.0 { 1 } else { 0 };
                     }
                 }
+                DType::Complex64 => {
+                    let dst_slice = std::slice::from_raw_parts_mut(
+                        $dst_ptr as *mut crate::dtype::Complex64,
+                        $len,
+                    );
+                    for i in 0..$len {
+                        dst_slice[i] =
+                            crate::dtype::Complex64::new(src_slice[i].to_f64() as f32, 0.0);
+                    }
+                }
+                DType::Complex128 => {
+                    let dst_slice = std::slice::from_raw_parts_mut(
+                        $dst_ptr as *mut crate::dtype::Complex128,
+                        $len,
+                    );
+                    for i in 0..$len {
+                        dst_slice[i] = crate::dtype::Complex128::new(src_slice[i].to_f64(), 0.0);
+                    }
+                }
             }
         }};
     }
@@ -260,6 +279,66 @@ pub unsafe fn cast_kernel(
         DType::Bool => {
             // Bool is stored as u8 (0 or 1)
             cast_from!(u8, src, dst, len, dst_dtype)
+        }
+        DType::Complex64 => {
+            // Complex64 source: extract real part for non-complex destinations
+            let src_slice = std::slice::from_raw_parts(src as *const crate::dtype::Complex64, len);
+            match dst_dtype {
+                DType::Complex64 => {
+                    let dst_slice =
+                        std::slice::from_raw_parts_mut(dst as *mut crate::dtype::Complex64, len);
+                    dst_slice.copy_from_slice(src_slice);
+                }
+                DType::Complex128 => {
+                    let dst_slice =
+                        std::slice::from_raw_parts_mut(dst as *mut crate::dtype::Complex128, len);
+                    for i in 0..len {
+                        dst_slice[i] = crate::dtype::Complex128::new(
+                            src_slice[i].re as f64,
+                            src_slice[i].im as f64,
+                        );
+                    }
+                }
+                _ => {
+                    // For non-complex destinations, take the real part
+                    let dst_slice = std::slice::from_raw_parts_mut(dst as *mut f32, len);
+                    for i in 0..len {
+                        dst_slice[i] = src_slice[i].re;
+                    }
+                    // Re-interpret as the target type via Element trait
+                    return Err(Error::UnsupportedDType {
+                        dtype: dst_dtype,
+                        op: "cast from Complex64",
+                    });
+                }
+            }
+        }
+        DType::Complex128 => {
+            // Complex128 source: extract real part for non-complex destinations
+            let src_slice = std::slice::from_raw_parts(src as *const crate::dtype::Complex128, len);
+            match dst_dtype {
+                DType::Complex128 => {
+                    let dst_slice =
+                        std::slice::from_raw_parts_mut(dst as *mut crate::dtype::Complex128, len);
+                    dst_slice.copy_from_slice(src_slice);
+                }
+                DType::Complex64 => {
+                    let dst_slice =
+                        std::slice::from_raw_parts_mut(dst as *mut crate::dtype::Complex64, len);
+                    for i in 0..len {
+                        dst_slice[i] = crate::dtype::Complex64::new(
+                            src_slice[i].re as f32,
+                            src_slice[i].im as f32,
+                        );
+                    }
+                }
+                _ => {
+                    return Err(Error::UnsupportedDType {
+                        dtype: dst_dtype,
+                        op: "cast from Complex128",
+                    });
+                }
+            }
         }
     }
 

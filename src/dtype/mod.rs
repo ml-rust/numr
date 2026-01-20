@@ -3,11 +3,13 @@
 //! This module provides the `DType` enum representing all supported element types,
 //! along with type promotion rules and conversion utilities.
 
+pub mod complex;
 mod element;
 #[cfg(feature = "fp8")]
 pub mod fp8;
 mod promotion;
 
+pub use complex::{Complex64, Complex128};
 pub use element::Element;
 #[cfg(feature = "fp8")]
 pub use fp8::{FP8E4M3, FP8E5M2};
@@ -115,10 +117,21 @@ pub enum AccumulationPrecision {
 /// - Mixed-precision operations
 /// - Runtime type selection
 /// - Support for quantized types that aren't `Copy`
+///
+/// # Discriminant Values (Serialization Stability)
+///
+/// The discriminant values are **stable** for serialization purposes:
+/// - Floats: 0-9 (F64=0, F32=1, F16=2, BF16=3, FP8E4M3=4, FP8E5M2=5)
+/// - Signed ints: 10-19 (I64=10, I32=11, I16=12, I8=13)
+/// - Unsigned ints: 20-29 (U64=20, U32=21, U16=22, U8=23)
+/// - Bool: 30
+/// - Complex: 40-49 (Complex64=40, Complex128=41)
+///
+/// New types will use reserved ranges. Existing values are NEVER changed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DType {
-    // Floating point types
+    // Floating point types (0-9)
     /// 64-bit floating point
     F64 = 0,
     /// 32-bit floating point (most common)
@@ -156,6 +169,12 @@ pub enum DType {
 
     /// Boolean type
     Bool = 30,
+
+    // Complex types
+    /// 64-bit complex (two f32: re, im)
+    Complex64 = 40,
+    /// 128-bit complex (two f64: re, im)
+    Complex128 = 41,
 }
 
 impl DType {
@@ -163,7 +182,8 @@ impl DType {
     #[inline]
     pub const fn size_in_bytes(self) -> usize {
         match self {
-            Self::F64 | Self::I64 | Self::U64 => 8,
+            Self::Complex128 => 16,
+            Self::F64 | Self::I64 | Self::U64 | Self::Complex64 => 8,
             Self::F32 | Self::I32 | Self::U32 => 4,
             Self::F16 | Self::BF16 | Self::I16 | Self::U16 => 2,
             Self::FP8E4M3 | Self::FP8E5M2 | Self::I8 | Self::U8 | Self::Bool => 1,
@@ -177,6 +197,23 @@ impl DType {
             self,
             Self::F64 | Self::F32 | Self::F16 | Self::BF16 | Self::FP8E4M3 | Self::FP8E5M2
         )
+    }
+
+    /// Returns true if this is a complex number type
+    #[inline]
+    pub const fn is_complex(self) -> bool {
+        matches!(self, Self::Complex64 | Self::Complex128)
+    }
+
+    /// Returns the underlying float type for complex types
+    /// Returns None for non-complex types
+    #[inline]
+    pub const fn complex_component_dtype(self) -> Option<Self> {
+        match self {
+            Self::Complex64 => Some(Self::F32),
+            Self::Complex128 => Some(Self::F64),
+            _ => None,
+        }
     }
 
     /// Returns true if this is a signed integer type
@@ -206,7 +243,7 @@ impl DType {
     /// Returns true if this type can represent negative values
     #[inline]
     pub const fn is_signed(self) -> bool {
-        self.is_float() || self.is_signed_int()
+        self.is_float() || self.is_signed_int() || self.is_complex()
     }
 
     /// Get the default dtype for floating point operations
@@ -239,10 +276,14 @@ impl DType {
             Self::U16 => "u16",
             Self::U8 => "u8",
             Self::Bool => "bool",
+            Self::Complex64 => "c64",
+            Self::Complex128 => "c128",
         }
     }
 
     /// Minimum value representable by this dtype (as f64)
+    ///
+    /// For complex types, returns the minimum value of each component
     pub fn min_value(self) -> f64 {
         match self {
             Self::F64 => f64::MIN,
@@ -260,10 +301,15 @@ impl DType {
             Self::U16 => 0.0,
             Self::U8 => 0.0,
             Self::Bool => 0.0,
+            // Complex types: component min
+            Self::Complex64 => f32::MIN as f64,
+            Self::Complex128 => f64::MIN,
         }
     }
 
     /// Maximum value representable by this dtype (as f64)
+    ///
+    /// For complex types, returns the maximum value of each component
     pub fn max_value(self) -> f64 {
         match self {
             Self::F64 => f64::MAX,
@@ -281,6 +327,9 @@ impl DType {
             Self::U16 => u16::MAX as f64,
             Self::U8 => u8::MAX as f64,
             Self::Bool => 1.0,
+            // Complex types: component max
+            Self::Complex64 => f32::MAX as f64,
+            Self::Complex128 => f64::MAX,
         }
     }
 }
@@ -335,6 +384,11 @@ impl DTypeSet {
     /// All numeric types (floats + ints)
     pub const NUMERIC: Self = Self {
         bits: Self::FLOATS.bits | Self::INTS.bits,
+    };
+
+    /// All complex types
+    pub const COMPLEX: Self = Self {
+        bits: (1 << DType::Complex64 as u8) | (1 << DType::Complex128 as u8),
     };
 
     /// Create a set containing a single dtype
