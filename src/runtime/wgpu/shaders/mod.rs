@@ -23,6 +23,7 @@
 
 pub mod copy;
 pub mod cumulative;
+pub mod dtype_support;
 pub mod fft;
 pub mod generator;
 pub mod index;

@@ -235,8 +235,8 @@ pub(super) fn native_compare_op(
     let b_contig = ensure_contiguous(b);
     let numel = a.numel();
 
-    // Output is same dtype (F32 for now, TODO: U8 for proper bool)
-    let out = alloc_output(client, a.shape(), dtype);
+    // Output is always F32 (comparison results: 1.0 = true, 0.0 = false)
+    let out = alloc_output(client, a.shape(), DType::F32);
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let b_buf = get_tensor_buffer(&b_contig)?;

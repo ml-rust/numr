@@ -8,29 +8,125 @@
 //! - Activation functions (relu, sigmoid, silu, gelu)
 //! - Utility operations (clamp, isnan, isinf, where)
 //!
+//! Multi-dtype support: F32, I32, U32 (F16 requires shader-f16 extension)
 //! All operations run entirely on GPU with no CPU fallback.
+
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
 
 use wgpu::{Buffer, Queue};
 
+use super::dtype_support;
 use super::elementwise_wgsl::ELEMENTWISE_SHADER;
-use super::generator::generate_cast_shader;
+use super::generator::{
+    dtype_suffix, generate_binary_shader, generate_cast_shader, generate_compare_shader,
+    generate_scalar_shader, generate_unary_shader,
+};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
 // ============================================================================
-// Helper Macros
+// Shader Module Cache
 // ============================================================================
 
-macro_rules! check_dtype_f32 {
-    ($dtype:expr, $op:expr) => {
-        if $dtype != DType::F32 {
-            return Err(Error::UnsupportedDType {
-                dtype: $dtype,
-                op: $op,
-            });
+/// Cache for leaked shader references (leaked once per dtype+op_type combination)
+/// Key: (DType, operation_type), Value: &'static str to leaked shader source
+static SHADER_CACHE: OnceLock<RwLock<HashMap<(DType, &'static str), &'static str>>> =
+    OnceLock::new();
+
+/// Cache for leaked module key references
+static MODULE_KEY_CACHE: OnceLock<RwLock<HashMap<(DType, &'static str), &'static str>>> =
+    OnceLock::new();
+
+/// Get or generate shader for a specific dtype and operation type.
+/// Generates shader once, leaks it once, caches the leaked reference.
+/// Subsequent calls return the cached &'static str without leaking.
+fn get_or_leak_shader(dtype: DType, op_type: &'static str) -> Result<&'static str> {
+    let cache = SHADER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+
+    // Check if already cached
+    {
+        let read_guard = cache.read().unwrap();
+        if let Some(&shader_ref) = read_guard.get(&(dtype, op_type)) {
+            return Ok(shader_ref);
         }
+    }
+
+    // Generate shader based on operation type
+    let shader = match op_type {
+        "binary" => generate_binary_shader(dtype)?,
+        "unary" => generate_unary_shader(dtype)?,
+        "scalar" => generate_scalar_shader(dtype)?,
+        "compare" => generate_compare_shader(dtype)?,
+        _ => return Err(Error::Internal(format!("Unknown op type: {}", op_type))),
     };
+
+    // Leak ONCE and cache the reference
+    let leaked: &'static str = Box::leak(shader.into_boxed_str());
+
+    let mut write_guard = cache.write().unwrap();
+    write_guard.insert((dtype, op_type), leaked);
+
+    Ok(leaked)
+}
+
+/// Get the module key for a dtype and operation type.
+/// Generates key once, leaks it once, caches the leaked reference.
+fn get_or_leak_module_key(dtype: DType, op_type: &'static str) -> Result<&'static str> {
+    let cache = MODULE_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+
+    // Check if already cached
+    {
+        let read_guard = cache.read().unwrap();
+        if let Some(&key_ref) = read_guard.get(&(dtype, op_type)) {
+            return Ok(key_ref);
+        }
+    }
+
+    // Generate module key
+    let suffix = dtype_suffix(dtype)?;
+    let key = format!("{}_{}", op_type, suffix);
+
+    // Leak ONCE and cache the reference
+    let leaked: &'static str = Box::leak(key.into_boxed_str());
+
+    let mut write_guard = cache.write().unwrap();
+    write_guard.insert((dtype, op_type), leaked);
+
+    Ok(leaked)
+}
+
+/// Cache for leaked entry point references
+static ENTRY_POINT_CACHE: OnceLock<RwLock<HashMap<(String, DType), &'static str>>> =
+    OnceLock::new();
+
+/// Get entry point name for an operation.
+/// Generates once per (op, dtype), leaks once, caches the leaked reference.
+fn get_or_leak_entry_point(op: &str, dtype: DType) -> Result<&'static str> {
+    let cache = ENTRY_POINT_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
+
+    let key = (op.to_string(), dtype);
+
+    // Check if already cached
+    {
+        let read_guard = cache.read().unwrap();
+        if let Some(&entry_ref) = read_guard.get(&key) {
+            return Ok(entry_ref);
+        }
+    }
+
+    // Generate entry point
+    let suffix = dtype_suffix(dtype)?;
+    let entry = format!("{}_{}", op, suffix);
+
+    // Leak ONCE and cache the reference
+    let leaked: &'static str = Box::leak(entry.into_boxed_str());
+
+    let mut write_guard = cache.write().unwrap();
+    write_guard.insert(key, leaked);
+
+    Ok(leaked)
 }
 
 // ============================================================================
@@ -40,6 +136,8 @@ macro_rules! check_dtype_f32 {
 /// Launch a binary element-wise operation kernel.
 ///
 /// Computes `out[i] = a[i] op b[i]` for all elements.
+///
+/// Supports F32, I32, U32 dtypes.
 pub fn launch_binary_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -51,25 +149,35 @@ pub fn launch_binary_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, op);
+    // Validate dtype support for this operation
+    dtype_support::check_binary_dtype_support(op, dtype)?;
 
-    let entry_point = match op {
-        "add" => "add_f32",
-        "sub" => "sub_f32",
-        "mul" => "mul_f32",
-        "div" => "div_f32",
-        "pow" => "pow_f32",
-        "max" | "maximum" => "max_f32",
-        "min" | "minimum" => "min_f32",
-        _ => return Err(Error::Internal(format!("Unknown binary op: {}", op))),
+    // Normalize operation name
+    let op_name = match op {
+        "maximum" => "max",
+        "minimum" => "min",
+        _ => op,
     };
 
-    let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
+    // Get entry point name based on dtype (cached, leaked once per op+dtype)
+    let entry_point = get_or_leak_entry_point(op_name, dtype)?;
+
+    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
+    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
+        ("elementwise", ELEMENTWISE_SHADER)
+    } else {
+        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
+        let shader = get_or_leak_shader(dtype, "binary")?;
+        let module_key = get_or_leak_module_key(dtype, "binary")?;
+        (module_key, shader)
+    };
+
+    let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("elementwise", entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
 
@@ -98,6 +206,8 @@ pub fn launch_binary_op(
 /// Launch a unary element-wise operation kernel.
 ///
 /// Computes `out[i] = op(a[i])` for all elements.
+///
+/// Supports F32, I32, U32 dtypes (operation-dependent).
 pub fn launch_unary_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -108,39 +218,28 @@ pub fn launch_unary_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, op);
+    // Validate dtype support for this operation
+    dtype_support::check_unary_dtype_support(op, dtype)?;
 
-    let entry_point = match op {
-        "neg" => "neg_f32",
-        "abs" => "abs_f32",
-        "sqrt" => "sqrt_f32",
-        "exp" => "exp_f32",
-        "log" => "log_f32",
-        "sin" => "sin_f32",
-        "cos" => "cos_f32",
-        "tan" => "tan_f32",
-        "tanh" => "tanh_f32",
-        "recip" => "recip_f32",
-        "square" => "square_f32",
-        "floor" => "floor_f32",
-        "ceil" => "ceil_f32",
-        "round" => "round_f32",
-        "sign" => "sign_f32",
-        "relu" => "relu_f32",
-        "sigmoid" => "sigmoid_f32",
-        "silu" => "silu_f32",
-        "gelu" => "gelu_f32",
-        "isnan" => "isnan_f32",
-        "isinf" => "isinf_f32",
-        _ => return Err(Error::Internal(format!("Unknown unary op: {}", op))),
+    // Get entry point name based on dtype (cached, leaked once per op+dtype)
+    let entry_point = get_or_leak_entry_point(op, dtype)?;
+
+    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
+    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
+        ("elementwise", ELEMENTWISE_SHADER)
+    } else {
+        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
+        let shader = get_or_leak_shader(dtype, "unary")?;
+        let module_key = get_or_leak_module_key(dtype, "unary")?;
+        (module_key, shader)
     };
 
-    let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
+    let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("elementwise", entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
 
@@ -169,6 +268,8 @@ pub fn launch_unary_op(
 /// Launch a scalar element-wise operation kernel.
 ///
 /// Computes `out[i] = a[i] op scalar` for all elements.
+///
+/// Supports F32, I32, U32 dtypes.
 pub fn launch_scalar_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -179,23 +280,28 @@ pub fn launch_scalar_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, op);
+    // Validate dtype support for this operation
+    dtype_support::check_scalar_dtype_support(op, dtype)?;
 
-    let entry_point = match op {
-        "add_scalar" => "add_scalar_f32",
-        "sub_scalar" => "sub_scalar_f32",
-        "mul_scalar" => "mul_scalar_f32",
-        "div_scalar" => "div_scalar_f32",
-        "pow_scalar" => "pow_scalar_f32",
-        _ => return Err(Error::Internal(format!("Unknown scalar op: {}", op))),
+    // Get entry point name based on dtype (cached, leaked once per op+dtype)
+    let entry_point = get_or_leak_entry_point(op, dtype)?;
+
+    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
+    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
+        ("elementwise", ELEMENTWISE_SHADER)
+    } else {
+        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
+        let shader = get_or_leak_shader(dtype, "scalar")?;
+        let module_key = get_or_leak_module_key(dtype, "scalar")?;
+        (module_key, shader)
     };
 
-    let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
+    let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("elementwise", entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
 
@@ -235,7 +341,13 @@ pub fn launch_leaky_relu(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, "leaky_relu");
+    // leaky_relu is float-only
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "leaky_relu",
+        });
+    }
 
     let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -280,7 +392,10 @@ pub fn launch_elu(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, "elu");
+    // elu is float-only
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op: "elu" });
+    }
 
     let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -316,6 +431,8 @@ pub fn launch_elu(
 /// Launch a comparison element-wise operation kernel.
 ///
 /// Computes `out[i] = (a[i] op b[i]) ? 1.0 : 0.0` for all elements.
+///
+/// Supports F32, I32, U32 dtypes. Output is always F32.
 pub fn launch_compare_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -327,24 +444,28 @@ pub fn launch_compare_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, op);
+    // Validate dtype support for this operation
+    dtype_support::check_compare_dtype_support(op, dtype)?;
 
-    let entry_point = match op {
-        "eq" => "eq_f32",
-        "ne" => "ne_f32",
-        "lt" => "lt_f32",
-        "le" => "le_f32",
-        "gt" => "gt_f32",
-        "ge" => "ge_f32",
-        _ => return Err(Error::Internal(format!("Unknown compare op: {}", op))),
+    // Get entry point name based on dtype (cached, leaked once per op+dtype)
+    let entry_point = get_or_leak_entry_point(op, dtype)?;
+
+    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
+    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
+        ("elementwise", ELEMENTWISE_SHADER)
+    } else {
+        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
+        let shader = get_or_leak_shader(dtype, "compare")?;
+        let module_key = get_or_leak_module_key(dtype, "compare")?;
+        (module_key, shader)
     };
 
-    let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
+    let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("elementwise", entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
 
@@ -382,7 +503,10 @@ pub fn launch_clamp_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, "clamp");
+    // clamp is float-only
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op: "clamp" });
+    }
 
     let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -511,7 +635,10 @@ pub fn launch_where_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_f32!(dtype, "where");
+    // where is float-only
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op: "where" });
+    }
 
     let module = cache.get_or_create_module("elementwise", ELEMENTWISE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {

@@ -9,6 +9,25 @@ pub fn generate_unary_shader(dtype: DType) -> Result<String> {
     let t = wgsl_type(dtype)?;
     let suffix = dtype_suffix(dtype)?;
 
+    // Signed-only operations (F32, I32 - not U32)
+    let signed_ops = if dtype != DType::U32 {
+        format!(
+            r#"
+@compute @workgroup_size(256)
+fn neg_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = -unary_a[idx];
+    }}
+}}
+"#,
+            suffix = suffix
+        )
+    } else {
+        // U32 doesn't support negation
+        String::new()
+    };
+
     // Float-only operations
     let float_ops = if is_wgsl_float(dtype) {
         format!(
@@ -177,14 +196,7 @@ struct UnaryParams {{
 @group(0) @binding(1) var<storage, read_write> unary_out: array<{t}>;
 @group(0) @binding(2) var<uniform> unary_params: UnaryParams;
 
-@compute @workgroup_size(256)
-fn neg_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
-    let idx = gid.x;
-    if (idx < unary_params.numel) {{
-        unary_out[idx] = -{neg_prefix}unary_a[idx];
-    }}
-}}
-
+{signed_ops}
 @compute @workgroup_size(256)
 fn abs_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
@@ -214,11 +226,7 @@ fn sign_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 "#,
         t = t,
         suffix = suffix,
-        neg_prefix = if dtype == DType::U32 {
-            "/*u32 neg*/"
-        } else {
-            ""
-        },
+        signed_ops = signed_ops,
         float_ops = float_ops
     ))
 }
