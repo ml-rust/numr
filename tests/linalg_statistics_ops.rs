@@ -908,8 +908,12 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[4, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[4, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = cpu_client.pinverse(&cpu_a, None).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = wgpu_client.pinverse(&wgpu_a, None).unwrap().to_vec();
+        let cpu_result: Vec<f32> = TensorOps::pinverse(&cpu_client, &cpu_a, None)
+            .unwrap()
+            .to_vec();
+        let wgpu_result: Vec<f32> = TensorOps::pinverse(&wgpu_client, &wgpu_a, None)
+            .unwrap()
+            .to_vec();
 
         // WGPU uses F32 only, slightly looser tolerance
         assert_allclose_f32(

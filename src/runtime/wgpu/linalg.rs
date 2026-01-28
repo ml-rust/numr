@@ -976,7 +976,7 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         let qr = self.qr_decompose(a)?;
 
         // Get diagonal of R
-        let r_diag = self.diag(&qr.r)?;
+        let r_diag = TensorOps::diag(self, &qr.r)?;
 
         // Allocate GPU buffers for max abs and count
         let max_size = dtype.size_in_bytes();
@@ -1367,7 +1367,7 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         let s_inv_diag = Tensor::<WgpuRuntime>::from_slice(&s_inv_data, &[k], device);
 
         // Create diagonal matrix from vector
-        let s_inv_mat = self.diagflat(&s_inv_diag)?;
+        let s_inv_mat = TensorOps::diagflat(self, &s_inv_diag)?;
 
         // Compute A^+ = V @ S_inv @ U^T
         // V^T is [k x n], so V is [n x k]
@@ -1501,7 +1501,7 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         let cov_mat = self.cov(a, Some(1))?; // [n_features, n_features]
 
         // Extract diagonal (variances) and compute standard deviations
-        let variances = self.diag(&cov_mat)?; // [n_features]
+        let variances = TensorOps::diag(self, &cov_mat)?; // [n_features]
         let std_devs = self.sqrt(&variances)?; // [n_features]
 
         // Pull data to CPU for zero-variance detection
@@ -1832,7 +1832,7 @@ mod tests {
         // trace = 1 + 4 = 5
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let t = client.trace(&a).unwrap();
+        let t = TensorOps::trace(&client, &a).unwrap();
         let result: Vec<f32> = t.to_vec();
 
         assert!((result[0] - 5.0).abs() < 1e-5);
@@ -1852,7 +1852,7 @@ mod tests {
         let a =
             Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device);
 
-        let d = client.diag(&a).unwrap();
+        let d = TensorOps::diag(&client, &a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert_eq!(result.len(), 2);
@@ -1872,7 +1872,7 @@ mod tests {
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let m = client.diagflat(&a).unwrap();
+        let m = TensorOps::diagflat(&client, &a).unwrap();
         let result: Vec<f32> = m.to_vec();
 
         assert_eq!(m.shape(), &[3, 3]);
@@ -1938,7 +1938,7 @@ mod tests {
         // det = 1*4 - 2*3 = -2
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let d = client.det(&a).unwrap();
+        let d = TensorOps::det(&client, &a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert!((result[0] - (-2.0)).abs() < 1e-4);
@@ -1959,7 +1959,7 @@ mod tests {
         let a = Tensor::<WgpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device);
         let b = Tensor::<WgpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device);
 
-        let x = client.solve(&a, &b).unwrap();
+        let x = TensorOps::solve(&client, &a, &b).unwrap();
         let result: Vec<f32> = x.to_vec();
 
         assert!((result[0] - 1.0).abs() < 1e-4);
@@ -1980,7 +1980,7 @@ mod tests {
         // Inverse: [[0.6, -0.7], [-0.2, 0.4]]
         let a = Tensor::<WgpuRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device);
 
-        let inv = client.inverse(&a).unwrap();
+        let inv = TensorOps::inverse(&client, &a).unwrap();
         let result: Vec<f32> = inv.to_vec();
 
         // Check inverse values (det = 4*6 - 7*2 = 10)
@@ -2004,7 +2004,7 @@ mod tests {
         // Full rank 2x2 matrix
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let rank = client.matrix_rank(&a, None).unwrap();
+        let rank = TensorOps::matrix_rank(&client, &a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 2);
@@ -2023,7 +2023,7 @@ mod tests {
         // Rank-deficient 2x2 matrix (rows are linearly dependent)
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], device);
 
-        let rank = client.matrix_rank(&a, None).unwrap();
+        let rank = TensorOps::matrix_rank(&client, &a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 1);
@@ -2081,7 +2081,7 @@ mod tests {
             Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device);
         let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let x = client.lstsq(&a, &b).unwrap();
+        let x = TensorOps::lstsq(&client, &a, &b).unwrap();
         assert_eq!(x.shape(), &[2]);
         let result: Vec<f32> = x.to_vec();
 
