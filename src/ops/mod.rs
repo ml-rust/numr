@@ -1490,6 +1490,358 @@ pub trait TensorOps<R: Runtime> {
     /// let rolled = client.roll(&a, -1, 0)?; // [2, 3, 4, 1]
     /// ```
     fn roll(&self, tensor: &Tensor<R>, shift: isize, dim: isize) -> Result<Tensor<R>>;
+
+    // ===== Linear Algebra =====
+
+    /// Solve linear system Ax = b using LU decomposition
+    ///
+    /// Computes the solution x to the linear equation Ax = b, where A is a square
+    /// coefficient matrix.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses LU decomposition with partial pivoting:
+    /// ```text
+    /// 1. Compute PA = LU (pivoted LU decomposition)
+    /// 2. Solve Ly = Pb (forward substitution)
+    /// 3. Solve Ux = y (backward substitution)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Coefficient matrix [n, n]
+    /// * `b` - Right-hand side vector/matrix [n] or [n, k]
+    ///
+    /// # Returns
+    ///
+    /// Solution tensor x [n] or [n, k]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if dimensions are incompatible or A is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if matrix is singular (not invertible)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Solve 2x + 3y = 5
+    /// //       4x + 5y = 11
+    /// let a = Tensor::from_slice(&[2.0, 3.0, 4.0, 5.0], &[2, 2], &device);
+    /// let b = Tensor::from_slice(&[5.0, 11.0], &[2], &device);
+    /// let x = client.solve(&a, &b)?;
+    /// // x = [2.0, 1.0]
+    /// ```
+    fn solve(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Least squares solution: minimize ||Ax - b||²
+    ///
+    /// Computes the solution x that minimizes the 2-norm of the residual ||Ax - b||².
+    /// Uses QR decomposition (Householder reflections) followed by back-substitution.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute QR decomposition: A = QR
+    /// 2. Transform: y = Q^T @ b
+    /// 3. Solve: R @ x = y (back-substitution)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Coefficient matrix [m, n] (can be non-square)
+    /// * `b` - Right-hand side vector/matrix [m] or [m, k]
+    ///
+    /// # Returns
+    ///
+    /// Solution tensor x [n] or [n, k] that minimizes ||Ax - b||²
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if dimensions are incompatible
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // Fit line y = mx + c to overdetermined system
+    /// let a = Tensor::from_slice(&[1.0, 1.0, 2.0, 1.0, 3.0, 1.0], &[3, 2], &device);
+    /// let b = Tensor::from_slice(&[2.0, 4.0, 6.0], &[3], &device);
+    /// let x = client.lstsq(&a, &b)?; // [m, c]
+    /// ```
+    fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Moore-Penrose pseudo-inverse via SVD: A^+ = V @ diag(1/S) @ U^T
+    ///
+    /// Computes the pseudo-inverse of a matrix using SVD. For a matrix A with
+    /// SVD decomposition A = U @ diag(S) @ V^T, the pseudo-inverse is:
+    ///
+    /// ```text
+    /// A^+ = V @ diag(1/S_i where S_i > rcond*max(S), else 0) @ U^T
+    /// ```
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Compute SVD: A = U @ diag(S) @ V^T
+    /// 2. Invert non-zero singular values: S_inv[i] = 1/S[i] if S[i] > rcond*max(S), else 0
+    /// 3. Compute: A^+ = V @ diag(S_inv) @ U^T
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input matrix [m, n]
+    /// * `rcond` - Relative condition number threshold (singular values below rcond*max(S) are treated as zero)
+    ///   If None, uses default: max(m,n) * machine_epsilon
+    ///
+    /// # Returns
+    ///
+    /// Pseudo-inverse matrix [n, m]
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    /// let a_pinv = client.pinverse(&a, None)?; // Shape: [3, 2]
+    /// // Verify: a @ a_pinv @ a ≈ a
+    /// ```
+    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>>;
+
+    /// Matrix norm
+    ///
+    /// Computes the matrix norm of the input tensor.
+    ///
+    /// # Supported Norms
+    ///
+    /// - **Frobenius**: `sqrt(sum(A[i,j]²))` - Euclidean norm of the matrix
+    /// - **Spectral** (2-norm): Maximum singular value (requires SVD)
+    /// - **Nuclear** (trace norm): Sum of singular values (requires SVD)
+    ///
+    /// # Algorithm
+    ///
+    /// **Frobenius norm:**
+    /// ```text
+    /// ||A||_F = sqrt(sum_{i,j} |A[i,j]|^2) = sqrt(trace(A^T @ A))
+    /// ```
+    ///
+    /// **Spectral norm:**
+    /// ```text
+    /// ||A||_2 = max singular value of A
+    /// ```
+    ///
+    /// **Nuclear norm:**
+    /// ```text
+    /// ||A||_* = sum of singular values of A
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor
+    /// * `ord` - Norm order (Frobenius, Spectral, Nuclear)
+    ///
+    /// # Returns
+    ///
+    /// Scalar tensor containing the norm value
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not 2D
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use numr::algorithm::linalg::MatrixNormOrder;
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let fro = client.matrix_norm(&a, MatrixNormOrder::Frobenius)?;
+    /// let spec = client.matrix_norm(&a, MatrixNormOrder::Spectral)?;
+    /// ```
+    fn matrix_norm(
+        &self,
+        a: &Tensor<R>,
+        ord: crate::algorithm::linalg::MatrixNormOrder,
+    ) -> Result<Tensor<R>>;
+
+    /// Matrix inverse using LU decomposition
+    ///
+    /// Computes the multiplicative inverse of a square matrix.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute PA = LU (pivoted LU decomposition)
+    /// 2. Solve for A^{-1}: each column j of A^{-1} solves A @ x_j = e_j
+    ///    where e_j is the j-th standard basis vector
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Square matrix [n, n]
+    ///
+    /// # Returns
+    ///
+    /// Inverse matrix [n, n] such that A @ A^{-1} = I
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if matrix is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if matrix is singular (determinant = 0)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[4.0, 7.0, 2.0, 6.0], &[2, 2], &device);
+    /// let a_inv = client.inverse(&a)?;
+    /// // Verify: a @ a_inv ≈ I
+    /// ```
+    fn inverse(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Matrix determinant using LU decomposition
+    ///
+    /// Computes the determinant of a square matrix.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute PA = LU (pivoted LU decomposition)
+    /// 2. det(A) = (-1)^{number of row swaps} * product(diag(U))
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Square matrix [n, n]
+    ///
+    /// # Returns
+    ///
+    /// Scalar tensor containing the determinant
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if matrix is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let det = client.det(&a)?;
+    /// // det = 1*4 - 2*3 = -2
+    /// ```
+    fn det(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Matrix trace: sum of diagonal elements
+    ///
+    /// Computes the sum of the diagonal elements of a matrix.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Square matrix [n, n]
+    ///
+    /// # Returns
+    ///
+    /// Scalar tensor containing trace(A) = sum_i A[i,i]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if matrix is not square
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let tr = client.trace(&a)?;
+    /// // tr = 1 + 4 = 5
+    /// ```
+    fn trace(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Extract diagonal elements
+    ///
+    /// Returns the diagonal elements of a 2D matrix as a 1D tensor.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - 2D matrix [m, n]
+    ///
+    /// # Returns
+    ///
+    /// 1D tensor [min(m,n)] containing diagonal elements
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not 2D
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    /// let d = client.diag(&a)?;
+    /// // d = [1, 5]
+    /// ```
+    fn diag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Create diagonal matrix from 1D tensor
+    ///
+    /// Creates a 2D square matrix with the input elements on the diagonal.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - 1D tensor [n]
+    ///
+    /// # Returns
+    ///
+    /// 2D diagonal matrix [n, n]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not 1D
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3], &device);
+    /// let d = client.diagflat(&a)?;
+    /// // d = [[1, 0, 0],
+    /// //      [0, 2, 0],
+    /// //      [0, 0, 3]]
+    /// ```
+    fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Matrix rank via SVD
+    ///
+    /// Computes the numerical rank of a matrix (number of non-zero singular values).
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute SVD: A = U @ diag(S) @ V^T
+    /// 2. Count singular values: rank = #{i : S[i] > tol}
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input matrix [m, n]
+    /// * `tol` - Singular value threshold (values below this are treated as zero)
+    ///   If None, uses default: max(m,n) * eps * max(S)
+    ///
+    /// # Returns
+    ///
+    /// Scalar integer tensor containing the rank
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 2.0, 4.0], &[2, 2], &device);
+    /// let rank = client.matrix_rank(&a, None)?;
+    /// // rank = 1 (rank-deficient: rows are linearly dependent)
+    /// ```
+    fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
 }
 
 /// Scalar operations trait for tensor-scalar operations

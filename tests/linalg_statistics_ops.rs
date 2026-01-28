@@ -90,7 +90,7 @@ fn test_pinverse_identity() {
         &device,
     );
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     // Result should be identity
@@ -105,7 +105,7 @@ fn test_pinverse_2x2_invertible() {
     // Well-conditioned 2x2 matrix
     let a = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     // For invertible matrices, pinverse = inverse
@@ -129,7 +129,7 @@ fn test_pinverse_tall_matrix() {
     // 3x2 matrix (m > n) - overdetermined system
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
 
     // Output shape should be [2, 3] (transposed)
     assert_eq!(pinv.shape(), &[2, 3], "pinverse shape");
@@ -149,7 +149,7 @@ fn test_pinverse_wide_matrix() {
     // 2x3 matrix (m < n) - underdetermined system
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
 
     // Output shape should be [3, 2] (transposed)
     assert_eq!(pinv.shape(), &[3, 2], "pinverse shape");
@@ -169,7 +169,7 @@ fn test_pinverse_f64() {
     // Test with F64 precision
     let a = Tensor::<CpuRuntime>::from_slice(&[3.0f64, 1.0, 1.0, 3.0], &[2, 2], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
 
     // Verify reconstruction with higher precision
     let a_pinv_a = TensorOps::matmul(&client, &a, &pinv).unwrap();
@@ -187,7 +187,7 @@ fn test_pinverse_with_rcond() {
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], &device);
 
     // With default rcond, small singular values are zeroed
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
 
     // Should still satisfy Moore-Penrose conditions
     let a_pinv = TensorOps::matmul(&client, &a, &pinv).unwrap();
@@ -651,7 +651,7 @@ fn test_pinverse_1x1() {
     // 1x1 matrix
     let a = Tensor::<CpuRuntime>::from_slice(&[5.0f32], &[1, 1], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     assert_eq!(pinv.shape(), &[1, 1]);
@@ -697,7 +697,7 @@ fn test_pinverse_least_squares() {
     );
     let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 4.0, 6.0, 8.0], &[4, 1], &device);
 
-    let pinv = client.pinverse(&a, None).unwrap();
+    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
     let x = TensorOps::matmul(&client, &pinv, &b).unwrap();
 
     // Verify residual is small

@@ -121,7 +121,7 @@ where
         let scaled_diag = client.mul(&ones_vec, grad_output)?;
 
         // Create diagonal matrix (identity scaled by grad_output)
-        let eye = client.diagflat(&scaled_diag)?;
+        let eye = TensorOps::diagflat(&client, &scaled_diag)?;
 
         Ok(vec![Some(eye)])
     }
@@ -256,7 +256,7 @@ where
         //
         // Note: If det(A) ≈ 0, the matrix is singular and inverse will fail.
         // This is expected behavior - determinant gradient is undefined for singular matrices.
-        let inv_a = client.inverse(saved_a).map_err(|e| {
+        let inv_a = TensorOps::inverse(&client, saved_a).map_err(|e| {
             Error::Internal(format!(
                 "DetBackward: failed to compute inverse for gradient \
                  (matrix may be singular or nearly singular): {}",
@@ -337,7 +337,7 @@ where
         // grad_output = dL/dx
         // Solve A^T @ v = dL/dx for v
         let a_t = saved_a.t()?.contiguous();
-        let v = client.solve(&a_t, grad_output)?;
+        let v = TensorOps::solve(&client, &a_t, grad_output)?;
 
         // dL/db = v = solve(A^T, dL/dx)
         let grad_b = v.clone();
@@ -525,7 +525,7 @@ mod tests {
         // A = [[2, 1], [1, 2]]
         // A^{-1} = [[2/3, -1/3], [-1/3, 2/3]]
         let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 2.0], &[2, 2], &device);
-        let inv_a = client.inverse(&a).unwrap();
+        let inv_a = TensorOps::inverse(&client, &a).unwrap();
 
         // dL/dB = ones (gradient w.r.t. inverse)
         let grad_out = Tensor::<CpuRuntime>::ones(&[2, 2], DType::F64, &device);
@@ -556,7 +556,7 @@ mod tests {
         // A = [[2, 1], [1, 2]]
         // det(A) = 3
         let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 2.0], &[2, 2], &device);
-        let det_output = client.det(&a).unwrap(); // Returns tensor with value 3.0
+        let det_output = TensorOps::det(&client, &a).unwrap(); // Returns tensor with value 3.0
 
         // dL/ddet = 1 (scalar gradient, 0-dim tensor)
         let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f64], &[], &device);
@@ -580,7 +580,7 @@ mod tests {
         // x = solve(A, b) = [[1], [1]]
         let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 2.0], &[2, 2], &device);
         let b = Tensor::<CpuRuntime>::from_slice(&[3.0f64, 3.0], &[2, 1], &device);
-        let x = client.solve(&a, &b).unwrap();
+        let x = TensorOps::solve(&client, &a, &b).unwrap();
 
         // dL/dx = [[1], [1]]
         let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 1.0], &[2, 1], &device);
