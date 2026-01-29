@@ -41,6 +41,7 @@ fn compile_cuda_kernels() {
         "scalar.cu",
         "reduce.cu",
         "compare.cu",
+        "complex.cu",
         "activation.cu",
         "norm.cu",
         "cast.cu",

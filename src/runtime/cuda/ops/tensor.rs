@@ -1,14 +1,14 @@
 //! TensorOps implementation for CUDA runtime
 
 use super::super::kernels::{
-    AccumulationPrecision, launch_cast, launch_cat_copy, launch_cumprod, launch_cumprod_strided,
-    launch_cumsum, launch_cumsum_strided, launch_elu, launch_embedding_lookup,
-    launch_fill_with_f64, launch_gather, launch_gelu, launch_index_select, launch_isinf_op,
-    launch_isnan_op, launch_layer_norm, launch_leaky_relu, launch_logsumexp,
-    launch_logsumexp_strided, launch_masked_count, launch_masked_fill, launch_masked_prefix_sum,
-    launch_masked_select, launch_pad, launch_relu, launch_repeat, launch_rms_norm, launch_roll,
-    launch_scatter, launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim,
-    launch_where_broadcast_op, launch_where_op,
+    AccumulationPrecision, launch_angle, launch_angle_real, launch_cast, launch_cat_copy,
+    launch_conj, launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided,
+    launch_elu, launch_embedding_lookup, launch_fill_with_f64, launch_gather, launch_gelu,
+    launch_imag, launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm,
+    launch_leaky_relu, launch_logsumexp, launch_logsumexp_strided, launch_masked_count,
+    launch_masked_fill, launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real,
+    launch_relu, launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_sigmoid,
+    launch_silu, launch_softmax, launch_softmax_dim, launch_where_broadcast_op, launch_where_op,
 };
 use super::super::{CudaClient, CudaRuntime};
 use super::helpers::{
@@ -2401,6 +2401,185 @@ impl TensorOps<CudaRuntime> for CudaClient {
     ) -> Result<Tensor<CudaRuntime>> {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
+    }
+
+    // ===== Complex Number Operations =====
+
+    fn conj(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, conjugate is identity
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_conj(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn real(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, return copy
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        // Determine output dtype: Complex64 → F32, Complex128 → F64
+        let out_dtype = match dtype {
+            DType::Complex64 => DType::F32,
+            DType::Complex128 => DType::F64,
+            _ => return Err(Error::UnsupportedDType { dtype, op: "real" }),
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+
+        unsafe {
+            launch_real(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn imag(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // Determine output dtype
+        let out_dtype = if dtype.is_complex() {
+            match dtype {
+                DType::Complex64 => DType::F32,
+                DType::Complex128 => DType::F64,
+                _ => return Err(Error::UnsupportedDType { dtype, op: "imag" }),
+            }
+        } else {
+            // For real types, return zeros with same dtype
+            dtype
+        };
+
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+
+        // For real types, fill with zeros
+        if !dtype.is_complex() {
+            unsafe {
+                super::super::kernels::launch_fill_with_f64(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    out_dtype,
+                    0.0,
+                    out.storage().ptr(),
+                    out.numel(),
+                )?;
+            }
+            return Ok(out);
+        }
+
+        // For complex types, extract imaginary part
+        let a_contig = ensure_contiguous(a);
+
+        unsafe {
+            launch_imag(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn angle(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // Determine output dtype
+        let out_dtype = if dtype.is_complex() {
+            match dtype {
+                DType::Complex64 => DType::F32,
+                DType::Complex128 => DType::F64,
+                _ => return Err(Error::UnsupportedDType { dtype, op: "angle" }),
+            }
+        } else {
+            // For real types, return zeros with same dtype
+            dtype
+        };
+
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+        let a_contig = ensure_contiguous(a);
+
+        // For real types: angle(x) = 0 if x >= 0, π if x < 0
+        if !dtype.is_complex() {
+            match dtype {
+                DType::F32 | DType::F64 => unsafe {
+                    super::super::kernels::launch_angle_real(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        dtype,
+                        a_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        a.numel(),
+                    )?;
+                },
+                _ => {
+                    // For integer types, return zeros (π as integer doesn't make mathematical sense)
+                    unsafe {
+                        super::super::kernels::launch_fill_with_f64(
+                            &self.context,
+                            &self.stream,
+                            self.device.index,
+                            out_dtype,
+                            0.0,
+                            out.storage().ptr(),
+                            out.numel(),
+                        )?;
+                    }
+                }
+            }
+            return Ok(out);
+        }
+
+        // For complex types, compute phase angle
+
+        unsafe {
+            launch_angle(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
     }
 }
 
