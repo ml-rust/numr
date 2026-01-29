@@ -18,7 +18,7 @@ struct Params {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read> input: array<vec2<f32>>;
+@group(0) @binding(0) var<storage, read_write> input: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> output: array<vec2<f32>>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -45,7 +45,7 @@ struct Params {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read> input: array<vec2<f32>>;
+@group(0) @binding(0) var<storage, read_write> input: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -71,7 +71,7 @@ struct Params {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read> input: array<vec2<f32>>;
+@group(0) @binding(0) var<storage, read_write> input: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -97,7 +97,7 @@ struct Params {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read> input: array<vec2<f32>>;
+@group(0) @binding(0) var<storage, read_write> input: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -128,7 +128,7 @@ struct Params {
     numel: u32,
 }
 
-@group(0) @binding(0) var<storage, read> input: array<f32>;
+@group(0) @binding(0) var<storage, read_write> input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> output: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
