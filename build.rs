@@ -54,6 +54,7 @@ fn compile_cuda_kernels() {
         "shape.cu",
         "cumulative.cu",
         "fft.cu",
+        "sort.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

@@ -1,14 +1,17 @@
 //! TensorOps implementation for CUDA runtime
 
 use super::super::kernels::{
-    AccumulationPrecision, launch_angle, launch_angle_real, launch_cast, launch_cat_copy,
-    launch_conj, launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided,
-    launch_elu, launch_embedding_lookup, launch_fill_with_f64, launch_gather, launch_gelu,
-    launch_imag, launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm,
-    launch_leaky_relu, launch_logsumexp, launch_logsumexp_strided, launch_masked_count,
-    launch_masked_fill, launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real,
-    launch_relu, launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_sigmoid,
-    launch_silu, launch_softmax, launch_softmax_dim, launch_where_broadcast_op, launch_where_op,
+    AccumulationPrecision, launch_angle, launch_angle_real, launch_argsort, launch_cast,
+    launch_cat_copy, launch_conj, launch_count_nonzero, launch_count_unique, launch_cumprod,
+    launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_elu,
+    launch_embedding_lookup, launch_extract_unique, launch_fill_with_f64,
+    launch_flat_to_multi_index, launch_gather, launch_gather_nonzero, launch_gelu, launch_imag,
+    launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm, launch_leaky_relu,
+    launch_logsumexp, launch_logsumexp_strided, launch_masked_count, launch_masked_fill,
+    launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real, launch_relu,
+    launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_searchsorted,
+    launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim, launch_sort,
+    launch_sort_values_only, launch_topk, launch_where_broadcast_op, launch_where_op,
 };
 use super::super::{CudaClient, CudaRuntime};
 use super::helpers::{
@@ -24,7 +27,8 @@ use crate::ops::{
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
 use crate::runtime::{
-    Runtime, compute_contiguous_strides, ensure_contiguous, validate_arange, validate_eye,
+    Runtime, compute_contiguous_strides, ensure_contiguous, normalize_dim, validate_arange,
+    validate_eye,
 };
 use crate::tensor::Tensor;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -2576,6 +2580,455 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 a_contig.storage().ptr(),
                 out.storage().ptr(),
                 a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    // ===== Sorting and Search Operations =====
+
+    fn sort(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        if ndim == 0 {
+            return Ok(a.clone());
+        }
+
+        let dim_idx = normalize_dim(dim, ndim)?;
+        let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_sort_values_only(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                sort_size,
+                inner_size,
+                descending,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn sort_with_indices(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        if ndim == 0 {
+            let indices = Tensor::<CudaRuntime>::zeros(shape, DType::I64, &self.device);
+            return Ok((a.clone(), indices));
+        }
+
+        let dim_idx = normalize_dim(dim, ndim)?;
+        let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
+        let a_contig = ensure_contiguous(a);
+        let out_values = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let out_indices = Tensor::<CudaRuntime>::empty(shape, DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_sort(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out_values.storage().ptr(),
+                out_indices.storage().ptr(),
+                outer_size,
+                sort_size,
+                inner_size,
+                descending,
+            )?;
+        }
+
+        Ok((out_values, out_indices))
+    }
+
+    fn argsort(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        if ndim == 0 {
+            return Ok(Tensor::<CudaRuntime>::zeros(
+                shape,
+                DType::I64,
+                &self.device,
+            ));
+        }
+
+        let dim_idx = normalize_dim(dim, ndim)?;
+        let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(shape, DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_argsort(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                sort_size,
+                inner_size,
+                descending,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn topk(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        k: usize,
+        dim: isize,
+        largest: bool,
+        sorted: bool,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        if ndim == 0 {
+            if k > 1 {
+                return Err(Error::InvalidArgument {
+                    arg: "k",
+                    reason: "k cannot be greater than 1 for scalar tensors".to_string(),
+                });
+            }
+            let indices = Tensor::<CudaRuntime>::zeros(shape, DType::I64, &self.device);
+            return Ok((a.clone(), indices));
+        }
+
+        let dim_idx = normalize_dim(dim, ndim)?;
+        let dim_size = shape[dim_idx];
+        if k > dim_size {
+            return Err(Error::InvalidArgument {
+                arg: "k",
+                reason: format!(
+                    "k ({}) cannot be greater than dimension size ({})",
+                    k, dim_size
+                ),
+            });
+        }
+
+        if k == 0 {
+            let mut out_shape = shape.to_vec();
+            out_shape[dim_idx] = 0;
+            let out_values = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
+            let out_indices = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &self.device);
+            return Ok((out_values, out_indices));
+        }
+
+        let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
+        let a_contig = ensure_contiguous(a);
+
+        let mut out_shape = shape.to_vec();
+        out_shape[dim_idx] = k;
+
+        let out_values = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
+        let out_indices = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_topk(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out_values.storage().ptr(),
+                out_indices.storage().ptr(),
+                outer_size,
+                sort_size,
+                inner_size,
+                k,
+                largest,
+                sorted,
+            )?;
+        }
+
+        Ok((out_values, out_indices))
+    }
+
+    fn unique(&self, a: &Tensor<CudaRuntime>, _sorted: bool) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let numel = a.numel();
+
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        // Flatten and make contiguous
+        let a_flat = a.reshape(&[numel])?;
+        let a_contig = ensure_contiguous(&a_flat);
+
+        // Sort first
+        let sorted_tensor = self.sort(&a_contig, 0, false)?;
+
+        // Allocate counter on device (using U32)
+        let counter = Tensor::<CudaRuntime>::zeros(&[1], DType::U32, &self.device);
+
+        // Count unique elements
+        unsafe {
+            super::super::kernels::launch_count_unique(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                sorted_tensor.storage().ptr(),
+                counter.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        // Synchronize and read count
+        self.stream
+            .synchronize()
+            .map_err(|e| Error::Internal(format!("CUDA sync failed: {:?}", e)))?;
+        let count_data = counter.to_vec::<u32>();
+        let unique_count = count_data[0] as usize;
+
+        if unique_count == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        // Reset counter and allocate output
+        let counter = Tensor::<CudaRuntime>::zeros(&[1], DType::U32, &self.device);
+        let out = Tensor::<CudaRuntime>::empty(&[unique_count], dtype, &self.device);
+
+        // Extract unique elements
+        unsafe {
+            super::super::kernels::launch_extract_unique(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                sorted_tensor.storage().ptr(),
+                out.storage().ptr(),
+                counter.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn unique_with_counts(
+        &self,
+        a: &Tensor<CudaRuntime>,
+    ) -> Result<(
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+    )> {
+        let dtype = a.dtype();
+        let numel = a.numel();
+
+        if numel == 0 {
+            let unique = Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device);
+            let inverse = Tensor::<CudaRuntime>::empty(&[0], DType::I64, &self.device);
+            let counts = Tensor::<CudaRuntime>::empty(&[0], DType::I64, &self.device);
+            return Ok((unique, inverse, counts));
+        }
+
+        // Get unique values (GPU-native)
+        let unique = self.unique(a, true)?;
+        let unique_count = unique.numel();
+
+        // Compute inverse indices via searchsorted (GPU-native)
+        let a_flat = a.reshape(&[numel])?;
+        let inverse = self.searchsorted(&unique, &a_flat, false)?;
+
+        // Count occurrences using GPU bincount kernel (no CPU round-trip)
+        let counts = Tensor::<CudaRuntime>::zeros(&[unique_count], DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_bincount(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                inverse.storage().ptr(),
+                counts.storage().ptr(),
+                numel,
+                unique_count,
+            )?;
+        }
+
+        Ok((unique, inverse, counts))
+    }
+
+    fn nonzero(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+        let numel = a.numel();
+
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &[0, ndim],
+                DType::I64,
+                &self.device,
+            ));
+        }
+
+        let a_contig = ensure_contiguous(a);
+
+        // Phase 1: Count nonzero elements
+        let counter = Tensor::<CudaRuntime>::zeros(&[1], DType::U32, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_count_nonzero(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                counter.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        // Synchronize and read count
+        self.stream
+            .synchronize()
+            .map_err(|e| Error::Internal(format!("CUDA sync failed: {:?}", e)))?;
+        let count_data = counter.to_vec::<u32>();
+        let nnz = count_data[0] as usize;
+
+        if nnz == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &[0, ndim],
+                DType::I64,
+                &self.device,
+            ));
+        }
+
+        if ndim == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &[1, 0],
+                DType::I64,
+                &self.device,
+            ));
+        }
+
+        // Phase 2: Gather flat indices
+        let counter = Tensor::<CudaRuntime>::zeros(&[1], DType::U32, &self.device);
+        let flat_indices = Tensor::<CudaRuntime>::empty(&[nnz], DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_gather_nonzero(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                flat_indices.storage().ptr(),
+                counter.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        // Phase 3: Convert flat indices to multi-indices
+        let shape_tensor = Tensor::<CudaRuntime>::from_slice(
+            &shape.iter().map(|&s| s as u32).collect::<Vec<_>>(),
+            &[ndim],
+            &self.device,
+        );
+        let out = Tensor::<CudaRuntime>::empty(&[nnz, ndim], DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_flat_to_multi_index(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                flat_indices.storage().ptr(),
+                out.storage().ptr(),
+                nnz,
+                ndim,
+                shape_tensor.storage().ptr(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn searchsorted(
+        &self,
+        sorted_sequence: &Tensor<CudaRuntime>,
+        values: &Tensor<CudaRuntime>,
+        right: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if sorted_sequence.ndim() != 1 {
+            return Err(Error::ShapeMismatch {
+                expected: vec![sorted_sequence.numel()],
+                got: sorted_sequence.shape().to_vec(),
+            });
+        }
+
+        if sorted_sequence.dtype() != values.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: sorted_sequence.dtype(),
+                rhs: values.dtype(),
+            });
+        }
+
+        let dtype = sorted_sequence.dtype();
+        let seq_len = sorted_sequence.numel();
+        let num_values = values.numel();
+
+        if num_values == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                values.shape(),
+                DType::I64,
+                &self.device,
+            ));
+        }
+
+        let seq_contig = ensure_contiguous(sorted_sequence);
+        let values_contig = ensure_contiguous(values);
+        let out = Tensor::<CudaRuntime>::empty(values.shape(), DType::I64, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_searchsorted(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                seq_contig.storage().ptr(),
+                values_contig.storage().ptr(),
+                out.storage().ptr(),
+                seq_len,
+                num_values,
+                right,
             )?;
         }
 

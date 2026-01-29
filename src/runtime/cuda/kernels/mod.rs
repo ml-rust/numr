@@ -61,6 +61,7 @@ mod scalar;
 #[cfg(feature = "sparse")]
 mod scan;
 mod shape;
+mod sort;
 #[cfg(feature = "sparse")]
 mod sparse_convert;
 #[cfg(feature = "sparse")]
@@ -96,6 +97,7 @@ pub use scalar::*;
 #[allow(unused_imports)]
 pub use scan::*;
 pub use shape::*;
+pub use sort::*;
 #[cfg(feature = "sparse")]
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
