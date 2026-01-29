@@ -1,0 +1,296 @@
+//! Linear system solvers (Ax=b, triangular, least squares)
+
+use super::super::jacobi::LinalgElement;
+use super::super::{CpuClient, CpuRuntime};
+use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
+use crate::dtype::Element;
+use crate::error::{Error, Result};
+use crate::runtime::RuntimeClient;
+use crate::tensor::Tensor;
+
+/// Solve Ax = b using LU decomposition
+pub fn solve_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    n: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+
+    // Compute LU decomposition
+    let lu_decomp = lu_decompose_impl::<T>(client, a, n, n)?;
+    let lu_data: Vec<T> = lu_decomp.lu.to_vec();
+    let pivots_data: Vec<i64> = lu_decomp.pivots.to_vec();
+
+    // Handle 1D or 2D b
+    let b_shape = b.shape();
+    let (b_rows, num_rhs) = if b_shape.len() == 1 {
+        (b_shape[0], 1)
+    } else {
+        (b_shape[0], b_shape[1])
+    };
+
+    if b_rows != n {
+        return Err(Error::ShapeMismatch {
+            expected: vec![n],
+            got: vec![b_rows],
+        });
+    }
+
+    let b_data: Vec<T> = b.to_vec();
+    let mut x: Vec<T> = vec![T::zero(); n * num_rhs];
+
+    for rhs in 0..num_rhs {
+        // Apply permutation to b
+        let mut pb: Vec<T> = vec![T::zero(); n];
+        for i in 0..n {
+            pb[i] = if num_rhs == 1 {
+                b_data[i]
+            } else {
+                b_data[i * num_rhs + rhs]
+            };
+        }
+        for (i, &pivot_idx) in pivots_data.iter().enumerate() {
+            let pivot_row = pivot_idx as usize;
+            if pivot_row != i {
+                pb.swap(i, pivot_row);
+            }
+        }
+
+        // Forward substitution: Ly = Pb (L has unit diagonal)
+        let mut y: Vec<T> = vec![T::zero(); n];
+        for i in 0..n {
+            let mut sum = T::zero();
+            for j in 0..i {
+                sum = sum + lu_data[i * n + j] * y[j];
+            }
+            y[i] = pb[i] - sum;
+        }
+
+        // Backward substitution: Ux = y
+        let mut x_col: Vec<T> = vec![T::zero(); n];
+        for ii in (0..n).rev() {
+            let mut s = T::zero();
+            for jj in (ii + 1)..n {
+                s = s + lu_data[ii * n + jj] * x_col[jj];
+            }
+            x_col[ii] = (y[ii] - s) / lu_data[ii * n + ii];
+        }
+        // Copy result
+        for ii in 0..n {
+            if num_rhs == 1 {
+                x[ii] = x_col[ii];
+            } else {
+                x[ii * num_rhs + rhs] = x_col[ii];
+            }
+        }
+    }
+
+    // Create output tensor
+    if b_shape.len() == 1 {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x[..n], &[n], device))
+    } else {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device))
+    }
+}
+
+/// Forward substitution for lower triangular system
+pub fn solve_triangular_lower_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    l: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    n: usize,
+    unit_diagonal: bool,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    let l_data: Vec<T> = l.to_vec();
+    let b_shape = b.shape();
+    let (_, num_rhs) = if b_shape.len() == 1 {
+        (b_shape[0], 1)
+    } else {
+        (b_shape[0], b_shape[1])
+    };
+
+    let b_data: Vec<T> = b.to_vec();
+    let mut x: Vec<T> = vec![T::zero(); n * num_rhs];
+
+    for rhs in 0..num_rhs {
+        for i in 0..n {
+            let mut sum = T::zero();
+            for j in 0..i {
+                let x_val = if num_rhs == 1 {
+                    x[j]
+                } else {
+                    x[j * num_rhs + rhs]
+                };
+                sum = sum + l_data[i * n + j] * x_val;
+            }
+
+            let b_val = if num_rhs == 1 {
+                b_data[i]
+            } else {
+                b_data[i * num_rhs + rhs]
+            };
+
+            let result = b_val - sum;
+            let x_val = if unit_diagonal {
+                result
+            } else {
+                result / l_data[i * n + i]
+            };
+
+            if num_rhs == 1 {
+                x[i] = x_val;
+            } else {
+                x[i * num_rhs + rhs] = x_val;
+            }
+        }
+    }
+
+    if b_shape.len() == 1 {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x[..n], &[n], device))
+    } else {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device))
+    }
+}
+
+/// Backward substitution for upper triangular system
+pub fn solve_triangular_upper_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    u: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    n: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    let u_data: Vec<T> = u.to_vec();
+    let b_shape = b.shape();
+    let (_, num_rhs) = if b_shape.len() == 1 {
+        (b_shape[0], 1)
+    } else {
+        (b_shape[0], b_shape[1])
+    };
+
+    let b_data: Vec<T> = b.to_vec();
+    let mut x: Vec<T> = vec![T::zero(); n * num_rhs];
+
+    for rhs in 0..num_rhs {
+        for i in (0..n).rev() {
+            let mut sum = T::zero();
+            for j in (i + 1)..n {
+                let x_val = if num_rhs == 1 {
+                    x[j]
+                } else {
+                    x[j * num_rhs + rhs]
+                };
+                sum = sum + u_data[i * n + j] * x_val;
+            }
+
+            let b_val = if num_rhs == 1 {
+                b_data[i]
+            } else {
+                b_data[i * num_rhs + rhs]
+            };
+
+            let x_val = (b_val - sum) / u_data[i * n + i];
+
+            if num_rhs == 1 {
+                x[i] = x_val;
+            } else {
+                x[i * num_rhs + rhs] = x_val;
+            }
+        }
+    }
+
+    if b_shape.len() == 1 {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x[..n], &[n], device))
+    } else {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device))
+    }
+}
+
+/// Least squares via QR decomposition
+pub fn lstsq_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+
+    // Compute thin QR
+    let qr = qr_decompose_impl::<T>(client, a, m, n, true)?;
+    let q_data: Vec<T> = qr.q.to_vec();
+    let r_data: Vec<T> = qr.r.to_vec();
+
+    let b_shape = b.shape();
+    let (_, num_rhs) = if b_shape.len() == 1 {
+        (b_shape[0], 1)
+    } else {
+        (b_shape[0], b_shape[1])
+    };
+
+    let b_data: Vec<T> = b.to_vec();
+    let k = m.min(n);
+
+    // Compute Q^T @ b
+    let mut qtb: Vec<T> = vec![T::zero(); k * num_rhs];
+    for rhs in 0..num_rhs {
+        for i in 0..k {
+            let mut sum = T::zero();
+            for j in 0..m {
+                let b_val = if num_rhs == 1 {
+                    b_data[j]
+                } else {
+                    b_data[j * num_rhs + rhs]
+                };
+                sum = sum + q_data[j * k + i] * b_val;
+            }
+            if num_rhs == 1 {
+                qtb[i] = sum;
+            } else {
+                qtb[i * num_rhs + rhs] = sum;
+            }
+        }
+    }
+
+    // Solve R @ x = Q^T @ b via back substitution
+    // R is k x n, but only the first k columns are used
+    let mut x: Vec<T> = vec![T::zero(); n * num_rhs];
+
+    for rhs in 0..num_rhs {
+        // Solve k x k upper triangular system
+        for i in (0..k).rev() {
+            let mut sum = T::zero();
+            for j in (i + 1)..k {
+                let x_val = if num_rhs == 1 {
+                    x[j]
+                } else {
+                    x[j * num_rhs + rhs]
+                };
+                sum = sum + r_data[i * n + j] * x_val;
+            }
+
+            let qtb_val = if num_rhs == 1 {
+                qtb[i]
+            } else {
+                qtb[i * num_rhs + rhs]
+            };
+
+            let x_val = (qtb_val - sum) / r_data[i * n + i];
+
+            if num_rhs == 1 {
+                x[i] = x_val;
+            } else {
+                x[i * num_rhs + rhs] = x_val;
+            }
+        }
+        // Remaining x[k..n] are zeros (already initialized)
+    }
+
+    if b_shape.len() == 1 {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x[..n], &[n], device))
+    } else {
+        Ok(Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device))
+    }
+}

@@ -1394,4 +1394,1084 @@ __global__ void eig_jacobi_symmetric_f64(
     }
 }
 
+// ============================================================================
+// Schur Decomposition - Hessenberg reduction + QR iteration
+// For general (non-symmetric) matrices: A = Z @ T @ Z^T
+// T is quasi-upper-triangular (real Schur form), Z is orthogonal
+// ============================================================================
+
+// Schur decomposition for general matrices (F32)
+// Input: a [n x n] matrix (in-place working buffer, becomes T)
+// Output: z [n x n] orthogonal matrix, t [n x n] quasi-upper-triangular
+__global__ void schur_decompose_f32(
+    float* __restrict__ t,           // [n, n] input matrix, becomes quasi-triangular T
+    float* __restrict__ z,           // [n, n] output orthogonal matrix Z
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const float eps = 1.192092896e-07f;  // FLT_EPSILON
+    const int max_sweeps = 30 * (int)n;
+
+    // Initialize Z as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            z[i * n + j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
+
+    // Step 1: Hessenberg reduction using Householder reflections
+    // Reduces A to upper Hessenberg form (zeros below first subdiagonal)
+    for (unsigned int k = 0; k < n - 2; k++) {
+        // Compute Householder vector for column k, rows k+1 to n-1
+        float norm_sq = 0.0f;
+        for (unsigned int i = k + 1; i < n; i++) {
+            float val = t[i * n + k];
+            norm_sq += val * val;
+        }
+
+        if (norm_sq < eps) continue;
+
+        float norm = sqrtf(norm_sq);
+        float x0 = t[(k + 1) * n + k];
+        float alpha = (x0 >= 0.0f) ? -norm : norm;
+
+        // v = x - alpha * e1, then normalize
+        float v0 = x0 - alpha;
+        float v_norm_sq = v0 * v0;
+        for (unsigned int i = k + 2; i < n; i++) {
+            float val = t[i * n + k];
+            v_norm_sq += val * val;
+        }
+
+        if (v_norm_sq < eps) continue;
+
+        float v_norm = sqrtf(v_norm_sq);
+        float v[256];  // Max matrix size 256x256
+        v[0] = v0 / v_norm;
+        for (unsigned int i = k + 2; i < n; i++) {
+            v[i - k - 1] = t[i * n + k] / v_norm;
+        }
+        unsigned int v_len = n - k - 1;
+
+        // Left multiply: T = (I - 2vv^T) @ T
+        for (unsigned int j = 0; j < n; j++) {
+            float dot = 0.0f;
+            for (unsigned int i = 0; i < v_len; i++) {
+                dot += v[i] * t[(k + 1 + i) * n + j];
+            }
+            for (unsigned int i = 0; i < v_len; i++) {
+                t[(k + 1 + i) * n + j] -= 2.0f * v[i] * dot;
+            }
+        }
+
+        // Right multiply: T = T @ (I - 2vv^T)
+        for (unsigned int i = 0; i < n; i++) {
+            float dot = 0.0f;
+            for (unsigned int j = 0; j < v_len; j++) {
+                dot += t[i * n + (k + 1 + j)] * v[j];
+            }
+            for (unsigned int j = 0; j < v_len; j++) {
+                t[i * n + (k + 1 + j)] -= 2.0f * dot * v[j];
+            }
+        }
+
+        // Accumulate Z: Z = Z @ (I - 2vv^T)
+        for (unsigned int i = 0; i < n; i++) {
+            float dot = 0.0f;
+            for (unsigned int j = 0; j < v_len; j++) {
+                dot += z[i * n + (k + 1 + j)] * v[j];
+            }
+            for (unsigned int j = 0; j < v_len; j++) {
+                z[i * n + (k + 1 + j)] -= 2.0f * dot * v[j];
+            }
+        }
+    }
+
+    // Step 2: QR iteration with Wilkinson shift
+    for (int iter = 0; iter < max_sweeps; iter++) {
+        // Check convergence (all subdiagonals essentially zero)
+        int converged = 1;
+        for (unsigned int i = 0; i < n - 1; i++) {
+            float h_ii = fabsf(t[i * n + i]);
+            float h_ip1 = fabsf(t[(i + 1) * n + (i + 1)]);
+            float threshold = eps * fmaxf(h_ii + h_ip1, 1.0f);
+            if (fabsf(t[(i + 1) * n + i]) > threshold) {
+                converged = 0;
+                break;
+            }
+        }
+
+        if (converged) {
+            *converged_flag = 1;
+            break;
+        }
+
+        // Compute Wilkinson shift from bottom 2x2 block
+        float a = t[(n - 2) * n + (n - 2)];
+        float b = t[(n - 2) * n + (n - 1)];
+        float c = t[(n - 1) * n + (n - 2)];
+        float d = t[(n - 1) * n + (n - 1)];
+
+        float trace = a + d;
+        float det = a * d - b * c;
+        float disc = trace * trace - 4.0f * det;
+
+        float shift;
+        if (disc >= 0.0f) {
+            float sqrt_disc = sqrtf(disc);
+            float lambda1 = (trace + sqrt_disc) / 2.0f;
+            float lambda2 = (trace - sqrt_disc) / 2.0f;
+            shift = (fabsf(lambda1 - d) < fabsf(lambda2 - d)) ? lambda1 : lambda2;
+        } else {
+            shift = trace / 2.0f;
+        }
+
+        // Apply shift
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] -= shift;
+        }
+
+        // QR step using Givens rotations
+        for (unsigned int i = 0; i < n - 1; i++) {
+            float a_val = t[i * n + i];
+            float b_val = t[(i + 1) * n + i];
+
+            if (fabsf(b_val) < eps) continue;
+
+            float r = sqrtf(a_val * a_val + b_val * b_val);
+            float cs = a_val / r;
+            float sn = -b_val / r;
+
+            // Left multiply (Q^T @ T)
+            for (unsigned int j = 0; j < n; j++) {
+                float t1 = t[i * n + j];
+                float t2 = t[(i + 1) * n + j];
+                t[i * n + j] = cs * t1 - sn * t2;
+                t[(i + 1) * n + j] = sn * t1 + cs * t2;
+            }
+
+            // Right multiply (T @ Q)
+            for (unsigned int k = 0; k < n; k++) {
+                float t1 = t[k * n + i];
+                float t2 = t[k * n + (i + 1)];
+                t[k * n + i] = cs * t1 - sn * t2;
+                t[k * n + (i + 1)] = sn * t1 + cs * t2;
+            }
+
+            // Accumulate Z
+            for (unsigned int k = 0; k < n; k++) {
+                float z1 = z[k * n + i];
+                float z2 = z[k * n + (i + 1)];
+                z[k * n + i] = cs * z1 - sn * z2;
+                z[k * n + (i + 1)] = sn * z1 + cs * z2;
+            }
+        }
+
+        // Remove shift
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] += shift;
+        }
+    }
+
+    // Clean up small subdiagonals
+    for (unsigned int i = 0; i < n - 1; i++) {
+        float h_ii = fabsf(t[i * n + i]);
+        float h_ip1 = fabsf(t[(i + 1) * n + (i + 1)]);
+        float threshold = eps * fmaxf(h_ii + h_ip1, 1.0f);
+        if (fabsf(t[(i + 1) * n + i]) <= threshold) {
+            t[(i + 1) * n + i] = 0.0f;
+        }
+    }
+
+    // Clear strictly lower triangular (except first subdiagonal for 2x2 blocks)
+    for (unsigned int i = 2; i < n; i++) {
+        for (unsigned int j = 0; j < i - 1; j++) {
+            t[i * n + j] = 0.0f;
+        }
+    }
+}
+
+// Schur decomposition for general matrices (F64)
+__global__ void schur_decompose_f64(
+    double* __restrict__ t,
+    double* __restrict__ z,
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const double eps = 2.220446049250313e-16;  // DBL_EPSILON
+    const int max_sweeps = 30 * (int)n;
+
+    // Initialize Z as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            z[i * n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    // Step 1: Hessenberg reduction
+    for (unsigned int k = 0; k < n - 2; k++) {
+        double norm_sq = 0.0;
+        for (unsigned int i = k + 1; i < n; i++) {
+            double val = t[i * n + k];
+            norm_sq += val * val;
+        }
+
+        if (norm_sq < eps) continue;
+
+        double norm = sqrt(norm_sq);
+        double x0 = t[(k + 1) * n + k];
+        double alpha = (x0 >= 0.0) ? -norm : norm;
+
+        double v0 = x0 - alpha;
+        double v_norm_sq = v0 * v0;
+        for (unsigned int i = k + 2; i < n; i++) {
+            double val = t[i * n + k];
+            v_norm_sq += val * val;
+        }
+
+        if (v_norm_sq < eps) continue;
+
+        double v_norm = sqrt(v_norm_sq);
+        double v[256];
+        v[0] = v0 / v_norm;
+        for (unsigned int i = k + 2; i < n; i++) {
+            v[i - k - 1] = t[i * n + k] / v_norm;
+        }
+        unsigned int v_len = n - k - 1;
+
+        // Left multiply
+        for (unsigned int j = 0; j < n; j++) {
+            double dot = 0.0;
+            for (unsigned int i = 0; i < v_len; i++) {
+                dot += v[i] * t[(k + 1 + i) * n + j];
+            }
+            for (unsigned int i = 0; i < v_len; i++) {
+                t[(k + 1 + i) * n + j] -= 2.0 * v[i] * dot;
+            }
+        }
+
+        // Right multiply
+        for (unsigned int i = 0; i < n; i++) {
+            double dot = 0.0;
+            for (unsigned int j = 0; j < v_len; j++) {
+                dot += t[i * n + (k + 1 + j)] * v[j];
+            }
+            for (unsigned int j = 0; j < v_len; j++) {
+                t[i * n + (k + 1 + j)] -= 2.0 * dot * v[j];
+            }
+        }
+
+        // Accumulate Z
+        for (unsigned int i = 0; i < n; i++) {
+            double dot = 0.0;
+            for (unsigned int j = 0; j < v_len; j++) {
+                dot += z[i * n + (k + 1 + j)] * v[j];
+            }
+            for (unsigned int j = 0; j < v_len; j++) {
+                z[i * n + (k + 1 + j)] -= 2.0 * dot * v[j];
+            }
+        }
+    }
+
+    // Step 2: QR iteration with Wilkinson shift
+    for (int iter = 0; iter < max_sweeps; iter++) {
+        int converged = 1;
+        for (unsigned int i = 0; i < n - 1; i++) {
+            double h_ii = fabs(t[i * n + i]);
+            double h_ip1 = fabs(t[(i + 1) * n + (i + 1)]);
+            double threshold = eps * fmax(h_ii + h_ip1, 1.0);
+            if (fabs(t[(i + 1) * n + i]) > threshold) {
+                converged = 0;
+                break;
+            }
+        }
+
+        if (converged) {
+            *converged_flag = 1;
+            break;
+        }
+
+        double a = t[(n - 2) * n + (n - 2)];
+        double b = t[(n - 2) * n + (n - 1)];
+        double c = t[(n - 1) * n + (n - 2)];
+        double d = t[(n - 1) * n + (n - 1)];
+
+        double trace = a + d;
+        double det = a * d - b * c;
+        double disc = trace * trace - 4.0 * det;
+
+        double shift;
+        if (disc >= 0.0) {
+            double sqrt_disc = sqrt(disc);
+            double lambda1 = (trace + sqrt_disc) / 2.0;
+            double lambda2 = (trace - sqrt_disc) / 2.0;
+            shift = (fabs(lambda1 - d) < fabs(lambda2 - d)) ? lambda1 : lambda2;
+        } else {
+            shift = trace / 2.0;
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] -= shift;
+        }
+
+        for (unsigned int i = 0; i < n - 1; i++) {
+            double a_val = t[i * n + i];
+            double b_val = t[(i + 1) * n + i];
+
+            if (fabs(b_val) < eps) continue;
+
+            double r = sqrt(a_val * a_val + b_val * b_val);
+            double cs = a_val / r;
+            double sn = -b_val / r;
+
+            for (unsigned int j = 0; j < n; j++) {
+                double t1 = t[i * n + j];
+                double t2 = t[(i + 1) * n + j];
+                t[i * n + j] = cs * t1 - sn * t2;
+                t[(i + 1) * n + j] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int k = 0; k < n; k++) {
+                double t1 = t[k * n + i];
+                double t2 = t[k * n + (i + 1)];
+                t[k * n + i] = cs * t1 - sn * t2;
+                t[k * n + (i + 1)] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int k = 0; k < n; k++) {
+                double z1 = z[k * n + i];
+                double z2 = z[k * n + (i + 1)];
+                z[k * n + i] = cs * z1 - sn * z2;
+                z[k * n + (i + 1)] = sn * z1 + cs * z2;
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] += shift;
+        }
+    }
+
+    // Clean up
+    for (unsigned int i = 0; i < n - 1; i++) {
+        double h_ii = fabs(t[i * n + i]);
+        double h_ip1 = fabs(t[(i + 1) * n + (i + 1)]);
+        double threshold = eps * fmax(h_ii + h_ip1, 1.0);
+        if (fabs(t[(i + 1) * n + i]) <= threshold) {
+            t[(i + 1) * n + i] = 0.0;
+        }
+    }
+
+    for (unsigned int i = 2; i < n; i++) {
+        for (unsigned int j = 0; j < i - 1; j++) {
+            t[i * n + j] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// General Eigenvalue Decomposition - for non-symmetric matrices
+// Uses Schur decomposition + back-substitution for eigenvectors
+// Returns real and imaginary parts of eigenvalues and eigenvectors
+// ============================================================================
+
+// General eigenvalue decomposition (F32)
+__global__ void eig_general_f32(
+    float* __restrict__ t,              // [n, n] working buffer (becomes Schur form)
+    float* __restrict__ z,              // [n, n] Schur vectors
+    float* __restrict__ eval_real,      // [n] real part of eigenvalues
+    float* __restrict__ eval_imag,      // [n] imaginary part of eigenvalues
+    float* __restrict__ evec_real,      // [n, n] real part of eigenvectors
+    float* __restrict__ evec_imag,      // [n, n] imaginary part of eigenvectors
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const float eps = 1.192092896e-07f;
+    const int max_sweeps = 30 * (int)n;
+
+    // Initialize Z as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            z[i * n + j] = (i == j) ? 1.0f : 0.0f;
+        }
+    }
+
+    // === Schur decomposition (inline to avoid function call overhead) ===
+
+    // Hessenberg reduction
+    for (unsigned int k = 0; k < n - 2; k++) {
+        float norm_sq = 0.0f;
+        for (unsigned int i = k + 1; i < n; i++) {
+            float val = t[i * n + k];
+            norm_sq += val * val;
+        }
+
+        if (norm_sq < eps) continue;
+
+        float norm = sqrtf(norm_sq);
+        float x0 = t[(k + 1) * n + k];
+        float alpha = (x0 >= 0.0f) ? -norm : norm;
+
+        float v0 = x0 - alpha;
+        float v_norm_sq = v0 * v0;
+        for (unsigned int i = k + 2; i < n; i++) {
+            float val = t[i * n + k];
+            v_norm_sq += val * val;
+        }
+
+        if (v_norm_sq < eps) continue;
+
+        float v_norm = sqrtf(v_norm_sq);
+        float v[256];
+        v[0] = v0 / v_norm;
+        for (unsigned int i = k + 2; i < n; i++) {
+            v[i - k - 1] = t[i * n + k] / v_norm;
+        }
+        unsigned int v_len = n - k - 1;
+
+        for (unsigned int j = 0; j < n; j++) {
+            float dot = 0.0f;
+            for (unsigned int i = 0; i < v_len; i++) {
+                dot += v[i] * t[(k + 1 + i) * n + j];
+            }
+            for (unsigned int i = 0; i < v_len; i++) {
+                t[(k + 1 + i) * n + j] -= 2.0f * v[i] * dot;
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            float dot = 0.0f;
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                dot += t[i * n + (k + 1 + jj)] * v[jj];
+            }
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                t[i * n + (k + 1 + jj)] -= 2.0f * dot * v[jj];
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            float dot = 0.0f;
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                dot += z[i * n + (k + 1 + jj)] * v[jj];
+            }
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                z[i * n + (k + 1 + jj)] -= 2.0f * dot * v[jj];
+            }
+        }
+    }
+
+    // QR iteration
+    for (int iter = 0; iter < max_sweeps; iter++) {
+        int converged = 1;
+        for (unsigned int i = 0; i < n - 1; i++) {
+            float h_ii = fabsf(t[i * n + i]);
+            float h_ip1 = fabsf(t[(i + 1) * n + (i + 1)]);
+            float threshold = eps * fmaxf(h_ii + h_ip1, 1.0f);
+            if (fabsf(t[(i + 1) * n + i]) > threshold) {
+                converged = 0;
+                break;
+            }
+        }
+
+        if (converged) {
+            *converged_flag = 1;
+            break;
+        }
+
+        float a = t[(n - 2) * n + (n - 2)];
+        float b = t[(n - 2) * n + (n - 1)];
+        float c = t[(n - 1) * n + (n - 2)];
+        float d = t[(n - 1) * n + (n - 1)];
+
+        float trace = a + d;
+        float det = a * d - b * c;
+        float disc = trace * trace - 4.0f * det;
+
+        float shift;
+        if (disc >= 0.0f) {
+            float sqrt_disc = sqrtf(disc);
+            float lambda1 = (trace + sqrt_disc) / 2.0f;
+            float lambda2 = (trace - sqrt_disc) / 2.0f;
+            shift = (fabsf(lambda1 - d) < fabsf(lambda2 - d)) ? lambda1 : lambda2;
+        } else {
+            shift = trace / 2.0f;
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] -= shift;
+        }
+
+        for (unsigned int i = 0; i < n - 1; i++) {
+            float a_val = t[i * n + i];
+            float b_val = t[(i + 1) * n + i];
+
+            if (fabsf(b_val) < eps) continue;
+
+            float r = sqrtf(a_val * a_val + b_val * b_val);
+            float cs = a_val / r;
+            float sn = -b_val / r;
+
+            for (unsigned int j = 0; j < n; j++) {
+                float t1 = t[i * n + j];
+                float t2 = t[(i + 1) * n + j];
+                t[i * n + j] = cs * t1 - sn * t2;
+                t[(i + 1) * n + j] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int kk = 0; kk < n; kk++) {
+                float t1 = t[kk * n + i];
+                float t2 = t[kk * n + (i + 1)];
+                t[kk * n + i] = cs * t1 - sn * t2;
+                t[kk * n + (i + 1)] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int kk = 0; kk < n; kk++) {
+                float z1 = z[kk * n + i];
+                float z2 = z[kk * n + (i + 1)];
+                z[kk * n + i] = cs * z1 - sn * z2;
+                z[kk * n + (i + 1)] = sn * z1 + cs * z2;
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] += shift;
+        }
+    }
+
+    // Clean up
+    for (unsigned int i = 0; i < n - 1; i++) {
+        float h_ii = fabsf(t[i * n + i]);
+        float h_ip1 = fabsf(t[(i + 1) * n + (i + 1)]);
+        float threshold = eps * fmaxf(h_ii + h_ip1, 1.0f);
+        if (fabsf(t[(i + 1) * n + i]) <= threshold) {
+            t[(i + 1) * n + i] = 0.0f;
+        }
+    }
+
+    for (unsigned int ii = 2; ii < n; ii++) {
+        for (unsigned int jj = 0; jj < ii - 1; jj++) {
+            t[ii * n + jj] = 0.0f;
+        }
+    }
+
+    // === Extract eigenvalues from Schur form ===
+    unsigned int i = 0;
+    while (i < n) {
+        if (i == n - 1) {
+            eval_real[i] = t[i * n + i];
+            eval_imag[i] = 0.0f;
+            i++;
+        } else {
+            float subdiag = fabsf(t[(i + 1) * n + i]);
+            float diag_scale = fabsf(t[i * n + i]) + fabsf(t[(i + 1) * n + (i + 1)]);
+            float threshold = eps * fmaxf(diag_scale, 1.0f);
+
+            if (subdiag > threshold) {
+                // 2x2 block - complex conjugate pair
+                float a_val = t[i * n + i];
+                float b_val = t[i * n + (i + 1)];
+                float c_val = t[(i + 1) * n + i];
+                float d_val = t[(i + 1) * n + (i + 1)];
+
+                float trace = a_val + d_val;
+                float disc = (a_val - d_val) * (a_val - d_val) / 4.0f + b_val * c_val;
+
+                if (disc < 0.0f) {
+                    float real_part = trace / 2.0f;
+                    float imag_part = sqrtf(-disc);
+                    eval_real[i] = real_part;
+                    eval_imag[i] = imag_part;
+                    eval_real[i + 1] = real_part;
+                    eval_imag[i + 1] = -imag_part;
+                } else {
+                    float sqrt_disc = sqrtf(disc);
+                    eval_real[i] = trace / 2.0f + sqrt_disc;
+                    eval_imag[i] = 0.0f;
+                    eval_real[i + 1] = trace / 2.0f - sqrt_disc;
+                    eval_imag[i + 1] = 0.0f;
+                }
+                i += 2;
+            } else {
+                eval_real[i] = t[i * n + i];
+                eval_imag[i] = 0.0f;
+                i++;
+            }
+        }
+    }
+
+    // === Compute eigenvectors via back-substitution ===
+    // Working buffers for Schur eigenvectors
+    float y_real[256];
+    float y_imag[256];
+
+    i = 0;
+    while (i < n) {
+        float imag = eval_imag[i];
+
+        if (fabsf(imag) < eps) {
+            // Real eigenvalue - back-substitution for (T - λI)y = 0
+            float lambda = eval_real[i];
+
+            for (unsigned int k = 0; k < n; k++) {
+                y_real[k] = 0.0f;
+                y_imag[k] = 0.0f;
+            }
+            y_real[i] = 1.0f;
+
+            for (int k = (int)i - 1; k >= 0; k--) {
+                float diag = t[k * n + k] - lambda;
+                float rhs = 0.0f;
+                for (unsigned int j = k + 1; j < n; j++) {
+                    rhs -= t[k * n + j] * y_real[j];
+                }
+                if (fabsf(diag) > eps) {
+                    y_real[k] = rhs / diag;
+                } else {
+                    y_real[k] = 0.0f;
+                }
+            }
+
+            // Normalize
+            float norm_sq = 0.0f;
+            for (unsigned int k = 0; k < n; k++) {
+                norm_sq += y_real[k] * y_real[k];
+            }
+            float norm = sqrtf(norm_sq);
+            if (norm > eps) {
+                for (unsigned int k = 0; k < n; k++) {
+                    y_real[k] /= norm;
+                }
+            }
+
+            // Transform by Z: evec = Z @ y
+            for (unsigned int row = 0; row < n; row++) {
+                float sum = 0.0f;
+                for (unsigned int k = 0; k < n; k++) {
+                    sum += z[row * n + k] * y_real[k];
+                }
+                evec_real[row * n + i] = sum;
+                evec_imag[row * n + i] = 0.0f;
+            }
+            i++;
+        } else {
+            // Complex eigenvalue - solve for complex eigenvector
+            float lambda_real = eval_real[i];
+            float lambda_imag = eval_imag[i];
+
+            for (unsigned int k = 0; k < n; k++) {
+                y_real[k] = 0.0f;
+                y_imag[k] = 0.0f;
+            }
+
+            // Initial vector from 2x2 block
+            float a_val = t[i * n + i];
+            float b_val = t[i * n + (i + 1)];
+            y_real[i] = b_val;
+            y_imag[i] = 0.0f;
+            y_real[i + 1] = lambda_real - a_val;
+            y_imag[i + 1] = lambda_imag;
+
+            // Back-substitute
+            for (int k = (int)i - 1; k >= 0; k--) {
+                float diag_real = t[k * n + k] - lambda_real;
+                float diag_imag = -lambda_imag;
+
+                float rhs_real = 0.0f;
+                float rhs_imag = 0.0f;
+
+                for (unsigned int j = k + 1; j < n; j++) {
+                    float t_kj = t[k * n + j];
+                    rhs_real -= t_kj * y_real[j];
+                    rhs_imag -= t_kj * y_imag[j];
+                }
+
+                float denom = diag_real * diag_real + diag_imag * diag_imag;
+                if (denom > eps * eps) {
+                    y_real[k] = (rhs_real * diag_real + rhs_imag * diag_imag) / denom;
+                    y_imag[k] = (rhs_imag * diag_real - rhs_real * diag_imag) / denom;
+                } else {
+                    y_real[k] = 0.0f;
+                    y_imag[k] = 0.0f;
+                }
+            }
+
+            // Normalize
+            float norm_sq = 0.0f;
+            for (unsigned int k = 0; k < n; k++) {
+                norm_sq += y_real[k] * y_real[k] + y_imag[k] * y_imag[k];
+            }
+            float norm = sqrtf(norm_sq);
+            if (norm > eps) {
+                for (unsigned int k = 0; k < n; k++) {
+                    y_real[k] /= norm;
+                    y_imag[k] /= norm;
+                }
+            }
+
+            // Transform by Z
+            for (unsigned int row = 0; row < n; row++) {
+                float sum_real = 0.0f;
+                float sum_imag = 0.0f;
+                for (unsigned int k = 0; k < n; k++) {
+                    float z_val = z[row * n + k];
+                    sum_real += z_val * y_real[k];
+                    sum_imag += z_val * y_imag[k];
+                }
+                evec_real[row * n + i] = sum_real;
+                evec_imag[row * n + i] = sum_imag;
+                evec_real[row * n + (i + 1)] = sum_real;
+                evec_imag[row * n + (i + 1)] = -sum_imag;
+            }
+            i += 2;
+        }
+    }
+}
+
+// General eigenvalue decomposition (F64)
+__global__ void eig_general_f64(
+    double* __restrict__ t,
+    double* __restrict__ z,
+    double* __restrict__ eval_real,
+    double* __restrict__ eval_imag,
+    double* __restrict__ evec_real,
+    double* __restrict__ evec_imag,
+    unsigned int n,
+    int* __restrict__ converged_flag
+) {
+    if (threadIdx.x != 0 || blockIdx.x != 0) return;
+
+    const double eps = 2.220446049250313e-16;
+    const int max_sweeps = 30 * (int)n;
+
+    // Initialize Z as identity
+    for (unsigned int i = 0; i < n; i++) {
+        for (unsigned int j = 0; j < n; j++) {
+            z[i * n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }
+
+    // Hessenberg reduction
+    for (unsigned int k = 0; k < n - 2; k++) {
+        double norm_sq = 0.0;
+        for (unsigned int i = k + 1; i < n; i++) {
+            double val = t[i * n + k];
+            norm_sq += val * val;
+        }
+
+        if (norm_sq < eps) continue;
+
+        double norm = sqrt(norm_sq);
+        double x0 = t[(k + 1) * n + k];
+        double alpha = (x0 >= 0.0) ? -norm : norm;
+
+        double v0 = x0 - alpha;
+        double v_norm_sq = v0 * v0;
+        for (unsigned int i = k + 2; i < n; i++) {
+            double val = t[i * n + k];
+            v_norm_sq += val * val;
+        }
+
+        if (v_norm_sq < eps) continue;
+
+        double v_norm = sqrt(v_norm_sq);
+        double v[256];
+        v[0] = v0 / v_norm;
+        for (unsigned int i = k + 2; i < n; i++) {
+            v[i - k - 1] = t[i * n + k] / v_norm;
+        }
+        unsigned int v_len = n - k - 1;
+
+        for (unsigned int j = 0; j < n; j++) {
+            double dot = 0.0;
+            for (unsigned int i = 0; i < v_len; i++) {
+                dot += v[i] * t[(k + 1 + i) * n + j];
+            }
+            for (unsigned int i = 0; i < v_len; i++) {
+                t[(k + 1 + i) * n + j] -= 2.0 * v[i] * dot;
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            double dot = 0.0;
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                dot += t[i * n + (k + 1 + jj)] * v[jj];
+            }
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                t[i * n + (k + 1 + jj)] -= 2.0 * dot * v[jj];
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            double dot = 0.0;
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                dot += z[i * n + (k + 1 + jj)] * v[jj];
+            }
+            for (unsigned int jj = 0; jj < v_len; jj++) {
+                z[i * n + (k + 1 + jj)] -= 2.0 * dot * v[jj];
+            }
+        }
+    }
+
+    // QR iteration
+    for (int iter = 0; iter < max_sweeps; iter++) {
+        int converged = 1;
+        for (unsigned int i = 0; i < n - 1; i++) {
+            double h_ii = fabs(t[i * n + i]);
+            double h_ip1 = fabs(t[(i + 1) * n + (i + 1)]);
+            double threshold = eps * fmax(h_ii + h_ip1, 1.0);
+            if (fabs(t[(i + 1) * n + i]) > threshold) {
+                converged = 0;
+                break;
+            }
+        }
+
+        if (converged) {
+            *converged_flag = 1;
+            break;
+        }
+
+        double a = t[(n - 2) * n + (n - 2)];
+        double b = t[(n - 2) * n + (n - 1)];
+        double c = t[(n - 1) * n + (n - 2)];
+        double d = t[(n - 1) * n + (n - 1)];
+
+        double trace = a + d;
+        double det = a * d - b * c;
+        double disc = trace * trace - 4.0 * det;
+
+        double shift;
+        if (disc >= 0.0) {
+            double sqrt_disc = sqrt(disc);
+            double lambda1 = (trace + sqrt_disc) / 2.0;
+            double lambda2 = (trace - sqrt_disc) / 2.0;
+            shift = (fabs(lambda1 - d) < fabs(lambda2 - d)) ? lambda1 : lambda2;
+        } else {
+            shift = trace / 2.0;
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] -= shift;
+        }
+
+        for (unsigned int i = 0; i < n - 1; i++) {
+            double a_val = t[i * n + i];
+            double b_val = t[(i + 1) * n + i];
+
+            if (fabs(b_val) < eps) continue;
+
+            double r = sqrt(a_val * a_val + b_val * b_val);
+            double cs = a_val / r;
+            double sn = -b_val / r;
+
+            for (unsigned int j = 0; j < n; j++) {
+                double t1 = t[i * n + j];
+                double t2 = t[(i + 1) * n + j];
+                t[i * n + j] = cs * t1 - sn * t2;
+                t[(i + 1) * n + j] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int kk = 0; kk < n; kk++) {
+                double t1 = t[kk * n + i];
+                double t2 = t[kk * n + (i + 1)];
+                t[kk * n + i] = cs * t1 - sn * t2;
+                t[kk * n + (i + 1)] = sn * t1 + cs * t2;
+            }
+
+            for (unsigned int kk = 0; kk < n; kk++) {
+                double z1 = z[kk * n + i];
+                double z2 = z[kk * n + (i + 1)];
+                z[kk * n + i] = cs * z1 - sn * z2;
+                z[kk * n + (i + 1)] = sn * z1 + cs * z2;
+            }
+        }
+
+        for (unsigned int i = 0; i < n; i++) {
+            t[i * n + i] += shift;
+        }
+    }
+
+    // Clean up
+    for (unsigned int i = 0; i < n - 1; i++) {
+        double h_ii = fabs(t[i * n + i]);
+        double h_ip1 = fabs(t[(i + 1) * n + (i + 1)]);
+        double threshold = eps * fmax(h_ii + h_ip1, 1.0);
+        if (fabs(t[(i + 1) * n + i]) <= threshold) {
+            t[(i + 1) * n + i] = 0.0;
+        }
+    }
+
+    for (unsigned int ii = 2; ii < n; ii++) {
+        for (unsigned int jj = 0; jj < ii - 1; jj++) {
+            t[ii * n + jj] = 0.0;
+        }
+    }
+
+    // Extract eigenvalues
+    unsigned int i = 0;
+    while (i < n) {
+        if (i == n - 1) {
+            eval_real[i] = t[i * n + i];
+            eval_imag[i] = 0.0;
+            i++;
+        } else {
+            double subdiag = fabs(t[(i + 1) * n + i]);
+            double diag_scale = fabs(t[i * n + i]) + fabs(t[(i + 1) * n + (i + 1)]);
+            double threshold = eps * fmax(diag_scale, 1.0);
+
+            if (subdiag > threshold) {
+                double a_val = t[i * n + i];
+                double b_val = t[i * n + (i + 1)];
+                double c_val = t[(i + 1) * n + i];
+                double d_val = t[(i + 1) * n + (i + 1)];
+
+                double trace = a_val + d_val;
+                double disc = (a_val - d_val) * (a_val - d_val) / 4.0 + b_val * c_val;
+
+                if (disc < 0.0) {
+                    double real_part = trace / 2.0;
+                    double imag_part = sqrt(-disc);
+                    eval_real[i] = real_part;
+                    eval_imag[i] = imag_part;
+                    eval_real[i + 1] = real_part;
+                    eval_imag[i + 1] = -imag_part;
+                } else {
+                    double sqrt_disc = sqrt(disc);
+                    eval_real[i] = trace / 2.0 + sqrt_disc;
+                    eval_imag[i] = 0.0;
+                    eval_real[i + 1] = trace / 2.0 - sqrt_disc;
+                    eval_imag[i + 1] = 0.0;
+                }
+                i += 2;
+            } else {
+                eval_real[i] = t[i * n + i];
+                eval_imag[i] = 0.0;
+                i++;
+            }
+        }
+    }
+
+    // Compute eigenvectors
+    double y_real[256];
+    double y_imag[256];
+
+    i = 0;
+    while (i < n) {
+        double imag = eval_imag[i];
+
+        if (fabs(imag) < eps) {
+            double lambda = eval_real[i];
+
+            for (unsigned int k = 0; k < n; k++) {
+                y_real[k] = 0.0;
+                y_imag[k] = 0.0;
+            }
+            y_real[i] = 1.0;
+
+            for (int k = (int)i - 1; k >= 0; k--) {
+                double diag = t[k * n + k] - lambda;
+                double rhs = 0.0;
+                for (unsigned int j = k + 1; j < n; j++) {
+                    rhs -= t[k * n + j] * y_real[j];
+                }
+                if (fabs(diag) > eps) {
+                    y_real[k] = rhs / diag;
+                } else {
+                    y_real[k] = 0.0;
+                }
+            }
+
+            double norm_sq = 0.0;
+            for (unsigned int k = 0; k < n; k++) {
+                norm_sq += y_real[k] * y_real[k];
+            }
+            double norm = sqrt(norm_sq);
+            if (norm > eps) {
+                for (unsigned int k = 0; k < n; k++) {
+                    y_real[k] /= norm;
+                }
+            }
+
+            for (unsigned int row = 0; row < n; row++) {
+                double sum = 0.0;
+                for (unsigned int k = 0; k < n; k++) {
+                    sum += z[row * n + k] * y_real[k];
+                }
+                evec_real[row * n + i] = sum;
+                evec_imag[row * n + i] = 0.0;
+            }
+            i++;
+        } else {
+            double lambda_real = eval_real[i];
+            double lambda_imag = eval_imag[i];
+
+            for (unsigned int k = 0; k < n; k++) {
+                y_real[k] = 0.0;
+                y_imag[k] = 0.0;
+            }
+
+            double a_val = t[i * n + i];
+            double b_val = t[i * n + (i + 1)];
+            y_real[i] = b_val;
+            y_imag[i] = 0.0;
+            y_real[i + 1] = lambda_real - a_val;
+            y_imag[i + 1] = lambda_imag;
+
+            for (int k = (int)i - 1; k >= 0; k--) {
+                double diag_real = t[k * n + k] - lambda_real;
+                double diag_imag = -lambda_imag;
+
+                double rhs_real = 0.0;
+                double rhs_imag = 0.0;
+
+                for (unsigned int j = k + 1; j < n; j++) {
+                    double t_kj = t[k * n + j];
+                    rhs_real -= t_kj * y_real[j];
+                    rhs_imag -= t_kj * y_imag[j];
+                }
+
+                double denom = diag_real * diag_real + diag_imag * diag_imag;
+                if (denom > eps * eps) {
+                    y_real[k] = (rhs_real * diag_real + rhs_imag * diag_imag) / denom;
+                    y_imag[k] = (rhs_imag * diag_real - rhs_real * diag_imag) / denom;
+                } else {
+                    y_real[k] = 0.0;
+                    y_imag[k] = 0.0;
+                }
+            }
+
+            double norm_sq = 0.0;
+            for (unsigned int k = 0; k < n; k++) {
+                norm_sq += y_real[k] * y_real[k] + y_imag[k] * y_imag[k];
+            }
+            double norm = sqrt(norm_sq);
+            if (norm > eps) {
+                for (unsigned int k = 0; k < n; k++) {
+                    y_real[k] /= norm;
+                    y_imag[k] /= norm;
+                }
+            }
+
+            for (unsigned int row = 0; row < n; row++) {
+                double sum_real = 0.0;
+                double sum_imag = 0.0;
+                for (unsigned int k = 0; k < n; k++) {
+                    double z_val = z[row * n + k];
+                    sum_real += z_val * y_real[k];
+                    sum_imag += z_val * y_imag[k];
+                }
+                evec_real[row * n + i] = sum_real;
+                evec_imag[row * n + i] = sum_imag;
+                evec_real[row * n + (i + 1)] = sum_real;
+                evec_imag[row * n + (i + 1)] = -sum_imag;
+            }
+            i += 2;
+        }
+    }
+}
+
 } // extern "C"

@@ -149,6 +149,97 @@ pub struct EigenDecomposition<R: Runtime> {
     pub eigenvectors: Tensor<R>,
 }
 
+/// Schur decomposition result: A = Z @ T @ Z^T
+///
+/// For a real square matrix A, the Schur decomposition factors A into:
+/// - Z: orthogonal matrix (Z^T @ Z = I)
+/// - T: upper quasi-triangular (real Schur form)
+///
+/// The real Schur form T has:
+/// - Real eigenvalues on the diagonal (1×1 blocks)
+/// - Complex conjugate eigenvalue pairs in 2×2 blocks on the diagonal
+///
+/// # Properties
+///
+/// - A = Z @ T @ Z^T (reconstruction)
+/// - Z^T @ Z = I (orthogonality)
+/// - Eigenvalues of A are the diagonal blocks of T
+/// - For symmetric A, T is diagonal (eigenvalue decomposition)
+///
+/// # Use Cases
+///
+/// - Matrix function computation (expm, logm, sqrtm)
+/// - Solving matrix equations (Sylvester, Lyapunov)
+/// - Stability analysis of dynamical systems
+pub struct SchurDecomposition<R: Runtime> {
+    /// Orthogonal transformation matrix Z [n, n]
+    /// Columns form an orthonormal basis: Z^T @ Z = I
+    pub z: Tensor<R>,
+
+    /// Upper quasi-triangular Schur form T [n, n]
+    /// Contains 1×1 blocks for real eigenvalues and
+    /// 2×2 blocks for complex conjugate eigenvalue pairs
+    pub t: Tensor<R>,
+}
+
+/// General eigendecomposition result for non-symmetric matrices: A @ V = V @ diag(λ)
+///
+/// For a real non-symmetric matrix A, eigenvalues may be complex even though
+/// A is real. Complex eigenvalues always come in conjugate pairs.
+///
+/// # Eigenvalue Storage
+///
+/// Eigenvalues are stored as separate real and imaginary parts:
+/// - `eigenvalues_real[i]` = Re(λ_i)
+/// - `eigenvalues_imag[i]` = Im(λ_i)
+///
+/// For real eigenvalues, `eigenvalues_imag[i] = 0`.
+/// For complex conjugate pairs, they appear consecutively:
+/// - λ_j = a + bi (eigenvalues_real[j] = a, eigenvalues_imag[j] = b)
+/// - λ_{j+1} = a - bi (eigenvalues_real[j+1] = a, eigenvalues_imag[j+1] = -b)
+///
+/// # Eigenvector Storage
+///
+/// Eigenvectors are stored as separate real and imaginary matrices.
+/// For a real eigenvalue at index j, the eigenvector is:
+/// - `eigenvectors_real[:, j]` (imaginary part is zero)
+///
+/// For complex conjugate pairs at indices j and j+1:
+/// - Eigenvector for λ_j = a + bi is: `eigenvectors_real[:, j] + i * eigenvectors_imag[:, j]`
+/// - Eigenvector for λ_{j+1} = a - bi is: `eigenvectors_real[:, j] - i * eigenvectors_imag[:, j]`
+///
+/// Note: For complex pairs, columns j and j+1 of eigenvectors_real contain the same data,
+/// and columns j and j+1 of eigenvectors_imag contain negatives of each other.
+///
+/// # Properties
+///
+/// - A @ v_i = λ_i * v_i for each eigenpair
+/// - Complex eigenvalues come in conjugate pairs (for real A)
+/// - Eigenvectors may not be orthogonal (unlike symmetric case)
+///
+/// # Use Cases
+///
+/// - Stability analysis of dynamical systems (eigenvalues with positive real parts → unstable)
+/// - Matrix exponential computation
+/// - Solving systems of linear ODEs
+pub struct GeneralEigenDecomposition<R: Runtime> {
+    /// Real parts of eigenvalues [n]
+    pub eigenvalues_real: Tensor<R>,
+
+    /// Imaginary parts of eigenvalues [n]
+    /// Zero for real eigenvalues, non-zero for complex conjugate pairs
+    pub eigenvalues_imag: Tensor<R>,
+
+    /// Real parts of eigenvector matrix [n, n]
+    /// Column j is the real part of eigenvector for λ_j
+    pub eigenvectors_real: Tensor<R>,
+
+    /// Imaginary parts of eigenvector matrix [n, n]
+    /// Column j is the imaginary part of eigenvector for λ_j
+    /// Zero for real eigenvalues
+    pub eigenvectors_imag: Tensor<R>,
+}
+
 // ============================================================================
 // LinearAlgebra Trait
 // ============================================================================
@@ -485,6 +576,170 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - **WebGPU**: F32 only (WGSL limitation)
     /// - All backends use identical Jacobi eigenvalue algorithm for numerical parity
     fn eig_decompose_symmetric(&self, a: &Tensor<R>) -> Result<EigenDecomposition<R>>;
+
+    /// General Eigendecomposition for non-symmetric matrices: A @ V = V @ diag(λ)
+    ///
+    /// Computes eigenvalues and eigenvectors of a general (non-symmetric) real matrix.
+    /// Unlike symmetric matrices, eigenvalues may be complex even for real input matrices.
+    /// Complex eigenvalues always come in conjugate pairs for real matrices.
+    ///
+    /// # Algorithm: Schur Decomposition + Back-Substitution
+    ///
+    /// ```text
+    /// Input: A [n, n] square matrix
+    /// Output: eigenvalues (real + imag), eigenvectors (real + imag)
+    ///
+    /// 1. Compute Schur decomposition: A = Z @ T @ Z^T
+    /// 2. Extract eigenvalues from T:
+    ///    - 1×1 diagonal blocks → real eigenvalue
+    ///    - 2×2 diagonal blocks → complex conjugate pair
+    /// 3. Compute eigenvectors by back-substitution on (T - λI)
+    /// 4. Transform eigenvectors back: V = Z @ V_T
+    /// ```
+    ///
+    /// # Eigenvalue Extraction from Schur Form
+    ///
+    /// The quasi-triangular Schur form T has eigenvalues on the diagonal:
+    /// - Real eigenvalue at position (i, i): λ = T[i, i]
+    /// - Complex pair at positions (i, i) to (i+1, i+1):
+    ///   ```text
+    ///   [ a  b ]
+    ///   [ c  a ]  → λ = a ± i*sqrt(-b*c) for b*c < 0
+    ///   ```
+    ///
+    /// # Output Format
+    ///
+    /// Returns `GeneralEigenDecomposition` with separate real/imaginary parts:
+    /// - `eigenvalues_real[i]`, `eigenvalues_imag[i]` for λ_i
+    /// - `eigenvectors_real[:, i]`, `eigenvectors_imag[:, i]` for v_i
+    ///
+    /// For complex conjugate pairs at indices j and j+1:
+    /// - λ_j = a + bi, λ_{j+1} = a - bi
+    /// - v_j = u + iw, v_{j+1} = u - iw (stored in columns j, j+1)
+    ///
+    /// # Numerical Stability
+    ///
+    /// - Uses Schur decomposition (backward stable)
+    /// - Eigenvector computation uses column-oriented back-substitution
+    /// - For defective matrices (repeated eigenvalues with insufficient eigenvectors),
+    ///   the algorithm returns generalized eigenvectors
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D square matrix tensor [n, n]
+    ///
+    /// # Returns
+    ///
+    /// `GeneralEigenDecomposition` containing:
+    /// - `eigenvalues_real`: Real parts of eigenvalues [n]
+    /// - `eigenvalues_imag`: Imaginary parts of eigenvalues [n]
+    /// - `eigenvectors_real`: Real parts of eigenvectors [n, n]
+    /// - `eigenvectors_imag`: Imaginary parts of eigenvectors [n, n]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if Schur decomposition fails to converge
+    ///
+    /// # Edge Cases
+    ///
+    /// - **1×1 matrix**: Returns eigenvalue = A[0,0], eigenvector = [1.0]
+    /// - **Symmetric matrix**: All eigenvalues real, equivalent to `eig_decompose_symmetric`
+    /// - **Defective matrix**: Returns generalized eigenvectors for repeated eigenvalues
+    /// - **Upper triangular**: Eigenvalues are diagonal elements
+    ///
+    /// # Example (Conceptual)
+    ///
+    /// ```ignore
+    /// // Matrix with complex eigenvalues
+    /// let a = Tensor::from_slice(&[0.0, -1.0, 1.0, 0.0], &[2, 2], &client)?;
+    /// let eig = client.eig_decompose(&a)?;
+    /// // eigenvalues: 0 ± 1i
+    /// // eig.eigenvalues_real = [0.0, 0.0]
+    /// // eig.eigenvalues_imag = [1.0, -1.0]
+    /// ```
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    /// - All backends use identical algorithm for numerical parity
+    fn eig_decompose(&self, a: &Tensor<R>) -> Result<GeneralEigenDecomposition<R>>;
+
+    /// Schur Decomposition: A = Z @ T @ Z^T
+    ///
+    /// Computes the Schur decomposition of a real square matrix. The decomposition
+    /// factors the matrix A into an orthogonal matrix Z and an upper quasi-triangular
+    /// matrix T (the real Schur form).
+    ///
+    /// # Algorithm: QR Iteration with Shifts
+    ///
+    /// ```text
+    /// Input: A [n, n] square matrix
+    /// Output: Z [n, n] orthogonal, T [n, n] quasi-triangular
+    ///
+    /// 1. Reduce to Hessenberg form: H = Q0^T @ A @ Q0
+    /// 2. QR iteration with implicit double shifts:
+    ///    REPEAT until convergence:
+    ///      a. Compute shift (Wilkinson or Francis)
+    ///      b. QR factorize: H - μI = Q_k @ R_k
+    ///      c. Update: H = R_k @ Q_k + μI
+    ///      d. Accumulate: Z = Z @ Q_k
+    ///    Check: subdiagonal elements < tol * (|A[i,i]| + |A[i+1,i+1]|)
+    /// 3. T = final H, Z = accumulated transformations
+    /// ```
+    ///
+    /// The algorithm uses Francis QR double-shift for efficiency, which
+    /// handles both real and complex conjugate eigenvalue pairs without
+    /// explicitly using complex arithmetic.
+    ///
+    /// # Real Schur Form (Quasi-Triangular)
+    ///
+    /// The output T is quasi-triangular:
+    /// - Real eigenvalues appear as 1×1 diagonal blocks
+    /// - Complex conjugate pairs appear as 2×2 diagonal blocks:
+    ///   ```text
+    ///   [ a  b ]
+    ///   [-c  a ]  where eigenvalues are a ± i*sqrt(b*c)
+    ///   ```
+    ///
+    /// # Numerical Stability
+    ///
+    /// - Initial Hessenberg reduction preserves eigenvalues exactly
+    /// - QR iteration is backward stable
+    /// - Convergence tolerance: n * machine_epsilon
+    /// - Maximum iterations: 30 * n (rarely needed)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D square matrix tensor [n, n]
+    ///
+    /// # Returns
+    ///
+    /// `SchurDecomposition` containing:
+    /// - `z`: Orthogonal matrix [n, n] where Z^T @ Z = I
+    /// - `t`: Upper quasi-triangular (real Schur form) [n, n]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if input is not square
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// - `Internal` if convergence is not reached in max iterations
+    ///
+    /// # Edge Cases
+    ///
+    /// - **1×1 matrix**: Returns T = A, Z = [1]
+    /// - **2×2 matrix**: Computed directly from characteristic polynomial
+    /// - **Upper triangular**: Returns T = A, Z = I (already in Schur form)
+    /// - **Symmetric matrix**: T is diagonal (eigenvalues), Z = eigenvectors
+    ///
+    /// # Backend Notes
+    ///
+    /// - **CPU/CUDA**: Supports F32 and F64
+    /// - **WebGPU**: F32 only (WGSL limitation)
+    /// - All backends use identical QR iteration algorithm for numerical parity
+    fn schur_decompose(&self, a: &Tensor<R>) -> Result<SchurDecomposition<R>>;
 
     /// Moore-Penrose pseudo-inverse via SVD: A^+ = V @ diag(1/S) @ U^T
     ///

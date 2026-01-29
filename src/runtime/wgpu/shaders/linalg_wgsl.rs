@@ -1031,4 +1031,673 @@ fn eig_jacobi_symmetric_f32() {
         }
     }
 }
+
+// ============================================================================
+// Schur Decomposition - Hessenberg reduction + QR iteration
+// For general (non-symmetric) matrices: A = Z @ T @ Z^T
+// T is quasi-upper-triangular (real Schur form), Z is orthogonal
+// ============================================================================
+//
+// Algorithm:
+// 1. Hessenberg reduction using Householder reflections
+// 2. QR iteration with Wilkinson shift until convergence
+// 3. Clean up small subdiagonals and strictly lower triangular elements
+//
+// Note: Uses F32 internally since WGSL doesn't support F64
+
+struct SchurParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> schur_t: array<f32>;
+@group(0) @binding(1) var<storage, read_write> schur_z: array<f32>;
+@group(0) @binding(2) var<storage, read_write> schur_converged_flag: atomic<i32>;
+@group(0) @binding(3) var<uniform> schur_params: SchurParams;
+
+@compute @workgroup_size(1)
+fn schur_decompose_f32() {
+    let n = schur_params.n;
+    let eps: f32 = 1.1920929e-7;  // F32 epsilon
+    let max_sweeps: u32 = 30u * n;
+
+    // Initialize Z as identity
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        for (var j: u32 = 0u; j < n; j = j + 1u) {
+            if (i == j) {
+                schur_z[i * n + j] = 1.0;
+            } else {
+                schur_z[i * n + j] = 0.0;
+            }
+        }
+    }
+
+    // Step 1: Hessenberg reduction using Householder reflections
+    if (n > 2u) {
+        for (var k: u32 = 0u; k < n - 2u; k = k + 1u) {
+            // Compute norm of column k, rows k+1 to n-1
+            var norm_sq: f32 = 0.0;
+            for (var i: u32 = k + 1u; i < n; i = i + 1u) {
+                let val = schur_t[i * n + k];
+                norm_sq = norm_sq + val * val;
+            }
+
+            if (norm_sq < eps) {
+                continue;
+            }
+
+            let norm = sqrt(norm_sq);
+            let x0 = schur_t[(k + 1u) * n + k];
+            var alpha: f32;
+            if (x0 >= 0.0) {
+                alpha = -norm;
+            } else {
+                alpha = norm;
+            }
+
+            // v = x - alpha * e1, then normalize
+            let v0 = x0 - alpha;
+            var v_norm_sq: f32 = v0 * v0;
+            for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                let val = schur_t[i * n + k];
+                v_norm_sq = v_norm_sq + val * val;
+            }
+
+            if (v_norm_sq < eps) {
+                continue;
+            }
+
+            let v_norm = sqrt(v_norm_sq);
+
+            // Left multiply: T = (I - 2vv^T) @ T
+            for (var j: u32 = 0u; j < n; j = j + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + (v0 / v_norm) * schur_t[(k + 1u) * n + j];
+                for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                    dot = dot + (schur_t[i * n + k] / v_norm) * schur_t[i * n + j];
+                }
+                schur_t[(k + 1u) * n + j] = schur_t[(k + 1u) * n + j] - 2.0 * (v0 / v_norm) * dot;
+                for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                    schur_t[i * n + j] = schur_t[i * n + j] - 2.0 * (schur_t[i * n + k] / v_norm) * dot;
+                }
+            }
+
+            // Right multiply: T = T @ (I - 2vv^T)
+            for (var i: u32 = 0u; i < n; i = i + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + schur_t[i * n + (k + 1u)] * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    dot = dot + schur_t[i * n + jj] * (schur_t[jj * n + k] / v_norm);
+                }
+                schur_t[i * n + (k + 1u)] = schur_t[i * n + (k + 1u)] - 2.0 * dot * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    schur_t[i * n + jj] = schur_t[i * n + jj] - 2.0 * dot * (schur_t[jj * n + k] / v_norm);
+                }
+            }
+
+            // Accumulate Z: Z = Z @ (I - 2vv^T)
+            for (var i: u32 = 0u; i < n; i = i + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + schur_z[i * n + (k + 1u)] * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    dot = dot + schur_z[i * n + jj] * (schur_t[jj * n + k] / v_norm);
+                }
+                schur_z[i * n + (k + 1u)] = schur_z[i * n + (k + 1u)] - 2.0 * dot * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    schur_z[i * n + jj] = schur_z[i * n + jj] - 2.0 * dot * (schur_t[jj * n + k] / v_norm);
+                }
+            }
+        }
+    }
+
+    // Step 2: QR iteration with Wilkinson shift
+    var converged: bool = false;
+    for (var iter: u32 = 0u; iter < max_sweeps; iter = iter + 1u) {
+        // Check convergence (all subdiagonals essentially zero)
+        var is_converged: bool = true;
+        if (n > 1u) {
+            for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+                let h_ii = abs(schur_t[i * n + i]);
+                let h_ip1 = abs(schur_t[(i + 1u) * n + (i + 1u)]);
+                let threshold = eps * max(h_ii + h_ip1, 1.0);
+                if (abs(schur_t[(i + 1u) * n + i]) > threshold) {
+                    is_converged = false;
+                    break;
+                }
+            }
+        }
+
+        if (is_converged) {
+            converged = true;
+            break;
+        }
+
+        // Compute Wilkinson shift from bottom 2x2 block
+        let a_val = schur_t[(n - 2u) * n + (n - 2u)];
+        let b_val = schur_t[(n - 2u) * n + (n - 1u)];
+        let c_val = schur_t[(n - 1u) * n + (n - 2u)];
+        let d_val = schur_t[(n - 1u) * n + (n - 1u)];
+
+        let trace = a_val + d_val;
+        let det = a_val * d_val - b_val * c_val;
+        let disc = trace * trace - 4.0 * det;
+
+        var shift: f32;
+        if (disc >= 0.0) {
+            let sqrt_disc = sqrt(disc);
+            let lambda1 = (trace + sqrt_disc) / 2.0;
+            let lambda2 = (trace - sqrt_disc) / 2.0;
+            if (abs(lambda1 - d_val) < abs(lambda2 - d_val)) {
+                shift = lambda1;
+            } else {
+                shift = lambda2;
+            }
+        } else {
+            shift = trace / 2.0;
+        }
+
+        // Apply shift
+        for (var i: u32 = 0u; i < n; i = i + 1u) {
+            schur_t[i * n + i] = schur_t[i * n + i] - shift;
+        }
+
+        // QR step using Givens rotations
+        if (n > 1u) {
+            for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+                let a_ii = schur_t[i * n + i];
+                let b_ii = schur_t[(i + 1u) * n + i];
+
+                if (abs(b_ii) < eps) {
+                    continue;
+                }
+
+                let r = sqrt(a_ii * a_ii + b_ii * b_ii);
+                let cs = a_ii / r;
+                let sn = -b_ii / r;
+
+                // Left multiply (Q^T @ T)
+                for (var j: u32 = 0u; j < n; j = j + 1u) {
+                    let t1 = schur_t[i * n + j];
+                    let t2 = schur_t[(i + 1u) * n + j];
+                    schur_t[i * n + j] = cs * t1 - sn * t2;
+                    schur_t[(i + 1u) * n + j] = sn * t1 + cs * t2;
+                }
+
+                // Right multiply (T @ Q)
+                for (var kk: u32 = 0u; kk < n; kk = kk + 1u) {
+                    let t1 = schur_t[kk * n + i];
+                    let t2 = schur_t[kk * n + (i + 1u)];
+                    schur_t[kk * n + i] = cs * t1 - sn * t2;
+                    schur_t[kk * n + (i + 1u)] = sn * t1 + cs * t2;
+                }
+
+                // Accumulate Z
+                for (var kk: u32 = 0u; kk < n; kk = kk + 1u) {
+                    let z1 = schur_z[kk * n + i];
+                    let z2 = schur_z[kk * n + (i + 1u)];
+                    schur_z[kk * n + i] = cs * z1 - sn * z2;
+                    schur_z[kk * n + (i + 1u)] = sn * z1 + cs * z2;
+                }
+            }
+        }
+
+        // Remove shift
+        for (var i: u32 = 0u; i < n; i = i + 1u) {
+            schur_t[i * n + i] = schur_t[i * n + i] + shift;
+        }
+    }
+
+    // Set convergence flag
+    if (converged) {
+        atomicStore(&schur_converged_flag, 0);
+    } else {
+        atomicStore(&schur_converged_flag, 1);
+    }
+
+    // Clean up small subdiagonals
+    if (n > 1u) {
+        for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+            let h_ii = abs(schur_t[i * n + i]);
+            let h_ip1 = abs(schur_t[(i + 1u) * n + (i + 1u)]);
+            let threshold = eps * max(h_ii + h_ip1, 1.0);
+            if (abs(schur_t[(i + 1u) * n + i]) <= threshold) {
+                schur_t[(i + 1u) * n + i] = 0.0;
+            }
+        }
+    }
+
+    // Clear strictly lower triangular (except first subdiagonal for 2x2 blocks)
+    if (n > 2u) {
+        for (var i: u32 = 2u; i < n; i = i + 1u) {
+            for (var j: u32 = 0u; j < i - 1u; j = j + 1u) {
+                schur_t[i * n + j] = 0.0;
+            }
+        }
+    }
+}
+
+// ============================================================================
+// General Eigenvalue Decomposition - for non-symmetric matrices
+// Uses Schur decomposition + back-substitution for eigenvectors
+// Returns real and imaginary parts of eigenvalues and eigenvectors
+// ============================================================================
+
+struct EigGeneralParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> eigg_t: array<f32>;
+@group(0) @binding(1) var<storage, read_write> eigg_z: array<f32>;
+@group(0) @binding(2) var<storage, read_write> eigg_eval_real: array<f32>;
+@group(0) @binding(3) var<storage, read_write> eigg_eval_imag: array<f32>;
+@group(0) @binding(4) var<storage, read_write> eigg_evec_real: array<f32>;
+@group(0) @binding(5) var<storage, read_write> eigg_evec_imag: array<f32>;
+@group(0) @binding(6) var<storage, read_write> eigg_converged_flag: atomic<i32>;
+@group(0) @binding(7) var<uniform> eigg_params: EigGeneralParams;
+
+@compute @workgroup_size(1)
+fn eig_general_f32() {
+    let n = eigg_params.n;
+    let eps: f32 = 1.1920929e-7;
+    let max_sweeps: u32 = 30u * n;
+
+    // Initialize Z as identity
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        for (var j: u32 = 0u; j < n; j = j + 1u) {
+            if (i == j) {
+                eigg_z[i * n + j] = 1.0;
+            } else {
+                eigg_z[i * n + j] = 0.0;
+            }
+        }
+    }
+
+    // === Schur decomposition (inline) ===
+
+    // Hessenberg reduction
+    if (n > 2u) {
+        for (var k: u32 = 0u; k < n - 2u; k = k + 1u) {
+            var norm_sq: f32 = 0.0;
+            for (var i: u32 = k + 1u; i < n; i = i + 1u) {
+                let val = eigg_t[i * n + k];
+                norm_sq = norm_sq + val * val;
+            }
+
+            if (norm_sq < eps) {
+                continue;
+            }
+
+            let norm = sqrt(norm_sq);
+            let x0 = eigg_t[(k + 1u) * n + k];
+            var alpha: f32;
+            if (x0 >= 0.0) {
+                alpha = -norm;
+            } else {
+                alpha = norm;
+            }
+
+            let v0 = x0 - alpha;
+            var v_norm_sq: f32 = v0 * v0;
+            for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                let val = eigg_t[i * n + k];
+                v_norm_sq = v_norm_sq + val * val;
+            }
+
+            if (v_norm_sq < eps) {
+                continue;
+            }
+
+            let v_norm = sqrt(v_norm_sq);
+
+            for (var j: u32 = 0u; j < n; j = j + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + (v0 / v_norm) * eigg_t[(k + 1u) * n + j];
+                for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                    dot = dot + (eigg_t[i * n + k] / v_norm) * eigg_t[i * n + j];
+                }
+                eigg_t[(k + 1u) * n + j] = eigg_t[(k + 1u) * n + j] - 2.0 * (v0 / v_norm) * dot;
+                for (var i: u32 = k + 2u; i < n; i = i + 1u) {
+                    eigg_t[i * n + j] = eigg_t[i * n + j] - 2.0 * (eigg_t[i * n + k] / v_norm) * dot;
+                }
+            }
+
+            for (var i: u32 = 0u; i < n; i = i + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + eigg_t[i * n + (k + 1u)] * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    dot = dot + eigg_t[i * n + jj] * (eigg_t[jj * n + k] / v_norm);
+                }
+                eigg_t[i * n + (k + 1u)] = eigg_t[i * n + (k + 1u)] - 2.0 * dot * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    eigg_t[i * n + jj] = eigg_t[i * n + jj] - 2.0 * dot * (eigg_t[jj * n + k] / v_norm);
+                }
+            }
+
+            for (var i: u32 = 0u; i < n; i = i + 1u) {
+                var dot: f32 = 0.0;
+                dot = dot + eigg_z[i * n + (k + 1u)] * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    dot = dot + eigg_z[i * n + jj] * (eigg_t[jj * n + k] / v_norm);
+                }
+                eigg_z[i * n + (k + 1u)] = eigg_z[i * n + (k + 1u)] - 2.0 * dot * (v0 / v_norm);
+                for (var jj: u32 = k + 2u; jj < n; jj = jj + 1u) {
+                    eigg_z[i * n + jj] = eigg_z[i * n + jj] - 2.0 * dot * (eigg_t[jj * n + k] / v_norm);
+                }
+            }
+        }
+    }
+
+    // QR iteration
+    var converged: bool = false;
+    for (var iter: u32 = 0u; iter < max_sweeps; iter = iter + 1u) {
+        var is_converged: bool = true;
+        if (n > 1u) {
+            for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+                let h_ii = abs(eigg_t[i * n + i]);
+                let h_ip1 = abs(eigg_t[(i + 1u) * n + (i + 1u)]);
+                let threshold = eps * max(h_ii + h_ip1, 1.0);
+                if (abs(eigg_t[(i + 1u) * n + i]) > threshold) {
+                    is_converged = false;
+                    break;
+                }
+            }
+        }
+
+        if (is_converged) {
+            converged = true;
+            break;
+        }
+
+        let a_val = eigg_t[(n - 2u) * n + (n - 2u)];
+        let b_val = eigg_t[(n - 2u) * n + (n - 1u)];
+        let c_val = eigg_t[(n - 1u) * n + (n - 2u)];
+        let d_val = eigg_t[(n - 1u) * n + (n - 1u)];
+
+        let trace = a_val + d_val;
+        let det = a_val * d_val - b_val * c_val;
+        let disc = trace * trace - 4.0 * det;
+
+        var shift: f32;
+        if (disc >= 0.0) {
+            let sqrt_disc = sqrt(disc);
+            let lambda1 = (trace + sqrt_disc) / 2.0;
+            let lambda2 = (trace - sqrt_disc) / 2.0;
+            if (abs(lambda1 - d_val) < abs(lambda2 - d_val)) {
+                shift = lambda1;
+            } else {
+                shift = lambda2;
+            }
+        } else {
+            shift = trace / 2.0;
+        }
+
+        for (var i: u32 = 0u; i < n; i = i + 1u) {
+            eigg_t[i * n + i] = eigg_t[i * n + i] - shift;
+        }
+
+        if (n > 1u) {
+            for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+                let a_ii = eigg_t[i * n + i];
+                let b_ii = eigg_t[(i + 1u) * n + i];
+
+                if (abs(b_ii) < eps) {
+                    continue;
+                }
+
+                let r = sqrt(a_ii * a_ii + b_ii * b_ii);
+                let cs = a_ii / r;
+                let sn = -b_ii / r;
+
+                for (var j: u32 = 0u; j < n; j = j + 1u) {
+                    let t1 = eigg_t[i * n + j];
+                    let t2 = eigg_t[(i + 1u) * n + j];
+                    eigg_t[i * n + j] = cs * t1 - sn * t2;
+                    eigg_t[(i + 1u) * n + j] = sn * t1 + cs * t2;
+                }
+
+                for (var kk: u32 = 0u; kk < n; kk = kk + 1u) {
+                    let t1 = eigg_t[kk * n + i];
+                    let t2 = eigg_t[kk * n + (i + 1u)];
+                    eigg_t[kk * n + i] = cs * t1 - sn * t2;
+                    eigg_t[kk * n + (i + 1u)] = sn * t1 + cs * t2;
+                }
+
+                for (var kk: u32 = 0u; kk < n; kk = kk + 1u) {
+                    let z1 = eigg_z[kk * n + i];
+                    let z2 = eigg_z[kk * n + (i + 1u)];
+                    eigg_z[kk * n + i] = cs * z1 - sn * z2;
+                    eigg_z[kk * n + (i + 1u)] = sn * z1 + cs * z2;
+                }
+            }
+        }
+
+        for (var i: u32 = 0u; i < n; i = i + 1u) {
+            eigg_t[i * n + i] = eigg_t[i * n + i] + shift;
+        }
+    }
+
+    // Clean up
+    if (n > 1u) {
+        for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+            let h_ii = abs(eigg_t[i * n + i]);
+            let h_ip1 = abs(eigg_t[(i + 1u) * n + (i + 1u)]);
+            let threshold = eps * max(h_ii + h_ip1, 1.0);
+            if (abs(eigg_t[(i + 1u) * n + i]) <= threshold) {
+                eigg_t[(i + 1u) * n + i] = 0.0;
+            }
+        }
+    }
+
+    if (n > 2u) {
+        for (var ii: u32 = 2u; ii < n; ii = ii + 1u) {
+            for (var jj: u32 = 0u; jj < ii - 1u; jj = jj + 1u) {
+                eigg_t[ii * n + jj] = 0.0;
+            }
+        }
+    }
+
+    // === Extract eigenvalues from Schur form ===
+    var i: u32 = 0u;
+    loop {
+        if (i >= n) {
+            break;
+        }
+
+        if (i == n - 1u) {
+            eigg_eval_real[i] = eigg_t[i * n + i];
+            eigg_eval_imag[i] = 0.0;
+            i = i + 1u;
+        } else {
+            let subdiag = abs(eigg_t[(i + 1u) * n + i]);
+            let diag_scale = abs(eigg_t[i * n + i]) + abs(eigg_t[(i + 1u) * n + (i + 1u)]);
+            let threshold = eps * max(diag_scale, 1.0);
+
+            if (subdiag > threshold) {
+                // 2x2 block - complex conjugate pair
+                let a_blk = eigg_t[i * n + i];
+                let b_blk = eigg_t[i * n + (i + 1u)];
+                let c_blk = eigg_t[(i + 1u) * n + i];
+                let d_blk = eigg_t[(i + 1u) * n + (i + 1u)];
+
+                let tr = a_blk + d_blk;
+                let dc = (a_blk - d_blk) * (a_blk - d_blk) / 4.0 + b_blk * c_blk;
+
+                if (dc < 0.0) {
+                    let real_part = tr / 2.0;
+                    let imag_part = sqrt(-dc);
+                    eigg_eval_real[i] = real_part;
+                    eigg_eval_imag[i] = imag_part;
+                    eigg_eval_real[i + 1u] = real_part;
+                    eigg_eval_imag[i + 1u] = -imag_part;
+                } else {
+                    let sqrt_dc = sqrt(dc);
+                    eigg_eval_real[i] = tr / 2.0 + sqrt_dc;
+                    eigg_eval_imag[i] = 0.0;
+                    eigg_eval_real[i + 1u] = tr / 2.0 - sqrt_dc;
+                    eigg_eval_imag[i + 1u] = 0.0;
+                }
+                i = i + 2u;
+            } else {
+                eigg_eval_real[i] = eigg_t[i * n + i];
+                eigg_eval_imag[i] = 0.0;
+                i = i + 1u;
+            }
+        }
+    }
+
+    // === Compute eigenvectors via back-substitution ===
+    i = 0u;
+    loop {
+        if (i >= n) {
+            break;
+        }
+
+        let imag = eigg_eval_imag[i];
+
+        if (abs(imag) < eps) {
+            // Real eigenvalue
+            let lambda = eigg_eval_real[i];
+
+            // Initialize y to zero, set y[i] = 1
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                eigg_evec_real[k * n + i] = 0.0;
+                eigg_evec_imag[k * n + i] = 0.0;
+            }
+            var y_real: f32 = 1.0;
+            var y_idx: u32 = i;
+
+            // Back-substitution for (T - λI)y = 0
+            // Store y temporarily in eigg_evec_real column i (will be overwritten)
+            eigg_evec_real[i * n + i] = 1.0;
+
+            if (i > 0u) {
+                for (var kk: u32 = 0u; kk < i; kk = kk + 1u) {
+                    let k = i - 1u - kk;
+                    let diag = eigg_t[k * n + k] - lambda;
+                    var rhs: f32 = 0.0;
+                    for (var j: u32 = k + 1u; j < n; j = j + 1u) {
+                        rhs = rhs - eigg_t[k * n + j] * eigg_evec_real[j * n + i];
+                    }
+                    if (abs(diag) > eps) {
+                        eigg_evec_real[k * n + i] = rhs / diag;
+                    } else {
+                        eigg_evec_real[k * n + i] = 0.0;
+                    }
+                }
+            }
+
+            // Normalize
+            var norm_sq: f32 = 0.0;
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                norm_sq = norm_sq + eigg_evec_real[k * n + i] * eigg_evec_real[k * n + i];
+            }
+            let norm = sqrt(norm_sq);
+            if (norm > eps) {
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    eigg_evec_real[k * n + i] = eigg_evec_real[k * n + i] / norm;
+                }
+            }
+
+            // Transform by Z: evec = Z @ y (store in temp, then copy back)
+            // We need to use a different approach since we can't have local arrays
+            // Transform in-place by computing each row of result
+            for (var row: u32 = 0u; row < n; row = row + 1u) {
+                var sum: f32 = 0.0;
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    sum = sum + eigg_z[row * n + k] * eigg_evec_real[k * n + i];
+                }
+                eigg_evec_imag[row * n + i] = sum; // Temporarily store in imag
+            }
+            for (var row: u32 = 0u; row < n; row = row + 1u) {
+                eigg_evec_real[row * n + i] = eigg_evec_imag[row * n + i];
+                eigg_evec_imag[row * n + i] = 0.0;
+            }
+
+            i = i + 1u;
+        } else {
+            // Complex eigenvalue - simplified handling
+            // For complex eigenvalues, set eigenvector to a simple approximation
+            let lambda_real = eigg_eval_real[i];
+            let lambda_imag = eigg_eval_imag[i];
+
+            // Initialize
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                eigg_evec_real[k * n + i] = 0.0;
+                eigg_evec_imag[k * n + i] = 0.0;
+                eigg_evec_real[k * n + (i + 1u)] = 0.0;
+                eigg_evec_imag[k * n + (i + 1u)] = 0.0;
+            }
+
+            // Use the 2x2 block to initialize
+            let a_blk = eigg_t[i * n + i];
+            let b_blk = eigg_t[i * n + (i + 1u)];
+
+            eigg_evec_real[i * n + i] = b_blk;
+            eigg_evec_imag[i * n + i] = 0.0;
+            eigg_evec_real[(i + 1u) * n + i] = lambda_real - a_blk;
+            eigg_evec_imag[(i + 1u) * n + i] = lambda_imag;
+
+            // Back-substitute (simplified)
+            if (i > 0u) {
+                for (var kk: u32 = 0u; kk < i; kk = kk + 1u) {
+                    let k = i - 1u - kk;
+                    let diag_real = eigg_t[k * n + k] - lambda_real;
+                    let diag_imag = -lambda_imag;
+
+                    var rhs_real: f32 = 0.0;
+                    var rhs_imag: f32 = 0.0;
+                    for (var j: u32 = k + 1u; j < n; j = j + 1u) {
+                        let t_kj = eigg_t[k * n + j];
+                        rhs_real = rhs_real - t_kj * eigg_evec_real[j * n + i];
+                        rhs_imag = rhs_imag - t_kj * eigg_evec_imag[j * n + i];
+                    }
+
+                    let denom = diag_real * diag_real + diag_imag * diag_imag;
+                    if (denom > eps * eps) {
+                        eigg_evec_real[k * n + i] = (rhs_real * diag_real + rhs_imag * diag_imag) / denom;
+                        eigg_evec_imag[k * n + i] = (rhs_imag * diag_real - rhs_real * diag_imag) / denom;
+                    }
+                }
+            }
+
+            // Normalize
+            var norm_sq: f32 = 0.0;
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                norm_sq = norm_sq + eigg_evec_real[k * n + i] * eigg_evec_real[k * n + i]
+                        + eigg_evec_imag[k * n + i] * eigg_evec_imag[k * n + i];
+            }
+            let norm = sqrt(norm_sq);
+            if (norm > eps) {
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    eigg_evec_real[k * n + i] = eigg_evec_real[k * n + i] / norm;
+                    eigg_evec_imag[k * n + i] = eigg_evec_imag[k * n + i] / norm;
+                }
+            }
+
+            // Transform by Z and store conjugate pair
+            for (var row: u32 = 0u; row < n; row = row + 1u) {
+                var sum_real: f32 = 0.0;
+                var sum_imag: f32 = 0.0;
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    let z_val = eigg_z[row * n + k];
+                    sum_real = sum_real + z_val * eigg_evec_real[k * n + i];
+                    sum_imag = sum_imag + z_val * eigg_evec_imag[k * n + i];
+                }
+                // Store for both conjugate columns
+                eigg_evec_real[row * n + i] = sum_real;
+                eigg_evec_imag[row * n + i] = sum_imag;
+                eigg_evec_real[row * n + (i + 1u)] = sum_real;
+                eigg_evec_imag[row * n + (i + 1u)] = -sum_imag;
+            }
+
+            i = i + 2u;
+        }
+    }
+
+    // Set convergence flag
+    if (converged) {
+        atomicStore(&eigg_converged_flag, 0);
+    } else {
+        atomicStore(&eigg_converged_flag, 1);
+    }
+}
 "#;

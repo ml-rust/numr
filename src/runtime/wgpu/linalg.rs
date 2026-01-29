@@ -12,9 +12,9 @@ use super::client::get_buffer;
 use super::shaders::linalg as kernels;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, EigenDecomposition, LinearAlgebraAlgorithms, LuDecomposition,
-    MatrixNormOrder, QrDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
-    validate_square_matrix,
+    CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixNormOrder, QrDecomposition, SvdDecomposition, validate_linalg_dtype,
+    validate_matrix_2d, validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -1670,6 +1670,262 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         Ok(EigenDecomposition {
             eigenvalues,
             eigenvectors,
+        })
+    }
+
+    fn schur_decompose(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+    ) -> Result<crate::algorithm::linalg::SchurDecomposition<WgpuRuntime>> {
+        use crate::algorithm::linalg::SchurDecomposition;
+
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        // WebGPU only supports F32
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "schur_decompose (WebGPU)",
+            });
+        }
+
+        // Handle trivial cases
+        if n == 0 {
+            return Ok(SchurDecomposition {
+                z: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0, 0], device),
+                t: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0, 0], device),
+            });
+        }
+
+        if n == 1 {
+            let data: Vec<f32> = a.to_vec();
+            return Ok(SchurDecomposition {
+                z: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
+                t: Tensor::<WgpuRuntime>::from_slice(&data, &[1, 1], device),
+            });
+        }
+
+        // Allocate buffers for Schur decomposition
+        let matrix_size = n * n * dtype.size_in_bytes();
+
+        // T matrix: contains input A, outputs quasi-triangular Schur form
+        let t_ptr = self.allocator().allocate(matrix_size);
+        let t_buffer = get_buffer_or_err!(t_ptr, "T (Schur form matrix)");
+
+        // Z matrix: orthogonal transformation
+        let z_ptr = self.allocator().allocate(matrix_size);
+        let z_buffer = get_buffer_or_err!(z_ptr, "Z (orthogonal matrix)");
+
+        // Converged flag
+        let converged_flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(converged_flag_size);
+        let converged_flag_buffer =
+            get_buffer_or_err!(converged_flag_ptr, "Schur convergence flag");
+
+        // Copy input to T buffer
+        WgpuRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device);
+
+        // Zero-initialize converged flag
+        let zero_i32: [i32; 1] = [0];
+        self.write_buffer(&converged_flag_buffer, &zero_i32);
+
+        // Create params buffer: [n]
+        let params: [u32; 1] = [n as u32];
+        let params_buffer = self.create_uniform_buffer("schur_params", 4);
+        self.write_buffer(&params_buffer, &params);
+
+        // Launch Schur decomposition kernel
+        kernels::launch_schur_decompose(
+            self.pipeline_cache(),
+            &self.queue,
+            &t_buffer,
+            &z_buffer,
+            &converged_flag_buffer,
+            &params_buffer,
+            dtype,
+        )?;
+
+        self.synchronize();
+
+        // Read back converged flag
+        let staging = self.create_staging_buffer("schur_converged_staging", 4);
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("schur_converged_copy"),
+                });
+        encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
+        self.submit_and_wait(encoder);
+
+        let mut converged_val = [0i32; 1];
+        self.read_buffer(&staging, &mut converged_val);
+
+        // Clean up converged flag
+        self.allocator()
+            .deallocate(converged_flag_ptr, converged_flag_size);
+
+        if converged_val[0] != 0 {
+            // Cleanup on failure
+            self.allocator().deallocate(t_ptr, matrix_size);
+            self.allocator().deallocate(z_ptr, matrix_size);
+            return Err(Error::Internal(
+                "Schur decomposition did not converge within maximum iterations".to_string(),
+            ));
+        }
+
+        // Create output tensors from GPU memory
+        let z = unsafe { Self::tensor_from_raw(z_ptr, &[n, n], dtype, device) };
+        let t = unsafe { Self::tensor_from_raw(t_ptr, &[n, n], dtype, device) };
+
+        Ok(SchurDecomposition { z, t })
+    }
+
+    fn eig_decompose(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+    ) -> Result<GeneralEigenDecomposition<WgpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+        let dtype = a.dtype();
+        let device = self.device();
+
+        // WebGPU only supports F32
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "eig_decompose (WebGPU)",
+            });
+        }
+
+        // Handle trivial cases
+        if n == 0 {
+            return Ok(GeneralEigenDecomposition {
+                eigenvalues_real: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0], device),
+                eigenvalues_imag: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0], device),
+                eigenvectors_real: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0, 0], device),
+                eigenvectors_imag: Tensor::<WgpuRuntime>::from_slice::<f32>(&[], &[0, 0], device),
+            });
+        }
+
+        if n == 1 {
+            let data: Vec<f32> = a.to_vec();
+            return Ok(GeneralEigenDecomposition {
+                eigenvalues_real: Tensor::<WgpuRuntime>::from_slice(&data, &[1], device),
+                eigenvalues_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1], device),
+                eigenvectors_real: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
+                eigenvectors_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),
+            });
+        }
+
+        // Allocate buffers for general eigendecomposition
+        let matrix_size = n * n * dtype.size_in_bytes();
+        let vector_size = n * dtype.size_in_bytes();
+
+        // T matrix: working copy for Schur form
+        let t_ptr = self.allocator().allocate(matrix_size);
+        let t_buffer = get_buffer_or_err!(t_ptr, "T (working matrix)");
+
+        // Z matrix: Schur transformation
+        let z_ptr = self.allocator().allocate(matrix_size);
+        let z_buffer = get_buffer_or_err!(z_ptr, "Z (Schur transformation)");
+
+        // Eigenvalue real parts
+        let eval_real_ptr = self.allocator().allocate(vector_size);
+        let eval_real_buffer = get_buffer_or_err!(eval_real_ptr, "eigenvalues_real");
+
+        // Eigenvalue imaginary parts
+        let eval_imag_ptr = self.allocator().allocate(vector_size);
+        let eval_imag_buffer = get_buffer_or_err!(eval_imag_ptr, "eigenvalues_imag");
+
+        // Eigenvector real parts
+        let evec_real_ptr = self.allocator().allocate(matrix_size);
+        let evec_real_buffer = get_buffer_or_err!(evec_real_ptr, "eigenvectors_real");
+
+        // Eigenvector imaginary parts
+        let evec_imag_ptr = self.allocator().allocate(matrix_size);
+        let evec_imag_buffer = get_buffer_or_err!(evec_imag_ptr, "eigenvectors_imag");
+
+        // Converged flag
+        let converged_flag_size = std::mem::size_of::<i32>();
+        let converged_flag_ptr = self.allocator().allocate(converged_flag_size);
+        let converged_flag_buffer =
+            get_buffer_or_err!(converged_flag_ptr, "eig_general convergence flag");
+
+        // Copy input to T buffer
+        WgpuRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device);
+
+        // Zero-initialize converged flag
+        let zero_i32: [i32; 1] = [0];
+        self.write_buffer(&converged_flag_buffer, &zero_i32);
+
+        // Create params buffer: [n]
+        let params: [u32; 1] = [n as u32];
+        let params_buffer = self.create_uniform_buffer("eig_general_params", 4);
+        self.write_buffer(&params_buffer, &params);
+
+        // Launch general eigendecomposition kernel
+        kernels::launch_eig_general(
+            self.pipeline_cache(),
+            &self.queue,
+            &t_buffer,
+            &z_buffer,
+            &eval_real_buffer,
+            &eval_imag_buffer,
+            &evec_real_buffer,
+            &evec_imag_buffer,
+            &converged_flag_buffer,
+            &params_buffer,
+            dtype,
+        )?;
+
+        self.synchronize();
+
+        // Read back converged flag
+        let staging = self.create_staging_buffer("eig_general_converged_staging", 4);
+        let mut encoder =
+            self.wgpu_device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("eig_general_converged_copy"),
+                });
+        encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
+        self.submit_and_wait(encoder);
+
+        let mut converged_val = [0i32; 1];
+        self.read_buffer(&staging, &mut converged_val);
+
+        // Clean up working buffers
+        self.allocator().deallocate(t_ptr, matrix_size);
+        self.allocator().deallocate(z_ptr, matrix_size);
+        self.allocator()
+            .deallocate(converged_flag_ptr, converged_flag_size);
+
+        if converged_val[0] != 0 {
+            // Cleanup on failure
+            self.allocator().deallocate(eval_real_ptr, vector_size);
+            self.allocator().deallocate(eval_imag_ptr, vector_size);
+            self.allocator().deallocate(evec_real_ptr, matrix_size);
+            self.allocator().deallocate(evec_imag_ptr, matrix_size);
+            return Err(Error::Internal(
+                "General eigendecomposition did not converge within maximum iterations".to_string(),
+            ));
+        }
+
+        // Create output tensors from GPU memory
+        let eigenvalues_real = unsafe { Self::tensor_from_raw(eval_real_ptr, &[n], dtype, device) };
+        let eigenvalues_imag = unsafe { Self::tensor_from_raw(eval_imag_ptr, &[n], dtype, device) };
+        let eigenvectors_real =
+            unsafe { Self::tensor_from_raw(evec_real_ptr, &[n, n], dtype, device) };
+        let eigenvectors_imag =
+            unsafe { Self::tensor_from_raw(evec_imag_ptr, &[n, n], dtype, device) };
+
+        Ok(GeneralEigenDecomposition {
+            eigenvalues_real,
+            eigenvalues_imag,
+            eigenvectors_real,
+            eigenvectors_imag,
         })
     }
 }
