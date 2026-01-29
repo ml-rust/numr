@@ -23,6 +23,7 @@ pub mod jacobi;
 mod kernels;
 mod linalg;
 mod ops;
+mod sort;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse;
 

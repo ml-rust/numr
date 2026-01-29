@@ -1744,6 +1744,70 @@ impl TensorOps<CpuRuntime> for CpuClient {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
     }
+
+    // ===== Sorting and Search Operations =====
+
+    fn sort(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::sort::sort_impl(self, a, dim, descending)
+    }
+
+    fn sort_with_indices(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::sort::sort_with_indices_impl(self, a, dim, descending)
+    }
+
+    fn argsort(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: isize,
+        descending: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::sort::argsort_impl(self, a, dim, descending)
+    }
+
+    fn topk(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        k: usize,
+        dim: isize,
+        largest: bool,
+        sorted: bool,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::sort::topk_impl(self, a, k, dim, largest, sorted)
+    }
+
+    fn unique(&self, a: &Tensor<CpuRuntime>, sorted: bool) -> Result<Tensor<CpuRuntime>> {
+        super::sort::unique_impl(self, a, sorted)
+    }
+
+    fn unique_with_counts(
+        &self,
+        a: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::sort::unique_with_counts_impl(self, a)
+    }
+
+    fn nonzero(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        super::sort::nonzero_impl(self, a)
+    }
+
+    fn searchsorted(
+        &self,
+        sorted_sequence: &Tensor<CpuRuntime>,
+        values: &Tensor<CpuRuntime>,
+        right: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::sort::searchsorted_impl(self, sorted_sequence, values, right)
+    }
 }
 
 /// Softmax over non-last dimension

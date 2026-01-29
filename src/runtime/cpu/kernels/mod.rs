@@ -16,6 +16,7 @@ pub mod memory;
 pub mod norm;
 pub mod reduce;
 pub mod scalar;
+pub mod sort;
 pub mod unary;
 
 // Re-export all kernel functions for convenient access
@@ -50,6 +51,11 @@ pub use reduce::{
     softmax_kernel, variance_kernel,
 };
 pub use scalar::scalar_op_kernel;
+pub use sort::{
+    argsort_kernel, count_nonzero_kernel, count_unique_kernel, extract_unique_kernel,
+    flat_to_multi_index_kernel, nonzero_flat_kernel, searchsorted_kernel, sort_kernel,
+    sort_values_kernel, topk_kernel, unique_with_counts_kernel,
+};
 pub use unary::{
     clamp_kernel, elu_kernel, gelu_kernel, isinf_kernel, isnan_kernel, leaky_relu_kernel,
     relu_kernel, sigmoid_kernel, silu_kernel, unary_op_kernel,
