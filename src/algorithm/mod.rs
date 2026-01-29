@@ -19,6 +19,11 @@
 //! - [`FftAlgorithms`] - FFT, IFFT, RFFT using Stockham autosort algorithm
 //! - [`SparseAlgorithms`] - SpGEMM, SpMV, DSMM (requires `sparse` feature)
 //!
+//! # Signal Processing
+//!
+//! Signal processing operations (convolution, STFT, window functions) are provided
+//! by the **solvr** library, which builds on numr's FFT primitives.
+//!
 //! # Universal Algorithm Design
 //!
 //! Algorithms are designed to be portable across all backends:
