@@ -1,35 +1,48 @@
 //! # numr
 //!
-//! A high-performance numerical computing library for Rust.
+//! **High-performance numerical computing for Rust with multi-backend GPU acceleration.**
 //!
-//! `numr` provides n-dimensional arrays (tensors) with:
-//! - **Multiple backends**: CPU (with SIMD), CUDA, WebGPU
-//! - **Automatic differentiation**: Reverse-mode autodiff for optimization
-//! - **Zero-copy views**: Efficient slicing, transposing, reshaping
-//! - **Type-safe operations**: Compile-time backend selection, runtime dtype
+//! numr provides n-dimensional arrays (tensors), linear algebra, FFT, and automatic
+//! differentiation - with the same API across CPU, CUDA, WebGPU, and ROCm backends.
+//!
+//! ## Why numr?
+//!
+//! - **Multi-backend**: Same code runs on CPU (AVX-512/NEON), CUDA, WebGPU, ROCm
+//! - **No vendor lock-in**: Native kernels, not cuBLAS/MKL wrappers
+//! - **Pure Rust**: No Python runtime, no FFI overhead, single binary deployment
+//! - **Autograd included**: Reverse-mode automatic differentiation built-in
+//! - **Sparse tensors**: CSR, CSC, COO formats with GPU support
+//!
+//! ## Features
+//!
+//! - **Tensors**: N-dimensional arrays with broadcasting, slicing, views
+//! - **Linear algebra**: Matmul, LU, QR, SVD, Cholesky, eigendecomposition
+//! - **FFT**: Fast Fourier transforms (1D, 2D, ND)
+//! - **Element-wise ops**: Full set of math functions
+//! - **Reductions**: Sum, mean, max, min, argmax, argmin along axes
+//! - **Multiple dtypes**: f64, f32, f16, bf16, fp8, integers, bool
 //!
 //! ## Quick Start
 //!
 //! ```rust,ignore
 //! use numr::prelude::*;
 //!
-//! // Create a tensor
-//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2]);
-//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2]);
+//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2])?;
+//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2])?;
 //!
-//! // Operations
 //! let c = &a + &b;
-//! let d = a.matmul(&b);
+//! let d = a.matmul(&b)?;
 //! ```
 //!
 //! ## Feature Flags
 //!
-//! - `cpu` (default): CPU backend with SIMD optimizations
+//! - `cpu` (default): CPU backend with SIMD (AVX-512/AVX2/NEON)
 //! - `cuda`: NVIDIA CUDA backend
 //! - `wgpu`: Cross-platform GPU via WebGPU
-//! - `rayon` (default): Parallel CPU operations
-//! - `f16`: Half-precision float support
-//! - `fp8`: 8-bit float support (FP8E4M3, FP8E5M2)
+//! - `rocm`: AMD ROCm backend
+//! - `rayon` (default): Multi-threaded CPU operations
+//! - `f16`: Half-precision floats (F16, BF16)
+//! - `fp8`: 8-bit floats (FP8E4M3, FP8E5M2)
 //! - `sparse`: Sparse tensor formats (CSR, CSC, COO)
 
 #![warn(missing_docs)]

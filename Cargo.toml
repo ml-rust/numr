@@ -3,11 +3,12 @@ name = "numr"
 version = "0.0.0"
 edition = "2024"
 rust-version = "1.85"
-description = "A high-performance numerical computing library for Rust with GPU acceleration"
-license = "MIT OR Apache-2.0"
+description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU/ROCm)"
+license = "Apache-2.0"
 repository = "https://github.com/ml-rust/numr"
-keywords = ["tensor", "numerical", "gpu", "cuda", "scientific-computing"]
-categories = ["science", "mathematics", "algorithms"]
+documentation = "https://docs.rs/numr"
+keywords = ["tensor", "ndarray", "fft", "linear-algebra", "gpu"]
+categories = ["science", "mathematics", "data-structures"]
 
 [features]
 default = ["cpu", "rayon"]
