@@ -438,3 +438,100 @@ pub(super) struct MultinomialWithoutReplacementParams {
     pub(super) num_samples: u32,
     pub(super) seed: u32,
 }
+
+// ============================================================================
+// Sort Operation Params
+// ============================================================================
+
+/// Params for sort operation (sort, argsort)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct SortParams {
+    pub(super) outer_size: u32,
+    pub(super) sort_size: u32,
+    pub(super) inner_size: u32,
+    pub(super) descending: u32,
+}
+
+/// Params for topk operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct TopkParams {
+    pub(super) outer_size: u32,
+    pub(super) sort_size: u32,
+    pub(super) inner_size: u32,
+    pub(super) k: u32,
+    pub(super) largest: u32,
+    pub(super) sorted: u32,
+}
+
+/// Params for searchsorted operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct SearchsortedParams {
+    pub(super) seq_len: u32,
+    pub(super) num_values: u32,
+    pub(super) right: u32,
+    pub(super) _pad: u32,
+}
+
+/// Params for count operations (nonzero, unique)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CountParams {
+    pub(super) numel: u32,
+}
+
+/// Params for flat_to_multi_index operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct FlatToMultiParams {
+    pub(super) nnz: u32,
+    pub(super) ndim: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+    pub(super) shape: [u32; 8],
+}
+
+/// Read a single u32 value from a GPU buffer (synchronous)
+pub(super) fn read_u32_from_buffer(
+    client: &super::super::WgpuClient,
+    buffer: &wgpu::Buffer,
+) -> Result<u32> {
+    let staging_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("staging_read"),
+        size: 4,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = client
+        .wgpu_device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("read_u32"),
+        });
+    encoder.copy_buffer_to_buffer(buffer, 0, &staging_buffer, 0, 4);
+    client.queue.submit(std::iter::once(encoder.finish()));
+
+    // Block until GPU work is done
+    let (tx, rx) = std::sync::mpsc::channel();
+    staging_buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+    let _ = client.wgpu_device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(60)),
+    });
+    rx.recv()
+        .map_err(|_| Error::Internal("Failed to read from GPU buffer".to_string()))?
+        .map_err(|e| Error::Internal(format!("Buffer map failed: {:?}", e)))?;
+
+    let data = staging_buffer.slice(..).get_mapped_range();
+    let value = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+    drop(data);
+    staging_buffer.unmap();
+
+    Ok(value)
+}

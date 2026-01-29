@@ -36,6 +36,7 @@ pub mod matmul;
 pub mod norm;
 pub mod reduce;
 pub mod scalar;
+pub mod sort;
 pub mod unary;
 pub mod utility;
 
@@ -68,6 +69,11 @@ pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};
 pub use norm::generate_norm_shader;
 pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};
+pub use sort::{
+    MAX_SHARED_SORT_SIZE, generate_count_nonzero_shader, generate_flat_to_multi_index_shader,
+    generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
+    generate_topk_shader, generate_unique_shader,
+};
 pub use unary::generate_unary_shader;
 pub use utility::{
     generate_arange_shader, generate_eye_shader, generate_linspace_shader,

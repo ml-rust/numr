@@ -30,6 +30,7 @@ pub mod generator;
 pub mod index;
 pub mod linalg;
 pub mod shape;
+pub mod sort;
 pub mod typed_kernels;
 
 // Legacy modules (to be replaced by typed_kernels)
