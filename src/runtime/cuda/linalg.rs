@@ -1548,8 +1548,8 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
             ));
         }
 
-        // Compute covariance matrix
-        let cov_mat = self.cov(a, Some(1))?; // [n_features, n_features]
+        // Compute covariance matrix (use LinearAlgebraAlgorithms explicitly to avoid ambiguity)
+        let cov_mat = LinearAlgebraAlgorithms::cov(self, a, Some(1))?; // [n_features, n_features]
 
         // Extract diagonal (variances) and compute standard deviations
         let variances = LinearAlgebraAlgorithms::diag(self, &cov_mat)?; // [n_features]

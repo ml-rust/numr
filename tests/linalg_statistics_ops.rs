@@ -328,7 +328,7 @@ fn test_cov_2x2() {
         &device,
     );
 
-    let cov = client.cov(&a, Some(1)).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     assert_eq!(cov.shape(), &[2, 2], "cov shape");
@@ -375,7 +375,7 @@ fn test_cov_ddof0() {
         &device,
     );
 
-    let cov = client.cov(&a, Some(0)).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(0)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     // With ddof=0, divide by n=4 instead of n-1=3
@@ -401,7 +401,7 @@ fn test_cov_uncorrelated() {
         &device,
     );
 
-    let cov = client.cov(&a, Some(1)).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     // Off-diagonal (covariance) should be ~0
@@ -422,7 +422,7 @@ fn test_cov_f64() {
         &device,
     );
 
-    let cov = client.cov(&a, Some(1)).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
     let cov_data: Vec<f64> = cov.to_vec();
 
     let expected_var = 20.0f64 / 3.0;
@@ -441,7 +441,7 @@ fn test_cov_single_feature() {
     // Single feature, 4 samples
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 5.0, 7.0], &[4, 1], &device);
 
-    let cov = client.cov(&a, Some(1)).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     assert_eq!(cov.shape(), &[1, 1], "Single feature cov shape");
@@ -469,7 +469,7 @@ fn test_corrcoef_perfect_correlation() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     assert_eq!(corr.shape(), &[2, 2], "corrcoef shape");
@@ -503,7 +503,7 @@ fn test_corrcoef_negative_correlation() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Off-diagonal should be -1 (perfect negative correlation)
@@ -525,7 +525,7 @@ fn test_corrcoef_uncorrelated() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Off-diagonal should be ~0
@@ -549,7 +549,7 @@ fn test_corrcoef_bounds() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     for (i, &val) in corr_data.iter().enumerate() {
@@ -572,7 +572,7 @@ fn test_corrcoef_symmetric() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Check symmetry: corr[i,j] = corr[j,i]
@@ -604,7 +604,7 @@ fn test_corrcoef_f64() {
         &device,
     );
 
-    let corr = client.corrcoef(&a).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
     let corr_data: Vec<f64> = corr.to_vec();
 
     // Perfect correlation
@@ -626,7 +626,7 @@ fn test_cov_insufficient_samples() {
     // Only 1 sample, ddof=1 requires at least 2
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device);
 
-    let result = client.cov(&a, Some(1));
+    let result = TensorOps::cov(&client, &a, Some(1));
     assert!(result.is_err(), "cov should fail with insufficient samples");
 }
 
@@ -637,7 +637,7 @@ fn test_corrcoef_insufficient_samples() {
     // Only 1 sample
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device);
 
-    let result = client.corrcoef(&a);
+    let result = TensorOps::corrcoef(&client, &a);
     assert!(
         result.is_err(),
         "corrcoef should fail with insufficient samples"
@@ -724,8 +724,8 @@ fn test_cov_corrcoef_relationship() {
         &device,
     );
 
-    let cov = client.cov(&a, Some(1)).unwrap();
-    let corr = client.corrcoef(&a).unwrap();
+    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
+    let corr = TensorOps::corrcoef(&client, &a).unwrap();
 
     let cov_data: Vec<f32> = cov.to_vec();
     let corr_data: Vec<f32> = corr.to_vec();
@@ -817,8 +817,12 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 3], &cuda_device);
 
-        let cpu_result: Vec<f32> = cpu_client.cov(&cpu_a, Some(1)).unwrap().to_vec();
-        let cuda_result: Vec<f32> = cuda_client.cov(&cuda_a, Some(1)).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::cov(&client, &cpu_a, Some(1))
+            .unwrap()
+            .to_vec();
+        let cuda_result: Vec<f32> = cuda_TensorOps::cov(&client, &cuda_a, Some(1))
+            .unwrap()
+            .to_vec();
 
         assert_allclose_f32(&cpu_result, &cuda_result, 1e-4, 1e-4, "cov CPU vs CUDA");
     }
@@ -835,8 +839,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 3], &cuda_device);
 
-        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
-        let cuda_result: Vec<f32> = cuda_client.corrcoef(&cuda_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::corrcoef(&client, &cpu_a).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_TensorOps::corrcoef(&client, &cuda_a).unwrap().to_vec();
 
         assert_allclose_f32(
             &cpu_result,
@@ -860,8 +864,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 2], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 2], &cuda_device);
 
-        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
-        let cuda_result: Vec<f32> = cuda_client.corrcoef(&cuda_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::corrcoef(&client, &cpu_a).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_TensorOps::corrcoef(&client, &cuda_a).unwrap().to_vec();
 
         // Zero-variance handling must match exactly
         assert_allclose_f32(
@@ -955,8 +959,12 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = cpu_client.cov(&cpu_a, Some(1)).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = wgpu_client.cov(&wgpu_a, Some(1)).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::cov(&client, &cpu_a, Some(1))
+            .unwrap()
+            .to_vec();
+        let wgpu_result: Vec<f32> = wgpu_TensorOps::cov(&client, &wgpu_a, Some(1))
+            .unwrap()
+            .to_vec();
 
         assert_allclose_f32(&cpu_result, &wgpu_result, 1e-3, 1e-3, "cov CPU vs WGPU");
     }
@@ -973,8 +981,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = wgpu_client.corrcoef(&wgpu_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::corrcoef(&client, &cpu_a).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_TensorOps::corrcoef(&client, &wgpu_a).unwrap().to_vec();
 
         assert_allclose_f32(
             &cpu_result,
@@ -998,8 +1006,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 2], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 2], &wgpu_device);
 
-        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = wgpu_client.corrcoef(&wgpu_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_TensorOps::corrcoef(&client, &cpu_a).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_TensorOps::corrcoef(&client, &wgpu_a).unwrap().to_vec();
 
         // Zero-variance handling must match exactly
         assert_allclose_f32(
