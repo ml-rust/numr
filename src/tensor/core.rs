@@ -130,12 +130,9 @@ impl<R: Runtime> Tensor<R> {
 
     /// Create a tensor filled with zeros
     ///
-    /// Note: For CPU runtime, memory is already zero-initialized by `alloc_zeroed`.
-    /// GPU backends should implement a fill kernel for efficiency.
+    /// This properly initializes memory to zero on all backends (CPU and GPU).
     pub fn zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        // CPU uses alloc_zeroed, so memory is already zero.
-        // GPU backends will need to dispatch a fill kernel here.
-        Self::empty(shape, dtype, device)
+        Self::full_scalar(shape, dtype, 0.0, device)
     }
 
     /// Create a tensor filled with ones
