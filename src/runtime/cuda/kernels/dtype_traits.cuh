@@ -13,6 +13,20 @@
 #include <stdint.h>
 
 // ============================================================================
+// Mathematical Constants
+// ============================================================================
+// Following C99/C++11 standards for mathematical constants
+// These match std::f32::consts::PI and std::f64::consts::PI exactly
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846  // π to F64 precision (20 digits, ~17 significant)
+#endif
+
+#ifndef M_PI_F
+#define M_PI_F 3.14159265f  // π to F32 precision (~7 significant digits)
+#endif
+
+// ============================================================================
 // FP8 Type Definitions
 // ============================================================================
 

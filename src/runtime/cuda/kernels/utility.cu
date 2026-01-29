@@ -131,7 +131,7 @@ __device__ __forceinline__ void box_muller(XorShift128PlusState* state, float* z
     if (u1 < 1e-12) u1 = 1e-12;
 
     double r = sqrt(-2.0 * log(u1));
-    double theta = 2.0 * 3.14159265358979323846 * u2;
+    double theta = 2.0 * M_PI * u2;
 
     *z0 = (float)(r * cos(theta));
     *z1 = (float)(r * sin(theta));
@@ -144,7 +144,7 @@ __device__ __forceinline__ void box_muller_f64(XorShift128PlusState* state, doub
     if (u1 < 1e-15) u1 = 1e-15;
 
     double r = sqrt(-2.0 * log(u1));
-    double theta = 2.0 * 3.14159265358979323846 * u2;
+    double theta = 2.0 * M_PI * u2;
 
     *z0 = r * cos(theta);
     *z1 = r * sin(theta);

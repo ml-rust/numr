@@ -924,7 +924,7 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         let qr = self.qr_decompose(a)?;
 
         // Get diagonal of R
-        let r_diag = self.diag(&qr.r)?;
+        let r_diag = LinearAlgebraAlgorithms::diag(self, &qr.r)?;
 
         // Allocate GPU buffers for max abs and count
         let max_size = dtype.size_in_bytes();
@@ -1409,7 +1409,7 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         };
 
         // Create diagonal matrix from vector
-        let s_inv_mat = self.diagflat(&s_inv_diag)?;
+        let s_inv_mat = LinearAlgebraAlgorithms::diagflat(self, &s_inv_diag)?;
 
         // Compute A^+ = V @ S_inv @ U^T
         // V^T is [k x n], so V is [n x k]
@@ -1552,7 +1552,7 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         let cov_mat = self.cov(a, Some(1))?; // [n_features, n_features]
 
         // Extract diagonal (variances) and compute standard deviations
-        let variances = self.diag(&cov_mat)?; // [n_features]
+        let variances = LinearAlgebraAlgorithms::diag(self, &cov_mat)?; // [n_features]
         let std_devs = self.sqrt(&variances)?; // [n_features]
 
         // Pull std_devs to CPU for zero-variance detection
