@@ -2018,7 +2018,7 @@ mod tests {
         // trace = 1 + 4 = 5
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let t = client.trace(&a).unwrap();
+        let t = LinearAlgebraAlgorithms::trace(&client, &a).unwrap();
         let result: Vec<f32> = t.to_vec();
 
         assert!((result[0] - 5.0).abs() < 1e-5);
@@ -2033,7 +2033,7 @@ mod tests {
         let a =
             Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device);
 
-        let d = client.diag(&a).unwrap();
+        let d = LinearAlgebraAlgorithms::diag(&client, &a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert_eq!(result.len(), 2);
@@ -2048,7 +2048,7 @@ mod tests {
 
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let m = client.diagflat(&a).unwrap();
+        let m = LinearAlgebraAlgorithms::diagflat(&client, &a).unwrap();
         let result: Vec<f32> = m.to_vec();
 
         assert_eq!(m.shape(), &[3, 3]);
@@ -2099,7 +2099,7 @@ mod tests {
         // det = 1*4 - 2*3 = -2
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let d = client.det(&a).unwrap();
+        let d = LinearAlgebraAlgorithms::det(&client, &a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert!((result[0] - (-2.0)).abs() < 1e-4);
@@ -2115,7 +2115,7 @@ mod tests {
         let a = Tensor::<CudaRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device);
         let b = Tensor::<CudaRuntime>::from_slice(&[3.0f32, 3.0], &[2], device);
 
-        let x = client.solve(&a, &b).unwrap();
+        let x = LinearAlgebraAlgorithms::solve(&client, &a, &b).unwrap();
         let result: Vec<f32> = x.to_vec();
 
         assert!((result[0] - 1.0).abs() < 1e-4);
@@ -2131,7 +2131,7 @@ mod tests {
         // Inverse: [[0.6, -0.7], [-0.2, 0.4]]
         let a = Tensor::<CudaRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device);
 
-        let inv = client.inverse(&a).unwrap();
+        let inv = LinearAlgebraAlgorithms::inverse(&client, &a).unwrap();
         let result: Vec<f32> = inv.to_vec();
 
         // Check inverse values (det = 4*6 - 7*2 = 10)
@@ -2151,7 +2151,7 @@ mod tests {
         // A @ A^-1 should equal I
         let a = Tensor::<CudaRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device);
 
-        let inv = client.inverse(&a).unwrap();
+        let inv = LinearAlgebraAlgorithms::inverse(&client, &a).unwrap();
         let product = TensorOps::matmul(&client, &a, &inv).unwrap();
         let result: Vec<f32> = product.to_vec();
 
@@ -2170,7 +2170,7 @@ mod tests {
         // Full rank 2x2 matrix
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let rank = client.matrix_rank(&a, None).unwrap();
+        let rank = LinearAlgebraAlgorithms::matrix_rank(&client, &a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 2);
@@ -2184,7 +2184,7 @@ mod tests {
         // Rank-deficient 2x2 matrix (rows are linearly dependent)
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], device);
 
-        let rank = client.matrix_rank(&a, None).unwrap();
+        let rank = LinearAlgebraAlgorithms::matrix_rank(&client, &a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 1);
@@ -2228,7 +2228,7 @@ mod tests {
         let a = Tensor::<CudaRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device);
         let b = Tensor::<CudaRuntime>::from_slice(&[3.0f32, 4.0, 3.0, 5.0], &[2, 2], device);
 
-        let x = client.solve(&a, &b).unwrap();
+        let x = LinearAlgebraAlgorithms::solve(&client, &a, &b).unwrap();
         assert_eq!(x.shape(), &[2, 2]);
         let result: Vec<f32> = x.to_vec();
 
@@ -2269,7 +2269,7 @@ mod tests {
             Tensor::<CudaRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device);
         let b = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let x = client.lstsq(&a, &b).unwrap();
+        let x = LinearAlgebraAlgorithms::lstsq(&client, &a, &b).unwrap();
         assert_eq!(x.shape(), &[2]);
         let result: Vec<f32> = x.to_vec();
 
@@ -2296,7 +2296,7 @@ mod tests {
         let b =
             Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0, 3.0, 6.0], &[3, 2], device);
 
-        let x = client.lstsq(&a, &b).unwrap();
+        let x = LinearAlgebraAlgorithms::lstsq(&client, &a, &b).unwrap();
         assert_eq!(x.shape(), &[2, 2]);
         let result: Vec<f32> = x.to_vec();
 

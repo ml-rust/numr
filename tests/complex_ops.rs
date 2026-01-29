@@ -500,7 +500,7 @@ fn test_wgpu_cpu_parity_angle() {
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
-    let wgpu_device = WgpuDevice::new().expect("WebGPU device");
+    let wgpu_device = WgpuDevice::new(0);
     let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
 
     let data = vec![
@@ -536,7 +536,7 @@ fn test_wgpu_cpu_parity_angle_real() {
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
-    let wgpu_device = WgpuDevice::new().expect("WebGPU device");
+    let wgpu_device = WgpuDevice::new(0);
     let wgpu_client = WgpuRuntime::default_client(&wgpu_device);
 
     // Test angle() for real F32 inputs (critical test for the fix)
