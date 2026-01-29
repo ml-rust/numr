@@ -74,6 +74,7 @@ mod sparse_spmv;
 mod sparse_strategy;
 #[cfg(feature = "sparse")]
 mod sparse_utils;
+mod special;
 #[cfg(feature = "sparse")]
 mod spgemm;
 mod strided_copy;
@@ -112,6 +113,7 @@ pub use sparse_spmv::*;
 pub use sparse_strategy::*;
 #[cfg(feature = "sparse")]
 pub use sparse_utils::*;
+pub use special::*;
 #[cfg(feature = "sparse")]
 pub use spgemm::*;
 pub use strided_copy::*;

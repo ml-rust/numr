@@ -31,6 +31,7 @@ mod fft;
 mod linalg;
 mod ops;
 pub mod shaders;
+mod special;
 mod statistics;
 
 pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle};

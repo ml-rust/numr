@@ -26,6 +26,7 @@ mod ops;
 mod sort;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse;
+pub mod special;
 mod statistics;
 
 use super::{DefaultAllocator, Device, Runtime, RuntimeClient};
@@ -40,6 +41,7 @@ pub use crate::sparse::SparseOps;
 
 // Re-export algorithm traits
 pub use crate::algorithm::LinearAlgebraAlgorithms;
+pub use crate::algorithm::SpecialFunctions;
 pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
 
 // Re-export Tensor for tests

@@ -31,6 +31,7 @@ pub mod index;
 pub mod linalg;
 pub mod shape;
 pub mod sort;
+pub mod special;
 pub mod typed_kernels;
 
 // Legacy modules (to be replaced by typed_kernels)
@@ -63,3 +64,4 @@ pub use generator::{
     wgsl_type,
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
+pub use special::{launch_special_binary, launch_special_ternary, launch_special_unary};

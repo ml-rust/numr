@@ -30,6 +30,7 @@ mod linalg;
 mod ops;
 #[cfg(feature = "sparse")]
 mod sparse;
+mod special;
 
 #[cfg(feature = "sparse")]
 pub use crate::sparse::SparseOps;

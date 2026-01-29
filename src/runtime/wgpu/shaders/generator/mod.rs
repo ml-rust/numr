@@ -37,6 +37,7 @@ pub mod norm;
 pub mod reduce;
 pub mod scalar;
 pub mod sort;
+pub mod special;
 pub mod unary;
 pub mod utility;
 
@@ -73,6 +74,9 @@ pub use sort::{
     MAX_SHARED_SORT_SIZE, generate_count_nonzero_shader, generate_flat_to_multi_index_shader,
     generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
     generate_topk_shader, generate_unique_shader,
+};
+pub use special::{
+    generate_special_binary_shader, generate_special_ternary_shader, generate_special_unary_shader,
 };
 pub use unary::generate_unary_shader;
 pub use utility::{
@@ -574,5 +578,50 @@ mod tests {
     fn test_randint_shader_float_fails() {
         // randint should fail for float types
         assert!(generate_randint_shader(crate::dtype::DType::F32).is_err());
+    }
+
+    // ========================================================================
+    // Special Function Shader Tests
+    // ========================================================================
+
+    #[test]
+    fn test_special_unary_shader_syntax() {
+        let shader = generate_special_unary_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for special unary shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_special_binary_shader_syntax() {
+        let shader = generate_special_binary_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for special binary shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_special_ternary_shader_syntax() {
+        let shader = generate_special_ternary_shader(crate::dtype::DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).unwrap_or_else(|e| {
+            panic!(
+                "Invalid WGSL for special ternary shader F32:\n{}\n\nShader:\n{}",
+                e, shader
+            )
+        });
+    }
+
+    #[test]
+    fn test_special_shaders_f64_fails() {
+        // Special functions only support F32 on WebGPU (no F64)
+        assert!(generate_special_unary_shader(crate::dtype::DType::F64).is_err());
+        assert!(generate_special_binary_shader(crate::dtype::DType::F64).is_err());
+        assert!(generate_special_ternary_shader(crate::dtype::DType::F64).is_err());
     }
 }

@@ -75,12 +75,14 @@ mod arithmetic;
 mod dispatch;
 mod matmul;
 mod reduce;
+mod special;
 
 pub use activation::*;
 pub use arithmetic::*;
 pub use dispatch::*;
 pub use matmul::*;
 pub use reduce::*;
+pub use special::SpecialFunctions;
 
 use crate::dtype::Element;
 use crate::error::Result;
