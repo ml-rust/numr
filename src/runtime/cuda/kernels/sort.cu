@@ -68,10 +68,15 @@ __device__ void sort_dim_impl(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending, bool output_indices
 ) {
+    // Calculate padded size FIRST (needed for shared memory layout)
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     // Shared memory for sort buffer (max 1024 elements per block)
+    // Layout: [n values of type T][n indices of type long long]
     extern __shared__ char shared_mem[];
     T* shared_vals = (T*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // Place after padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -86,11 +91,6 @@ __device__ void sort_dim_impl(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    // Bitonic sort in shared memory
-    // Only works for power-of-2 sizes, pad if needed
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     // Pad with max/min values
     T pad_val = descending ?
@@ -141,9 +141,13 @@ __device__ void topk_dim_impl(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     unsigned int k, bool largest, bool sorted
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     T* shared_vals = (T*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -163,8 +167,6 @@ __device__ void topk_dim_impl(
     // For larger k, do full sort then take top k
 
     // Full bitonic sort for simplicity (can optimize for partial sort later)
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     T pad_val = largest ?
         (sizeof(T) == 8 ? (T)-1e308 : (T)-1e38f) :
@@ -361,6 +363,12 @@ __device__ void bincount_impl(
     }
 }
 
+// ============================================================================
+// extern "C" wrapper kernels for Rust FFI
+// ============================================================================
+
+extern "C" {
+
 // Convert flat index to multi-dimensional index
 __global__ void flat_to_multi_index(
     const long long* flat_indices, long long* multi_indices,
@@ -379,12 +387,6 @@ __global__ void flat_to_multi_index(
         flat_idx /= shape[d];
     }
 }
-
-// ============================================================================
-// extern "C" wrapper kernels for Rust FFI
-// ============================================================================
-
-extern "C" {
 
 // ----------------------------------------------------------------------------
 // Sort with indices - F32
@@ -410,9 +412,13 @@ __global__ void argsort_f32(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     float* shared_vals = (float*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -427,10 +433,6 @@ __global__ void argsort_f32(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    // Bitonic sort
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     float pad_val = descending ? -1e38f : 1e38f;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
@@ -487,9 +489,13 @@ __global__ void argsort_f64(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     double* shared_vals = (double*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -503,9 +509,6 @@ __global__ void argsort_f64(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     double pad_val = descending ? -1e308 : 1e308;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
@@ -561,9 +564,13 @@ __global__ void argsort_i32(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     int* shared_vals = (int*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -577,9 +584,6 @@ __global__ void argsort_i32(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     int pad_val = descending ? INT_MIN : INT_MAX;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
@@ -635,9 +639,13 @@ __global__ void argsort_i64(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     long long* shared_vals = (long long*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -651,9 +659,6 @@ __global__ void argsort_i64(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     long long pad_val = descending ? LLONG_MIN : LLONG_MAX;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
@@ -709,9 +714,13 @@ __global__ void argsort_u32(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     unsigned int* shared_vals = (unsigned int*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -725,9 +734,6 @@ __global__ void argsort_u32(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     unsigned int pad_val = descending ? 0u : UINT_MAX;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
@@ -783,9 +789,13 @@ __global__ void argsort_u64(
     unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
     bool descending
 ) {
+    // Calculate padded size FIRST for correct shared memory layout
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
     extern __shared__ char shared_mem[];
     unsigned long long* shared_vals = (unsigned long long*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + sort_size);
+    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -799,9 +809,6 @@ __global__ void argsort_u64(
         shared_idx[i] = i;
     }
     __syncthreads();
-
-    unsigned int n = 1;
-    while (n < sort_size) n <<= 1;
 
     unsigned long long pad_val = descending ? 0ull : ULLONG_MAX;
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
