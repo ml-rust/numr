@@ -24,6 +24,7 @@
 pub mod complex;
 pub mod copy;
 pub mod cumulative;
+pub mod distributions;
 pub mod dtype_support;
 pub mod fft;
 pub mod generator;
@@ -51,6 +52,10 @@ pub use complex::{launch_angle_real, launch_complex_op};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,
     launch_logsumexp_strided,
+};
+pub use distributions::{
+    launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
+    launch_f_distribution, launch_gamma_dist, launch_laplace, launch_poisson, launch_student_t,
 };
 pub use generator::{
     dtype_suffix, generate_all_casts_from, generate_arange_shader, generate_binary_shader,

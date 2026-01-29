@@ -455,6 +455,100 @@ pub(super) struct MultinomialWithoutReplacementParams {
 }
 
 // ============================================================================
+// Distribution Sampling Params
+// ============================================================================
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct BernoulliParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) p: f32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct BetaDistParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) alpha: f32,
+    pub(super) beta: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct GammaDistParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) shape: f32,
+    pub(super) scale: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct ExponentialParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) rate: f32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct PoissonParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) lambda: f32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct BinomialParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) n_trials: u32,
+    pub(super) p: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct LaplaceParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) loc: f32,
+    pub(super) scale: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct ChiSquaredParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) df: f32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct StudentTParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) df: f32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct FDistributionParams {
+    pub(super) numel: u32,
+    pub(super) seed: u32,
+    pub(super) df1: f32,
+    pub(super) df2: f32,
+}
+
+// ============================================================================
 // Sort Operation Params
 // ============================================================================
 
@@ -506,6 +600,20 @@ pub(super) struct FlatToMultiParams {
     pub(super) _pad0: u32,
     pub(super) _pad1: u32,
     pub(super) shape: [u32; 8],
+}
+
+/// Generate a random seed for WebGPU RNG operations.
+/// Combines system time with an atomic counter to ensure uniqueness across calls.
+pub(super) fn generate_wgpu_seed() -> u32 {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let time_seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u32)
+        .unwrap_or(12345u32);
+    time_seed.wrapping_add(counter)
 }
 
 /// Read a single u32 value from a GPU buffer (synchronous)

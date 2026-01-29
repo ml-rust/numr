@@ -2230,6 +2230,439 @@ impl TensorOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn bernoulli(&self, p: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "bernoulli",
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("bernoulli requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_bernoulli(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                p,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn beta(
+        &self,
+        alpha: f64,
+        beta: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType { dtype, op: "beta" });
+        }
+        if alpha <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "alpha",
+                reason: format!("beta requires alpha > 0, got {}", alpha),
+            });
+        }
+        if beta <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "beta",
+                reason: format!("beta requires beta > 0, got {}", beta),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_beta_dist(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                alpha,
+                beta,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn gamma(
+        &self,
+        shape_param: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType { dtype, op: "gamma" });
+        }
+        if shape_param <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "shape_param",
+                reason: format!("gamma requires shape_param > 0, got {}", shape_param),
+            });
+        }
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("gamma requires scale > 0, got {}", scale),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_gamma_dist(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                shape_param,
+                scale,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn exponential(&self, rate: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "exponential",
+            });
+        }
+        if rate <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "rate",
+                reason: format!("exponential requires rate > 0, got {}", rate),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_exponential(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                rate,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn poisson(&self, lambda: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "poisson",
+            });
+        }
+        if lambda <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "lambda",
+                reason: format!("poisson requires lambda > 0, got {}", lambda),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_poisson(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                lambda,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn binomial(
+        &self,
+        n: u64,
+        p: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "binomial",
+            });
+        }
+        if n == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "n",
+                reason: "binomial requires n > 0".to_string(),
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("binomial requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_binomial(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                n,
+                p,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn laplace(
+        &self,
+        loc: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "laplace",
+            });
+        }
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("laplace requires scale > 0, got {}", scale),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_laplace(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                loc,
+                scale,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn chi_squared(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "chi_squared",
+            });
+        }
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("chi_squared requires df > 0, got {}", df),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_chi_squared(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                df,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn student_t(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "student_t",
+            });
+        }
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("student_t requires df > 0, got {}", df),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_student_t(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                df,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn f_distribution(
+        &self,
+        df1: f64,
+        df2: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "f_distribution",
+            });
+        }
+        if df1 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df1",
+                reason: format!("f_distribution requires df1 > 0, got {}", df1),
+            });
+        }
+        if df2 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df2",
+                reason: format!("f_distribution requires df2 > 0, got {}", df2),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+        let seed = generate_random_seed();
+
+        unsafe {
+            super::super::kernels::launch_f_distribution(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                df1,
+                df2,
+                seed,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
     // ===== Shape Operations =====
 
     fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {

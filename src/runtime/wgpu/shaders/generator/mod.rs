@@ -29,6 +29,7 @@ pub mod common;
 pub mod compare;
 pub mod complex;
 pub mod cumulative;
+pub mod distributions;
 pub mod fft;
 pub mod index;
 pub mod masked;
@@ -55,6 +56,12 @@ pub use complex::{
 pub use cumulative::{
     generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
     generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
+};
+pub use distributions::{
+    generate_bernoulli_shader, generate_beta_dist_shader, generate_binomial_shader,
+    generate_chi_squared_shader, generate_exponential_shader, generate_f_distribution_shader,
+    generate_gamma_dist_shader, generate_laplace_shader, generate_poisson_shader,
+    generate_student_t_shader,
 };
 pub use fft::{
     MAX_WORKGROUP_FFT_SIZE, generate_copy_complex_shader, generate_fftshift_shader,

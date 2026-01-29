@@ -1,6 +1,6 @@
 //! TensorOps trait implementation for WebGPU runtime.
 
-use super::super::shaders::shape;
+use super::super::shaders::{distributions, shape};
 use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use super::native::*;
@@ -987,6 +987,492 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
                 dtype,
             )?;
         }
+
+        Ok(out)
+    }
+
+    // --- Distribution Sampling Operations ---
+
+    fn bernoulli(&self, p: f64, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "bernoulli (WebGPU only supports F32)",
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("bernoulli requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = BernoulliParams {
+            numel: numel as u32,
+            seed,
+            p: p as f32,
+            _pad: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_bernoulli(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn beta(
+        &self,
+        alpha: f64,
+        beta: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "beta (WebGPU only supports F32)",
+            });
+        }
+        if alpha <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "alpha",
+                reason: format!("beta requires alpha > 0, got {}", alpha),
+            });
+        }
+        if beta <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "beta",
+                reason: format!("beta requires beta > 0, got {}", beta),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = BetaDistParams {
+            numel: numel as u32,
+            seed,
+            alpha: alpha as f32,
+            beta: beta as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_beta_dist(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn gamma(
+        &self,
+        shape_param: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "gamma (WebGPU only supports F32)",
+            });
+        }
+        if shape_param <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "shape_param",
+                reason: format!("gamma requires shape_param > 0, got {}", shape_param),
+            });
+        }
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("gamma requires scale > 0, got {}", scale),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = GammaDistParams {
+            numel: numel as u32,
+            seed,
+            shape: shape_param as f32,
+            scale: scale as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_gamma_dist(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn exponential(&self, rate: f64, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "exponential (WebGPU only supports F32)",
+            });
+        }
+        if rate <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "rate",
+                reason: format!("exponential requires rate > 0, got {}", rate),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = ExponentialParams {
+            numel: numel as u32,
+            seed,
+            rate: rate as f32,
+            _pad: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_exponential(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn poisson(&self, lambda: f64, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "poisson (WebGPU only supports F32)",
+            });
+        }
+        if lambda <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "lambda",
+                reason: format!("poisson requires lambda > 0, got {}", lambda),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = PoissonParams {
+            numel: numel as u32,
+            seed,
+            lambda: lambda as f32,
+            _pad: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_poisson(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn binomial(
+        &self,
+        n: u64,
+        p: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "binomial (WebGPU only supports F32)",
+            });
+        }
+        if n == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "n",
+                reason: "binomial requires n > 0".to_string(),
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("binomial requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = BinomialParams {
+            numel: numel as u32,
+            seed,
+            n_trials: n as u32, // WebGPU doesn't support u64, truncate to u32
+            p: p as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_binomial(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn laplace(
+        &self,
+        loc: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "laplace (WebGPU only supports F32)",
+            });
+        }
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("laplace requires scale > 0, got {}", scale),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = LaplaceParams {
+            numel: numel as u32,
+            seed,
+            loc: loc as f32,
+            scale: scale as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_laplace(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn chi_squared(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "chi_squared (WebGPU only supports F32)",
+            });
+        }
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("chi_squared requires df > 0, got {}", df),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = ChiSquaredParams {
+            numel: numel as u32,
+            seed,
+            df: df as f32,
+            _pad: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_chi_squared(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn student_t(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "student_t (WebGPU only supports F32)",
+            });
+        }
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("student_t requires df > 0, got {}", df),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = StudentTParams {
+            numel: numel as u32,
+            seed,
+            df: df as f32,
+            _pad: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_student_t(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn f_distribution(
+        &self,
+        df1: f64,
+        df2: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "f_distribution (WebGPU only supports F32)",
+            });
+        }
+        if df1 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df1",
+                reason: format!("f_distribution requires df1 > 0, got {}", df1),
+            });
+        }
+        if df2 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df2",
+                reason: format!("f_distribution requires df2 > 0, got {}", df2),
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+        let seed = generate_wgpu_seed();
+
+        let params = FDistributionParams {
+            numel: numel as u32,
+            seed,
+            df1: df1 as f32,
+            df2: df2 as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        distributions::launch_f_distribution(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
 
         Ok(out)
     }

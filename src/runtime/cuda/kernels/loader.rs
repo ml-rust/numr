@@ -240,6 +240,8 @@ pub mod kernel_names {
     pub const MATMUL_MODULE: &str = "matmul";
     /// Cumulative operations (cumsum, cumprod, logsumexp)
     pub const CUMULATIVE_MODULE: &str = "cumulative";
+    /// Distribution sampling operations (bernoulli, beta, gamma, etc.)
+    pub const DISTRIBUTIONS_MODULE: &str = "distributions";
 
     /// Generate kernel name for reduction operations.
     #[inline]

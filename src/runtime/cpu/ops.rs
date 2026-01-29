@@ -1710,6 +1710,364 @@ impl TensorOps<CpuRuntime> for CpuClient {
         Ok(out)
     }
 
+    fn bernoulli(&self, p: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "bernoulli",
+            });
+        }
+
+        // Validate probability
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("bernoulli requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::bernoulli_kernel::<T>(out_ptr as *mut T, p, numel); }
+        }, "bernoulli");
+
+        Ok(out)
+    }
+
+    fn beta(
+        &self,
+        alpha: f64,
+        beta: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType { dtype, op: "beta" });
+        }
+
+        // Validate parameters
+        if alpha <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "alpha",
+                reason: format!("beta requires alpha > 0, got {}", alpha),
+            });
+        }
+        if beta <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "beta",
+                reason: format!("beta requires beta > 0, got {}", beta),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::beta_kernel::<T>(out_ptr as *mut T, alpha, beta, numel); }
+        }, "beta");
+
+        Ok(out)
+    }
+
+    fn gamma(
+        &self,
+        shape_param: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType { dtype, op: "gamma" });
+        }
+
+        // Validate parameters
+        if shape_param <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "shape_param",
+                reason: format!("gamma requires shape_param > 0, got {}", shape_param),
+            });
+        }
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("gamma requires scale > 0, got {}", scale),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::gamma_kernel::<T>(out_ptr as *mut T, shape_param, scale, numel); }
+        }, "gamma");
+
+        Ok(out)
+    }
+
+    fn exponential(&self, rate: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "exponential",
+            });
+        }
+
+        // Validate parameter
+        if rate <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "rate",
+                reason: format!("exponential requires rate > 0, got {}", rate),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::exponential_kernel::<T>(out_ptr as *mut T, rate, numel); }
+        }, "exponential");
+
+        Ok(out)
+    }
+
+    fn poisson(&self, lambda: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "poisson",
+            });
+        }
+
+        // Validate parameter
+        if lambda <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "lambda",
+                reason: format!("poisson requires lambda > 0, got {}", lambda),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::poisson_kernel::<T>(out_ptr as *mut T, lambda, numel); }
+        }, "poisson");
+
+        Ok(out)
+    }
+
+    fn binomial(
+        &self,
+        n: u64,
+        p: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "binomial",
+            });
+        }
+
+        // Validate parameters
+        if n == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "n",
+                reason: "binomial requires n > 0".to_string(),
+            });
+        }
+        if !(0.0..=1.0).contains(&p) {
+            return Err(Error::InvalidArgument {
+                arg: "p",
+                reason: format!("binomial requires p in [0, 1], got {}", p),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::binomial_kernel::<T>(out_ptr as *mut T, n, p, numel); }
+        }, "binomial");
+
+        Ok(out)
+    }
+
+    fn laplace(
+        &self,
+        loc: f64,
+        scale: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "laplace",
+            });
+        }
+
+        // Validate parameter
+        if scale <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "scale",
+                reason: format!("laplace requires scale > 0, got {}", scale),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::laplace_kernel::<T>(out_ptr as *mut T, loc, scale, numel); }
+        }, "laplace");
+
+        Ok(out)
+    }
+
+    fn chi_squared(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "chi_squared",
+            });
+        }
+
+        // Validate parameter
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("chi_squared requires df > 0, got {}", df),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::chi_squared_kernel::<T>(out_ptr as *mut T, df, numel); }
+        }, "chi_squared");
+
+        Ok(out)
+    }
+
+    fn student_t(&self, df: f64, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "student_t",
+            });
+        }
+
+        // Validate parameter
+        if df <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df",
+                reason: format!("student_t requires df > 0, got {}", df),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::student_t_kernel::<T>(out_ptr as *mut T, df, numel); }
+        }, "student_t");
+
+        Ok(out)
+    }
+
+    fn f_distribution(
+        &self,
+        df1: f64,
+        df2: f64,
+        shape: &[usize],
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Validate dtype is floating point
+        if !dtype.is_float() {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "f_distribution",
+            });
+        }
+
+        // Validate parameters
+        if df1 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df1",
+                reason: format!("f_distribution requires df1 > 0, got {}", df1),
+            });
+        }
+        if df2 <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "df2",
+                reason: format!("f_distribution requires df2 > 0, got {}", df2),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let numel = out.numel();
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let out_ptr = out.storage().ptr();
+        dispatch_dtype!(dtype, T => {
+            unsafe { kernels::f_distribution_kernel::<T>(out_ptr as *mut T, df1, df2, numel); }
+        }, "f_distribution");
+
+        Ok(out)
+    }
+
     // ===== Shape Operations =====
 
     fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {

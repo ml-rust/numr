@@ -9,6 +9,7 @@ pub mod binary;
 pub mod compare;
 pub mod complex;
 pub mod cumulative;
+pub mod distributions;
 pub mod fft;
 pub mod index;
 pub mod matmul;
@@ -29,6 +30,10 @@ pub use complex::{
 pub use cumulative::{
     cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
     logsumexp_strided_kernel,
+};
+pub use distributions::{
+    bernoulli_kernel, beta_kernel, binomial_kernel, chi_squared_kernel, exponential_kernel,
+    f_distribution_kernel, gamma_kernel, laplace_kernel, poisson_kernel, student_t_kernel,
 };
 pub use fft::{
     fftshift_c64, fftshift_c128, ifftshift_c64, ifftshift_c128, irfft_c64, irfft_c128, rfft_c64,

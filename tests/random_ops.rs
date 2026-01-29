@@ -688,3 +688,466 @@ fn test_multinomial_negative_probs_treated_as_zero() {
         );
     }
 }
+
+// ============================================================================
+// Distribution Sampling Tests
+// ============================================================================
+
+// --- Bernoulli Distribution Tests ---
+
+#[test]
+fn test_bernoulli_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.bernoulli(0.5, &[100], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[100]);
+    assert_eq!(result.dtype(), DType::F32);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v == 0.0 || *v == 1.0, "bernoulli should produce 0 or 1");
+    }
+}
+
+#[test]
+fn test_bernoulli_always_zero() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.bernoulli(0.0, &[100], DType::F32).unwrap();
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert_eq!(*v, 0.0, "bernoulli with p=0 should always be 0");
+    }
+}
+
+#[test]
+fn test_bernoulli_always_one() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.bernoulli(1.0, &[100], DType::F32).unwrap();
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert_eq!(*v, 1.0, "bernoulli with p=1 should always be 1");
+    }
+}
+
+#[test]
+fn test_bernoulli_invalid_p() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.bernoulli(-0.1, &[10], DType::F32).is_err());
+    assert!(client.bernoulli(1.1, &[10], DType::F32).is_err());
+}
+
+// --- Beta Distribution Tests ---
+
+#[test]
+fn test_beta_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.beta(2.0, 5.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0 && *v <= 1.0, "beta should be in [0, 1]");
+    }
+
+    // Mean of Beta(2, 5) = 2/(2+5) = 0.286
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 0.286).abs() < 0.05,
+        "beta(2,5) mean {} should be ~0.286",
+        mean
+    );
+}
+
+#[test]
+fn test_beta_invalid_params() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.beta(0.0, 1.0, &[10], DType::F32).is_err());
+    assert!(client.beta(1.0, 0.0, &[10], DType::F32).is_err());
+    assert!(client.beta(-1.0, 1.0, &[10], DType::F32).is_err());
+}
+
+// --- Gamma Distribution Tests ---
+
+#[test]
+fn test_gamma_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.gamma(2.0, 1.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0, "gamma should be non-negative");
+    }
+
+    // Mean of Gamma(2, 1) = 2*1 = 2
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 2.0).abs() < 0.3,
+        "gamma(2,1) mean {} should be ~2",
+        mean
+    );
+}
+
+#[test]
+fn test_gamma_invalid_params() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.gamma(0.0, 1.0, &[10], DType::F32).is_err());
+    assert!(client.gamma(1.0, 0.0, &[10], DType::F32).is_err());
+    assert!(client.gamma(-1.0, 1.0, &[10], DType::F32).is_err());
+}
+
+// --- Exponential Distribution Tests ---
+
+#[test]
+fn test_exponential_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.exponential(2.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0, "exponential should be non-negative");
+    }
+
+    // Mean of Exp(rate=2) = 1/rate = 0.5
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 0.5).abs() < 0.1,
+        "exponential(2) mean {} should be ~0.5",
+        mean
+    );
+}
+
+#[test]
+fn test_exponential_invalid_rate() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.exponential(0.0, &[10], DType::F32).is_err());
+    assert!(client.exponential(-1.0, &[10], DType::F32).is_err());
+}
+
+// --- Poisson Distribution Tests ---
+
+#[test]
+fn test_poisson_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.poisson(5.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0, "poisson should be non-negative");
+        assert!(v.fract() == 0.0, "poisson should produce integers");
+    }
+
+    // Mean of Poisson(5) = 5
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 5.0).abs() < 0.5,
+        "poisson(5) mean {} should be ~5",
+        mean
+    );
+}
+
+#[test]
+fn test_poisson_small_lambda() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Very small lambda should produce mostly zeros
+    let result = client.poisson(0.001, &[1000], DType::F32).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Count zeros - with lambda=0.001, most values should be 0
+    let zeros = data.iter().filter(|&&v| v == 0.0).count();
+    assert!(
+        zeros > 900,
+        "poisson(0.001) should produce mostly zeros, got {} zeros out of 1000",
+        zeros
+    );
+}
+
+#[test]
+fn test_poisson_invalid_lambda() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.poisson(-1.0, &[10], DType::F32).is_err());
+}
+
+// --- Binomial Distribution Tests ---
+
+#[test]
+fn test_binomial_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.binomial(10, 0.5, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0 && *v <= 10.0, "binomial(10,0.5) in [0, 10]");
+        assert!(v.fract() == 0.0, "binomial should produce integers");
+    }
+
+    // Mean of Binomial(10, 0.5) = 10 * 0.5 = 5
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 5.0).abs() < 0.5,
+        "binomial(10,0.5) mean {} should be ~5",
+        mean
+    );
+}
+
+#[test]
+fn test_binomial_invalid_p() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.binomial(10, -0.1, &[10], DType::F32).is_err());
+    assert!(client.binomial(10, 1.1, &[10], DType::F32).is_err());
+}
+
+// --- Laplace Distribution Tests ---
+
+#[test]
+fn test_laplace_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.laplace(0.0, 1.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+
+    // Mean of Laplace(0, 1) = 0
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(mean.abs() < 0.2, "laplace(0,1) mean {} should be ~0", mean);
+}
+
+#[test]
+fn test_laplace_invalid_scale() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.laplace(0.0, 0.0, &[10], DType::F32).is_err());
+    assert!(client.laplace(0.0, -1.0, &[10], DType::F32).is_err());
+}
+
+// --- Chi-Squared Distribution Tests ---
+
+#[test]
+fn test_chi_squared_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.chi_squared(4.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0, "chi_squared should be non-negative");
+    }
+
+    // Mean of Chi-squared(4) = df = 4
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 4.0).abs() < 0.5,
+        "chi_squared(4) mean {} should be ~4",
+        mean
+    );
+}
+
+#[test]
+fn test_chi_squared_invalid_df() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.chi_squared(0.0, &[10], DType::F32).is_err());
+    assert!(client.chi_squared(-1.0, &[10], DType::F32).is_err());
+}
+
+// --- Student's t Distribution Tests ---
+
+#[test]
+fn test_student_t_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.student_t(10.0, &[1000], DType::F32).unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+
+    // Mean of t(10) = 0 (for df > 1)
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(mean.abs() < 0.2, "student_t(10) mean {} should be ~0", mean);
+}
+
+#[test]
+fn test_student_t_invalid_df() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.student_t(0.0, &[10], DType::F32).is_err());
+    assert!(client.student_t(-1.0, &[10], DType::F32).is_err());
+}
+
+// --- F Distribution Tests ---
+
+#[test]
+fn test_f_distribution_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client
+        .f_distribution(5.0, 10.0, &[1000], DType::F32)
+        .unwrap();
+    assert_eq!(result.shape(), &[1000]);
+
+    let data: Vec<f32> = result.to_vec();
+    for v in &data {
+        assert!(*v >= 0.0, "f_distribution should be non-negative");
+    }
+
+    // Mean of F(d1, d2) = d2/(d2-2) for d2 > 2
+    // F(5, 10) mean = 10/(10-2) = 1.25
+    let mean: f32 = data.iter().sum::<f32>() / data.len() as f32;
+    assert!(
+        (mean - 1.25).abs() < 0.3,
+        "f_distribution(5,10) mean {} should be ~1.25",
+        mean
+    );
+}
+
+#[test]
+fn test_f_distribution_invalid_df() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.f_distribution(0.0, 10.0, &[10], DType::F32).is_err());
+    assert!(client.f_distribution(5.0, 0.0, &[10], DType::F32).is_err());
+    assert!(
+        client
+            .f_distribution(-1.0, 10.0, &[10], DType::F32)
+            .is_err()
+    );
+}
+
+// --- Empty Shape Tests ---
+
+#[test]
+fn test_distributions_empty_shape() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert_eq!(client.bernoulli(0.5, &[0], DType::F32).unwrap().numel(), 0);
+    assert_eq!(client.beta(1.0, 1.0, &[0], DType::F32).unwrap().numel(), 0);
+    assert_eq!(client.gamma(1.0, 1.0, &[0], DType::F32).unwrap().numel(), 0);
+    assert_eq!(
+        client.exponential(1.0, &[0], DType::F32).unwrap().numel(),
+        0
+    );
+    assert_eq!(client.poisson(1.0, &[0], DType::F32).unwrap().numel(), 0);
+    assert_eq!(
+        client.binomial(10, 0.5, &[0], DType::F32).unwrap().numel(),
+        0
+    );
+    assert_eq!(
+        client.laplace(0.0, 1.0, &[0], DType::F32).unwrap().numel(),
+        0
+    );
+    assert_eq!(
+        client.chi_squared(1.0, &[0], DType::F32).unwrap().numel(),
+        0
+    );
+    assert_eq!(client.student_t(1.0, &[0], DType::F32).unwrap().numel(), 0);
+    assert_eq!(
+        client
+            .f_distribution(1.0, 1.0, &[0], DType::F32)
+            .unwrap()
+            .numel(),
+        0
+    );
+}
+
+// --- Multi-dimensional Shape Tests ---
+
+#[test]
+fn test_distributions_multidim() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let shape = &[2, 3, 4];
+    let numel = 24;
+
+    assert_eq!(
+        client.bernoulli(0.5, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.bernoulli(0.5, shape, DType::F32).unwrap().numel(),
+        numel
+    );
+
+    assert_eq!(
+        client.beta(1.0, 1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.gamma(1.0, 1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.exponential(1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.poisson(1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.binomial(10, 0.5, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.laplace(0.0, 1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.chi_squared(1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client.student_t(1.0, shape, DType::F32).unwrap().shape(),
+        shape
+    );
+    assert_eq!(
+        client
+            .f_distribution(1.0, 1.0, shape, DType::F32)
+            .unwrap()
+            .shape(),
+        shape
+    );
+}
