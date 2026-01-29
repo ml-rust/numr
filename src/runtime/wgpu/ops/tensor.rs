@@ -1181,13 +1181,13 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
         let src_buf = get_tensor_buffer(&tensor_contig)?;
 
-        // Create params with padded arrays
+        // Build flat shape arrays, then pack for WGSL uniform buffer alignment
         let ndim = params.out_shape.len();
-        let mut src_shape = [0u32; 8];
-        let mut out_shape_arr = [0u32; 8];
+        let mut src_shape_flat = [0u32; 8];
+        let mut out_shape_flat = [0u32; 8];
         for i in 0..ndim {
-            src_shape[i] = tensor.shape()[i] as u32;
-            out_shape_arr[i] = params.out_shape[i] as u32;
+            src_shape_flat[i] = tensor.shape()[i] as u32;
+            out_shape_flat[i] = params.out_shape[i] as u32;
         }
 
         let shader_params = RepeatParams {
@@ -1195,8 +1195,8 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
             total_elements: total_elements as u32,
             _pad0: 0,
             _pad1: 0,
-            src_shape,
-            out_shape: out_shape_arr,
+            src_shape: pack_u32_array(&src_shape_flat),
+            out_shape: pack_u32_array(&out_shape_flat),
         };
         let params_buf = create_params_buffer(self, &shader_params);
 
@@ -1260,17 +1260,21 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
         let src_buf = get_tensor_buffer(&tensor_contig)?;
 
-        // Create params with padded arrays
+        // Build flat shape arrays, then pack for WGSL uniform buffer alignment
         let ndim = params.out_shape.len();
-        let mut src_shape = [0u32; 8];
-        let mut out_shape_arr = [0u32; 8];
-        let mut pad_before = [0u32; 8];
+        let mut src_shape_flat = [0u32; 8];
+        let mut out_shape_flat = [0u32; 8];
+        let mut pad_before_flat = [0u32; 8];
         for i in 0..ndim {
-            src_shape[i] = tensor.shape()[i] as u32;
-            out_shape_arr[i] = params.out_shape[i] as u32;
-            // Extract 'before' padding from pad_per_dim: (before, after)
-            pad_before[i] = params.pad_per_dim[i].0 as u32;
+            src_shape_flat[i] = tensor.shape()[i] as u32;
+            out_shape_flat[i] = params.out_shape[i] as u32;
+            pad_before_flat[i] = params.pad_per_dim[i].0 as u32;
         }
+
+        // Pack arrays for WGSL uniform buffer 16-byte alignment
+        let src_shape = pack_u32_array(&src_shape_flat);
+        let out_shape = pack_u32_array(&out_shape_flat);
+        let pad_before = pack_u32_array(&pad_before_flat);
 
         // Create dtype-specific params buffer
         let params_buf = match dtype {
@@ -1281,7 +1285,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
                     fill_value: value as f32,
                     _pad0: 0,
                     src_shape,
-                    out_shape: out_shape_arr,
+                    out_shape,
                     pad_before,
                 };
                 create_params_buffer(self, &shader_params)
@@ -1293,7 +1297,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
                     fill_value: value as i32,
                     _pad0: 0,
                     src_shape,
-                    out_shape: out_shape_arr,
+                    out_shape,
                     pad_before,
                 };
                 create_params_buffer(self, &shader_params)
@@ -1305,7 +1309,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
                     fill_value: value as u32,
                     _pad0: 0,
                     src_shape,
-                    out_shape: out_shape_arr,
+                    out_shape,
                     pad_before,
                 };
                 create_params_buffer(self, &shader_params)

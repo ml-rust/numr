@@ -34,7 +34,7 @@ pub(super) fn create_params_buffer<T: bytemuck::Pod>(
 }
 
 /// Get the wgpu buffer from a tensor's storage pointer.
-pub(super) fn get_tensor_buffer(
+pub(crate) fn get_tensor_buffer(
     tensor: &Tensor<WgpuRuntime>,
 ) -> Result<std::sync::Arc<wgpu::Buffer>> {
     let ptr = tensor.storage().ptr();
@@ -42,7 +42,7 @@ pub(super) fn get_tensor_buffer(
 }
 
 /// Allocate output tensor with given shape and dtype.
-pub(super) fn alloc_output(
+pub(crate) fn alloc_output(
     client: &super::super::WgpuClient,
     shape: &[usize],
     dtype: DType,
@@ -336,6 +336,21 @@ pub(super) struct RandintParamsU32 {
 // Shape operation params
 // Note: Array sizes must match MAX_DIMS (8) for binary layout compatibility with WGSL shaders.
 // WGSL doesn't support dynamic arrays in uniform buffers, so we use fixed-size arrays.
+// Arrays in WGSL uniform buffers must have 16-byte aligned elements, so we pack 8 u32s
+// into 2 vec4<u32> (represented as [[u32; 4]; 2] in Rust).
+
+/// Pack a flat `[u32; 8]` array into `[[u32; 4]; 2]` for WGSL uniform buffer alignment.
+///
+/// WGSL uniform buffers require 16-byte alignment for array elements. Since `u32` is 4 bytes,
+/// `array<u32, 8>` would have 4-byte stride which violates this requirement. By packing into
+/// `array<vec4<u32>, 2>`, each element is 16 bytes and properly aligned.
+#[inline]
+pub(super) fn pack_u32_array(values: &[u32; 8]) -> [[u32; 4]; 2] {
+    [
+        [values[0], values[1], values[2], values[3]],
+        [values[4], values[5], values[6], values[7]],
+    ]
+}
 
 /// Params for repeat operation (tile tensor along all dimensions)
 #[repr(C)]
@@ -345,10 +360,10 @@ pub(super) struct RepeatParams {
     pub(super) total_elements: u32,
     pub(super) _pad0: u32,
     pub(super) _pad1: u32,
-    /// Source tensor shape (up to MAX_DIMS dimensions)
-    pub(super) src_shape: [u32; 8],
-    /// Output tensor shape (up to MAX_DIMS dimensions)
-    pub(super) out_shape: [u32; 8],
+    /// Source tensor shape (8 values packed as 2 vec4<u32> for alignment)
+    pub(super) src_shape: [[u32; 4]; 2],
+    /// Output tensor shape (8 values packed as 2 vec4<u32> for alignment)
+    pub(super) out_shape: [[u32; 4]; 2],
 }
 
 /// Params for pad operation with F32 fill value
@@ -359,9 +374,9 @@ pub(super) struct PadParamsF32 {
     pub(super) total_elements: u32,
     pub(super) fill_value: f32,
     pub(super) _pad0: u32,
-    pub(super) src_shape: [u32; 8],
-    pub(super) out_shape: [u32; 8],
-    pub(super) pad_before: [u32; 8],
+    pub(super) src_shape: [[u32; 4]; 2],
+    pub(super) out_shape: [[u32; 4]; 2],
+    pub(super) pad_before: [[u32; 4]; 2],
 }
 
 /// Params for pad operation with I32 fill value
@@ -372,9 +387,9 @@ pub(super) struct PadParamsI32 {
     pub(super) total_elements: u32,
     pub(super) fill_value: i32,
     pub(super) _pad0: u32,
-    pub(super) src_shape: [u32; 8],
-    pub(super) out_shape: [u32; 8],
-    pub(super) pad_before: [u32; 8],
+    pub(super) src_shape: [[u32; 4]; 2],
+    pub(super) out_shape: [[u32; 4]; 2],
+    pub(super) pad_before: [[u32; 4]; 2],
 }
 
 /// Params for pad operation with U32 fill value
@@ -385,9 +400,9 @@ pub(super) struct PadParamsU32 {
     pub(super) total_elements: u32,
     pub(super) fill_value: u32,
     pub(super) _pad0: u32,
-    pub(super) src_shape: [u32; 8],
-    pub(super) out_shape: [u32; 8],
-    pub(super) pad_before: [u32; 8],
+    pub(super) src_shape: [[u32; 4]; 2],
+    pub(super) out_shape: [[u32; 4]; 2],
+    pub(super) pad_before: [[u32; 4]; 2],
 }
 
 /// Params for roll operation (circular shift along a dimension)

@@ -4,6 +4,28 @@ use super::common::{dtype_suffix, wgsl_type};
 use crate::dtype::DType;
 use crate::error::Result;
 
+/// WGSL helper function to access packed `array<vec4<u32>, 2>` by index.
+///
+/// WGSL uniform buffers require 16-byte alignment for array elements. We pack 8 u32 values
+/// into 2 vec4<u32> to meet this requirement. This helper extracts individual values.
+const WGSL_GET_PACKED_VALUE_HELPER: &str = r#"// Helper to access packed array<vec4<u32>, 2> by index
+fn get_packed_value(arr: array<vec4<u32>, 2>, d: i32) -> u32 {
+    let vec_idx = u32(d) / 4u;
+    let comp_idx = u32(d) % 4u;
+    if (vec_idx == 0u) {
+        if (comp_idx == 0u) { return arr[0].x; }
+        else if (comp_idx == 1u) { return arr[0].y; }
+        else if (comp_idx == 2u) { return arr[0].z; }
+        else { return arr[0].w; }
+    } else {
+        if (comp_idx == 0u) { return arr[1].x; }
+        else if (comp_idx == 1u) { return arr[1].y; }
+        else if (comp_idx == 2u) { return arr[1].z; }
+        else { return arr[1].w; }
+    }
+}
+"#;
+
 /// Generate WGSL shader for cat_copy operation (one tensor at a time)
 ///
 /// This kernel copies data from a source tensor to the appropriate position
@@ -69,16 +91,19 @@ pub fn generate_repeat_shader(dtype: DType) -> Result<String> {
 const WORKGROUP_SIZE: u32 = 256u;
 const MAX_DIMS: u32 = 8u;
 
+// Use vec4<u32> for 16-byte alignment in uniform buffer
 struct RepeatParams {{
     ndim: u32,
     total_elements: u32,
     _pad0: u32,
     _pad1: u32,
-    src_shape: array<u32, 8>,
-    out_shape: array<u32, 8>,
+    src_shape: array<vec4<u32>, 2>,  // 8 u32 values packed into 2 vec4
+    out_shape: array<vec4<u32>, 2>,
 }}
 
-@group(0) @binding(0) var<storage, read> repeat_src: array<{t}>;
+{helper}
+
+@group(0) @binding(0) var<storage, read_write> repeat_src: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> repeat_dst: array<{t}>;
 @group(0) @binding(2) var<uniform> repeat_params: RepeatParams;
 
@@ -92,24 +117,24 @@ fn repeat_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     // Decompose idx into multi-dimensional output coordinates
     var remaining = idx;
     var src_idx = 0u;
-    var src_stride = 1u;
 
     // Compute source strides first (row-major)
     var src_strides: array<u32, 8>;
     var stride = 1u;
     for (var d = i32(repeat_params.ndim) - 1; d >= 0; d = d - 1) {{
         src_strides[d] = stride;
-        stride = stride * repeat_params.src_shape[d];
+        stride = stride * get_packed_value(repeat_params.src_shape, d);
     }}
 
     // Process dimensions from last to first
     for (var d = i32(repeat_params.ndim) - 1; d >= 0; d = d - 1) {{
-        let out_dim = repeat_params.out_shape[d];
+        let out_dim = get_packed_value(repeat_params.out_shape, d);
         let coord = remaining % out_dim;
         remaining = remaining / out_dim;
 
         // Map to source coordinate using modulo
-        let src_coord = coord % repeat_params.src_shape[d];
+        let src_shape_d = get_packed_value(repeat_params.src_shape, d);
+        let src_coord = coord % src_shape_d;
         src_idx = src_idx + src_coord * src_strides[d];
     }}
 
@@ -117,7 +142,8 @@ fn repeat_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 }}
 "#,
         t = t,
-        suffix = suffix
+        suffix = suffix,
+        helper = WGSL_GET_PACKED_VALUE_HELPER
     ))
 }
 
@@ -134,17 +160,20 @@ pub fn generate_pad_shader(dtype: DType) -> Result<String> {
 const WORKGROUP_SIZE: u32 = 256u;
 const MAX_DIMS: u32 = 8u;
 
+// Use vec4<u32> for 16-byte alignment in uniform buffer
 struct PadParams {{
     ndim: u32,
     total_elements: u32,
     fill_value: {t},
     _pad0: u32,
-    src_shape: array<u32, 8>,
-    out_shape: array<u32, 8>,
-    pad_before: array<u32, 8>,
+    src_shape: array<vec4<u32>, 2>,    // 8 u32 values packed into 2 vec4
+    out_shape: array<vec4<u32>, 2>,
+    pad_before: array<vec4<u32>, 2>,
 }}
 
-@group(0) @binding(0) var<storage, read> pad_src: array<{t}>;
+{helper}
+
+@group(0) @binding(0) var<storage, read_write> pad_src: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> pad_dst: array<{t}>;
 @group(0) @binding(2) var<uniform> pad_params: PadParams;
 
@@ -162,13 +191,13 @@ fn pad_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 
     // Process dimensions from last to first
     for (var d = i32(pad_params.ndim) - 1; d >= 0; d = d - 1) {{
-        let out_dim = pad_params.out_shape[d];
+        let out_dim = get_packed_value(pad_params.out_shape, d);
         coords[d] = remaining % out_dim;
         remaining = remaining / out_dim;
 
         // Check if coordinate is in original tensor region
-        let pb = pad_params.pad_before[d];
-        let ss = pad_params.src_shape[d];
+        let pb = get_packed_value(pad_params.pad_before, d);
+        let ss = get_packed_value(pad_params.src_shape, d);
         if (coords[d] < pb || coords[d] >= pb + ss) {{
             in_bounds = false;
         }}
@@ -179,9 +208,9 @@ fn pad_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         var src_idx = 0u;
         var src_stride = 1u;
         for (var d = i32(pad_params.ndim) - 1; d >= 0; d = d - 1) {{
-            let src_coord = coords[d] - pad_params.pad_before[d];
+            let src_coord = coords[d] - get_packed_value(pad_params.pad_before, d);
             src_idx = src_idx + src_coord * src_stride;
-            src_stride = src_stride * pad_params.src_shape[d];
+            src_stride = src_stride * get_packed_value(pad_params.src_shape, d);
         }}
         pad_dst[idx] = pad_src[src_idx];
     }} else {{
@@ -190,7 +219,8 @@ fn pad_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 }}
 "#,
         t = t,
-        suffix = suffix
+        suffix = suffix,
+        helper = WGSL_GET_PACKED_VALUE_HELPER
     ))
 }
 
@@ -217,7 +247,7 @@ struct RollParams {{
     _pad2: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> roll_src: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> roll_src: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> roll_dst: array<{t}>;
 @group(0) @binding(2) var<uniform> roll_params: RollParams;
 
