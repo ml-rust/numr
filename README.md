@@ -2,17 +2,17 @@
 
 **High-performance numerical computing for Rust with multi-backend GPU acceleration.**
 
-numr is a numerical computing library that provides n-dimensional arrays (tensors), linear algebra, FFT, and automatic differentiation - with the same API across CPU, CUDA, WebGPU, and ROCm backends.
+numr is a numerical computing library that provides n-dimensional arrays (tensors), linear algebra, FFT, and automatic differentiation - with the same API across CPU, CUDA, and WebGPU backends.
 
 ## Why numr?
 
 ### vs ndarray
 
-[ndarray](https://github.com/rust-ndarray/ndarray) is CPU-only. numr runs on CPU, CUDA, WebGPU, and ROCm with the same code.
+[ndarray](https://github.com/rust-ndarray/ndarray) is CPU-only. numr runs on CPU, CUDA, and WebGPU with the same code.
 
 ```rust
 // Same code, different hardware
-let result_cpu = a.matmul(&b)?;           // CPU with AVX-512
+let result_cpu = a.matmul(&b)?;           // CPU
 let result_gpu = a_cuda.matmul(&b_cuda)?; // NVIDIA GPU
 let result_web = a_wgpu.matmul(&b_wgpu)?; // Any GPU via WebGPU
 ```
@@ -21,7 +21,7 @@ let result_web = a_wgpu.matmul(&b_wgpu)?; // Any GPU via WebGPU
 
 [faer](https://github.com/sarah-ek/faer-rs) and [nalgebra](https://nalgebra.org/) are excellent CPU linear algebra libraries. numr provides:
 
-- **GPU backends**: CUDA, WebGPU, ROCm - not just CPU
+- **GPU backends**: CUDA, WebGPU - not just CPU
 - **Automatic differentiation**: Built-in autograd for gradients
 - **Sparse tensors**: CSR, CSC, COO formats with GPU support
 - **N-dimensional**: True tensors, not just matrices
@@ -39,7 +39,7 @@ Python bindings require a Python runtime. numr is pure Rust:
 
 [cupy](https://cupy.dev/) is CUDA-only. PyTorch bindings require the PyTorch runtime. numr provides:
 
-- **No vendor lock-in**: Works on NVIDIA, AMD, Intel, Apple (via WebGPU)
+- **Multiple GPU backends**: CUDA and WebGPU (works on NVIDIA, AMD, Intel, Apple)
 - **Native kernels**: Not wrappers around cuBLAS/MKL
 - **Lightweight**: No 2GB PyTorch installation
 - **Same algorithm everywhere**: Identical results across backends
@@ -57,14 +57,20 @@ Python bindings require a Python runtime. numr is pure Rust:
 
 ## Backends
 
-| Backend | Hardware | Feature Flag |
-|---------|----------|--------------|
-| CPU | Any (with AVX-512/AVX2/NEON SIMD) | `cpu` (default) |
-| CUDA | NVIDIA GPUs | `cuda` |
-| WebGPU | Any GPU (NVIDIA, AMD, Intel, Apple) | `wgpu` |
-| ROCm | AMD GPUs | `rocm` |
+| Hardware   | Backend                  | Feature Flag    | Status  |
+| ---------- | ------------------------ | --------------- | ------- |
+| Any CPU    | CPU                      | `cpu` (default) | ✅      |
+| NVIDIA GPU | CUDA                     | `cuda`          | ✅      |
+| NVIDIA GPU | WebGPU                   | `wgpu`          | ✅      |
+| AMD GPU    | WebGPU                   | `wgpu`          | ✅      |
+| Intel GPU  | WebGPU                   | `wgpu`          | ✅      |
+| Apple GPU  | WebGPU                   | `wgpu`          | ✅      |
+| AMD GPU    | ROCm (native)            | -               | Planned |
+| Apple GPU  | Metal (native)           | -               | Planned |
+| CPU        | SIMD (AVX-512/AVX2/NEON) | -               | Planned |
 
 All backends use **native kernels** - no cuBLAS, MKL, or other vendor libraries. This means:
+
 - No proprietary dependencies to install
 - Same algorithm produces same results on all hardware
 - Works anywhere Rust compiles
@@ -142,23 +148,19 @@ numr = { version = "0.0.0", features = ["cuda"] }
 
 # Cross-platform GPU (WebGPU)
 numr = { version = "0.0.0", features = ["wgpu"] }
-
-# AMD ROCm
-numr = { version = "0.0.0", features = ["rocm"] }
 ```
 
 ## Feature Flags
 
-| Feature | Description |
-|---------|-------------|
-| `cpu` (default) | CPU backend with SIMD (AVX-512/AVX2/NEON) |
-| `cuda` | NVIDIA CUDA backend |
-| `wgpu` | Cross-platform GPU via WebGPU |
-| `rocm` | AMD ROCm backend |
-| `rayon` (default) | Multi-threaded CPU operations |
-| `f16` | Half-precision floats (F16, BF16) |
-| `fp8` | 8-bit floats (FP8E4M3, FP8E5M2) |
-| `sparse` | Sparse tensor formats (CSR, CSC, COO) |
+| Feature           | Description                           |
+| ----------------- | ------------------------------------- |
+| `cpu` (default)   | CPU backend                           |
+| `cuda`            | NVIDIA CUDA backend                   |
+| `wgpu`            | Cross-platform GPU via WebGPU         |
+| `rayon` (default) | Multi-threaded CPU operations         |
+| `f16`             | Half-precision floats (F16, BF16)     |
+| `fp8`             | 8-bit floats (FP8E4M3, FP8E5M2)       |
+| `sparse`          | Sparse tensor formats (CSR, CSC, COO) |
 
 ## Building on numr
 

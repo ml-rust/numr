@@ -3,11 +3,11 @@
 //! **High-performance numerical computing for Rust with multi-backend GPU acceleration.**
 //!
 //! numr provides n-dimensional arrays (tensors), linear algebra, FFT, and automatic
-//! differentiation - with the same API across CPU, CUDA, WebGPU, and ROCm backends.
+//! differentiation - with the same API across CPU, CUDA, and WebGPU backends.
 //!
 //! ## Why numr?
 //!
-//! - **Multi-backend**: Same code runs on CPU (AVX-512/NEON), CUDA, WebGPU, ROCm
+//! - **Multi-backend**: Same code runs on CPU, CUDA, and WebGPU
 //! - **No vendor lock-in**: Native kernels, not cuBLAS/MKL wrappers
 //! - **Pure Rust**: No Python runtime, no FFI overhead, single binary deployment
 //! - **Autograd included**: Reverse-mode automatic differentiation built-in
@@ -36,10 +36,9 @@
 //!
 //! ## Feature Flags
 //!
-//! - `cpu` (default): CPU backend with SIMD (AVX-512/AVX2/NEON)
+//! - `cpu` (default): CPU backend
 //! - `cuda`: NVIDIA CUDA backend
 //! - `wgpu`: Cross-platform GPU via WebGPU
-//! - `rocm`: AMD ROCm backend
 //! - `rayon` (default): Multi-threaded CPU operations
 //! - `f16`: Half-precision floats (F16, BF16)
 //! - `fp8`: 8-bit floats (FP8E4M3, FP8E5M2)
