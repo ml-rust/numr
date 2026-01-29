@@ -7,6 +7,7 @@
 
 pub mod binary;
 pub mod compare;
+pub mod complex;
 pub mod cumulative;
 pub mod fft;
 pub mod index;
@@ -20,6 +21,10 @@ pub mod unary;
 // Re-export all kernel functions for convenient access
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
 pub use compare::{compare_op_kernel, compare_op_strided_kernel};
+pub use complex::{
+    angle_complex64, angle_complex128, angle_real_f32, angle_real_f64, conj_complex64,
+    conj_complex128, imag_complex64, imag_complex128, real_complex64, real_complex128,
+};
 pub use cumulative::{
     cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
     logsumexp_strided_kernel,
