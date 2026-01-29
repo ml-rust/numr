@@ -1535,6 +1535,301 @@ pub trait TensorOps<R: Runtime> {
         correction: usize,
     ) -> Result<Tensor<R>>;
 
+    /// Compute the q-th quantile along a dimension
+    ///
+    /// Returns the value at the given quantile (0.0 to 1.0) along the specified dimension.
+    /// The input is sorted along the dimension, then the value at the quantile position
+    /// is computed using the specified interpolation method.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `q` - Quantile to compute, must be in [0.0, 1.0]
+    /// * `dim` - Dimension to reduce (None = flatten first)
+    /// * `keepdim` - If true, keep reduced dimension as size 1
+    /// * `interpolation` - Method for interpolating between data points:
+    ///   - "linear" (default): Linear interpolation between adjacent values
+    ///   - "lower": Use lower index value
+    ///   - "higher": Use higher index value
+    ///   - "nearest": Use nearest index value
+    ///   - "midpoint": Average of lower and higher values
+    ///
+    /// # Returns
+    ///
+    /// Tensor with quantile values. Shape is the same as input with the specified
+    /// dimension removed (or kept as size 1 if keepdim=true).
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Sort input along dimension
+    /// 2. Compute index: idx = q * (n - 1) where n = dimension size
+    /// 3. Interpolate based on method:
+    ///    - linear: result = sorted[floor] * (1 - frac) + sorted[ceil] * frac
+    ///    - lower: result = sorted[floor(idx)]
+    ///    - higher: result = sorted[ceil(idx)]
+    ///    - nearest: result = sorted[round(idx)]
+    ///    - midpoint: result = (sorted[floor] + sorted[ceil]) / 2
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// let median = client.quantile(&a, 0.5, Some(0), false, "linear")?;  // 3.0
+    /// let q25 = client.quantile(&a, 0.25, Some(0), false, "linear")?;    // 2.0
+    /// let q75 = client.quantile(&a, 0.75, Some(0), false, "linear")?;    // 4.0
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// - `InvalidArgument` if q is outside [0.0, 1.0]
+    /// - `InvalidArgument` if interpolation is not a valid method
+    /// - `InvalidAxis` if dim is out of bounds
+    fn quantile(
+        &self,
+        a: &Tensor<R>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<R>>;
+
+    /// Compute the p-th percentile along a dimension
+    ///
+    /// Convenience wrapper for `quantile(a, p/100, dim, keepdim, "linear")`.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `p` - Percentile to compute, must be in [0.0, 100.0]
+    /// * `dim` - Dimension to reduce (None = flatten first)
+    /// * `keepdim` - If true, keep reduced dimension as size 1
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// let p50 = client.percentile(&a, 50.0, Some(0), false)?;  // 3.0 (median)
+    /// let p25 = client.percentile(&a, 25.0, Some(0), false)?;  // 2.0
+    /// ```
+    fn percentile(
+        &self,
+        a: &Tensor<R>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<R>>;
+
+    /// Compute median (50th percentile) along a dimension
+    ///
+    /// Returns the median value along the specified dimension.
+    /// Equivalent to `quantile(a, 0.5, dim, keepdim, "linear")`.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension to reduce (None = flatten first)
+    /// * `keepdim` - If true, keep reduced dimension as size 1
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 3.0, 2.0, 5.0, 4.0], &[5], &device);
+    /// let med = client.median(&a, Some(0), false)?;  // 3.0
+    ///
+    /// let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// let med = client.median(&b, Some(0), false)?;  // 2.5 (interpolated)
+    /// ```
+    fn median(&self, a: &Tensor<R>, dim: Option<isize>, keepdim: bool) -> Result<Tensor<R>>;
+
+    /// Compute histogram of input values
+    ///
+    /// Counts the number of values that fall into each of the specified bins.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor (flattened internally)
+    /// * `bins` - Number of equal-width bins
+    /// * `range` - Optional (min, max) range for bins. Defaults to (a.min(), a.max())
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (histogram, bin_edges):
+    /// - histogram: I64 tensor of shape [bins] with counts
+    /// - bin_edges: Tensor of shape [bins + 1] with bin boundaries
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Determine range: [min, max] (from input or provided)
+    /// 2. Compute bin_width = (max - min) / bins
+    /// 3. For each value x:
+    ///    bin_idx = floor((x - min) / bin_width)
+    ///    Clamp to [0, bins-1]
+    ///    counts[bin_idx]++
+    /// 4. bin_edges = [min, min+w, min+2w, ..., max]
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[0.5, 1.5, 2.5, 1.0, 2.0], &[5], &device);
+    /// let (hist, edges) = client.histogram(&a, 3, None)?;
+    /// // hist = [1, 2, 2] for bins [0.5-1.17), [1.17-1.83), [1.83-2.5]
+    /// // edges = [0.5, 1.17, 1.83, 2.5]
+    /// ```
+    fn histogram(
+        &self,
+        a: &Tensor<R>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<R>, Tensor<R>)>;
+
+    /// Covariance matrix of observations
+    ///
+    /// Computes the covariance matrix from a matrix where each row is an observation
+    /// and each column is a variable (feature).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [n_samples, n_features]
+    /// * `ddof` - Delta degrees of freedom. Default: 1 (sample covariance)
+    ///
+    /// # Returns
+    ///
+    /// Covariance matrix [n_features, n_features]
+    ///
+    /// # Properties
+    ///
+    /// - Symmetric: cov[i,j] = cov[j,i]
+    /// - Diagonal elements are variances: cov[i,i] = var(X[:,i])
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // 3 samples, 2 features
+    /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
+    /// let c = client.cov(&x, None)?;  // [2, 2] covariance matrix
+    /// ```
+    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>>;
+
+    /// Pearson correlation coefficient matrix
+    ///
+    /// Computes the correlation coefficient matrix from observations.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix tensor [n_samples, n_features]
+    ///
+    /// # Returns
+    ///
+    /// Correlation matrix [n_features, n_features] with values in [-1, 1]
+    ///
+    /// # Properties
+    ///
+    /// - Diagonal elements are 1.0 (unless feature has zero variance)
+    /// - Off-diagonal in [-1, 1]: correlation coefficient
+    /// - Symmetric: corr[i,j] = corr[j,i]
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
+    /// let corr = client.corrcoef(&x)?;  // [2, 2] correlation matrix
+    /// ```
+    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Skewness (third standardized moment)
+    ///
+    /// Measures the asymmetry of the distribution. Positive skew indicates a tail
+    /// extending toward positive values; negative skew indicates a tail toward
+    /// negative values.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// skew = E[(X - mean)³] / std³
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dims` - Dimensions to reduce over (empty = all dimensions)
+    /// * `keepdim` - If true, keep reduced dimensions as size 1
+    /// * `correction` - Degrees of freedom correction (default 0)
+    ///
+    /// # Returns
+    ///
+    /// Tensor containing skewness values
+    ///
+    /// # Interpretation
+    ///
+    /// - skew ≈ 0: Symmetric distribution
+    /// - skew > 0: Right-skewed (tail toward positive)
+    /// - skew < 0: Left-skewed (tail toward negative)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Symmetric distribution
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// let s = client.skew(&a, &[], false, 0)?;  // ≈ 0.0
+    /// ```
+    fn skew(
+        &self,
+        a: &Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<R>>;
+
+    /// Kurtosis (fourth standardized moment, excess)
+    ///
+    /// Measures the "tailedness" of the distribution. Higher kurtosis indicates
+    /// heavier tails and sharper peak; lower kurtosis indicates lighter tails.
+    ///
+    /// Returns excess kurtosis (kurtosis - 3), so a normal distribution has
+    /// kurtosis of 0.
+    ///
+    /// # Formula
+    ///
+    /// ```text
+    /// kurtosis = E[(X - mean)⁴] / std⁴ - 3
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dims` - Dimensions to reduce over (empty = all dimensions)
+    /// * `keepdim` - If true, keep reduced dimensions as size 1
+    /// * `correction` - Degrees of freedom correction (default 0)
+    ///
+    /// # Returns
+    ///
+    /// Tensor containing excess kurtosis values
+    ///
+    /// # Interpretation
+    ///
+    /// - kurtosis ≈ 0: Normal-like tails (mesokurtic)
+    /// - kurtosis > 0: Heavy tails, sharp peak (leptokurtic)
+    /// - kurtosis < 0: Light tails, flat peak (platykurtic)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Normal distribution has excess kurtosis ≈ 0
+    /// let normal_data = client.randn(&[10000], DType::F32)?;
+    /// let k = client.kurtosis(&normal_data, &[], false, 0)?;  // ≈ 0.0
+    /// ```
+    fn kurtosis(
+        &self,
+        a: &Tensor<R>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<R>>;
+
     // ===== Random Operations =====
 
     /// Generate uniform random values in [0, 1)

@@ -1400,6 +1400,77 @@ impl TensorOps<CpuRuntime> for CpuClient {
         self.sqrt(&variance)
     }
 
+    fn quantile(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
+    }
+
+    fn percentile(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::percentile_impl(self, a, p, dim, keepdim)
+    }
+
+    fn median(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::median_impl(self, a, dim, keepdim)
+    }
+
+    fn histogram(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::statistics::histogram_impl(self, a, bins, range)
+    }
+
+    fn cov(&self, a: &Tensor<CpuRuntime>, ddof: Option<usize>) -> Result<Tensor<CpuRuntime>> {
+        // Delegate to LinalgAlgorithms implementation
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::cov(self, a, ddof)
+    }
+
+    fn corrcoef(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        // Delegate to LinalgAlgorithms implementation
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::corrcoef(self, a)
+    }
+
+    fn skew(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::skew_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn kurtosis(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
+    }
+
     // ===== Random Operations =====
 
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {

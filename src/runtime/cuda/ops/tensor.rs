@@ -1654,6 +1654,75 @@ impl TensorOps<CudaRuntime> for CudaClient {
         self.sqrt(&variance)
     }
 
+    fn quantile(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<CudaRuntime>> {
+        super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
+    }
+
+    fn percentile(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        super::statistics::percentile_impl(self, a, p, dim, keepdim)
+    }
+
+    fn median(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        super::statistics::median_impl(self, a, dim, keepdim)
+    }
+
+    fn histogram(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        super::statistics::histogram_impl(self, a, bins, range)
+    }
+
+    fn cov(&self, a: &Tensor<CudaRuntime>, ddof: Option<usize>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CudaRuntime>>::cov(self, a, ddof)
+    }
+
+    fn corrcoef(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CudaRuntime>>::corrcoef(self, a)
+    }
+
+    fn skew(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        super::statistics::skew_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn kurtosis(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
+    }
+
     // ===== Cumulative Operations =====
 
     fn cumsum(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {

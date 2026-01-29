@@ -26,6 +26,7 @@ mod ops;
 mod sort;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse;
+mod statistics;
 
 use super::{DefaultAllocator, Device, Runtime, RuntimeClient};
 use crate::dtype::Element;

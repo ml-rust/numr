@@ -18,6 +18,7 @@ pub mod helpers;
 pub mod kernel;
 pub mod shape_ops;
 pub mod sparse_utils;
+pub mod statistics_common;
 
 pub mod cpu;
 

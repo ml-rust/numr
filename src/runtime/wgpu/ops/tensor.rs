@@ -564,6 +564,75 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         self.sqrt(&variance)
     }
 
+    fn quantile(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
+    }
+
+    fn percentile(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::percentile_impl(self, a, p, dim, keepdim)
+    }
+
+    fn median(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::median_impl(self, a, dim, keepdim)
+    }
+
+    fn histogram(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
+        super::super::statistics::histogram_impl(self, a, bins, range)
+    }
+
+    fn cov(&self, a: &Tensor<WgpuRuntime>, ddof: Option<usize>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::cov(self, a, ddof)
+    }
+
+    fn corrcoef(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::corrcoef(self, a)
+    }
+
+    fn skew(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::skew_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn kurtosis(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
+    }
+
     // --- Cumulative Operations ---
 
     fn cumsum(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {

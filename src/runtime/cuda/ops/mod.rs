@@ -44,6 +44,7 @@ mod compare;
 mod helpers;
 mod logical;
 mod scalar;
+mod statistics;
 mod tensor;
 
 #[cfg(test)]
