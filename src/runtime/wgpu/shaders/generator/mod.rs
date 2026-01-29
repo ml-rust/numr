@@ -27,6 +27,7 @@ pub mod cast;
 pub mod cat;
 pub mod common;
 pub mod compare;
+pub mod complex;
 pub mod cumulative;
 pub mod fft;
 pub mod index;
@@ -45,6 +46,10 @@ pub use cat::{
 };
 pub use common::{dtype_suffix, is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type};
 pub use compare::generate_compare_shader;
+pub use complex::{
+    complex_output_dtype, generate_angle_shader, generate_conj_shader, generate_imag_shader,
+    generate_real_shader, get_complex_shader_generator, validate_complex_dtype,
+};
 pub use cumulative::{
     generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
     generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,

@@ -21,6 +21,7 @@
 //! - `linalg` - Linear algebra kernel launchers
 //! - `copy` - Copy operation shaders (strided to contiguous)
 
+pub mod complex;
 pub mod copy;
 pub mod cumulative;
 pub mod dtype_support;
@@ -44,6 +45,7 @@ mod norm_wgsl;
 mod pipeline;
 mod reduce_wgsl;
 
+pub use complex::{launch_angle_real, launch_complex_op};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,
     launch_logsumexp_strided,
