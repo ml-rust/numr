@@ -95,6 +95,17 @@ pub enum Error {
     #[error("Backend error: {0}")]
     Backend(String),
 
+    /// Backend limitation - operation valid but exceeds backend capabilities
+    #[error("{backend} limitation: {operation} - {reason}")]
+    BackendLimitation {
+        /// The backend that has the limitation
+        backend: &'static str,
+        /// The operation being attempted
+        operation: &'static str,
+        /// Description of the limitation
+        reason: String,
+    },
+
     /// CUDA-specific error
     #[cfg(feature = "cuda")]
     #[error("CUDA error: {0}")]
@@ -132,5 +143,18 @@ impl Error {
     /// Create an unsupported dtype error
     pub fn unsupported_dtype(dtype: DType, op: &'static str) -> Self {
         Self::UnsupportedDType { dtype, op }
+    }
+
+    /// Create a backend limitation error
+    pub fn backend_limitation(
+        backend: &'static str,
+        operation: &'static str,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::BackendLimitation {
+            backend,
+            operation,
+            reason: reason.into(),
+        }
     }
 }

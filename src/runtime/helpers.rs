@@ -8,6 +8,65 @@ use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
 // ============================================================================
+// Dimension Normalization
+// ============================================================================
+
+/// Normalize a dimension index, handling negative indexing.
+///
+/// Converts a potentially negative dimension index to a positive index,
+/// following NumPy/PyTorch conventions where -1 refers to the last dimension,
+/// -2 to the second-to-last, etc.
+///
+/// # Arguments
+///
+/// * `dim` - The dimension index (can be negative)
+/// * `ndim` - The number of dimensions in the tensor
+///
+/// # Returns
+///
+/// The normalized (positive) dimension index.
+///
+/// # Errors
+///
+/// Returns `Error::InvalidDimension` if the dimension is out of bounds.
+///
+/// # Examples
+///
+/// ```ignore
+/// use numr::runtime::helpers::normalize_dim;
+///
+/// // Positive indexing
+/// assert_eq!(normalize_dim(0, 3)?, 0);
+/// assert_eq!(normalize_dim(2, 3)?, 2);
+///
+/// // Negative indexing
+/// assert_eq!(normalize_dim(-1, 3)?, 2);  // Last dimension
+/// assert_eq!(normalize_dim(-3, 3)?, 0);  // First dimension
+///
+/// // Out of bounds
+/// assert!(normalize_dim(3, 3).is_err());
+/// assert!(normalize_dim(-4, 3).is_err());
+/// ```
+#[inline]
+pub fn normalize_dim(dim: isize, ndim: usize) -> Result<usize> {
+    let dim_idx = if dim < 0 {
+        let adjusted = ndim as isize + dim;
+        if adjusted < 0 {
+            return Err(Error::InvalidDimension { dim, ndim });
+        }
+        adjusted as usize
+    } else {
+        dim as usize
+    };
+
+    if dim_idx >= ndim {
+        return Err(Error::InvalidDimension { dim, ndim });
+    }
+
+    Ok(dim_idx)
+}
+
+// ============================================================================
 // Utility Operation Validation
 // ============================================================================
 
