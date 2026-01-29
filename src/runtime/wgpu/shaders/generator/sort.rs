@@ -66,7 +66,7 @@ struct CountParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> sort_input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> sort_input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> sort_output: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> sort_indices: array<i32>;
 @group(0) @binding(3) var<uniform> sort_params: SortParams;
@@ -148,14 +148,15 @@ fn sort_{suffix}(
     for (var k: u32 = 2u; k <= n; k = k << 1u) {{
         for (var j: u32 = k >> 1u; j > 0u; j = j >> 1u) {{
             for (var i = tid; i < n / 2u; i = i + WORKGROUP_SIZE) {{
-                let ixj = i ^ j;
-                if (ixj > i) {{
-                    let ii = (i / (k / 2u)) * k + (i % (k / 2u));
-                    let jj = ii ^ j;
-                    let dir = select((ii & k) == 0u, (ii & k) != 0u, descending);
-                    if (ii < n && jj < n) {{
-                        bitonic_cas_{suffix}(ii, jj, dir);
-                    }}
+                // Calculate bitonic network indices
+                let ij = (i / j) * 2u * j + (i % j);
+                let ij_pair = ij + j;
+
+                // Direction depends on which half of the network we're in
+                let ascending_local = ((ij / k) % 2u == 0u) != descending;
+
+                if (ij_pair < n) {{
+                    bitonic_cas_{suffix}(ij, ij_pair, ascending_local);
                 }}
             }}
             workgroupBarrier();
@@ -212,14 +213,15 @@ fn sort_values_only_{suffix}(
     for (var k: u32 = 2u; k <= n; k = k << 1u) {{
         for (var j: u32 = k >> 1u; j > 0u; j = j >> 1u) {{
             for (var i = tid; i < n / 2u; i = i + WORKGROUP_SIZE) {{
-                let ixj = i ^ j;
-                if (ixj > i) {{
-                    let ii = (i / (k / 2u)) * k + (i % (k / 2u));
-                    let jj = ii ^ j;
-                    let dir = select((ii & k) == 0u, (ii & k) != 0u, descending);
-                    if (ii < n && jj < n) {{
-                        bitonic_cas_values_{suffix}(ii, jj, dir);
-                    }}
+                // Calculate bitonic network indices
+                let ij = (i / j) * 2u * j + (i % j);
+                let ij_pair = ij + j;
+
+                // Direction depends on which half of the network we're in
+                let ascending_local = ((ij / k) % 2u == 0u) != descending;
+
+                if (ij_pair < n) {{
+                    bitonic_cas_values_{suffix}(ij, ij_pair, ascending_local);
                 }}
             }}
             workgroupBarrier();
@@ -272,17 +274,19 @@ fn argsort_{suffix}(
     }}
     workgroupBarrier();
 
+    // Bitonic sort
     for (var k: u32 = 2u; k <= n; k = k << 1u) {{
         for (var j: u32 = k >> 1u; j > 0u; j = j >> 1u) {{
             for (var i = tid; i < n / 2u; i = i + WORKGROUP_SIZE) {{
-                let ixj = i ^ j;
-                if (ixj > i) {{
-                    let ii = (i / (k / 2u)) * k + (i % (k / 2u));
-                    let jj = ii ^ j;
-                    let dir = select((ii & k) == 0u, (ii & k) != 0u, descending);
-                    if (ii < n && jj < n) {{
-                        bitonic_cas_{suffix}(ii, jj, dir);
-                    }}
+                // Calculate bitonic network indices
+                let ij = (i / j) * 2u * j + (i % j);
+                let ij_pair = ij + j;
+
+                // Direction depends on which half of the network we're in
+                let ascending_local = ((ij / k) % 2u == 0u) != descending;
+
+                if (ij_pair < n) {{
+                    bitonic_cas_{suffix}(ij, ij_pair, ascending_local);
                 }}
             }}
             workgroupBarrier();
@@ -341,7 +345,7 @@ struct TopkParams {{
     sorted: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> topk_input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> topk_input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> topk_values: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> topk_indices: array<i32>;
 @group(0) @binding(3) var<uniform> topk_params: TopkParams;
@@ -407,15 +411,16 @@ fn topk_{suffix}(
     for (var k_: u32 = 2u; k_ <= n; k_ = k_ << 1u) {{
         for (var j: u32 = k_ >> 1u; j > 0u; j = j >> 1u) {{
             for (var i = tid; i < n / 2u; i = i + WORKGROUP_SIZE) {{
-                let ixj = i ^ j;
-                if (ixj > i) {{
-                    let ii = (i / (k_ / 2u)) * k_ + (i % (k_ / 2u));
-                    let jj = ii ^ j;
-                    // For largest: descending (true), for smallest: ascending (false)
-                    let dir = select((ii & k_) == 0u, (ii & k_) != 0u, largest);
-                    if (ii < n && jj < n) {{
-                        bitonic_cas_{suffix}(ii, jj, dir);
-                    }}
+                // Calculate bitonic network indices
+                let ij = (i / j) * 2u * j + (i % j);
+                let ij_pair = ij + j;
+
+                // Direction depends on which half of the network we're in
+                // For largest: descending (true), for smallest: ascending (false)
+                let ascending_local = ((ij / k_) % 2u == 0u) != largest;
+
+                if (ij_pair < n) {{
+                    bitonic_cas_{suffix}(ij, ij_pair, ascending_local);
                 }}
             }}
             workgroupBarrier();
@@ -456,8 +461,8 @@ struct SearchsortedParams {{
     _pad: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> ss_seq: array<{t}>;
-@group(0) @binding(1) var<storage, read> ss_values: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> ss_seq: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> ss_values: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> ss_output: array<i32>;
 @group(0) @binding(3) var<uniform> ss_params: SearchsortedParams;
 
@@ -531,7 +536,7 @@ struct CountParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> count_output: array<atomic<u32>>;
 @group(0) @binding(2) var<uniform> count_params: CountParams;
 
@@ -602,7 +607,7 @@ struct CountParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> indices_output: array<i32>;
 @group(0) @binding(2) var<storage, read_write> counter: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> count_params: CountParams;
@@ -642,7 +647,7 @@ struct FlatToMultiParams {
     shape: array<u32, 8>,
 }
 
-@group(0) @binding(0) var<storage, read> flat_indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> flat_indices: array<i32>;
 @group(0) @binding(1) var<storage, read_write> multi_indices: array<i32>;
 @group(0) @binding(2) var<uniform> params: FlatToMultiParams;
 
@@ -689,7 +694,7 @@ struct UniqueParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> sorted_input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> sorted_input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> unique_output: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> unique_counter: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> unique_params: UniqueParams;
