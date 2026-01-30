@@ -393,16 +393,18 @@ impl Div for FP8E5M2 {
 // CUDA Trait Implementations
 // ============================================================================
 
-/// FP8E4M3 maps to CUDA's __nv_fp8_e4m3 type (1 sign + 4 exponent + 3 mantissa)
+/// FP8E4M3 maps to numr's custom CUDA type (1 sign + 4 exponent + 3 mantissa)
+/// This matches the `numr_fp8_e4m3` struct defined in CUDA kernels.
 #[cfg(feature = "cuda")]
 impl CudaTypeName for FP8E4M3 {
-    const NAME: &'static str = "__nv_fp8_e4m3";
+    const NAME: &'static str = "numr_fp8_e4m3";
 }
 
-/// FP8E5M2 maps to CUDA's __nv_fp8_e5m2 type (1 sign + 5 exponent + 2 mantissa)
+/// FP8E5M2 maps to numr's custom CUDA type (1 sign + 5 exponent + 2 mantissa)
+/// This matches the `numr_fp8_e5m2` struct defined in CUDA kernels.
 #[cfg(feature = "cuda")]
 impl CudaTypeName for FP8E5M2 {
-    const NAME: &'static str = "__nv_fp8_e5m2";
+    const NAME: &'static str = "numr_fp8_e5m2";
 }
 
 /// SAFETY: FP8E4M3 is #[repr(transparent)] wrapping u8, which is trivially safe
