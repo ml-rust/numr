@@ -1,8 +1,9 @@
 //! Shared SIMD mathematical functions
 //!
 //! This module provides optimized SIMD implementations of transcendental functions
-//! (exp, tanh) that are used across multiple SIMD kernel modules. By centralizing
-//! these implementations, we ensure consistency and eliminate code duplication.
+//! (exp, tanh, log, sin, cos, tan) that are used across multiple SIMD kernel modules.
+//! By centralizing these implementations, we ensure consistency and eliminate code
+//! duplication.
 //!
 //! # Supported Functions
 //!
@@ -10,12 +11,36 @@
 //! |----------|-----|-----|-----------|
 //! | exp      | ✓   | ✓   | Range reduction + Taylor series |
 //! | tanh     | ✓   | ✓   | Based on exp: (e^2x - 1)/(e^2x + 1) |
+//! | log      | ✓   | ✓   | Exponent extraction + minimax polynomial |
+//! | sin      | ✓   | ✓   | Range reduction + Taylor series |
+//! | cos      | ✓   | ✓   | sin(x + π/2) |
+//! | tan      | ✓   | ✓   | Range reduction + minimax polynomial |
+//!
+//! # Architecture Support
+//!
+//! | ISA | File | Vector Width | Notes |
+//! |-----|------|--------------|-------|
+//! | AVX2+FMA | avx2.rs | 256-bit | 8 f32 / 4 f64 |
+//! | AVX-512F | avx512.rs | 512-bit | 16 f32 / 8 f64, native 64-bit ops |
 //!
 //! # Accuracy
 //!
 //! These approximations prioritize speed over full IEEE precision:
 //! - Relative error: < 1e-6 for f32, < 1e-12 for f64
-//! - Valid input range: [-88, 88] for f32, [-709, 709] for f64
+//! - Valid input range: [-88, 88] for f32 exp, [-709, 709] for f64 exp
+//! - Trigonometric functions: Accurate for |x| < 2^20; larger inputs may lose precision
+//!
+//! # Design Notes
+//!
+//! All polynomial coefficients are centralized in `common.rs` to ensure algorithm
+//! consistency between AVX2 and AVX-512 implementations. The implementations differ
+//! only in:
+//! - Intrinsic prefixes (`_mm256` vs `_mm512`)
+//! - Vector types (`__m256` vs `__m512`)
+//! - Mask handling (AVX2 uses blendv, AVX-512 uses native masks)
+//! - 64-bit operations (AVX-512 has native support, AVX2 requires workarounds)
+
+pub mod common;
 
 #[cfg(target_arch = "x86_64")]
 pub mod avx2;

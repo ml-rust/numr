@@ -5,12 +5,11 @@
 //!
 //! # SIMD Support
 //!
-//! Operations with direct SIMD instructions (fast path):
-//! - Neg, Abs, Sqrt, Square, Recip, Floor, Ceil, Round
+//! ALL operations now have SIMD implementations:
+//! - Neg, Abs, Sqrt, Square, Recip, Floor, Ceil, Round (direct SIMD)
+//! - Exp, Log, Sin, Cos, Tan, Tanh (polynomial approximations from math module)
+//! - Sign (comparison-based)
 //! - ReLU (critical for ML)
-//!
-//! Operations requiring scalar fallback:
-//! - Exp, Log, Sin, Cos, Tan, Tanh, Sign (complex math)
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;
@@ -36,11 +35,18 @@ const fn is_simd_supported(op: UnaryOp) -> bool {
         UnaryOp::Neg
             | UnaryOp::Abs
             | UnaryOp::Sqrt
+            | UnaryOp::Exp
+            | UnaryOp::Log
+            | UnaryOp::Sin
+            | UnaryOp::Cos
+            | UnaryOp::Tan
+            | UnaryOp::Tanh
             | UnaryOp::Square
             | UnaryOp::Recip
             | UnaryOp::Floor
             | UnaryOp::Ceil
             | UnaryOp::Round
+            | UnaryOp::Sign
     )
 }
 
@@ -149,6 +155,148 @@ mod tests {
 
         for i in 0..100 {
             assert_eq!(out[i], a[i].abs(), "mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_unary_exp_f32() {
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.1).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Exp, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].exp();
+            let diff = (out[i] - expected).abs();
+            assert!(
+                diff < 1e-5 * expected.abs().max(1.0),
+                "exp mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_unary_tanh_f32() {
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.1).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Tanh, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].tanh();
+            let diff = (out[i] - expected).abs();
+            assert!(
+                diff < 1e-5,
+                "tanh mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_unary_sign_f32() {
+        let a: Vec<f32> = (0..100).map(|x| x as f32 - 50.0).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Sign, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = if a[i] > 0.0 {
+                1.0
+            } else if a[i] < 0.0 {
+                -1.0
+            } else {
+                0.0
+            };
+            assert_eq!(out[i], expected, "sign mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_unary_log_f32() {
+        let a: Vec<f32> = (1..101).map(|x| x as f32).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Log, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].ln();
+            let diff = (out[i] - expected).abs();
+            // Relative error tolerance of ~1e-4 is acceptable for f32 SIMD approximations
+            assert!(
+                diff < 5e-5 * expected.abs().max(1.0),
+                "log mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_unary_sin_f32() {
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.1).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Sin, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].sin();
+            let diff = (out[i] - expected).abs();
+            assert!(
+                diff < 1e-5,
+                "sin mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_unary_cos_f32() {
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.1).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Cos, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].cos();
+            let diff = (out[i] - expected).abs();
+            assert!(
+                diff < 1e-5,
+                "cos mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_unary_tan_f32() {
+        // Avoid values near π/2 where tan approaches infinity
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.02).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { unary_f32(UnaryOp::Tan, a.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].tan();
+            let diff = (out[i] - expected).abs();
+            // Relative error tolerance of ~2e-4 is acceptable for f32 SIMD tan approximations
+            assert!(
+                diff < 2e-4 * expected.abs().max(1.0),
+                "tan mismatch at {}: got {}, expected {}",
+                i,
+                out[i],
+                expected
+            );
         }
     }
 

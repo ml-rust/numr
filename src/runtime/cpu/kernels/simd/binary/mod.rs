@@ -110,4 +110,112 @@ mod tests {
             assert_eq!(out[i], a[i] + b[i], "mismatch at index {}", i);
         }
     }
+
+    #[test]
+    fn test_binary_pow_f32() {
+        let a: Vec<f32> = (1..101).map(|x| x as f32 * 0.1).collect();
+        let b: Vec<f32> = (1..101).map(|x| (x % 5) as f32 + 0.5).collect();
+        let mut out = vec![0.0f32; 100];
+
+        unsafe { binary_f32(BinaryOp::Pow, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].powf(b[i]);
+            let diff = (out[i] - expected).abs();
+            // pow uses exp(b*log(a)), so errors compound - ~1e-3 relative error is acceptable
+            assert!(
+                diff < 1e-3 * expected.abs().max(1.0),
+                "pow mismatch at {}: got {}, expected {} (a={}, b={})",
+                i,
+                out[i],
+                expected,
+                a[i],
+                b[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_pow_f64() {
+        let a: Vec<f64> = (1..101).map(|x| x as f64 * 0.1).collect();
+        let b: Vec<f64> = (1..101).map(|x| (x % 5) as f64 + 0.5).collect();
+        let mut out = vec![0.0f64; 100];
+
+        unsafe { binary_f64(BinaryOp::Pow, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            let expected = a[i].powf(b[i]);
+            let diff = (out[i] - expected).abs();
+            // pow uses exp(b*log(a)), so errors compound - ~1e-4 relative error is acceptable
+            assert!(
+                diff < 1e-4 * expected.abs().max(1.0),
+                "pow mismatch at {}: got {}, expected {} (a={}, b={})",
+                i,
+                out[i],
+                expected,
+                a[i],
+                b[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_binary_max_min_f32() {
+        let a: Vec<f32> = (0..100).map(|x| (x as f32 - 50.0) * 0.5).collect();
+        let b: Vec<f32> = (0..100).map(|x| ((x + 25) as f32 - 50.0) * 0.5).collect();
+        let mut out_max = vec![0.0f32; 100];
+        let mut out_min = vec![0.0f32; 100];
+
+        unsafe {
+            binary_f32(
+                BinaryOp::Max,
+                a.as_ptr(),
+                b.as_ptr(),
+                out_max.as_mut_ptr(),
+                100,
+            );
+            binary_f32(
+                BinaryOp::Min,
+                a.as_ptr(),
+                b.as_ptr(),
+                out_min.as_mut_ptr(),
+                100,
+            );
+        }
+
+        for i in 0..100 {
+            assert_eq!(out_max[i], a[i].max(b[i]), "max mismatch at {}", i);
+            assert_eq!(out_min[i], a[i].min(b[i]), "min mismatch at {}", i);
+        }
+    }
+
+    #[test]
+    fn test_binary_sub_div_f32() {
+        let a: Vec<f32> = (1..101).map(|x| x as f32 * 2.0).collect();
+        let b: Vec<f32> = (1..101).map(|x| x as f32).collect();
+        let mut out_sub = vec![0.0f32; 100];
+        let mut out_div = vec![0.0f32; 100];
+
+        unsafe {
+            binary_f32(
+                BinaryOp::Sub,
+                a.as_ptr(),
+                b.as_ptr(),
+                out_sub.as_mut_ptr(),
+                100,
+            );
+            binary_f32(
+                BinaryOp::Div,
+                a.as_ptr(),
+                b.as_ptr(),
+                out_div.as_mut_ptr(),
+                100,
+            );
+        }
+
+        for i in 0..100 {
+            assert_eq!(out_sub[i], a[i] - b[i], "sub mismatch at {}", i);
+            assert_eq!(out_div[i], a[i] / b[i], "div mismatch at {}", i);
+        }
+    }
 }
