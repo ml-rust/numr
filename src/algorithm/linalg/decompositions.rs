@@ -146,3 +146,102 @@ pub struct GeneralEigenDecomposition<R: Runtime> {
     /// Zero for real eigenvalues
     pub eigenvectors_imag: Tensor<R>,
 }
+
+/// Complex Schur decomposition result: A = Z @ T @ Z^H
+///
+/// Converts the real Schur form to complex Schur form where T is truly
+/// upper triangular (not quasi-triangular) with complex eigenvalues on
+/// the diagonal.
+///
+/// # Properties
+///
+/// - Z is unitary: Z^H @ Z = I
+/// - T is upper triangular with eigenvalues on diagonal
+/// - A = Z @ T @ Z^H (reconstruction)
+///
+/// # Storage Format
+///
+/// Both Z and T are stored as separate real and imaginary parts to
+/// support backends without native complex number support.
+pub struct ComplexSchurDecomposition<R: Runtime> {
+    /// Real part of unitary matrix Z [n, n]
+    pub z_real: Tensor<R>,
+
+    /// Imaginary part of unitary matrix Z [n, n]
+    pub z_imag: Tensor<R>,
+
+    /// Real part of upper triangular matrix T [n, n]
+    pub t_real: Tensor<R>,
+
+    /// Imaginary part of upper triangular matrix T [n, n]
+    pub t_imag: Tensor<R>,
+}
+
+/// Generalized Schur (QZ) decomposition result: A = Q @ S @ Z^H, B = Q @ T @ Z^H
+///
+/// For a pair of matrices (A, B), the QZ decomposition factors them as:
+/// - A = Q @ S @ Z^H
+/// - B = Q @ T @ Z^H
+///
+/// where Q and Z are unitary, S is upper quasi-triangular, and T is upper triangular.
+///
+/// # Generalized Eigenvalues
+///
+/// The generalized eigenvalues λ satisfy det(A - λB) = 0 and are computed as
+/// the ratios of diagonal elements: λ_i = S[i,i] / T[i,i] (when T[i,i] ≠ 0).
+///
+/// When T[i,i] = 0, the eigenvalue is infinite.
+///
+/// # Use Cases
+///
+/// - Generalized eigenvalue problems: Av = λBv
+/// - Control theory: descriptor systems
+/// - Stability analysis of matrix pencils
+pub struct GeneralizedSchurDecomposition<R: Runtime> {
+    /// Left unitary matrix Q [n, n]
+    pub q: Tensor<R>,
+
+    /// Right unitary matrix Z [n, n]
+    pub z: Tensor<R>,
+
+    /// Upper quasi-triangular matrix S (from A) [n, n]
+    pub s: Tensor<R>,
+
+    /// Upper triangular matrix T (from B) [n, n]
+    pub t: Tensor<R>,
+
+    /// Real parts of generalized eigenvalues [n]
+    pub eigenvalues_real: Tensor<R>,
+
+    /// Imaginary parts of generalized eigenvalues [n]
+    pub eigenvalues_imag: Tensor<R>,
+}
+
+/// Polar decomposition result: A = U @ P
+///
+/// Every square matrix A can be uniquely factored as the product of a
+/// unitary matrix U and a positive semi-definite Hermitian matrix P.
+///
+/// # Properties
+///
+/// - U^H @ U = I (U is unitary/orthogonal for real matrices)
+/// - P = P^H and all eigenvalues of P are non-negative (P is positive semi-definite)
+/// - For invertible A: P = sqrt(A^H @ A)
+/// - A = U @ P (right polar decomposition)
+///
+/// # Use Cases
+///
+/// - Extracting rotation from transformation matrices
+/// - Closest orthogonal matrix to A
+/// - Strain decomposition in continuum mechanics
+/// - Procrustes problems
+pub struct PolarDecomposition<R: Runtime> {
+    /// Unitary/orthogonal matrix U [n, n]
+    /// For real A: U is orthogonal (U^T @ U = I)
+    /// For complex A: U is unitary (U^H @ U = I)
+    pub u: Tensor<R>,
+
+    /// Positive semi-definite Hermitian matrix P [n, n]
+    /// P = sqrt(A^H @ A) for right polar decomposition
+    pub p: Tensor<R>,
+}

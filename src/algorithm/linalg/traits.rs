@@ -231,4 +231,78 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
 
     /// Correlation coefficient matrix (Pearson correlation)
     fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Convert Real Schur form to Complex Schur form: rsf2csf
+    ///
+    /// Transforms the real Schur decomposition (with 2×2 blocks for complex
+    /// eigenvalue pairs) into the complex Schur form where T is truly upper
+    /// triangular with complex eigenvalues on the diagonal.
+    ///
+    /// # Algorithm
+    ///
+    /// For each 2×2 block in T corresponding to complex conjugate eigenvalues a ± bi:
+    /// 1. Compute eigenvalues of the 2×2 block
+    /// 2. Construct a 2×2 unitary rotation that diagonalizes the block
+    /// 3. Apply the rotation to T and accumulate into Z
+    ///
+    /// # Input
+    ///
+    /// Takes the output of `schur_decompose` (real Schur form).
+    ///
+    /// # Output
+    ///
+    /// Returns complex Schur form where:
+    /// - T is upper triangular (not quasi-triangular)
+    /// - Eigenvalues appear on diagonal of T
+    /// - Z is unitary
+    fn rsf2csf(
+        &self,
+        schur: &super::SchurDecomposition<R>,
+    ) -> Result<super::ComplexSchurDecomposition<R>>;
+
+    /// Generalized Schur (QZ) decomposition for matrix pencil (A, B)
+    ///
+    /// Computes the QZ decomposition: A = Q @ S @ Z^H, B = Q @ T @ Z^H
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Reduce (A, B) to Hessenberg-triangular form (H, T)
+    /// 2. Apply QZ iteration to reduce H to quasi-triangular S
+    /// 3. Extract generalized eigenvalues from diagonal blocks
+    ///
+    /// # Generalized Eigenvalues
+    ///
+    /// The generalized eigenvalues λ satisfy: det(A - λB) = 0
+    /// Computed as: λ_i = alpha_i / beta_i where alpha and beta are
+    /// extracted from the diagonal of S and T respectively.
+    ///
+    /// # Requirements
+    ///
+    /// Both A and B must be square matrices of the same size.
+    fn qz_decompose(
+        &self,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<super::GeneralizedSchurDecomposition<R>>;
+
+    /// Polar decomposition: A = U @ P
+    ///
+    /// Decomposes matrix A into a unitary matrix U and a positive semi-definite
+    /// Hermitian matrix P.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses the Newton iteration for matrix sign function:
+    /// 1. Compute SVD: A = U_svd @ S @ V^H
+    /// 2. U = U_svd @ V^H (unitary factor)
+    /// 3. P = V @ S @ V^H (positive semi-definite factor)
+    ///
+    /// Alternative: Newton iteration X_{k+1} = (X_k + X_k^{-H}) / 2
+    ///
+    /// # Properties
+    ///
+    /// - For invertible A: U is the closest unitary matrix to A (in Frobenius norm)
+    /// - P is unique and equals sqrt(A^H @ A)
+    /// - For real matrices: U is orthogonal, P is symmetric positive semi-definite
+    fn polar_decompose(&self, a: &Tensor<R>) -> Result<super::PolarDecomposition<R>>;
 }
