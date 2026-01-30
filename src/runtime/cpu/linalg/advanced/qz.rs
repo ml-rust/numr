@@ -466,6 +466,7 @@ fn implicit_double_shift_qz_step<T: Element + LinalgElement>(
 }
 
 /// Apply Householder reflection from the left: H[rows, cols] = (I - tau * u * u^T) * H[rows, cols]
+#[allow(clippy::too_many_arguments)]
 fn apply_householder_left<T: Element + LinalgElement>(
     a: &mut [T],
     lda: usize,
@@ -506,6 +507,7 @@ fn apply_householder_left<T: Element + LinalgElement>(
 }
 
 /// Apply Householder reflection from the right: A[rows, cols] = A[rows, cols] * (I - tau * u * u^T)
+#[allow(clippy::too_many_arguments)]
 fn apply_householder_right<T: Element + LinalgElement>(
     a: &mut [T],
     lda: usize,

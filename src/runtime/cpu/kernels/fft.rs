@@ -485,6 +485,7 @@ pub unsafe fn irfft_c128(input: &[Complex128], output: &mut [f64], normalize_fac
 /// Shift zero-frequency component to center
 ///
 /// For 1D array of length N, swaps [0..N/2] with [N/2..N]
+#[allow(clippy::manual_memcpy)]
 pub unsafe fn fftshift_c64(input: &[Complex64], output: &mut [Complex64]) {
     let n = input.len();
     let half_n = n / 2;
@@ -500,6 +501,7 @@ pub unsafe fn fftshift_c64(input: &[Complex64], output: &mut [Complex64]) {
 }
 
 /// Inverse shift (undo fftshift)
+#[allow(clippy::manual_memcpy, clippy::manual_div_ceil)]
 pub unsafe fn ifftshift_c64(input: &[Complex64], output: &mut [Complex64]) {
     let n = input.len();
     let half_n = (n + 1) / 2; // For odd lengths, first half is larger
@@ -515,6 +517,7 @@ pub unsafe fn ifftshift_c64(input: &[Complex64], output: &mut [Complex64]) {
 }
 
 /// Shift zero-frequency component to center (f64)
+#[allow(clippy::manual_memcpy)]
 pub unsafe fn fftshift_c128(input: &[Complex128], output: &mut [Complex128]) {
     let n = input.len();
     let half_n = n / 2;
@@ -528,6 +531,7 @@ pub unsafe fn fftshift_c128(input: &[Complex128], output: &mut [Complex128]) {
 }
 
 /// Inverse shift (f64)
+#[allow(clippy::manual_memcpy, clippy::manual_div_ceil)]
 pub unsafe fn ifftshift_c128(input: &[Complex128], output: &mut [Complex128]) {
     let n = input.len();
     let half_n = (n + 1) / 2;

@@ -501,7 +501,7 @@ pub fn f32_to_fp8_e4m3(x: f32) -> u8 {
             // F32 normal: add implicit 1.xxx
             (0x800000 | mant) >> (23 - 3 + shift + 1)
         };
-        return ((sign << 7) | (fp8_mant as u8 & 0x07)) as u8;
+        return (sign << 7) | (fp8_mant as u8 & 0x07);
     }
 
     // Normal E4M3 value
@@ -673,7 +673,7 @@ pub fn f32_to_fp8_e5m2(x: f32) -> u8 {
         } else {
             (0x800000 | mant) >> (23 - 2 + shift + 1)
         };
-        return ((sign << 7) | (fp8_mant as u8 & 0x03)) as u8;
+        return (sign << 7) | (fp8_mant as u8 & 0x03);
     }
 
     // Normal E5M2 value

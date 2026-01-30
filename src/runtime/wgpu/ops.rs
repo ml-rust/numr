@@ -33,10 +33,9 @@ pub mod tensor;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::ops::{CompareOps, ScalarOps, TensorOps};
     use crate::runtime::Runtime;
-    use crate::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime, is_wgpu_available};
+    use crate::runtime::wgpu::{WgpuDevice, WgpuRuntime, is_wgpu_available};
     use crate::tensor::Tensor;
 
     fn create_test_tensor(data: &[f32], shape: &[usize]) -> Tensor<WgpuRuntime> {

@@ -167,6 +167,7 @@ pub fn apply_rotation_to_columns<T: LinalgElement>(
 /// * `rot` - Rotation parameters
 /// * `a_pp`, `a_qq`, `a_pq` - Original matrix elements
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn apply_two_sided_rotation<T: LinalgElement>(
     work: &mut [T],
     n: usize,

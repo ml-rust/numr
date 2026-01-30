@@ -517,6 +517,7 @@ impl FftAlgorithms<CpuRuntime> for CpuClient {
                 let output_slice: &mut [f32] =
                     unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f32, n) };
 
+                #[allow(clippy::needless_range_loop, clippy::manual_div_ceil)]
                 for i in 0..n {
                     let freq = if i < (n + 1) / 2 {
                         i as f64
@@ -530,6 +531,7 @@ impl FftAlgorithms<CpuRuntime> for CpuClient {
                 let output_slice: &mut [f64] =
                     unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f64, n) };
 
+                #[allow(clippy::needless_range_loop, clippy::manual_div_ceil)]
                 for i in 0..n {
                     let freq = if i < (n + 1) / 2 {
                         i as f64
@@ -575,6 +577,7 @@ impl FftAlgorithms<CpuRuntime> for CpuClient {
                 let output_slice: &mut [f32] =
                     unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f32, output_len) };
 
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..output_len {
                     output_slice[i] = (i as f64 * scale) as f32;
                 }
@@ -583,6 +586,7 @@ impl FftAlgorithms<CpuRuntime> for CpuClient {
                 let output_slice: &mut [f64] =
                     unsafe { std::slice::from_raw_parts_mut(output_ptr as *mut f64, output_len) };
 
+                #[allow(clippy::needless_range_loop)]
                 for i in 0..output_len {
                     output_slice[i] = i as f64 * scale;
                 }

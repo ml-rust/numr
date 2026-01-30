@@ -112,6 +112,7 @@ pub unsafe fn launch_mode_dim(
 /// * `mode_value_ptr` - Device pointer to output mode value (single element)
 /// * `mode_count_ptr` - Device pointer to output mode count (single I64)
 /// * `numel` - Total number of elements
+#[allow(dead_code)]
 pub unsafe fn launch_mode_full(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

@@ -1406,6 +1406,7 @@ unsafe fn repeat_kernel<T: Element>(
         let mut remaining = out_idx;
         let mut src_offset = 0usize;
 
+        #[allow(clippy::needless_range_loop)]
         for d in 0..ndim {
             let out_coord = remaining / out_strides[d];
             remaining %= out_strides[d];
@@ -1485,6 +1486,7 @@ unsafe fn pad_copy_kernel<T: Element>(
         let mut remaining = in_idx;
         let mut dst_offset = 0usize;
 
+        #[allow(clippy::needless_range_loop)]
         for d in 0..ndim {
             let in_coord = remaining / in_strides[d];
             remaining %= in_strides[d];
@@ -1562,6 +1564,7 @@ unsafe fn roll_kernel<T: Element>(
         let mut remaining = idx;
         let mut dst_offset = 0usize;
 
+        #[allow(clippy::needless_range_loop)]
         for d in 0..ndim {
             let coord = remaining / strides[d];
             remaining %= strides[d];

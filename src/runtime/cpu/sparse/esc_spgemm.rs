@@ -80,6 +80,7 @@ fn esc_spgemm_typed<T: Element>(
         let mut col_set: HashSet<usize> = HashSet::new();
 
         // For each non-zero A[i, k]
+        #[allow(clippy::needless_range_loop)]
         for a_idx in a_start..a_end {
             let k = a_col_indices[a_idx] as usize;
 
@@ -87,6 +88,7 @@ fn esc_spgemm_typed<T: Element>(
             let b_start = b_row_ptrs[k] as usize;
             let b_end = b_row_ptrs[k + 1] as usize;
 
+            #[allow(clippy::needless_range_loop)]
             for b_idx in b_start..b_end {
                 let j = b_col_indices[b_idx] as usize;
                 col_set.insert(j);

@@ -479,7 +479,7 @@ unsafe fn launch_scan_multi_block_i64(
 // ============================================================================
 
 #[cfg(test)]
-#[cfg(disabled)] // TODO: Fix test setup
+#[cfg(any())] // TODO: Fix test setup - tests disabled
 mod tests {
     use super::*;
     use crate::runtime::Runtime;

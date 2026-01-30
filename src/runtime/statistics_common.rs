@@ -49,10 +49,11 @@ pub const DIVISION_EPSILON_F64: f64 = 1e-15;
 /// - Higher: `2` (ceil index = 1)
 /// - Nearest: `2` (0.75 rounds to 1)
 /// - Midpoint: `(1 + 2) / 2 = 1.5`
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Interpolation {
     /// Linear interpolation between surrounding data points.
     /// Result = lower * (1 - frac) + upper * frac
+    #[default]
     Linear,
     /// Use the lower of the two surrounding data points.
     Lower,
@@ -130,12 +131,6 @@ impl Interpolation {
             }
             Interpolation::Midpoint => (lower_val + upper_val) / 2.0,
         }
-    }
-}
-
-impl Default for Interpolation {
-    fn default() -> Self {
-        Interpolation::Linear
     }
 }
 
@@ -324,6 +319,7 @@ pub fn compute_quantile_indices(q: f64, n: usize) -> (usize, usize, f64) {
 ///
 /// This function assumes all indices are within bounds. The caller must ensure
 /// that `floor_idx < reduce_size` and `ceil_idx < reduce_size`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_quantile_interpolation<T: Element>(
     sorted: &[T],
     outer_size: usize,
