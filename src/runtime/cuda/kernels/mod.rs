@@ -55,6 +55,7 @@ mod distributions;
 mod fft;
 mod index;
 mod linalg;
+mod linalg_launchers;
 mod loader;
 mod norm;
 mod reduce;

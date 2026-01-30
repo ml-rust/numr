@@ -65,7 +65,12 @@ pub fn get_or_load_module(
     module_name: &'static str,
 ) -> Result<Arc<CudaModule>> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
+    let mut guard = cache.lock().map_err(|e| {
+        Error::Internal(format!(
+            "Failed to acquire module cache lock (Mutex poisoned): {}",
+            e
+        ))
+    })?;
 
     let key = (device_index, module_name);
     if let Some(module) = guard.get(&key) {
@@ -234,8 +239,24 @@ pub mod kernel_names {
     /// Dense × Sparse matrix multiplication (DSMM / SpMM)
     #[cfg(feature = "sparse")]
     pub const DSMM_MODULE: &str = "dsmm";
-    /// Linear algebra operations (LU, Cholesky, QR, triangular solve, etc.)
-    pub const LINALG_MODULE: &str = "linalg";
+    /// Linear algebra basic operations (trace, diag, diagflat, identity, transpose)
+    pub const LINALG_BASIC_MODULE: &str = "linalg_basic";
+    /// Linear algebra solvers (forward_sub, backward_sub, det_from_lu, apply_permutation)
+    pub const LINALG_SOLVERS_MODULE: &str = "linalg_solvers";
+    /// Matrix decompositions (LU, Cholesky, QR)
+    pub const LINALG_DECOMP_MODULE: &str = "linalg_decomp";
+    /// SVD decomposition (Jacobi algorithm)
+    pub const LINALG_SVD_MODULE: &str = "linalg_svd";
+    /// Symmetric eigenvalue decomposition (Jacobi algorithm)
+    pub const LINALG_EIGEN_MODULE: &str = "linalg_eigen";
+    /// Schur decomposition (Hessenberg + QR iteration)
+    pub const LINALG_SCHUR_MODULE: &str = "linalg_schur";
+    /// General eigenvalue decomposition
+    pub const LINALG_EIGEN_GENERAL_MODULE: &str = "linalg_eigen_general";
+    /// Advanced decompositions (rsf2csf)
+    pub const LINALG_ADVANCED_MODULE: &str = "linalg_advanced";
+    /// QZ decomposition (generalized Schur - double-shift algorithm)
+    pub const LINALG_QZ_MODULE: &str = "linalg_qz";
     /// Matrix multiplication operations (native tiled GEMM)
     pub const MATMUL_MODULE: &str = "matmul";
     /// Cumulative operations (cumsum, cumprod, logsumexp)

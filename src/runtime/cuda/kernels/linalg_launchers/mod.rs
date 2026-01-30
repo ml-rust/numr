@@ -1,8 +1,6 @@
 //! Linear algebra CUDA kernel launchers
 //!
-//! This module re-exports all linalg launcher functions from the split submodules
-//! in `linalg_launchers/`. The actual implementations are organized by category:
-//!
+//! Split into categorical submodules for maintainability:
 //! - `basic` - trace, diag, diagflat, identity, copy, transpose
 //! - `solvers` - forward/backward substitution, determinant, permutation
 //! - `decompositions` - LU, Cholesky, QR
@@ -10,5 +8,17 @@
 //! - `eigen` - eigendecomposition (symmetric, general, Schur)
 //! - `advanced` - rsf2csf, QZ decomposition
 
-// Re-export all launcher functions for backward compatibility
-pub use super::linalg_launchers::*;
+mod advanced;
+mod basic;
+mod decompositions;
+mod eigen;
+mod solvers;
+mod svd;
+
+// Re-export all launcher functions
+pub use advanced::*;
+pub use basic::*;
+pub use decompositions::*;
+pub use eigen::*;
+pub use solvers::*;
+pub use svd::*;
