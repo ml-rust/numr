@@ -30,6 +30,15 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, Sub};
 
 // ============================================================================
+// CUDA Compatibility Traits
+// ============================================================================
+
+#[cfg(feature = "cuda")]
+use cudarc::driver::DeviceRepr;
+#[cfg(feature = "cuda")]
+use cudarc::types::CudaTypeName;
+
+// ============================================================================
 // FP8E4M3 Type
 // ============================================================================
 
@@ -66,11 +75,14 @@ impl FP8E4M3 {
     /// NaN (exp=1111, mant=111)
     pub const NAN: Self = Self(0x7F);
 
-    /// Exponent bias for E4M3 format
+    /// Exponent bias for E4M3 format (reserved for future use)
+    #[allow(dead_code)]
     const BIAS: i32 = 7;
-    /// Number of mantissa bits
+    /// Number of mantissa bits (reserved for future use)
+    #[allow(dead_code)]
     const MANTISSA_BITS: u32 = 3;
-    /// Number of exponent bits
+    /// Number of exponent bits (reserved for future use)
+    #[allow(dead_code)]
     const EXPONENT_BITS: u32 = 4;
 
     /// Create from raw bits
@@ -235,11 +247,14 @@ impl FP8E5M2 {
     /// NaN (exp=11111, mant!=00)
     pub const NAN: Self = Self(0x7F);
 
-    /// Exponent bias for E5M2 format
+    /// Exponent bias for E5M2 format (reserved for future use)
+    #[allow(dead_code)]
     const BIAS: i32 = 15;
-    /// Number of mantissa bits
+    /// Number of mantissa bits (reserved for future use)
+    #[allow(dead_code)]
     const MANTISSA_BITS: u32 = 2;
-    /// Number of exponent bits
+    /// Number of exponent bits (reserved for future use)
+    #[allow(dead_code)]
     const EXPONENT_BITS: u32 = 5;
 
     /// Create from raw bits
@@ -373,6 +388,32 @@ impl Div for FP8E5M2 {
         Self::from_f32(self.to_f32() / rhs.to_f32())
     }
 }
+
+// ============================================================================
+// CUDA Trait Implementations
+// ============================================================================
+
+/// FP8E4M3 maps to CUDA's __nv_fp8_e4m3 type (1 sign + 4 exponent + 3 mantissa)
+#[cfg(feature = "cuda")]
+impl CudaTypeName for FP8E4M3 {
+    const NAME: &'static str = "__nv_fp8_e4m3";
+}
+
+/// FP8E5M2 maps to CUDA's __nv_fp8_e5m2 type (1 sign + 5 exponent + 2 mantissa)
+#[cfg(feature = "cuda")]
+impl CudaTypeName for FP8E5M2 {
+    const NAME: &'static str = "__nv_fp8_e5m2";
+}
+
+/// SAFETY: FP8E4M3 is #[repr(transparent)] wrapping u8, which is trivially safe
+/// for GPU transfers. The type is Pod and Zeroable.
+#[cfg(feature = "cuda")]
+unsafe impl DeviceRepr for FP8E4M3 {}
+
+/// SAFETY: FP8E5M2 is #[repr(transparent)] wrapping u8, which is trivially safe
+/// for GPU transfers. The type is Pod and Zeroable.
+#[cfg(feature = "cuda")]
+unsafe impl DeviceRepr for FP8E5M2 {}
 
 // ============================================================================
 // Conversion Functions

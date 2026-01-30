@@ -34,6 +34,15 @@ use bytemuck::{Pod, Zeroable};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
+// ============================================================================
+// CUDA Compatibility Traits
+// ============================================================================
+
+#[cfg(feature = "cuda")]
+use cudarc::driver::DeviceRepr;
+#[cfg(feature = "cuda")]
+use cudarc::types::CudaTypeName;
+
 /// Macro to implement complex number type with all operations
 ///
 /// This avoids code duplication between Complex64 and Complex128.
@@ -278,6 +287,32 @@ impl_complex!(
     "CUDA float2 and WebGPU vec2<f32>"
 );
 impl_complex!(Complex128, f64, "128", "f64", "CUDA double2");
+
+// ============================================================================
+// CUDA Trait Implementations
+// ============================================================================
+
+/// Complex64 maps to CUDA's float2 (two 32-bit floats in interleaved format)
+#[cfg(feature = "cuda")]
+impl CudaTypeName for Complex64 {
+    const NAME: &'static str = "float2";
+}
+
+/// Complex128 maps to CUDA's double2 (two 64-bit doubles in interleaved format)
+#[cfg(feature = "cuda")]
+impl CudaTypeName for Complex128 {
+    const NAME: &'static str = "double2";
+}
+
+/// SAFETY: Complex64 is #[repr(C)] with two f32 fields, which matches CUDA float2 layout.
+/// The type is Pod and Zeroable, ensuring safe memory representation for GPU transfers.
+#[cfg(feature = "cuda")]
+unsafe impl DeviceRepr for Complex64 {}
+
+/// SAFETY: Complex128 is #[repr(C)] with two f64 fields, which matches CUDA double2 layout.
+/// The type is Pod and Zeroable, ensuring safe memory representation for GPU transfers.
+#[cfg(feature = "cuda")]
+unsafe impl DeviceRepr for Complex128 {}
 
 // ============================================================================
 // Conversion between complex types (cannot be in macro due to cross-type refs)

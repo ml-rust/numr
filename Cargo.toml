@@ -16,7 +16,7 @@ cpu = []
 cuda = ["dep:cudarc"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
-f16 = ["dep:half"]
+f16 = ["dep:half", "cudarc?/f16"]
 fp8 = []  # 8-bit floating point types (FP8E4M3, FP8E5M2)
 sparse = []  # Sparse tensor formats (CSR, CSC, COO) and operations
 
