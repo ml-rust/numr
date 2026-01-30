@@ -1152,4 +1152,68 @@ __global__ void logical_xor_u8(const unsigned char* a, const unsigned char* b, u
     }
 }
 
+// ============================================================================
+// Complex64 (float2) Binary Operations
+// ============================================================================
+
+__global__ void add_c64(const float2* a, const float2* b, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_add(a[idx], b[idx]);
+    }
+}
+
+__global__ void sub_c64(const float2* a, const float2* b, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_sub(a[idx], b[idx]);
+    }
+}
+
+__global__ void mul_c64(const float2* a, const float2* b, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_mul(a[idx], b[idx]);
+    }
+}
+
+__global__ void div_c64(const float2* a, const float2* b, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_div(a[idx], b[idx]);
+    }
+}
+
+// ============================================================================
+// Complex128 (double2) Binary Operations
+// ============================================================================
+
+__global__ void add_c128(const double2* a, const double2* b, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_add(a[idx], b[idx]);
+    }
+}
+
+__global__ void sub_c128(const double2* a, const double2* b, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_sub(a[idx], b[idx]);
+    }
+}
+
+__global__ void mul_c128(const double2* a, const double2* b, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_mul(a[idx], b[idx]);
+    }
+}
+
+__global__ void div_c128(const double2* a, const double2* b, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_div(a[idx], b[idx]);
+    }
+}
+
 } // extern "C"

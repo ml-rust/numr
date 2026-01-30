@@ -1017,4 +1017,174 @@ __global__ void logical_not_u8(const unsigned char* a, unsigned char* out, unsig
     }
 }
 
+// ============================================================================
+// Complex64 (float2) Unary Operations
+// ============================================================================
+
+__global__ void neg_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_neg(a[idx]);
+    }
+}
+
+__global__ void conj_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_conj(a[idx]);
+    }
+}
+
+// Returns magnitude as float (real output)
+__global__ void abs_c64(const float2* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_abs(a[idx]);
+    }
+}
+
+// Returns phase angle as float (real output)
+__global__ void angle_c64(const float2* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_angle(a[idx]);
+    }
+}
+
+// Extracts real part
+__global__ void real_c64(const float2* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = a[idx].x;
+    }
+}
+
+// Extracts imaginary part
+__global__ void imag_c64(const float2* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = a[idx].y;
+    }
+}
+
+__global__ void square_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_square(a[idx]);
+    }
+}
+
+__global__ void sqrt_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_sqrt(a[idx]);
+    }
+}
+
+__global__ void exp_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_exp(a[idx]);
+    }
+}
+
+__global__ void log_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_log(a[idx]);
+    }
+}
+
+__global__ void recip_c64(const float2* a, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex64_recip(a[idx]);
+    }
+}
+
+// ============================================================================
+// Complex128 (double2) Unary Operations
+// ============================================================================
+
+__global__ void neg_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_neg(a[idx]);
+    }
+}
+
+__global__ void conj_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_conj(a[idx]);
+    }
+}
+
+// Returns magnitude as double (real output)
+__global__ void abs_c128(const double2* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_abs(a[idx]);
+    }
+}
+
+// Returns phase angle as double (real output)
+__global__ void angle_c128(const double2* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_angle(a[idx]);
+    }
+}
+
+// Extracts real part
+__global__ void real_c128(const double2* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = a[idx].x;
+    }
+}
+
+// Extracts imaginary part
+__global__ void imag_c128(const double2* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = a[idx].y;
+    }
+}
+
+__global__ void square_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_square(a[idx]);
+    }
+}
+
+__global__ void sqrt_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_sqrt(a[idx]);
+    }
+}
+
+__global__ void exp_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_exp(a[idx]);
+    }
+}
+
+__global__ void log_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_log(a[idx]);
+    }
+}
+
+__global__ void recip_c128(const double2* a, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = complex128_recip(a[idx]);
+    }
+}
+
 } // extern "C"
