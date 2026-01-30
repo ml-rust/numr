@@ -3,8 +3,10 @@
 //! Provides element-wise unary operations with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
+pub mod activations;
 pub mod scalar;
 
+pub use activations::{elu_kernel, gelu_kernel, leaky_relu_kernel, sigmoid_kernel, silu_kernel};
 pub use scalar::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
 
 use crate::dtype::{DType, Element};
@@ -21,7 +23,6 @@ use crate::ops::UnaryOp;
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len: usize) {
-    // Dispatch to SIMD for f32/f64 on x86-64
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::unary;
@@ -35,11 +36,10 @@ pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T,
                 unary::unary_f64(op, a as *const f64, out as *mut f64, len);
                 return;
             }
-            _ => {} // Fall through to scalar
+            _ => {}
         }
     }
 
-    // Scalar fallback
     unary_op_scalar(op, a, out, len);
 }
 
@@ -156,7 +156,6 @@ unsafe fn unary_op_scalar<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    // Dispatch to SIMD for f32/f64 on x86-64
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::unary;
@@ -170,11 +169,10 @@ pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
                 unary::relu_f64(a as *const f64, out as *mut f64, len);
                 return;
             }
-            _ => {} // Fall through to scalar
+            _ => {}
         }
     }
 
-    // Scalar fallback
     relu_scalar(a, out, len);
 }
 
@@ -187,112 +185,6 @@ unsafe fn relu_scalar<T: Element>(a: *const T, out: *mut T, len: usize) {
 
     for i in 0..len {
         out_slice[i] = if a_slice[i] > zero { a_slice[i] } else { zero };
-    }
-}
-
-/// Sigmoid activation: 1 / (1 + exp(-x))
-///
-/// # Safety
-/// - `a` and `out` must be valid pointers to `len` elements
-#[inline]
-pub unsafe fn sigmoid_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let out_slice = std::slice::from_raw_parts_mut(out, len);
-
-    for i in 0..len {
-        let v = a_slice[i].to_f64();
-        let sig = 1.0 / (1.0 + (-v).exp());
-        out_slice[i] = T::from_f64(sig);
-    }
-}
-
-/// SiLU (Swish) activation: x / (1 + exp(-x)) = x * sigmoid(x)
-///
-/// Used in LLaMA, Mistral, and other modern transformer architectures.
-///
-/// # Safety
-/// - `a` and `out` must be valid pointers to `len` elements
-#[inline]
-pub unsafe fn silu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let out_slice = std::slice::from_raw_parts_mut(out, len);
-
-    for i in 0..len {
-        let x = a_slice[i].to_f64();
-        // SiLU(x) = x / (1 + exp(-x)) = x * sigmoid(x)
-        let result = x / (1.0 + (-x).exp());
-        out_slice[i] = T::from_f64(result);
-    }
-}
-
-/// GELU (Gaussian Error Linear Unit) activation using tanh approximation
-///
-/// Computes: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-///
-/// Used in GPT, BERT, and other transformer architectures.
-///
-/// # Safety
-/// - `a` and `out` must be valid pointers to `len` elements
-#[inline]
-pub unsafe fn gelu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let out_slice = std::slice::from_raw_parts_mut(out, len);
-
-    // GELU constants
-    const SQRT_2_OVER_PI: f64 = 0.7978845608028654; // sqrt(2/pi)
-    const TANH_COEF: f64 = 0.044715;
-
-    for i in 0..len {
-        let x = a_slice[i].to_f64();
-        // GELU(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-        let inner = SQRT_2_OVER_PI * (x + TANH_COEF * x * x * x);
-        let result = 0.5 * x * (1.0 + inner.tanh());
-        out_slice[i] = T::from_f64(result);
-    }
-}
-
-/// Leaky ReLU activation: max(negative_slope * x, x)
-///
-/// # Safety
-/// - `a` must be valid pointer to `len` elements
-/// - `out` must be valid pointer to `len` elements (may alias `a`)
-pub unsafe fn leaky_relu_kernel<T: Element>(
-    a: *const T,
-    out: *mut T,
-    len: usize,
-    negative_slope: f64,
-) {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let out_slice = std::slice::from_raw_parts_mut(out, len);
-    let zero = T::zero();
-
-    for i in 0..len {
-        let x = a_slice[i];
-        out_slice[i] = if x > zero {
-            x
-        } else {
-            T::from_f64(x.to_f64() * negative_slope)
-        };
-    }
-}
-
-/// ELU activation: x if x > 0, else alpha * (exp(x) - 1)
-///
-/// # Safety
-/// - `a` must be valid pointer to `len` elements
-/// - `out` must be valid pointer to `len` elements (may alias `a`)
-pub unsafe fn elu_kernel<T: Element>(a: *const T, out: *mut T, len: usize, alpha: f64) {
-    let a_slice = std::slice::from_raw_parts(a, len);
-    let out_slice = std::slice::from_raw_parts_mut(out, len);
-    let zero = T::zero();
-
-    for i in 0..len {
-        let x = a_slice[i];
-        out_slice[i] = if x > zero {
-            x
-        } else {
-            T::from_f64(alpha * (x.to_f64().exp() - 1.0))
-        };
     }
 }
 
@@ -334,10 +226,50 @@ pub unsafe fn isinf_kernel<T: Element>(a: *const T, out: *mut u8, len: usize) {
 
 /// Clamp values to a range: out[i] = min(max(a[i], min_val), max_val)
 ///
+/// On x86-64, dispatches to SIMD for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration
+/// - AVX2: 8 f32s or 4 f64s per iteration
+/// - Scalar fallback for other types or non-x86 platforms
+///
 /// # Safety
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn clamp_kernel<T: Element>(
+    a: *const T,
+    out: *mut T,
+    len: usize,
+    min_val: f64,
+    max_val: f64,
+) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::clamp;
+
+        match T::DTYPE {
+            DType::F32 => {
+                clamp::clamp_f32(
+                    a as *const f32,
+                    out as *mut f32,
+                    len,
+                    min_val as f32,
+                    max_val as f32,
+                );
+                return;
+            }
+            DType::F64 => {
+                clamp::clamp_f64(a as *const f64, out as *mut f64, len, min_val, max_val);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    clamp_scalar(a, out, len, min_val, max_val);
+}
+
+/// Scalar clamp for all Element types
+#[inline]
+unsafe fn clamp_scalar<T: Element>(
     a: *const T,
     out: *mut T,
     len: usize,
