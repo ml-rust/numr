@@ -42,6 +42,8 @@ pub mod norm;
 pub mod reduce;
 
 mod elementwise_wgsl;
+mod linalg_launchers;
+mod linalg_shaders;
 mod linalg_wgsl;
 mod matmul_wgsl;
 mod norm_wgsl;

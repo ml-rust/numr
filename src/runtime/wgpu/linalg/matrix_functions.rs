@@ -1,0 +1,721 @@
+//! Matrix functions: exponential, logarithm, square root, sign, fractional power, and general functions.
+//!
+//! # WebGPU Limitations
+//!
+//! WGSL compute shaders do not support F64 natively. All matrix functions in this
+//! module only accept **F32 tensors**. For F64 support, use CPU or CUDA backends.
+
+use super::super::{WgpuClient, WgpuRuntime};
+use super::schur::schur_decompose;
+use crate::algorithm::linalg::{
+    LinearAlgebraAlgorithms, validate_linalg_dtype, validate_square_matrix,
+};
+use crate::dtype::DType;
+use crate::error::{Error, Result};
+use crate::ops::{ScalarOps, TensorOps};
+use crate::runtime::RuntimeClient;
+use crate::tensor::Tensor;
+
+/// Matrix exponential: e^A
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. WGSL does not have native F64 support.
+/// For F64 matrices, use CPU or CUDA backends.
+///
+/// # Errors
+///
+/// Returns `UnsupportedDType` if the tensor is not F32.
+pub fn expm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU expm (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let exp_val = (data[0] as f64).exp();
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            exp_val,
+            device,
+        ));
+    }
+
+    // Compute Schur decomposition
+    let schur = schur_decompose(client, a)?;
+    let exp_t_tensor = compute_schur_exp(client, &schur.t, n, dtype)?;
+
+    // Reconstruct: exp(A) = Z @ exp(T) @ Z^T
+    let temp = TensorOps::matmul(client, &schur.z, &exp_t_tensor)?;
+    let z_t = schur.z.transpose(0, 1)?;
+    TensorOps::matmul(client, &temp, &z_t)
+}
+
+/// Matrix logarithm: log(A)
+///
+/// Computes the principal matrix logarithm. The matrix must have no
+/// non-positive real eigenvalues.
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. For F64 matrices, use CPU or CUDA backends.
+///
+/// # Errors
+///
+/// - Returns `UnsupportedDType` if the tensor is not F32.
+/// - Returns `InvalidArgument` if the matrix has non-positive real eigenvalues.
+pub fn logm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU logm (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let val = data[0] as f64;
+        if val <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "a",
+                reason: "logm requires matrix with no non-positive real eigenvalues".to_string(),
+            });
+        }
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            val.ln(),
+            device,
+        ));
+    }
+
+    let eps = f32::EPSILON as f64;
+
+    // Compute Schur decomposition
+    let schur = schur_decompose(client, a)?;
+    let t_data: Vec<f32> = schur.t.to_vec();
+
+    // Check for non-positive real eigenvalues
+    validate_schur_eigenvalues(&t_data, n, eps, "logm")?;
+
+    // Compute log(T) on GPU
+    let log_t_tensor = compute_schur_log(client, &schur.t, n, dtype)?;
+
+    // Reconstruct: log(A) = Z @ log(T) @ Z^T
+    let temp = TensorOps::matmul(client, &schur.z, &log_t_tensor)?;
+    let z_t = schur.z.transpose(0, 1)?;
+    TensorOps::matmul(client, &temp, &z_t)
+}
+
+/// Matrix square root: sqrt(A)
+///
+/// Computes the principal matrix square root. The matrix must have no
+/// non-positive real eigenvalues.
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. For F64 matrices, use CPU or CUDA backends.
+///
+/// # Errors
+///
+/// - Returns `UnsupportedDType` if the tensor is not F32.
+/// - Returns `InvalidArgument` if the matrix has non-positive real eigenvalues.
+pub fn sqrtm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU sqrtm (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let val = data[0] as f64;
+        if val < 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "a",
+                reason: "sqrtm requires matrix with no negative real eigenvalues".to_string(),
+            });
+        }
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            val.sqrt(),
+            device,
+        ));
+    }
+
+    let eps = f32::EPSILON as f64;
+
+    // Check for negative real eigenvalues using Schur decomposition
+    let schur = schur_decompose(client, a)?;
+    let t_data: Vec<f32> = schur.t.to_vec();
+
+    let mut i = 0;
+    while i < n {
+        if i + 1 < n && (t_data[(i + 1) * n + i] as f64).abs() > eps {
+            i += 2;
+        } else {
+            let eigenvalue = t_data[i * n + i] as f64;
+            if eigenvalue < -eps {
+                return Err(Error::InvalidArgument {
+                    arg: "a",
+                    reason: format!(
+                        "sqrtm requires matrix with no negative real eigenvalues, found {}",
+                        eigenvalue
+                    ),
+                });
+            }
+            i += 1;
+        }
+    }
+
+    // Denman-Beavers iteration
+    let mut y = a.clone();
+    let mut z = TensorOps::eye(client, n, None, dtype)?;
+
+    let max_iter = 50;
+    let tol = eps * (n as f64);
+
+    for _iter in 0..max_iter {
+        let y_inv = LinearAlgebraAlgorithms::inverse(client, &y).map_err(|_| {
+            Error::Internal("sqrtm: matrix inversion failed during iteration".to_string())
+        })?;
+
+        let z_inv = LinearAlgebraAlgorithms::inverse(client, &z).map_err(|_| {
+            Error::Internal("sqrtm: matrix inversion failed during iteration".to_string())
+        })?;
+
+        let y_plus_zinv = TensorOps::add(client, &y, &z_inv)?;
+        let y_new = client.div_scalar(&y_plus_zinv, 2.0)?;
+
+        let z_plus_yinv = TensorOps::add(client, &z, &y_inv)?;
+        let z_new = client.div_scalar(&z_plus_yinv, 2.0)?;
+
+        // Check convergence
+        let diff = TensorOps::sub(client, &y_new, &y)?;
+        let diff_norm: f64 = compute_norm(client, &diff)?;
+        let y_norm: f64 = compute_norm(client, &y)?;
+
+        y = y_new;
+        z = z_new;
+
+        if diff_norm / y_norm.max(1.0) < tol {
+            break;
+        }
+    }
+
+    Ok(y)
+}
+
+/// Matrix sign function: sign(A)
+///
+/// Computes the matrix sign function using Newton iteration.
+/// The matrix must have no eigenvalues on the imaginary axis.
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. For F64 matrices, use CPU or CUDA backends.
+///
+/// # Errors
+///
+/// - Returns `UnsupportedDType` if the tensor is not F32.
+/// - Returns `InvalidArgument` if the matrix has eigenvalues on the imaginary axis.
+pub fn signm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU signm (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let val = data[0] as f64;
+        if val.abs() < f64::EPSILON {
+            return Err(Error::InvalidArgument {
+                arg: "a",
+                reason: "signm requires matrix with no zero eigenvalues".to_string(),
+            });
+        }
+        let sign_val = if val > 0.0 { 1.0 } else { -1.0 };
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            sign_val,
+            device,
+        ));
+    }
+
+    let eps = f32::EPSILON as f64;
+
+    // Newton iteration: X_{k+1} = (X_k + X_k^{-1}) / 2
+    let mut x = a.clone();
+    let max_iter = 100;
+    let tol = eps * (n as f64).sqrt();
+
+    for _iter in 0..max_iter {
+        let x_inv = LinearAlgebraAlgorithms::inverse(client, &x).map_err(|_| {
+            Error::Internal("signm: matrix became singular during iteration".to_string())
+        })?;
+
+        let x_plus_inv = TensorOps::add(client, &x, &x_inv)?;
+        let x_new = client.div_scalar(&x_plus_inv, 2.0)?;
+
+        let diff = TensorOps::sub(client, &x_new, &x)?;
+        let diff_norm: f64 = compute_norm(client, &diff)?;
+
+        x = x_new;
+
+        if diff_norm < tol {
+            break;
+        }
+    }
+
+    Ok(x)
+}
+
+/// Fractional matrix power: A^p
+///
+/// Computes A^p for any real exponent p. Special cases:
+/// - p = 0: Returns identity matrix
+/// - p = 0.5: Equivalent to sqrtm(A)
+/// - Integer p: Uses repeated squaring
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. For F64 matrices, use CPU or CUDA backends.
+///
+/// # Errors
+///
+/// - Returns `UnsupportedDType` if the tensor is not F32.
+/// - Returns `InvalidArgument` for non-integer p if matrix has non-positive eigenvalues.
+pub fn fractional_matrix_power(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    p: f64,
+) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU fractional_matrix_power (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    // p = 0: Return identity
+    if p.abs() < f64::EPSILON {
+        return TensorOps::eye(client, n, None, dtype);
+    }
+
+    // p = 1: Return A
+    if (p - 1.0).abs() < f64::EPSILON {
+        return Ok(a.clone());
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let val = data[0] as f64;
+        if val <= 0.0 && p.fract() != 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "a",
+                reason: "fractional_matrix_power requires positive eigenvalues for non-integer p"
+                    .to_string(),
+            });
+        }
+        let result = val.powf(p);
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            result,
+            device,
+        ));
+    }
+
+    // p = -1: Return inverse
+    if (p + 1.0).abs() < f64::EPSILON {
+        return LinearAlgebraAlgorithms::inverse(client, a);
+    }
+
+    // p = 0.5: Use sqrtm
+    if (p - 0.5).abs() < f64::EPSILON {
+        return sqrtm(client, a);
+    }
+
+    // Integer powers: use repeated squaring
+    if p.fract() == 0.0 && p.abs() < 100.0 {
+        return integer_matrix_power(client, a, n, p as i64, dtype);
+    }
+
+    // General case: A^p = exp(p * log(A))
+    let log_a = logm(client, a)?;
+    let p_log_a = client.mul_scalar(&log_a, p)?;
+    expm(client, &p_log_a)
+}
+
+/// General matrix function: f(A)
+///
+/// Computes f(A) for any scalar function f using the Schur-Parlett algorithm.
+///
+/// # WebGPU Limitations
+///
+/// Only F32 tensors are supported. For F64 matrices, use CPU or CUDA backends.
+///
+/// # Closure Requirements
+///
+/// The closure `f` must be `Send + Sync` to support potential parallel execution.
+///
+/// # Example
+///
+/// ```ignore
+/// // Custom matrix function: f(x) = sin(x)
+/// let result = funm(&client, &matrix, |x| x.sin())?;
+/// ```
+///
+/// # Errors
+///
+/// Returns `UnsupportedDType` if the tensor is not F32.
+pub fn funm<F>(client: &WgpuClient, a: &Tensor<WgpuRuntime>, f: F) -> Result<Tensor<WgpuRuntime>>
+where
+    F: Fn(f64) -> f64 + Send + Sync,
+{
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU funm (only F32 supported)",
+        });
+    }
+
+    if n == 0 {
+        return Ok(Tensor::<WgpuRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        let data: Vec<f32> = a.to_vec();
+        let val = data[0] as f64;
+        let result = f(val);
+        if result.is_nan() || result.is_infinite() {
+            return Err(Error::InvalidArgument {
+                arg: "f",
+                reason: "function returned NaN or Inf for eigenvalue".to_string(),
+            });
+        }
+        return Ok(Tensor::<WgpuRuntime>::full_scalar(
+            &[1, 1],
+            dtype,
+            result,
+            device,
+        ));
+    }
+
+    // Compute Schur decomposition
+    let schur = schur_decompose(client, a)?;
+    let t_data: Vec<f32> = schur.t.to_vec();
+    let z_data: Vec<f32> = schur.z.to_vec();
+
+    // Compute f(T) on CPU
+    let f_t = funm_quasi_triangular_f32(&t_data, n, &f)?;
+
+    // Reconstruct on GPU
+    let f_t_tensor = Tensor::<WgpuRuntime>::from_slice(&f_t, &[n, n], device);
+    let z_tensor = Tensor::<WgpuRuntime>::from_slice(&z_data, &[n, n], device);
+
+    let temp = TensorOps::matmul(client, &z_tensor, &f_t_tensor)?;
+    let z_t = z_tensor.transpose(0, 1)?;
+    TensorOps::matmul(client, &temp, &z_t)
+}
+
+// Helper functions
+
+fn compute_norm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<f64> {
+    let a_sq = TensorOps::mul(client, a, a)?;
+    let sum = client.sum(&a_sq, &[], false)?;
+    let sum_vec: Vec<f32> = sum.to_vec();
+    Ok((sum_vec[0] as f64).sqrt())
+}
+
+fn compute_schur_exp(
+    client: &WgpuClient,
+    t: &Tensor<WgpuRuntime>,
+    n: usize,
+    _dtype: DType,
+) -> Result<Tensor<WgpuRuntime>> {
+    let t_data: Vec<f32> = t.to_vec();
+    let device = client.device();
+    let exp_t = funm_quasi_triangular_f32(&t_data, n, &|x| x.exp())?;
+    Ok(Tensor::<WgpuRuntime>::from_slice(&exp_t, &[n, n], device))
+}
+
+fn compute_schur_log(
+    client: &WgpuClient,
+    t: &Tensor<WgpuRuntime>,
+    n: usize,
+    _dtype: DType,
+) -> Result<Tensor<WgpuRuntime>> {
+    let t_data: Vec<f32> = t.to_vec();
+    let device = client.device();
+    let log_t = funm_quasi_triangular_f32(&t_data, n, &|x| {
+        if x <= 0.0 {
+            return f64::NAN;
+        }
+        x.ln()
+    })?;
+    Ok(Tensor::<WgpuRuntime>::from_slice(&log_t, &[n, n], device))
+}
+
+fn validate_schur_eigenvalues(t: &[f32], n: usize, eps: f64, op: &str) -> Result<()> {
+    let mut i = 0;
+    while i < n {
+        if i + 1 < n && (t[(i + 1) * n + i] as f64).abs() > eps {
+            let a_val = t[i * n + i] as f64;
+            let b_val = t[i * n + (i + 1)] as f64;
+            let c_val = t[(i + 1) * n + i] as f64;
+            if a_val <= eps && b_val * c_val >= -eps {
+                return Err(Error::InvalidArgument {
+                    arg: "a",
+                    reason: format!(
+                        "{} requires matrix with no non-positive real eigenvalues",
+                        op
+                    ),
+                });
+            }
+            i += 2;
+        } else {
+            let eigenvalue = t[i * n + i] as f64;
+            if eigenvalue <= eps {
+                return Err(Error::InvalidArgument {
+                    arg: "a",
+                    reason: format!(
+                        "{} requires matrix with no non-positive real eigenvalues, found {}",
+                        op, eigenvalue
+                    ),
+                });
+            }
+            i += 1;
+        }
+    }
+    Ok(())
+}
+
+fn integer_matrix_power(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    n: usize,
+    p: i64,
+    dtype: DType,
+) -> Result<Tensor<WgpuRuntime>> {
+    if p == 0 {
+        return TensorOps::eye(client, n, None, dtype);
+    }
+
+    let (mut base, mut exp) = if p < 0 {
+        let inv = LinearAlgebraAlgorithms::inverse(client, a)?;
+        (inv, (-p) as u64)
+    } else {
+        (a.clone(), p as u64)
+    };
+
+    let mut result = TensorOps::eye(client, n, None, dtype)?;
+
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = TensorOps::matmul(client, &result, &base)?;
+        }
+        base = TensorOps::matmul(client, &base, &base)?;
+        exp >>= 1;
+    }
+
+    Ok(result)
+}
+
+fn funm_quasi_triangular_f32<F>(t: &[f32], n: usize, f: &F) -> Result<Vec<f32>>
+where
+    F: Fn(f64) -> f64,
+{
+    let mut result = vec![0.0f32; n * n];
+    let eps = f32::EPSILON as f64;
+
+    let mut i = 0;
+    while i < n {
+        if i + 1 < n && (t[(i + 1) * n + i] as f64).abs() > eps {
+            let a = t[i * n + i] as f64;
+            let b = t[i * n + (i + 1)] as f64;
+            let c = t[(i + 1) * n + i] as f64;
+            let d = t[(i + 1) * n + (i + 1)] as f64;
+
+            let (f11, f12, f21, f22) = funm_2x2_block_f32(a, b, c, d, f)?;
+            result[i * n + i] = f11 as f32;
+            result[i * n + (i + 1)] = f12 as f32;
+            result[(i + 1) * n + i] = f21 as f32;
+            result[(i + 1) * n + (i + 1)] = f22 as f32;
+            i += 2;
+        } else {
+            let val = t[i * n + i] as f64;
+            let f_val = f(val);
+            if f_val.is_nan() || f_val.is_infinite() {
+                return Err(Error::InvalidArgument {
+                    arg: "f",
+                    reason: format!("function returned NaN or Inf for eigenvalue {}", val),
+                });
+            }
+            result[i * n + i] = f_val as f32;
+            i += 1;
+        }
+    }
+
+    for diag in 1..n {
+        for i in 0..(n - diag) {
+            let j = i + diag;
+
+            if i + 1 < n && (t[(i + 1) * n + i] as f64).abs() > eps && diag == 1 {
+                continue;
+            }
+            if j > 0 && (t[j * n + (j - 1)] as f64).abs() > eps && diag == 1 {
+                continue;
+            }
+
+            let t_ii = t[i * n + i] as f64;
+            let t_jj = t[j * n + j] as f64;
+            let t_ij = t[i * n + j] as f64;
+
+            let f_ii = result[i * n + i] as f64;
+            let f_jj = result[j * n + j] as f64;
+
+            let mut sum = 0.0;
+            for k in (i + 1)..j {
+                sum += (result[i * n + k] as f64) * (t[k * n + j] as f64);
+                sum -= (t[i * n + k] as f64) * (result[k * n + j] as f64);
+            }
+
+            let diff = t_ii - t_jj;
+            let f_ij = if diff.abs() > eps {
+                (f_ii - f_jj) * t_ij / diff + sum / diff
+            } else {
+                f_ii * t_ij + sum
+            };
+
+            result[i * n + j] = f_ij as f32;
+        }
+    }
+
+    Ok(result)
+}
+
+fn funm_2x2_block_f32<F>(a: f64, b: f64, c: f64, d: f64, f: &F) -> Result<(f64, f64, f64, f64)>
+where
+    F: Fn(f64) -> f64,
+{
+    let trace = a + d;
+    let det = a * d - b * c;
+    let disc = trace * trace / 4.0 - det;
+
+    if disc >= 0.0 {
+        let sqrt_disc = disc.sqrt();
+        let lambda1 = trace / 2.0 + sqrt_disc;
+        let lambda2 = trace / 2.0 - sqrt_disc;
+
+        let f1 = f(lambda1);
+        let f2 = f(lambda2);
+
+        if f1.is_nan() || f1.is_infinite() || f2.is_nan() || f2.is_infinite() {
+            return Err(Error::InvalidArgument {
+                arg: "f",
+                reason: "function returned NaN or Inf for eigenvalue".to_string(),
+            });
+        }
+
+        if (lambda1 - lambda2).abs() > f64::EPSILON {
+            let coeff1 = (f1 - f2) / (lambda1 - lambda2);
+            let coeff0 = f1 - coeff1 * lambda1;
+            Ok((
+                coeff0 + coeff1 * a,
+                coeff1 * b,
+                coeff1 * c,
+                coeff0 + coeff1 * d,
+            ))
+        } else {
+            Ok((
+                f1,
+                f1 * b / (a - lambda1 + 1.0),
+                f1 * c / (a - lambda1 + 1.0),
+                f1,
+            ))
+        }
+    } else {
+        let alpha = trace / 2.0;
+        let beta = (-disc).sqrt();
+
+        let f_alpha = f(alpha);
+        if f_alpha.is_nan() || f_alpha.is_infinite() {
+            return Err(Error::InvalidArgument {
+                arg: "f",
+                reason: "function returned NaN or Inf for eigenvalue".to_string(),
+            });
+        }
+
+        let h = beta.abs().max(1e-8);
+        let f_plus = f(alpha + h);
+        let f_minus = f(alpha - h);
+        let df_approx = (f_plus - f_minus) / (2.0 * h);
+
+        let f11 = f_alpha + df_approx * (a - alpha);
+        let f12 = df_approx * b;
+        let f21 = df_approx * c;
+        let f22 = f_alpha + df_approx * (d - alpha);
+
+        Ok((f11, f12, f21, f22))
+    }
+}
