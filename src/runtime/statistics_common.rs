@@ -501,6 +501,150 @@ pub fn compute_kurtosis<T: Element>(data: &[T], _correction: usize) -> f64 {
 }
 
 // ============================================================================
+// Mode Computation
+// ============================================================================
+
+/// Result of mode computation for a single reduction.
+#[derive(Debug, Clone)]
+pub struct ModeResult<T> {
+    /// The most frequent value
+    pub value: T,
+    /// The number of times it appears
+    pub count: i64,
+}
+
+/// Compute the mode (most frequent value) from a sorted slice.
+///
+/// The input must be sorted in ascending order. If multiple values have the
+/// same maximum frequency, the smallest value (which appears first in sorted
+/// order) is returned.
+///
+/// # Arguments
+///
+/// * `sorted` - Slice of sorted input values (ascending order)
+///
+/// # Returns
+///
+/// `ModeResult` containing the mode value and its count.
+///
+/// # Algorithm
+///
+/// Uses run-length encoding on sorted data:
+/// 1. Track current run (value and count)
+/// 2. Track best run (highest count seen)
+/// 3. Iterate through sorted data, updating runs
+/// 4. Return the value with highest count
+///
+/// # Complexity
+///
+/// O(n) time, O(1) space.
+///
+/// # Panics
+///
+/// Panics if the input slice is empty.
+pub fn compute_mode<T: Element>(sorted: &[T]) -> ModeResult<T> {
+    debug_assert!(!sorted.is_empty(), "Cannot compute mode of empty slice");
+
+    if sorted.len() == 1 {
+        return ModeResult {
+            value: sorted[0],
+            count: 1,
+        };
+    }
+
+    let mut best_value = sorted[0];
+    let mut best_count: i64 = 1;
+
+    let mut current_value = sorted[0];
+    let mut current_count: i64 = 1;
+
+    for &val in &sorted[1..] {
+        // Compare using f64 representation for consistent comparison across types
+        if val.to_f64() == current_value.to_f64() {
+            current_count += 1;
+        } else {
+            // New run started
+            if current_count > best_count {
+                best_value = current_value;
+                best_count = current_count;
+            }
+            current_value = val;
+            current_count = 1;
+        }
+    }
+
+    // Check final run
+    if current_count > best_count {
+        best_value = current_value;
+        best_count = current_count;
+    }
+
+    ModeResult {
+        value: best_value,
+        count: best_count,
+    }
+}
+
+/// Compute mode values from sorted data with strided access.
+///
+/// This function computes mode values from pre-sorted data, handling
+/// the strided iteration pattern common to tensor reduction operations.
+///
+/// # Arguments
+///
+/// * `sorted` - Slice of sorted input data
+/// * `outer_size` - Number of outer iterations (product of dimensions before reduce dim)
+/// * `reduce_size` - Size of the dimension being reduced (sorted along)
+/// * `inner_size` - Number of inner iterations (product of dimensions after reduce dim)
+///
+/// # Returns
+///
+/// Tuple of (mode_values, mode_counts) with length `outer_size * inner_size` each.
+///
+/// # Memory Layout
+///
+/// Input is assumed to be in row-major order with the reduce dimension
+/// being the middle dimension:
+/// ```text
+/// [outer][reduce][inner]
+/// ```
+pub fn compute_mode_strided<T: Element>(
+    sorted: &[T],
+    outer_size: usize,
+    reduce_size: usize,
+    inner_size: usize,
+) -> (Vec<T>, Vec<i64>) {
+    let output_size = outer_size * inner_size;
+    let mut values = Vec::with_capacity(output_size);
+    let mut counts = Vec::with_capacity(output_size);
+
+    for outer in 0..outer_size {
+        for inner in 0..inner_size {
+            // Extract the slice for this reduction
+            let mut slice_data = Vec::with_capacity(reduce_size);
+            for r in 0..reduce_size {
+                let idx = outer * reduce_size * inner_size + r * inner_size + inner;
+                slice_data.push(sorted[idx]);
+            }
+
+            // Data should already be sorted, but slice extraction breaks sorting
+            // for non-contiguous access. Sort the extracted slice.
+            slice_data.sort_by(|a, b| {
+                a.to_f64()
+                    .partial_cmp(&b.to_f64())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let result = compute_mode(&slice_data);
+            values.push(result.value);
+            counts.push(result.count);
+        }
+    }
+
+    (values, counts)
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 
@@ -600,5 +744,48 @@ mod tests {
             kurt < 0.0,
             "Uniform-like data should have negative kurtosis"
         );
+    }
+
+    #[test]
+    fn test_compute_mode_simple() {
+        // Simple case: 2 appears 3 times
+        let data: Vec<f32> = vec![1.0, 2.0, 2.0, 2.0, 3.0];
+        let result = compute_mode(&data);
+        assert!((result.value - 2.0).abs() < 1e-10);
+        assert_eq!(result.count, 3);
+    }
+
+    #[test]
+    fn test_compute_mode_all_unique() {
+        // All unique: return smallest (first) with count 1
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let result = compute_mode(&data);
+        assert!((result.value - 1.0).abs() < 1e-10);
+        assert_eq!(result.count, 1);
+    }
+
+    #[test]
+    fn test_compute_mode_tie() {
+        // Tie: 1 and 3 both appear twice, return smallest (1)
+        let data: Vec<f32> = vec![1.0, 1.0, 2.0, 3.0, 3.0];
+        let result = compute_mode(&data);
+        assert!((result.value - 1.0).abs() < 1e-10);
+        assert_eq!(result.count, 2);
+    }
+
+    #[test]
+    fn test_compute_mode_single_element() {
+        let data: Vec<f32> = vec![42.0];
+        let result = compute_mode(&data);
+        assert!((result.value - 42.0).abs() < 1e-10);
+        assert_eq!(result.count, 1);
+    }
+
+    #[test]
+    fn test_compute_mode_all_same() {
+        let data: Vec<f32> = vec![7.0, 7.0, 7.0, 7.0];
+        let result = compute_mode(&data);
+        assert!((result.value - 7.0).abs() < 1e-10);
+        assert_eq!(result.count, 4);
     }
 }

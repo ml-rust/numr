@@ -1471,6 +1471,15 @@ impl TensorOps<CpuRuntime> for CpuClient {
         super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
     }
 
+    fn mode(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::statistics::mode_impl(self, a, dim, keepdim)
+    }
+
     // ===== Random Operations =====
 
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {

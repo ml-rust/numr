@@ -33,6 +33,7 @@ pub mod linalg;
 pub mod shape;
 pub mod sort;
 pub mod special;
+pub mod statistics;
 pub mod typed_kernels;
 
 // Legacy modules (to be replaced by typed_kernels)
@@ -72,3 +73,4 @@ pub use generator::{
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use special::{launch_special_binary, launch_special_ternary, launch_special_unary};
+pub use statistics::{launch_mode_dim, launch_mode_full};

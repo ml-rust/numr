@@ -64,6 +64,7 @@ fn compile_cuda_kernels() {
         "sort.cu",
         "special.cu",
         "distributions.cu",
+        "statistics.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

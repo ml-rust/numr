@@ -79,6 +79,7 @@ mod sparse_utils;
 mod special;
 #[cfg(feature = "sparse")]
 mod spgemm;
+mod statistics;
 mod strided_copy;
 mod ternary;
 mod unary;
@@ -119,6 +120,7 @@ pub use sparse_utils::*;
 pub use special::*;
 #[cfg(feature = "sparse")]
 pub use spgemm::*;
+pub use statistics::*;
 pub use strided_copy::*;
 pub use ternary::*;
 pub use unary::*;

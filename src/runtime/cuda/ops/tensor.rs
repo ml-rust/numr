@@ -1726,6 +1726,15 @@ impl TensorOps<CudaRuntime> for CudaClient {
         super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
     }
 
+    fn mode(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        super::statistics::mode_impl(self, a, dim, keepdim)
+    }
+
     // ===== Cumulative Operations =====
 
     fn cumsum(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {

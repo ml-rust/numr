@@ -263,6 +263,8 @@ pub mod kernel_names {
     pub const CUMULATIVE_MODULE: &str = "cumulative";
     /// Distribution sampling operations (bernoulli, beta, gamma, etc.)
     pub const DISTRIBUTIONS_MODULE: &str = "distributions";
+    /// Statistics operations (mode)
+    pub const STATISTICS_MODULE: &str = "statistics";
 
     /// Generate kernel name for reduction operations.
     #[inline]

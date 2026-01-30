@@ -1832,6 +1832,59 @@ pub trait TensorOps<R: Runtime> {
         correction: usize,
     ) -> Result<Tensor<R>>;
 
+    /// Compute the mode (most frequent value) along a dimension
+    ///
+    /// Returns the most frequently occurring value along the specified dimension,
+    /// along with the count of how many times it appears. If multiple values have
+    /// the same maximum frequency, the smallest value is returned.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor
+    /// * `dim` - Dimension to reduce along (None = flatten first)
+    /// * `keepdim` - If true, keep reduced dimension as size 1
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (mode_values, mode_counts):
+    /// - mode_values: Tensor containing the most frequent values
+    /// - mode_counts: I64 tensor containing the count of each mode
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Sort the values along the specified dimension
+    /// 2. Count consecutive equal values (run-length encoding)
+    /// 3. Return the value with the highest count
+    ///    (if tied, return the smallest value)
+    /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Simple 1D mode
+    /// let a = Tensor::from_slice(&[1.0f32, 2.0, 2.0, 3.0, 2.0], &[5], &device);
+    /// let (values, counts) = client.mode(&a, Some(0), false)?;
+    /// // values = [2.0], counts = [3]
+    ///
+    /// // 2D mode along axis 1
+    /// let b = Tensor::from_slice(&[1.0f32, 1.0, 2.0, 3.0, 3.0, 3.0], &[2, 3], &device);
+    /// let (values, counts) = client.mode(&b, Some(1), false)?;
+    /// // values = [1.0, 3.0], counts = [2, 3]
+    /// ```
+    ///
+    /// # Notes
+    ///
+    /// - For continuous data, mode may be less meaningful than for discrete data
+    /// - Floating point comparison uses exact equality
+    /// - If all values are unique, returns the smallest value with count 1
+    fn mode(
+        &self,
+        a: &Tensor<R>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<R>, Tensor<R>)>;
+
     // ===== Random Operations =====
 
     /// Generate uniform random values in [0, 1)

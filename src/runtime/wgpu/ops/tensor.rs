@@ -633,6 +633,15 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         super::super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
     }
 
+    fn mode(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
+        super::super::statistics::mode_impl(self, a, dim, keepdim)
+    }
+
     // --- Cumulative Operations ---
 
     fn cumsum(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
