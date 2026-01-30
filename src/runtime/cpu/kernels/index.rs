@@ -1,6 +1,6 @@
 //! Index operation kernels (gather, scatter, masked operations)
 
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 
 /// Gather elements along a dimension using an index tensor.
 ///
@@ -380,11 +380,59 @@ pub unsafe fn embedding_lookup_kernel<T: Element>(
 
 /// Where (conditional select): out[i] = cond[i] ? x[i] : y[i]
 ///
+/// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration
+/// - AVX2: 8 f32s or 4 f64s per iteration
+/// - Scalar fallback for other types or non-x86 platforms
+///
 /// # Safety
 /// - `cond` must be valid pointer to `len` u8 elements
 /// - `x`, `y`, and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn where_kernel<T: Element>(
+    cond: *const u8,
+    x: *const T,
+    y: *const T,
+    out: *mut T,
+    len: usize,
+) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::where_select;
+
+        match T::DTYPE {
+            DType::F32 => {
+                where_select::where_f32(
+                    cond,
+                    x as *const f32,
+                    y as *const f32,
+                    out as *mut f32,
+                    len,
+                );
+                return;
+            }
+            DType::F64 => {
+                where_select::where_f64(
+                    cond,
+                    x as *const f64,
+                    y as *const f64,
+                    out as *mut f64,
+                    len,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    where_kernel_scalar(cond, x, y, out, len);
+}
+
+/// Scalar where for all Element types
+#[inline]
+unsafe fn where_kernel_scalar<T: Element>(
     cond: *const u8,
     x: *const T,
     y: *const T,

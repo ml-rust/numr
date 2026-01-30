@@ -2,7 +2,7 @@
 //!
 //! Contains argmax, argmin, softmax, and variance kernels.
 
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 
 /// Argmax along a dimension - returns indices of maximum values
 ///
@@ -94,6 +94,11 @@ pub unsafe fn argmin_kernel<T: Element>(
 ///
 /// softmax(x)[i] = exp(x[i] - max(x)) / sum(exp(x - max(x)))
 ///
+/// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration with vectorized exp
+/// - AVX2: 8 f32s or 4 f64s per iteration with vectorized exp
+/// - Scalar fallback for other types or non-x86 platforms
+///
 /// # Arguments
 /// * `a` - Input pointer (outer_size * dim_size elements)
 /// * `out` - Output pointer (outer_size * dim_size elements)
@@ -104,6 +109,36 @@ pub unsafe fn argmin_kernel<T: Element>(
 /// - `a` and `out` must point to `outer_size * dim_size` elements
 #[inline]
 pub unsafe fn softmax_kernel<T: Element>(
+    a: *const T,
+    out: *mut T,
+    outer_size: usize,
+    dim_size: usize,
+) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use crate::runtime::cpu::kernels::simd::softmax;
+
+        match T::DTYPE {
+            DType::F32 => {
+                softmax::softmax_f32(a as *const f32, out as *mut f32, outer_size, dim_size);
+                return;
+            }
+            DType::F64 => {
+                softmax::softmax_f64(a as *const f64, out as *mut f64, outer_size, dim_size);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    softmax_kernel_scalar(a, out, outer_size, dim_size);
+}
+
+/// Scalar softmax for all Element types
+#[inline]
+unsafe fn softmax_kernel_scalar<T: Element>(
     a: *const T,
     out: *mut T,
     outer_size: usize,
