@@ -133,13 +133,13 @@ impl TileConfig {
     pub fn validate(&self) -> Result<()> {
         use crate::error::Error;
 
-        if self.block_m % self.thread_m != 0 {
+        if !self.block_m.is_multiple_of(self.thread_m) {
             return Err(Error::Internal(format!(
                 "BLOCK_M ({}) must be divisible by THREAD_M ({})",
                 self.block_m, self.thread_m
             )));
         }
-        if self.block_n % self.thread_n != 0 {
+        if !self.block_n.is_multiple_of(self.thread_n) {
             return Err(Error::Internal(format!(
                 "BLOCK_N ({}) must be divisible by THREAD_N ({})",
                 self.block_n, self.thread_n

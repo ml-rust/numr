@@ -223,14 +223,12 @@ impl Layout {
     pub fn squeeze(&self, dim: Option<isize>) -> Self {
         match dim {
             Some(d) => {
-                if let Some(idx) = self.normalize_dim(d) {
-                    if self.shape[idx] == 1 {
-                        let mut new_shape = self.shape.clone();
-                        let mut new_strides = self.strides.clone();
-                        new_shape.remove(idx);
-                        new_strides.remove(idx);
-                        return Self::new(new_shape, new_strides, self.offset);
-                    }
+                if let Some(idx) = self.normalize_dim(d).filter(|&i| self.shape[i] == 1) {
+                    let mut new_shape = self.shape.clone();
+                    let mut new_strides = self.strides.clone();
+                    new_shape.remove(idx);
+                    new_strides.remove(idx);
+                    return Self::new(new_shape, new_strides, self.offset);
                 }
                 self.clone()
             }

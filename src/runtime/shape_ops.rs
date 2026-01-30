@@ -357,7 +357,7 @@ pub struct PadParams {
 /// dimensions 2 and 1 (not dimension 0).
 pub fn validate_pad<R: Runtime>(tensor: &Tensor<R>, padding: &[usize]) -> Result<PadParams> {
     // Padding must come in pairs
-    if padding.len() % 2 != 0 {
+    if !padding.len().is_multiple_of(2) {
         return Err(Error::InvalidArgument {
             arg: "padding",
             reason: "padding must have even length (pairs of before/after)".to_string(),
