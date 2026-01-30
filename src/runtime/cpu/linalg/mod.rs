@@ -4,6 +4,7 @@
 //! All algorithms follow the exact specification in the trait documentation
 //! to ensure backend parity with CUDA/WebGPU implementations.
 
+mod advanced;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
@@ -19,10 +20,11 @@ mod tests;
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
-    SchurDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
-    validate_square_matrix,
+    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
+    QrDecomposition, SchurDecomposition, SvdDecomposition, validate_linalg_dtype,
+    validate_matrix_2d, validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -403,6 +405,68 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
             _ => Err(Error::UnsupportedDType {
                 dtype: a.dtype(),
                 op: "eig_decompose",
+            }),
+        }
+    }
+
+    fn rsf2csf(
+        &self,
+        schur: &SchurDecomposition<CpuRuntime>,
+    ) -> Result<ComplexSchurDecomposition<CpuRuntime>> {
+        validate_linalg_dtype(schur.t.dtype())?;
+        let n = validate_square_matrix(schur.t.shape())?;
+
+        match schur.t.dtype() {
+            DType::F32 => advanced::rsf2csf_impl::<f32>(self, schur, n),
+            DType::F64 => advanced::rsf2csf_impl::<f64>(self, schur, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: schur.t.dtype(),
+                op: "rsf2csf",
+            }),
+        }
+    }
+
+    fn qz_decompose(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<GeneralizedSchurDecomposition<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        if a.dtype() != b.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: b.dtype(),
+            });
+        }
+        let n_a = validate_square_matrix(a.shape())?;
+        let n_b = validate_square_matrix(b.shape())?;
+        if n_a != n_b {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            });
+        }
+
+        match a.dtype() {
+            DType::F32 => advanced::qz_decompose_impl::<f32>(self, a, b, n_a),
+            DType::F64 => advanced::qz_decompose_impl::<f64>(self, a, b, n_a),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "qz_decompose",
+            }),
+        }
+    }
+
+    fn polar_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<PolarDecomposition<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => advanced::polar_decompose_impl::<f32>(self, a, n),
+            DType::F64 => advanced::polar_decompose_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "polar_decompose",
             }),
         }
     }
