@@ -27,6 +27,221 @@
 #endif
 
 // ============================================================================
+// NaN and Infinity Constants
+// ============================================================================
+// Using CUDA intrinsics to generate NaN and Inf values
+
+#ifndef NUMR_NAN_F
+#define NUMR_NAN_F __int_as_float(0x7FC00000)  // Quiet NaN (single precision)
+#endif
+
+#ifndef NUMR_INF_F
+#define NUMR_INF_F __int_as_float(0x7F800000)  // Positive infinity (single precision)
+#endif
+
+#ifndef NUMR_NAN
+#define NUMR_NAN __longlong_as_double(0x7FF8000000000000LL)  // Quiet NaN (double precision)
+#endif
+
+#ifndef NUMR_INF
+#define NUMR_INF __longlong_as_double(0x7FF0000000000000LL)  // Positive infinity (double precision)
+#endif
+
+// ============================================================================
+// Complex Number Type Definitions
+// ============================================================================
+// Complex64 maps to float2 (8 bytes: 2x f32)
+// Complex128 maps to double2 (16 bytes: 2x f64)
+// These match the Rust Complex64/Complex128 #[repr(C)] layout
+
+// Complex64: 64-bit complex (2x f32)
+// Uses CUDA's built-in float2 type
+typedef float2 numr_complex64;
+
+// Complex128: 128-bit complex (2x f64)
+// Uses CUDA's built-in double2 type
+typedef double2 numr_complex128;
+
+// ============================================================================
+// Complex Arithmetic Device Functions
+// ============================================================================
+
+// --- Complex64 (float2) arithmetic ---
+
+__device__ __forceinline__ numr_complex64 complex64_add(numr_complex64 a, numr_complex64 b) {
+    return make_float2(a.x + b.x, a.y + b.y);
+}
+
+__device__ __forceinline__ numr_complex64 complex64_sub(numr_complex64 a, numr_complex64 b) {
+    return make_float2(a.x - b.x, a.y - b.y);
+}
+
+// (a+bi)(c+di) = (ac-bd) + (ad+bc)i
+__device__ __forceinline__ numr_complex64 complex64_mul(numr_complex64 a, numr_complex64 b) {
+    return make_float2(
+        a.x * b.x - a.y * b.y,  // real: ac - bd
+        a.x * b.y + a.y * b.x   // imag: ad + bc
+    );
+}
+
+// (a+bi)/(c+di) = (a+bi)*conj(c+di)/|c+di|²
+__device__ __forceinline__ numr_complex64 complex64_div(numr_complex64 a, numr_complex64 b) {
+    float denom = b.x * b.x + b.y * b.y;  // |b|²
+    if (denom == 0.0f) {
+        return make_float2(NUMR_NAN_F, NUMR_NAN_F);
+    }
+    return make_float2(
+        (a.x * b.x + a.y * b.y) / denom,  // real: (ac + bd) / |b|²
+        (a.y * b.x - a.x * b.y) / denom   // imag: (bc - ad) / |b|²
+    );
+}
+
+__device__ __forceinline__ numr_complex64 complex64_neg(numr_complex64 a) {
+    return make_float2(-a.x, -a.y);
+}
+
+__device__ __forceinline__ numr_complex64 complex64_conj(numr_complex64 a) {
+    return make_float2(a.x, -a.y);
+}
+
+__device__ __forceinline__ float complex64_abs(numr_complex64 a) {
+    return sqrtf(a.x * a.x + a.y * a.y);
+}
+
+__device__ __forceinline__ float complex64_abs_squared(numr_complex64 a) {
+    return a.x * a.x + a.y * a.y;
+}
+
+__device__ __forceinline__ float complex64_angle(numr_complex64 a) {
+    return atan2f(a.y, a.x);
+}
+
+// Reciprocal: 1/z = conj(z)/|z|²
+__device__ __forceinline__ numr_complex64 complex64_recip(numr_complex64 a) {
+    float mag_sq = a.x * a.x + a.y * a.y;
+    if (mag_sq == 0.0f) {
+        return make_float2(NUMR_INF_F, NUMR_INF_F);
+    }
+    return make_float2(a.x / mag_sq, -a.y / mag_sq);
+}
+
+// Square: z² = (a+bi)² = a² - b² + 2abi
+__device__ __forceinline__ numr_complex64 complex64_square(numr_complex64 a) {
+    return make_float2(
+        a.x * a.x - a.y * a.y,
+        2.0f * a.x * a.y
+    );
+}
+
+// Exponential: e^z = e^a * (cos(b) + i*sin(b))
+__device__ __forceinline__ numr_complex64 complex64_exp(numr_complex64 a) {
+    float exp_re = expf(a.x);
+    float sin_im, cos_im;
+    sincosf(a.y, &sin_im, &cos_im);
+    return make_float2(exp_re * cos_im, exp_re * sin_im);
+}
+
+// Natural log: ln(z) = ln(|z|) + i*arg(z)
+__device__ __forceinline__ numr_complex64 complex64_log(numr_complex64 a) {
+    return make_float2(logf(complex64_abs(a)), complex64_angle(a));
+}
+
+// Square root (principal branch)
+__device__ __forceinline__ numr_complex64 complex64_sqrt(numr_complex64 a) {
+    float mag = complex64_abs(a);
+    if (mag == 0.0f) {
+        return make_float2(0.0f, 0.0f);
+    }
+    float re = sqrtf((mag + a.x) / 2.0f);
+    float im = copysignf(sqrtf((mag - a.x) / 2.0f), a.y);
+    return make_float2(re, im);
+}
+
+// --- Complex128 (double2) arithmetic ---
+
+__device__ __forceinline__ numr_complex128 complex128_add(numr_complex128 a, numr_complex128 b) {
+    return make_double2(a.x + b.x, a.y + b.y);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_sub(numr_complex128 a, numr_complex128 b) {
+    return make_double2(a.x - b.x, a.y - b.y);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_mul(numr_complex128 a, numr_complex128 b) {
+    return make_double2(
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x
+    );
+}
+
+__device__ __forceinline__ numr_complex128 complex128_div(numr_complex128 a, numr_complex128 b) {
+    double denom = b.x * b.x + b.y * b.y;
+    if (denom == 0.0) {
+        return make_double2(NUMR_NAN, NUMR_NAN);
+    }
+    return make_double2(
+        (a.x * b.x + a.y * b.y) / denom,
+        (a.y * b.x - a.x * b.y) / denom
+    );
+}
+
+__device__ __forceinline__ numr_complex128 complex128_neg(numr_complex128 a) {
+    return make_double2(-a.x, -a.y);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_conj(numr_complex128 a) {
+    return make_double2(a.x, -a.y);
+}
+
+__device__ __forceinline__ double complex128_abs(numr_complex128 a) {
+    return sqrt(a.x * a.x + a.y * a.y);
+}
+
+__device__ __forceinline__ double complex128_abs_squared(numr_complex128 a) {
+    return a.x * a.x + a.y * a.y;
+}
+
+__device__ __forceinline__ double complex128_angle(numr_complex128 a) {
+    return atan2(a.y, a.x);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_recip(numr_complex128 a) {
+    double mag_sq = a.x * a.x + a.y * a.y;
+    if (mag_sq == 0.0) {
+        return make_double2(NUMR_INF, NUMR_INF);
+    }
+    return make_double2(a.x / mag_sq, -a.y / mag_sq);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_square(numr_complex128 a) {
+    return make_double2(
+        a.x * a.x - a.y * a.y,
+        2.0 * a.x * a.y
+    );
+}
+
+__device__ __forceinline__ numr_complex128 complex128_exp(numr_complex128 a) {
+    double exp_re = exp(a.x);
+    double sin_im, cos_im;
+    sincos(a.y, &sin_im, &cos_im);
+    return make_double2(exp_re * cos_im, exp_re * sin_im);
+}
+
+__device__ __forceinline__ numr_complex128 complex128_log(numr_complex128 a) {
+    return make_double2(log(complex128_abs(a)), complex128_angle(a));
+}
+
+__device__ __forceinline__ numr_complex128 complex128_sqrt(numr_complex128 a) {
+    double mag = complex128_abs(a);
+    if (mag == 0.0) {
+        return make_double2(0.0, 0.0);
+    }
+    double re = sqrt((mag + a.x) / 2.0);
+    double im = copysign(sqrt((mag - a.x) / 2.0), a.y);
+    return make_double2(re, im);
+}
+
+// ============================================================================
 // FP8 Type Definitions
 // ============================================================================
 
