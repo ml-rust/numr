@@ -10,9 +10,8 @@ use super::CudaRuntime;
 use super::client::CudaClient;
 use super::kernels;
 use crate::algorithm::special::{SpecialFunctions, validate_special_dtype};
-use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 impl SpecialFunctions<CudaRuntime> for CudaClient {

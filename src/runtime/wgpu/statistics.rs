@@ -6,7 +6,7 @@
 //! This module shares common logic with other backends via the `statistics_common`
 //! module to ensure consistency and reduce code duplication.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{ScalarOps, TensorOps, compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::statistics_common::{
@@ -18,6 +18,7 @@ use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
 use crate::tensor::Tensor;
 
 // Re-export Interpolation for backward compatibility
+#[allow(unused_imports)]
 pub use crate::runtime::statistics_common::Interpolation as InterpolationMethod;
 
 // ============================================================================

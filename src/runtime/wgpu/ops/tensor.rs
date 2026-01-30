@@ -2461,7 +2461,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         Ok((values_out, indices_out))
     }
 
-    fn unique(&self, a: &Tensor<WgpuRuntime>, sorted: bool) -> Result<Tensor<WgpuRuntime>> {
+    fn unique(&self, a: &Tensor<WgpuRuntime>, _sorted: bool) -> Result<Tensor<WgpuRuntime>> {
         let dtype = a.dtype();
 
         if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {

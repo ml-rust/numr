@@ -63,9 +63,12 @@ pub unsafe fn launch_sort(
     builder.arg(&inner_u32);
     builder.arg(&desc_u32);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA sort kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA sort kernel launch failed: {:?}", e)))?;
+    }
 
     Ok(())
 }
@@ -108,12 +111,15 @@ pub unsafe fn launch_sort_values_only(
     builder.arg(&inner_u32);
     builder.arg(&desc_u32);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA sort_values_only kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sort_values_only kernel launch failed: {:?}",
+                e
+            ))
+        })?;
+    }
 
     Ok(())
 }
@@ -156,9 +162,12 @@ pub unsafe fn launch_argsort(
     builder.arg(&inner_u32);
     builder.arg(&desc_u32);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA argsort kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA argsort kernel launch failed: {:?}", e)))?;
+    }
 
     Ok(())
 }
@@ -209,9 +218,12 @@ pub unsafe fn launch_topk(
     builder.arg(&largest_u32);
     builder.arg(&sorted_u32);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA topk kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA topk kernel launch failed: {:?}", e)))?;
+    }
 
     Ok(())
 }
@@ -242,9 +254,12 @@ pub unsafe fn launch_count_nonzero(
     builder.arg(&count_ptr);
     builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA count_nonzero kernel launch failed: {:?}", e))
-    })?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA count_nonzero kernel launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
@@ -277,9 +292,12 @@ pub unsafe fn launch_gather_nonzero(
     builder.arg(&counter_ptr);
     builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA gather_nonzero kernel launch failed: {:?}", e))
-    })?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA gather_nonzero kernel launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
@@ -311,12 +329,15 @@ pub unsafe fn launch_flat_to_multi_index(
     builder.arg(&ndim_u32);
     builder.arg(&shape_ptr);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA flat_to_multi_index kernel launch failed: {:?}",
-            e
-        ))
-    })?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA flat_to_multi_index kernel launch failed: {:?}",
+                e
+            ))
+        })?;
+    }
 
     Ok(())
 }
@@ -353,9 +374,12 @@ pub unsafe fn launch_searchsorted(
     builder.arg(&num_values_u32);
     builder.arg(&right_u32);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA searchsorted kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA searchsorted kernel launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
@@ -384,9 +408,12 @@ pub unsafe fn launch_count_unique(
     builder.arg(&count_ptr);
     builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA count_unique kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA count_unique kernel launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
@@ -417,9 +444,12 @@ pub unsafe fn launch_extract_unique(
     builder.arg(&counter_ptr);
     builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!("CUDA extract_unique kernel launch failed: {:?}", e))
-    })?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA extract_unique kernel launch failed: {:?}", e))
+        })?;
+    }
 
     Ok(())
 }
@@ -450,9 +480,12 @@ pub unsafe fn launch_bincount(
     builder.arg(&n);
     builder.arg(&bins);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA bincount kernel launch failed: {:?}", e)))?;
+    // SAFETY: Kernel arguments match the CUDA kernel signature and pointers are valid
+    unsafe {
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA bincount kernel launch failed: {:?}", e)))?;
+    }
 
     Ok(())
 }

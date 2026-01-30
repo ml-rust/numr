@@ -1,6 +1,6 @@
 //! Complex number operation compute shader launchers for WebGPU
 
-use super::generator::complex::{complex_output_dtype, get_complex_shader_generator};
+use super::generator::complex::get_complex_shader_generator;
 use super::pipeline::PipelineCache;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
