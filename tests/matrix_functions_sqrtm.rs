@@ -106,7 +106,7 @@ fn test_sqrtm_f32() {
     let result = client.sqrtm(&a).expect("sqrtm f32 should succeed");
 
     let result_data: Vec<f32> = result.to_vec();
-    let expected = vec![2.0_f32, 0.0, 0.0, 3.0];
+    let expected = [2.0_f32, 0.0, 0.0, 3.0];
 
     for (i, (x, y)) in result_data.iter().zip(expected.iter()).enumerate() {
         let diff = (x - y).abs();

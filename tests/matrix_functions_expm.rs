@@ -96,7 +96,7 @@ fn test_expm_f32() {
     let result = client.expm(&a).expect("expm f32 should succeed");
 
     let result_data: Vec<f32> = result.to_vec();
-    let expected = vec![1.0_f32.exp(), 0.0, 0.0, 2.0_f32.exp()];
+    let expected = [1.0_f32.exp(), 0.0, 0.0, 2.0_f32.exp()];
 
     for (i, (x, y)) in result_data.iter().zip(expected.iter()).enumerate() {
         let diff = (x - y).abs();

@@ -353,6 +353,7 @@ fn test_fft_batched() {
     let result_data: Vec<Complex64> = result.to_vec();
 
     // Signal 1 (impulse): FFT should be [1, 1, 1, 1]
+    #[allow(clippy::needless_range_loop)]
     for i in 0..4 {
         assert!((result_data[i].re - 1.0).abs() < 1e-5);
         assert!(result_data[i].im.abs() < 1e-5);
@@ -360,6 +361,7 @@ fn test_fft_batched() {
 
     // Signal 2 (constant): FFT should be [4, 0, 0, 0]
     assert!((result_data[4].re - 4.0).abs() < 1e-5);
+    #[allow(clippy::needless_range_loop)]
     for i in 5..8 {
         assert!(result_data[i].re.abs() < 1e-5);
     }

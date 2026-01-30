@@ -124,11 +124,18 @@ fn test_sort_f64() {
     let device = CpuDevice::new();
     let client = CpuRuntime::default_client(&device);
 
-    let a = Tensor::<CpuRuntime>::from_slice(&[3.14f64, 2.71, 1.41, 1.73], &[4], &device);
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[std::f64::consts::PI, std::f64::consts::E, 1.41, 1.73],
+        &[4],
+        &device,
+    );
     let sorted = client.sort(&a, 0, false).unwrap();
 
     let data: Vec<f64> = sorted.to_vec();
-    assert_eq!(data, [1.41, 1.73, 2.71, 3.14]);
+    assert_eq!(
+        data,
+        [1.41, 1.73, std::f64::consts::E, std::f64::consts::PI]
+    );
 }
 
 // ============================================================================
@@ -578,7 +585,6 @@ fn test_sort_stability() {
 
 #[cfg(feature = "cuda")]
 mod cuda_parity {
-    use numr::dtype::DType;
     use numr::ops::TensorOps;
     use numr::runtime::Runtime;
     use numr::runtime::cpu::{CpuDevice, CpuRuntime};

@@ -134,7 +134,7 @@ fn test_corrcoef_range() {
     // All correlation coefficients should be in [-1, 1]
     for (i, &val) in data.iter().enumerate() {
         assert!(
-            val >= -1.0 - 1e-5 && val <= 1.0 + 1e-5,
+            (-1.0 - 1e-5..=1.0 + 1e-5).contains(&val),
             "corr[{}] = {} out of range [-1, 1]",
             i,
             val

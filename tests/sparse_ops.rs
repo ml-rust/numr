@@ -17,8 +17,8 @@ mod backend_parity {
     fn assert_sparse_allclose<A: Runtime, B: Runtime>(
         a: &CsrData<A>,
         b: &CsrData<B>,
-        rtol: f64,
-        atol: f64,
+        _rtol: f64,
+        _atol: f64,
     ) -> Result<()> {
         assert_eq!(a.shape(), b.shape(), "Shape mismatch");
 
@@ -53,7 +53,7 @@ mod backend_parity {
         // Both backends should produce results in same order of magnitude
         let ratio = (a_total_nnz as f64) / (b_total_nnz as f64).max(1.0);
         assert!(
-            ratio >= 0.5 && ratio <= 2.0,
+            (0.5..=2.0).contains(&ratio),
             "NNZ counts differ by more than 2x: CPU={}, GPU={}, ratio={}",
             a_total_nnz,
             b_total_nnz,
@@ -61,25 +61,6 @@ mod backend_parity {
         );
 
         // Success: both backends produced reasonable sparse results
-        return Ok(());
-
-        let a_values: Vec<f32> = a.values().to_vec();
-        let b_values: Vec<f32> = b.values().to_vec();
-
-        for (i, (&av, &bv)) in a_values.iter().zip(b_values.iter()).enumerate() {
-            let diff = (av - bv).abs();
-            let tol = atol as f32 + rtol as f32 * bv.abs();
-            assert!(
-                diff <= tol,
-                "Values differ at index {}: a={}, b={}, diff={}, tol={}",
-                i,
-                av,
-                bv,
-                diff,
-                tol
-            );
-        }
-
         Ok(())
     }
 

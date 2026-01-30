@@ -965,7 +965,7 @@ fn test_flip_negative_dim() {
 
 #[cfg(feature = "cuda")]
 mod cuda_parity {
-    use numr::dtype::DType;
+
     use numr::ops::TensorOps;
     use numr::runtime::Runtime;
     use numr::runtime::cpu::{CpuDevice, CpuRuntime};
@@ -1075,7 +1075,7 @@ mod cuda_parity {
 
 #[cfg(feature = "wgpu")]
 mod wgpu_parity {
-    use numr::dtype::DType;
+
     use numr::ops::TensorOps;
     use numr::runtime::Runtime;
     use numr::runtime::cpu::{CpuDevice, CpuRuntime};

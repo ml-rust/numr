@@ -554,7 +554,7 @@ fn test_corrcoef_bounds() {
 
     for (i, &val) in corr_data.iter().enumerate() {
         assert!(
-            val >= -1.0 - 1e-5 && val <= 1.0 + 1e-5,
+            (-1.0 - 1e-5..=1.0 + 1e-5).contains(&val),
             "Correlation {} at index {} out of bounds [-1, 1]",
             val,
             i
