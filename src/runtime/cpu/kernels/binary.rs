@@ -1,15 +1,54 @@
 //! Binary operations kernels
+//!
+//! Provides element-wise binary operations with automatic SIMD dispatch.
+//! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::ops::BinaryOp;
 
-/// Execute a binary operation element-wise
+/// Execute a binary operation element-wise with automatic SIMD dispatch
+///
+/// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration
+/// - AVX2: 8 f32s or 4 f64s per iteration
+/// - Scalar fallback for other types or non-x86 platforms
 ///
 /// # Safety
 /// - `a`, `b`, and `out` must be valid pointers to `len` elements
 /// - `out` must not overlap with `a` or `b` unless they are the same pointer
 #[inline]
 pub unsafe fn binary_op_kernel<T: Element>(
+    op: BinaryOp,
+    a: *const T,
+    b: *const T,
+    out: *mut T,
+    len: usize,
+) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::binary;
+
+        match T::DTYPE {
+            DType::F32 => {
+                binary::binary_f32(op, a as *const f32, b as *const f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                binary::binary_f64(op, a as *const f64, b as *const f64, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback for non-SIMD types or non-x86 platforms
+    binary_op_scalar(op, a, b, out, len);
+}
+
+/// Scalar binary operation for all Element types
+#[inline]
+unsafe fn binary_op_scalar<T: Element>(
     op: BinaryOp,
     a: *const T,
     b: *const T,
@@ -70,21 +109,118 @@ pub unsafe fn binary_op_kernel<T: Element>(
     }
 }
 
+// ============================================================================
+// f32/f64 specific scalar functions (used by SIMD modules for tail handling)
+// ============================================================================
+
+/// Scalar binary operation for f32 (used by SIMD for small arrays and tail)
+#[inline]
+pub unsafe fn binary_scalar_f32(
+    op: BinaryOp,
+    a: *const f32,
+    b: *const f32,
+    out: *mut f32,
+    len: usize,
+) {
+    match op {
+        BinaryOp::Add => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) + *b.add(i);
+            }
+        }
+        BinaryOp::Sub => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) - *b.add(i);
+            }
+        }
+        BinaryOp::Mul => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) * *b.add(i);
+            }
+        }
+        BinaryOp::Div => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) / *b.add(i);
+            }
+        }
+        BinaryOp::Max => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av > bv { av } else { bv };
+            }
+        }
+        BinaryOp::Min => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av < bv { av } else { bv };
+            }
+        }
+        BinaryOp::Pow => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).powf(*b.add(i));
+            }
+        }
+    }
+}
+
+/// Scalar binary operation for f64 (used by SIMD for small arrays and tail)
+#[inline]
+pub unsafe fn binary_scalar_f64(
+    op: BinaryOp,
+    a: *const f64,
+    b: *const f64,
+    out: *mut f64,
+    len: usize,
+) {
+    match op {
+        BinaryOp::Add => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) + *b.add(i);
+            }
+        }
+        BinaryOp::Sub => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) - *b.add(i);
+            }
+        }
+        BinaryOp::Mul => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) * *b.add(i);
+            }
+        }
+        BinaryOp::Div => {
+            for i in 0..len {
+                *out.add(i) = *a.add(i) / *b.add(i);
+            }
+        }
+        BinaryOp::Max => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av > bv { av } else { bv };
+            }
+        }
+        BinaryOp::Min => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av < bv { av } else { bv };
+            }
+        }
+        BinaryOp::Pow => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).powf(*b.add(i));
+            }
+        }
+    }
+}
+
 /// Execute a binary operation with broadcasting support
 ///
 /// Uses strides to handle arbitrary broadcasting patterns. Stride of 0 means
 /// the dimension is broadcast (all indices access the same element).
-///
-/// # Arguments
-/// * `op` - Binary operation to perform
-/// * `a` - Pointer to first input tensor data
-/// * `b` - Pointer to second input tensor data
-/// * `out` - Pointer to output tensor data
-/// * `out_shape` - Shape of output tensor
-/// * `a_strides` - Strides for tensor a (0 = broadcast dim)
-/// * `b_strides` - Strides for tensor b (0 = broadcast dim)
-/// * `a_offset` - Starting offset for tensor a
-/// * `b_offset` - Starting offset for tensor b
 ///
 /// # Safety
 /// - All pointers must be valid for the specified shapes and strides
@@ -110,7 +246,6 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
     }
 
     // Optimize for common case: both inputs are contiguous and same shape
-    // (strides are standard row-major and no broadcasting)
     let is_simple = ndim > 0 && {
         let mut expected_stride = 1isize;
         let mut simple = true;
@@ -125,13 +260,11 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
     };
 
     if is_simple {
-        // Fast path: use contiguous kernel
         binary_op_kernel(op, a, b, out, total);
         return;
     }
 
-    // General strided iteration with incremental offset updates
-    // (avoids O(ndim) recalculation per element)
+    // General strided iteration
     let mut indices = vec![0usize; ndim];
     let mut a_idx = a_offset as isize;
     let mut b_idx = b_offset as isize;
@@ -164,7 +297,7 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
 
         *out.add(out_idx) = result;
 
-        // Increment multi-dimensional index with incremental offset updates
+        // Increment multi-dimensional index
         for dim in (0..ndim).rev() {
             indices[dim] += 1;
             a_idx += a_strides[dim];
@@ -174,7 +307,6 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
                 break;
             }
 
-            // Reset this dimension and adjust offsets
             indices[dim] = 0;
             a_idx -= (out_shape[dim] as isize) * a_strides[dim];
             b_idx -= (out_shape[dim] as isize) * b_strides[dim];

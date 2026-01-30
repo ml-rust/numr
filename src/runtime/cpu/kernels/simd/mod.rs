@@ -12,8 +12,16 @@
 //! │   ├── mod.rs          # Tiled algorithm + dispatch
 //! │   ├── avx512.rs       # AVX-512 microkernels
 //! │   └── avx2.rs         # AVX2 microkernels
-//! ├── binary/             # Future: binary ops (add, mul, etc.)
-//! ├── unary/              # Future: unary ops (exp, sqrt, etc.)
+//! ├── binary/             # Binary ops (add, sub, mul, div, max, min)
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels (16 f32s, 8 f64s)
+//! │   └── avx2.rs         # AVX2 kernels (8 f32s, 4 f64s)
+//! ├── unary/              # Unary ops (neg, abs, sqrt, relu, etc.)
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
+//! │
+//! Note: Scalar fallbacks live in kernels/{binary,unary}.rs (single source of truth)
 //! └── reduce/             # Future: reductions (sum, max, etc.)
 //! ```
 //!
@@ -27,7 +35,11 @@
 //! | ARM64        | NEON            | 128 bits     | Planned |
 
 #[cfg(target_arch = "x86_64")]
+pub mod binary;
+#[cfg(target_arch = "x86_64")]
 pub mod matmul;
+#[cfg(target_arch = "x86_64")]
+pub mod unary;
 
 use std::sync::OnceLock;
 
