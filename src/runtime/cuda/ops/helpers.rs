@@ -8,7 +8,9 @@ use super::super::kernels::{
     launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel, launch_matmul_kernel,
     launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64, launch_unary_op,
 };
-use super::super::kernels::{launch_scalar_op_i32, launch_scalar_op_i64};
+use super::super::kernels::{
+    launch_scalar_op_c64, launch_scalar_op_c128, launch_scalar_op_i32, launch_scalar_op_i64,
+};
 use super::super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -389,6 +391,26 @@ pub(super) fn native_scalar_op(
                 dtype,
                 a_contig.storage().ptr(),
                 scalar as f32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            DType::Complex64 => launch_scalar_op_c64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar as f32,
+                out.storage().ptr(),
+                out.numel(),
+            )?,
+            DType::Complex128 => launch_scalar_op_c128(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                op,
+                a_contig.storage().ptr(),
+                scalar,
                 out.storage().ptr(),
                 out.numel(),
             )?,
