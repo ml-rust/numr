@@ -274,6 +274,16 @@ struct numr_fp8_e5m2 {
 // ============================================================================
 // FP8 E4M3 <-> F32 Conversion
 // ============================================================================
+//
+// SATURATION BEHAVIOR: FP8 types have limited dynamic range. Values outside
+// the representable range are silently saturated to the maximum representable
+// value. This is IEEE-compliant behavior for narrowing conversions.
+//
+// E4M3 saturation: |x| > 448.0 → saturates to ±448.0
+// E5M2 saturation: |x| > 57344.0 → saturates to ±57344.0
+//
+// For applications requiring overflow detection, check input ranges before
+// conversion or use F16/F32 types instead.
 
 __device__ __forceinline__ float fp8_e4m3_to_f32(uint8_t u) {
 #if __CUDA_ARCH__ >= 890
@@ -572,65 +582,214 @@ __device__ __forceinline__ int warp_and(int val) {
 template<typename T, typename Acc> struct AccumTraits;
 
 // ============================================================================
-// F32 -> F32 (native)
+// Simple dtype_traits for Linalg Kernels
 // ============================================================================
-template<> struct AccumTraits<float, float> {
-    static __device__ __forceinline__ float load(const float* p, int i) { return p[i]; }
-    static __device__ __forceinline__ void store(float* p, int i, float v) { p[i] = v; }
+// Simpler single-parameter template for basic linalg operations.
+// Provides: zero, one, abs, max, atomic_add, atomic_max
+
+template<typename T> struct dtype_traits;
+
+template<> struct dtype_traits<float> {
     static __device__ __forceinline__ float zero() { return 0.0f; }
     static __device__ __forceinline__ float one() { return 1.0f; }
-    static __device__ __forceinline__ float neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ float pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
-    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
-    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
-    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
-    static __device__ __forceinline__ float add(float a, float b) { return a + b; }
-    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
+    static __device__ __forceinline__ float two() { return 2.0f; }
+    static __device__ __forceinline__ float eps() { return 1.192092896e-07f; }  // FLT_EPSILON
+    static __device__ __forceinline__ float small_eps() { return 1e-10f; }
+    static __device__ __forceinline__ float tiny_eps() { return 1e-30f; }
+    static __device__ __forceinline__ float abs(float x) { return fabsf(x); }
+    static __device__ __forceinline__ float sqrt(float x) { return sqrtf(x); }
     static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
     static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
+    static __device__ __forceinline__ void atomic_add(float* addr, float val) { atomicAdd(addr, val); }
+    static __device__ __forceinline__ void atomic_max(float* addr, float val) {
+        unsigned int* addr_as_ui = (unsigned int*)addr;
+        unsigned int old = *addr_as_ui, assumed;
+        do {
+            assumed = old;
+            if (__uint_as_float(assumed) >= val) break;
+            old = atomicCAS(addr_as_ui, assumed, __float_as_uint(val));
+        } while (assumed != old);
+    }
 };
 
-// F32 -> F64 (high precision)
-template<> struct AccumTraits<float, double> {
-    static __device__ __forceinline__ double load(const float* p, int i) { return (double)p[i]; }
-    static __device__ __forceinline__ void store(float* p, int i, double v) { p[i] = (float)v; }
+template<> struct dtype_traits<double> {
     static __device__ __forceinline__ double zero() { return 0.0; }
     static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ double pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
+    static __device__ __forceinline__ double two() { return 2.0; }
+    static __device__ __forceinline__ double eps() { return 2.220446049250313e-16; }  // DBL_EPSILON
+    static __device__ __forceinline__ double small_eps() { return 1e-15; }
+    static __device__ __forceinline__ double tiny_eps() { return 1e-300; }
+    static __device__ __forceinline__ double abs(double x) { return fabs(x); }
+    static __device__ __forceinline__ double sqrt(double x) { return ::sqrt(x); }
     static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
     static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
+    static __device__ __forceinline__ void atomic_add(double* addr, double val) { atomicAdd(addr, val); }
+    static __device__ __forceinline__ void atomic_max(double* addr, double val) {
+        unsigned long long* addr_as_ull = (unsigned long long*)addr;
+        unsigned long long old = *addr_as_ull, assumed;
+        do {
+            assumed = old;
+            if (__longlong_as_double(assumed) >= val) break;
+            old = atomicCAS(addr_as_ull, assumed, __double_as_longlong(val));
+        } while (assumed != old);
+    }
+};
+
+// F16 (__half) dtype traits - all operations use F32 internally for precision
+template<> struct dtype_traits<__half> {
+    static __device__ __forceinline__ __half zero() { return __float2half(0.0f); }
+    static __device__ __forceinline__ __half one() { return __float2half(1.0f); }
+    static __device__ __forceinline__ __half two() { return __float2half(2.0f); }
+    static __device__ __forceinline__ __half eps() { return __float2half(9.77e-04f); }  // FP16 machine epsilon
+    static __device__ __forceinline__ __half small_eps() { return __float2half(1e-5f); }
+    static __device__ __forceinline__ __half tiny_eps() { return __float2half(6e-8f); }  // Near FP16 min subnormal
+    static __device__ __forceinline__ __half abs(__half x) { return __float2half(fabsf(__half2float(x))); }
+    static __device__ __forceinline__ __half sqrt(__half x) { return __float2half(sqrtf(__half2float(x))); }
+    static __device__ __forceinline__ __half max(__half a, __half b) { return __hmax(a, b); }
+    static __device__ __forceinline__ __half min(__half a, __half b) { return __hmin(a, b); }
+    // Atomic operations use F32 accumulation for precision
+    static __device__ __forceinline__ void atomic_add(__half* addr, __half val) {
+        // No native atomicAdd for __half on most architectures, use CAS loop
+        unsigned short* addr_as_us = (unsigned short*)addr;
+        unsigned short old = *addr_as_us, assumed;
+        do {
+            assumed = old;
+            __half new_val = __hadd(*(__half*)&assumed, val);
+            old = atomicCAS(addr_as_us, assumed, *(unsigned short*)&new_val);
+        } while (assumed != old);
+    }
+    static __device__ __forceinline__ void atomic_max(__half* addr, __half val) {
+        unsigned short* addr_as_us = (unsigned short*)addr;
+        unsigned short old = *addr_as_us, assumed;
+        do {
+            assumed = old;
+            if (__half2float(*(__half*)&assumed) >= __half2float(val)) break;
+            old = atomicCAS(addr_as_us, assumed, *(unsigned short*)&val);
+        } while (assumed != old);
+    }
+};
+
+// BF16 (__nv_bfloat16) dtype traits - all operations use F32 internally
+template<> struct dtype_traits<__nv_bfloat16> {
+    static __device__ __forceinline__ __nv_bfloat16 zero() { return __float2bfloat16(0.0f); }
+    static __device__ __forceinline__ __nv_bfloat16 one() { return __float2bfloat16(1.0f); }
+    static __device__ __forceinline__ __nv_bfloat16 two() { return __float2bfloat16(2.0f); }
+    static __device__ __forceinline__ __nv_bfloat16 eps() { return __float2bfloat16(7.81e-03f); }  // BF16 machine epsilon
+    static __device__ __forceinline__ __nv_bfloat16 small_eps() { return __float2bfloat16(1e-4f); }
+    static __device__ __forceinline__ __nv_bfloat16 tiny_eps() { return __float2bfloat16(1e-38f); }  // Near BF16 min normal
+    static __device__ __forceinline__ __nv_bfloat16 abs(__nv_bfloat16 x) { return __float2bfloat16(fabsf(__bfloat162float(x))); }
+    static __device__ __forceinline__ __nv_bfloat16 sqrt(__nv_bfloat16 x) { return __float2bfloat16(sqrtf(__bfloat162float(x))); }
+    static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
+    static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
+    // Atomic operations use CAS loop
+    static __device__ __forceinline__ void atomic_add(__nv_bfloat16* addr, __nv_bfloat16 val) {
+        unsigned short* addr_as_us = (unsigned short*)addr;
+        unsigned short old = *addr_as_us, assumed;
+        do {
+            assumed = old;
+            __nv_bfloat16 new_val = __hadd(*(__nv_bfloat16*)&assumed, val);
+            old = atomicCAS(addr_as_us, assumed, *(unsigned short*)&new_val);
+        } while (assumed != old);
+    }
+    static __device__ __forceinline__ void atomic_max(__nv_bfloat16* addr, __nv_bfloat16 val) {
+        unsigned short* addr_as_us = (unsigned short*)addr;
+        unsigned short old = *addr_as_us, assumed;
+        do {
+            assumed = old;
+            if (__bfloat162float(*(__nv_bfloat16*)&assumed) >= __bfloat162float(val)) break;
+            old = atomicCAS(addr_as_us, assumed, *(unsigned short*)&val);
+        } while (assumed != old);
+    }
 };
 
 // ============================================================================
-// F64 -> F64 (native)
+// AccumTraits Macros - Reduce boilerplate for accumulator specializations
 // ============================================================================
-template<> struct AccumTraits<double, double> {
-    static __device__ __forceinline__ double load(const double* p, int i) { return p[i]; }
-    static __device__ __forceinline__ void store(double* p, int i, double v) { p[i] = v; }
-    static __device__ __forceinline__ double zero() { return 0.0; }
-    static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ double pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
-    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
-    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
+
+// Macro for accumulator types using F32 operations
+#define DEFINE_ACCUM_TRAITS_F32(SrcType, LOAD_EXPR, STORE_EXPR, NEG_INF_VAL, POS_INF_VAL) \
+template<> struct AccumTraits<SrcType, float> { \
+    static __device__ __forceinline__ float load(const SrcType* p, int i) { return LOAD_EXPR; } \
+    static __device__ __forceinline__ void store(SrcType* p, int i, float v) { STORE_EXPR; } \
+    static __device__ __forceinline__ float zero() { return 0.0f; } \
+    static __device__ __forceinline__ float one() { return 1.0f; } \
+    static __device__ __forceinline__ float neg_inf() { return NEG_INF_VAL; } \
+    static __device__ __forceinline__ float pos_inf() { return POS_INF_VAL; } \
+    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); } \
+    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); } \
+    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); } \
+    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); } \
+    static __device__ __forceinline__ float add(float a, float b) { return a + b; } \
+    static __device__ __forceinline__ float mul(float a, float b) { return a * b; } \
+    static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); } \
+    static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); } \
+};
+
+// Macro for accumulator types using F64 operations
+#define DEFINE_ACCUM_TRAITS_F64(SrcType, LOAD_EXPR, STORE_EXPR, NEG_INF_VAL, POS_INF_VAL) \
+template<> struct AccumTraits<SrcType, double> { \
+    static __device__ __forceinline__ double load(const SrcType* p, int i) { return LOAD_EXPR; } \
+    static __device__ __forceinline__ void store(SrcType* p, int i, double v) { STORE_EXPR; } \
+    static __device__ __forceinline__ double zero() { return 0.0; } \
+    static __device__ __forceinline__ double one() { return 1.0; } \
+    static __device__ __forceinline__ double neg_inf() { return NEG_INF_VAL; } \
+    static __device__ __forceinline__ double pos_inf() { return POS_INF_VAL; } \
+    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); } \
+    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); } \
+    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); } \
+    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); } \
+    static __device__ __forceinline__ double add(double a, double b) { return a + b; } \
+    static __device__ __forceinline__ double mul(double a, double b) { return a * b; } \
+    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); } \
+    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); } \
+};
+
+// Macro for BF16 accumulator (uses F32 internally via conversion)
+#define DEFINE_ACCUM_TRAITS_BF16(SrcType, LOAD_EXPR, STORE_EXPR, NEG_INF_VAL, POS_INF_VAL) \
+template<> struct AccumTraits<SrcType, __nv_bfloat16> { \
+    static __device__ __forceinline__ __nv_bfloat16 load(const SrcType* p, int i) { return LOAD_EXPR; } \
+    static __device__ __forceinline__ void store(SrcType* p, int i, __nv_bfloat16 v) { STORE_EXPR; } \
+    static __device__ __forceinline__ __nv_bfloat16 zero() { return __float2bfloat16(0.0f); } \
+    static __device__ __forceinline__ __nv_bfloat16 one() { return __float2bfloat16(1.0f); } \
+    static __device__ __forceinline__ __nv_bfloat16 neg_inf() { return __float2bfloat16(NEG_INF_VAL); } \
+    static __device__ __forceinline__ __nv_bfloat16 pos_inf() { return __float2bfloat16(POS_INF_VAL); } \
+    static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); } \
+    static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); } \
+    static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); } \
+    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); } \
+    static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); } \
+    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); } \
+    static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); } \
+    static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); } \
 };
 
 // ============================================================================
-// F16 -> F16 (native), F16 -> F32, F16 -> F64
+// F32 Accumulator Specializations
+// ============================================================================
+DEFINE_ACCUM_TRAITS_F32(float, p[i], p[i] = v, -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F32(__half, __half2float(p[i]), p[i] = __float2half(v), -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F32(__nv_bfloat16, __bfloat162float(p[i]), p[i] = __float2bfloat16(v), -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F32(numr_fp8_e4m3, fp8_e4m3_to_f32(p[i].data), p[i].data = f32_to_fp8_e4m3(v), -FP8_E4M3_MAX, FP8_E4M3_MAX)
+DEFINE_ACCUM_TRAITS_F32(numr_fp8_e5m2, fp8_e5m2_to_f32(p[i].data), p[i].data = f32_to_fp8_e5m2(v), -FP8_E5M2_MAX, FP8_E5M2_MAX)
+
+// ============================================================================
+// F64 Accumulator Specializations
+// ============================================================================
+DEFINE_ACCUM_TRAITS_F64(float, (double)p[i], p[i] = (float)v, -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F64(double, p[i], p[i] = v, -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F64(__half, (double)__half2float(p[i]), p[i] = __float2half((float)v), -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F64(__nv_bfloat16, (double)__bfloat162float(p[i]), p[i] = __float2bfloat16((float)v), -INFINITY, INFINITY)
+DEFINE_ACCUM_TRAITS_F64(numr_fp8_e4m3, (double)fp8_e4m3_to_f32(p[i].data), p[i].data = f32_to_fp8_e4m3((float)v), -FP8_E4M3_MAX, FP8_E4M3_MAX)
+DEFINE_ACCUM_TRAITS_F64(numr_fp8_e5m2, (double)fp8_e5m2_to_f32(p[i].data), p[i].data = f32_to_fp8_e5m2((float)v), -FP8_E5M2_MAX, FP8_E5M2_MAX)
+
+// ============================================================================
+// BF16 Accumulator Specializations (for FP8 types)
+// ============================================================================
+DEFINE_ACCUM_TRAITS_BF16(numr_fp8_e4m3, __float2bfloat16(fp8_e4m3_to_f32(p[i].data)), p[i].data = f32_to_fp8_e4m3(__bfloat162float(v)), -FP8_E4M3_MAX, FP8_E4M3_MAX)
+DEFINE_ACCUM_TRAITS_BF16(numr_fp8_e5m2, __float2bfloat16(fp8_e5m2_to_f32(p[i].data)), p[i].data = f32_to_fp8_e5m2(__bfloat162float(v)), -FP8_E5M2_MAX, FP8_E5M2_MAX)
+
+// ============================================================================
+// Native Half/BF16 Accumulator (non-macro for native ops)
 // ============================================================================
 template<> struct AccumTraits<__half, __half> {
     static __device__ __forceinline__ __half load(const __half* p, int i) { return p[i]; }
@@ -649,43 +808,6 @@ template<> struct AccumTraits<__half, __half> {
     static __device__ __forceinline__ __half min(__half a, __half b) { return __hmin(a, b); }
 };
 
-template<> struct AccumTraits<__half, float> {
-    static __device__ __forceinline__ float load(const __half* p, int i) { return __half2float(p[i]); }
-    static __device__ __forceinline__ void store(__half* p, int i, float v) { p[i] = __float2half(v); }
-    static __device__ __forceinline__ float zero() { return 0.0f; }
-    static __device__ __forceinline__ float one() { return 1.0f; }
-    static __device__ __forceinline__ float neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ float pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
-    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
-    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
-    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
-    static __device__ __forceinline__ float add(float a, float b) { return a + b; }
-    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
-    static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
-    static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
-};
-
-template<> struct AccumTraits<__half, double> {
-    static __device__ __forceinline__ double load(const __half* p, int i) { return (double)__half2float(p[i]); }
-    static __device__ __forceinline__ void store(__half* p, int i, double v) { p[i] = __float2half((float)v); }
-    static __device__ __forceinline__ double zero() { return 0.0; }
-    static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ double pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
-    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
-    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
-};
-
-// ============================================================================
-// BF16 -> BF16 (native), BF16 -> F32, BF16 -> F64
-// ============================================================================
 template<> struct AccumTraits<__nv_bfloat16, __nv_bfloat16> {
     static __device__ __forceinline__ __nv_bfloat16 load(const __nv_bfloat16* p, int i) { return p[i]; }
     static __device__ __forceinline__ void store(__nv_bfloat16* p, int i, __nv_bfloat16 v) { p[i] = v; }
@@ -701,148 +823,6 @@ template<> struct AccumTraits<__nv_bfloat16, __nv_bfloat16> {
     static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
     static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
-};
-
-template<> struct AccumTraits<__nv_bfloat16, float> {
-    static __device__ __forceinline__ float load(const __nv_bfloat16* p, int i) { return __bfloat162float(p[i]); }
-    static __device__ __forceinline__ void store(__nv_bfloat16* p, int i, float v) { p[i] = __float2bfloat16(v); }
-    static __device__ __forceinline__ float zero() { return 0.0f; }
-    static __device__ __forceinline__ float one() { return 1.0f; }
-    static __device__ __forceinline__ float neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ float pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
-    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
-    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
-    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
-    static __device__ __forceinline__ float add(float a, float b) { return a + b; }
-    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
-    static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
-    static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
-};
-
-template<> struct AccumTraits<__nv_bfloat16, double> {
-    static __device__ __forceinline__ double load(const __nv_bfloat16* p, int i) { return (double)__bfloat162float(p[i]); }
-    static __device__ __forceinline__ void store(__nv_bfloat16* p, int i, double v) { p[i] = __float2bfloat16((float)v); }
-    static __device__ __forceinline__ double zero() { return 0.0; }
-    static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -INFINITY; }
-    static __device__ __forceinline__ double pos_inf() { return INFINITY; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
-    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
-    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
-};
-
-// ============================================================================
-// FP8 E4M3 -> F32 (default), FP8 E4M3 -> BF16, FP8 E4M3 -> F64
-// ============================================================================
-template<> struct AccumTraits<numr_fp8_e4m3, float> {
-    static __device__ __forceinline__ float load(const numr_fp8_e4m3* p, int i) { return fp8_e4m3_to_f32(p[i].data); }
-    static __device__ __forceinline__ void store(numr_fp8_e4m3* p, int i, float v) { p[i].data = f32_to_fp8_e4m3(v); }
-    static __device__ __forceinline__ float zero() { return 0.0f; }
-    static __device__ __forceinline__ float one() { return 1.0f; }
-    static __device__ __forceinline__ float neg_inf() { return -FP8_E4M3_MAX; }
-    static __device__ __forceinline__ float pos_inf() { return FP8_E4M3_MAX; }
-    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
-    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
-    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
-    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
-    static __device__ __forceinline__ float add(float a, float b) { return a + b; }
-    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
-    static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
-    static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
-};
-
-template<> struct AccumTraits<numr_fp8_e4m3, __nv_bfloat16> {
-    static __device__ __forceinline__ __nv_bfloat16 load(const numr_fp8_e4m3* p, int i) { return __float2bfloat16(fp8_e4m3_to_f32(p[i].data)); }
-    static __device__ __forceinline__ void store(numr_fp8_e4m3* p, int i, __nv_bfloat16 v) { p[i].data = f32_to_fp8_e4m3(__bfloat162float(v)); }
-    static __device__ __forceinline__ __nv_bfloat16 zero() { return __float2bfloat16(0.0f); }
-    static __device__ __forceinline__ __nv_bfloat16 one() { return __float2bfloat16(1.0f); }
-    static __device__ __forceinline__ __nv_bfloat16 neg_inf() { return __float2bfloat16(-FP8_E4M3_MAX); }
-    static __device__ __forceinline__ __nv_bfloat16 pos_inf() { return __float2bfloat16(FP8_E4M3_MAX); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
-};
-
-template<> struct AccumTraits<numr_fp8_e4m3, double> {
-    static __device__ __forceinline__ double load(const numr_fp8_e4m3* p, int i) { return (double)fp8_e4m3_to_f32(p[i].data); }
-    static __device__ __forceinline__ void store(numr_fp8_e4m3* p, int i, double v) { p[i].data = f32_to_fp8_e4m3((float)v); }
-    static __device__ __forceinline__ double zero() { return 0.0; }
-    static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -FP8_E4M3_MAX; }
-    static __device__ __forceinline__ double pos_inf() { return FP8_E4M3_MAX; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
-    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
-    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
-};
-
-// ============================================================================
-// FP8 E5M2 -> F32 (default), FP8 E5M2 -> BF16, FP8 E5M2 -> F64
-// ============================================================================
-template<> struct AccumTraits<numr_fp8_e5m2, float> {
-    static __device__ __forceinline__ float load(const numr_fp8_e5m2* p, int i) { return fp8_e5m2_to_f32(p[i].data); }
-    static __device__ __forceinline__ void store(numr_fp8_e5m2* p, int i, float v) { p[i].data = f32_to_fp8_e5m2(v); }
-    static __device__ __forceinline__ float zero() { return 0.0f; }
-    static __device__ __forceinline__ float one() { return 1.0f; }
-    static __device__ __forceinline__ float neg_inf() { return -FP8_E5M2_MAX; }
-    static __device__ __forceinline__ float pos_inf() { return FP8_E5M2_MAX; }
-    static __device__ __forceinline__ float warp_sum(float v) { return warp_sum_f32(v); }
-    static __device__ __forceinline__ float warp_max(float v) { return warp_max_f32(v); }
-    static __device__ __forceinline__ float warp_min(float v) { return warp_min_f32(v); }
-    static __device__ __forceinline__ float warp_prod(float v) { return warp_prod_f32(v); }
-    static __device__ __forceinline__ float add(float a, float b) { return a + b; }
-    static __device__ __forceinline__ float mul(float a, float b) { return a * b; }
-    static __device__ __forceinline__ float max(float a, float b) { return fmaxf(a, b); }
-    static __device__ __forceinline__ float min(float a, float b) { return fminf(a, b); }
-};
-
-template<> struct AccumTraits<numr_fp8_e5m2, __nv_bfloat16> {
-    static __device__ __forceinline__ __nv_bfloat16 load(const numr_fp8_e5m2* p, int i) { return __float2bfloat16(fp8_e5m2_to_f32(p[i].data)); }
-    static __device__ __forceinline__ void store(numr_fp8_e5m2* p, int i, __nv_bfloat16 v) { p[i].data = f32_to_fp8_e5m2(__bfloat162float(v)); }
-    static __device__ __forceinline__ __nv_bfloat16 zero() { return __float2bfloat16(0.0f); }
-    static __device__ __forceinline__ __nv_bfloat16 one() { return __float2bfloat16(1.0f); }
-    static __device__ __forceinline__ __nv_bfloat16 neg_inf() { return __float2bfloat16(-FP8_E5M2_MAX); }
-    static __device__ __forceinline__ __nv_bfloat16 pos_inf() { return __float2bfloat16(FP8_E5M2_MAX); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_sum(__nv_bfloat16 v) { return __float2bfloat16(warp_sum_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_max(__nv_bfloat16 v) { return __float2bfloat16(warp_max_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_min(__nv_bfloat16 v) { return __float2bfloat16(warp_min_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 warp_prod(__nv_bfloat16 v) { return __float2bfloat16(warp_prod_f32(__bfloat162float(v))); }
-    static __device__ __forceinline__ __nv_bfloat16 add(__nv_bfloat16 a, __nv_bfloat16 b) { return __hadd(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 mul(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmul(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 max(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmax(a, b); }
-    static __device__ __forceinline__ __nv_bfloat16 min(__nv_bfloat16 a, __nv_bfloat16 b) { return __hmin(a, b); }
-};
-
-template<> struct AccumTraits<numr_fp8_e5m2, double> {
-    static __device__ __forceinline__ double load(const numr_fp8_e5m2* p, int i) { return (double)fp8_e5m2_to_f32(p[i].data); }
-    static __device__ __forceinline__ void store(numr_fp8_e5m2* p, int i, double v) { p[i].data = f32_to_fp8_e5m2((float)v); }
-    static __device__ __forceinline__ double zero() { return 0.0; }
-    static __device__ __forceinline__ double one() { return 1.0; }
-    static __device__ __forceinline__ double neg_inf() { return -FP8_E5M2_MAX; }
-    static __device__ __forceinline__ double pos_inf() { return FP8_E5M2_MAX; }
-    static __device__ __forceinline__ double warp_sum(double v) { return warp_sum_f64(v); }
-    static __device__ __forceinline__ double warp_max(double v) { return warp_max_f64(v); }
-    static __device__ __forceinline__ double warp_min(double v) { return warp_min_f64(v); }
-    static __device__ __forceinline__ double warp_prod(double v) { return warp_prod_f64(v); }
-    static __device__ __forceinline__ double add(double a, double b) { return a + b; }
-    static __device__ __forceinline__ double mul(double a, double b) { return a * b; }
-    static __device__ __forceinline__ double max(double a, double b) { return fmax(a, b); }
-    static __device__ __forceinline__ double min(double a, double b) { return fmin(a, b); }
 };
 
 #endif // NUMR_DTYPE_TRAITS_CUH
