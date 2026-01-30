@@ -52,9 +52,10 @@ pub mod special;
 pub mod sparse;
 
 pub use linalg::{
-    CholeskyDecomposition, LinearAlgebraAlgorithms, LuDecomposition, QrDecomposition,
-    SvdDecomposition, machine_epsilon, validate_linalg_dtype, validate_matrix_2d,
-    validate_square_matrix,
+    CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
+    SchurDecomposition, SvdDecomposition, machine_epsilon, validate_linalg_dtype,
+    validate_matrix_2d, validate_square_matrix,
 };
 
 pub use matmul::{MatmulAlgorithm, TileConfig};
