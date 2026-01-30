@@ -24,8 +24,28 @@
 //! │   ├── mod.rs          # Dispatch logic
 //! │   ├── avx512.rs       # AVX-512 kernels
 //! │   └── avx2.rs         # AVX2 kernels
+//! ├── softmax/            # Softmax with vectorized exp
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
+//! ├── logsumexp/          # Log-sum-exp with vectorized exp
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
+//! ├── where_select/       # Conditional select (where)
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
+//! ├── norm/               # Normalization (RMS norm, layer norm)
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
+//! ├── scalar/             # Tensor-scalar ops
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
 //! │
-//! Note: Scalar fallbacks live in kernels/{binary,unary,compare}.rs (single source of truth)
+//! Note: Scalar fallbacks are in mod.rs or the original kernel files
 //! └── reduce/             # Reductions (sum, max, min, prod)
 //!     ├── mod.rs          # Dispatch logic
 //!     ├── avx512.rs       # AVX-512 kernels
@@ -42,9 +62,17 @@
 //! | ARM64        | NEON            | 128 bits     | Planned |
 
 #[cfg(target_arch = "x86_64")]
+pub mod activations;
+#[cfg(target_arch = "x86_64")]
 pub mod binary;
 #[cfg(target_arch = "x86_64")]
+pub mod clamp;
+#[cfg(target_arch = "x86_64")]
 pub mod compare;
+#[cfg(target_arch = "x86_64")]
+pub mod logsumexp;
+#[cfg(target_arch = "x86_64")]
+pub mod math;
 #[cfg(target_arch = "x86_64")]
 pub mod matmul;
 #[cfg(target_arch = "x86_64")]
@@ -54,7 +82,11 @@ pub mod reduce;
 #[cfg(target_arch = "x86_64")]
 pub mod scalar;
 #[cfg(target_arch = "x86_64")]
+pub mod softmax;
+#[cfg(target_arch = "x86_64")]
 pub mod unary;
+#[cfg(target_arch = "x86_64")]
+pub mod where_select;
 
 use std::sync::OnceLock;
 
