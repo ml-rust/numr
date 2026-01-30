@@ -1,14 +1,53 @@
 //! Scalar operation kernels
+//!
+//! Provides tensor-scalar operations with automatic SIMD dispatch.
+//! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::ops::BinaryOp;
 
-/// Binary operation with a scalar (tensor op scalar)
+/// Binary operation with a scalar (tensor op scalar) with automatic SIMD dispatch
+///
+/// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration
+/// - AVX2: 8 f32s or 4 f64s per iteration
+/// - Scalar fallback for other types or non-x86 platforms
 ///
 /// # Safety
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn scalar_op_kernel<T: Element>(
+    op: BinaryOp,
+    a: *const T,
+    scalar: f64,
+    out: *mut T,
+    len: usize,
+) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::scalar;
+
+        match T::DTYPE {
+            DType::F32 => {
+                scalar::scalar_f32(op, a as *const f32, scalar as f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                scalar::scalar_f64(op, a as *const f64, scalar, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    scalar_op_kernel_scalar(op, a, scalar, out, len);
+}
+
+/// Scalar fallback for all Element types
+#[inline]
+unsafe fn scalar_op_kernel_scalar<T: Element>(
     op: BinaryOp,
     a: *const T,
     scalar: f64,

@@ -42,7 +42,11 @@ pub mod binary;
 #[cfg(target_arch = "x86_64")]
 pub mod matmul;
 #[cfg(target_arch = "x86_64")]
+pub mod norm;
+#[cfg(target_arch = "x86_64")]
 pub mod reduce;
+#[cfg(target_arch = "x86_64")]
+pub mod scalar;
 #[cfg(target_arch = "x86_64")]
 pub mod unary;
 
