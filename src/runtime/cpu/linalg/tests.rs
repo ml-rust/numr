@@ -616,3 +616,136 @@ fn test_eig_3x3_diagonal() {
     assert!((evals[1] - 2.0).abs() < 1e-6);
     assert!((evals[2] - 3.0).abs() < 1e-6);
 }
+
+// ======================= kron (Kronecker product) tests =======================
+
+#[test]
+fn test_kron_2x2_identity() {
+    let client = create_client();
+    let device = client.device();
+
+    // I₂ ⊗ I₂ = I₄
+    let i2 = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[2, 2], device);
+    let kron = client.kron(&i2, &i2).unwrap();
+
+    assert_eq!(kron.shape(), &[4, 4]);
+
+    let data: Vec<f32> = kron.to_vec();
+    // Should be 4x4 identity
+    for i in 0..4 {
+        for j in 0..4 {
+            let expected = if i == j { 1.0 } else { 0.0 };
+            assert!(
+                (data[i * 4 + j] - expected).abs() < 1e-5,
+                "kron[{},{}] = {} expected {}",
+                i,
+                j,
+                data[i * 4 + j],
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn test_kron_2x2_simple() {
+    let client = create_client();
+    let device = client.device();
+
+    // A = [[1, 2], [3, 4]], B = [[0, 5], [6, 7]]
+    // A ⊗ B should be 4x4
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 5.0, 6.0, 7.0], &[2, 2], device);
+
+    let kron = client.kron(&a, &b).unwrap();
+    assert_eq!(kron.shape(), &[4, 4]);
+
+    let data: Vec<f32> = kron.to_vec();
+
+    // Expected result:
+    // [[1*0, 1*5, 2*0, 2*5],     [[0,  5,  0, 10],
+    //  [1*6, 1*7, 2*6, 2*7],  =   [6,  7, 12, 14],
+    //  [3*0, 3*5, 4*0, 4*5],      [0, 15,  0, 20],
+    //  [3*6, 3*7, 4*6, 4*7]]      [18, 21, 24, 28]]
+    #[rustfmt::skip]
+    let expected = [
+        0.0, 5.0, 0.0, 10.0,
+        6.0, 7.0, 12.0, 14.0,
+        0.0, 15.0, 0.0, 20.0,
+        18.0, 21.0, 24.0, 28.0,
+    ];
+
+    for (i, (got, exp)) in data.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (got - exp).abs() < 1e-5,
+            "element {} differs: {} vs {}",
+            i,
+            got,
+            exp
+        );
+    }
+}
+
+#[test]
+fn test_kron_scalar_property() {
+    let client = create_client();
+    let device = client.device();
+
+    // 1x1 ⊗ A = scalar * A
+    let scalar = Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[1, 1], device);
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+
+    let kron = client.kron(&scalar, &a).unwrap();
+    assert_eq!(kron.shape(), &[2, 2]);
+
+    let data: Vec<f32> = kron.to_vec();
+    let expected = [3.0f32, 6.0, 9.0, 12.0]; // 3 * A
+
+    for (got, exp) in data.iter().zip(expected.iter()) {
+        assert!((got - exp).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn test_kron_rectangular() {
+    let client = create_client();
+    let device = client.device();
+
+    // 2x3 ⊗ 3x2 = 6x6
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], device);
+
+    let kron = client.kron(&a, &b).unwrap();
+    assert_eq!(kron.shape(), &[6, 6]);
+
+    // Verify a few elements manually
+    // kron[0,0] = a[0,0] * b[0,0] = 1 * 1 = 1
+    // kron[0,1] = a[0,0] * b[0,1] = 1 * 2 = 2
+    // kron[3,0] = a[1,0] * b[0,0] = 4 * 1 = 4
+    let data: Vec<f32> = kron.to_vec();
+    assert!((data[0] - 1.0).abs() < 1e-5, "kron[0,0]");
+    assert!((data[1] - 2.0).abs() < 1e-5, "kron[0,1]");
+    assert!((data[3 * 6 + 0] - 4.0).abs() < 1e-5, "kron[3,0]");
+}
+
+#[test]
+fn test_kron_f64() {
+    let client = create_client();
+    let device = client.device();
+
+    // Test with F64
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[2, 2], device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[5.0f64, 6.0, 7.0, 8.0], &[2, 2], device);
+
+    let kron = client.kron(&a, &b).unwrap();
+    assert_eq!(kron.shape(), &[4, 4]);
+
+    let data: Vec<f64> = kron.to_vec();
+
+    // kron[0,0] = 1*5 = 5, kron[0,1] = 1*6 = 6
+    // kron[1,0] = 1*7 = 7, kron[1,1] = 1*8 = 8
+    assert!((data[0] - 5.0).abs() < 1e-10);
+    assert!((data[1] - 6.0).abs() < 1e-10);
+    assert!((data[4] - 7.0).abs() < 1e-10);
+    assert!((data[5] - 8.0).abs() < 1e-10);
+}

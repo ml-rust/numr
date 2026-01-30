@@ -532,3 +532,60 @@ pub unsafe fn launch_transpose(
 
     Ok(())
 }
+
+/// Launch Kronecker product kernel: out = A ⊗ B
+///
+/// # Safety
+///
+/// - `a_ptr` must point to a valid [m_a, n_a] matrix
+/// - `b_ptr` must point to a valid [m_b, n_b] matrix
+/// - `out_ptr` must have space for m_a * m_b * n_a * n_b elements
+pub unsafe fn launch_kron(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    out_ptr: u64,
+    m_a: usize,
+    n_a: usize,
+    m_b: usize,
+    n_b: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::LINALG_BASIC_MODULE)?;
+
+    let func_name = match dtype {
+        DType::F32 => "kron_f32",
+        DType::F64 => "kron_f64",
+        DType::F16 => "kron_f16",
+        DType::BF16 => "kron_bf16",
+        _ => return Err(Error::UnsupportedDType { dtype, op: "kron" }),
+    };
+
+    let func = get_kernel_function(&module, func_name)?;
+
+    let total = m_a * m_b * n_a * n_b;
+    let grid = elementwise_launch_config(total);
+    let block = (BLOCK_SIZE, 1, 1);
+
+    let m_a_u32 = m_a as u32;
+    let n_a_u32 = n_a as u32;
+    let m_b_u32 = m_b as u32;
+    let n_b_u32 = n_b as u32;
+
+    let cfg = launch_config(grid, block, 0);
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&a_ptr);
+    builder.arg(&b_ptr);
+    builder.arg(&out_ptr);
+    builder.arg(&m_a_u32);
+    builder.arg(&n_a_u32);
+    builder.arg(&m_b_u32);
+    builder.arg(&n_b_u32);
+
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA kron kernel launch failed: {:?}", e)))?;
+
+    Ok(())
+}

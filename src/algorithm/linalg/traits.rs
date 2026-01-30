@@ -202,6 +202,36 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// Create diagonal matrix from 1D tensor
     fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Kronecker product: A ⊗ B
+    ///
+    /// Computes the Kronecker product of two matrices. For A of shape [m, n]
+    /// and B of shape [p, q], the result has shape [m*p, n*q].
+    ///
+    /// # Definition
+    ///
+    /// ```text
+    /// (A ⊗ B)[i*p + k, j*q + l] = A[i, j] * B[k, l]
+    /// ```
+    ///
+    /// Equivalently, the Kronecker product replaces each element a_ij of A
+    /// with the block a_ij * B.
+    ///
+    /// # Properties
+    ///
+    /// - (A ⊗ B) ⊗ C = A ⊗ (B ⊗ C) (associative)
+    /// - A ⊗ (B + C) = A ⊗ B + A ⊗ C (distributive)
+    /// - (A ⊗ B)^T = A^T ⊗ B^T
+    /// - (A ⊗ B)(C ⊗ D) = (AC) ⊗ (BD) (mixed-product property)
+    /// - det(A ⊗ B) = det(A)^q * det(B)^m for square matrices
+    ///
+    /// # Use Cases
+    ///
+    /// - Quantum computing (tensor products of quantum states)
+    /// - Control theory (Sylvester/Lyapunov equation solvers)
+    /// - Signal processing (2D filtering)
+    /// - Graph theory (graph products)
+    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
     /// Matrix rank via SVD
     fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
 

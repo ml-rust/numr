@@ -227,6 +227,40 @@ __device__ void transpose_impl(
 #undef BLOCK_ROWS
 
 // ============================================================================
+// Kronecker Product - A ⊗ B
+// ============================================================================
+
+template<typename T>
+__device__ void kron_impl(
+    const T* __restrict__ a,
+    const T* __restrict__ b,
+    T* __restrict__ out,
+    unsigned int m_a,
+    unsigned int n_a,
+    unsigned int m_b,
+    unsigned int n_b
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int n_out = n_a * n_b;
+    unsigned int total = m_a * m_b * n_out;
+
+    if (idx < total) {
+        // Compute output row and column
+        unsigned int i_out = idx / n_out;
+        unsigned int j_out = idx % n_out;
+
+        // Map to indices in A and B
+        unsigned int i_a = i_out / m_b;
+        unsigned int i_b = i_out % m_b;
+        unsigned int j_a = j_out / n_b;
+        unsigned int j_b = j_out % n_b;
+
+        // out[i_out, j_out] = a[i_a, j_a] * b[i_b, j_b]
+        out[idx] = a[i_a * n_a + j_a] * b[i_b * n_b + j_b];
+    }
+}
+
+// ============================================================================
 // Extern "C" wrappers for PTX export
 // ============================================================================
 
@@ -312,6 +346,18 @@ __global__ void transpose_f64(const double* input, double* output, unsigned int 
     transpose_impl<double>(input, output, rows, cols);
 }
 
+__global__ void kron_f32(const float* a, const float* b, float* out,
+                         unsigned int m_a, unsigned int n_a,
+                         unsigned int m_b, unsigned int n_b) {
+    kron_impl<float>(a, b, out, m_a, n_a, m_b, n_b);
+}
+
+__global__ void kron_f64(const double* a, const double* b, double* out,
+                         unsigned int m_a, unsigned int n_a,
+                         unsigned int m_b, unsigned int n_b) {
+    kron_impl<double>(a, b, out, m_a, n_a, m_b, n_b);
+}
+
 // ============================================================================
 // F16 (__half) Wrappers
 // ============================================================================
@@ -356,6 +402,12 @@ __global__ void transpose_f16(const __half* input, __half* output, unsigned int 
     transpose_impl<__half>(input, output, rows, cols);
 }
 
+__global__ void kron_f16(const __half* a, const __half* b, __half* out,
+                         unsigned int m_a, unsigned int n_a,
+                         unsigned int m_b, unsigned int n_b) {
+    kron_impl<__half>(a, b, out, m_a, n_a, m_b, n_b);
+}
+
 // ============================================================================
 // BF16 (__nv_bfloat16) Wrappers
 // ============================================================================
@@ -398,6 +450,12 @@ __global__ void max_abs_bf16(const __nv_bfloat16* values, __nv_bfloat16* max_val
 
 __global__ void transpose_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int rows, unsigned int cols) {
     transpose_impl<__nv_bfloat16>(input, output, rows, cols);
+}
+
+__global__ void kron_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out,
+                          unsigned int m_a, unsigned int n_a,
+                          unsigned int m_b, unsigned int n_b) {
+    kron_impl<__nv_bfloat16>(a, b, out, m_a, n_a, m_b, n_b);
 }
 
 } // extern "C"

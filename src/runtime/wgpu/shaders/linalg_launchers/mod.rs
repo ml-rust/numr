@@ -18,7 +18,9 @@ mod svd;
 mod utilities;
 
 // Re-export all launcher functions
-pub use basic_ops::{launch_create_identity, launch_diag, launch_diagflat, launch_trace};
+pub use basic_ops::{
+    launch_create_identity, launch_diag, launch_diagflat, launch_kron, launch_trace,
+};
 pub use decompositions::{launch_cholesky_decompose, launch_lu_decompose, launch_qr_decompose};
 pub use eig::{
     launch_eig_general, launch_eig_jacobi_symmetric, launch_qz_decompose, launch_rsf2csf,

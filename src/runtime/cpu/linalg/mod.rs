@@ -254,6 +254,27 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         }
     }
 
+    fn kron(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        if a.dtype() != b.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: b.dtype(),
+            });
+        }
+        let (m_a, n_a) = validate_matrix_2d(a.shape())?;
+        let (m_b, n_b) = validate_matrix_2d(b.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_ops::kron_impl::<f32>(self, a, b, m_a, n_a, m_b, n_b),
+            DType::F64 => matrix_ops::kron_impl::<f64>(self, a, b, m_a, n_a, m_b, n_b),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "kron",
+            }),
+        }
+    }
+
     fn matrix_rank(&self, a: &Tensor<CpuRuntime>, tol: Option<f64>) -> Result<Tensor<CpuRuntime>> {
         validate_linalg_dtype(a.dtype())?;
         let (m, n) = validate_matrix_2d(a.shape())?;

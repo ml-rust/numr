@@ -540,3 +540,65 @@ pub fn matrix_norm(
         }
     }
 }
+
+/// Kronecker product: A ⊗ B
+pub fn kron(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+
+    let (m_a, n_a) = validate_matrix_2d(a.shape())?;
+    let (m_b, n_b) = validate_matrix_2d(b.shape())?;
+
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU kron (only F32 supported)",
+        });
+    }
+
+    let m_out = m_a * m_b;
+    let n_out = n_a * n_b;
+    let out_size = m_out * n_out * dtype.size_in_bytes();
+    let out_ptr = client.allocator().allocate(out_size);
+    let out_buffer = get_buffer(out_ptr)
+        .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
+
+    let a_buffer = get_buffer(a.storage().ptr())
+        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+
+    let b_buffer = get_buffer(b.storage().ptr())
+        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
+
+    let params: [u32; 4] = [m_a as u32, n_a as u32, m_b as u32, n_b as u32];
+    let params_buffer = client.create_uniform_buffer("kron_params", 16);
+    client.write_buffer(&params_buffer, &params);
+
+    kernels::launch_kron(
+        client.pipeline_cache(),
+        &client.queue,
+        &a_buffer,
+        &b_buffer,
+        &out_buffer,
+        &params_buffer,
+        m_a * m_b * n_a * n_b,
+        dtype,
+    )?;
+
+    client.synchronize();
+
+    let out = unsafe { WgpuClient::tensor_from_raw(out_ptr, &[m_out, n_out], dtype, device) };
+
+    Ok(out)
+}

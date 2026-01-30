@@ -105,6 +105,14 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         matrix_ops::diagflat_impl(self, a)
     }
 
+    fn kron(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        matrix_ops::kron_impl(self, a, b)
+    }
+
     fn matrix_rank(
         &self,
         a: &Tensor<CudaRuntime>,

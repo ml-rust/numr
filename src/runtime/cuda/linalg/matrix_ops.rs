@@ -443,3 +443,51 @@ pub fn matrix_norm_impl(
         )),
     }
 }
+
+/// Kronecker product: A ⊗ B
+pub fn kron_impl(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+) -> Result<Tensor<CudaRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+
+    let (m_a, n_a) = validate_matrix_2d(a.shape())?;
+    let (m_b, n_b) = validate_matrix_2d(b.shape())?;
+
+    let dtype = a.dtype();
+    let device = client.device();
+
+    let m_out = m_a * m_b;
+    let n_out = n_a * n_b;
+    let out_size = m_out * n_out * dtype.size_in_bytes();
+    let out_ptr = client.allocator().allocate(out_size);
+
+    unsafe {
+        kernels::launch_kron(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            a.storage().ptr(),
+            b.storage().ptr(),
+            out_ptr,
+            m_a,
+            n_a,
+            m_b,
+            n_b,
+        )?;
+    }
+
+    client.synchronize();
+
+    let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[m_out, n_out], dtype, device) };
+
+    Ok(out)
+}

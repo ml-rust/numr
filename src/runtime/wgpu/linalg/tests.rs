@@ -281,4 +281,81 @@ mod tests {
         assert!(!result[0].is_nan() && !result[0].is_infinite());
         assert!(!result[1].is_nan() && !result[1].is_infinite());
     }
+
+    #[test]
+    fn test_kron_2x2() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[1, 2], [3, 4]], B = [[0, 5], [6, 7]]
+        let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+        let b = Tensor::<WgpuRuntime>::from_slice(&[0.0f32, 5.0, 6.0, 7.0], &[2, 2], device);
+
+        let kron = client.kron(&a, &b).unwrap();
+        assert_eq!(kron.shape(), &[4, 4]);
+
+        let data: Vec<f32> = kron.to_vec();
+
+        // Expected result:
+        // [[0,  5,  0, 10],
+        //  [6,  7, 12, 14],
+        //  [0, 15,  0, 20],
+        //  [18, 21, 24, 28]]
+        #[rustfmt::skip]
+        let expected: [f32; 16] = [
+            0.0, 5.0, 0.0, 10.0,
+            6.0, 7.0, 12.0, 14.0,
+            0.0, 15.0, 0.0, 20.0,
+            18.0, 21.0, 24.0, 28.0,
+        ];
+
+        for (i, (got, exp)) in data.iter().zip(expected.iter()).enumerate() {
+            assert!(
+                (got - exp).abs() < 1e-4,
+                "element {} differs: {} vs {}",
+                i,
+                got,
+                exp
+            );
+        }
+    }
+
+    #[test]
+    fn test_kron_identity() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+
+        let client = create_client();
+        let device = client.device();
+
+        // I₂ ⊗ I₂ = I₄
+        let i2 = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[2, 2], device);
+
+        let kron = client.kron(&i2, &i2).unwrap();
+        assert_eq!(kron.shape(), &[4, 4]);
+
+        let data: Vec<f32> = kron.to_vec();
+
+        // Should be 4x4 identity
+        for i in 0..4 {
+            for j in 0..4 {
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (data[i * 4 + j] - expected).abs() < 1e-5,
+                    "kron[{},{}] = {} expected {}",
+                    i,
+                    j,
+                    data[i * 4 + j],
+                    expected
+                );
+            }
+        }
+    }
 }

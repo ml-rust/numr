@@ -141,6 +141,54 @@ fn create_identity_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 // ============================================================================
+// Kronecker Product - A ⊗ B
+// ============================================================================
+
+struct KronParams {
+    m_a: u32,
+    n_a: u32,
+    m_b: u32,
+    n_b: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> kron_a: array<f32>;
+@group(0) @binding(1) var<storage, read_write> kron_b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> kron_output: array<f32>;
+@group(0) @binding(3) var<uniform> kron_params: KronParams;
+
+@compute @workgroup_size(256)
+fn kron_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let m_a = kron_params.m_a;
+    let n_a = kron_params.n_a;
+    let m_b = kron_params.m_b;
+    let n_b = kron_params.n_b;
+
+    let m_out = m_a * m_b;
+    let n_out = n_a * n_b;
+    let total = m_out * n_out;
+
+    if (gid < total) {
+        // Convert linear index to 2D coordinates in output
+        let i_out = gid / n_out;
+        let j_out = gid % n_out;
+
+        // Find corresponding indices in A and B
+        let i_a = i_out / m_b;
+        let i_b = i_out % m_b;
+        let j_a = j_out / n_b;
+        let j_b = j_out % n_b;
+
+        // Get values from A and B
+        let a_val = kron_a[i_a * n_a + j_a];
+        let b_val = kron_b[i_b * n_b + j_b];
+
+        // out[i_a * m_b + i_b, j_a * n_b + j_b] = A[i_a, j_a] * B[i_b, j_b]
+        kron_output[gid] = a_val * b_val;
+    }
+}
+
+// ============================================================================
 // From solvers.rs
 // ============================================================================
 // ============================================================================

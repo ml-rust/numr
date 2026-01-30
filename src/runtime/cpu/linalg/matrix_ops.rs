@@ -114,6 +114,51 @@ pub fn diagflat_impl<T: Element + LinalgElement>(
     Ok(Tensor::<CpuRuntime>::from_slice(&mat, &[n, n], device))
 }
 
+/// Kronecker product: A ⊗ B
+///
+/// For A of shape [m_a, n_a] and B of shape [m_b, n_b],
+/// produces output of shape [m_a * m_b, n_a * n_b].
+///
+/// (A ⊗ B)[i*m_b + k, j*n_b + l] = A[i, j] * B[k, l]
+pub fn kron_impl<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    m_a: usize,
+    n_a: usize,
+    m_b: usize,
+    n_b: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    let a_data: Vec<T> = a.to_vec();
+    let b_data: Vec<T> = b.to_vec();
+
+    let m_out = m_a * m_b;
+    let n_out = n_a * n_b;
+    let mut out: Vec<T> = vec![T::zero(); m_out * n_out];
+
+    // Compute Kronecker product
+    // out[i_a * m_b + i_b, j_a * n_b + j_b] = a[i_a, j_a] * b[i_b, j_b]
+    for i_a in 0..m_a {
+        for j_a in 0..n_a {
+            let a_val = a_data[i_a * n_a + j_a];
+            for i_b in 0..m_b {
+                for j_b in 0..n_b {
+                    let i_out = i_a * m_b + i_b;
+                    let j_out = j_a * n_b + j_b;
+                    out[i_out * n_out + j_out] = a_val * b_data[i_b * n_b + j_b];
+                }
+            }
+        }
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(
+        &out,
+        &[m_out, n_out],
+        device,
+    ))
+}
+
 /// Matrix rank via singular value thresholding
 /// Uses QR-based approach since SVD is not yet implemented
 pub fn matrix_rank_impl<T: Element + LinalgElement>(

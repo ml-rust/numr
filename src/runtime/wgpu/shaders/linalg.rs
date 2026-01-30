@@ -32,6 +32,8 @@ pub use super::linalg_launchers::{
     launch_exp_quasi_triangular,
     launch_extract_column,
     launch_forward_sub,
+    // Kronecker product
+    launch_kron,
     launch_log_quasi_triangular,
     launch_lu_decompose,
     launch_matrix_copy,
