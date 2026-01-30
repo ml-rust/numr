@@ -74,9 +74,11 @@ pub unsafe fn launch_stockham_fft_batched(
             builder.arg(&scale_f32);
             builder.arg(&batch_u32);
 
-            builder
-                .launch(cfg)
-                .map_err(|e| Error::Internal(format!("CUDA FFT kernel launch failed: {:?}", e)))?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA FFT kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "stockham_fft_batched_c128")?;
@@ -103,9 +105,11 @@ pub unsafe fn launch_stockham_fft_batched(
             builder.arg(&scale);
             builder.arg(&batch_u32);
 
-            builder
-                .launch(cfg)
-                .map_err(|e| Error::Internal(format!("CUDA FFT kernel launch failed: {:?}", e)))?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA FFT kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType { dtype, op: "fft" });
@@ -163,9 +167,11 @@ pub unsafe fn launch_stockham_fft_stage(
             builder.arg(&inverse_i32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA FFT stage kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA FFT stage kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "stockham_fft_stage_c128")?;
@@ -188,9 +194,11 @@ pub unsafe fn launch_stockham_fft_stage(
             builder.arg(&inverse_i32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA FFT stage kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA FFT stage kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType { dtype, op: "fft" });
@@ -228,9 +236,11 @@ pub unsafe fn launch_scale_complex(
             builder.arg(&scale_f32);
             builder.arg(&n_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA scale kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA scale kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "scale_complex_c128")?;
@@ -242,9 +252,11 @@ pub unsafe fn launch_scale_complex(
             builder.arg(&scale);
             builder.arg(&n_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA scale kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA scale kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -288,9 +300,11 @@ pub unsafe fn launch_rfft_pack(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA rfft_pack kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA rfft_pack kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::F64 => {
             let func = get_kernel_function(&module, "rfft_pack_c128")?;
@@ -304,9 +318,11 @@ pub unsafe fn launch_rfft_pack(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA rfft_pack kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA rfft_pack kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -353,9 +369,11 @@ pub unsafe fn launch_irfft_unpack(
             builder.arg(&scale_f32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA irfft_unpack kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA irfft_unpack kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::F64 => {
             let func = get_kernel_function(&module, "irfft_unpack_c128")?;
@@ -370,9 +388,11 @@ pub unsafe fn launch_irfft_unpack(
             builder.arg(&scale);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA irfft_unpack kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA irfft_unpack kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -419,12 +439,14 @@ pub unsafe fn launch_hermitian_extend(
             builder.arg(&full_n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!(
-                    "CUDA hermitian_extend kernel launch failed: {:?}",
-                    e
-                ))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!(
+                        "CUDA hermitian_extend kernel launch failed: {:?}",
+                        e
+                    ))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "hermitian_extend_c128")?;
@@ -440,12 +462,14 @@ pub unsafe fn launch_hermitian_extend(
             builder.arg(&full_n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!(
-                    "CUDA hermitian_extend kernel launch failed: {:?}",
-                    e
-                ))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!(
+                        "CUDA hermitian_extend kernel launch failed: {:?}",
+                        e
+                    ))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -492,9 +516,11 @@ pub unsafe fn launch_rfft_truncate(
             builder.arg(&half_n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA rfft_truncate kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA rfft_truncate kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "rfft_truncate_c128")?;
@@ -510,9 +536,11 @@ pub unsafe fn launch_rfft_truncate(
             builder.arg(&half_n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA rfft_truncate kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA rfft_truncate kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -556,9 +584,11 @@ pub unsafe fn launch_fftshift(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA fftshift kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA fftshift kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "fftshift_c128")?;
@@ -572,9 +602,11 @@ pub unsafe fn launch_fftshift(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA fftshift kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA fftshift kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -618,9 +650,11 @@ pub unsafe fn launch_ifftshift(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA ifftshift kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA ifftshift kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "ifftshift_c128")?;
@@ -634,9 +668,11 @@ pub unsafe fn launch_ifftshift(
             builder.arg(&n_u32);
             builder.arg(&batch_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA ifftshift kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA ifftshift kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {
@@ -650,6 +686,7 @@ pub unsafe fn launch_ifftshift(
 }
 
 /// Launch copy kernel for complex data
+#[allow(dead_code)]
 pub unsafe fn launch_copy_complex(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -676,9 +713,11 @@ pub unsafe fn launch_copy_complex(
             builder.arg(&dst_ptr);
             builder.arg(&n_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA copy_complex kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA copy_complex kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         DType::Complex128 => {
             let func = get_kernel_function(&module, "copy_complex_c128")?;
@@ -690,9 +729,11 @@ pub unsafe fn launch_copy_complex(
             builder.arg(&dst_ptr);
             builder.arg(&n_u32);
 
-            builder.launch(cfg).map_err(|e| {
-                Error::Internal(format!("CUDA copy_complex kernel launch failed: {:?}", e))
-            })?;
+            unsafe {
+                builder.launch(cfg).map_err(|e| {
+                    Error::Internal(format!("CUDA copy_complex kernel launch failed: {:?}", e))
+                })?;
+            }
         }
         _ => {
             return Err(Error::UnsupportedDType {

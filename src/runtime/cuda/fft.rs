@@ -169,7 +169,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         };
 
         if dim_usize >= ndim {
-            return Err(Error::InvalidDimension { dim: dim, ndim });
+            return Err(Error::InvalidDimension { dim, ndim });
         }
 
         // If dim is already the last dimension, use regular fft
