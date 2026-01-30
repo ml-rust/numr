@@ -10,6 +10,7 @@ mod decompositions;
 mod eig_general;
 mod eig_symmetric;
 pub(crate) mod helpers;
+mod matrix_functions;
 mod matrix_ops;
 mod schur;
 mod solvers;
@@ -23,7 +24,8 @@ use super::CudaRuntime;
 use super::client::CudaClient;
 use crate::algorithm::linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixNormOrder, QrDecomposition, SchurDecomposition, SvdDecomposition,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
+    SchurDecomposition, SvdDecomposition,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -153,5 +155,38 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
     ) -> Result<GeneralEigenDecomposition<CudaRuntime>> {
         eig_general::eig_decompose_impl(self, a)
+    }
+}
+
+impl MatrixFunctionsAlgorithms<CudaRuntime> for CudaClient {
+    fn expm(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        matrix_functions::expm_impl(self, a)
+    }
+
+    fn logm(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        matrix_functions::logm_impl(self, a)
+    }
+
+    fn sqrtm(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        matrix_functions::sqrtm_impl(self, a)
+    }
+
+    fn signm(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        matrix_functions::signm_impl(self, a)
+    }
+
+    fn fractional_matrix_power(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        p: f64,
+    ) -> Result<Tensor<CudaRuntime>> {
+        matrix_functions::fractional_matrix_power_impl(self, a, p)
+    }
+
+    fn funm<F>(&self, a: &Tensor<CudaRuntime>, f: F) -> Result<Tensor<CudaRuntime>>
+    where
+        F: Fn(f64) -> f64 + Send + Sync,
+    {
+        matrix_functions::funm_impl(self, a, f)
     }
 }
