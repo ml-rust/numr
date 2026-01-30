@@ -6,6 +6,7 @@
 //!
 //! Native CUDA kernels are used - NO cuSOLVER dependency.
 
+mod advanced_decompositions;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
@@ -23,9 +24,10 @@ mod tests;
 use super::CudaRuntime;
 use super::client::CudaClient;
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
-    SchurDecomposition, SvdDecomposition,
+    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
+    QrDecomposition, SchurDecomposition, SvdDecomposition,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -155,6 +157,25 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
     ) -> Result<GeneralEigenDecomposition<CudaRuntime>> {
         eig_general::eig_decompose_impl(self, a)
+    }
+
+    fn rsf2csf(
+        &self,
+        schur: &SchurDecomposition<CudaRuntime>,
+    ) -> Result<ComplexSchurDecomposition<CudaRuntime>> {
+        advanced_decompositions::rsf2csf_impl(self, schur)
+    }
+
+    fn qz_decompose(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<GeneralizedSchurDecomposition<CudaRuntime>> {
+        advanced_decompositions::qz_decompose_impl(self, a, b)
+    }
+
+    fn polar_decompose(&self, a: &Tensor<CudaRuntime>) -> Result<PolarDecomposition<CudaRuntime>> {
+        advanced_decompositions::polar_decompose_impl(self, a)
     }
 }
 
