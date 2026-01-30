@@ -7,6 +7,7 @@
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
+mod matrix_functions;
 mod matrix_ops;
 mod schur;
 mod solvers;
@@ -19,8 +20,9 @@ mod tests;
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixNormOrder, QrDecomposition, SchurDecomposition, SvdDecomposition,
-    validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
+    SchurDecomposition, SvdDecomposition, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -401,6 +403,99 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
             _ => Err(Error::UnsupportedDType {
                 dtype: a.dtype(),
                 op: "eig_decompose",
+            }),
+        }
+    }
+}
+
+impl MatrixFunctionsAlgorithms<CpuRuntime> for CpuClient {
+    fn expm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::expm_impl::<f32>(self, a, n),
+            DType::F64 => matrix_functions::expm_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "expm",
+            }),
+        }
+    }
+
+    fn logm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::logm_impl::<f32>(self, a, n),
+            DType::F64 => matrix_functions::logm_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "logm",
+            }),
+        }
+    }
+
+    fn sqrtm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::sqrtm_impl::<f32>(self, a, n),
+            DType::F64 => matrix_functions::sqrtm_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "sqrtm",
+            }),
+        }
+    }
+
+    fn signm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::signm_impl::<f32>(self, a, n),
+            DType::F64 => matrix_functions::signm_impl::<f64>(self, a, n),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "signm",
+            }),
+        }
+    }
+
+    fn fractional_matrix_power(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        p: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::fractional_matrix_power_impl::<f32>(self, a, n, p),
+            DType::F64 => matrix_functions::fractional_matrix_power_impl::<f64>(self, a, n, p),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "fractional_matrix_power",
+            }),
+        }
+    }
+
+    fn funm<F>(&self, a: &Tensor<CpuRuntime>, f: F) -> Result<Tensor<CpuRuntime>>
+    where
+        F: Fn(f64) -> f64 + Send + Sync,
+    {
+        validate_linalg_dtype(a.dtype())?;
+        let n = validate_square_matrix(a.shape())?;
+
+        match a.dtype() {
+            DType::F32 => matrix_functions::funm_impl::<f32, F>(self, a, n, f),
+            DType::F64 => matrix_functions::funm_impl::<f64, F>(self, a, n, f),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "funm",
             }),
         }
     }
