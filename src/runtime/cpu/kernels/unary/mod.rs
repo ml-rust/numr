@@ -1,14 +1,51 @@
 //! Unary and activation operation kernels
+//!
+//! Provides element-wise unary operations with automatic SIMD dispatch.
+//! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::Element;
+pub mod scalar;
+
+pub use scalar::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
+
+use crate::dtype::{DType, Element};
 use crate::ops::UnaryOp;
 
-/// Execute a unary operation element-wise
+/// Execute a unary operation element-wise with automatic SIMD dispatch
+///
+/// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
+/// - AVX-512: 16 f32s or 8 f64s per iteration
+/// - AVX2: 8 f32s or 4 f64s per iteration
+/// - Scalar fallback for other types or non-x86 platforms
 ///
 /// # Safety
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len: usize) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::unary;
+
+        match T::DTYPE {
+            DType::F32 => {
+                unary::unary_f32(op, a as *const f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                unary::unary_f64(op, a as *const f64, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    unary_op_scalar(op, a, out, len);
+}
+
+/// Scalar unary operation for all Element types
+#[inline]
+unsafe fn unary_op_scalar<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len: usize) {
     let a_slice = std::slice::from_raw_parts(a, len);
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
@@ -113,12 +150,37 @@ pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T,
     }
 }
 
-/// ReLU activation: max(0, x)
+/// ReLU activation: max(0, x) with automatic SIMD dispatch
 ///
 /// # Safety
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::unary;
+
+        match T::DTYPE {
+            DType::F32 => {
+                unary::relu_f32(a as *const f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                unary::relu_f64(a as *const f64, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    relu_scalar(a, out, len);
+}
+
+/// Scalar ReLU for all Element types
+#[inline]
+unsafe fn relu_scalar<T: Element>(a: *const T, out: *mut T, len: usize) {
     let a_slice = std::slice::from_raw_parts(a, len);
     let out_slice = std::slice::from_raw_parts_mut(out, len);
     let zero = T::zero();
