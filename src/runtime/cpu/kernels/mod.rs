@@ -17,6 +17,7 @@ pub mod memory;
 pub mod norm;
 pub mod reduce;
 pub mod scalar;
+pub mod simd;
 pub mod sort;
 pub mod unary;
 
