@@ -22,7 +22,10 @@
 //! │   └── avx2.rs         # AVX2 kernels
 //! │
 //! Note: Scalar fallbacks live in kernels/{binary,unary}.rs (single source of truth)
-//! └── reduce/             # Future: reductions (sum, max, etc.)
+//! └── reduce/             # Reductions (sum, max, min, prod)
+//!     ├── mod.rs          # Dispatch logic
+//!     ├── avx512.rs       # AVX-512 kernels
+//!     └── avx2.rs         # AVX2 kernels
 //! ```
 //!
 //! # Architecture Support
@@ -38,6 +41,8 @@
 pub mod binary;
 #[cfg(target_arch = "x86_64")]
 pub mod matmul;
+#[cfg(target_arch = "x86_64")]
+pub mod reduce;
 #[cfg(target_arch = "x86_64")]
 pub mod unary;
 
