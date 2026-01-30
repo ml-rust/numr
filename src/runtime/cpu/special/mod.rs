@@ -89,4 +89,44 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
         validate_special_dtype(a.dtype())?;
         helpers::apply_binary(a, x, &self.device, gammaincc_scalar)
     }
+
+    fn bessel_j0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_j0_scalar)
+    }
+
+    fn bessel_j1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_j1_scalar)
+    }
+
+    fn bessel_y0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_y0_scalar)
+    }
+
+    fn bessel_y1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_y1_scalar)
+    }
+
+    fn bessel_i0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_i0_scalar)
+    }
+
+    fn bessel_i1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_i1_scalar)
+    }
+
+    fn bessel_k0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_k0_scalar)
+    }
+
+    fn bessel_k1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, bessel_k1_scalar)
+    }
 }

@@ -194,6 +194,448 @@ fn digamma_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         special_out[idx] = digamma_impl(special_a[idx]);
     }}
 }}
+
+// ============================================================================
+// Bessel Functions
+// ============================================================================
+
+// J0: Bessel function of the first kind, order 0 (Numerical Recipes style)
+fn bessel_j0_impl(x: f32) -> f32 {{
+    let ax = abs(x);
+
+    if (ax < 8.0) {{
+        let y = x * x;
+
+        // Numerator polynomial
+        let p1 = 57568490574.0;
+        let p2 = -13362590354.0;
+        let p3 = 651619640.7;
+        let p4 = -11214424.18;
+        let p5 = 77392.33017;
+        let p6 = -184.9052456;
+
+        // Denominator polynomial
+        let q1 = 57568490411.0;
+        let q2 = 1029532985.0;
+        let q3 = 9494680.718;
+        let q4 = 59272.64853;
+        let q5 = 267.8532712;
+        let q6 = 1.0;
+
+        let num = p1 + y * (p2 + y * (p3 + y * (p4 + y * (p5 + y * p6))));
+        let den = q1 + y * (q2 + y * (q3 + y * (q4 + y * (q5 + y * q6))));
+
+        return num / den;
+    }} else {{
+        // Asymptotic expansion
+        let z = 8.0 / ax;
+        let y = z * z;
+        let xx = ax - 0.785398163; // ax - π/4
+
+        let p1 = 1.0;
+        let p2 = -0.1098628627e-2;
+        let p3 = 0.2734510407e-4;
+        let p4 = -0.2073370639e-5;
+        let p5 = 0.2093887211e-6;
+
+        let q1 = -0.1562499995e-1;
+        let q2 = 0.1430488765e-3;
+        let q3 = -0.6911147651e-5;
+        let q4 = 0.7621095161e-6;
+        let q5 = -0.934945152e-7;
+
+        let p0 = p1 + y * (p2 + y * (p3 + y * (p4 + y * p5)));
+        let q0 = z * (q1 + y * (q2 + y * (q3 + y * (q4 + y * q5))));
+
+        return sqrt(0.636619772 / ax) * (cos(xx) * p0 - sin(xx) * q0);
+    }}
+}}
+
+// J1: Bessel function of the first kind, order 1
+fn bessel_j1_impl(x: f32) -> f32 {{
+    let ax = abs(x);
+
+    var result: f32;
+    if (ax < 8.0) {{
+        let y = x * x;
+
+        // Numerator polynomial
+        let p1 = 72362614232.0;
+        let p2 = -7895059235.0;
+        let p3 = 242396853.1;
+        let p4 = -2972611.439;
+        let p5 = 15704.48260;
+        let p6 = -30.16036606;
+
+        // Denominator polynomial
+        let q1 = 144725228442.0;
+        let q2 = 2300535178.0;
+        let q3 = 18583304.74;
+        let q4 = 99447.43394;
+        let q5 = 376.9991397;
+        let q6 = 1.0;
+
+        let num = x * (p1 + y * (p2 + y * (p3 + y * (p4 + y * (p5 + y * p6)))));
+        let den = q1 + y * (q2 + y * (q3 + y * (q4 + y * (q5 + y * q6))));
+
+        result = num / den;
+    }} else {{
+        let z = 8.0 / ax;
+        let y = z * z;
+        let xx = ax - 2.356194490; // ax - 3π/4
+
+        let p1 = 1.0;
+        let p2 = 0.183105e-2;
+        let p3 = -0.3516396496e-4;
+        let p4 = 0.2457520174e-5;
+        let p5 = -0.240337019e-6;
+
+        let q1 = 0.04687499995;
+        let q2 = -0.2002690873e-3;
+        let q3 = 0.8449199096e-5;
+        let q4 = -0.88228987e-6;
+        let q5 = 0.105787412e-6;
+
+        let p0 = p1 + y * (p2 + y * (p3 + y * (p4 + y * p5)));
+        let q0 = z * (q1 + y * (q2 + y * (q3 + y * (q4 + y * q5))));
+
+        let sign = select(-1.0, 1.0, x >= 0.0);
+        result = sign * sqrt(0.636619772 / ax) * (cos(xx) * p0 - sin(xx) * q0);
+    }}
+
+    return result;
+}}
+
+// Y0: Bessel function of the second kind, order 0 (Numerical Recipes style)
+fn bessel_y0_impl(x: f32) -> f32 {{
+    if (x <= 0.0) {{
+        return 1e30; // NaN approximation for WGSL
+    }}
+
+    if (x < 8.0) {{
+        let y = x * x;
+
+        // Numerator polynomial
+        let p1 = -2957821389.0;
+        let p2 = 7062834065.0;
+        let p3 = -512359803.6;
+        let p4 = 10879881.29;
+        let p5 = -86327.92757;
+        let p6 = 228.4622733;
+
+        // Denominator polynomial
+        let q1 = 40076544269.0;
+        let q2 = 745249964.8;
+        let q3 = 7189466.438;
+        let q4 = 47447.26470;
+        let q5 = 226.1030244;
+        let q6 = 1.0;
+
+        let num = p1 + y * (p2 + y * (p3 + y * (p4 + y * (p5 + y * p6))));
+        let den = q1 + y * (q2 + y * (q3 + y * (q4 + y * (q5 + y * q6))));
+
+        return num / den + 0.636619772 * bessel_j0_impl(x) * log(x);
+    }} else {{
+        // Asymptotic expansion for x >= 8
+        let z = 8.0 / x;
+        let y = z * z;
+        let xx = x - 0.785398163; // x - pi/4
+
+        // P0 polynomial (same as J0)
+        let p1 = 1.0;
+        let p2 = -0.1098628627e-2;
+        let p3 = 0.2734510407e-4;
+        let p4 = -0.2073370639e-5;
+        let p5 = 0.2093887211e-6;
+
+        // Q0 polynomial (same as J0)
+        let q1 = -0.1562499995e-1;
+        let q2 = 0.1430488765e-3;
+        let q3 = -0.6911147651e-5;
+        let q4 = 0.7621095161e-6;
+        let q5 = -0.934945152e-7;
+
+        let p0 = p1 + y * (p2 + y * (p3 + y * (p4 + y * p5)));
+        let q0 = z * (q1 + y * (q2 + y * (q3 + y * (q4 + y * q5))));
+
+        return sqrt(0.636619772 / x) * (sin(xx) * p0 + cos(xx) * q0);
+    }}
+}}
+
+// Y1: Bessel function of the second kind, order 1 (Numerical Recipes style)
+fn bessel_y1_impl(x: f32) -> f32 {{
+    if (x <= 0.0) {{
+        return 1e30; // NaN approximation
+    }}
+
+    if (x < 8.0) {{
+        let y = x * x;
+
+        // Numerator polynomial (Numerical Recipes coefficients)
+        let p1 = -0.4900604943e13;
+        let p2 = 0.1275274390e13;
+        let p3 = -0.5153438139e11;
+        let p4 = 0.7349264551e9;
+        let p5 = -0.4237922726e7;
+        let p6 = 0.8511937935e4;
+
+        // Denominator polynomial
+        let q1 = 0.2499580570e14;
+        let q2 = 0.4244198890e12;
+        let q3 = 0.3733650367e10;
+        let q4 = 0.2245904002e8;
+        let q5 = 0.1020426050e6;
+        let q6 = 0.3549632885e3;
+        let q7 = 1.0;
+
+        let num = x * (p1 + y * (p2 + y * (p3 + y * (p4 + y * (p5 + y * p6)))));
+        let den = q1 + y * (q2 + y * (q3 + y * (q4 + y * (q5 + y * (q6 + y * q7)))));
+
+        return num / den + 0.636619772 * (bessel_j1_impl(x) * log(x) - 1.0 / x);
+    }} else {{
+        // Asymptotic expansion for x >= 8
+        let z = 8.0 / x;
+        let y = z * z;
+        let xx = x - 2.356194490; // x - 3*pi/4
+
+        // P1 polynomial (same as J1)
+        let p1 = 1.0;
+        let p2 = 0.183105e-2;
+        let p3 = -0.3516396496e-4;
+        let p4 = 0.2457520174e-5;
+        let p5 = -0.240337019e-6;
+
+        // Q1 polynomial (same as J1)
+        let q1 = 0.04687499995;
+        let q2 = -0.2002690873e-3;
+        let q3 = 0.8449199096e-5;
+        let q4 = -0.88228987e-6;
+        let q5 = 0.105787412e-6;
+
+        let p0 = p1 + y * (p2 + y * (p3 + y * (p4 + y * p5)));
+        let q0 = z * (q1 + y * (q2 + y * (q3 + y * (q4 + y * q5))));
+
+        return sqrt(0.636619772 / x) * (sin(xx) * p0 + cos(xx) * q0);
+    }}
+}}
+
+// I0: Modified Bessel function of the first kind, order 0
+fn bessel_i0_impl(x: f32) -> f32 {{
+    let ax = abs(x);
+
+    if (ax <= 15.0) {{
+        // Power series
+        let z = ax * ax;
+        var sum = 1.0;
+        var term = 1.0;
+
+        for (var k = 1; k < 25; k++) {{
+            let kf = f32(k);
+            term = term * z / (4.0 * kf * kf);
+            sum = sum + term;
+            if (abs(term) < abs(sum) * 1e-7) {{
+                break;
+            }}
+        }}
+
+        return sum;
+    }} else {{
+        // Asymptotic expansion
+        let z = 1.0 / ax;
+
+        let p0 = 1.0;
+        let p1 = 1.25e-01;
+        let p2 = 7.03125e-02;
+        let p3 = 7.324218750e-02;
+        let p4 = 1.1215209960937500e-01;
+        let p5 = 2.2710800170898438e-01;
+
+        let poly = ((((p5 * z + p4) * z + p3) * z + p2) * z + p1) * z + p0;
+
+        return exp(ax) / sqrt(2.0 * PI * ax) * poly;
+    }}
+}}
+
+// I1: Modified Bessel function of the first kind, order 1
+fn bessel_i1_impl(x: f32) -> f32 {{
+    let ax = abs(x);
+
+    var result: f32;
+    if (ax <= 15.0) {{
+        // Power series
+        let z = ax * ax;
+        var sum = 0.5;
+        var term = 0.5;
+
+        for (var k = 1; k < 25; k++) {{
+            let kf = f32(k);
+            term = term * z / (4.0 * kf * (kf + 1.0));
+            sum = sum + term;
+            if (abs(term) < abs(sum) * 1e-7) {{
+                break;
+            }}
+        }}
+
+        result = ax * sum;
+    }} else {{
+        // Asymptotic expansion
+        let z = 1.0 / ax;
+
+        let q0 = 1.0;
+        let q1 = -3.75e-01;
+        let q2 = -1.171875e-01;
+        let q3 = -1.025390625e-01;
+        let q4 = -1.4419555664062500e-01;
+        let q5 = -2.7757644653320312e-01;
+
+        let poly = ((((q5 * z + q4) * z + q3) * z + q2) * z + q1) * z + q0;
+
+        result = exp(ax) / sqrt(2.0 * PI * ax) * poly;
+    }}
+
+    // I1 is an odd function
+    return select(-result, result, x >= 0.0);
+}}
+
+// K0: Modified Bessel function of the second kind, order 0
+fn bessel_k0_impl(x: f32) -> f32 {{
+    if (x <= 0.0) {{
+        return 1e30; // NaN approximation
+    }}
+
+    if (x <= 2.0) {{
+        let z = x * x / 4.0;
+        let i0 = bessel_i0_impl(x);
+
+        let p0 = -0.57721566;
+        let p1 = 0.42278420;
+        let p2 = 0.23069756;
+        let p3 = 0.03488590;
+        let p4 = 0.00262698;
+        let p5 = 0.00010750;
+        let p6 = 0.00000740;
+
+        let poly = (((((p6 * z + p5) * z + p4) * z + p3) * z + p2) * z + p1) * z + p0;
+
+        return -log(x / 2.0) * i0 + poly;
+    }} else {{
+        let z = 2.0 / x;
+
+        let p0 = 1.25331414;
+        let p1 = -0.07832358;
+        let p2 = 0.02189568;
+        let p3 = -0.01062446;
+        let p4 = 0.00587872;
+        let p5 = -0.00251540;
+        let p6 = 0.00053208;
+
+        let poly = (((((p6 * z + p5) * z + p4) * z + p3) * z + p2) * z + p1) * z + p0;
+
+        return exp(-x) / sqrt(x) * poly;
+    }}
+}}
+
+// K1: Modified Bessel function of the second kind, order 1
+fn bessel_k1_impl(x: f32) -> f32 {{
+    if (x <= 0.0) {{
+        return 1e30; // NaN approximation
+    }}
+
+    if (x <= 2.0) {{
+        let z = x * x / 4.0;
+        let i1 = bessel_i1_impl(x);
+
+        let p0 = 1.0;
+        let p1 = 0.15443144;
+        let p2 = -0.67278579;
+        let p3 = -0.18156897;
+        let p4 = -0.01919402;
+        let p5 = -0.00110404;
+        let p6 = -0.00004686;
+
+        let poly = x * (((((p6 * z + p5) * z + p4) * z + p3) * z + p2) * z + p1) * z + p0;
+
+        return log(x / 2.0) * i1 + poly / x;
+    }} else {{
+        let z = 2.0 / x;
+
+        let q0 = 1.25331414;
+        let q1 = 0.23498619;
+        let q2 = -0.03655620;
+        let q3 = 0.01504268;
+        let q4 = -0.00780353;
+        let q5 = 0.00325614;
+        let q6 = -0.00068245;
+
+        let poly = (((((q6 * z + q5) * z + q4) * z + q3) * z + q2) * z + q1) * z + q0;
+
+        return exp(-x) / sqrt(x) * poly;
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_j0_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_j0_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_j1_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_j1_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_y0_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_y0_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_y1_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_y1_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_i0_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_i0_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_i1_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_i1_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_k0_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_k0_impl(special_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn bessel_k1_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < special_params.numel) {{
+        special_out[idx] = bessel_k1_impl(special_a[idx]);
+    }}
+}}
 "#,
         t = t,
         suffix = suffix,

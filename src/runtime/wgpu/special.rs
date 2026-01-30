@@ -145,6 +145,46 @@ impl SpecialFunctions<WgpuRuntime> for WgpuClient {
         }
         compute_binary_special(self, a, x, "gammaincc")
     }
+
+    fn bessel_j0(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_j0")
+    }
+
+    fn bessel_j1(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_j1")
+    }
+
+    fn bessel_y0(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_y0")
+    }
+
+    fn bessel_y1(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_y1")
+    }
+
+    fn bessel_i0(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_i0")
+    }
+
+    fn bessel_i1(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_i1")
+    }
+
+    fn bessel_k0(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_k0")
+    }
+
+    fn bessel_k1(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        compute_unary_special(self, x, "bessel_k1")
+    }
 }
 
 // ============================================================================

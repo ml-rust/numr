@@ -472,4 +472,216 @@ __global__ void gammaincc_f64(const double* a, const double* x, double* out, uns
     }
 }
 
+// ============================================================================
+// Bessel Functions - Use CUDA built-in functions
+// ============================================================================
+
+// J0, J1, Y0, Y1: CUDA provides built-in j0f/j0, j1f/j1, y0f/y0, y1f/y1
+
+__global__ void bessel_j0_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = j0f(x[idx]);
+    }
+}
+
+__global__ void bessel_j0_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = j0(x[idx]);
+    }
+}
+
+__global__ void bessel_j1_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = j1f(x[idx]);
+    }
+}
+
+__global__ void bessel_j1_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = j1(x[idx]);
+    }
+}
+
+__global__ void bessel_y0_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = x[idx];
+        out[idx] = (val > 0.0f) ? y0f(val) : CUDART_NAN_F;
+    }
+}
+
+__global__ void bessel_y0_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double val = x[idx];
+        out[idx] = (val > 0.0) ? y0(val) : CUDART_NAN;
+    }
+}
+
+__global__ void bessel_y1_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float val = x[idx];
+        out[idx] = (val > 0.0f) ? y1f(val) : CUDART_NAN_F;
+    }
+}
+
+__global__ void bessel_y1_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double val = x[idx];
+        out[idx] = (val > 0.0) ? y1(val) : CUDART_NAN;
+    }
+}
+
+// ============================================================================
+// Modified Bessel Functions of the First Kind (I0, I1)
+// ============================================================================
+
+// CUDA provides cyl_bessel_i0f/cyl_bessel_i0, cyl_bessel_i1f/cyl_bessel_i1
+
+__global__ void bessel_i0_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = cyl_bessel_i0f(x[idx]);
+    }
+}
+
+__global__ void bessel_i0_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = cyl_bessel_i0(x[idx]);
+    }
+}
+
+__global__ void bessel_i1_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = cyl_bessel_i1f(x[idx]);
+    }
+}
+
+__global__ void bessel_i1_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = cyl_bessel_i1(x[idx]);
+    }
+}
+
+// ============================================================================
+// Modified Bessel Functions of the Second Kind (K0, K1)
+// ============================================================================
+
+// K0 and K1 need custom implementation - not built into CUDA
+
+// K0 device function using polynomial approximation
+__device__ __forceinline__ float bessel_k0_impl_f32(float x) {
+    if (x <= 0.0f) return CUDART_NAN_F;
+
+    if (x <= 2.0f) {
+        float z = x * x / 4.0f;
+        float i0 = cyl_bessel_i0f(x);
+        float poly = -0.57721566f + z * (0.42278420f + z * (0.23069756f +
+                     z * (0.03488590f + z * (0.00262698f +
+                     z * (0.00010750f + z * 0.00000740f)))));
+        return -logf(x / 2.0f) * i0 + poly;
+    } else {
+        float z = 2.0f / x;
+        float poly = 1.25331414f + z * (-0.07832358f + z * (0.02189568f +
+                     z * (-0.01062446f + z * (0.00587872f +
+                     z * (-0.00251540f + z * 0.00053208f)))));
+        return expf(-x) / sqrtf(x) * poly;
+    }
+}
+
+__device__ __forceinline__ double bessel_k0_impl_f64(double x) {
+    if (x <= 0.0) return CUDART_NAN;
+
+    if (x <= 2.0) {
+        double z = x * x / 4.0;
+        double i0 = cyl_bessel_i0(x);
+        double poly = -0.57721566 + z * (0.42278420 + z * (0.23069756 +
+                      z * (0.03488590 + z * (0.00262698 +
+                      z * (0.00010750 + z * 0.00000740)))));
+        return -log(x / 2.0) * i0 + poly;
+    } else {
+        double z = 2.0 / x;
+        double poly = 1.25331414 + z * (-0.07832358 + z * (0.02189568 +
+                      z * (-0.01062446 + z * (0.00587872 +
+                      z * (-0.00251540 + z * 0.00053208)))));
+        return exp(-x) / sqrt(x) * poly;
+    }
+}
+
+// K1 device function using polynomial approximation
+__device__ __forceinline__ float bessel_k1_impl_f32(float x) {
+    if (x <= 0.0f) return CUDART_NAN_F;
+
+    if (x <= 2.0f) {
+        float z = x * x / 4.0f;
+        float i1 = cyl_bessel_i1f(x);
+        float poly = 1.0f + z * (0.15443144f + z * (-0.67278579f +
+                     z * (-0.18156897f + z * (-0.01919402f +
+                     z * (-0.00110404f + z * -0.00004686f)))));
+        return logf(x / 2.0f) * i1 + poly / x;
+    } else {
+        float z = 2.0f / x;
+        float poly = 1.25331414f + z * (0.23498619f + z * (-0.03655620f +
+                     z * (0.01504268f + z * (-0.00780353f +
+                     z * (0.00325614f + z * -0.00068245f)))));
+        return expf(-x) / sqrtf(x) * poly;
+    }
+}
+
+__device__ __forceinline__ double bessel_k1_impl_f64(double x) {
+    if (x <= 0.0) return CUDART_NAN;
+
+    if (x <= 2.0) {
+        double z = x * x / 4.0;
+        double i1 = cyl_bessel_i1(x);
+        double poly = 1.0 + z * (0.15443144 + z * (-0.67278579 +
+                      z * (-0.18156897 + z * (-0.01919402 +
+                      z * (-0.00110404 + z * -0.00004686)))));
+        return log(x / 2.0) * i1 + poly / x;
+    } else {
+        double z = 2.0 / x;
+        double poly = 1.25331414 + z * (0.23498619 + z * (-0.03655620 +
+                      z * (0.01504268 + z * (-0.00780353 +
+                      z * (0.00325614 + z * -0.00068245)))));
+        return exp(-x) / sqrt(x) * poly;
+    }
+}
+
+__global__ void bessel_k0_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = bessel_k0_impl_f32(x[idx]);
+    }
+}
+
+__global__ void bessel_k0_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = bessel_k0_impl_f64(x[idx]);
+    }
+}
+
+__global__ void bessel_k1_f32(const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = bessel_k1_impl_f32(x[idx]);
+    }
+}
+
+__global__ void bessel_k1_f64(const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = bessel_k1_impl_f64(x[idx]);
+    }
+}
+
 } // extern "C"

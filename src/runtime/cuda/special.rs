@@ -288,4 +288,164 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+
+    fn bessel_j0(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_j0(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_j1(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_j1(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_y0(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_y0(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_y1(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_y1(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_i0(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_i0(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_i1(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_i1(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_k0(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_k0(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn bessel_k1(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_bessel_k1(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
 }

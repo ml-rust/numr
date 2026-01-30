@@ -338,3 +338,449 @@ fn test_erf_multidim() {
     assert!(data[0].abs() < 1e-10, "erf(0) should be 0");
     assert!(data[4] > 0.99, "erf(2.0) should be close to 1");
 }
+
+// ============================================================================
+// Bessel Function Tests - First Kind (J0, J1)
+// ============================================================================
+
+#[test]
+fn test_bessel_j0_at_zero() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // J0(0) = 1
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f64], &[1], &device);
+    let result = client.bessel_j0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(
+        (data[0] - 1.0).abs() < 1e-7,
+        "J0(0) should equal 1, got {}",
+        data[0]
+    );
+}
+
+#[test]
+fn test_bessel_j0_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Known values from tables
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    let result = client.bessel_j0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // J0 values from mathematical tables
+    let expected = [
+        0.7651976866,
+        0.2238907791,
+        -0.2600519549,
+        -0.3971498099,
+        -0.1775967713,
+    ];
+    assert_close(&data, &expected, 1e-5);
+}
+
+#[test]
+fn test_bessel_j0_large_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Test asymptotic region
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f64, 20.0, 50.0], &[3], &device);
+    let result = client.bessel_j0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // J0(10) ≈ -0.2459, J0 oscillates with decreasing amplitude
+    assert!(data[0].abs() < 0.3, "J0(10) should have small amplitude");
+    assert!(data[1].abs() < 0.2, "J0(20) should have smaller amplitude");
+    assert!(
+        data[2].abs() < 0.1,
+        "J0(50) should have even smaller amplitude"
+    );
+}
+
+#[test]
+fn test_bessel_j0_even() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // J0 is an even function: J0(-x) = J0(x)
+    let x_pos = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.5, 5.0], &[3], &device);
+    let x_neg = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, -2.5, -5.0], &[3], &device);
+
+    let result_pos = client.bessel_j0(&x_pos).unwrap();
+    let result_neg = client.bessel_j0(&x_neg).unwrap();
+
+    let data_pos: Vec<f64> = result_pos.to_vec();
+    let data_neg: Vec<f64> = result_neg.to_vec();
+
+    assert_close(&data_pos, &data_neg, 1e-10);
+}
+
+#[test]
+fn test_bessel_j1_at_zero() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // J1(0) = 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f64], &[1], &device);
+    let result = client.bessel_j1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(
+        data[0].abs() < 1e-10,
+        "J1(0) should equal 0, got {}",
+        data[0]
+    );
+}
+
+#[test]
+fn test_bessel_j1_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    let result = client.bessel_j1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // J1 values from tables
+    let expected = [
+        0.4400505857,
+        0.5767248078,
+        0.3390589585,
+        -0.0660433280,
+        -0.3275791376,
+    ];
+    assert_close(&data, &expected, 1e-5);
+}
+
+#[test]
+fn test_bessel_j1_odd() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // J1 is an odd function: J1(-x) = -J1(x)
+    let x_pos = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.5, 5.0], &[3], &device);
+    let x_neg = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, -2.5, -5.0], &[3], &device);
+
+    let result_pos = client.bessel_j1(&x_pos).unwrap();
+    let result_neg = client.bessel_j1(&x_neg).unwrap();
+
+    let data_pos: Vec<f64> = result_pos.to_vec();
+    let data_neg: Vec<f64> = result_neg.to_vec();
+
+    for i in 0..3 {
+        assert!(
+            (data_pos[i] + data_neg[i]).abs() < 1e-10,
+            "J1(-x) should equal -J1(x)"
+        );
+    }
+}
+
+// ============================================================================
+// Bessel Function Tests - Second Kind (Y0, Y1)
+// ============================================================================
+
+#[test]
+fn test_bessel_y0_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 5.0], &[4], &device);
+    let result = client.bessel_y0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // Y0 values from tables
+    let expected = [0.0882569642, 0.5103756726, 0.3768500100, -0.3085176252];
+    assert_close(&data, &expected, 1e-5);
+}
+
+#[test]
+fn test_bessel_y0_negative_returns_nan() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Y0(x) is undefined for x <= 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, 0.0], &[2], &device);
+    let result = client.bessel_y0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].is_nan(), "Y0(-1) should be NaN");
+    assert!(data[1].is_nan(), "Y0(0) should be NaN");
+}
+
+#[test]
+fn test_bessel_y1_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 5.0], &[4], &device);
+    let result = client.bessel_y1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // Y1 values from tables
+    let expected = [-0.7812128213, -0.1070324315, 0.3246744248, 0.1478631434];
+    assert_close(&data, &expected, 1e-5);
+}
+
+#[test]
+fn test_bessel_y1_negative_returns_nan() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Y1(x) is undefined for x <= 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, 0.0], &[2], &device);
+    let result = client.bessel_y1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].is_nan(), "Y1(-1) should be NaN");
+    assert!(data[1].is_nan(), "Y1(0) should be NaN");
+}
+
+// ============================================================================
+// Modified Bessel Function Tests - First Kind (I0, I1)
+// ============================================================================
+
+#[test]
+fn test_bessel_i0_at_zero() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // I0(0) = 1
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f64], &[1], &device);
+    let result = client.bessel_i0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(
+        (data[0] - 1.0).abs() < 1e-10,
+        "I0(0) should equal 1, got {}",
+        data[0]
+    );
+}
+
+#[test]
+fn test_bessel_i0_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 5.0], &[4], &device);
+    let result = client.bessel_i0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // I0 values from tables (I0 grows exponentially)
+    let expected = [1.2660658778, 2.2795853023, 4.8807925858, 27.2398718236];
+    assert_close(&data, &expected, 1e-4);
+}
+
+#[test]
+fn test_bessel_i0_even() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // I0 is an even function: I0(-x) = I0(x)
+    let x_pos = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.5, 5.0], &[3], &device);
+    let x_neg = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, -2.5, -5.0], &[3], &device);
+
+    let result_pos = client.bessel_i0(&x_pos).unwrap();
+    let result_neg = client.bessel_i0(&x_neg).unwrap();
+
+    let data_pos: Vec<f64> = result_pos.to_vec();
+    let data_neg: Vec<f64> = result_neg.to_vec();
+
+    assert_close(&data_pos, &data_neg, 1e-10);
+}
+
+#[test]
+fn test_bessel_i0_positive() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // I0(x) > 0 for all x
+    let x = Tensor::<CpuRuntime>::from_slice(&[-5.0f64, -2.0, 0.0, 2.0, 5.0], &[5], &device);
+    let result = client.bessel_i0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    for &val in &data {
+        assert!(val > 0.0, "I0(x) should be positive, got {}", val);
+    }
+}
+
+#[test]
+fn test_bessel_i1_at_zero() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // I1(0) = 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f64], &[1], &device);
+    let result = client.bessel_i1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(
+        data[0].abs() < 1e-10,
+        "I1(0) should equal 0, got {}",
+        data[0]
+    );
+}
+
+#[test]
+fn test_bessel_i1_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 5.0], &[4], &device);
+    let result = client.bessel_i1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // I1 values from tables
+    let expected = [0.5651591040, 1.5906368547, 3.9533702174, 24.3356421088];
+    assert_close(&data, &expected, 1e-4);
+}
+
+#[test]
+fn test_bessel_i1_odd() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // I1 is an odd function: I1(-x) = -I1(x)
+    let x_pos = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.5, 5.0], &[3], &device);
+    let x_neg = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, -2.5, -5.0], &[3], &device);
+
+    let result_pos = client.bessel_i1(&x_pos).unwrap();
+    let result_neg = client.bessel_i1(&x_neg).unwrap();
+
+    let data_pos: Vec<f64> = result_pos.to_vec();
+    let data_neg: Vec<f64> = result_neg.to_vec();
+
+    for i in 0..3 {
+        assert!(
+            (data_pos[i] + data_neg[i]).abs() < 1e-10,
+            "I1(-x) should equal -I1(x)"
+        );
+    }
+}
+
+// ============================================================================
+// Modified Bessel Function Tests - Second Kind (K0, K1)
+// ============================================================================
+
+#[test]
+fn test_bessel_k0_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.5f64, 1.0, 2.0, 3.0], &[4], &device);
+    let result = client.bessel_k0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // K0 values from tables (K0 decays exponentially)
+    let expected = [0.9244190936, 0.4210244382, 0.1138938727, 0.0347395045];
+    assert_close(&data, &expected, 1e-4);
+}
+
+#[test]
+fn test_bessel_k0_negative_returns_nan() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // K0(x) is undefined for x <= 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, 0.0], &[2], &device);
+    let result = client.bessel_k0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].is_nan(), "K0(-1) should be NaN");
+    assert!(data[1].is_nan(), "K0(0) should be NaN");
+}
+
+#[test]
+fn test_bessel_k0_positive() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // K0(x) > 0 for x > 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.1f64, 0.5, 1.0, 2.0, 5.0], &[5], &device);
+    let result = client.bessel_k0(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    for &val in &data {
+        assert!(val > 0.0, "K0(x) should be positive for x > 0, got {}", val);
+    }
+}
+
+#[test]
+fn test_bessel_k1_small_args() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.5f64, 1.0, 2.0, 3.0], &[4], &device);
+    let result = client.bessel_k1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    // K1 values from tables
+    let expected = [1.6564411200, 0.6019072302, 0.1398658818, 0.0401564199];
+    assert_close(&data, &expected, 1e-4);
+}
+
+#[test]
+fn test_bessel_k1_negative_returns_nan() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // K1(x) is undefined for x <= 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[-1.0f64, 0.0], &[2], &device);
+    let result = client.bessel_k1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].is_nan(), "K1(-1) should be NaN");
+    assert!(data[1].is_nan(), "K1(0) should be NaN");
+}
+
+#[test]
+fn test_bessel_k1_positive() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // K1(x) > 0 for x > 0
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.1f64, 0.5, 1.0, 2.0, 5.0], &[5], &device);
+    let result = client.bessel_k1(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    for &val in &data {
+        assert!(val > 0.0, "K1(x) should be positive for x > 0, got {}", val);
+    }
+}
+
+// ============================================================================
+// Bessel Function F32 Tests
+// ============================================================================
+
+#[test]
+fn test_bessel_j0_f32() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 1.0, 2.0, 5.0], &[4], &device);
+    let result = client.bessel_j0(&x).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Lower precision for F32
+    let expected = [1.0f32, 0.7652, 0.2239, -0.1776];
+    for (a, e) in data.iter().zip(expected.iter()) {
+        assert!((a - e).abs() < 1e-3, "F32 J0 mismatch: {} vs {}", a, e);
+    }
+}
+
+#[test]
+fn test_bessel_i0_f32() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    let x = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 1.0, 2.0, 3.0], &[4], &device);
+    let result = client.bessel_i0(&x).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    let expected = [1.0f32, 1.266, 2.280, 4.881];
+    for (a, e) in data.iter().zip(expected.iter()) {
+        assert!((a - e).abs() < 1e-2, "F32 I0 mismatch: {} vs {}", a, e);
+    }
+}

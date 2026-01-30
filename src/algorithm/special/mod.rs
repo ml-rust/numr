@@ -24,6 +24,12 @@
 //! - [`gammainc`] - Lower regularized incomplete gamma P(a,x)
 //! - [`gammaincc`] - Upper regularized incomplete gamma Q(a,x) = 1 - P(a,x)
 //!
+//! ## Bessel Functions
+//! - [`bessel_j0`], [`bessel_j1`] - First kind J₀, J₁
+//! - [`bessel_y0`], [`bessel_y1`] - Second kind Y₀, Y₁
+//! - [`bessel_i0`], [`bessel_i1`] - Modified first kind I₀, I₁
+//! - [`bessel_k0`], [`bessel_k1`] - Modified second kind K₀, K₁
+//!
 //! # Algorithm Sources
 //!
 //! Implementations follow well-established numerical algorithms:
@@ -31,6 +37,9 @@
 //! - Lanczos approximation for gamma/lgamma
 //! - Continued fraction expansion for incomplete gamma/beta
 //! - Newton-Raphson iteration for inverse functions
+//! - Numerical Recipes polynomial approximations for Bessel functions
+
+pub mod bessel_coefficients;
 
 use crate::error::Result;
 use crate::runtime::Runtime;
@@ -68,15 +77,6 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - erf(0) = 0
     /// - erf(∞) = 1, erf(-∞) = -1
     /// - erf(-x) = -erf(x) (odd function)
-    ///
-    /// # Algorithm
-    ///
-    /// Uses Cody's rational approximation with different polynomials for:
-    /// - |x| ≤ 0.5: Taylor series based
-    /// - 0.5 < |x| ≤ 4: Rational approximation
-    /// - |x| > 4: Asymptotic expansion
-    ///
-    /// Accuracy: ~15 digits for F64, ~7 digits for F32.
     fn erf(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the complementary error function element-wise.
@@ -85,16 +85,8 @@ pub trait SpecialFunctions<R: Runtime> {
     /// erfc(x) = 1 - erf(x) = (2/√π) ∫ₓ^∞ e^(-t²) dt
     /// ```
     ///
-    /// # Why erfc Instead of 1 - erf?
-    ///
     /// For large x, erf(x) ≈ 1 and computing 1 - erf(x) loses precision.
     /// erfc(x) computes the small tail directly, maintaining accuracy.
-    ///
-    /// # Properties
-    /// - Domain: all real numbers
-    /// - Range: (0, 2)
-    /// - erfc(0) = 1
-    /// - erfc(∞) = 0, erfc(-∞) = 2
     fn erfc(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the inverse error function element-wise.
@@ -105,12 +97,6 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Domain: (-1, 1)
     /// - Range: all real numbers
     /// - erfinv(0) = 0
-    /// - erfinv(erf(x)) = x
-    ///
-    /// # Algorithm
-    ///
-    /// Uses rational approximation for the central region and
-    /// asymptotic expansion for tails, refined by Newton-Raphson.
     fn erfinv(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ========================================================================
@@ -126,13 +112,7 @@ pub trait SpecialFunctions<R: Runtime> {
     /// # Properties
     /// - Γ(n) = (n-1)! for positive integers
     /// - Γ(1) = 1, Γ(1/2) = √π
-    /// - Γ(x+1) = x·Γ(x)
     /// - Has poles at non-positive integers (returns NaN/Inf)
-    ///
-    /// # Algorithm
-    ///
-    /// Uses Lanczos approximation with g=7 coefficients for the
-    /// reflection formula to handle negative arguments.
     fn gamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the log-gamma function element-wise.
@@ -141,15 +121,8 @@ pub trait SpecialFunctions<R: Runtime> {
     /// lgamma(x) = ln(|Γ(x)|)
     /// ```
     ///
-    /// # Why lgamma Instead of log(gamma)?
-    ///
     /// Γ(x) grows extremely fast (Γ(171) overflows F64).
     /// lgamma computes the logarithm directly without overflow.
-    ///
-    /// # Properties
-    /// - lgamma(1) = lgamma(2) = 0
-    /// - lgamma(n) = ln((n-1)!) for positive integers
-    /// - Always returns real values (uses |Γ(x)|)
     fn lgamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the digamma (psi) function element-wise.
@@ -157,15 +130,6 @@ pub trait SpecialFunctions<R: Runtime> {
     /// ```text
     /// ψ(x) = d/dx ln(Γ(x)) = Γ'(x)/Γ(x)
     /// ```
-    ///
-    /// # Properties
-    /// - ψ(1) = -γ (negative Euler-Mascheroni constant ≈ -0.5772)
-    /// - ψ(n+1) = ψ(n) + 1/n
-    /// - ψ(x+1) = ψ(x) + 1/x
-    ///
-    /// # Use Cases
-    /// - Maximum likelihood estimation for gamma distribution
-    /// - Computing Fisher information
     fn digamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ========================================================================
@@ -175,17 +139,8 @@ pub trait SpecialFunctions<R: Runtime> {
     /// Compute the beta function element-wise.
     ///
     /// ```text
-    /// B(a, b) = Γ(a)Γ(b)/Γ(a+b) = ∫₀¹ t^(a-1)(1-t)^(b-1) dt
+    /// B(a, b) = Γ(a)Γ(b)/Γ(a+b)
     /// ```
-    ///
-    /// # Arguments
-    /// - `a`: First shape parameter (positive)
-    /// - `b`: Second shape parameter (positive)
-    ///
-    /// # Properties
-    /// - B(a,b) = B(b,a) (symmetric)
-    /// - B(1,1) = 1
-    /// - B(a,b) = (a-1)!(b-1)!/(a+b-1)! for positive integers
     fn beta(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the regularized incomplete beta function element-wise.
@@ -193,21 +148,6 @@ pub trait SpecialFunctions<R: Runtime> {
     /// ```text
     /// I_x(a,b) = B(x;a,b)/B(a,b) = (1/B(a,b)) ∫₀ˣ t^(a-1)(1-t)^(b-1) dt
     /// ```
-    ///
-    /// # Arguments
-    /// - `a`: First shape parameter (positive)
-    /// - `b`: Second shape parameter (positive)
-    /// - `x`: Upper limit of integration, must be in [0, 1]
-    ///
-    /// # Properties
-    /// - I_0(a,b) = 0, I_1(a,b) = 1
-    /// - I_x(a,b) = 1 - I_{1-x}(b,a)
-    /// - This is the CDF of the beta distribution
-    ///
-    /// # Algorithm
-    ///
-    /// Uses continued fraction expansion (Lentz's method) with
-    /// appropriate transformations for numerical stability.
     fn betainc(&self, a: &Tensor<R>, b: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ========================================================================
@@ -219,32 +159,58 @@ pub trait SpecialFunctions<R: Runtime> {
     /// ```text
     /// P(a, x) = γ(a,x)/Γ(a) = (1/Γ(a)) ∫₀ˣ t^(a-1) e^(-t) dt
     /// ```
-    ///
-    /// # Arguments
-    /// - `a`: Shape parameter (positive)
-    /// - `x`: Upper limit of integration (non-negative)
-    ///
-    /// # Properties
-    /// - P(a, 0) = 0, P(a, ∞) = 1
-    /// - This is the CDF of the gamma distribution
-    /// - Related to chi-squared CDF: P(k/2, x/2)
-    ///
-    /// # Algorithm
-    ///
-    /// Uses series expansion for x < a+1, continued fraction otherwise.
     fn gammainc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Compute the upper regularized incomplete gamma function.
     ///
     /// ```text
-    /// Q(a, x) = Γ(a,x)/Γ(a) = 1 - P(a, x) = (1/Γ(a)) ∫ₓ^∞ t^(a-1) e^(-t) dt
+    /// Q(a, x) = 1 - P(a, x)
     /// ```
-    ///
-    /// # Why gammaincc Instead of 1 - gammainc?
-    ///
-    /// For large x, P(a,x) ≈ 1 and computing 1 - P loses precision.
-    /// Q(a,x) computes the tail directly for numerical stability.
     fn gammaincc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Bessel Functions
+    // ========================================================================
+
+    /// Compute Bessel function of the first kind, order 0.
+    ///
+    /// J₀(0) = 1, even function, oscillates with decreasing amplitude.
+    fn bessel_j0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute Bessel function of the first kind, order 1.
+    ///
+    /// J₁(0) = 0, odd function, oscillates with decreasing amplitude.
+    fn bessel_j1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute Bessel function of the second kind, order 0 (Neumann function).
+    ///
+    /// Y₀(x) → -∞ as x → 0⁺. Domain: x > 0.
+    fn bessel_y0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute Bessel function of the second kind, order 1 (Neumann function).
+    ///
+    /// Y₁(x) → -∞ as x → 0⁺. Domain: x > 0.
+    fn bessel_y1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute modified Bessel function of the first kind, order 0.
+    ///
+    /// I₀(0) = 1, even function, grows exponentially.
+    fn bessel_i0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute modified Bessel function of the first kind, order 1.
+    ///
+    /// I₁(0) = 0, odd function, grows exponentially.
+    fn bessel_i1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute modified Bessel function of the second kind, order 0.
+    ///
+    /// K₀(x) → ∞ as x → 0⁺. Domain: x > 0. Decays exponentially.
+    fn bessel_k0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute modified Bessel function of the second kind, order 1.
+    ///
+    /// K₁(x) → ∞ as x → 0⁺. Domain: x > 0. Decays exponentially.
+    fn bessel_k1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 }
 
 // ============================================================================
@@ -252,8 +218,6 @@ pub trait SpecialFunctions<R: Runtime> {
 // ============================================================================
 
 /// Validate that dtype is suitable for special functions.
-///
-/// Special functions require floating-point types for accurate computation.
 pub fn validate_special_dtype(dtype: crate::dtype::DType) -> Result<()> {
     use crate::dtype::DType;
     use crate::error::Error;
@@ -288,9 +252,6 @@ pub const LN_SQRT_2PI: f64 = 0.9189385332046727417803297364056176398614;
 // ============================================================================
 
 /// Lanczos approximation coefficients (g=7, n=9).
-///
-/// These coefficients provide ~15 digits of precision for the gamma function.
-/// Source: Numerical Recipes, 3rd Edition.
 pub const LANCZOS_G: f64 = 7.0;
 
 /// Lanczos coefficients for g=7.
