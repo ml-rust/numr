@@ -464,9 +464,7 @@ pub fn invert_matrix_f64(a: &[f64], n: usize, eps: f64) -> Option<Vec<f64>> {
         if max_row != k {
             perm.swap(k, max_row);
             for j in 0..n {
-                let tmp = lu[k * n + j];
-                lu[k * n + j] = lu[max_row * n + j];
-                lu[max_row * n + j] = tmp;
+                lu.swap(k * n + j, max_row * n + j);
             }
         }
 

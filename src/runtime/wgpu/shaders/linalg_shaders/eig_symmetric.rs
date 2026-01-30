@@ -3,6 +3,7 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Symmetric eigendecomposition shader: eig_jacobi_symmetric
+#[allow(dead_code)]
 pub const EIG_SYMMETRIC_SHADER: &str = r#"
 // ============================================================================
 // Eigendecomposition for Symmetric Matrices (Jacobi Algorithm)

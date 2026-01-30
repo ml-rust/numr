@@ -3,6 +3,7 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Triangular solvers shader: forward_sub, backward_sub
+#[allow(dead_code)]
 pub const SOLVERS_SHADER: &str = r#"
 // ============================================================================
 // Forward Substitution - Solve Lx = b

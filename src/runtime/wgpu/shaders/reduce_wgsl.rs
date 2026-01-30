@@ -662,6 +662,7 @@ fn argmin_{suffix}(@builtin(global_invocation_id) global_id: vec3<u32>,
 }
 
 /// Generate F32-only mean and softmax shader (float-specific operations)
+#[allow(dead_code)]
 pub fn generate_float_reduce_shader() -> &'static str {
     r#"
 // ============================================================================
@@ -811,12 +812,14 @@ fn softmax_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 }
 
 /// Get the entry point name for a reduce operation and dtype
+#[allow(dead_code)]
 pub fn get_entry_point(op: &str, dtype: DType) -> String {
     let suffix = dtype_suffix(dtype);
     format!("{}_{}", op, suffix)
 }
 
 /// Get the full reduce entry point name
+#[allow(dead_code)]
 pub fn get_full_reduce_entry_point(op: &str, dtype: DType) -> String {
     let suffix = dtype_suffix(dtype);
     format!("full_reduce_{}_{}", op, suffix)

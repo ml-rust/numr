@@ -3,6 +3,7 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Basic operations shader: trace, diag, diagflat, identity
+#[allow(dead_code)]
 pub const BASIC_OPS_SHADER: &str = r#"
 // ============================================================================
 // Workgroup Configuration

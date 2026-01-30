@@ -3,6 +3,7 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// General eigendecomposition shader: eig_general
+#[allow(dead_code)]
 pub const EIG_GENERAL_SHADER: &str = r#"
 // ============================================================================
 // General Eigenvalue Decomposition - for non-symmetric matrices

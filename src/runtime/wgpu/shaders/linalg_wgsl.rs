@@ -1,62 +1,25 @@
 //! WGSL shader source code for linear algebra operations
 //!
-//! This module re-exports shader constants from the split `linalg/` submodule.
-//! The actual shader source is split across multiple files for maintainability
-//! while staying within the 500-line limit per file.
+//! This module provides the combined linear algebra shader used by all linalg operations.
+//! The shader source is maintained in `linalg_combined.wgsl` which contains all operations:
 //!
-//! # Architecture
+//! - Basic ops: trace, diagonal, identity
+//! - Solvers: forward/backward substitution
+//! - Decompositions: LU, Cholesky, QR
+//! - Utilities: determinant, permutation, column operations
+//! - SVD: Singular value decomposition (Jacobi)
+//! - Eigendecomposition: Symmetric and general cases
+//! - Schur decomposition
+//! - Matrix functions: expm, sqrtm, logm
 //!
-//! Each operation category has its own shader module with a `*_SHADER` constant.
-//! These can be used independently or combined via `LINALG_SHADER` for backward
-//! compatibility with existing launcher code.
+//! # Future Work
 //!
-//! # Module Organization
-//!
-//! - `linalg/basic_ops.rs` - Trace, diagonal, identity (BASIC_OPS_SHADER)
-//! - `linalg/solvers.rs` - Forward/backward substitution (SOLVERS_SHADER)
-//! - `linalg/decompositions.rs` - LU, Cholesky, QR (DECOMPOSITIONS_SHADER)
-//! - `linalg/utilities.rs` - Det, permutation, column ops (UTILITIES_SHADER)
-//! - `linalg/svd.rs` - SVD Jacobi algorithm (SVD_SHADER)
-//! - `linalg/eig_symmetric.rs` - Symmetric eigendecomposition (EIG_SYMMETRIC_SHADER)
-//! - `linalg/schur.rs` - Schur decomposition (SCHUR_SHADER)
-//! - `linalg/eig_general.rs` - General eigendecomposition (EIG_GENERAL_SHADER)
-//! - `linalg/matrix_functions.rs` - expm, sqrtm, logm (MATRIX_FUNCTIONS_SHADER)
+//! Individual shader modules exist in `linalg_shaders/` for potential fine-grained
+//! compilation, but are not currently used. This could reduce shader compilation time
+//! for specialized applications that only need specific operations.
 
-// Re-export individual shader modules for fine-grained use
-pub use super::linalg_shaders::{
-    BASIC_OPS_SHADER, DECOMPOSITIONS_SHADER, EIG_GENERAL_SHADER, EIG_SYMMETRIC_SHADER,
-    MATRIX_FUNCTIONS_SHADER, SCHUR_SHADER, SOLVERS_SHADER, SVD_SHADER, UTILITIES_SHADER,
-};
-
-/// Combined linear algebra shader for backward compatibility.
+/// Combined linear algebra shader containing all operations.
 ///
-/// This is a runtime-concatenated version of all shader modules.
-/// For new code, consider using individual shader modules for
-/// finer-grained pipeline management and smaller shader compilation.
-///
-/// Note: This constant is lazily initialized on first use.
-pub fn get_combined_linalg_shader() -> String {
-    format!(
-        "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-        BASIC_OPS_SHADER,
-        SOLVERS_SHADER,
-        DECOMPOSITIONS_SHADER,
-        UTILITIES_SHADER,
-        SVD_SHADER,
-        EIG_SYMMETRIC_SHADER,
-        SCHUR_SHADER,
-        EIG_GENERAL_SHADER,
-        MATRIX_FUNCTIONS_SHADER,
-    )
-}
-
-// For backward compatibility with existing code that expects LINALG_SHADER as &str,
-// we provide it via lazy_static or use the original combined shader.
-// Since we can't use lazy_static without adding dependencies, the launcher
-// should be updated to call get_combined_linalg_shader() instead.
-
-/// Legacy combined shader constant.
-///
-/// **Deprecated**: Use `get_combined_linalg_shader()` or individual shader modules.
-/// This constant is kept for backward compatibility but will be removed in v1.0.
+/// This shader is used by all linear algebra launchers and includes all operations
+/// from basic matrix ops to advanced decompositions.
 pub const LINALG_SHADER: &str = include_str!("linalg_combined.wgsl");

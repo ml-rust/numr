@@ -3,6 +3,7 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// SVD shader: svd_jacobi
+#[allow(dead_code)]
 pub const SVD_SHADER: &str = r#"
 // ============================================================================
 // SVD Decomposition (One-Sided Jacobi Algorithm)

@@ -14,10 +14,10 @@
 //! - `generator` - WGSL shader source generation per dtype
 //! - `pipeline` - Pipeline caching and dispatch utilities
 //! - `typed_kernels` - TypedKernel<T> implementations for compile-time dtype enforcement
-//! - `elementwise` - Legacy element-wise operation launchers (deprecated)
-//! - `reduce` - Legacy reduction operation launchers (deprecated)
-//! - `matmul` - Legacy matrix multiplication launchers (deprecated)
-//! - `norm` - Legacy normalization operation launchers (deprecated)
+//! - `elementwise` - Element-wise operation launchers
+//! - `reduce` - Reduction operation launchers
+//! - `matmul` - Matrix multiplication launchers
+//! - `norm` - Normalization operation launchers
 //! - `linalg` - Linear algebra kernel launchers
 //! - `copy` - Copy operation shaders (strided to contiguous)
 
@@ -36,7 +36,7 @@ pub mod special;
 pub mod statistics;
 pub mod typed_kernels;
 
-// Legacy modules (to be replaced by typed_kernels)
+// Operation launchers
 pub mod elementwise;
 pub mod matmul;
 pub mod norm;

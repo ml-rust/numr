@@ -34,26 +34,28 @@ pub mod solvers;
 pub mod svd;
 pub mod utilities;
 
-// Re-export all shader constants for convenient access.
-// These are marked allow(dead_code) because the current launcher implementation
-// uses the combined LINALG_SHADER for simplicity. Individual constants are exported
-// for future fine-grained shader compilation and for external crate consumers who
-// may want to compile only specific operations.
-#[allow(dead_code)]
+// Individual shader constants for potential future fine-grained compilation.
+// Currently unused - all launchers use the combined LINALG_SHADER for simplicity.
+// Exported as public API for potential future optimization where applications
+// could compile only the shaders they need, reducing compilation time and memory.
+//
+// TODO: Consider implementing fine-grained shader compilation to use these
+// individual modules instead of the monolithic combined shader.
+#[allow(unused_imports)]
 pub use basic_ops::BASIC_OPS_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use decompositions::DECOMPOSITIONS_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use eig_general::EIG_GENERAL_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use eig_symmetric::EIG_SYMMETRIC_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use matrix_functions::MATRIX_FUNCTIONS_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use schur::SCHUR_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use solvers::SOLVERS_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use svd::SVD_SHADER;
-#[allow(dead_code)]
+#[allow(unused_imports)]
 pub use utilities::UTILITIES_SHADER;
