@@ -20,7 +20,10 @@ mod utilities;
 // Re-export all launcher functions
 pub use basic_ops::{launch_create_identity, launch_diag, launch_diagflat, launch_trace};
 pub use decompositions::{launch_cholesky_decompose, launch_lu_decompose, launch_qr_decompose};
-pub use eig::{launch_eig_general, launch_eig_jacobi_symmetric, launch_schur_decompose};
+pub use eig::{
+    launch_eig_general, launch_eig_jacobi_symmetric, launch_qz_decompose, launch_rsf2csf,
+    launch_schur_decompose,
+};
 pub use matrix_functions::{
     launch_exp_quasi_triangular, launch_log_quasi_triangular, launch_sqrt_quasi_triangular,
 };

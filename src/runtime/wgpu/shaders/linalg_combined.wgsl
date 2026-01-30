@@ -1616,12 +1616,17 @@ fn sqrt_quasi_triangular_f32(@builtin(global_invocation_id) global_id: vec3<u32>
 // Matrix Logarithm - log(T) using inverse scaling and squaring
 // ============================================================================
 
+struct LogmParams {
+    n: u32,
+    max_iter: u32,
+}
+
 @group(0) @binding(0) var<storage, read_write> logm_input: array<f32>;
 @group(0) @binding(1) var<storage, read_write> logm_work: array<f32>;
 @group(0) @binding(2) var<storage, read_write> logm_result: array<f32>;
 @group(0) @binding(3) var<storage, read_write> logm_temp: array<f32>;
 @group(0) @binding(4) var<storage, read_write> logm_xpower: array<f32>;
-@group(0) @binding(5) var<uniform> logm_params: MatfunParams;
+@group(0) @binding(5) var<uniform> logm_params: LogmParams;
 
 @compute @workgroup_size(1)
 fn log_quasi_triangular_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -1759,6 +1764,630 @@ fn log_quasi_triangular_f32(@builtin(global_invocation_id) global_id: vec3<u32>)
     let scale = f32(1u << k);
     for (var i: u32 = 0u; i < n * n; i = i + 1u) {
         logm_result[i] = logm_result[i] * scale;
+    }
+}
+
+// ============================================================================
+// Advanced Decompositions (rsf2csf, QZ, polar)
+// ============================================================================
+// ============================================================================
+// rsf2csf - Convert Real Schur Form to Complex Schur Form
+// For 2x2 block [a,b;c,d] with complex eigenvalues λ = μ ± iω,
+// constructs unitary transformation using eigenvector-based approach.
+// ============================================================================
+
+struct Rsf2csfParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> rsf2csf_t_real: array<f32>;
+@group(0) @binding(1) var<storage, read_write> rsf2csf_t_imag: array<f32>;
+@group(0) @binding(2) var<storage, read_write> rsf2csf_z_real: array<f32>;
+@group(0) @binding(3) var<storage, read_write> rsf2csf_z_imag: array<f32>;
+@group(0) @binding(4) var<uniform> rsf2csf_params: Rsf2csfParams;
+
+@compute @workgroup_size(1)
+fn rsf2csf_f32() {
+    let n = rsf2csf_params.n;
+    let eps: f32 = 1.1920929e-7;
+
+    // Process 2x2 blocks on diagonal that represent complex conjugate eigenvalues
+    var i: u32 = 0u;
+    while (i < n) {
+        // Check if we have a 2x2 block (non-zero subdiagonal)
+        if (i + 1u < n && abs(rsf2csf_t_real[(i + 1u) * n + i]) > eps) {
+            // 2x2 block: [a, b; c, d]
+            let a = rsf2csf_t_real[i * n + i];
+            let b = rsf2csf_t_real[i * n + (i + 1u)];
+            let c = rsf2csf_t_real[(i + 1u) * n + i];
+            let d = rsf2csf_t_real[(i + 1u) * n + (i + 1u)];
+
+            // Eigenvalues: λ = μ ± iω
+            let mu = (a + d) / 2.0;
+            // disc = (a-d)²/4 + bc, omega² = -disc for complex eigenvalues
+            let disc = (a - d) * (a - d) / 4.0 + b * c;
+            let omega = select(0.0, sqrt(-disc), disc < 0.0);
+
+            if (omega > eps) {
+                // Eigenvector for λ = μ + iω is [b, (μ-a) + iω] (unnormalized)
+                let v_re_0 = b;
+                let v_re_1 = mu - a;
+                let v_im_1 = omega;
+
+                // Normalize eigenvector
+                let v_norm_sq = v_re_0 * v_re_0 + v_re_1 * v_re_1 + v_im_1 * v_im_1;
+                let v_norm = sqrt(v_norm_sq);
+
+                if (v_norm > eps) {
+                    let u0_re = v_re_0 / v_norm;
+                    let u1_re = v_re_1 / v_norm;
+                    let u1_im = v_im_1 / v_norm;
+
+                    // Compute T[i,i+1] after transformation
+                    let t12_new = abs(b * (u0_re * u0_re - u1_re * u1_re - u1_im * u1_im)
+                        + (a - d) * u0_re * u1_re
+                        + 2.0 * u0_re * u1_im * omega);
+
+                    // Set the transformed 2×2 block
+                    rsf2csf_t_real[i * n + i] = mu;
+                    rsf2csf_t_imag[i * n + i] = omega;
+                    rsf2csf_t_real[(i + 1u) * n + (i + 1u)] = mu;
+                    rsf2csf_t_imag[(i + 1u) * n + (i + 1u)] = -omega;
+                    rsf2csf_t_real[i * n + (i + 1u)] = t12_new;
+                    rsf2csf_t_imag[i * n + (i + 1u)] = 0.0;
+                    rsf2csf_t_real[(i + 1u) * n + i] = 0.0;
+                    rsf2csf_t_imag[(i + 1u) * n + i] = 0.0;
+
+                    // Apply transformation to Z: Z_new = Z * Q
+                    // Q = [u0_re, u0_re; u1, conj(u1)]
+                    for (var k: u32 = 0u; k < n; k = k + 1u) {
+                        let z1_r = rsf2csf_z_real[k * n + i];
+                        let z2_r = rsf2csf_z_real[k * n + (i + 1u)];
+                        let z1_i = rsf2csf_z_imag[k * n + i];
+                        let z2_i = rsf2csf_z_imag[k * n + (i + 1u)];
+
+                        // Column 1: z1 * u0_re + z2 * u1
+                        rsf2csf_z_real[k * n + i] = z1_r * u0_re + z2_r * u1_re - z2_i * u1_im;
+                        rsf2csf_z_imag[k * n + i] = z1_i * u0_re + z2_i * u1_re + z2_r * u1_im;
+
+                        // Column 2: z1 * u0_re + z2 * conj(u1)
+                        rsf2csf_z_real[k * n + (i + 1u)] = z1_r * u0_re + z2_r * u1_re + z2_i * u1_im;
+                        rsf2csf_z_imag[k * n + (i + 1u)] = z1_i * u0_re + z2_i * u1_re - z2_r * u1_im;
+                    }
+
+                    // Transform T entries above the 2×2 block
+                    for (var row: u32 = 0u; row < i; row = row + 1u) {
+                        let t1_re = rsf2csf_t_real[row * n + i];
+                        let t2_re = rsf2csf_t_real[row * n + (i + 1u)];
+                        let t1_im = rsf2csf_t_imag[row * n + i];
+                        let t2_im = rsf2csf_t_imag[row * n + (i + 1u)];
+
+                        rsf2csf_t_real[row * n + i] = t1_re * u0_re + t2_re * u1_re - t2_im * u1_im;
+                        rsf2csf_t_imag[row * n + i] = t1_im * u0_re + t2_im * u1_re + t2_re * u1_im;
+                        rsf2csf_t_real[row * n + (i + 1u)] = t1_re * u0_re + t2_re * u1_re + t2_im * u1_im;
+                        rsf2csf_t_imag[row * n + (i + 1u)] = t1_im * u0_re + t2_im * u1_re - t2_re * u1_im;
+                    }
+                } else {
+                    // Degenerate case
+                    rsf2csf_t_real[i * n + i] = mu;
+                    rsf2csf_t_imag[i * n + i] = omega;
+                    rsf2csf_t_real[(i + 1u) * n + (i + 1u)] = mu;
+                    rsf2csf_t_imag[(i + 1u) * n + (i + 1u)] = -omega;
+                    rsf2csf_t_real[(i + 1u) * n + i] = 0.0;
+                    rsf2csf_t_imag[(i + 1u) * n + i] = 0.0;
+                }
+            } else {
+                // Real eigenvalues - set imaginary parts to zero
+                rsf2csf_t_imag[i * n + i] = 0.0;
+                rsf2csf_t_imag[(i + 1u) * n + (i + 1u)] = 0.0;
+                rsf2csf_t_imag[i * n + (i + 1u)] = 0.0;
+                rsf2csf_t_imag[(i + 1u) * n + i] = 0.0;
+            }
+            i = i + 2u;
+        } else {
+            // 1x1 block - real eigenvalue
+            rsf2csf_t_imag[i * n + i] = 0.0;
+            i = i + 1u;
+        }
+    }
+
+    // Zero imaginary parts for strict lower triangle and off-diagonal upper
+    for (var col: u32 = 0u; col < n; col = col + 1u) {
+        for (var row: u32 = col + 1u; row < n; row = row + 1u) {
+            rsf2csf_t_real[row * n + col] = 0.0;
+            rsf2csf_t_imag[row * n + col] = 0.0;
+        }
+    }
+}
+
+// ============================================================================
+// QZ Decomposition - Generalized Schur decomposition for (A, B) pencil
+// Returns Q, Z, S, T such that Q^T @ A @ Z = S (quasi-triangular)
+//                            and Q^T @ B @ Z = T (upper triangular)
+// ============================================================================
+
+struct QzParams {
+    n: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> qz_s: array<f32>;
+@group(0) @binding(1) var<storage, read_write> qz_t: array<f32>;
+@group(0) @binding(2) var<storage, read_write> qz_q: array<f32>;
+@group(0) @binding(3) var<storage, read_write> qz_z: array<f32>;
+@group(0) @binding(4) var<storage, read_write> qz_eval_real: array<f32>;
+@group(0) @binding(5) var<storage, read_write> qz_eval_imag: array<f32>;
+@group(0) @binding(6) var<storage, read_write> qz_converged: atomic<i32>;
+@group(0) @binding(7) var<uniform> qz_params: QzParams;
+
+@compute @workgroup_size(1)
+fn qz_decompose_f32() {
+    let n = qz_params.n;
+    let eps: f32 = 1.1920929e-7;
+    let max_iter: u32 = 30u * n;
+
+    // Initialize Q and Z to identity
+    for (var i: u32 = 0u; i < n; i = i + 1u) {
+        for (var j: u32 = 0u; j < n; j = j + 1u) {
+            if (i == j) {
+                qz_q[i * n + j] = 1.0;
+                qz_z[i * n + j] = 1.0;
+            } else {
+                qz_q[i * n + j] = 0.0;
+                qz_z[i * n + j] = 0.0;
+            }
+        }
+    }
+
+    // Step 1: Reduce (S, T) to Hessenberg-triangular form
+    // First, reduce T to upper triangular using Givens rotations from left
+    for (var col: u32 = 0u; col < n; col = col + 1u) {
+        for (var row: u32 = n - 1u; row > col; row = row - 1u) {
+            let a = qz_t[(row - 1u) * n + col];
+            let b = qz_t[row * n + col];
+            if (abs(b) < eps) { continue; }
+
+            let r = sqrt(a * a + b * b);
+            let c = a / r;
+            let s = b / r;
+
+            // Apply to T from left
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                let t1 = qz_t[(row - 1u) * n + k];
+                let t2 = qz_t[row * n + k];
+                qz_t[(row - 1u) * n + k] = c * t1 + s * t2;
+                qz_t[row * n + k] = -s * t1 + c * t2;
+            }
+            qz_t[row * n + col] = 0.0;
+
+            // Apply to S from left
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                let s1 = qz_s[(row - 1u) * n + k];
+                let s2 = qz_s[row * n + k];
+                qz_s[(row - 1u) * n + k] = c * s1 + s * s2;
+                qz_s[row * n + k] = -s * s1 + c * s2;
+            }
+
+            // Accumulate in Q (Q = G^T @ Q, so Q = Q @ G for Q^T)
+            for (var k: u32 = 0u; k < n; k = k + 1u) {
+                let q1 = qz_q[k * n + (row - 1u)];
+                let q2 = qz_q[k * n + row];
+                qz_q[k * n + (row - 1u)] = c * q1 + s * q2;
+                qz_q[k * n + row] = -s * q1 + c * q2;
+            }
+        }
+    }
+
+    // Now reduce S to Hessenberg form using Givens from right
+    if (n > 2u) {
+        for (var col: u32 = 0u; col < n - 2u; col = col + 1u) {
+            for (var row: u32 = n - 1u; row > col + 1u; row = row - 1u) {
+                let a = qz_s[row * n + (row - 1u)];
+                let b = qz_s[row * n + col];
+                if (abs(b) < eps) { continue; }
+
+                let r = sqrt(a * a + b * b);
+                let c = a / r;
+                let s = -b / r;
+
+                // Apply to S from right
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    let s1 = qz_s[k * n + (row - 1u)];
+                    let s2 = qz_s[k * n + col];
+                    qz_s[k * n + (row - 1u)] = c * s1 - s * s2;
+                    qz_s[k * n + col] = s * s1 + c * s2;
+                }
+
+                // Apply to T from right
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    let t1 = qz_t[k * n + (row - 1u)];
+                    let t2 = qz_t[k * n + col];
+                    qz_t[k * n + (row - 1u)] = c * t1 - s * t2;
+                    qz_t[k * n + col] = s * t1 + c * t2;
+                }
+
+                // Accumulate in Z
+                for (var k: u32 = 0u; k < n; k = k + 1u) {
+                    let z1 = qz_z[k * n + (row - 1u)];
+                    let z2 = qz_z[k * n + col];
+                    qz_z[k * n + (row - 1u)] = c * z1 - s * z2;
+                    qz_z[k * n + col] = s * z1 + c * z2;
+                }
+
+                // Restore T to triangular
+                if (row < n) {
+                    for (var restore_row: u32 = row; restore_row < n; restore_row = restore_row + 1u) {
+                        let ta = qz_t[(restore_row - 1u) * n + (row - 1u)];
+                        let tb = qz_t[restore_row * n + (row - 1u)];
+                        if (abs(tb) < eps) { continue; }
+                        let tr = sqrt(ta * ta + tb * tb);
+                        let tc = ta / tr;
+                        let ts = tb / tr;
+
+                        for (var k: u32 = 0u; k < n; k = k + 1u) {
+                            let t1 = qz_t[(restore_row - 1u) * n + k];
+                            let t2 = qz_t[restore_row * n + k];
+                            qz_t[(restore_row - 1u) * n + k] = tc * t1 + ts * t2;
+                            qz_t[restore_row * n + k] = -ts * t1 + tc * t2;
+                        }
+                        qz_t[restore_row * n + (row - 1u)] = 0.0;
+
+                        for (var k: u32 = 0u; k < n; k = k + 1u) {
+                            let s1 = qz_s[(restore_row - 1u) * n + k];
+                            let s2 = qz_s[restore_row * n + k];
+                            qz_s[(restore_row - 1u) * n + k] = tc * s1 + ts * s2;
+                            qz_s[restore_row * n + k] = -ts * s1 + tc * s2;
+                        }
+
+                        for (var k: u32 = 0u; k < n; k = k + 1u) {
+                            let q1 = qz_q[k * n + (restore_row - 1u)];
+                            let q2 = qz_q[k * n + restore_row];
+                            qz_q[k * n + (restore_row - 1u)] = tc * q1 + ts * q2;
+                            qz_q[k * n + restore_row] = -ts * q1 + tc * q2;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 2: Double-shift QZ iteration (Francis's implicit algorithm)
+    // Uses implicit double shift for real arithmetic on complex eigenvalue pairs
+    var converged: bool = false;
+    var ihi: u32 = n;
+
+    for (var iter: u32 = 0u; iter < max_iter; iter = iter + 1u) {
+        // Deflation: check for converged eigenvalues at the bottom
+        while (ihi > 1u) {
+            let ii = ihi - 1u;
+            let h_ii = abs(qz_s[(ii - 1u) * n + (ii - 1u)]);
+            let h_ip1 = abs(qz_s[ii * n + ii]);
+            let threshold = eps * max(h_ii + h_ip1, 1.0);
+
+            if (abs(qz_s[ii * n + (ii - 1u)]) <= threshold) {
+                qz_s[ii * n + (ii - 1u)] = 0.0;
+                ihi = ihi - 1u;
+            } else {
+                break;
+            }
+        }
+
+        if (ihi <= 1u) { converged = true; break; }
+
+        // Find ilo: start of active unreduced block
+        var ilo: u32 = 0u;
+        for (var ii: u32 = ihi - 1u; ii >= 1u; ii = ii - 1u) {
+            let h_ii = abs(qz_s[(ii - 1u) * n + (ii - 1u)]);
+            let h_ip1 = abs(qz_s[ii * n + ii]);
+            let threshold = eps * max(h_ii + h_ip1, 1.0);
+
+            if (abs(qz_s[ii * n + (ii - 1u)]) <= threshold) {
+                qz_s[ii * n + (ii - 1u)] = 0.0;
+                ilo = ii;
+                break;
+            }
+            if (ii == 1u) { break; }
+        }
+
+        // If block size is 1 or 2, we're done with this eigenvalue/pair
+        if (ihi - ilo <= 2u) { ihi = ilo; continue; }
+
+        // Compute double shift from trailing 2x2 block of H*inv(R)
+        let m = ihi - 1u;
+        let h_mm = qz_s[(m - 1u) * n + (m - 1u)];
+        let h_m1m = qz_s[m * n + (m - 1u)];
+        let h_mm1 = qz_s[(m - 1u) * n + m];
+        let h_m1m1 = qz_s[m * n + m];
+        let r_mm = qz_t[(m - 1u) * n + (m - 1u)];
+        let r_mm1 = qz_t[(m - 1u) * n + m];
+        let r_m1m1 = qz_t[m * n + m];
+
+        // Compute trace and det of trailing 2x2 of H*inv(R)
+        var s1_shift: f32 = 0.0;
+        var s2_shift: f32 = 0.0;
+        if (abs(r_mm) > eps && abs(r_m1m1) > eps) {
+            let inv_r_mm = 1.0 / r_mm;
+            let inv_r_m1m1 = 1.0 / r_m1m1;
+            let m00 = h_mm * inv_r_mm;
+            let m01 = (h_mm1 - h_mm * r_mm1 * inv_r_mm) * inv_r_m1m1;
+            let m10 = h_m1m * inv_r_mm;
+            let m11 = (h_m1m1 - h_m1m * r_mm1 * inv_r_mm) * inv_r_m1m1;
+            s1_shift = m00 + m11;  // trace
+            s2_shift = m00 * m11 - m01 * m10;  // det
+        } else {
+            s1_shift = h_mm + h_m1m1;
+            s2_shift = h_mm * h_m1m1 - h_mm1 * h_m1m;
+        }
+
+        // First column of (H - s1*R)(H - s2*R) implicitly
+        let h00 = qz_s[ilo * n + ilo];
+        let h10 = qz_s[(ilo + 1u) * n + ilo];
+        var h20: f32 = 0.0;
+        if (ilo + 2u < n) { h20 = qz_s[(ilo + 2u) * n + ilo]; }
+        let h01 = qz_s[ilo * n + (ilo + 1u)];
+        let h11 = qz_s[(ilo + 1u) * n + (ilo + 1u)];
+        let r00 = qz_t[ilo * n + ilo];
+        let r11 = qz_t[(ilo + 1u) * n + (ilo + 1u)];
+
+        var v0 = h00 * h00 + h01 * h10 - s1_shift * h00 * r00 + s2_shift * r00 * r00;
+        var v1 = h10 * (h00 + h11 - s1_shift * r00 - s1_shift * r11);
+        var v2 = h10 * h20;
+
+        // Householder to introduce bulge
+        let v_norm = sqrt(v0 * v0 + v1 * v1 + v2 * v2);
+        if (v_norm < eps) { continue; }
+
+        var beta: f32 = -v_norm;
+        if (v0 >= 0.0) { beta = -v_norm; } else { beta = v_norm; }
+        let v0_h = v0 - beta;
+        let tau = -v0_h / beta;
+
+        let h_norm = sqrt(v0_h * v0_h + v1 * v1 + v2 * v2);
+        if (h_norm < eps) { continue; }
+
+        let u0 = v0_h / h_norm;
+        let u1 = v1 / h_norm;
+        let u2 = v2 / h_norm;
+
+        // Apply initial Householder from the left to S and T
+        var p_end: u32 = ilo + 3u;
+        if (p_end > ihi) { p_end = ihi; }
+
+        // Left apply to S
+        for (var j: u32 = 0u; j < n; j = j + 1u) {
+            var dot = u0 * qz_s[ilo * n + j];
+            if (ilo + 1u < p_end) { dot = dot + u1 * qz_s[(ilo + 1u) * n + j]; }
+            if (ilo + 2u < p_end) { dot = dot + u2 * qz_s[(ilo + 2u) * n + j]; }
+            let factor = tau * dot;
+            qz_s[ilo * n + j] = qz_s[ilo * n + j] - factor * u0;
+            if (ilo + 1u < p_end) { qz_s[(ilo + 1u) * n + j] = qz_s[(ilo + 1u) * n + j] - factor * u1; }
+            if (ilo + 2u < p_end) { qz_s[(ilo + 2u) * n + j] = qz_s[(ilo + 2u) * n + j] - factor * u2; }
+        }
+
+        // Left apply to T
+        for (var j: u32 = ilo; j < n; j = j + 1u) {
+            var dot = u0 * qz_t[ilo * n + j];
+            if (ilo + 1u < p_end) { dot = dot + u1 * qz_t[(ilo + 1u) * n + j]; }
+            if (ilo + 2u < p_end) { dot = dot + u2 * qz_t[(ilo + 2u) * n + j]; }
+            let factor = tau * dot;
+            qz_t[ilo * n + j] = qz_t[ilo * n + j] - factor * u0;
+            if (ilo + 1u < p_end) { qz_t[(ilo + 1u) * n + j] = qz_t[(ilo + 1u) * n + j] - factor * u1; }
+            if (ilo + 2u < p_end) { qz_t[(ilo + 2u) * n + j] = qz_t[(ilo + 2u) * n + j] - factor * u2; }
+        }
+
+        // Right apply to Q
+        for (var ii: u32 = 0u; ii < n; ii = ii + 1u) {
+            var dot = u0 * qz_q[ii * n + ilo];
+            if (ilo + 1u < p_end) { dot = dot + u1 * qz_q[ii * n + (ilo + 1u)]; }
+            if (ilo + 2u < p_end) { dot = dot + u2 * qz_q[ii * n + (ilo + 2u)]; }
+            let factor = tau * dot;
+            qz_q[ii * n + ilo] = qz_q[ii * n + ilo] - factor * u0;
+            if (ilo + 1u < p_end) { qz_q[ii * n + (ilo + 1u)] = qz_q[ii * n + (ilo + 1u)] - factor * u1; }
+            if (ilo + 2u < p_end) { qz_q[ii * n + (ilo + 2u)] = qz_q[ii * n + (ilo + 2u)] - factor * u2; }
+        }
+
+        // Chase the bulge down
+        for (var k: u32 = ilo; k < ihi - 2u; k = k + 1u) {
+            var p_size: u32 = 3u;
+            if (k + 3u >= ihi) { p_size = 2u; }
+
+            // Restore T to upper triangular with column Givens rotations
+            for (var ii: u32 = k + 1u; ii < k + p_size && ii < ihi; ii = ii + 1u) {
+                let r1 = qz_t[k * n + k];
+                let r2 = qz_t[ii * n + k];
+                if (abs(r2) < eps) { continue; }
+
+                let rr = sqrt(r1 * r1 + r2 * r2);
+                let c = r1 / rr;
+                let s = r2 / rr;
+
+                // Column rotation on T
+                for (var row: u32 = 0u; row < ihi; row = row + 1u) {
+                    let t1 = qz_t[row * n + k];
+                    let t2 = qz_t[row * n + ii];
+                    qz_t[row * n + k] = c * t1 + s * t2;
+                    qz_t[row * n + ii] = -s * t1 + c * t2;
+                }
+
+                // Same on S
+                for (var row: u32 = 0u; row < ihi; row = row + 1u) {
+                    let s1 = qz_s[row * n + k];
+                    let s2 = qz_s[row * n + ii];
+                    qz_s[row * n + k] = c * s1 + s * s2;
+                    qz_s[row * n + ii] = -s * s1 + c * s2;
+                }
+
+                // Accumulate into Z
+                for (var row: u32 = 0u; row < n; row = row + 1u) {
+                    let z1 = qz_z[row * n + k];
+                    let z2 = qz_z[row * n + ii];
+                    qz_z[row * n + k] = c * z1 + s * z2;
+                    qz_z[row * n + ii] = -s * z1 + c * z2;
+                }
+            }
+
+            // Zero out elements below subdiagonal in column k of S
+            if (k + 2u < ihi) {
+                let w0 = qz_s[(k + 1u) * n + k];
+                let w1 = qz_s[(k + 2u) * n + k];
+                var w2: f32 = 0.0;
+                if (k + 3u < ihi) { w2 = qz_s[(k + 3u) * n + k]; }
+
+                var w_size: u32 = 3u;
+                if (k + 3u >= ihi) { w_size = 2u; }
+
+                var w_norm: f32 = 0.0;
+                if (w_size == 3u) { w_norm = sqrt(w0 * w0 + w1 * w1 + w2 * w2); }
+                else { w_norm = sqrt(w0 * w0 + w1 * w1); }
+
+                if (w_norm > eps) {
+                    var beta_w: f32 = -w_norm;
+                    if (w0 >= 0.0) { beta_w = -w_norm; } else { beta_w = w_norm; }
+                    let w0_h = w0 - beta_w;
+                    let tau_w = -w0_h / beta_w;
+
+                    var h_norm_w: f32 = 0.0;
+                    if (w_size == 3u) { h_norm_w = sqrt(w0_h * w0_h + w1 * w1 + w2 * w2); }
+                    else { h_norm_w = sqrt(w0_h * w0_h + w1 * w1); }
+
+                    if (h_norm_w > eps) {
+                        let uu0 = w0_h / h_norm_w;
+                        let uu1 = w1 / h_norm_w;
+                        var uu2: f32 = 0.0;
+                        if (w_size == 3u) { uu2 = w2 / h_norm_w; }
+
+                        let p_start = k + 1u;
+                        var p_end_w: u32 = k + 1u + w_size;
+                        if (p_end_w > ihi) { p_end_w = ihi; }
+
+                        // Left apply to S
+                        for (var j: u32 = k; j < n; j = j + 1u) {
+                            var dot = uu0 * qz_s[p_start * n + j];
+                            if (p_start + 1u < p_end_w) { dot = dot + uu1 * qz_s[(p_start + 1u) * n + j]; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { dot = dot + uu2 * qz_s[(p_start + 2u) * n + j]; }
+                            let factor = tau_w * dot;
+                            qz_s[p_start * n + j] = qz_s[p_start * n + j] - factor * uu0;
+                            if (p_start + 1u < p_end_w) { qz_s[(p_start + 1u) * n + j] = qz_s[(p_start + 1u) * n + j] - factor * uu1; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { qz_s[(p_start + 2u) * n + j] = qz_s[(p_start + 2u) * n + j] - factor * uu2; }
+                        }
+
+                        // Left apply to T
+                        for (var j: u32 = k + 1u; j < n; j = j + 1u) {
+                            var dot = uu0 * qz_t[p_start * n + j];
+                            if (p_start + 1u < p_end_w) { dot = dot + uu1 * qz_t[(p_start + 1u) * n + j]; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { dot = dot + uu2 * qz_t[(p_start + 2u) * n + j]; }
+                            let factor = tau_w * dot;
+                            qz_t[p_start * n + j] = qz_t[p_start * n + j] - factor * uu0;
+                            if (p_start + 1u < p_end_w) { qz_t[(p_start + 1u) * n + j] = qz_t[(p_start + 1u) * n + j] - factor * uu1; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { qz_t[(p_start + 2u) * n + j] = qz_t[(p_start + 2u) * n + j] - factor * uu2; }
+                        }
+
+                        // Right apply to Q
+                        for (var ii: u32 = 0u; ii < n; ii = ii + 1u) {
+                            var dot = uu0 * qz_q[ii * n + p_start];
+                            if (p_start + 1u < p_end_w) { dot = dot + uu1 * qz_q[ii * n + (p_start + 1u)]; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { dot = dot + uu2 * qz_q[ii * n + (p_start + 2u)]; }
+                            let factor = tau_w * dot;
+                            qz_q[ii * n + p_start] = qz_q[ii * n + p_start] - factor * uu0;
+                            if (p_start + 1u < p_end_w) { qz_q[ii * n + (p_start + 1u)] = qz_q[ii * n + (p_start + 1u)] - factor * uu1; }
+                            if (p_start + 2u < p_end_w && w_size == 3u) { qz_q[ii * n + (p_start + 2u)] = qz_q[ii * n + (p_start + 2u)] - factor * uu2; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Final cleanup of small subdiagonals
+    if (n > 1u) {
+        for (var ii: u32 = 1u; ii < n; ii = ii + 1u) {
+            let h_ii = abs(qz_s[(ii - 1u) * n + (ii - 1u)]);
+            let h_ip1 = abs(qz_s[ii * n + ii]);
+            let threshold = eps * max(h_ii + h_ip1, 1.0);
+            if (abs(qz_s[ii * n + (ii - 1u)]) <= threshold) {
+                qz_s[ii * n + (ii - 1u)] = 0.0;
+            }
+        }
+    }
+
+    // Set convergence flag
+    if (converged) {
+        atomicStore(&qz_converged, 0);
+    } else {
+        atomicStore(&qz_converged, 1);
+    }
+
+    // Clean up S (make quasi-triangular) and T (make triangular)
+    if (n > 1u) {
+        for (var i: u32 = 0u; i < n - 1u; i = i + 1u) {
+            let threshold = eps * (abs(qz_s[i * n + i]) + abs(qz_s[(i + 1u) * n + (i + 1u)]));
+            if (abs(qz_s[(i + 1u) * n + i]) <= max(threshold, eps)) {
+                qz_s[(i + 1u) * n + i] = 0.0;
+            }
+        }
+    }
+
+    // Zero strict lower triangular of T
+    for (var i: u32 = 1u; i < n; i = i + 1u) {
+        for (var j: u32 = 0u; j < i; j = j + 1u) {
+            qz_t[i * n + j] = 0.0;
+        }
+    }
+
+    // Zero below first subdiagonal in S
+    if (n > 2u) {
+        for (var i: u32 = 2u; i < n; i = i + 1u) {
+            for (var j: u32 = 0u; j < i - 1u; j = j + 1u) {
+                qz_s[i * n + j] = 0.0;
+            }
+        }
+    }
+
+    // Extract generalized eigenvalues: alpha/beta where alpha = S[i,i], beta = T[i,i]
+    var i: u32 = 0u;
+    while (i < n) {
+        if (i + 1u < n && abs(qz_s[(i + 1u) * n + i]) > eps) {
+            // 2x2 block - complex eigenvalues
+            let a = qz_s[i * n + i];
+            let b = qz_s[i * n + (i + 1u)];
+            let c = qz_s[(i + 1u) * n + i];
+            let d = qz_s[(i + 1u) * n + (i + 1u)];
+            let t1 = qz_t[i * n + i];
+            let t2 = qz_t[(i + 1u) * n + (i + 1u)];
+
+            let trace = a + d;
+            let det = a * d - b * c;
+            let disc = trace * trace - 4.0 * det;
+            let beta = sqrt(t1 * t2);
+
+            if (disc < 0.0 && abs(beta) > eps) {
+                qz_eval_real[i] = trace / (2.0 * beta);
+                qz_eval_imag[i] = sqrt(-disc) / (2.0 * beta);
+                qz_eval_real[i + 1u] = trace / (2.0 * beta);
+                qz_eval_imag[i + 1u] = -sqrt(-disc) / (2.0 * beta);
+            } else if (abs(beta) > eps) {
+                qz_eval_real[i] = (trace + sqrt(max(disc, 0.0))) / (2.0 * beta);
+                qz_eval_imag[i] = 0.0;
+                qz_eval_real[i + 1u] = (trace - sqrt(max(disc, 0.0))) / (2.0 * beta);
+                qz_eval_imag[i + 1u] = 0.0;
+            } else {
+                qz_eval_real[i] = 1e30;
+                qz_eval_imag[i] = 0.0;
+                qz_eval_real[i + 1u] = 1e30;
+                qz_eval_imag[i + 1u] = 0.0;
+            }
+            i = i + 2u;
+        } else {
+            // 1x1 block
+            let alpha = qz_s[i * n + i];
+            let beta = qz_t[i * n + i];
+            if (abs(beta) > eps) {
+                qz_eval_real[i] = alpha / beta;
+            } else {
+                qz_eval_real[i] = 1e30;
+            }
+            qz_eval_imag[i] = 0.0;
+            i = i + 1u;
+        }
     }
 }
 

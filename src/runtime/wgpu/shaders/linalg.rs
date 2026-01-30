@@ -37,6 +37,9 @@ pub use super::linalg_launchers::{
     launch_matrix_copy,
     launch_max_abs,
     launch_qr_decompose,
+    // Advanced decompositions
+    launch_qz_decompose,
+    launch_rsf2csf,
     launch_scatter_column,
     launch_schur_decompose,
     launch_sqrt_quasi_triangular,

@@ -8,6 +8,7 @@
 //! Operations use native WGSL compute shaders running entirely on the GPU.
 //! Currently only F32 is supported (WGSL doesn't support F64).
 
+mod advanced_decompositions;
 mod helpers;
 
 mod decompositions;
@@ -25,8 +26,10 @@ mod tests;
 
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition, SvdDecomposition,
+    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
+    QrDecomposition, SvdDecomposition,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -160,6 +163,25 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         a: &Tensor<WgpuRuntime>,
     ) -> Result<GeneralEigenDecomposition<WgpuRuntime>> {
         eig_general::eig_decompose(self, a)
+    }
+
+    fn rsf2csf(
+        &self,
+        schur: &crate::algorithm::linalg::SchurDecomposition<WgpuRuntime>,
+    ) -> Result<ComplexSchurDecomposition<WgpuRuntime>> {
+        advanced_decompositions::rsf2csf(self, schur)
+    }
+
+    fn qz_decompose(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<GeneralizedSchurDecomposition<WgpuRuntime>> {
+        advanced_decompositions::qz_decompose(self, a, b)
+    }
+
+    fn polar_decompose(&self, a: &Tensor<WgpuRuntime>) -> Result<PolarDecomposition<WgpuRuntime>> {
+        advanced_decompositions::polar_decompose(self, a)
     }
 }
 
