@@ -20,8 +20,12 @@
 //! │   ├── mod.rs          # Dispatch logic
 //! │   ├── avx512.rs       # AVX-512 kernels
 //! │   └── avx2.rs         # AVX2 kernels
+//! ├── compare/            # Compare ops (eq, ne, lt, le, gt, ge)
+//! │   ├── mod.rs          # Dispatch logic
+//! │   ├── avx512.rs       # AVX-512 kernels
+//! │   └── avx2.rs         # AVX2 kernels
 //! │
-//! Note: Scalar fallbacks live in kernels/{binary,unary}.rs (single source of truth)
+//! Note: Scalar fallbacks live in kernels/{binary,unary,compare}.rs (single source of truth)
 //! └── reduce/             # Reductions (sum, max, min, prod)
 //!     ├── mod.rs          # Dispatch logic
 //!     ├── avx512.rs       # AVX-512 kernels
@@ -39,6 +43,8 @@
 
 #[cfg(target_arch = "x86_64")]
 pub mod binary;
+#[cfg(target_arch = "x86_64")]
+pub mod compare;
 #[cfg(target_arch = "x86_64")]
 pub mod matmul;
 #[cfg(target_arch = "x86_64")]
