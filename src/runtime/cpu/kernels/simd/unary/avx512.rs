@@ -1,6 +1,11 @@
 //! AVX-512 unary operation kernels
 //!
 //! Processes 16 f32s or 8 f64s per iteration using 512-bit vectors.
+//!
+//! # Streaming Stores
+//!
+//! For large arrays (> 1MB), this module provides streaming variants that use
+//! non-temporal stores (`_mm512_stream_ps`) to bypass the cache.
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
@@ -11,6 +16,7 @@ use super::super::math::avx512::{
     tan_f32 as tan_vec_f32, tan_f64 as tan_vec_f64, tanh_f32 as tanh_vec_f32,
     tanh_f64 as tanh_vec_f64,
 };
+use super::super::streaming::{is_aligned_avx512, should_stream_f32, should_stream_f64};
 use super::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
 use crate::ops::UnaryOp;
 
@@ -79,17 +85,32 @@ pub unsafe fn unary_f64(op: UnaryOp, a: *const f64, out: *mut f64, len: usize) {
 }
 
 /// AVX-512 ReLU for f32
+///
+/// Uses streaming (non-temporal) stores for arrays > 1MB when output is aligned.
 #[target_feature(enable = "avx512f")]
 pub unsafe fn relu_f32(a: *const f32, out: *mut f32, len: usize) {
     let chunks = len / F32_LANES;
     let remainder = len % F32_LANES;
     let zero = _mm512_setzero_ps();
 
-    for i in 0..chunks {
-        let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_max_ps(va, zero);
-        _mm512_storeu_ps(out.add(offset), vr);
+    // Use streaming stores for large aligned arrays
+    let use_streaming = should_stream_f32(len) && is_aligned_avx512(out);
+
+    if use_streaming {
+        for i in 0..chunks {
+            let offset = i * F32_LANES;
+            let va = _mm512_loadu_ps(a.add(offset));
+            let vr = _mm512_max_ps(va, zero);
+            _mm512_stream_ps(out.add(offset), vr);
+        }
+        _mm_sfence();
+    } else {
+        for i in 0..chunks {
+            let offset = i * F32_LANES;
+            let va = _mm512_loadu_ps(a.add(offset));
+            let vr = _mm512_max_ps(va, zero);
+            _mm512_storeu_ps(out.add(offset), vr);
+        }
     }
 
     if remainder > 0 {
@@ -99,17 +120,32 @@ pub unsafe fn relu_f32(a: *const f32, out: *mut f32, len: usize) {
 }
 
 /// AVX-512 ReLU for f64
+///
+/// Uses streaming (non-temporal) stores for arrays > 1MB when output is aligned.
 #[target_feature(enable = "avx512f")]
 pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
     let chunks = len / F64_LANES;
     let remainder = len % F64_LANES;
     let zero = _mm512_setzero_pd();
 
-    for i in 0..chunks {
-        let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_max_pd(va, zero);
-        _mm512_storeu_pd(out.add(offset), vr);
+    // Use streaming stores for large aligned arrays
+    let use_streaming = should_stream_f64(len) && is_aligned_avx512(out);
+
+    if use_streaming {
+        for i in 0..chunks {
+            let offset = i * F64_LANES;
+            let va = _mm512_loadu_pd(a.add(offset));
+            let vr = _mm512_max_pd(va, zero);
+            _mm512_stream_pd(out.add(offset), vr);
+        }
+        _mm_sfence();
+    } else {
+        for i in 0..chunks {
+            let offset = i * F64_LANES;
+            let va = _mm512_loadu_pd(a.add(offset));
+            let vr = _mm512_max_pd(va, zero);
+            _mm512_storeu_pd(out.add(offset), vr);
+        }
     }
 
     if remainder > 0 {

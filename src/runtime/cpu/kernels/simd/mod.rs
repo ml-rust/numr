@@ -84,6 +84,8 @@ pub mod scalar;
 #[cfg(target_arch = "x86_64")]
 pub mod softmax;
 #[cfg(target_arch = "x86_64")]
+pub mod streaming;
+#[cfg(target_arch = "x86_64")]
 pub mod unary;
 #[cfg(target_arch = "x86_64")]
 pub mod where_select;
