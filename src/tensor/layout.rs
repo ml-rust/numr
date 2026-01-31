@@ -497,32 +497,8 @@ impl fmt::Display for Layout {
     }
 }
 
-/// Compute the broadcast shape of two shapes
-///
-/// Currently used primarily in validation. May be exported or used by layout operations in future.
-#[allow(dead_code)]
-pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Shape> {
-    let max_ndim = a.len().max(b.len());
-    let mut result = Shape::with_capacity(max_ndim);
-
-    for i in 0..max_ndim {
-        let a_dim = if i < a.len() { a[a.len() - 1 - i] } else { 1 };
-        let b_dim = if i < b.len() { b[b.len() - 1 - i] } else { 1 };
-
-        if a_dim == b_dim {
-            result.push(a_dim);
-        } else if a_dim == 1 {
-            result.push(b_dim);
-        } else if b_dim == 1 {
-            result.push(a_dim);
-        } else {
-            return None; // Incompatible shapes
-        }
-    }
-
-    result.reverse();
-    Some(result)
-}
+// Note: broadcast_shape is implemented in crate::ops::arithmetic and is the canonical version.
+// Use crate::ops::broadcast_shape for broadcasting logic.
 
 #[cfg(test)]
 mod tests {
@@ -576,18 +552,7 @@ mod tests {
         assert_eq!(unsqueezed.shape(), &[1, 3, 4]);
     }
 
-    #[test]
-    fn test_broadcast_shapes() {
-        assert_eq!(
-            broadcast_shapes(&[3, 1], &[1, 4]),
-            Some(SmallVec::from_slice(&[3, 4]))
-        );
-        assert_eq!(
-            broadcast_shapes(&[2, 3, 4], &[4]),
-            Some(SmallVec::from_slice(&[2, 3, 4]))
-        );
-        assert_eq!(broadcast_shapes(&[3], &[4]), None);
-    }
+    // Note: broadcast_shape tests are in ops/arithmetic.rs
 
     #[test]
     fn test_index() {

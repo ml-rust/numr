@@ -86,21 +86,40 @@ pub mod sparse;
 pub mod tensor;
 
 /// Prelude module for convenient imports
+///
+/// Import everything needed for tensor operations with `use numr::prelude::*`:
+/// - Core types: `Tensor`, `DType`, `Layout`, `Error`, `Result`
+/// - Runtime traits: `Runtime`, `Device`, `RuntimeClient`
+/// - Operation traits: `TensorOps`, `ScalarOps`, `CompareOps`
+/// - Algorithm traits: `LinearAlgebraAlgorithms`, `FftAlgorithms`, `SpecialFunctions`
+/// - Backend runtimes: `CpuRuntime`, `CudaRuntime`, `WgpuRuntime` (feature-gated)
 pub mod prelude {
+    // Core types
     pub use crate::dtype::DType;
     pub use crate::error::{Error, Result};
-    pub use crate::runtime::{Device, Runtime, RuntimeClient};
     pub use crate::tensor::{Layout, Tensor};
 
+    // Runtime traits
+    pub use crate::runtime::{Device, Runtime, RuntimeClient};
+
+    // Operation traits (same API across all backends)
+    pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
+
+    // Algorithm traits (same API across all backends)
+    pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
+    pub use crate::algorithm::{LinearAlgebraAlgorithms, SpecialFunctions};
+
+    // Backend runtimes
     #[cfg(feature = "cpu")]
-    pub use crate::runtime::cpu::CpuRuntime;
+    pub use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 
     #[cfg(feature = "cuda")]
-    pub use crate::runtime::cuda::CudaRuntime;
+    pub use crate::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 
     #[cfg(feature = "wgpu")]
-    pub use crate::runtime::wgpu::WgpuRuntime;
+    pub use crate::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime};
 
+    // Sparse tensors (feature-gated)
     #[cfg(feature = "sparse")]
     pub use crate::sparse::{SparseFormat, SparseOps, SparseTensor};
 }
