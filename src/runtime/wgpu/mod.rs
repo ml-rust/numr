@@ -34,6 +34,8 @@ pub mod shaders;
 mod special;
 mod statistics;
 
+// Re-export runtime types for this backend
+pub use crate::tensor::Tensor;
 pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle};
 pub use device::{WgpuDevice, WgpuError};
 

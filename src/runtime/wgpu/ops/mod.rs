@@ -16,15 +16,10 @@
 //! - `scalar`: ScalarOps trait implementation
 //! - `compare`: CompareOps trait implementation
 
-#[path = "ops/compare.rs"]
 pub mod compare;
-#[path = "ops/helpers.rs"]
 pub mod helpers;
-#[path = "ops/native.rs"]
 pub mod native;
-#[path = "ops/scalar.rs"]
 pub mod scalar;
-#[path = "ops/tensor.rs"]
 pub mod tensor;
 
 // ============================================================================
