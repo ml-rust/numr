@@ -32,8 +32,8 @@ mod ops;
 mod sparse;
 mod special;
 
-#[cfg(feature = "sparse")]
-pub use crate::sparse::SparseOps;
+// Re-export runtime types for this backend
+pub use crate::tensor::Tensor;
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
 pub use device::{CudaDevice, CudaError};
 
