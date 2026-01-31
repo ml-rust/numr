@@ -4,7 +4,7 @@
 //! All algorithms follow the exact specification in the trait documentation
 //! to ensure backend parity with CUDA/WebGPU implementations.
 
-mod advanced;
+mod advanced_decompositions;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
@@ -23,91 +23,33 @@ use crate::algorithm::linalg::{
     CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
     GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
     LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
-    QrDecomposition, SchurDecomposition, SvdDecomposition, validate_linalg_dtype,
-    validate_matrix_2d, validate_square_matrix,
+    QrDecomposition, SchurDecomposition, SvdDecomposition,
 };
-use crate::dtype::DType;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::tensor::Tensor;
 
 impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
     fn lu_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<LuDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => decompositions::lu_decompose_impl::<f32>(self, a, m, n),
-            DType::F64 => decompositions::lu_decompose_impl::<f64>(self, a, m, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "lu_decompose",
-            }),
-        }
+        decompositions::lu_decompose_impl(self, a)
     }
 
     fn cholesky_decompose(
         &self,
         a: &Tensor<CpuRuntime>,
     ) -> Result<CholeskyDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => decompositions::cholesky_decompose_impl::<f32>(self, a, n),
-            DType::F64 => decompositions::cholesky_decompose_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "cholesky_decompose",
-            }),
-        }
+        decompositions::cholesky_decompose_impl(self, a)
     }
 
     fn qr_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<QrDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => decompositions::qr_decompose_impl::<f32>(self, a, m, n, false),
-            DType::F64 => decompositions::qr_decompose_impl::<f64>(self, a, m, n, false),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "qr_decompose",
-            }),
-        }
+        decompositions::qr_decompose_impl(self, a, false)
     }
 
     fn qr_decompose_thin(&self, a: &Tensor<CpuRuntime>) -> Result<QrDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => decompositions::qr_decompose_impl::<f32>(self, a, m, n, true),
-            DType::F64 => decompositions::qr_decompose_impl::<f64>(self, a, m, n, true),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "qr_decompose_thin",
-            }),
-        }
+        decompositions::qr_decompose_impl(self, a, true)
     }
 
     fn solve(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => solvers::solve_impl::<f32>(self, a, b, n),
-            DType::F64 => solvers::solve_impl::<f64>(self, a, b, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "solve",
-            }),
-        }
+        solvers::solve_impl(self, a, b)
     }
 
     fn solve_triangular_lower(
@@ -116,23 +58,7 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         b: &Tensor<CpuRuntime>,
         unit_diagonal: bool,
     ) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(l.dtype())?;
-        if l.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: l.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let n = validate_square_matrix(l.shape())?;
-
-        match l.dtype() {
-            DType::F32 => solvers::solve_triangular_lower_impl::<f32>(self, l, b, n, unit_diagonal),
-            DType::F64 => solvers::solve_triangular_lower_impl::<f64>(self, l, b, n, unit_diagonal),
-            _ => Err(Error::UnsupportedDType {
-                dtype: l.dtype(),
-                op: "solve_triangular_lower",
-            }),
-        }
+        solvers::solve_triangular_lower_impl(self, l, b, unit_diagonal)
     }
 
     fn solve_triangular_upper(
@@ -140,153 +66,39 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         u: &Tensor<CpuRuntime>,
         b: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(u.dtype())?;
-        if u.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: u.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let n = validate_square_matrix(u.shape())?;
-
-        match u.dtype() {
-            DType::F32 => solvers::solve_triangular_upper_impl::<f32>(self, u, b, n),
-            DType::F64 => solvers::solve_triangular_upper_impl::<f64>(self, u, b, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: u.dtype(),
-                op: "solve_triangular_upper",
-            }),
-        }
+        solvers::solve_triangular_upper_impl(self, u, b)
     }
 
     fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => solvers::lstsq_impl::<f32>(self, a, b, m, n),
-            DType::F64 => solvers::lstsq_impl::<f64>(self, a, b, m, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "lstsq",
-            }),
-        }
+        solvers::lstsq_impl(self, a, b)
     }
 
     fn inverse(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::inverse_impl::<f32>(self, a, n),
-            DType::F64 => matrix_ops::inverse_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "inverse",
-            }),
-        }
+        matrix_ops::inverse_impl(self, a)
     }
 
     fn det(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::det_impl::<f32>(self, a, n),
-            DType::F64 => matrix_ops::det_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "det",
-            }),
-        }
+        matrix_ops::det_impl(self, a)
     }
 
     fn trace(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::trace_impl::<f32>(self, a, m, n),
-            DType::F64 => matrix_ops::trace_impl::<f64>(self, a, m, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "trace",
-            }),
-        }
+        matrix_ops::trace_impl(self, a)
     }
 
     fn diag(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::diag_impl::<f32>(self, a, m, n),
-            DType::F64 => matrix_ops::diag_impl::<f64>(self, a, m, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "diag",
-            }),
-        }
+        matrix_ops::diag_impl(self, a)
     }
 
     fn diagflat(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        if a.ndim() != 1 {
-            return Err(Error::Internal(format!(
-                "diagflat expects 1D tensor, got {}D",
-                a.ndim()
-            )));
-        }
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::diagflat_impl::<f32>(self, a),
-            DType::F64 => matrix_ops::diagflat_impl::<f64>(self, a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "diagflat",
-            }),
-        }
+        matrix_ops::diagflat_impl(self, a)
     }
 
     fn kron(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let (m_a, n_a) = validate_matrix_2d(a.shape())?;
-        let (m_b, n_b) = validate_matrix_2d(b.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::kron_impl::<f32>(self, a, b, m_a, n_a, m_b, n_b),
-            DType::F64 => matrix_ops::kron_impl::<f64>(self, a, b, m_a, n_a, m_b, n_b),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "kron",
-            }),
-        }
+        matrix_ops::kron_impl(self, a, b)
     }
 
     fn matrix_rank(&self, a: &Tensor<CpuRuntime>, tol: Option<f64>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_ops::matrix_rank_impl::<f32>(self, a, m, n, tol),
-            DType::F64 => matrix_ops::matrix_rank_impl::<f64>(self, a, m, n, tol),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "matrix_rank",
-            }),
-        }
+        matrix_ops::matrix_rank_impl(self, a, tol)
     }
 
     fn matrix_norm(
@@ -294,157 +106,52 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         a: &Tensor<CpuRuntime>,
         ord: MatrixNormOrder,
     ) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (_m, _n) = validate_matrix_2d(a.shape())?;
-
-        match ord {
-            MatrixNormOrder::Frobenius => match a.dtype() {
-                DType::F32 => matrix_ops::frobenius_norm_impl::<f32>(self, a),
-                DType::F64 => matrix_ops::frobenius_norm_impl::<f64>(self, a),
-                _ => Err(Error::UnsupportedDType {
-                    dtype: a.dtype(),
-                    op: "matrix_norm",
-                }),
-            },
-            MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
-                "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
-            )),
-        }
+        matrix_ops::matrix_norm_impl(self, a, ord)
     }
 
     fn svd_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<SvdDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => svd::svd_decompose_impl::<f32>(self, a, m, n),
-            DType::F64 => svd::svd_decompose_impl::<f64>(self, a, m, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "svd_decompose",
-            }),
-        }
+        svd::svd_decompose_impl(self, a)
     }
 
     fn eig_decompose_symmetric(
         &self,
         a: &Tensor<CpuRuntime>,
     ) -> Result<EigenDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => eig_symmetric::eig_decompose_symmetric_impl::<f32>(self, a, n),
-            DType::F64 => eig_symmetric::eig_decompose_symmetric_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "eig_decompose_symmetric",
-            }),
-        }
+        eig_symmetric::eig_decompose_symmetric_impl(self, a)
     }
 
     fn pinverse(&self, a: &Tensor<CpuRuntime>, rcond: Option<f64>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (m, n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => statistics::pinverse_impl::<f32>(self, a, m, n, rcond),
-            DType::F64 => statistics::pinverse_impl::<f64>(self, a, m, n, rcond),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "pinverse",
-            }),
-        }
+        statistics::pinverse_impl(self, a, rcond)
     }
 
     fn cond(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (_m, _n) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => statistics::cond_impl::<f32>(self, a),
-            DType::F64 => statistics::cond_impl::<f64>(self, a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "cond",
-            }),
-        }
+        statistics::cond_impl(self, a)
     }
 
     fn cov(&self, a: &Tensor<CpuRuntime>, ddof: Option<usize>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => statistics::cov_impl::<f32>(self, a, n_samples, n_features, ddof),
-            DType::F64 => statistics::cov_impl::<f64>(self, a, n_samples, n_features, ddof),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "cov",
-            }),
-        }
+        statistics::cov_impl(self, a, ddof)
     }
 
     fn corrcoef(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => statistics::corrcoef_impl::<f32>(self, a, n_samples, n_features),
-            DType::F64 => statistics::corrcoef_impl::<f64>(self, a, n_samples, n_features),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "corrcoef",
-            }),
-        }
+        statistics::corrcoef_impl(self, a)
     }
 
     fn schur_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<SchurDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => schur::schur_decompose_impl::<f32>(self, a, n),
-            DType::F64 => schur::schur_decompose_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "schur_decompose",
-            }),
-        }
+        schur::schur_decompose_impl(self, a)
     }
 
     fn eig_decompose(
         &self,
         a: &Tensor<CpuRuntime>,
     ) -> Result<GeneralEigenDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => eig_general::eig_decompose_impl::<f32>(self, a, n),
-            DType::F64 => eig_general::eig_decompose_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "eig_decompose",
-            }),
-        }
+        eig_general::eig_decompose_impl(self, a)
     }
 
     fn rsf2csf(
         &self,
         schur: &SchurDecomposition<CpuRuntime>,
     ) -> Result<ComplexSchurDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(schur.t.dtype())?;
-        let n = validate_square_matrix(schur.t.shape())?;
-
-        match schur.t.dtype() {
-            DType::F32 => advanced::rsf2csf_impl::<f32>(self, schur, n),
-            DType::F64 => advanced::rsf2csf_impl::<f64>(self, schur, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: schur.t.dtype(),
-                op: "rsf2csf",
-            }),
-        }
+        advanced_decompositions::rsf2csf_impl(self, schur)
     }
 
     fn qz_decompose(
@@ -452,102 +159,29 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         a: &Tensor<CpuRuntime>,
         b: &Tensor<CpuRuntime>,
     ) -> Result<GeneralizedSchurDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-        let n_a = validate_square_matrix(a.shape())?;
-        let n_b = validate_square_matrix(b.shape())?;
-        if n_a != n_b {
-            return Err(Error::ShapeMismatch {
-                expected: a.shape().to_vec(),
-                got: b.shape().to_vec(),
-            });
-        }
-
-        match a.dtype() {
-            DType::F32 => advanced::qz_decompose_impl::<f32>(self, a, b, n_a),
-            DType::F64 => advanced::qz_decompose_impl::<f64>(self, a, b, n_a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "qz_decompose",
-            }),
-        }
+        advanced_decompositions::qz_decompose_impl(self, a, b)
     }
 
     fn polar_decompose(&self, a: &Tensor<CpuRuntime>) -> Result<PolarDecomposition<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => advanced::polar_decompose_impl::<f32>(self, a, n),
-            DType::F64 => advanced::polar_decompose_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "polar_decompose",
-            }),
-        }
+        advanced_decompositions::polar_decompose_impl(self, a)
     }
 }
 
 impl MatrixFunctionsAlgorithms<CpuRuntime> for CpuClient {
     fn expm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::expm_impl::<f32>(self, a, n),
-            DType::F64 => matrix_functions::expm_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "expm",
-            }),
-        }
+        matrix_functions::expm_impl(self, a)
     }
 
     fn logm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::logm_impl::<f32>(self, a, n),
-            DType::F64 => matrix_functions::logm_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "logm",
-            }),
-        }
+        matrix_functions::logm_impl(self, a)
     }
 
     fn sqrtm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::sqrtm_impl::<f32>(self, a, n),
-            DType::F64 => matrix_functions::sqrtm_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "sqrtm",
-            }),
-        }
+        matrix_functions::sqrtm_impl(self, a)
     }
 
     fn signm(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::signm_impl::<f32>(self, a, n),
-            DType::F64 => matrix_functions::signm_impl::<f64>(self, a, n),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "signm",
-            }),
-        }
+        matrix_functions::signm_impl(self, a)
     }
 
     fn fractional_matrix_power(
@@ -555,33 +189,13 @@ impl MatrixFunctionsAlgorithms<CpuRuntime> for CpuClient {
         a: &Tensor<CpuRuntime>,
         p: f64,
     ) -> Result<Tensor<CpuRuntime>> {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::fractional_matrix_power_impl::<f32>(self, a, n, p),
-            DType::F64 => matrix_functions::fractional_matrix_power_impl::<f64>(self, a, n, p),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "fractional_matrix_power",
-            }),
-        }
+        matrix_functions::fractional_matrix_power_impl(self, a, p)
     }
 
     fn funm<F>(&self, a: &Tensor<CpuRuntime>, f: F) -> Result<Tensor<CpuRuntime>>
     where
         F: Fn(f64) -> f64 + Send + Sync,
     {
-        validate_linalg_dtype(a.dtype())?;
-        let n = validate_square_matrix(a.shape())?;
-
-        match a.dtype() {
-            DType::F32 => matrix_functions::funm_impl::<f32, F>(self, a, n, f),
-            DType::F64 => matrix_functions::funm_impl::<f64, F>(self, a, n, f),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "funm",
-            }),
-        }
+        matrix_functions::funm_impl(self, a, f)
     }
 }

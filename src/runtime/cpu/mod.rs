@@ -34,17 +34,7 @@ use crate::dtype::Element;
 use crate::ops::{BinaryOp, Kernel, ReduceOp, UnaryOp};
 use std::alloc::{Layout as AllocLayout, alloc_zeroed, dealloc};
 
-// Re-export TensorOps, ScalarOps, CompareOps, SparseOps traits for convenience
-pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
-#[cfg(feature = "sparse")]
-pub use crate::sparse::SparseOps;
-
-// Re-export algorithm traits
-pub use crate::algorithm::LinearAlgebraAlgorithms;
-pub use crate::algorithm::SpecialFunctions;
-pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
-
-// Re-export Tensor for tests
+// Re-export runtime types for this backend
 pub use crate::tensor::Tensor;
 
 /// CPU compute runtime

@@ -2,9 +2,11 @@
 
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{ComplexSchurDecomposition, SchurDecomposition};
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{
+    ComplexSchurDecomposition, SchurDecomposition, validate_linalg_dtype,
+};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -12,7 +14,30 @@ use crate::tensor::Tensor;
 ///
 /// Transforms 2×2 blocks (complex conjugate eigenvalue pairs) into
 /// 1×1 complex diagonal entries.
-pub fn rsf2csf_impl<T: Element + LinalgElement>(
+pub fn rsf2csf_impl(
+    client: &CpuClient,
+    schur: &SchurDecomposition<CpuRuntime>,
+) -> Result<ComplexSchurDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(schur.t.dtype())?;
+    let shape = schur.t.shape();
+    if shape.len() != 2 || shape[0] != shape[1] {
+        return Err(Error::Internal(
+            "rsf2csf: Schur form T must be square".to_string(),
+        ));
+    }
+    let n = shape[0];
+
+    match schur.t.dtype() {
+        DType::F32 => rsf2csf_typed::<f32>(client, schur, n),
+        DType::F64 => rsf2csf_typed::<f64>(client, schur, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: schur.t.dtype(),
+            op: "rsf2csf",
+        }),
+    }
+}
+
+fn rsf2csf_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     schur: &SchurDecomposition<CpuRuntime>,
     n: usize,

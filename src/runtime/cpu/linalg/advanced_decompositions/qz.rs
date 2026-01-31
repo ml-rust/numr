@@ -5,14 +5,47 @@
 
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::GeneralizedSchurDecomposition;
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{
+    GeneralizedSchurDecomposition, validate_linalg_dtype, validate_square_matrix,
+};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// QZ decomposition for matrix pencil (A, B)
-pub fn qz_decompose_impl<T: Element + LinalgElement>(
+pub fn qz_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<GeneralizedSchurDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let n = validate_square_matrix(a.shape())?;
+    let n_b = validate_square_matrix(b.shape())?;
+    if n != n_b {
+        return Err(Error::ShapeMismatch {
+            expected: vec![n, n],
+            got: vec![n_b, n_b],
+        });
+    }
+
+    match a.dtype() {
+        DType::F32 => qz_decompose_typed::<f32>(client, a, b, n),
+        DType::F64 => qz_decompose_typed::<f64>(client, a, b, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "qz_decompose",
+        }),
+    }
+}
+
+fn qz_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,

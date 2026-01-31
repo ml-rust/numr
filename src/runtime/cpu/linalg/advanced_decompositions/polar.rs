@@ -2,14 +2,33 @@
 
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{LinearAlgebraAlgorithms, PolarDecomposition};
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{
+    LinearAlgebraAlgorithms, PolarDecomposition, validate_linalg_dtype, validate_square_matrix,
+};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// Polar decomposition: A = U @ P using SVD
-pub fn polar_decompose_impl<T: Element + LinalgElement>(
+pub fn polar_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<PolarDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => polar_decompose_typed::<f32>(client, a, n),
+        DType::F64 => polar_decompose_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "polar_decompose",
+        }),
+    }
+}
+
+fn polar_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
