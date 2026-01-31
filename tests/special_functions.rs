@@ -784,3 +784,116 @@ fn test_bessel_i0_f32() {
         assert!((a - e).abs() < 1e-2, "F32 I0 mismatch: {} vs {}", a, e);
     }
 }
+
+#[test]
+fn test_erfinv_negative() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Test erfinv for negative values
+    let x = Tensor::<CpuRuntime>::from_slice(&[-0.8f64], &[1], &device);
+    let result = client.erfinv(&x).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    let erfinv_n08 = data[0];
+    assert!(erfinv_n08.is_finite(), "erfinv(-0.8) = {}", erfinv_n08);
+    // erfinv(-0.8) ≈ -0.9062
+    assert!(
+        (erfinv_n08 + 0.9062).abs() < 0.01,
+        "erfinv(-0.8) = {}, expected ≈ -0.9062",
+        erfinv_n08
+    );
+}
+
+// ============================================================================
+// Inverse Incomplete Function Tests
+// ============================================================================
+
+#[test]
+fn test_gammaincinv_roundtrip() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Test gammaincinv: gammainc(a, gammaincinv(a, p)) ≈ p
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 5.0, 10.0], &[4], &device);
+    let p = Tensor::<CpuRuntime>::from_slice(&[0.5f64, 0.3, 0.7, 0.9], &[4], &device);
+
+    let x = client.gammaincinv(&a, &p).unwrap();
+    let back = client.gammainc(&a, &x).unwrap();
+
+    let p_data: Vec<f64> = p.to_vec();
+    let back_data: Vec<f64> = back.to_vec();
+
+    for i in 0..4 {
+        assert!(
+            (back_data[i] - p_data[i]).abs() < 1e-6,
+            "gammaincinv roundtrip failed at {}: {} vs {}",
+            i,
+            back_data[i],
+            p_data[i]
+        );
+    }
+}
+
+#[test]
+fn test_gammaincinv_bounds() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // gammaincinv(a, 0) = 0
+    let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 5.0], &[2], &device);
+    let p = Tensor::<CpuRuntime>::from_slice(&[0.0f64, 0.0], &[2], &device);
+
+    let result = client.gammaincinv(&a, &p).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].abs() < 1e-10, "gammaincinv(a, 0) should be 0");
+    assert!(data[1].abs() < 1e-10, "gammaincinv(a, 0) should be 0");
+}
+
+#[test]
+fn test_betaincinv_roundtrip() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // Test betaincinv: betainc(a, b, betaincinv(a, b, p)) ≈ p
+    let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 5.0, 0.5, 10.0], &[4], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[3.0f64, 2.0, 5.0, 10.0], &[4], &device);
+    let p = Tensor::<CpuRuntime>::from_slice(&[0.5f64, 0.6, 0.2, 0.5], &[4], &device);
+
+    let x = client.betaincinv(&a, &b, &p).unwrap();
+    let back = client.betainc(&a, &b, &x).unwrap();
+
+    let p_data: Vec<f64> = p.to_vec();
+    let back_data: Vec<f64> = back.to_vec();
+
+    for i in 0..4 {
+        assert!(
+            (back_data[i] - p_data[i]).abs() < 1e-6,
+            "betaincinv roundtrip failed at {}: {} vs {}",
+            i,
+            back_data[i],
+            p_data[i]
+        );
+    }
+}
+
+#[test]
+fn test_betaincinv_bounds() {
+    let client = get_client();
+    let device = CpuDevice::new();
+
+    // betaincinv(a, b, 0) = 0, betaincinv(a, b, 1) = 1
+    let a = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 2.0], &[2], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[3.0f64, 3.0], &[2], &device);
+    let p = Tensor::<CpuRuntime>::from_slice(&[0.0f64, 1.0], &[2], &device);
+
+    let result = client.betaincinv(&a, &b, &p).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert!(data[0].abs() < 1e-10, "betaincinv(a, b, 0) should be 0");
+    assert!(
+        (data[1] - 1.0).abs() < 1e-10,
+        "betaincinv(a, b, 1) should be 1"
+    );
+}

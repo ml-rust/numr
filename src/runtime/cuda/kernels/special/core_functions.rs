@@ -297,3 +297,63 @@ pub unsafe fn launch_betainc(
         )
     }
 }
+
+/// Launch gammaincinv kernel (inverse incomplete gamma)
+/// # Safety
+/// Pointers must be valid GPU memory of correct size.
+pub unsafe fn launch_gammaincinv(
+    ctx: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    p_ptr: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    unsafe {
+        launch_binary_special(
+            ctx,
+            stream,
+            device_index,
+            dtype,
+            "gammaincinv",
+            "gammaincinv (requires F32 or F64)",
+            a_ptr,
+            p_ptr,
+            out_ptr,
+            numel,
+        )
+    }
+}
+
+/// Launch betaincinv kernel (inverse incomplete beta)
+/// # Safety
+/// Pointers must be valid GPU memory of correct size.
+pub unsafe fn launch_betaincinv(
+    ctx: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    p_ptr: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    unsafe {
+        launch_ternary_special(
+            ctx,
+            stream,
+            device_index,
+            dtype,
+            "betaincinv",
+            "betaincinv (requires F32 or F64)",
+            a_ptr,
+            b_ptr,
+            p_ptr,
+            out_ptr,
+            numel,
+        )
+    }
+}
