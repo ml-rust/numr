@@ -5,11 +5,29 @@ use super::super::jacobi::{
     compute_gram_elements, identity_matrix, normalize_columns, permute_columns,
 };
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::SvdDecomposition;
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
+
+/// SVD decomposition using One-Sided Jacobi algorithm
+pub fn svd_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<SvdDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => svd_decompose_typed::<f32>(client, a, m, n),
+        DType::F64 => svd_decompose_typed::<f64>(client, a, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "svd_decompose",
+        }),
+    }
+}
 
 /// SVD decomposition using One-Sided Jacobi algorithm
 ///
@@ -24,7 +42,7 @@ use crate::tensor::Tensor;
 /// 4. Extract: S[j] = ||B[:,j]||, U[:,j] = B[:,j]/S[j]
 /// 5. Sort S descending, reorder U and V columns accordingly
 /// 6. Return U, S, V^T = V.transpose()
-pub fn svd_decompose_impl<T: Element + LinalgElement>(
+fn svd_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,

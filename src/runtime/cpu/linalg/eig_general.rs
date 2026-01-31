@@ -3,16 +3,35 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::schur::schur_decompose_impl;
-use crate::algorithm::linalg::GeneralEigenDecomposition;
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{
+    GeneralEigenDecomposition, validate_linalg_dtype, validate_square_matrix,
+};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// General eigendecomposition for non-symmetric matrices
 ///
 /// Uses Schur decomposition followed by eigenvector extraction via back-substitution.
-pub fn eig_decompose_impl<T: Element + LinalgElement>(
+pub fn eig_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<GeneralEigenDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => eig_decompose_typed::<f32>(client, a, n),
+        DType::F64 => eig_decompose_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "eig_decompose",
+        }),
+    }
+}
+
+fn eig_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -40,7 +59,7 @@ pub fn eig_decompose_impl<T: Element + LinalgElement>(
     }
 
     // Step 1: Compute Schur decomposition A = Z @ T @ Z^T
-    let schur = schur_decompose_impl::<T>(client, a, n)?;
+    let schur = schur_decompose_impl(client, a)?;
     let z_data: Vec<T> = schur.z.to_vec();
     let t_data: Vec<T> = schur.t.to_vec();
 

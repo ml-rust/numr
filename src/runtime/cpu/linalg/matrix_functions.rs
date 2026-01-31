@@ -6,8 +6,10 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::schur::schur_decompose_impl;
-use crate::algorithm::linalg::matrix_functions_core;
-use crate::dtype::Element;
+use crate::algorithm::linalg::{
+    matrix_functions_core, validate_linalg_dtype, validate_square_matrix,
+};
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
@@ -32,7 +34,21 @@ const SIGNM_MAX_ITER: usize = 100;
 /// 1. Compute Schur decomposition: A = Z @ T @ Z^T (on CPU, type-generic)
 /// 2. Compute exp(T) using shared f64 algorithm (via type conversion)
 /// 3. Reconstruct: exp(A) = Z @ exp(T) @ Z^T
-pub fn expm_impl<T: Element + LinalgElement>(
+pub fn expm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => expm_typed::<f32>(client, a, n),
+        DType::F64 => expm_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "expm",
+        }),
+    }
+}
+
+fn expm_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -59,7 +75,7 @@ pub fn expm_impl<T: Element + LinalgElement>(
     }
 
     // Compute Schur decomposition: A = Z @ T @ Z^T
-    let schur = schur_decompose_impl::<T>(client, a, n)?;
+    let schur = schur_decompose_impl(client, a)?;
     let z_data: Vec<T> = schur.z.to_vec();
     let t_data: Vec<T> = schur.t.to_vec();
 
@@ -87,7 +103,21 @@ pub fn expm_impl<T: Element + LinalgElement>(
 /// This is implemented directly on CPU using type-generic code since
 /// Denman-Beavers iteration involves matrix inversions that benefit
 /// from the CPU's existing infrastructure.
-pub fn sqrtm_impl<T: Element + LinalgElement>(
+pub fn sqrtm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => sqrtm_typed::<f32>(client, a, n),
+        DType::F64 => sqrtm_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "sqrtm",
+        }),
+    }
+}
+
+fn sqrtm_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -120,7 +150,7 @@ pub fn sqrtm_impl<T: Element + LinalgElement>(
     }
 
     // Check for negative real eigenvalues using Schur decomposition
-    let schur = schur_decompose_impl::<T>(client, a, n)?;
+    let schur = schur_decompose_impl(client, a)?;
     let t_data: Vec<T> = schur.t.to_vec();
     let eps = T::epsilon_val();
 
@@ -212,7 +242,21 @@ fn denman_beavers_iteration(a: &[f64], n: usize, eps: f64, max_iter: usize) -> R
 // ============================================================================
 
 /// Matrix logarithm using inverse scaling and squaring with Schur decomposition
-pub fn logm_impl<T: Element + LinalgElement>(
+pub fn logm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => logm_typed::<f32>(client, a, n),
+        DType::F64 => logm_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "logm",
+        }),
+    }
+}
+
+fn logm_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -247,7 +291,7 @@ pub fn logm_impl<T: Element + LinalgElement>(
     let eps = T::epsilon_val();
 
     // Compute Schur decomposition: A = Z @ T @ Z^T
-    let schur = schur_decompose_impl::<T>(client, a, n)?;
+    let schur = schur_decompose_impl(client, a)?;
     let z_data: Vec<T> = schur.z.to_vec();
     let t_data: Vec<T> = schur.t.to_vec();
 
@@ -310,7 +354,21 @@ fn validate_log_eigenvalues(t: &[f64], n: usize, eps: f64) -> Result<()> {
 // ============================================================================
 
 /// Matrix sign function using Newton iteration
-pub fn signm_impl<T: Element + LinalgElement>(
+pub fn signm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => signm_typed::<f32>(client, a, n),
+        DType::F64 => signm_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "signm",
+        }),
+    }
+}
+
+fn signm_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -393,7 +451,25 @@ fn newton_sign_iteration(a: &[f64], n: usize, eps: f64, max_iter: usize) -> Resu
 // ============================================================================
 
 /// Fractional matrix power: A^p using log and exp
-pub fn fractional_matrix_power_impl<T: Element + LinalgElement>(
+pub fn fractional_matrix_power_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    p: f64,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => fractional_matrix_power_typed::<f32>(client, a, n, p),
+        DType::F64 => fractional_matrix_power_typed::<f64>(client, a, n, p),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "fractional_matrix_power",
+        }),
+    }
+}
+
+fn fractional_matrix_power_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -458,7 +534,7 @@ pub fn fractional_matrix_power_impl<T: Element + LinalgElement>(
 
     // p = 0.5: Use sqrtm (more accurate)
     if (p - 0.5).abs() < f64::EPSILON {
-        return sqrtm_impl::<T>(client, a, n);
+        return sqrtm_typed::<T>(client, a, n);
     }
 
     // Integer powers: use repeated squaring
@@ -467,7 +543,7 @@ pub fn fractional_matrix_power_impl<T: Element + LinalgElement>(
     }
 
     // General case: A^p = exp(p * log(A))
-    let log_a = logm_impl::<T>(client, a, n)?;
+    let log_a = logm_typed::<T>(client, a, n)?;
     let log_a_data: Vec<T> = log_a.to_vec();
 
     // Scale by p
@@ -477,7 +553,7 @@ pub fn fractional_matrix_power_impl<T: Element + LinalgElement>(
         .collect();
     let p_log_a_tensor = Tensor::<CpuRuntime>::from_slice(&p_log_a, &[n, n], device);
 
-    expm_impl::<T>(client, &p_log_a_tensor, n)
+    expm_typed::<T>(client, &p_log_a_tensor, n)
 }
 
 /// Integer matrix power using repeated squaring
@@ -538,7 +614,24 @@ fn integer_matrix_power<T: Element + LinalgElement>(
 // ============================================================================
 
 /// General matrix function f(A) using Schur-Parlett algorithm
-pub fn funm_impl<T: Element + LinalgElement, F>(
+pub fn funm_impl<F>(client: &CpuClient, a: &Tensor<CpuRuntime>, f: F) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(f64) -> f64,
+{
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => funm_typed::<f32, F>(client, a, n, f),
+        DType::F64 => funm_typed::<f64, F>(client, a, n, f),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "funm",
+        }),
+    }
+}
+
+fn funm_typed<T: Element + LinalgElement, F>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -576,7 +669,7 @@ where
     }
 
     // Compute Schur decomposition: A = Z @ T @ Z^T
-    let schur = schur_decompose_impl::<T>(client, a, n)?;
+    let schur = schur_decompose_impl(client, a)?;
     let z_data: Vec<T> = schur.z.to_vec();
     let t_data: Vec<T> = schur.t.to_vec();
 

@@ -3,14 +3,32 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::svd::svd_decompose_impl;
-use crate::algorithm::linalg::validate_matrix_2d;
-use crate::dtype::Element;
+use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// Moore-Penrose pseudo-inverse via SVD: A^+ = V @ diag(1/S) @ U^T
-pub fn pinverse_impl<T: Element + LinalgElement>(
+pub fn pinverse_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    rcond: Option<f64>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => pinverse_typed::<f32>(client, a, m, n, rcond),
+        DType::F64 => pinverse_typed::<f64>(client, a, m, n, rcond),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "pinverse",
+        }),
+    }
+}
+
+fn pinverse_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,
@@ -25,7 +43,7 @@ pub fn pinverse_impl<T: Element + LinalgElement>(
     }
 
     // Compute SVD: A = U @ S @ V^T
-    let svd = svd_decompose_impl::<T>(client, a, m, n)?;
+    let svd = svd_decompose_impl(client, a)?;
     let u_data: Vec<T> = svd.u.to_vec();
     let s_data: Vec<T> = svd.s.to_vec();
     let vt_data: Vec<T> = svd.vt.to_vec();
@@ -79,12 +97,27 @@ pub fn pinverse_impl<T: Element + LinalgElement>(
 }
 
 /// Condition number via SVD: cond(A) = σ_max / σ_min
-pub fn cond_impl<T: Element + LinalgElement>(
+pub fn cond_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => cond_typed::<f32>(client, a, m, n),
+        DType::F64 => cond_typed::<f64>(client, a, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "cond",
+        }),
+    }
+}
+
+fn cond_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
 ) -> Result<Tensor<CpuRuntime>> {
     let device = client.device();
-    let (m, n) = validate_matrix_2d(a.shape())?;
 
     // Handle empty matrix
     if m == 0 || n == 0 {
@@ -97,7 +130,7 @@ pub fn cond_impl<T: Element + LinalgElement>(
     }
 
     // Compute SVD to get singular values
-    let svd = svd_decompose_impl::<T>(client, a, m, n)?;
+    let svd = svd_decompose_impl(client, a)?;
     let s_data: Vec<T> = svd.s.to_vec();
 
     if s_data.is_empty() {
@@ -126,7 +159,25 @@ pub fn cond_impl<T: Element + LinalgElement>(
 
 /// Covariance matrix
 /// cov(X) = (X - mean(X))^T @ (X - mean(X)) / (n_samples - ddof)
-pub fn cov_impl<T: Element + LinalgElement>(
+pub fn cov_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    ddof: Option<usize>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => cov_typed::<f32>(client, a, n_samples, n_features, ddof),
+        DType::F64 => cov_typed::<f64>(client, a, n_samples, n_features, ddof),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "cov",
+        }),
+    }
+}
+
+fn cov_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n_samples: usize,
@@ -191,7 +242,21 @@ pub fn cov_impl<T: Element + LinalgElement>(
 
 /// Correlation coefficient matrix
 /// corr[i,j] = cov[i,j] / (std[i] * std[j])
-pub fn corrcoef_impl<T: Element + LinalgElement>(
+pub fn corrcoef_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => corrcoef_typed::<f32>(client, a, n_samples, n_features),
+        DType::F64 => corrcoef_typed::<f64>(client, a, n_samples, n_features),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "corrcoef",
+        }),
+    }
+}
+
+fn corrcoef_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n_samples: usize,
@@ -213,7 +278,7 @@ pub fn corrcoef_impl<T: Element + LinalgElement>(
     }
 
     // Compute covariance matrix (with ddof=1 for sample covariance)
-    let cov_tensor = cov_impl::<T>(client, a, n_samples, n_features, Some(1))?;
+    let cov_tensor = cov_typed::<T>(client, a, n_samples, n_features, Some(1))?;
     let cov_data: Vec<T> = cov_tensor.to_vec();
 
     // Extract standard deviations (sqrt of diagonal)

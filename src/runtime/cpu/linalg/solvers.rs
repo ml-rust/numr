@@ -3,13 +3,38 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
-use crate::dtype::Element;
+use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d, validate_square_matrix};
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// Solve Ax = b using LU decomposition
-pub fn solve_impl<T: Element + LinalgElement>(
+pub fn solve_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => solve_typed::<f32>(client, a, b, n),
+        DType::F64 => solve_typed::<f64>(client, a, b, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "solve",
+        }),
+    }
+}
+
+fn solve_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
@@ -18,7 +43,7 @@ pub fn solve_impl<T: Element + LinalgElement>(
     let device = client.device();
 
     // Compute LU decomposition
-    let lu_decomp = lu_decompose_impl::<T>(client, a, n, n)?;
+    let lu_decomp = lu_decompose_impl(client, a)?;
     let lu_data: Vec<T> = lu_decomp.lu.to_vec();
     let pivots_data: Vec<i64> = lu_decomp.pivots.to_vec();
 
@@ -95,7 +120,32 @@ pub fn solve_impl<T: Element + LinalgElement>(
 }
 
 /// Forward substitution for lower triangular system
-pub fn solve_triangular_lower_impl<T: Element + LinalgElement>(
+pub fn solve_triangular_lower_impl(
+    client: &CpuClient,
+    l: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    unit_diagonal: bool,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(l.dtype())?;
+    if l.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: l.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let n = validate_square_matrix(l.shape())?;
+
+    match l.dtype() {
+        DType::F32 => solve_triangular_lower_typed::<f32>(client, l, b, n, unit_diagonal),
+        DType::F64 => solve_triangular_lower_typed::<f64>(client, l, b, n, unit_diagonal),
+        _ => Err(Error::UnsupportedDType {
+            dtype: l.dtype(),
+            op: "solve_triangular_lower",
+        }),
+    }
+}
+
+fn solve_triangular_lower_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     l: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
@@ -155,7 +205,31 @@ pub fn solve_triangular_lower_impl<T: Element + LinalgElement>(
 }
 
 /// Backward substitution for upper triangular system
-pub fn solve_triangular_upper_impl<T: Element + LinalgElement>(
+pub fn solve_triangular_upper_impl(
+    client: &CpuClient,
+    u: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(u.dtype())?;
+    if u.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: u.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let n = validate_square_matrix(u.shape())?;
+
+    match u.dtype() {
+        DType::F32 => solve_triangular_upper_typed::<f32>(client, u, b, n),
+        DType::F64 => solve_triangular_upper_typed::<f64>(client, u, b, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: u.dtype(),
+            op: "solve_triangular_upper",
+        }),
+    }
+}
+
+fn solve_triangular_upper_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     u: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
@@ -209,7 +283,31 @@ pub fn solve_triangular_upper_impl<T: Element + LinalgElement>(
 }
 
 /// Least squares via QR decomposition
-pub fn lstsq_impl<T: Element + LinalgElement>(
+pub fn lstsq_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => lstsq_typed::<f32>(client, a, b, m, n),
+        DType::F64 => lstsq_typed::<f64>(client, a, b, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "lstsq",
+        }),
+    }
+}
+
+fn lstsq_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
@@ -219,7 +317,7 @@ pub fn lstsq_impl<T: Element + LinalgElement>(
     let device = client.device();
 
     // Compute thin QR
-    let qr = qr_decompose_impl::<T>(client, a, m, n, true)?;
+    let qr = qr_decompose_impl(client, a, true)?;
     let q_data: Vec<T> = qr.q.to_vec();
     let r_data: Vec<T> = qr.r.to_vec();
 

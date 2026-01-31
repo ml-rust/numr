@@ -5,11 +5,29 @@ use super::super::jacobi::{
     argsort_by_magnitude_desc, identity_matrix, permute_columns,
 };
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::EigenDecomposition;
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{EigenDecomposition, validate_linalg_dtype, validate_square_matrix};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
+
+/// Eigendecomposition for symmetric matrices using Jacobi algorithm
+pub fn eig_decompose_symmetric_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<EigenDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => eig_decompose_symmetric_typed::<f32>(client, a, n),
+        DType::F64 => eig_decompose_symmetric_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "eig_decompose_symmetric",
+        }),
+    }
+}
 
 /// Eigendecomposition for symmetric matrices using Jacobi algorithm
 ///
@@ -24,7 +42,7 @@ use crate::tensor::Tensor;
 ///      - Check convergence: max(|A[i,j]| for i≠j) < n * epsilon
 /// 3. eigenvalues = diag(A) (diagonal elements after convergence)
 /// 4. Sort eigenvalues descending by magnitude, reorder eigenvector columns
-pub fn eig_decompose_symmetric_impl<T: Element + LinalgElement>(
+fn eig_decompose_symmetric_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,

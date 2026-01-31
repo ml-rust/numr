@@ -2,14 +2,34 @@
 
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{CholeskyDecomposition, LuDecomposition, QrDecomposition};
-use crate::dtype::Element;
+use crate::algorithm::linalg::{
+    CholeskyDecomposition, LuDecomposition, QrDecomposition, validate_linalg_dtype,
+    validate_matrix_2d, validate_square_matrix,
+};
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// LU decomposition with partial pivoting (Doolittle algorithm)
-pub fn lu_decompose_impl<T: Element + LinalgElement>(
+pub fn lu_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<LuDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => lu_decompose_typed::<f32>(client, a, m, n),
+        DType::F64 => lu_decompose_typed::<f64>(client, a, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "lu_decompose",
+        }),
+    }
+}
+
+fn lu_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,
@@ -81,7 +101,24 @@ pub fn lu_decompose_impl<T: Element + LinalgElement>(
 }
 
 /// Cholesky decomposition (Cholesky-Banachiewicz algorithm)
-pub fn cholesky_decompose_impl<T: Element + LinalgElement>(
+pub fn cholesky_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<CholeskyDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => cholesky_decompose_typed::<f32>(client, a, n),
+        DType::F64 => cholesky_decompose_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "cholesky_decompose",
+        }),
+    }
+}
+
+fn cholesky_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -120,7 +157,25 @@ pub fn cholesky_decompose_impl<T: Element + LinalgElement>(
 }
 
 /// QR decomposition using Householder reflections
-pub fn qr_decompose_impl<T: Element + LinalgElement>(
+pub fn qr_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    thin: bool,
+) -> Result<QrDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => qr_decompose_typed::<f32>(client, a, m, n, thin),
+        DType::F64 => qr_decompose_typed::<f64>(client, a, m, n, thin),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "qr_decompose",
+        }),
+    }
+}
+
+fn qr_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,

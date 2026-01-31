@@ -2,16 +2,33 @@
 
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::SchurDecomposition;
-use crate::dtype::Element;
-use crate::error::Result;
+use crate::algorithm::linalg::{SchurDecomposition, validate_linalg_dtype, validate_square_matrix};
+use crate::dtype::{DType, Element};
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// Schur decomposition using QR iteration
 ///
 /// Computes A = Z @ T @ Z^T where Z is orthogonal and T is upper quasi-triangular.
-pub fn schur_decompose_impl<T: Element + LinalgElement>(
+pub fn schur_decompose_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<SchurDecomposition<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => schur_decompose_typed::<f32>(client, a, n),
+        DType::F64 => schur_decompose_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "schur_decompose",
+        }),
+    }
+}
+
+fn schur_decompose_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,

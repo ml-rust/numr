@@ -4,13 +4,30 @@ use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
 use super::solvers::solve_impl;
+use crate::algorithm::linalg::{
+    MatrixNormOrder, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+};
 use crate::dtype::{DType, Element};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
 /// Matrix inverse via LU decomposition
-pub fn inverse_impl<T: Element + LinalgElement>(
+pub fn inverse_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => inverse_typed::<f32>(client, a, n),
+        DType::F64 => inverse_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "inverse",
+        }),
+    }
+}
+
+fn inverse_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -25,11 +42,25 @@ pub fn inverse_impl<T: Element + LinalgElement>(
     let identity_tensor = Tensor::<CpuRuntime>::from_slice(&identity, &[n, n], device);
 
     // Solve A @ X = I
-    solve_impl::<T>(client, a, &identity_tensor, n)
+    solve_impl(client, a, &identity_tensor)
 }
 
 /// Determinant via LU decomposition
-pub fn det_impl<T: Element + LinalgElement>(
+pub fn det_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => det_typed::<f32>(client, a, n),
+        DType::F64 => det_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "det",
+        }),
+    }
+}
+
+fn det_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     n: usize,
@@ -42,7 +73,7 @@ pub fn det_impl<T: Element + LinalgElement>(
     }
 
     // Compute LU decomposition
-    let lu_decomp = lu_decompose_impl::<T>(client, a, n, n)?;
+    let lu_decomp = lu_decompose_impl(client, a)?;
     let lu_data: Vec<T> = lu_decomp.lu.to_vec();
 
     // det = (-1)^num_swaps * product(U[i,i])
@@ -60,7 +91,21 @@ pub fn det_impl<T: Element + LinalgElement>(
 }
 
 /// Trace: sum of diagonal elements
-pub fn trace_impl<T: Element + LinalgElement>(
+pub fn trace_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => trace_typed::<f32>(client, a, m, n),
+        DType::F64 => trace_typed::<f64>(client, a, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "trace",
+        }),
+    }
+}
+
+fn trace_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,
@@ -79,7 +124,21 @@ pub fn trace_impl<T: Element + LinalgElement>(
 }
 
 /// Extract diagonal
-pub fn diag_impl<T: Element + LinalgElement>(
+pub fn diag_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => diag_typed::<f32>(client, a, m, n),
+        DType::F64 => diag_typed::<f64>(client, a, m, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "diag",
+        }),
+    }
+}
+
+fn diag_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,
@@ -98,7 +157,26 @@ pub fn diag_impl<T: Element + LinalgElement>(
 }
 
 /// Create diagonal matrix from 1D tensor
-pub fn diagflat_impl<T: Element + LinalgElement>(
+pub fn diagflat_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.ndim() != 1 {
+        return Err(Error::Internal(format!(
+            "diagflat expects 1D tensor, got {}D",
+            a.ndim()
+        )));
+    }
+
+    match a.dtype() {
+        DType::F32 => diagflat_typed::<f32>(client, a),
+        DType::F64 => diagflat_typed::<f64>(client, a),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "diagflat",
+        }),
+    }
+}
+
+fn diagflat_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
 ) -> Result<Tensor<CpuRuntime>> {
@@ -120,7 +198,32 @@ pub fn diagflat_impl<T: Element + LinalgElement>(
 /// produces output of shape [m_a * m_b, n_a * n_b].
 ///
 /// (A ⊗ B)[i*m_b + k, j*n_b + l] = A[i, j] * B[k, l]
-pub fn kron_impl<T: Element + LinalgElement>(
+pub fn kron_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let (m_a, n_a) = validate_matrix_2d(a.shape())?;
+    let (m_b, n_b) = validate_matrix_2d(b.shape())?;
+
+    match a.dtype() {
+        DType::F32 => kron_typed::<f32>(client, a, b, m_a, n_a, m_b, n_b),
+        DType::F64 => kron_typed::<f64>(client, a, b, m_a, n_a, m_b, n_b),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "kron",
+        }),
+    }
+}
+
+fn kron_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     b: &Tensor<CpuRuntime>,
@@ -161,7 +264,25 @@ pub fn kron_impl<T: Element + LinalgElement>(
 
 /// Matrix rank via singular value thresholding
 /// Uses QR-based approach since SVD is not yet implemented
-pub fn matrix_rank_impl<T: Element + LinalgElement>(
+pub fn matrix_rank_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    tol: Option<f64>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => matrix_rank_typed::<f32>(client, a, m, n, tol),
+        DType::F64 => matrix_rank_typed::<f64>(client, a, m, n, tol),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "matrix_rank",
+        }),
+    }
+}
+
+fn matrix_rank_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     m: usize,
@@ -171,7 +292,7 @@ pub fn matrix_rank_impl<T: Element + LinalgElement>(
     let device = client.device();
 
     // Use QR decomposition to estimate rank (R diagonal gives singular value bounds)
-    let qr = qr_decompose_impl::<T>(client, a, m, n, true)?;
+    let qr = qr_decompose_impl(client, a, true)?;
     let r_data: Vec<T> = qr.r.to_vec();
 
     let k = m.min(n);
@@ -204,8 +325,32 @@ pub fn matrix_rank_impl<T: Element + LinalgElement>(
     Ok(Tensor::<CpuRuntime>::from_slice(&[rank], &[], device))
 }
 
+/// Matrix norm implementation
+pub fn matrix_norm_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    ord: MatrixNormOrder,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let (_m, _n) = validate_matrix_2d(a.shape())?;
+
+    match ord {
+        MatrixNormOrder::Frobenius => match a.dtype() {
+            DType::F32 => frobenius_norm_typed::<f32>(client, a),
+            DType::F64 => frobenius_norm_typed::<f64>(client, a),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "matrix_norm",
+            }),
+        },
+        MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
+            "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
+        )),
+    }
+}
+
 /// Frobenius norm: ||A||_F = sqrt(sum_{i,j} |A[i,j]|^2)
-pub fn frobenius_norm_impl<T: Element + LinalgElement>(
+fn frobenius_norm_typed<T: Element + LinalgElement>(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
 ) -> Result<Tensor<CpuRuntime>> {
