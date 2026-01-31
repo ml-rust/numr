@@ -8,8 +8,7 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, BinaryOp, CompareOp, Kernel, ReduceOp, UnaryOp, broadcast_shape,
-    reduce_output_shape,
+    AccumulationPrecision, BinaryOp, CompareOp, Kernel, ReduceOp, UnaryOp, reduce_output_shape,
 };
 use crate::tensor::Tensor;
 
@@ -24,37 +23,13 @@ pub(super) use crate::dispatch_dtype;
 pub(super) use crate::runtime::ensure_contiguous;
 
 // ============================================================================
-// Helper Functions
+// Shared Helper Functions (imported from runtime module)
 // ============================================================================
+//
+// These generic helpers work with any Runtime, avoiding code duplication
+// across CPU, CUDA, and WebGPU backends.
 
-/// Validate that two tensors have matching dtypes for binary operations.
-#[inline]
-pub(super) fn validate_binary_dtypes(
-    a: &Tensor<CpuRuntime>,
-    b: &Tensor<CpuRuntime>,
-) -> Result<DType> {
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    Ok(a.dtype())
-}
-
-/// Compute broadcast shape for binary operations.
-///
-/// Returns the output shape after broadcasting, or an error if shapes are incompatible.
-#[inline]
-pub(super) fn compute_broadcast_shape(
-    a: &Tensor<CpuRuntime>,
-    b: &Tensor<CpuRuntime>,
-) -> Result<Vec<usize>> {
-    broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
-        lhs: a.shape().to_vec(),
-        rhs: b.shape().to_vec(),
-    })
-}
+pub(super) use crate::runtime::{compute_broadcast_shape, validate_binary_dtypes};
 
 // ============================================================================
 // Operation Implementation Helpers

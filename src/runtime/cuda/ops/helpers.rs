@@ -15,8 +15,7 @@ use super::super::{CudaClient, CudaRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{matmul_bias_output_shape, matmul_output_shape, reduce_output_shape};
-use crate::runtime::ensure_contiguous;
-use crate::runtime::fallback::{compute_broadcast_shape, validate_binary_dtypes};
+use crate::runtime::{compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
 // ============================================================================

@@ -8,8 +8,11 @@ use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{ScalarOps, broadcast_shape, matmul_bias_output_shape, matmul_output_shape};
-use crate::runtime::{RuntimeClient, compute_contiguous_strides, ensure_contiguous};
+use crate::ops::{ScalarOps, matmul_bias_output_shape, matmul_output_shape};
+use crate::runtime::{
+    RuntimeClient, compute_broadcast_shape, compute_contiguous_strides, ensure_contiguous,
+    validate_binary_dtypes,
+};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
 
@@ -19,13 +22,9 @@ pub(super) fn native_binary_op(
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let dtype = a.dtype();
-
-    // Compute broadcast shape
-    let out_shape = broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
-        lhs: a.shape().to_vec(),
-        rhs: b.shape().to_vec(),
-    })?;
+    // Use shared helpers for validation (same as CPU and CUDA backends)
+    let dtype = validate_binary_dtypes(a, b)?;
+    let out_shape = compute_broadcast_shape(a, b)?;
 
     // Broadcasting not yet implemented natively - fall back for different shapes
     if a.shape() != b.shape() {
@@ -210,7 +209,8 @@ pub(super) fn native_compare_op(
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let dtype = a.dtype();
+    // Use shared helpers for validation (same as CPU and CUDA backends)
+    let dtype = validate_binary_dtypes(a, b)?;
 
     // Broadcasting not yet implemented natively
     if a.shape() != b.shape() {
