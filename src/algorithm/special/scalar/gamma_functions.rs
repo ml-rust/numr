@@ -7,13 +7,13 @@ use crate::algorithm::special::{LANCZOS_COEFFICIENTS, LANCZOS_G, LN_SQRT_2PI};
 // ============================================================================
 
 /// Maximum iterations for continued fraction / series expansions
-const MAX_ITER: usize = 200;
+pub(super) const MAX_ITER: usize = 200;
 
 /// Convergence threshold for double precision
-const EPSILON_F64: f64 = 1e-15;
+pub(super) const EPSILON_F64: f64 = 1e-15;
 
 /// Small value to prevent division by zero in continued fractions
-const TINY: f64 = 1e-30;
+pub(super) const TINY: f64 = 1e-30;
 
 // ============================================================================
 // Gamma Function (Lanczos Approximation)

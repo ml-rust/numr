@@ -289,6 +289,84 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn gammaincinv(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        p: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        if a.dtype() != p.dtype() {
+            return Err(crate::error::Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: p.dtype(),
+            });
+        }
+        if a.shape() != p.shape() {
+            return Err(crate::error::Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: p.shape().to_vec(),
+            });
+        }
+
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), a.dtype(), device);
+
+        unsafe {
+            kernels::launch_gammaincinv(
+                self.context(),
+                self.stream(),
+                device.index,
+                a.dtype(),
+                a.storage().ptr(),
+                p.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn betaincinv(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        p: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        if a.dtype() != b.dtype() || a.dtype() != p.dtype() {
+            return Err(crate::error::Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: b.dtype(),
+            });
+        }
+        if a.shape() != b.shape() || a.shape() != p.shape() {
+            return Err(crate::error::Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: p.shape().to_vec(),
+            });
+        }
+
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), a.dtype(), device);
+
+        unsafe {
+            kernels::launch_betaincinv(
+                self.context(),
+                self.stream(),
+                device.index,
+                a.dtype(),
+                a.storage().ptr(),
+                b.storage().ptr(),
+                p.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
     fn bessel_j0(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         validate_special_dtype(x.dtype())?;
         let device = self.device();

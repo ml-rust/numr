@@ -146,6 +146,49 @@ impl SpecialFunctions<WgpuRuntime> for WgpuClient {
         compute_binary_special(self, a, x, "gammaincc")
     }
 
+    fn gammaincinv(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        p: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        if a.dtype() != p.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: p.dtype(),
+            });
+        }
+        if a.shape() != p.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: p.shape().to_vec(),
+            });
+        }
+        compute_binary_special(self, a, p, "gammaincinv")
+    }
+
+    fn betaincinv(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        p: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        if a.dtype() != b.dtype() || a.dtype() != p.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: b.dtype(),
+            });
+        }
+        if a.shape() != b.shape() || a.shape() != p.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: p.shape().to_vec(),
+            });
+        }
+        compute_ternary_special(self, a, b, p, "betaincinv")
+    }
+
     fn bessel_j0(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         validate_special_dtype(x.dtype())?;
         compute_unary_special(self, x, "bessel_j0")

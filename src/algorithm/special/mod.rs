@@ -40,6 +40,9 @@
 //! - Numerical Recipes polynomial approximations for Bessel functions
 
 pub mod bessel_coefficients;
+pub mod scalar;
+
+pub use scalar::*;
 
 use crate::error::Result;
 use crate::runtime::Runtime;
@@ -167,6 +170,28 @@ pub trait SpecialFunctions<R: Runtime> {
     /// Q(a, x) = 1 - P(a, x)
     /// ```
     fn gammaincc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the inverse of the lower regularized incomplete gamma function.
+    ///
+    /// Returns x such that P(a, x) = p.
+    ///
+    /// # Properties
+    /// - Domain: p in [0, 1], a > 0
+    /// - Range: x >= 0
+    /// - gammaincinv(a, 0) = 0
+    /// - gammaincinv(a, 1) = ∞
+    fn gammaincinv(&self, a: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the inverse of the regularized incomplete beta function.
+    ///
+    /// Returns x such that I_x(a, b) = p.
+    ///
+    /// # Properties
+    /// - Domain: p in [0, 1], a > 0, b > 0
+    /// - Range: x in [0, 1]
+    /// - betaincinv(a, b, 0) = 0
+    /// - betaincinv(a, b, 1) = 1
+    fn betaincinv(&self, a: &Tensor<R>, b: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ========================================================================
     // Bessel Functions

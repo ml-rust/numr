@@ -5,22 +5,25 @@
 //!
 //! # Module Structure
 //!
-//! - `kernels` - Scalar computation functions (erf_scalar, gamma_scalar, etc.)
+//! - `algorithm::special::scalar` - Scalar computation functions (erf_scalar, gamma_scalar, etc.)
 //! - `helpers` - Tensor operation adapters (apply_unary, apply_binary, etc.)
 
 mod helpers;
-mod kernels;
 
 #[cfg(test)]
 mod tests;
 
+use crate::algorithm::special::scalar::{
+    bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar, bessel_j1_scalar, bessel_k0_scalar,
+    bessel_k1_scalar, bessel_y0_scalar, bessel_y1_scalar, beta_scalar, betainc_scalar,
+    betaincinv_scalar, digamma_scalar, erf_scalar, erfc_scalar, erfinv_scalar, gamma_scalar,
+    gammainc_scalar, gammaincc_scalar, gammaincinv_scalar, lgamma_scalar,
+};
 use crate::algorithm::special::{SpecialFunctions, validate_special_dtype};
 use crate::error::Result;
 use crate::tensor::Tensor;
 
 use super::{CpuClient, CpuRuntime};
-
-pub use kernels::*;
 
 // ============================================================================
 // SpecialFunctions Trait Implementation
@@ -88,6 +91,25 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
     ) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(a.dtype())?;
         helpers::apply_binary(a, x, &self.device, gammaincc_scalar)
+    }
+
+    fn gammaincinv(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        p: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        helpers::apply_binary(a, p, &self.device, gammaincinv_scalar)
+    }
+
+    fn betaincinv(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        p: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(a.dtype())?;
+        helpers::apply_ternary(a, b, p, &self.device, betaincinv_scalar)
     }
 
     fn bessel_j0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
