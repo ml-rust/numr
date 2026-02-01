@@ -26,9 +26,9 @@ use super::helpers::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, MatmulOps,
-    NormalizationOps, RandomOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UtilityOps, compute_reduce_strides, matmul_bias_output_shape,
+    ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, LinalgOps, MatmulOps,
+    NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
+    TensorOps, TypeConversionOps, UtilityOps, compute_reduce_strides, matmul_bias_output_shape,
     matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
@@ -2797,7 +2797,223 @@ impl RandomOps<CudaRuntime> for CudaClient {
 
 impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Shape Operations =====
+    // Moved to ShapeOps trait implementation below
 
+    // ===== Linear Algebra Operations =====
+    // Moved to LinalgOps trait implementation below
+
+    // ===== Complex Number Operations =====
+    // Moved to ComplexOps trait in ops/traits/complex.rs
+
+    // ===== Sorting and Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
+
+// ============================================================================
+// LinalgOps Implementation
+// ============================================================================
+
+/// LinalgOps implementation for CUDA runtime.
+impl LinalgOps<CudaRuntime> for CudaClient {
+    fn solve(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve(self, a, b)
+    }
+
+    fn lstsq(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::lstsq(self, a, b)
+    }
+
+    fn pinverse(&self, a: &Tensor<CudaRuntime>, rcond: Option<f64>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
+    }
+
+    fn matrix_norm(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        ord: crate::algorithm::linalg::MatrixNormOrder,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
+    }
+
+    fn inverse(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::inverse(self, a)
+    }
+
+    fn det(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::det(self, a)
+    }
+
+    fn trace(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::trace(self, a)
+    }
+
+    fn diag(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diag(self, a)
+    }
+
+    fn diagflat(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diagflat(self, a)
+    }
+
+    fn matrix_rank(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        tol: Option<f64>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
+    }
+}
+
+// ============================================================================
+// ReduceOps Implementation
+// ============================================================================
+
+/// ReduceOps implementation for CUDA runtime.
+impl ReduceOps<CudaRuntime> for CudaClient {
+    fn sum(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, None)
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
+    }
+
+    fn mean(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Mean = sum / count
+        // When dims is empty, reduce over all dimensions
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| a.shape()[d]).product()
+        };
+
+        // For empty dims, we need to reduce all dimensions
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..a.shape().len()).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        let sum_result = self.sum(a, &actual_dims, keepdim)?;
+        self.div_scalar(&sum_result, count as f64)
+    }
+
+    fn max(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, None)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
+    }
+
+    fn min(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, None)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, None)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "any", dims, keepdim, None)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "all", dims, keepdim, None)
+    }
+}
+
+// ============================================================================
+// ShapeOps Implementation
+// ============================================================================
+
+/// ShapeOps implementation for CUDA runtime.
+impl ShapeOps<CudaRuntime> for CudaClient {
     fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {
         let params = crate::runtime::shape_ops::validate_cat(tensors, dim)?;
 
@@ -2972,206 +3188,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
-    }
-
-    // ===== Linear Algebra =====
-
-    fn solve(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        b: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::solve(self, a, b)
-    }
-
-    fn lstsq(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        b: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
-    }
-
-    fn pinverse(&self, a: &Tensor<CudaRuntime>, rcond: Option<f64>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
-    }
-
-    fn matrix_norm(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        ord: crate::algorithm::linalg::MatrixNormOrder,
-    ) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
-    }
-
-    fn inverse(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::inverse(self, a)
-    }
-
-    fn det(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::det(self, a)
-    }
-
-    fn trace(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::trace(self, a)
-    }
-
-    fn diag(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diag(self, a)
-    }
-
-    fn diagflat(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diagflat(self, a)
-    }
-
-    fn matrix_rank(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        tol: Option<f64>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
-    }
-
-    // ===== Complex Number Operations =====
-    // Moved to ComplexOps trait in ops/traits/complex.rs
-
-    // ===== Sorting and Search Operations =====
-    // Moved to SortingOps trait implementation below
-}
-
-// ============================================================================
-// ReduceOps Implementation
-// ============================================================================
-
-/// ReduceOps implementation for CUDA runtime.
-impl ReduceOps<CudaRuntime> for CudaClient {
-    fn sum(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, None)
-    }
-
-    fn sum_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
-    }
-
-    fn mean(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Mean = sum / count
-        // When dims is empty, reduce over all dimensions
-        let count: usize = if dims.is_empty() {
-            a.numel()
-        } else {
-            dims.iter().map(|&d| a.shape()[d]).product()
-        };
-
-        // For empty dims, we need to reduce all dimensions
-        let actual_dims: Vec<usize> = if dims.is_empty() {
-            (0..a.shape().len()).collect()
-        } else {
-            dims.to_vec()
-        };
-
-        let sum_result = self.sum(a, &actual_dims, keepdim)?;
-        self.div_scalar(&sum_result, count as f64)
-    }
-
-    fn max(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, None)
-    }
-
-    fn max_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
-    }
-
-    fn min(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, None)
-    }
-
-    fn min_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
-    }
-
-    fn prod(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, None)
-    }
-
-    fn prod_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
-    }
-
-    fn any(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "any", dims, keepdim, None)
-    }
-
-    fn all(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "all", dims, keepdim, None)
     }
 }
 
