@@ -89,6 +89,15 @@ pub(super) struct WhereParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct WhereBroadcastParams {
+    pub(super) numel: u32,
+    pub(super) ndim: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct CastParams {
     pub(super) numel: u32,
 }
@@ -610,6 +619,63 @@ pub(super) struct ValidateIndicesParams {
     pub(super) dim_size: u32,
     pub(super) _pad0: u32,
     pub(super) _pad1: u32,
+}
+
+// ============================================================================
+// Broadcast Helpers
+// ============================================================================
+
+/// Compute broadcast strides for an input tensor relative to an output shape.
+///
+/// For each dimension in the output shape:
+/// - If the input dimension matches, use the original stride
+/// - If the input dimension is 1 (broadcast), use stride 0
+/// - If the input doesn't have this dimension (prepended), use stride 0
+pub fn compute_broadcast_strides(input_shape: &[usize], output_shape: &[usize]) -> Vec<u32> {
+    let mut strides = vec![0u32; output_shape.len()];
+    let input_ndim = input_shape.len();
+    let output_ndim = output_shape.len();
+
+    // Compute input strides (row-major)
+    let mut input_strides = vec![1usize; input_ndim];
+    for i in (0..input_ndim.saturating_sub(1)).rev() {
+        input_strides[i] = input_strides[i + 1] * input_shape[i + 1];
+    }
+
+    // Map input dimensions to output dimensions (right-aligned)
+    let offset = output_ndim - input_ndim;
+    for i in 0..output_ndim {
+        if i < offset {
+            // Dimension doesn't exist in input, broadcast with stride 0
+            strides[i] = 0;
+        } else {
+            let input_idx = i - offset;
+            if input_shape[input_idx] == 1 {
+                // Broadcasting dimension, stride 0
+                strides[i] = 0;
+            } else {
+                // Normal dimension, use input stride
+                strides[i] = input_strides[input_idx] as u32;
+            }
+        }
+    }
+
+    strides
+}
+
+/// Create a storage buffer with the given data.
+pub(super) fn create_storage_buffer<T: bytemuck::Pod>(
+    client: &super::super::WgpuClient,
+    data: &[T],
+) -> wgpu::Buffer {
+    use wgpu::util::DeviceExt;
+    client
+        .wgpu_device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("storage_buffer"),
+            contents: bytemuck::cast_slice(data),
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+        })
 }
 
 /// Generate a random seed for WebGPU RNG operations.

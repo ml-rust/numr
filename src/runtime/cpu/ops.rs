@@ -1128,14 +1128,7 @@ impl TensorOps<CpuRuntime> for CpuClient {
             });
         }
         let dtype = x.dtype();
-
-        // Validate condition tensor is U8 (boolean)
-        if cond.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: cond.dtype(),
-            });
-        }
+        let cond_dtype = cond.dtype();
 
         // Compute broadcast shape (cond, x, y) -> out
         let xy_shape =
@@ -1163,17 +1156,36 @@ impl TensorOps<CpuRuntime> for CpuClient {
             let y_ptr = y_contig.storage().ptr();
             let numel = x.numel();
 
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    kernels::where_kernel::<T>(
-                        cond_ptr as *const u8,
-                        x_ptr as *const T,
-                        y_ptr as *const T,
-                        out_ptr as *mut T,
-                        numel,
-                    );
-                }
-            }, "where_cond");
+            // Double dispatch: cond dtype and value dtype
+            // For U8 condition, use optimized SIMD kernel
+            if cond_dtype == DType::U8 {
+                dispatch_dtype!(dtype, T => {
+                    unsafe {
+                        kernels::where_kernel::<T>(
+                            cond_ptr as *const u8,
+                            x_ptr as *const T,
+                            y_ptr as *const T,
+                            out_ptr as *mut T,
+                            numel,
+                        );
+                    }
+                }, "where_cond");
+            } else {
+                // Generic kernel for any condition dtype (non-zero = true)
+                dispatch_dtype!(cond_dtype, C => {
+                    dispatch_dtype!(dtype, T => {
+                        unsafe {
+                            kernels::where_kernel_generic::<C, T>(
+                                cond_ptr as *const C,
+                                x_ptr as *const T,
+                                y_ptr as *const T,
+                                out_ptr as *mut T,
+                                numel,
+                            );
+                        }
+                    }, "where_cond");
+                }, "where_cond");
+            }
         } else {
             // Broadcasting path: use strided kernel
             // Broadcast all inputs to output shape (zero-copy views with stride 0 for broadcast dims)
@@ -1193,23 +1205,47 @@ impl TensorOps<CpuRuntime> for CpuClient {
             let x_offset = x_broadcast.layout().offset();
             let y_offset = y_broadcast.layout().offset();
 
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    kernels::where_strided_kernel::<T>(
-                        cond_ptr as *const u8,
-                        x_ptr as *const T,
-                        y_ptr as *const T,
-                        out_ptr as *mut T,
-                        &out_shape,
-                        &cond_strides,
-                        &x_strides,
-                        &y_strides,
-                        cond_offset,
-                        x_offset,
-                        y_offset,
-                    );
-                }
-            }, "where_cond");
+            // For U8 condition, use optimized kernel
+            if cond_dtype == DType::U8 {
+                dispatch_dtype!(dtype, T => {
+                    unsafe {
+                        kernels::where_strided_kernel::<T>(
+                            cond_ptr as *const u8,
+                            x_ptr as *const T,
+                            y_ptr as *const T,
+                            out_ptr as *mut T,
+                            &out_shape,
+                            &cond_strides,
+                            &x_strides,
+                            &y_strides,
+                            cond_offset,
+                            x_offset,
+                            y_offset,
+                        );
+                    }
+                }, "where_cond");
+            } else {
+                // Generic kernel for any condition dtype
+                dispatch_dtype!(cond_dtype, C => {
+                    dispatch_dtype!(dtype, T => {
+                        unsafe {
+                            kernels::where_strided_kernel_generic::<C, T>(
+                                cond_ptr as *const C,
+                                x_ptr as *const T,
+                                y_ptr as *const T,
+                                out_ptr as *mut T,
+                                &out_shape,
+                                &cond_strides,
+                                &x_strides,
+                                &y_strides,
+                                cond_offset,
+                                x_offset,
+                                y_offset,
+                            );
+                        }
+                    }, "where_cond");
+                }, "where_cond");
+            }
         }
 
         Ok(out)

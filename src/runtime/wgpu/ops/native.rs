@@ -3,7 +3,9 @@
 //! This module contains all the native_* helper functions that implement
 //! tensor operations using WGSL compute shaders.
 
-use super::super::shaders::{cumulative, elementwise, index, matmul, norm, reduce};
+use super::super::shaders::{
+    activation_launcher, cumulative, elementwise, index, matmul, norm, reduce, where_launcher,
+};
 use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
@@ -171,7 +173,7 @@ pub(super) fn native_parametric_activation(
 
     match op {
         "leaky_relu" => {
-            elementwise::launch_leaky_relu(
+            activation_launcher::launch_leaky_relu(
                 client.pipeline_cache(),
                 client.wgpu_queue(),
                 &a_buf,
@@ -182,7 +184,7 @@ pub(super) fn native_parametric_activation(
             )?;
         }
         "elu" => {
-            elementwise::launch_elu(
+            activation_launcher::launch_elu(
                 client.pipeline_cache(),
                 client.wgpu_queue(),
                 &a_buf,
@@ -861,7 +863,7 @@ pub(super) fn native_clamp(
     };
     let params_buf = create_params_buffer(client, &params);
 
-    elementwise::launch_clamp_op(
+    activation_launcher::launch_clamp_op(
         client.pipeline_cache(),
         client.wgpu_queue(),
         &a_buf,
@@ -880,46 +882,108 @@ pub(super) fn native_where_cond(
     x: &Tensor<WgpuRuntime>,
     y: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let dtype = x.dtype();
+    let cond_dtype = cond.dtype();
+    let out_dtype = x.dtype();
 
-    // All must have same shape for native implementation
-    if cond.shape() != x.shape() || x.shape() != y.shape() {
-        return crate::runtime::fallback::where_cond_fallback(
-            cond,
-            x,
-            y,
-            &client.device_id,
-            "where_cond",
-        );
+    // Validate x and y have same dtype
+    if x.dtype() != y.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: x.dtype(),
+            rhs: y.dtype(),
+        });
     }
 
+    // Compute broadcast shape for all three tensors
+    let xy_shape = compute_broadcast_shape(x, y)?;
+    let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| {
+        Error::BroadcastError {
+            lhs: cond.shape().to_vec(),
+            rhs: xy_shape.clone(),
+        }
+    })?;
+
+    let numel: usize = out_shape.iter().product();
+
+    // Same shape case - use element-wise kernel
+    if cond.shape() == x.shape() && x.shape() == y.shape() {
+        let cond_contig = ensure_contiguous(cond);
+        let x_contig = ensure_contiguous(x);
+        let y_contig = ensure_contiguous(y);
+
+        let out = alloc_output(client, &out_shape, out_dtype);
+
+        let cond_buf = get_tensor_buffer(&cond_contig)?;
+        let x_buf = get_tensor_buffer(&x_contig)?;
+        let y_buf = get_tensor_buffer(&y_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = WhereParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(client, &params);
+
+        where_launcher::launch_where_generic_op(
+            client.pipeline_cache(),
+            client.wgpu_queue(),
+            &cond_buf,
+            &x_buf,
+            &y_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            cond_dtype,
+            out_dtype,
+        )?;
+
+        return Ok(out);
+    }
+
+    // Broadcasting case - use broadcast kernel
     let cond_contig = ensure_contiguous(cond);
     let x_contig = ensure_contiguous(x);
     let y_contig = ensure_contiguous(y);
-    let numel = x.numel();
 
-    let out = alloc_output(client, x.shape(), dtype);
+    let cond_strides = compute_broadcast_strides(cond.shape(), &out_shape);
+    let x_strides = compute_broadcast_strides(x.shape(), &out_shape);
+    let y_strides = compute_broadcast_strides(y.shape(), &out_shape);
+    let shape_u32: Vec<u32> = out_shape.iter().map(|&s| s as u32).collect();
+
+    let out = alloc_output(client, &out_shape, out_dtype);
 
     let cond_buf = get_tensor_buffer(&cond_contig)?;
     let x_buf = get_tensor_buffer(&x_contig)?;
     let y_buf = get_tensor_buffer(&y_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = WhereParams {
+    // Create storage buffers for strides and shape
+    let cond_strides_buf = create_storage_buffer(client, &cond_strides);
+    let x_strides_buf = create_storage_buffer(client, &x_strides);
+    let y_strides_buf = create_storage_buffer(client, &y_strides);
+    let shape_buf = create_storage_buffer(client, &shape_u32);
+
+    let params = WhereBroadcastParams {
         numel: numel as u32,
+        ndim: out_shape.len() as u32,
+        _pad0: 0,
+        _pad1: 0,
     };
     let params_buf = create_params_buffer(client, &params);
 
-    elementwise::launch_where_op(
+    where_launcher::launch_where_broadcast_op(
         client.pipeline_cache(),
         client.wgpu_queue(),
         &cond_buf,
         &x_buf,
         &y_buf,
         &out_buf,
+        &cond_strides_buf,
+        &x_strides_buf,
+        &y_strides_buf,
+        &shape_buf,
         &params_buf,
         numel,
-        dtype,
+        cond_dtype,
+        out_dtype,
     )?;
 
     Ok(out)

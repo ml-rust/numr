@@ -41,6 +41,7 @@ pub mod sort;
 pub mod special;
 pub mod unary;
 pub mod utility;
+pub mod where_cond;
 
 pub use binary::generate_binary_shader;
 pub use cast::{generate_all_casts_from, generate_cast_shader};
@@ -91,6 +92,7 @@ pub use utility::{
     generate_multinomial_with_replacement_shader, generate_multinomial_without_replacement_shader,
     generate_rand_shader, generate_randint_shader, generate_randn_shader,
 };
+pub use where_cond::generate_where_cond_shader;
 
 #[cfg(test)]
 mod tests {

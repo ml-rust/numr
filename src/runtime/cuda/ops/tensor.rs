@@ -14,7 +14,8 @@ use super::super::kernels::{
     launch_masked_fill, launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real,
     launch_relu, launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_searchsorted,
     launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim, launch_sort,
-    launch_sort_values_only, launch_topk, launch_validate_indices, launch_where_broadcast_op,
+    launch_sort_values_only, launch_topk, launch_validate_indices,
+    launch_where_broadcast_generic_op, launch_where_broadcast_op, launch_where_generic_op,
     launch_where_op,
 };
 use super::super::{CudaClient, CudaRuntime};
@@ -1618,14 +1619,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
     ) -> Result<Tensor<CudaRuntime>> {
         // Validate that x and y have the same dtype
         let dtype = validate_binary_dtypes(x, y)?;
-
-        // Validate condition tensor is U8 (boolean)
-        if cond.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: cond.dtype(),
-            });
-        }
+        let cond_dtype = cond.dtype();
 
         // For same shapes, use optimized element-wise kernel on GPU
         if cond.shape() == x.shape() && x.shape() == y.shape() {
@@ -1635,17 +1629,34 @@ impl TensorOps<CudaRuntime> for CudaClient {
             let out = Tensor::<CudaRuntime>::empty(x.shape(), dtype, &self.device);
 
             unsafe {
-                launch_where_op(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    dtype,
-                    cond_contig.storage().ptr(),
-                    x_contig.storage().ptr(),
-                    y_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    out.numel(),
-                )?;
+                if cond_dtype == DType::U8 {
+                    // Optimized U8 kernel
+                    launch_where_op(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        dtype,
+                        cond_contig.storage().ptr(),
+                        x_contig.storage().ptr(),
+                        y_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        out.numel(),
+                    )?;
+                } else {
+                    // Generic kernel for F32, F64, I32, I64, U32 conditions
+                    launch_where_generic_op(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        cond_dtype,
+                        dtype,
+                        cond_contig.storage().ptr(),
+                        x_contig.storage().ptr(),
+                        y_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        out.numel(),
+                    )?;
+                }
             }
 
             return Ok(out);
@@ -1667,21 +1678,42 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
 
         unsafe {
-            launch_where_broadcast_op(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                &self.device,
-                dtype,
-                cond_contig.storage().ptr(),
-                x_contig.storage().ptr(),
-                y_contig.storage().ptr(),
-                out.storage().ptr(),
-                cond.shape(),
-                x.shape(),
-                y.shape(),
-                &out_shape,
-            )?;
+            if cond_dtype == DType::U8 {
+                // Optimized U8 broadcast kernel
+                launch_where_broadcast_op(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    &self.device,
+                    dtype,
+                    cond_contig.storage().ptr(),
+                    x_contig.storage().ptr(),
+                    y_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    cond.shape(),
+                    x.shape(),
+                    y.shape(),
+                    &out_shape,
+                )?;
+            } else {
+                // Generic broadcast kernel for non-U8 conditions
+                launch_where_broadcast_generic_op(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    &self.device,
+                    cond_dtype,
+                    dtype,
+                    cond_contig.storage().ptr(),
+                    x_contig.storage().ptr(),
+                    y_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    cond.shape(),
+                    x.shape(),
+                    y.shape(),
+                    &out_shape,
+                )?;
+            }
         }
 
         Ok(out)

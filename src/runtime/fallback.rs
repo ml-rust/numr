@@ -532,30 +532,28 @@ where
     R: Runtime<Device = D>,
     D: Device + Clone,
 {
-    // Validate dtypes
+    // Validate dtypes (x and y must match, cond can be any dtype - non-zero = true)
     let dtype = validate_binary_dtypes(x, y)?;
-    if cond.dtype() != DType::U8 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::U8,
-            rhs: cond.dtype(),
-        });
-    }
+    let cond_dtype = cond.dtype();
 
     let out_shape = compute_ternary_broadcast_shape(cond, x, y)?;
     let cpu = CpuFallbackContext::new();
 
-    dispatch_dtype!(dtype, T => {
-        // Copy all three tensors to CPU
-        let cond_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<u8, R>(cond);
-        let x_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(x);
-        let y_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(y);
+    // Double dispatch: condition dtype and value dtype
+    dispatch_dtype!(cond_dtype, C => {
+        dispatch_dtype!(dtype, T => {
+            // Copy all three tensors to CPU
+            let cond_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<C, R>(cond);
+            let x_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(x);
+            let y_cpu: Tensor<cpu::CpuRuntime> = cpu.tensor_from_gpu::<T, R>(y);
 
-        // Execute where_cond on CPU
-        let result_cpu = cpu.client.where_cond(&cond_cpu, &x_cpu, &y_cpu)?;
+            // Execute where_cond on CPU (CPU impl now handles any cond dtype)
+            let result_cpu = cpu.client.where_cond(&cond_cpu, &x_cpu, &y_cpu)?;
 
-        // Copy result back to GPU
-        let result_data: Vec<T> = result_cpu.to_vec();
-        return Ok(Tensor::<R>::from_slice(&result_data, &out_shape, device));
+            // Copy result back to GPU
+            let result_data: Vec<T> = result_cpu.to_vec();
+            return Ok(Tensor::<R>::from_slice(&result_data, &out_shape, device));
+        }, op_name);
     }, op_name);
 
     unreachable!()

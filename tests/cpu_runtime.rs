@@ -1691,6 +1691,179 @@ fn test_tensor_where_cond_2d() {
 }
 
 // ========================================================================
+// Generic Condition Dtype Tests (non-U8 conditions)
+// ========================================================================
+
+#[test]
+fn test_where_cond_i32_condition() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // I32 condition: non-zero values are true, zero is false
+    let cond = Tensor::<CpuRuntime>::from_slice(&[1i32, 0, -1, 42], &[4], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    let data: Vec<f32> = result.to_vec();
+    // 1 (true) -> x[0], 0 (false) -> y[1], -1 (true) -> x[2], 42 (true) -> x[3]
+    assert_eq!(data, [10.0, 2.0, 30.0, 40.0]);
+}
+
+#[test]
+fn test_where_cond_i64_condition() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // I64 condition
+    let cond = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 0, -999], &[4], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[100.0f64, 200.0, 300.0, 400.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    let data: Vec<f64> = result.to_vec();
+    assert_eq!(data, [1.0, 200.0, 3.0, 400.0]);
+}
+
+#[test]
+fn test_where_cond_f32_condition() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // F32 condition: 0.0 is false, any non-zero (including negative) is true
+    let cond = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, -0.5, 0.001], &[4], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    let data: Vec<f32> = result.to_vec();
+    // 1.0 (true), 0.0 (false), -0.5 (true), 0.001 (true)
+    assert_eq!(data, [10.0, 2.0, 30.0, 40.0]);
+}
+
+#[test]
+fn test_where_cond_f64_condition() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // F64 condition
+    let cond = Tensor::<CpuRuntime>::from_slice(&[0.0f64, 1e-10, 0.0, -1e100], &[4], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    let data: Vec<f32> = result.to_vec();
+    // 0.0 (false), 1e-10 (true), 0.0 (false), -1e100 (true)
+    assert_eq!(data, [1.0, 20.0, 3.0, 40.0]);
+}
+
+#[test]
+fn test_where_cond_with_comparison_result() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // This is the primary use case: comparison ops return same dtype as input
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 5.0, 3.0, 7.0], &[4], &device);
+    let threshold = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 4.0, 4.0, 4.0], &[4], &device);
+
+    // gt returns F32 (1.0 or 0.0), not U8
+    let mask = client.gt(&a, &threshold).unwrap();
+    assert_eq!(mask.dtype(), numr::dtype::DType::F32);
+
+    let high_values = Tensor::<CpuRuntime>::from_slice(&[100.0f32; 4], &[4], &device);
+    let low_values = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 4], &[4], &device);
+
+    // where_cond should work directly with F32 mask
+    let result = client.where_cond(&mask, &high_values, &low_values).unwrap();
+
+    let data: Vec<f32> = result.to_vec();
+    // a > threshold: [false, true, false, true]
+    assert_eq!(data, [0.0, 100.0, 0.0, 100.0]);
+}
+
+#[test]
+fn test_where_cond_with_lt_comparison() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let values = Tensor::<CpuRuntime>::from_slice(&[-2.0f64, -1.0, 0.0, 1.0, 2.0], &[5], &device);
+    let zero = Tensor::<CpuRuntime>::from_slice(&[0.0f64; 5], &[5], &device);
+
+    // Find negative values
+    let is_negative = client.lt(&values, &zero).unwrap();
+    assert_eq!(is_negative.dtype(), numr::dtype::DType::F64);
+
+    // Select negated values where negative, original elsewhere (implements abs())
+    let negated = client.mul_scalar(&values, -1.0).unwrap();
+    let result = client.where_cond(&is_negative, &negated, &values).unwrap();
+
+    let data: Vec<f64> = result.to_vec();
+    // Manual abs: [-2, -1] become [2, 1], rest stay same
+    assert_eq!(data, [2.0, 1.0, 0.0, 1.0, 2.0]);
+}
+
+#[test]
+fn test_where_cond_generic_broadcast() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // I32 condition with broadcasting: cond [1], x [4], y [4]
+    let cond = Tensor::<CpuRuntime>::from_slice(&[1i32], &[1], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    assert_eq!(result.shape(), &[4]);
+    let data: Vec<f32> = result.to_vec();
+    // All from x since cond = [1] broadcasts to all true
+    assert_eq!(data, [10.0, 20.0, 30.0, 40.0]);
+}
+
+#[test]
+fn test_where_cond_generic_2d_broadcast() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // F32 condition [2, 1] broadcasts with x, y [2, 3]
+    let cond = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0], &[2, 1], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(
+        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+        &[2, 3],
+        &device,
+    );
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    assert_eq!(result.shape(), &[2, 3]);
+    let data: Vec<f32> = result.to_vec();
+    // Row 0: cond=1.0 (true) -> x values [1, 2, 3]
+    // Row 1: cond=0.0 (false) -> y values [40, 50, 60]
+    assert_eq!(data, [1.0, 2.0, 3.0, 40.0, 50.0, 60.0]);
+}
+
+#[test]
+fn test_where_cond_u32_condition() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // U32 condition
+    let cond = Tensor::<CpuRuntime>::from_slice(&[0u32, 1, 0, u32::MAX], &[4], &device);
+    let x = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+    let y = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+
+    let result = client.where_cond(&cond, &x, &y).unwrap();
+
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, [1.0, 20.0, 3.0, 40.0]);
+}
+
+// ========================================================================
 // Parametric Activation Tests (leaky_relu, elu)
 // ========================================================================
 
