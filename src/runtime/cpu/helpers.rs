@@ -1053,6 +1053,22 @@ pub(super) fn index_select_impl(
 
     let a_contig = ensure_contiguous(a);
     let index_contig = ensure_contiguous(index);
+
+    // Validate all indices are within bounds (before calling unsafe kernel)
+    let dim_size = shape[dim];
+    let index_data = unsafe {
+        std::slice::from_raw_parts(index_contig.storage().ptr() as *const i64, index_len)
+    };
+    for &idx in index_data.iter() {
+        // Negative indices are not supported - must be in [0, dim_size)
+        if idx < 0 || idx as usize >= dim_size {
+            return Err(Error::IndexOutOfBounds {
+                index: if idx < 0 { 0 } else { idx as usize },
+                size: dim_size,
+            });
+        }
+    }
+
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     let a_ptr = a_contig.storage().ptr();
@@ -1071,6 +1087,106 @@ pub(super) fn index_select_impl(
             );
         }
     }, "index_select");
+
+    Ok(out)
+}
+
+/// Put values at specified indices along a dimension.
+pub(super) fn index_put_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    dim: usize,
+    index: &Tensor<CpuRuntime>,
+    src: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
+    // Validate dimension
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate index dtype
+    if index.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: index.dtype(),
+        });
+    }
+
+    // Index must be 1D
+    if index.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![index.numel()],
+            got: index.shape().to_vec(),
+        });
+    }
+
+    // Validate src dtype matches
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    let index_len = index.shape()[0];
+
+    // Validate src shape: must match a's shape except at dim where it equals index_len
+    let mut expected_src_shape = shape.to_vec();
+    expected_src_shape[dim] = index_len;
+    if src.shape() != expected_src_shape {
+        return Err(Error::ShapeMismatch {
+            expected: expected_src_shape,
+            got: src.shape().to_vec(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let index_contig = ensure_contiguous(index);
+    let src_contig = ensure_contiguous(src);
+
+    // Validate all indices are within bounds (before calling unsafe kernel)
+    let dim_size = shape[dim];
+    let index_data = unsafe {
+        std::slice::from_raw_parts(index_contig.storage().ptr() as *const i64, index_len)
+    };
+    for &idx in index_data.iter() {
+        // Negative indices are not supported - must be in [0, dim_size)
+        if idx < 0 || idx as usize >= dim_size {
+            return Err(Error::IndexOutOfBounds {
+                index: if idx < 0 { 0 } else { idx as usize },
+                size: dim_size,
+            });
+        }
+    }
+
+    // Clone a's data for output
+    let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
+
+    let a_ptr = a_contig.storage().ptr();
+    let index_ptr = index_contig.storage().ptr();
+    let src_ptr = src_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::index_put_kernel::<T>(
+                a_ptr as *const T,
+                index_ptr as *const i64,
+                src_ptr as *const T,
+                out_ptr as *mut T,
+                shape,
+                dim,
+                index_len,
+            );
+        }
+    }, "index_put");
 
     Ok(out)
 }

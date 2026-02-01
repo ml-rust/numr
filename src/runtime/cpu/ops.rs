@@ -6,9 +6,9 @@
 use super::helpers::{
     ActivationOp, activation_op_impl, binary_op_impl, cat_impl, chunk_impl, compare_op_impl,
     cumprod_impl, cumsum_impl, dispatch_dtype, elu_impl, embedding_lookup_impl, ensure_contiguous,
-    gather_impl, index_select_impl, leaky_relu_impl, logsumexp_impl, masked_fill_impl,
-    masked_select_impl, pad_impl, reduce_impl, reduce_impl_with_precision, repeat_impl, roll_impl,
-    scalar_op_impl, scatter_impl, split_impl, stack_impl, unary_op_impl,
+    gather_impl, index_put_impl, index_select_impl, leaky_relu_impl, logsumexp_impl,
+    masked_fill_impl, masked_select_impl, pad_impl, reduce_impl, reduce_impl_with_precision,
+    repeat_impl, roll_impl, scalar_op_impl, scatter_impl, split_impl, stack_impl, unary_op_impl,
 };
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
@@ -83,12 +83,72 @@ impl TensorOps<CpuRuntime> for CpuClient {
         unary_op_impl(self, UnaryOp::Tan, a, "tan")
     }
 
+    fn asin(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Asin, a, "asin")
+    }
+
+    fn acos(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Acos, a, "acos")
+    }
+
+    fn atan(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Atan, a, "atan")
+    }
+
+    fn sinh(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Sinh, a, "sinh")
+    }
+
+    fn cosh(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Cosh, a, "cosh")
+    }
+
+    fn asinh(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Asinh, a, "asinh")
+    }
+
+    fn acosh(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Acosh, a, "acosh")
+    }
+
+    fn atanh(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Atanh, a, "atanh")
+    }
+
     fn recip(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         unary_op_impl(self, UnaryOp::Recip, a, "recip")
     }
 
+    fn rsqrt(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Rsqrt, a, "rsqrt")
+    }
+
     fn square(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         unary_op_impl(self, UnaryOp::Square, a, "square")
+    }
+
+    fn cbrt(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Cbrt, a, "cbrt")
+    }
+
+    fn exp2(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Exp2, a, "exp2")
+    }
+
+    fn expm1(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Expm1, a, "expm1")
+    }
+
+    fn log2(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Log2, a, "log2")
+    }
+
+    fn log10(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Log10, a, "log10")
+    }
+
+    fn log1p(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Log1p, a, "log1p")
     }
 
     fn floor(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -101,6 +161,10 @@ impl TensorOps<CpuRuntime> for CpuClient {
 
     fn round(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         unary_op_impl(self, UnaryOp::Round, a, "round")
+    }
+
+    fn trunc(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        unary_op_impl(self, UnaryOp::Trunc, a, "trunc")
     }
 
     fn sign(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -171,6 +235,10 @@ impl TensorOps<CpuRuntime> for CpuClient {
         b: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         binary_op_impl(self, BinaryOp::Min, a, b, "minimum")
+    }
+
+    fn atan2(&self, y: &Tensor<CpuRuntime>, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Atan2, y, x, "atan2")
     }
 
     // ===== Matrix Operations =====
@@ -791,6 +859,16 @@ impl TensorOps<CpuRuntime> for CpuClient {
         index: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         index_select_impl(self, a, dim, index)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_put_impl(self, a, dim, index, src)
     }
 
     fn masked_select(
