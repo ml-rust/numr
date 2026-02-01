@@ -14,9 +14,10 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, ComplexOps, ConditionalOps, Kernel,
-    LogicalOps, MatmulOps, NormalizationOps, ReduceOp, ScalarOps, TensorOps, TypeConversionOps,
-    UnaryOp, compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
+    AccumulationPrecision, ActivationOps, BinaryOp, CompareOp, CompareOps, ComplexOps,
+    ConditionalOps, CumulativeOps, IndexingOps, Kernel, LogicalOps, MatmulOps, NormalizationOps,
+    ReduceOp, ReduceOps, ScalarOps, TensorOps, TypeConversionOps, UnaryOp, UtilityOps,
+    compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::runtime::{validate_arange, validate_eye};
 use crate::tensor::Tensor;
@@ -545,6 +546,126 @@ impl MatmulOps<CpuRuntime> for CpuClient {
 }
 
 // ============================================================================
+// CumulativeOps Implementation
+// ============================================================================
+
+/// CumulativeOps implementation for CPU runtime.
+impl CumulativeOps<CpuRuntime> for CpuClient {
+    fn cumsum(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cumsum_impl(self, a, dim)
+    }
+
+    fn cumprod(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cumprod_impl(self, a, dim)
+    }
+
+    fn logsumexp(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        logsumexp_impl(self, a, dims, keepdim)
+    }
+}
+
+// ============================================================================
+// ActivationOps Implementation
+// ============================================================================
+
+/// ActivationOps implementation for CPU runtime.
+impl ActivationOps<CpuRuntime> for CpuClient {
+    fn relu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        activation_op_impl(self, a, ActivationOp::Relu, "relu")
+    }
+
+    fn sigmoid(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        activation_op_impl(self, a, ActivationOp::Sigmoid, "sigmoid")
+    }
+
+    fn silu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        activation_op_impl(self, a, ActivationOp::Silu, "silu")
+    }
+
+    fn gelu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
+    }
+
+    fn leaky_relu(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        negative_slope: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        leaky_relu_impl(self, a, negative_slope)
+    }
+
+    fn elu(&self, a: &Tensor<CpuRuntime>, alpha: f64) -> Result<Tensor<CpuRuntime>> {
+        elu_impl(self, a, alpha)
+    }
+
+    fn softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let ndim = a.ndim();
+
+        // Normalize dimension
+        let dim_idx =
+            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
+
+        let shape = a.shape();
+
+        // Calculate outer_size (product of dims before softmax dim)
+        // and dim_size (size of softmax dim)
+        // and inner_size (product of dims after softmax dim)
+        let outer_size: usize = shape[..dim_idx].iter().product();
+        let dim_size = shape[dim_idx];
+        let inner_size: usize = shape[dim_idx + 1..].iter().product();
+
+        // For softmax, we need the data laid out so that the softmax dimension is contiguous
+        // If dim is the last dimension, we can use the simple kernel
+        // Otherwise, we need to iterate
+
+        if dim_idx == ndim - 1 {
+            // Simple case: softmax over last dimension
+            let a_ptr = a_contig.storage().ptr();
+            let out_ptr = out.storage().ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    kernels::softmax_kernel::<T>(
+                        a_ptr as *const T,
+                        out_ptr as *mut T,
+                        outer_size,
+                        dim_size,
+                    );
+                }
+            }, "softmax");
+        } else {
+            // General case: softmax over non-last dimension
+            // Pre-allocate buffer outside loops to avoid repeated allocations
+            let a_ptr = a_contig.storage().ptr();
+            let out_ptr = out.storage().ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    softmax_non_last_dim::<T>(
+                        a_ptr as *const T,
+                        out_ptr as *mut T,
+                        outer_size,
+                        dim_size,
+                        inner_size,
+                    );
+                }
+            }, "softmax");
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
 // TensorOps Implementation
 // ============================================================================
 
@@ -765,370 +886,10 @@ impl TensorOps<CpuRuntime> for CpuClient {
     }
 
     // ===== Reductions =====
-
-    fn sum(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Sum, a, dims, keepdim, "sum")
-    }
-
-    fn sum_with_precision(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl_with_precision(self, ReduceOp::Sum, a, dims, keepdim, precision, "sum")
-    }
-
-    fn mean(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Mean, a, dims, keepdim, "mean")
-    }
-
-    fn max(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Max, a, dims, keepdim, "max")
-    }
-
-    fn max_with_precision(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl_with_precision(self, ReduceOp::Max, a, dims, keepdim, precision, "max")
-    }
-
-    fn min(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Min, a, dims, keepdim, "min")
-    }
-
-    fn min_with_precision(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl_with_precision(self, ReduceOp::Min, a, dims, keepdim, precision, "min")
-    }
-
-    fn prod(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Prod, a, dims, keepdim, "prod")
-    }
-
-    fn prod_with_precision(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl_with_precision(self, ReduceOp::Prod, a, dims, keepdim, precision, "prod")
-    }
-
-    fn any(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::Any, a, dims, keepdim, "any")
-    }
-
-    fn all(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        reduce_impl(self, ReduceOp::All, a, dims, keepdim, "all")
-    }
-
-    // ===== Cumulative Operations =====
-
-    fn cumsum(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
-        cumsum_impl(self, a, dim)
-    }
-
-    fn cumprod(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
-        cumprod_impl(self, a, dim)
-    }
-
-    fn logsumexp(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        logsumexp_impl(self, a, dims, keepdim)
-    }
-
-    // ===== Activations =====
-
-    fn relu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::Relu, "relu")
-    }
-
-    fn sigmoid(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::Sigmoid, "sigmoid")
-    }
-
-    fn silu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::Silu, "silu")
-    }
-
-    fn gelu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
-    }
-
-    fn leaky_relu(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        negative_slope: f64,
-    ) -> Result<Tensor<CpuRuntime>> {
-        leaky_relu_impl(self, a, negative_slope)
-    }
-
-    fn elu(&self, a: &Tensor<CpuRuntime>, alpha: f64) -> Result<Tensor<CpuRuntime>> {
-        elu_impl(self, a, alpha)
-    }
-
-    fn softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let ndim = a.ndim();
-
-        // Normalize dimension
-        let dim_idx =
-            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
-
-        let shape = a.shape();
-
-        // Calculate outer_size (product of dims before softmax dim)
-        // and dim_size (size of softmax dim)
-        // and inner_size (product of dims after softmax dim)
-        let outer_size: usize = shape[..dim_idx].iter().product();
-        let dim_size = shape[dim_idx];
-        let inner_size: usize = shape[dim_idx + 1..].iter().product();
-
-        // For softmax, we need the data laid out so that the softmax dimension is contiguous
-        // If dim is the last dimension, we can use the simple kernel
-        // Otherwise, we need to iterate
-
-        if dim_idx == ndim - 1 {
-            // Simple case: softmax over last dimension
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
-
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    kernels::softmax_kernel::<T>(
-                        a_ptr as *const T,
-                        out_ptr as *mut T,
-                        outer_size,
-                        dim_size,
-                    );
-                }
-            }, "softmax");
-        } else {
-            // General case: softmax over non-last dimension
-            // Pre-allocate buffer outside loops to avoid repeated allocations
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
-
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    softmax_non_last_dim::<T>(
-                        a_ptr as *const T,
-                        out_ptr as *mut T,
-                        outer_size,
-                        dim_size,
-                        inner_size,
-                    );
-                }
-            }, "softmax");
-        }
-
-        Ok(out)
-    }
+    // Moved to ReduceOps trait implementation below
 
     // ===== Index Operations =====
-
-    fn argmax(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // Validate dimension
-        if dim >= ndim {
-            return Err(Error::InvalidDimension {
-                dim: dim as isize,
-                ndim,
-            });
-        }
-
-        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
-        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::argmax_kernel::<T>(
-                    a_ptr as *const T,
-                    out_ptr as *mut i64,
-                    outer_size,
-                    reduce_size,
-                    inner_size,
-                );
-            }
-        }, "argmax");
-
-        Ok(out)
-    }
-
-    fn argmin(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // Validate dimension
-        if dim >= ndim {
-            return Err(Error::InvalidDimension {
-                dim: dim as isize,
-                ndim,
-            });
-        }
-
-        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
-        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::argmin_kernel::<T>(
-                    a_ptr as *const T,
-                    out_ptr as *mut i64,
-                    outer_size,
-                    reduce_size,
-                    inner_size,
-                );
-            }
-        }, "argmin");
-
-        Ok(out)
-    }
-
-    // ===== Indexing Operations =====
-
-    fn gather(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        index: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        gather_impl(self, a, dim, index)
-    }
-
-    fn scatter(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        index: &Tensor<CpuRuntime>,
-        src: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        scatter_impl(self, a, dim, index, src)
-    }
-
-    fn index_select(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        index: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        index_select_impl(self, a, dim, index)
-    }
-
-    fn index_put(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: usize,
-        index: &Tensor<CpuRuntime>,
-        src: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        index_put_impl(self, a, dim, index, src)
-    }
-
-    fn masked_select(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        mask: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        masked_select_impl(self, a, mask)
-    }
-
-    fn masked_fill(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        mask: &Tensor<CpuRuntime>,
-        value: f64,
-    ) -> Result<Tensor<CpuRuntime>> {
-        masked_fill_impl(self, a, mask, value)
-    }
-
-    fn embedding_lookup(
-        &self,
-        embeddings: &Tensor<CpuRuntime>,
-        indices: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        embedding_lookup_impl(self, embeddings, indices)
-    }
+    // Moved to IndexingOps trait implementation below
 
     // ===== Type Conversion =====
     // Moved to TypeConversionOps impl
@@ -1140,139 +901,7 @@ impl TensorOps<CpuRuntime> for CpuClient {
     // Moved to ConditionalOps impl
 
     // ===== Utility Operations =====
-
-    fn clamp(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        min_val: f64,
-        max_val: f64,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-        let numel = a.numel();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::clamp_kernel::<T>(
-                    a_ptr as *const T,
-                    out_ptr as *mut T,
-                    numel,
-                    min_val,
-                    max_val,
-                );
-            }
-        }, "clamp");
-
-        Ok(out)
-    }
-
-    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CpuRuntime>> {
-        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
-        let numel = out.numel();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::fill_kernel::<T>(
-                    out_ptr as *mut T,
-                    T::from_f64(value),
-                    numel,
-                );
-            }
-        }, "fill");
-
-        Ok(out)
-    }
-
-    fn arange(&self, start: f64, stop: f64, step: f64, dtype: DType) -> Result<Tensor<CpuRuntime>> {
-        // Use shared validation
-        let numel = validate_arange(start, stop, step)?;
-
-        // Handle empty tensor case
-        if numel == 0 {
-            return Ok(Tensor::<CpuRuntime>::empty(&[0], dtype, &self.device));
-        }
-
-        let out = Tensor::<CpuRuntime>::empty(&[numel], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::arange_kernel::<T>(out_ptr as *mut T, start, step, numel);
-            }
-        }, "arange");
-
-        Ok(out)
-    }
-
-    fn linspace(
-        &self,
-        start: f64,
-        stop: f64,
-        steps: usize,
-        dtype: DType,
-    ) -> Result<Tensor<CpuRuntime>> {
-        // linspace supports all numeric dtypes - computation is done in f64,
-        // then converted to the output dtype. This matches NumPy behavior.
-
-        // Handle edge cases
-        if steps == 0 {
-            return Ok(Tensor::<CpuRuntime>::empty(&[0], dtype, &self.device));
-        }
-
-        if steps == 1 {
-            let out = Tensor::<CpuRuntime>::empty(&[1], dtype, &self.device);
-            let out_ptr = out.storage().ptr();
-
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    *(out_ptr as *mut T) = T::from_f64(start);
-                }
-            }, "linspace");
-
-            return Ok(out);
-        }
-
-        let out = Tensor::<CpuRuntime>::empty(&[steps], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::linspace_kernel::<T>(out_ptr as *mut T, start, stop, steps);
-            }
-        }, "linspace");
-
-        Ok(out)
-    }
-
-    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CpuRuntime>> {
-        // Use shared validation
-        let (rows, cols) = validate_eye(n, m);
-
-        // Handle edge cases
-        if rows == 0 || cols == 0 {
-            return Ok(Tensor::<CpuRuntime>::empty(
-                &[rows, cols],
-                dtype,
-                &self.device,
-            ));
-        }
-
-        let out = Tensor::<CpuRuntime>::empty(&[rows, cols], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::eye_kernel::<T>(out_ptr as *mut T, rows, cols);
-            }
-        }, "eye");
-
-        Ok(out)
-    }
+    // Moved to separate UtilityOps impl block
 
     // ===== Statistical Operations =====
 
@@ -2251,6 +1880,116 @@ impl TensorOps<CpuRuntime> for CpuClient {
 }
 
 // ============================================================================
+// ReduceOps Implementation
+// ============================================================================
+
+/// ReduceOps implementation for CPU runtime.
+impl ReduceOps<CpuRuntime> for CpuClient {
+    fn sum(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Sum, a, dims, keepdim, "sum")
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Sum, a, dims, keepdim, precision, "sum")
+    }
+
+    fn mean(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Mean, a, dims, keepdim, "mean")
+    }
+
+    fn max(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Max, a, dims, keepdim, "max")
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Max, a, dims, keepdim, precision, "max")
+    }
+
+    fn min(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Min, a, dims, keepdim, "min")
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Min, a, dims, keepdim, precision, "min")
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Prod, a, dims, keepdim, "prod")
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl_with_precision(self, ReduceOp::Prod, a, dims, keepdim, precision, "prod")
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::Any, a, dims, keepdim, "any")
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        reduce_impl(self, ReduceOp::All, a, dims, keepdim, "all")
+    }
+}
+
+// ============================================================================
 // ConditionalOps Implementation
 // ============================================================================
 
@@ -2391,6 +2130,146 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
                 }, "where_cond");
             }
         }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// UtilityOps Implementation
+// ============================================================================
+
+/// UtilityOps implementation for CPU runtime.
+impl UtilityOps<CpuRuntime> for CpuClient {
+    fn clamp(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        min_val: f64,
+        max_val: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+        let numel = a.numel();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::clamp_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut T,
+                    numel,
+                    min_val,
+                    max_val,
+                );
+            }
+        }, "clamp");
+
+        Ok(out)
+    }
+
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+        let numel = out.numel();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::fill_kernel::<T>(
+                    out_ptr as *mut T,
+                    T::from_f64(value),
+                    numel,
+                );
+            }
+        }, "fill");
+
+        Ok(out)
+    }
+
+    fn arange(&self, start: f64, stop: f64, step: f64, dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Use shared validation
+        let numel = validate_arange(start, stop, step)?;
+
+        // Handle empty tensor case
+        if numel == 0 {
+            return Ok(Tensor::<CpuRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(&[numel], dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::arange_kernel::<T>(out_ptr as *mut T, start, step, numel);
+            }
+        }, "arange");
+
+        Ok(out)
+    }
+
+    fn linspace(
+        &self,
+        start: f64,
+        stop: f64,
+        steps: usize,
+        dtype: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // linspace supports all numeric dtypes - computation is done in f64,
+        // then converted to the output dtype. This matches NumPy behavior.
+
+        // Handle edge cases
+        if steps == 0 {
+            return Ok(Tensor::<CpuRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        if steps == 1 {
+            let out = Tensor::<CpuRuntime>::empty(&[1], dtype, &self.device);
+            let out_ptr = out.storage().ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    *(out_ptr as *mut T) = T::from_f64(start);
+                }
+            }, "linspace");
+
+            return Ok(out);
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(&[steps], dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::linspace_kernel::<T>(out_ptr as *mut T, start, stop, steps);
+            }
+        }, "linspace");
+
+        Ok(out)
+    }
+
+    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        // Use shared validation
+        let (rows, cols) = validate_eye(n, m);
+
+        // Handle edge cases
+        if rows == 0 || cols == 0 {
+            return Ok(Tensor::<CpuRuntime>::empty(
+                &[rows, cols],
+                dtype,
+                &self.device,
+            ));
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(&[rows, cols], dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::eye_kernel::<T>(out_ptr as *mut T, rows, cols);
+            }
+        }, "eye");
 
         Ok(out)
     }
@@ -2651,5 +2530,159 @@ impl LogicalOps<CpuRuntime> for CpuClient {
         }
 
         Ok(out)
+    }
+}
+
+// ============================================================================
+// IndexingOps Implementation
+// ============================================================================
+
+/// IndexingOps implementation for CPU runtime.
+impl IndexingOps<CpuRuntime> for CpuClient {
+    fn argmax(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmax_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmax");
+
+        Ok(out)
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmin_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmin");
+
+        Ok(out)
+    }
+
+    fn gather(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gather_impl(self, a, dim, index)
+    }
+
+    fn scatter(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        scatter_impl(self, a, dim, index, src)
+    }
+
+    fn index_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_select_impl(self, a, dim, index)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_put_impl(self, a, dim, index, src)
+    }
+
+    fn masked_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_select_impl(self, a, mask)
+    }
+
+    fn masked_fill(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_fill_impl(self, a, mask, value)
+    }
+
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<CpuRuntime>,
+        indices: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        embedding_lookup_impl(self, embeddings, indices)
     }
 }
