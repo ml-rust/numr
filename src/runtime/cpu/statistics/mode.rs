@@ -5,7 +5,9 @@ use super::super::sort::sort_impl;
 use super::super::{CpuClient, CpuRuntime};
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{TensorOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
+use crate::ops::{
+    ReduceOps, TensorOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape,
+};
 use crate::runtime::normalize_dim;
 use crate::runtime::statistics_common::compute_mode_strided;
 use crate::tensor::Tensor;

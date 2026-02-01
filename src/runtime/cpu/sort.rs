@@ -4,7 +4,7 @@ use super::helpers::{dispatch_dtype, ensure_contiguous};
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::compute_reduce_strides;
+use crate::ops::{IndexingOps, compute_reduce_strides};
 use crate::runtime::normalize_dim;
 use crate::tensor::Tensor;
 
@@ -274,7 +274,6 @@ pub fn unique_with_counts_impl(
     let sort_indices = argsort_impl(client, &a_contig, 0, false)?;
 
     // Gather sorted data
-    use crate::ops::TensorOps;
     let sorted_tensor = client.gather(&a_contig, 0, &sort_indices)?;
     let sorted_ptr = sorted_tensor.storage().ptr();
 

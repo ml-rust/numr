@@ -5,7 +5,7 @@ use super::super::{CpuClient, CpuRuntime};
 use super::{create_bin_edges, histogram_kernel, tensor_to_f64};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{ReduceOps, TensorOps};
 use crate::tensor::Tensor;
 
 /// Compute histogram of values.
