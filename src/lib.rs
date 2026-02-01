@@ -103,7 +103,7 @@ pub mod prelude {
     pub use crate::runtime::{Device, Runtime, RuntimeClient};
 
     // Operation traits (same API across all backends)
-    pub use crate::ops::{CompareOps, ScalarOps, TensorOps};
+    pub use crate::ops::{CompareOps, CumulativeOps, ScalarOps, TensorOps};
 
     // Algorithm traits (same API across all backends)
     pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
