@@ -15,10 +15,10 @@ use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, ActivationOps, BinaryOp, CompareOp, CompareOps, ComplexOps,
-    ConditionalOps, CumulativeOps, IndexingOps, Kernel, LogicalOps, MatmulOps, NormalizationOps,
-    RandomOps, ReduceOp, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UnaryOp, UtilityOps, compute_reduce_strides, normalize_softmax_dim,
-    reduce_dim_output_shape,
+    ConditionalOps, CumulativeOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
+    NormalizationOps, RandomOps, ReduceOp, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOp, UtilityOps, compute_reduce_strides,
+    normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::runtime::{validate_arange, validate_eye};
 use crate::tensor::Tensor;
@@ -911,57 +911,21 @@ impl TensorOps<CpuRuntime> for CpuClient {
     // Moved to RandomOps trait implementation below
 
     // ===== Shape Operations =====
+    // Moved to ShapeOps trait implementation below
 
-    fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
-        cat_impl(self, tensors, dim)
-    }
+    // ===== Linear Algebra Operations =====
+    // Moved to LinalgOps trait implementation below
 
-    fn stack(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
-        stack_impl(self, tensors, dim)
-    }
+    // ===== Sorting and Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
 
-    fn split(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        split_size: usize,
-        dim: isize,
-    ) -> Result<Vec<Tensor<CpuRuntime>>> {
-        split_impl(tensor, split_size, dim)
-    }
+// ============================================================================
+// LinalgOps Implementation
+// ============================================================================
 
-    fn chunk(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        chunks: usize,
-        dim: isize,
-    ) -> Result<Vec<Tensor<CpuRuntime>>> {
-        chunk_impl(tensor, chunks, dim)
-    }
-
-    fn repeat(&self, tensor: &Tensor<CpuRuntime>, repeats: &[usize]) -> Result<Tensor<CpuRuntime>> {
-        repeat_impl(self, tensor, repeats)
-    }
-
-    fn pad(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        padding: &[usize],
-        value: f64,
-    ) -> Result<Tensor<CpuRuntime>> {
-        pad_impl(self, tensor, padding, value)
-    }
-
-    fn roll(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        shift: isize,
-        dim: isize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        roll_impl(self, tensor, shift, dim)
-    }
-
-    // ===== Linear Algebra =====
-
+/// LinalgOps implementation for CPU runtime.
+impl LinalgOps<CpuRuntime> for CpuClient {
     fn solve(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::solve(self, a, b)
@@ -1015,9 +979,6 @@ impl TensorOps<CpuRuntime> for CpuClient {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
     }
-
-    // ===== Sorting and Search Operations =====
-    // Moved to SortingOps trait implementation below
 }
 
 // ============================================================================
@@ -2709,5 +2670,60 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         indices: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         embedding_lookup_impl(self, embeddings, indices)
+    }
+}
+
+// ============================================================================
+// ShapeOps Implementation
+// ============================================================================
+
+/// ShapeOps implementation for CPU runtime.
+impl ShapeOps<CpuRuntime> for CpuClient {
+    fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cat_impl(self, tensors, dim)
+    }
+
+    fn stack(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        stack_impl(self, tensors, dim)
+    }
+
+    fn split(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        split_size: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        split_impl(tensor, split_size, dim)
+    }
+
+    fn chunk(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        chunks: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        chunk_impl(tensor, chunks, dim)
+    }
+
+    fn repeat(&self, tensor: &Tensor<CpuRuntime>, repeats: &[usize]) -> Result<Tensor<CpuRuntime>> {
+        repeat_impl(self, tensor, repeats)
+    }
+
+    fn pad(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        padding: &[usize],
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        pad_impl(self, tensor, padding, value)
+    }
+
+    fn roll(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        shift: isize,
+        dim: isize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        roll_impl(self, tensor, shift, dim)
     }
 }
