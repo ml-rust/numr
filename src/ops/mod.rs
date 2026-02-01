@@ -260,20 +260,58 @@ pub trait TensorOps<R: Runtime> {
 
     // ===== Element-wise Unary Operations =====
 
+    // --- Sign and Absolute ---
+
     /// Negation: -a
     fn neg(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Absolute value: |a|
     fn abs(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
+    fn sign(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Power and Root ---
+
     /// Square root: sqrt(a)
     fn sqrt(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Reciprocal square root: 1/sqrt(a) - critical for normalization layers
+    fn rsqrt(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Square: a²
+    fn square(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Cube root: cbrt(a)
+    fn cbrt(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Reciprocal: 1/a
+    fn recip(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Exponential and Logarithmic ---
 
     /// Exponential: e^a
     fn exp(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Base-2 exponential: 2^a
+    fn exp2(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Exponential minus 1: e^a - 1 (numerically stable for small a)
+    fn expm1(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
     /// Natural logarithm: ln(a)
     fn log(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Base-2 logarithm: log2(a)
+    fn log2(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Base-10 logarithm: log10(a)
+    fn log10(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Natural log of 1+a: ln(1+a) (numerically stable for small a)
+    fn log1p(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Trigonometric ---
 
     /// Sine: sin(a)
     fn sin(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
@@ -281,17 +319,39 @@ pub trait TensorOps<R: Runtime> {
     /// Cosine: cos(a)
     fn cos(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
-    /// Hyperbolic tangent: tanh(a)
-    fn tanh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
-
     /// Tangent: tan(a)
     fn tan(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
-    /// Reciprocal: 1/a
-    fn recip(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    /// Arc sine (inverse sine): asin(a), domain [-1,1], range [-π/2, π/2]
+    fn asin(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
-    /// Square: a²
-    fn square(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    /// Arc cosine (inverse cosine): acos(a), domain [-1,1], range [0, π]
+    fn acos(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Arc tangent (inverse tangent): atan(a)
+    fn atan(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Hyperbolic ---
+
+    /// Hyperbolic sine: sinh(a)
+    fn sinh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Hyperbolic cosine: cosh(a)
+    fn cosh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Hyperbolic tangent: tanh(a)
+    fn tanh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Inverse hyperbolic sine: asinh(a)
+    fn asinh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Inverse hyperbolic cosine: acosh(a), domain [1, ∞)
+    fn acosh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Inverse hyperbolic tangent: atanh(a), domain (-1, 1)
+    fn atanh(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Rounding ---
 
     /// Floor: floor(a)
     fn floor(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
@@ -302,8 +362,10 @@ pub trait TensorOps<R: Runtime> {
     /// Round: round(a) to nearest integer
     fn round(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
-    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
-    fn sign(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    /// Truncate toward zero: trunc(a)
+    fn trunc(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // --- Special Checks ---
 
     /// Check for NaN values: returns U8 tensor (1 if NaN, 0 otherwise)
     fn isnan(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
@@ -321,6 +383,12 @@ pub trait TensorOps<R: Runtime> {
 
     /// Element-wise minimum: min(a, b)
     fn minimum(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Two-argument arctangent: atan2(y, x)
+    ///
+    /// Computes the angle in radians between the positive x-axis and the point (x, y).
+    /// Result is in the range [-π, π]. Essential for polar coordinates and spatial algorithms.
+    fn atan2(&self, y: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ===== Matrix Operations =====
 
@@ -876,7 +944,61 @@ pub trait TensorOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor with dimension `dim` having size m (length of index)
+    ///
+    /// # Bounds Checking
+    ///
+    /// Returns `IndexOutOfBounds` error if any index is negative or >= dim_size.
+    /// Indices must be in the range `[0, dim_size)`. Negative indices are not supported.
     fn index_select(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Put values at specified indices along a dimension.
+    ///
+    /// This is the inverse of `index_select` - it assigns values from `src` into
+    /// positions specified by `index` along dimension `dim`.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// # Replace row 2 of a [5, 3] matrix with new values:
+    /// a = [[1, 2, 3],
+    ///      [4, 5, 6],
+    ///      [7, 8, 9],      # <- row 2 will be replaced
+    ///      [10, 11, 12],
+    ///      [13, 14, 15]]
+    /// index = [2]          # indices along dim 0
+    /// src = [[100, 200, 300]]
+    ///
+    /// result = index_put(a, 0, index, src)
+    /// # result = [[1, 2, 3],
+    /// #           [4, 5, 6],
+    /// #           [100, 200, 300],  # replaced!
+    /// #           [10, 11, 12],
+    /// #           [13, 14, 15]]
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input tensor to modify (copied, not mutated)
+    /// * `dim` - Dimension along which to put values
+    /// * `index` - 1D index tensor (I64) specifying positions
+    /// * `src` - Source tensor with values to insert. Shape must match `a` except
+    ///   at `dim` where it must equal `index.numel()`
+    ///
+    /// # Returns
+    ///
+    /// New tensor with values at indexed positions replaced by `src`
+    ///
+    /// # Bounds Checking
+    ///
+    /// Returns `IndexOutOfBounds` error if any index is negative or >= dim_size.
+    /// Indices must be in the range `[0, dim_size)`. Negative indices are not supported.
+    fn index_put(
+        &self,
+        a: &Tensor<R>,
+        dim: usize,
+        index: &Tensor<R>,
+        src: &Tensor<R>,
+    ) -> Result<Tensor<R>>;
 
     /// Select elements where mask is true, returning a flattened 1D tensor.
     ///

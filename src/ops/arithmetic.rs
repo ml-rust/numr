@@ -56,41 +56,86 @@ pub enum BinaryOp {
     Max,
     /// Minimum: min(a, b)
     Min,
+    /// Two-argument arctangent: atan2(y, x) - angle in radians
+    Atan2,
 }
 
 /// Unary operation kind
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UnaryOp {
+    // === Sign and Absolute ===
     /// Negation: -a
     Neg,
     /// Absolute value: |a|
     Abs,
+    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
+    Sign,
+
+    // === Power and Root ===
     /// Square root: sqrt(a)
     Sqrt,
+    /// Reciprocal square root: 1/sqrt(a) - critical for normalization layers
+    Rsqrt,
+    /// Square: a^2
+    Square,
+    /// Cube root: cbrt(a)
+    Cbrt,
+    /// Reciprocal: 1/a
+    Recip,
+
+    // === Exponential and Logarithmic ===
     /// Exponential: e^a
     Exp,
+    /// Base-2 exponential: 2^a
+    Exp2,
+    /// Exponential minus 1: e^a - 1 (numerically stable for small a)
+    Expm1,
     /// Natural log: ln(a)
     Log,
+    /// Base-2 logarithm: log2(a)
+    Log2,
+    /// Base-10 logarithm: log10(a)
+    Log10,
+    /// Natural log of 1+a: ln(1+a) (numerically stable for small a)
+    Log1p,
+
+    // === Trigonometric ===
     /// Sine: sin(a)
     Sin,
     /// Cosine: cos(a)
     Cos,
     /// Tangent: tan(a)
     Tan,
+    /// Arc sine (inverse sine): asin(a), domain [-1,1], range [-π/2, π/2]
+    Asin,
+    /// Arc cosine (inverse cosine): acos(a), domain [-1,1], range [0, π]
+    Acos,
+    /// Arc tangent (inverse tangent): atan(a)
+    Atan,
+
+    // === Hyperbolic ===
+    /// Hyperbolic sine: sinh(a)
+    Sinh,
+    /// Hyperbolic cosine: cosh(a)
+    Cosh,
     /// Hyperbolic tangent: tanh(a)
     Tanh,
-    /// Reciprocal: 1/a
-    Recip,
-    /// Square: a^2
-    Square,
+    /// Inverse hyperbolic sine: asinh(a)
+    Asinh,
+    /// Inverse hyperbolic cosine: acosh(a), domain [1, ∞)
+    Acosh,
+    /// Inverse hyperbolic tangent: atanh(a), domain (-1, 1)
+    Atanh,
+
+    // === Rounding ===
     /// Floor: floor(a)
     Floor,
     /// Ceiling: ceil(a)
     Ceil,
-    /// Round: round(a)
+    /// Round to nearest: round(a)
     Round,
-    /// Sign: returns -1 for negative, 0 for zero, 1 for positive
-    Sign,
+    /// Truncate toward zero: trunc(a)
+    Trunc,
 }
 
 /// Comparison operation kind
