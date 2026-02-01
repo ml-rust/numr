@@ -8,8 +8,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps,
-    TensorOps, TypeConversionOps, UtilityOps,
+    LinalgOps, MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UtilityOps,
 };
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
@@ -1445,7 +1445,97 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // Moved to IndexingOps trait implementation below
 
     // --- Shape Operations ---
+    // Moved to ShapeOps trait implementation below
 
+    // ===== Linear Algebra Operations =====
+    // Moved to LinalgOps trait implementation below
+
+    // ===== Complex Number Operations =====
+    // Moved to ComplexOps trait in ops/traits/complex.rs
+
+    // ===== Sorting & Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
+
+// ============================================================================
+// LinalgOps Implementation
+// ============================================================================
+
+/// LinalgOps implementation for WebGPU runtime.
+impl LinalgOps<WgpuRuntime> for WgpuClient {
+    fn solve(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve(self, a, b)
+    }
+
+    fn lstsq(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::lstsq(self, a, b)
+    }
+
+    fn pinverse(&self, a: &Tensor<WgpuRuntime>, rcond: Option<f64>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
+    }
+
+    fn matrix_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        ord: crate::algorithm::linalg::MatrixNormOrder,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
+    }
+
+    fn inverse(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::inverse(self, a)
+    }
+
+    fn det(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::det(self, a)
+    }
+
+    fn trace(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::trace(self, a)
+    }
+
+    fn diag(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diag(self, a)
+    }
+
+    fn diagflat(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diagflat(self, a)
+    }
+
+    fn matrix_rank(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        tol: Option<f64>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
+    }
+}
+
+// ============================================================================
+// ShapeOps Implementation
+// ============================================================================
+
+/// ShapeOps implementation for WebGPU runtime.
+impl ShapeOps<WgpuRuntime> for WgpuClient {
     fn cat(&self, tensors: &[&Tensor<WgpuRuntime>], dim: isize) -> Result<Tensor<WgpuRuntime>> {
         let cat_params = validate_cat(tensors, dim)?;
 
@@ -1792,80 +1882,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
         Ok(out)
     }
-
-    // ===== Linear Algebra =====
-
-    fn solve(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        b: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::solve(self, a, b)
-    }
-
-    fn lstsq(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        b: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
-    }
-
-    fn pinverse(&self, a: &Tensor<WgpuRuntime>, rcond: Option<f64>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
-    }
-
-    fn matrix_norm(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        ord: crate::algorithm::linalg::MatrixNormOrder,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
-    }
-
-    fn inverse(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::inverse(self, a)
-    }
-
-    fn det(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::det(self, a)
-    }
-
-    fn trace(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::trace(self, a)
-    }
-
-    fn diag(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diag(self, a)
-    }
-
-    fn diagflat(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diagflat(self, a)
-    }
-
-    fn matrix_rank(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        tol: Option<f64>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
-    }
-
-    // ===== Complex Number Operations =====
-    // Moved to ComplexOps trait in ops/traits/complex.rs
-
-    // ===== Sorting & Search Operations =====
-    // Moved to SortingOps trait implementation below
 }
 
 // ============================================================================
