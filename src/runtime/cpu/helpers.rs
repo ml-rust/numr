@@ -7,9 +7,7 @@ use super::kernels::Accumulator;
 use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
-use crate::ops::{
-    AccumulationPrecision, BinaryOp, CompareOp, Kernel, ReduceOp, UnaryOp, reduce_output_shape,
-};
+use crate::ops::{Kernel, reduce_output_shape};
 use crate::tensor::Tensor;
 
 // ============================================================================
@@ -19,8 +17,8 @@ use crate::tensor::Tensor;
 // Use the canonical dispatch_dtype! macro from src/ops/dispatch.rs.
 // This avoids duplicating the macro logic and ensures a single source of truth.
 
-pub(super) use crate::dispatch_dtype;
-pub(super) use crate::runtime::ensure_contiguous;
+pub use crate::dispatch_dtype;
+pub use crate::runtime::ensure_contiguous;
 
 // ============================================================================
 // Shared Helper Functions (imported from runtime module)
@@ -29,13 +27,18 @@ pub(super) use crate::runtime::ensure_contiguous;
 // These generic helpers work with any Runtime, avoiding code duplication
 // across CPU, CUDA, and WebGPU backends.
 
-pub(super) use crate::runtime::{compute_broadcast_shape, validate_binary_dtypes};
+pub use crate::runtime::{compute_broadcast_shape, validate_binary_dtypes};
+
+// ============================================================================
+// Re-export operation types used by ops
+// ============================================================================
+pub use crate::ops::{AccumulationPrecision, BinaryOp, CompareOp, ReduceOp, UnaryOp};
 
 // ============================================================================
 // Operation Implementation Helpers
 // ============================================================================
 
-pub(super) fn binary_op_impl(
+pub fn binary_op_impl(
     client: &CpuClient,
     op: BinaryOp,
     a: &Tensor<CpuRuntime>,
@@ -105,7 +108,7 @@ pub(super) fn binary_op_impl(
     Ok(out)
 }
 
-pub(super) fn unary_op_impl(
+pub fn unary_op_impl(
     client: &CpuClient,
     op: UnaryOp,
     a: &Tensor<CpuRuntime>,
@@ -133,7 +136,7 @@ pub(super) fn unary_op_impl(
     Ok(out)
 }
 
-pub(super) fn scalar_op_impl(
+pub fn scalar_op_impl(
     client: &CpuClient,
     op: BinaryOp,
     a: &Tensor<CpuRuntime>,
@@ -163,7 +166,7 @@ pub(super) fn scalar_op_impl(
     Ok(out)
 }
 
-pub(super) fn compare_op_impl(
+pub fn compare_op_impl(
     client: &CpuClient,
     op: CompareOp,
     a: &Tensor<CpuRuntime>,
@@ -233,7 +236,7 @@ pub(super) fn compare_op_impl(
 
 /// Activation operation kind for kernel dispatch
 #[derive(Copy, Clone)]
-pub(super) enum ActivationOp {
+pub enum ActivationOp {
     Relu,
     Sigmoid,
     Silu,
@@ -242,7 +245,7 @@ pub(super) enum ActivationOp {
 
 /// Parametric activation operation kind (activations that take a scalar parameter)
 #[derive(Copy, Clone)]
-pub(super) enum ParametricActivationOp {
+pub enum ParametricActivationOp {
     /// LeakyReLU: x if x > 0, else negative_slope * x
     LeakyRelu,
     /// ELU: x if x > 0, else alpha * (exp(x) - 1)
@@ -250,7 +253,7 @@ pub(super) enum ParametricActivationOp {
 }
 
 /// Helper for activation operations (relu, sigmoid)
-pub(super) fn activation_op_impl(
+pub fn activation_op_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     op: ActivationOp,
@@ -297,7 +300,7 @@ pub(super) fn activation_op_impl(
 /// Helper for parametric activation operations (leaky_relu, elu)
 ///
 /// These activations take a single f64 parameter in addition to the input tensor.
-pub(super) fn parametric_activation_impl(
+pub fn parametric_activation_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     op: ParametricActivationOp,
@@ -336,7 +339,7 @@ pub(super) fn parametric_activation_impl(
 
 /// Helper for leaky_relu activation
 #[inline]
-pub(super) fn leaky_relu_impl(
+pub fn leaky_relu_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     negative_slope: f64,
@@ -352,7 +355,7 @@ pub(super) fn leaky_relu_impl(
 
 /// Helper for ELU activation
 #[inline]
-pub(super) fn elu_impl(
+pub fn elu_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     alpha: f64,
@@ -364,7 +367,7 @@ pub(super) fn elu_impl(
 // Reduction Helpers
 // ============================================================================
 
-pub(super) fn reduce_impl(
+pub fn reduce_impl(
     client: &CpuClient,
     op: ReduceOp,
     a: &Tensor<CpuRuntime>,
@@ -595,7 +598,7 @@ unsafe fn reduce_non_last_dim<T: Element>(
 // ============================================================================
 
 /// Reduce implementation with explicit accumulation precision
-pub(super) fn reduce_impl_with_precision(
+pub fn reduce_impl_with_precision(
     client: &CpuClient,
     op: ReduceOp,
     a: &Tensor<CpuRuntime>,
@@ -879,7 +882,7 @@ unsafe fn reduce_non_last_dim_f64_acc<T: Element>(
 // ============================================================================
 
 /// Gather elements along a dimension using an index tensor.
-pub(super) fn gather_impl(
+pub fn gather_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: usize,
@@ -941,7 +944,7 @@ pub(super) fn gather_impl(
 }
 
 /// Scatter values into a tensor at positions specified by an index tensor.
-pub(super) fn scatter_impl(
+pub fn scatter_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: usize,
@@ -1011,7 +1014,7 @@ pub(super) fn scatter_impl(
 }
 
 /// Select elements along a dimension using a 1D index tensor.
-pub(super) fn index_select_impl(
+pub fn index_select_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: usize,
@@ -1092,7 +1095,7 @@ pub(super) fn index_select_impl(
 }
 
 /// Put values at specified indices along a dimension.
-pub(super) fn index_put_impl(
+pub fn index_put_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: usize,
@@ -1192,7 +1195,7 @@ pub(super) fn index_put_impl(
 }
 
 /// Select elements where mask is true, returning a flattened 1D tensor.
-pub(super) fn masked_select_impl(
+pub fn masked_select_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     mask: &Tensor<CpuRuntime>,
@@ -1239,7 +1242,7 @@ pub(super) fn masked_select_impl(
 }
 
 /// Fill elements where mask is true with a scalar value.
-pub(super) fn masked_fill_impl(
+pub fn masked_fill_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     mask: &Tensor<CpuRuntime>,
@@ -1289,7 +1292,7 @@ pub(super) fn masked_fill_impl(
 ///   output[i, :] = embeddings[indices[i], :]
 ///
 /// Output shape: indices.shape() + [embedding_dim]
-pub(super) fn embedding_lookup_impl(
+pub fn embedding_lookup_impl(
     client: &CpuClient,
     embeddings: &Tensor<CpuRuntime>,
     indices: &Tensor<CpuRuntime>,
@@ -1352,7 +1355,7 @@ pub(super) fn embedding_lookup_impl(
 use crate::runtime::shape_ops::{self, validate_cat, validate_stack};
 
 /// Concatenate tensors along a dimension
-pub(super) fn cat_impl(
+pub fn cat_impl(
     client: &CpuClient,
     tensors: &[&Tensor<CpuRuntime>],
     dim: isize,
@@ -1396,7 +1399,7 @@ pub(super) fn cat_impl(
 }
 
 /// Stack tensors along a new dimension
-pub(super) fn stack_impl(
+pub fn stack_impl(
     client: &CpuClient,
     tensors: &[&Tensor<CpuRuntime>],
     dim: isize,
@@ -1416,7 +1419,7 @@ pub(super) fn stack_impl(
 }
 
 /// Split a tensor into chunks of a given size along a dimension (zero-copy)
-pub(super) fn split_impl(
+pub fn split_impl(
     tensor: &Tensor<CpuRuntime>,
     split_size: usize,
     dim: isize,
@@ -1425,7 +1428,7 @@ pub(super) fn split_impl(
 }
 
 /// Split a tensor into a specific number of chunks (zero-copy)
-pub(super) fn chunk_impl(
+pub fn chunk_impl(
     tensor: &Tensor<CpuRuntime>,
     chunks: usize,
     dim: isize,
@@ -1434,7 +1437,7 @@ pub(super) fn chunk_impl(
 }
 
 /// Repeat tensor along each dimension
-pub(super) fn repeat_impl(
+pub fn repeat_impl(
     client: &CpuClient,
     tensor: &Tensor<CpuRuntime>,
     repeats: &[usize],
@@ -1512,7 +1515,7 @@ unsafe fn repeat_kernel<T: Element>(
 }
 
 /// Pad tensor with a constant value
-pub(super) fn pad_impl(
+pub fn pad_impl(
     client: &CpuClient,
     tensor: &Tensor<CpuRuntime>,
     padding: &[usize],
@@ -1592,7 +1595,7 @@ unsafe fn pad_copy_kernel<T: Element>(
 }
 
 /// Roll tensor elements along a dimension
-pub(super) fn roll_impl(
+pub fn roll_impl(
     client: &CpuClient,
     tensor: &Tensor<CpuRuntime>,
     shift: isize,
@@ -1690,7 +1693,7 @@ fn normalize_dim(ndim: usize, dim: isize) -> Option<usize> {
 }
 
 /// Cumulative sum along a dimension
-pub(super) fn cumsum_impl(
+pub fn cumsum_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: isize,
@@ -1749,7 +1752,7 @@ pub(super) fn cumsum_impl(
 }
 
 /// Cumulative product along a dimension
-pub(super) fn cumprod_impl(
+pub fn cumprod_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dim: isize,
@@ -1810,7 +1813,7 @@ pub(super) fn cumprod_impl(
 /// Log-sum-exp along specified dimensions (numerically stable)
 ///
 /// Only supports floating-point dtypes (F32, F64, F16, BF16).
-pub(super) fn logsumexp_impl(
+pub fn logsumexp_impl(
     client: &CpuClient,
     a: &Tensor<CpuRuntime>,
     dims: &[usize],

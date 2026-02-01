@@ -18,16 +18,16 @@
 //! dimensions (where a single value is broadcast across the dimension).
 
 mod fft;
-mod helpers;
+pub(crate) mod helpers;
 pub mod jacobi;
-mod kernels;
+pub(crate) mod kernels;
 mod linalg;
 mod ops;
-mod sort;
+pub(crate) mod sort;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse;
 pub mod special;
-mod statistics;
+pub(crate) mod statistics;
 
 use super::{DefaultAllocator, Device, Runtime, RuntimeClient};
 use crate::dtype::Element;
