@@ -27,7 +27,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, MatmulOps,
-    NormalizationOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
+    NormalizationOps, RandomOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
     TypeConversionOps, UtilityOps, compute_reduce_strides, matmul_bias_output_shape,
     matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
@@ -2108,7 +2108,15 @@ impl StatisticalOps<CudaRuntime> for CudaClient {
     }
 
     // ===== Random Operations =====
+    // Moved to RandomOps trait implementation below
+}
 
+// ============================================================================
+// RandomOps Implementation
+// ============================================================================
+
+/// RandomOps implementation for CUDA runtime.
+impl RandomOps<CudaRuntime> for CudaClient {
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
         // Supported: F32, F64, F16, BF16
         if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
@@ -2781,7 +2789,13 @@ impl StatisticalOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+}
 
+// ============================================================================
+// Continuing TensorOps Implementation
+// ============================================================================
+
+impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Shape Operations =====
 
     fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {

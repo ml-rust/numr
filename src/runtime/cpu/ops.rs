@@ -16,8 +16,9 @@ use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, ActivationOps, BinaryOp, CompareOp, CompareOps, ComplexOps,
     ConditionalOps, CumulativeOps, IndexingOps, Kernel, LogicalOps, MatmulOps, NormalizationOps,
-    ReduceOp, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps,
-    UnaryOp, UtilityOps, compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
+    RandomOps, ReduceOp, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UnaryOp, UtilityOps, compute_reduce_strides, normalize_softmax_dim,
+    reduce_dim_output_shape,
 };
 use crate::runtime::{validate_arange, validate_eye};
 use crate::tensor::Tensor;
@@ -907,7 +908,337 @@ impl TensorOps<CpuRuntime> for CpuClient {
     // Moved to StatisticalOps trait implementation below
 
     // ===== Random Operations =====
+    // Moved to RandomOps trait implementation below
 
+    // ===== Shape Operations =====
+
+    fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        cat_impl(self, tensors, dim)
+    }
+
+    fn stack(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
+        stack_impl(self, tensors, dim)
+    }
+
+    fn split(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        split_size: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        split_impl(tensor, split_size, dim)
+    }
+
+    fn chunk(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        chunks: usize,
+        dim: isize,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        chunk_impl(tensor, chunks, dim)
+    }
+
+    fn repeat(&self, tensor: &Tensor<CpuRuntime>, repeats: &[usize]) -> Result<Tensor<CpuRuntime>> {
+        repeat_impl(self, tensor, repeats)
+    }
+
+    fn pad(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        padding: &[usize],
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        pad_impl(self, tensor, padding, value)
+    }
+
+    fn roll(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        shift: isize,
+        dim: isize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        roll_impl(self, tensor, shift, dim)
+    }
+
+    // ===== Linear Algebra =====
+
+    fn solve(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve(self, a, b)
+    }
+
+    fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::lstsq(self, a, b)
+    }
+
+    fn pinverse(&self, a: &Tensor<CpuRuntime>, rcond: Option<f64>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
+    }
+
+    fn matrix_norm(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        ord: crate::algorithm::linalg::MatrixNormOrder,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
+    }
+
+    fn inverse(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::inverse(self, a)
+    }
+
+    fn det(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::det(self, a)
+    }
+
+    fn trace(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::trace(self, a)
+    }
+
+    fn diag(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diag(self, a)
+    }
+
+    fn diagflat(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::diagflat(self, a)
+    }
+
+    fn matrix_rank(&self, a: &Tensor<CpuRuntime>, tol: Option<f64>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
+    }
+
+    // ===== Sorting and Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
+
+// ============================================================================
+// StatisticalOps Implementation
+// ============================================================================
+
+/// StatisticalOps implementation for CPU runtime.
+impl StatisticalOps<CpuRuntime> for CpuClient {
+    fn var(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // For multi-dimensional reduction, we need to handle the dims properly
+        // For simplicity, we support single dimension reduction here
+        // Multi-dim can be decomposed into multiple single-dim reductions
+        if dims.is_empty() {
+            // Reduce over all dimensions - return scalar variance
+            let numel = a.numel();
+            let a_contig = ensure_contiguous(a);
+            let a_ptr = a_contig.storage().ptr();
+
+            let variance = dispatch_dtype!(dtype, T => {
+                unsafe {
+                    let slice = std::slice::from_raw_parts(a_ptr as *const T, numel);
+                    // Compute mean
+                    let mut sum = 0.0f64;
+                    for &val in slice {
+                        sum += val.to_f64();
+                    }
+                    let mean = sum / (numel as f64);
+
+                    // Compute variance
+                    let mut var_sum = 0.0f64;
+                    for &val in slice {
+                        let diff = val.to_f64() - mean;
+                        var_sum += diff * diff;
+                    }
+                    let divisor = (numel.saturating_sub(correction)).max(1) as f64;
+                    var_sum / divisor
+                }
+            }, "var");
+
+            let out_shape = if keepdim { vec![1; ndim] } else { vec![] };
+            let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+            let out_ptr = out.storage().ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    *(out_ptr as *mut T) = T::from_f64(variance);
+                }
+            }, "var");
+
+            return Ok(out);
+        }
+
+        // Single dimension case
+        if dims.len() == 1 {
+            let dim = dims[0];
+            if dim >= ndim {
+                return Err(Error::InvalidDimension {
+                    dim: dim as isize,
+                    ndim,
+                });
+            }
+
+            let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+            let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+
+            let a_contig = ensure_contiguous(a);
+            let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+
+            let a_ptr = a_contig.storage().ptr();
+            let out_ptr = out.storage().ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    kernels::variance_kernel::<T>(
+                        a_ptr as *const T,
+                        out_ptr as *mut T,
+                        outer_size,
+                        reduce_size,
+                        inner_size,
+                        correction,
+                    );
+                }
+            }, "var");
+
+            return Ok(out);
+        }
+
+        // Multi-dimension case: compute variance iteratively
+        // First, compute along the last dimension, then continue
+        let mut result = a.clone();
+        let mut sorted_dims: Vec<usize> = dims.to_vec();
+        sorted_dims.sort_by(|a, b| b.cmp(a)); // Sort descending so we reduce from last to first
+
+        for dim in sorted_dims {
+            result = self.var(&result, &[dim], true, correction)?;
+        }
+
+        // Remove keepdim dimensions if not requested
+        if !keepdim {
+            let final_shape: Vec<usize> = result
+                .shape()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !dims.contains(i))
+                .map(|(_, &s)| s)
+                .collect();
+            result = result.reshape(&final_shape)?;
+        }
+
+        Ok(result)
+    }
+
+    fn std(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        // Standard deviation is sqrt of variance
+        let variance = self.var(a, dims, keepdim, correction)?;
+        self.sqrt(&variance)
+    }
+
+    fn quantile(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
+    }
+
+    fn percentile(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::percentile_impl(self, a, p, dim, keepdim)
+    }
+
+    fn median(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::median_impl(self, a, dim, keepdim)
+    }
+
+    fn histogram(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::statistics::histogram_impl(self, a, bins, range)
+    }
+
+    fn cov(&self, a: &Tensor<CpuRuntime>, ddof: Option<usize>) -> Result<Tensor<CpuRuntime>> {
+        // Delegate to LinalgAlgorithms implementation
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::cov(self, a, ddof)
+    }
+
+    fn corrcoef(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        // Delegate to LinalgAlgorithms implementation
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::corrcoef(self, a)
+    }
+
+    fn skew(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::skew_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn kurtosis(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn mode(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        super::statistics::mode_impl(self, a, dim, keepdim)
+    }
+}
+
+// ============================================================================
+// RandomOps Implementation
+// ============================================================================
+
+/// RandomOps implementation for CPU runtime.
+impl RandomOps<CpuRuntime> for CpuClient {
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
         // Validate dtype is floating point
         if !dtype.is_float() {
@@ -1501,328 +1832,6 @@ impl TensorOps<CpuRuntime> for CpuClient {
         }, "f_distribution");
 
         Ok(out)
-    }
-
-    // ===== Shape Operations =====
-
-    fn cat(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
-        cat_impl(self, tensors, dim)
-    }
-
-    fn stack(&self, tensors: &[&Tensor<CpuRuntime>], dim: isize) -> Result<Tensor<CpuRuntime>> {
-        stack_impl(self, tensors, dim)
-    }
-
-    fn split(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        split_size: usize,
-        dim: isize,
-    ) -> Result<Vec<Tensor<CpuRuntime>>> {
-        split_impl(tensor, split_size, dim)
-    }
-
-    fn chunk(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        chunks: usize,
-        dim: isize,
-    ) -> Result<Vec<Tensor<CpuRuntime>>> {
-        chunk_impl(tensor, chunks, dim)
-    }
-
-    fn repeat(&self, tensor: &Tensor<CpuRuntime>, repeats: &[usize]) -> Result<Tensor<CpuRuntime>> {
-        repeat_impl(self, tensor, repeats)
-    }
-
-    fn pad(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        padding: &[usize],
-        value: f64,
-    ) -> Result<Tensor<CpuRuntime>> {
-        pad_impl(self, tensor, padding, value)
-    }
-
-    fn roll(
-        &self,
-        tensor: &Tensor<CpuRuntime>,
-        shift: isize,
-        dim: isize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        roll_impl(self, tensor, shift, dim)
-    }
-
-    // ===== Linear Algebra =====
-
-    fn solve(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::solve(self, a, b)
-    }
-
-    fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
-    }
-
-    fn pinverse(&self, a: &Tensor<CpuRuntime>, rcond: Option<f64>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::pinverse(self, a, rcond)
-    }
-
-    fn matrix_norm(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        ord: crate::algorithm::linalg::MatrixNormOrder,
-    ) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_norm(self, a, ord)
-    }
-
-    fn inverse(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::inverse(self, a)
-    }
-
-    fn det(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::det(self, a)
-    }
-
-    fn trace(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::trace(self, a)
-    }
-
-    fn diag(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diag(self, a)
-    }
-
-    fn diagflat(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::diagflat(self, a)
-    }
-
-    fn matrix_rank(&self, a: &Tensor<CpuRuntime>, tol: Option<f64>) -> Result<Tensor<CpuRuntime>> {
-        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
-    }
-
-    // ===== Sorting and Search Operations =====
-    // Moved to SortingOps trait implementation below
-}
-
-// ============================================================================
-// StatisticalOps Implementation
-// ============================================================================
-
-/// StatisticalOps implementation for CPU runtime.
-impl StatisticalOps<CpuRuntime> for CpuClient {
-    fn var(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // For multi-dimensional reduction, we need to handle the dims properly
-        // For simplicity, we support single dimension reduction here
-        // Multi-dim can be decomposed into multiple single-dim reductions
-        if dims.is_empty() {
-            // Reduce over all dimensions - return scalar variance
-            let numel = a.numel();
-            let a_contig = ensure_contiguous(a);
-            let a_ptr = a_contig.storage().ptr();
-
-            let variance = dispatch_dtype!(dtype, T => {
-                unsafe {
-                    let slice = std::slice::from_raw_parts(a_ptr as *const T, numel);
-                    // Compute mean
-                    let mut sum = 0.0f64;
-                    for &val in slice {
-                        sum += val.to_f64();
-                    }
-                    let mean = sum / (numel as f64);
-
-                    // Compute variance
-                    let mut var_sum = 0.0f64;
-                    for &val in slice {
-                        let diff = val.to_f64() - mean;
-                        var_sum += diff * diff;
-                    }
-                    let divisor = (numel.saturating_sub(correction)).max(1) as f64;
-                    var_sum / divisor
-                }
-            }, "var");
-
-            let out_shape = if keepdim { vec![1; ndim] } else { vec![] };
-            let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-            let out_ptr = out.storage().ptr();
-
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    *(out_ptr as *mut T) = T::from_f64(variance);
-                }
-            }, "var");
-
-            return Ok(out);
-        }
-
-        // Single dimension case
-        if dims.len() == 1 {
-            let dim = dims[0];
-            if dim >= ndim {
-                return Err(Error::InvalidDimension {
-                    dim: dim as isize,
-                    ndim,
-                });
-            }
-
-            let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
-            let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
-
-            let a_contig = ensure_contiguous(a);
-            let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
-
-            dispatch_dtype!(dtype, T => {
-                unsafe {
-                    kernels::variance_kernel::<T>(
-                        a_ptr as *const T,
-                        out_ptr as *mut T,
-                        outer_size,
-                        reduce_size,
-                        inner_size,
-                        correction,
-                    );
-                }
-            }, "var");
-
-            return Ok(out);
-        }
-
-        // Multi-dimension case: compute variance iteratively
-        // First, compute along the last dimension, then continue
-        let mut result = a.clone();
-        let mut sorted_dims: Vec<usize> = dims.to_vec();
-        sorted_dims.sort_by(|a, b| b.cmp(a)); // Sort descending so we reduce from last to first
-
-        for dim in sorted_dims {
-            result = self.var(&result, &[dim], true, correction)?;
-        }
-
-        // Remove keepdim dimensions if not requested
-        if !keepdim {
-            let final_shape: Vec<usize> = result
-                .shape()
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| !dims.contains(i))
-                .map(|(_, &s)| s)
-                .collect();
-            result = result.reshape(&final_shape)?;
-        }
-
-        Ok(result)
-    }
-
-    fn std(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        // Standard deviation is sqrt of variance
-        let variance = self.var(a, dims, keepdim, correction)?;
-        self.sqrt(&variance)
-    }
-
-    fn quantile(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        q: f64,
-        dim: Option<isize>,
-        keepdim: bool,
-        interpolation: &str,
-    ) -> Result<Tensor<CpuRuntime>> {
-        super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
-    }
-
-    fn percentile(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        p: f64,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        super::statistics::percentile_impl(self, a, p, dim, keepdim)
-    }
-
-    fn median(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<Tensor<CpuRuntime>> {
-        super::statistics::median_impl(self, a, dim, keepdim)
-    }
-
-    fn histogram(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        bins: usize,
-        range: Option<(f64, f64)>,
-    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
-        super::statistics::histogram_impl(self, a, bins, range)
-    }
-
-    fn cov(&self, a: &Tensor<CpuRuntime>, ddof: Option<usize>) -> Result<Tensor<CpuRuntime>> {
-        // Delegate to LinalgAlgorithms implementation
-        use crate::algorithm::LinearAlgebraAlgorithms;
-        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::cov(self, a, ddof)
-    }
-
-    fn corrcoef(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        // Delegate to LinalgAlgorithms implementation
-        use crate::algorithm::LinearAlgebraAlgorithms;
-        <Self as LinearAlgebraAlgorithms<CpuRuntime>>::corrcoef(self, a)
-    }
-
-    fn skew(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        super::statistics::skew_impl(self, a, dims, keepdim, correction)
-    }
-
-    fn kurtosis(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<CpuRuntime>> {
-        super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
-    }
-
-    fn mode(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
-        super::statistics::mode_impl(self, a, dim, keepdim)
     }
 }
 

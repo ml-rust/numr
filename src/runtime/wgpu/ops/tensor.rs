@@ -8,8 +8,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    MatmulOps, NormalizationOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UtilityOps,
+    MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps,
+    TensorOps, TypeConversionOps, UtilityOps,
 };
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
@@ -603,7 +603,15 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // Moved to StatisticalOps trait implementation below
 
     // --- Random Operations ---
+    // Moved to RandomOps trait implementation below
+}
 
+// ============================================================================
+// RandomOps Implementation
+// ============================================================================
+
+/// RandomOps implementation for WebGPU runtime.
+impl RandomOps<WgpuRuntime> for WgpuClient {
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         // WebGPU rand only supports F32
         if !matches!(dtype, DType::F32) {
@@ -1426,7 +1434,13 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
         Ok(out)
     }
+}
 
+// ============================================================================
+// Continuing TensorOps Implementation
+// ============================================================================
+
+impl TensorOps<WgpuRuntime> for WgpuClient {
     // --- Indexing Operations ---
     // Moved to IndexingOps trait implementation below
 
