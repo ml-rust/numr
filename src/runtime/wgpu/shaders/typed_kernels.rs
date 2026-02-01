@@ -194,6 +194,8 @@ static BINARY_ENTRY_POINTS: &[(&str, &str, &str)] = &[
     ("min", "i32", "min_i32"),
     ("min", "u32", "min_u32"),
     ("min", "f16", "min_f16"),
+    ("atan2", "f32", "atan2_f32"),
+    ("atan2", "f16", "atan2_f16"),
 ];
 
 fn binary_op_name(op: BinaryOp) -> &'static str {
@@ -205,6 +207,7 @@ fn binary_op_name(op: BinaryOp) -> &'static str {
         BinaryOp::Pow => "pow",
         BinaryOp::Max => "max",
         BinaryOp::Min => "min",
+        BinaryOp::Atan2 => "atan2",
     }
 }
 
@@ -259,6 +262,8 @@ static UNARY_ENTRY_POINTS: &[(&str, &str, &str)] = &[
     ("cos", "f16", "cos_f16"),
     ("tan", "f32", "tan_f32"),
     ("tan", "f16", "tan_f16"),
+    ("atan", "f32", "atan_f32"),
+    ("atan", "f16", "atan_f16"),
     ("tanh", "f32", "tanh_f32"),
     ("tanh", "f16", "tanh_f16"),
     ("recip", "f32", "recip_f32"),
@@ -269,11 +274,43 @@ static UNARY_ENTRY_POINTS: &[(&str, &str, &str)] = &[
     ("ceil", "f16", "ceil_f16"),
     ("round", "f32", "round_f32"),
     ("round", "f16", "round_f16"),
+    ("rsqrt", "f32", "rsqrt_f32"),
+    ("rsqrt", "f16", "rsqrt_f16"),
+    ("cbrt", "f32", "cbrt_f32"),
+    ("cbrt", "f16", "cbrt_f16"),
+    ("exp2", "f32", "exp2_f32"),
+    ("exp2", "f16", "exp2_f16"),
+    ("expm1", "f32", "expm1_f32"),
+    ("expm1", "f16", "expm1_f16"),
+    ("log2", "f32", "log2_f32"),
+    ("log2", "f16", "log2_f16"),
+    ("log10", "f32", "log10_f32"),
+    ("log10", "f16", "log10_f16"),
+    ("log1p", "f32", "log1p_f32"),
+    ("log1p", "f16", "log1p_f16"),
+    ("asin", "f32", "asin_f32"),
+    ("asin", "f16", "asin_f16"),
+    ("acos", "f32", "acos_f32"),
+    ("acos", "f16", "acos_f16"),
+    ("sinh", "f32", "sinh_f32"),
+    ("sinh", "f16", "sinh_f16"),
+    ("cosh", "f32", "cosh_f32"),
+    ("cosh", "f16", "cosh_f16"),
+    ("asinh", "f32", "asinh_f32"),
+    ("asinh", "f16", "asinh_f16"),
+    ("acosh", "f32", "acosh_f32"),
+    ("acosh", "f16", "acosh_f16"),
+    ("atanh", "f32", "atanh_f32"),
+    ("atanh", "f16", "atanh_f16"),
+    ("trunc", "f32", "trunc_f32"),
+    ("trunc", "f16", "trunc_f16"),
 ];
 
 /// Float-only operations that require float dtype
 static FLOAT_ONLY_OPS: &[&str] = &[
-    "sqrt", "exp", "log", "sin", "cos", "tan", "tanh", "recip", "floor", "ceil", "round",
+    "sqrt", "rsqrt", "cbrt", "exp", "exp2", "expm1", "log", "log2", "log10", "log1p", "sin", "cos",
+    "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh", "recip",
+    "floor", "ceil", "round", "trunc",
 ];
 
 /// Get the operation name string from UnaryOp enum
@@ -284,16 +321,32 @@ fn unary_op_name(op: UnaryOp) -> &'static str {
         UnaryOp::Square => "square",
         UnaryOp::Sign => "sign",
         UnaryOp::Sqrt => "sqrt",
+        UnaryOp::Rsqrt => "rsqrt",
+        UnaryOp::Cbrt => "cbrt",
         UnaryOp::Exp => "exp",
+        UnaryOp::Exp2 => "exp2",
+        UnaryOp::Expm1 => "expm1",
         UnaryOp::Log => "log",
+        UnaryOp::Log2 => "log2",
+        UnaryOp::Log10 => "log10",
+        UnaryOp::Log1p => "log1p",
         UnaryOp::Sin => "sin",
         UnaryOp::Cos => "cos",
         UnaryOp::Tan => "tan",
+        UnaryOp::Asin => "asin",
+        UnaryOp::Acos => "acos",
+        UnaryOp::Atan => "atan",
+        UnaryOp::Sinh => "sinh",
+        UnaryOp::Cosh => "cosh",
         UnaryOp::Tanh => "tanh",
+        UnaryOp::Asinh => "asinh",
+        UnaryOp::Acosh => "acosh",
+        UnaryOp::Atanh => "atanh",
         UnaryOp::Recip => "recip",
         UnaryOp::Floor => "floor",
         UnaryOp::Ceil => "ceil",
         UnaryOp::Round => "round",
+        UnaryOp::Trunc => "trunc",
     }
 }
 

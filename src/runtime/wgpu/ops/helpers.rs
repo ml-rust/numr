@@ -602,6 +602,16 @@ pub(super) struct FlatToMultiParams {
     pub(super) shape: [u32; 8],
 }
 
+/// Params for index bounds validation kernel
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct ValidateIndicesParams {
+    pub(super) index_len: u32,
+    pub(super) dim_size: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+}
+
 /// Generate a random seed for WebGPU RNG operations.
 /// Combines system time with an atomic counter to ensure uniqueness across calls.
 pub(super) fn generate_wgpu_seed() -> u32 {

@@ -19,6 +19,14 @@ fn pow_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         binary_out[idx] = pow(binary_a[idx], binary_b[idx]);
     }}
 }}
+
+@compute @workgroup_size(256)
+fn atan2_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < binary_params.numel) {{
+        binary_out[idx] = atan2(binary_a[idx], binary_b[idx]);
+    }}
+}}
 "#,
             suffix = suffix
         )

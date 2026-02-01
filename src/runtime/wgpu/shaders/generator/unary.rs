@@ -81,6 +81,14 @@ fn tan_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 }}
 
 @compute @workgroup_size(256)
+fn atan_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = atan(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
 fn tanh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
@@ -117,6 +125,129 @@ fn round_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
         unary_out[idx] = round(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn trunc_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = trunc(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn rsqrt_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = inverseSqrt(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn cbrt_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        let x = unary_a[idx];
+        // cbrt(x) = sign(x) * pow(abs(x), 1/3)
+        unary_out[idx] = sign(x) * pow(abs(x), 1.0 / 3.0);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn exp2_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = exp2(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn expm1_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = exp(unary_a[idx]) - 1.0;
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn log2_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = log2(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn log10_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        // log10(x) = log(x) / log(10) = log(x) * 0.4342944819032518
+        unary_out[idx] = log(unary_a[idx]) * 0.4342944819032518;
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn log1p_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = log(1.0 + unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn asin_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = asin(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn acos_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = acos(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn sinh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = sinh(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn cosh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = cosh(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn asinh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = asinh(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn acosh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = acosh(unary_a[idx]);
+    }}
+}}
+
+@compute @workgroup_size(256)
+fn atanh_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < unary_params.numel) {{
+        unary_out[idx] = atanh(unary_a[idx]);
     }}
 }}
 

@@ -52,6 +52,14 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         native_binary_op(self, "minimum", a, b)
     }
 
+    fn atan2(
+        &self,
+        y: &Tensor<WgpuRuntime>,
+        x: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_binary_op(self, "atan2", y, x)
+    }
+
     // --- Unary Operations ---
 
     fn neg(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -84,6 +92,10 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     fn tan(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "tan", a)
+    }
+
+    fn atan(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "atan", a)
     }
 
     fn tanh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -232,6 +244,66 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     fn sign(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "sign", a)
+    }
+
+    fn rsqrt(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "rsqrt", a)
+    }
+
+    fn cbrt(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "cbrt", a)
+    }
+
+    fn exp2(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "exp2", a)
+    }
+
+    fn expm1(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "expm1", a)
+    }
+
+    fn log2(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "log2", a)
+    }
+
+    fn log10(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "log10", a)
+    }
+
+    fn log1p(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "log1p", a)
+    }
+
+    fn asin(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "asin", a)
+    }
+
+    fn acos(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "acos", a)
+    }
+
+    fn sinh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "sinh", a)
+    }
+
+    fn cosh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "cosh", a)
+    }
+
+    fn asinh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "asinh", a)
+    }
+
+    fn acosh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "acosh", a)
+    }
+
+    fn atanh(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "atanh", a)
+    }
+
+    fn trunc(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "trunc", a)
     }
 
     fn isnan(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -1514,6 +1586,16 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         index: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_index_select(self, a, dim, index)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_index_put(self, a, dim, index, src)
     }
 
     fn masked_select(
