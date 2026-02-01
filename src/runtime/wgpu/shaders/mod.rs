@@ -37,10 +37,12 @@ pub mod statistics;
 pub mod typed_kernels;
 
 // Operation launchers
+pub mod activation_launcher;
 pub mod elementwise;
 pub mod matmul;
 pub mod norm;
 pub mod reduce;
+pub mod where_launcher;
 
 mod elementwise_wgsl;
 mod linalg_launchers;
@@ -51,6 +53,7 @@ mod norm_wgsl;
 mod pipeline;
 mod reduce_wgsl;
 
+pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
 pub use complex::{launch_angle_real, launch_complex_op};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,
@@ -74,3 +77,4 @@ pub use generator::{
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use special::{launch_special_binary, launch_special_ternary, launch_special_unary};
 pub use statistics::{launch_mode_dim, launch_mode_full};
+pub use where_launcher::{launch_where_broadcast_op, launch_where_generic_op, launch_where_op};
