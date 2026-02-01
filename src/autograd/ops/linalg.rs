@@ -20,7 +20,9 @@
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{LinalgOps, MatmulOps, ScalarOps, TensorOps, TypeConversionOps};
+use crate::ops::{
+    BinaryOps, LinalgOps, MatmulOps, ScalarOps, TensorOps, TypeConversionOps, UnaryOps,
+};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;

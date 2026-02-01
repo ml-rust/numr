@@ -27,7 +27,7 @@ use super::Var;
 use super::ops::*;
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::error::Result;
-use crate::ops::{CompareOps, ScalarOps, TensorOps};
+use crate::ops::{BinaryOps, CompareOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use std::sync::Arc;
 

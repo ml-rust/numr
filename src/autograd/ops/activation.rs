@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{CompareOps, ReduceOps, TensorOps};
+use crate::ops::{BinaryOps, CompareOps, ReduceOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 
