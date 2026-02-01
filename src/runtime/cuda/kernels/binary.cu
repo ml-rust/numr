@@ -235,6 +235,13 @@ __global__ void min_f32(const float* a, const float* b, float* out, unsigned int
     }
 }
 
+__global__ void atan2_f32(const float* y, const float* x, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = atan2f(y[idx], x[idx]);
+    }
+}
+
 // ============================================================================
 // F16 Binary Operations (half precision)
 // Uses half2 vectorization for 2x throughput where possible
@@ -289,6 +296,13 @@ __global__ void min_f16(const __half* a, const __half* b, __half* out, unsigned 
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = __hlt(a[idx], b[idx]) ? a[idx] : b[idx];
+    }
+}
+
+__global__ void atan2_f16(const __half* y, const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2half(atan2f(__half2float(y[idx]), __half2float(x[idx])));
     }
 }
 
@@ -373,6 +387,13 @@ __global__ void min_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bf
     }
 }
 
+__global__ void atan2_bf16(const __nv_bfloat16* y, const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2bfloat16(atan2f(__bfloat162float(y[idx]), __bfloat162float(x[idx])));
+    }
+}
+
 // ============================================================================
 // F64 Binary Operations
 // ============================================================================
@@ -423,6 +444,13 @@ __global__ void min_f64(const double* a, const double* b, double* out, unsigned 
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = fmin(a[idx], b[idx]);
+    }
+}
+
+__global__ void atan2_f64(const double* y, const double* x, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = atan2(y[idx], x[idx]);
     }
 }
 
@@ -1052,6 +1080,15 @@ __global__ void min_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* b, num
     }
 }
 
+__global__ void atan2_fp8_e4m3(const numr_fp8_e4m3* y, const numr_fp8_e4m3* x, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fy = fp8_e4m3_to_f32(y[idx].data);
+        float fx = fp8_e4m3_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(atan2f(fy, fx)));
+    }
+}
+
 // ============================================================================
 // FP8 E5M2 Binary Operations
 // ============================================================================
@@ -1116,6 +1153,15 @@ __global__ void min_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* b, num
         float fa = fp8_e5m2_to_f32(a[idx].data);
         float fb = fp8_e5m2_to_f32(b[idx].data);
         out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fminf(fa, fb)));
+    }
+}
+
+__global__ void atan2_fp8_e5m2(const numr_fp8_e5m2* y, const numr_fp8_e5m2* x, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fy = fp8_e5m2_to_f32(y[idx].data);
+        float fx = fp8_e5m2_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(atan2f(fy, fx)));
     }
 }
 

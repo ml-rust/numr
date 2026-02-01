@@ -9,12 +9,13 @@ use super::super::kernels::{
     launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_elu,
     launch_embedding_lookup, launch_extract_unique, launch_fill_with_f64,
     launch_flat_to_multi_index, launch_gather, launch_gather_nonzero, launch_gelu, launch_imag,
-    launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm, launch_leaky_relu,
-    launch_logsumexp, launch_logsumexp_strided, launch_masked_count, launch_masked_fill,
-    launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real, launch_relu,
-    launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_searchsorted,
+    launch_index_put, launch_index_select, launch_isinf_op, launch_isnan_op, launch_layer_norm,
+    launch_leaky_relu, launch_logsumexp, launch_logsumexp_strided, launch_masked_count,
+    launch_masked_fill, launch_masked_prefix_sum, launch_masked_select, launch_pad, launch_real,
+    launch_relu, launch_repeat, launch_rms_norm, launch_roll, launch_scatter, launch_searchsorted,
     launch_sigmoid, launch_silu, launch_softmax, launch_softmax_dim, launch_sort,
-    launch_sort_values_only, launch_topk, launch_where_broadcast_op, launch_where_op,
+    launch_sort_values_only, launch_topk, launch_validate_indices, launch_where_broadcast_op,
+    launch_where_op,
 };
 use super::super::{CudaClient, CudaRuntime};
 use super::helpers::{
@@ -76,6 +77,14 @@ impl TensorOps<CudaRuntime> for CudaClient {
         native_binary_op(self, a, b, "min")
     }
 
+    fn atan2(
+        &self,
+        y: &Tensor<CudaRuntime>,
+        x: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_binary_op(self, y, x, "atan2")
+    }
+
     // ===== Unary Operations (Native CUDA Kernels) =====
 
     fn neg(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
@@ -110,6 +119,10 @@ impl TensorOps<CudaRuntime> for CudaClient {
         native_unary_op(self, a, "tan")
     }
 
+    fn atan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "atan")
+    }
+
     fn tanh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_unary_op(self, a, "tanh")
     }
@@ -136,6 +149,66 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
     fn sign(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_unary_op(self, a, "sign")
+    }
+
+    fn rsqrt(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "rsqrt")
+    }
+
+    fn cbrt(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "cbrt")
+    }
+
+    fn exp2(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "exp2")
+    }
+
+    fn expm1(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "expm1")
+    }
+
+    fn log2(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "log2")
+    }
+
+    fn log10(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "log10")
+    }
+
+    fn log1p(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "log1p")
+    }
+
+    fn asin(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "asin")
+    }
+
+    fn acos(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "acos")
+    }
+
+    fn sinh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "sinh")
+    }
+
+    fn cosh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "cosh")
+    }
+
+    fn asinh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "asinh")
+    }
+
+    fn acosh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "acosh")
+    }
+
+    fn atanh(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "atanh")
+    }
+
+    fn trunc(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        native_unary_op(self, a, "trunc")
     }
 
     fn isnan(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
@@ -1113,11 +1186,48 @@ impl TensorOps<CudaRuntime> for CudaClient {
         let mut out_shape = shape.to_vec();
         out_shape[dim] = index_len;
 
+        // Compute dim_size for validation
+        let dim_size = shape[dim];
+
+        // Validate indices on GPU (only costs copying 4 bytes back)
+        let error_count_tensor = Tensor::<CudaRuntime>::empty(&[1], DType::U32, &self.device);
+        unsafe {
+            // Initialize error count to 0
+            launch_fill_with_f64(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                DType::U32,
+                0.0,
+                error_count_tensor.storage().ptr(),
+                1,
+            )?;
+
+            // Run validation kernel
+            launch_validate_indices(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                index_contig.storage().ptr(),
+                error_count_tensor.storage().ptr(),
+                index_len,
+                dim_size,
+            )?;
+        }
+
+        // Check validation result
+        let error_count = error_count_tensor.to_vec::<u32>()[0];
+        if error_count > 0 {
+            return Err(Error::IndexOutOfBounds {
+                index: 0, // We don't know which specific index failed
+                size: dim_size,
+            });
+        }
+
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
 
         // Compute outer/dim/inner sizes
         let outer_size: usize = shape[..dim].iter().product();
-        let dim_size = shape[dim];
         let inner_size: usize = shape[dim + 1..].iter().product();
 
         let outer_size = outer_size.max(1);
@@ -1131,6 +1241,132 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 dtype,
                 a_contig.storage().ptr(),
                 index_contig.storage().ptr(),
+                out.storage().ptr(),
+                outer_size,
+                dim_size,
+                inner_size,
+                index_len,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dim: usize,
+        index: &Tensor<CudaRuntime>,
+        src: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Validate index dtype
+        if index.dtype() != DType::I64 {
+            return Err(Error::DTypeMismatch {
+                lhs: DType::I64,
+                rhs: index.dtype(),
+            });
+        }
+
+        // Validate index is 1D
+        if index.ndim() != 1 {
+            return Err(Error::ShapeMismatch {
+                expected: vec![index.numel()],
+                got: index.shape().to_vec(),
+            });
+        }
+
+        // Validate src dtype matches
+        if src.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: src.dtype(),
+            });
+        }
+
+        let index_len = index.numel();
+
+        // Validate src shape: must match a's shape except at dim where it equals index_len
+        let mut expected_src_shape = shape.to_vec();
+        expected_src_shape[dim] = index_len;
+        if src.shape() != expected_src_shape {
+            return Err(Error::ShapeMismatch {
+                expected: expected_src_shape,
+                got: src.shape().to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let index_contig = ensure_contiguous(index);
+        let src_contig = ensure_contiguous(src);
+
+        // Compute dim_size for validation
+        let dim_size = shape[dim];
+
+        // Validate indices on GPU (only costs copying 4 bytes back)
+        let error_count_tensor = Tensor::<CudaRuntime>::empty(&[1], DType::U32, &self.device);
+        unsafe {
+            // Initialize error count to 0
+            launch_fill_with_f64(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                DType::U32,
+                0.0,
+                error_count_tensor.storage().ptr(),
+                1,
+            )?;
+
+            // Run validation kernel
+            launch_validate_indices(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                index_contig.storage().ptr(),
+                error_count_tensor.storage().ptr(),
+                index_len,
+                dim_size,
+            )?;
+        }
+
+        // Check validation result
+        let error_count = error_count_tensor.to_vec::<u32>()[0];
+        if error_count > 0 {
+            return Err(Error::IndexOutOfBounds {
+                index: 0, // We don't know which specific index failed
+                size: dim_size,
+            });
+        }
+
+        // Clone a to output first
+        let out = a_contig.clone();
+
+        // Compute outer/dim/inner sizes
+        let outer_size: usize = shape[..dim].iter().product();
+        let inner_size: usize = shape[dim + 1..].iter().product();
+
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        unsafe {
+            launch_index_put(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                index_contig.storage().ptr(),
+                src_contig.storage().ptr(),
                 out.storage().ptr(),
                 outer_size,
                 dim_size,
