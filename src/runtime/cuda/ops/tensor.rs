@@ -26,10 +26,11 @@ use super::helpers::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, LinalgOps, MatmulOps,
-    NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
-    TensorOps, TypeConversionOps, UtilityOps, compute_reduce_strides, matmul_bias_output_shape,
-    matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
+    ActivationOps, BinaryOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, LinalgOps,
+    MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps, compute_reduce_strides,
+    matmul_bias_output_shape, matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape,
+    reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
@@ -993,7 +994,24 @@ impl ActivationOps<CudaRuntime> for CudaClient {
 
 impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Binary Operations (Native CUDA Kernels) =====
+    // Moved to BinaryOps trait implementation below
 
+    // ===== Unary Operations (Native CUDA Kernels) =====
+    // Moved to UnaryOps trait implementation below
+
+    // ===== Reductions (Native CUDA Kernels) =====
+    // Moved to ReduceOps trait implementation below
+
+    // ===== Index Operations =====
+    // Moved to IndexingOps trait implementation below
+}
+
+// ============================================================================
+// BinaryOps Implementation
+// ============================================================================
+
+/// BinaryOps implementation for CUDA runtime.
+impl BinaryOps<CudaRuntime> for CudaClient {
     fn add(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_binary_op(self, a, b, "add")
     }
@@ -1037,9 +1055,14 @@ impl TensorOps<CudaRuntime> for CudaClient {
     ) -> Result<Tensor<CudaRuntime>> {
         native_binary_op(self, y, x, "atan2")
     }
+}
 
-    // ===== Unary Operations (Native CUDA Kernels) =====
+// ============================================================================
+// UnaryOps Implementation
+// ============================================================================
 
+/// UnaryOps implementation for CUDA runtime.
+impl UnaryOps<CudaRuntime> for CudaClient {
     fn neg(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_unary_op(self, a, "neg")
     }
@@ -1205,12 +1228,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
-
-    // ===== Reductions (Native CUDA Kernels) =====
-    // Moved to ReduceOps trait implementation below
-
-    // ===== Index Operations =====
-    // Moved to IndexingOps trait implementation below
 }
 
 // ============================================================================
