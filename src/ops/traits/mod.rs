@@ -15,6 +15,8 @@ mod matmul;
 mod normalization;
 mod reduce;
 mod scalar;
+mod sorting;
+mod statistics;
 mod type_conversion;
 mod utility;
 
@@ -30,6 +32,8 @@ pub use matmul::MatmulOps;
 pub use normalization::NormalizationOps;
 pub use reduce::ReduceOps;
 pub use scalar::ScalarOps;
+pub use sorting::SortingOps;
+pub use statistics::StatisticalOps;
 pub use type_conversion::TypeConversionOps;
 pub use utility::UtilityOps;
 
