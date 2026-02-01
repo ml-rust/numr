@@ -14,11 +14,11 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, ActivationOps, BinaryOp, CompareOp, CompareOps, ComplexOps,
+    AccumulationPrecision, ActivationOps, BinaryOp, BinaryOps, CompareOp, CompareOps, ComplexOps,
     ConditionalOps, CumulativeOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
     NormalizationOps, RandomOps, ReduceOp, ReduceOps, ScalarOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOp, UtilityOps, compute_reduce_strides,
-    normalize_softmax_dim, reduce_dim_output_shape,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOp, UnaryOps, UtilityOps,
+    compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::runtime::{validate_arange, validate_eye};
 use crate::tensor::Tensor;
@@ -673,7 +673,51 @@ impl ActivationOps<CpuRuntime> for CpuClient {
 /// TensorOps implementation for CPU runtime.
 impl TensorOps<CpuRuntime> for CpuClient {
     // ===== Binary Operations =====
+    // Moved to BinaryOps trait implementation below
 
+    // ===== Unary Operations =====
+    // Moved to UnaryOps trait implementation below
+
+    // ===== Reductions =====
+    // Moved to ReduceOps trait implementation below
+
+    // ===== Index Operations =====
+    // Moved to IndexingOps trait implementation below
+
+    // ===== Type Conversion =====
+    // Moved to TypeConversionOps impl
+
+    // ===== Complex Number Operations =====
+    // Moved to ComplexOps trait in ops/traits/complex.rs
+
+    // ===== Conditional Operations =====
+    // Moved to ConditionalOps impl
+
+    // ===== Utility Operations =====
+    // Moved to separate UtilityOps impl block
+
+    // ===== Statistical Operations =====
+    // Moved to StatisticalOps trait implementation below
+
+    // ===== Random Operations =====
+    // Moved to RandomOps trait implementation below
+
+    // ===== Shape Operations =====
+    // Moved to ShapeOps trait implementation below
+
+    // ===== Linear Algebra Operations =====
+    // Moved to LinalgOps trait implementation below
+
+    // ===== Sorting and Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
+
+// ============================================================================
+// BinaryOps Implementation
+// ============================================================================
+
+/// BinaryOps implementation for CPU runtime.
+impl BinaryOps<CpuRuntime> for CpuClient {
     fn add(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         binary_op_impl(self, BinaryOp::Add, a, b, "add")
     }
@@ -690,8 +734,37 @@ impl TensorOps<CpuRuntime> for CpuClient {
         binary_op_impl(self, BinaryOp::Div, a, b, "div")
     }
 
-    // ===== Unary Operations =====
+    fn pow(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Pow, a, b, "pow")
+    }
 
+    fn maximum(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Max, a, b, "maximum")
+    }
+
+    fn minimum(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Min, a, b, "minimum")
+    }
+
+    fn atan2(&self, y: &Tensor<CpuRuntime>, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        binary_op_impl(self, BinaryOp::Atan2, y, x, "atan2")
+    }
+}
+
+// ============================================================================
+// UnaryOps Implementation
+// ============================================================================
+
+/// UnaryOps implementation for CPU runtime.
+impl UnaryOps<CpuRuntime> for CpuClient {
     fn neg(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         unary_op_impl(self, UnaryOp::Neg, a, "neg")
     }
@@ -859,65 +932,6 @@ impl TensorOps<CpuRuntime> for CpuClient {
 
         Ok(out)
     }
-
-    // ===== Element-wise Binary (extended) =====
-
-    fn pow(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        binary_op_impl(self, BinaryOp::Pow, a, b, "pow")
-    }
-
-    fn maximum(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        b: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        binary_op_impl(self, BinaryOp::Max, a, b, "maximum")
-    }
-
-    fn minimum(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        b: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        binary_op_impl(self, BinaryOp::Min, a, b, "minimum")
-    }
-
-    fn atan2(&self, y: &Tensor<CpuRuntime>, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        binary_op_impl(self, BinaryOp::Atan2, y, x, "atan2")
-    }
-
-    // ===== Reductions =====
-    // Moved to ReduceOps trait implementation below
-
-    // ===== Index Operations =====
-    // Moved to IndexingOps trait implementation below
-
-    // ===== Type Conversion =====
-    // Moved to TypeConversionOps impl
-
-    // ===== Complex Number Operations =====
-    // Moved to ComplexOps trait in ops/traits/complex.rs
-
-    // ===== Conditional Operations =====
-    // Moved to ConditionalOps impl
-
-    // ===== Utility Operations =====
-    // Moved to separate UtilityOps impl block
-
-    // ===== Statistical Operations =====
-    // Moved to StatisticalOps trait implementation below
-
-    // ===== Random Operations =====
-    // Moved to RandomOps trait implementation below
-
-    // ===== Shape Operations =====
-    // Moved to ShapeOps trait implementation below
-
-    // ===== Linear Algebra Operations =====
-    // Moved to LinalgOps trait implementation below
-
-    // ===== Sorting and Search Operations =====
-    // Moved to SortingOps trait implementation below
 }
 
 // ============================================================================

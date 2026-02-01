@@ -4,7 +4,7 @@ use super::super::helpers::{dispatch_dtype, ensure_contiguous};
 use super::super::{CpuClient, CpuRuntime};
 use crate::dtype::Element;
 use crate::error::Result;
-use crate::ops::{ReduceOps, ScalarOps, StatisticalOps, TensorOps};
+use crate::ops::{BinaryOps, ReduceOps, ScalarOps, StatisticalOps, TensorOps};
 use crate::runtime::statistics_common::{DIVISION_EPSILON, compute_kurtosis, compute_skewness};
 use crate::tensor::Tensor;
 
