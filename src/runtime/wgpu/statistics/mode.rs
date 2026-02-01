@@ -2,7 +2,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{TensorOps, compute_reduce_strides, reduce_dim_output_shape};
+use crate::ops::{TensorOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::wgpu::client::get_buffer;
 use crate::runtime::wgpu::shaders::generator::is_wgpu_supported;
 use crate::runtime::wgpu::shaders::launch_mode_dim;

@@ -2,7 +2,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{TensorOps, TypeConversionOps};
 use crate::runtime::statistics_common::compute_histogram_counts;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, ensure_contiguous};
