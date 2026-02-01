@@ -84,7 +84,10 @@ pub use dispatch::*;
 pub use matmul::*;
 pub use reduce::*;
 pub use special::SpecialFunctions;
-pub use traits::{CompareOps, Kernel, LogicalOps, ScalarOps};
+pub use traits::{
+    CompareOps, ComplexOps, ConditionalOps, Kernel, LogicalOps, MatmulOps, NormalizationOps,
+    ScalarOps, TypeConversionOps,
+};
 
 use crate::error::Result;
 use crate::runtime::Runtime;
@@ -115,7 +118,9 @@ use crate::tensor::Tensor;
 ///
 /// let c = client.add(&a, &b)?;
 /// ```
-pub trait TensorOps<R: Runtime> {
+pub trait TensorOps<R: Runtime>:
+    TypeConversionOps<R> + ConditionalOps<R> + ComplexOps<R> + NormalizationOps<R> + MatmulOps<R>
+{
     // ===== Element-wise Binary Operations =====
 
     /// Element-wise addition: a + b
@@ -261,96 +266,6 @@ pub trait TensorOps<R: Runtime> {
     /// Computes the angle in radians between the positive x-axis and the point (x, y).
     /// Result is in the range [-π, π]. Essential for polar coordinates and spatial algorithms.
     fn atan2(&self, y: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
-
-    // ===== Matrix Operations =====
-
-    /// Matrix multiplication: a @ b
-    ///
-    /// Supports batched matmul for tensors with more than 2 dimensions.
-    fn matmul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
-
-    /// Fused matrix multiplication with bias addition: C = A @ B + bias
-    ///
-    /// This is a fused operation that combines matrix multiplication and bias addition
-    /// into a single kernel, avoiding an extra memory round-trip compared to separate
-    /// `matmul` followed by `add`. This is the core operation for neural network linear
-    /// layers: `output = input @ weight.T + bias`.
-    ///
-    /// # Algorithm (Epilogue Fusion)
-    ///
-    /// The bias addition is fused into the GEMM epilogue:
-    /// ```text
-    /// 1. Load tiles of A and B into shared memory
-    /// 2. Compute partial products, accumulate in registers
-    /// 3. Repeat for all K tiles
-    /// 4. EPILOGUE: For each output element C[i][j]:
-    ///    C[i][j] = accumulated_value[i][j] + bias[j]
-    /// 5. Write final result to global memory
-    /// ```
-    ///
-    /// This saves one global memory read/write cycle vs the naive:
-    /// ```text
-    /// temp = A @ B       // Write temp to global memory
-    /// C = temp + bias    // Read temp, write C
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor of shape `[..., M, K]`
-    /// * `b` - Weight tensor of shape `[..., K, N]`
-    /// * `bias` - Bias tensor of shape `[N]` (1D, broadcast across all M rows)
-    ///
-    /// # Returns
-    ///
-    /// Output tensor of shape `[..., M, N]` where `C[..., i, j] = sum_k(A[..., i, k] * B[..., k, j]) + bias[j]`
-    ///
-    /// # Errors
-    ///
-    /// Returns `Error::ShapeMismatch` if:
-    /// - Inner dimensions don't match (A's last dim != B's second-to-last dim)
-    /// - Bias shape doesn't match output columns (bias.len() != N)
-    /// - Bias is not 1D
-    ///
-    /// Returns `Error::DTypeMismatch` if A, B, and bias don't have the same dtype.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Linear layer: output = input @ weight.T + bias
-    /// let input = Tensor::randn(&[batch, seq_len, hidden], DType::F32, &device);
-    /// let weight = Tensor::randn(&[out_features, hidden], DType::F32, &device);
-    /// let bias = Tensor::randn(&[out_features], DType::F32, &device);
-    ///
-    /// // Using fused operation (faster):
-    /// let output = client.matmul_bias(&input, &weight.transpose(-1, -2)?, &bias)?;
-    ///
-    /// // Equivalent to (slower - extra memory round-trip):
-    /// let temp = client.matmul(&input, &weight.transpose(-1, -2)?)?;
-    /// let output = client.add(&temp, &bias.unsqueeze(0)?.unsqueeze(0)?)?;
-    /// ```
-    ///
-    /// # Performance
-    ///
-    /// Fusing bias into the GEMM epilogue provides:
-    /// - ~2x memory bandwidth reduction for the bias addition
-    /// - Better cache utilization (output stays in registers)
-    /// - Reduced kernel launch overhead (one kernel instead of two)
-    ///
-    /// For large matrices where GEMM is compute-bound, the speedup is modest.
-    /// For smaller matrices (typical in LLM inference), the speedup is more significant.
-    ///
-    /// # Backend Support
-    ///
-    /// | Backend | Supported DTypes | Tensor Dims | Notes |
-    /// |---------|------------------|-------------|-------|
-    /// | CPU     | All dtypes       | 2D, 3D+     | Full support via generic kernels |
-    /// | CUDA    | F32, F64, F16, BF16 | 2D, 3D+ | Returns `UnsupportedDType` for integers |
-    /// | WebGPU  | F32, I32, U32, F16 | 2D, 3D only | Returns error for >3D tensors |
-    ///
-    /// Integer dtypes (I32, I64, U32, U64) are only supported on CPU.
-    /// CUDA returns `Error::UnsupportedDType` for integer matmul_bias operations.
-    /// WebGPU is limited to 3D workgroup dispatches and returns an error for >3D tensors.
-    fn matmul_bias(&self, a: &Tensor<R>, b: &Tensor<R>, bias: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ===== Reductions =====
 
@@ -691,38 +606,6 @@ pub trait TensorOps<R: Runtime> {
 
     /// Softmax along a dimension
     fn softmax(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>>;
-
-    // ===== Normalization =====
-
-    /// RMS Normalization: output = input * rsqrt(mean(input^2) + eps) * weight
-    ///
-    /// RMSNorm is used in LLaMA and other modern transformer architectures.
-    /// It normalizes over the last dimension.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input tensor of shape [..., hidden_size]
-    /// * `weight` - Weight tensor of shape [hidden_size]
-    /// * `eps` - Small constant for numerical stability (typically 1e-5 or 1e-6)
-    fn rms_norm(&self, input: &Tensor<R>, weight: &Tensor<R>, eps: f32) -> Result<Tensor<R>>;
-
-    /// Layer Normalization: output = (input - mean) / sqrt(variance + eps) * weight + bias
-    ///
-    /// LayerNorm normalizes across the last dimension for each batch element.
-    ///
-    /// # Arguments
-    ///
-    /// * `input` - Input tensor of shape [..., hidden_size]
-    /// * `weight` - Weight (gamma) tensor of shape [hidden_size]
-    /// * `bias` - Bias (beta) tensor of shape [hidden_size]
-    /// * `eps` - Small constant for numerical stability (typically 1e-5)
-    fn layer_norm(
-        &self,
-        input: &Tensor<R>,
-        weight: &Tensor<R>,
-        bias: &Tensor<R>,
-        eps: f32,
-    ) -> Result<Tensor<R>>;
 
     // ===== Index Operations =====
 
@@ -1183,212 +1066,13 @@ pub trait TensorOps<R: Runtime> {
     ) -> Result<Tensor<R>>;
 
     // ===== Type Conversion =====
-
-    /// Cast tensor to a different data type.
-    ///
-    /// Converts all elements of the input tensor to the target dtype.
-    /// The output tensor has the same shape as the input.
-    ///
-    /// # Supported Conversions
-    ///
-    /// - **Widening** (lossless): I8→I16→I32→I64, F16→F32→F64
-    /// - **Narrowing** (may lose precision): F64→F32→F16, I64→I32→I16→I8
-    /// - **Float↔Int**: Truncates toward zero for float→int
-    /// - **FP8 conversions**: F32↔FP8E4M3, F32↔FP8E5M2 (with saturation)
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor
-    /// * `dtype` - Target data type
-    ///
-    /// # Returns
-    ///
-    /// New tensor with the specified dtype
-    ///
-    /// # Errors
-    ///
-    /// Returns `UnsupportedDType` if the conversion is not supported
-    /// (e.g., Bool↔numeric without explicit handling).
-    fn cast(&self, a: &Tensor<R>, dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+    // Moved to TypeConversionOps trait in traits/type_conversion.rs
 
     // ===== Complex Number Operations =====
-
-    /// Complex conjugate: conj(a + bi) = a - bi
-    ///
-    /// Returns the complex conjugate of the input tensor.
-    /// For real tensors, returns the input unchanged.
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor (Complex64, Complex128, or real types)
-    ///
-    /// # Returns
-    ///
-    /// * Complex types: Tensor with same shape and dtype, imaginary part negated
-    /// * Real types: Returns input tensor unchanged (real numbers equal their conjugate)
-    ///
-    /// # Supported Types
-    ///
-    /// * Complex64: All backends (CPU, CUDA, WebGPU)
-    /// * Complex128: CPU and CUDA only (WebGPU does not support F64)
-    /// * Real types: All backends (identity operation)
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let z = Tensor::<CpuRuntime>::from_slice(
-    ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, -4.0)],
-    ///     &[2],
-    ///     &device
-    /// );
-    /// let conj_z = client.conj(&z)?;
-    /// // Result: [1.0 - 2.0i, 3.0 + 4.0i]
-    /// ```
-    fn conj(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
-
-    /// Extract real part of complex tensor: real(a + bi) = a
-    ///
-    /// Extracts the real component from a complex tensor.
-    /// For real tensors, returns a copy of the input.
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor
-    ///
-    /// # Returns
-    ///
-    /// * Complex64 input → F32 tensor with same shape
-    /// * Complex128 input → F64 tensor with same shape
-    /// * Real input → Copy of input tensor
-    ///
-    /// # Supported Types
-    ///
-    /// * Complex64: All backends (CPU, CUDA, WebGPU)
-    /// * Complex128: CPU and CUDA only (WebGPU does not support F64)
-    /// * Real types: All backends
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let z = Tensor::<CpuRuntime>::from_slice(
-    ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
-    ///     &[2],
-    ///     &device
-    /// );
-    /// let re = client.real(&z)?;  // F32 tensor: [1.0, 3.0]
-    /// ```
-    fn real(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
-
-    /// Extract imaginary part of complex tensor: imag(a + bi) = b
-    ///
-    /// Extracts the imaginary component from a complex tensor.
-    /// For real tensors, returns a zero tensor with the same shape.
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor
-    ///
-    /// # Returns
-    ///
-    /// * Complex64 input → F32 tensor with same shape
-    /// * Complex128 input → F64 tensor with same shape
-    /// * Real input → Zero tensor with same shape and dtype
-    ///
-    /// # Supported Types
-    ///
-    /// * Complex64: All backends (CPU, CUDA, WebGPU)
-    /// * Complex128: CPU and CUDA only (WebGPU does not support F64)
-    /// * Real types: All backends
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let z = Tensor::<CpuRuntime>::from_slice(
-    ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
-    ///     &[2],
-    ///     &device
-    /// );
-    /// let im = client.imag(&z)?;  // F32 tensor: [2.0, 4.0]
-    /// ```
-    fn imag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
-
-    /// Compute phase angle of complex tensor: angle(a + bi) = atan2(b, a)
-    ///
-    /// Returns the phase angle (argument) of complex numbers in radians.
-    /// The result is in the range [-π, π].
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Input tensor
-    ///
-    /// # Returns
-    ///
-    /// * Complex64 input → F32 tensor with angles in radians
-    /// * Complex128 input → F64 tensor with angles in radians
-    /// * Real input → Zero tensor (real numbers have phase angle 0 for positive, π for negative)
-    ///
-    /// # Supported Types
-    ///
-    /// * Complex64: All backends (CPU, CUDA, WebGPU)
-    /// * Complex128: CPU and CUDA only (WebGPU does not support F64)
-    /// * Real types: All backends
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let z = Tensor::<CpuRuntime>::from_slice(
-    ///     &[Complex64::new(1.0, 1.0), Complex64::new(-1.0, 0.0)],
-    ///     &[2],
-    ///     &device
-    /// );
-    /// let angles = client.angle(&z)?;  // F32 tensor: [π/4, π]
-    /// ```
-    ///
-    /// # Mathematical Notes
-    ///
-    /// For complex z = a + bi, returns atan2(b, a) in radians [-π, π].
-    /// For real x, returns 0 if x ≥ 0, π if x < 0.
-    /// To compute magnitude, use abs(z) = sqrt(re² + im²) separately.
-    fn angle(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    // Moved to ComplexOps trait in traits/complex.rs
 
     // ===== Conditional Operations =====
-
-    /// Conditional select: where(cond, x, y) = cond ? x : y
-    ///
-    /// Performs element-wise conditional selection. For each position,
-    /// returns x if condition is true (non-zero), otherwise y.
-    ///
-    /// # Arguments
-    ///
-    /// * `cond` - Condition tensor (any numeric dtype: 0 = false, non-zero = true)
-    /// * `x` - Values to select when condition is true
-    /// * `y` - Values to select when condition is false
-    ///
-    /// # Condition Dtype
-    ///
-    /// The condition tensor accepts any numeric dtype (U8, I32, F32, F64, etc.).
-    /// Non-zero values are treated as true, zero as false. This allows using
-    /// comparison results directly (e.g., from `eq`, `lt`, `gt`) without dtype
-    /// conversion:
-    ///
-    /// ```ignore
-    /// let mask = client.gt(&a, &threshold)?;  // Returns same dtype as a
-    /// let result = client.where_cond(&mask, &x, &y)?;  // Works directly
-    /// ```
-    ///
-    /// For optimal performance, U8 conditions use SIMD-optimized kernels on
-    /// supported platforms (x86-64 with AVX2/AVX-512).
-    ///
-    /// # Returns
-    ///
-    /// Tensor with same shape and dtype as x and y
-    ///
-    /// # Backend Notes
-    ///
-    /// - CPU: Native support for all condition dtypes with SIMD optimization for U8
-    /// - CUDA: Native support for F32, F64, I32, I64, U32 conditions (optimized U8)
-    /// - WebGPU: Native support for F32, I32, U32 conditions with broadcasting
-    fn where_cond(&self, cond: &Tensor<R>, x: &Tensor<R>, y: &Tensor<R>) -> Result<Tensor<R>>;
+    // Moved to ConditionalOps trait in traits/conditional.rs
 
     // ===== Utility Operations =====
 
