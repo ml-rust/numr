@@ -20,7 +20,7 @@
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{ScalarOps, TensorOps};
+use crate::ops::{MatmulOps, ScalarOps, TensorOps, TypeConversionOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -170,7 +170,7 @@ impl<R: Runtime> InverseBackward<R> {
 
 impl<R: Runtime> GradFn<R> for InverseBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: MatmulOps<R> + TensorOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -327,7 +327,7 @@ impl<R: Runtime> SolveBackward<R> {
 
 impl<R: Runtime> GradFn<R> for SolveBackward<R>
 where
-    R::Client: TensorOps<R> + LinearAlgebraAlgorithms<R>,
+    R::Client: MatmulOps<R> + TensorOps<R> + LinearAlgebraAlgorithms<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -409,7 +409,7 @@ impl<R: Runtime> CholeskyBackward<R> {
 
 impl<R: Runtime> GradFn<R> for CholeskyBackward<R>
 where
-    R::Client: TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
+    R::Client: MatmulOps<R> + TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         use crate::error::Error;

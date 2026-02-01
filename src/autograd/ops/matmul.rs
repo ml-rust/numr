@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::TensorOps;
+use crate::ops::{MatmulOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -46,7 +46,7 @@ impl<R: Runtime> MatmulBackward<R> {
 
 impl<R: Runtime> GradFn<R> for MatmulBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: MatmulOps<R> + TensorOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
