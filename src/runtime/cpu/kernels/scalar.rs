@@ -95,5 +95,11 @@ unsafe fn scalar_op_kernel_scalar<T: Element>(
                 out_slice[i] = if a_slice[i] < s { a_slice[i] } else { s };
             }
         }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                let y = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(y.atan2(scalar));
+            }
+        }
     }
 }

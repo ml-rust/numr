@@ -98,6 +98,12 @@ unsafe fn unary_op_scalar<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len
                 out_slice[i] = T::from_f64(v.tan());
             }
         }
+        UnaryOp::Atan => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.atan());
+            }
+        }
         UnaryOp::Tanh => {
             for i in 0..len {
                 let v = a_slice[i].to_f64();
@@ -145,6 +151,96 @@ unsafe fn unary_op_scalar<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len
                     0.0
                 };
                 out_slice[i] = T::from_f64(sign);
+            }
+        }
+        UnaryOp::Rsqrt => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(1.0 / v.sqrt());
+            }
+        }
+        UnaryOp::Cbrt => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.cbrt());
+            }
+        }
+        UnaryOp::Exp2 => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.exp2());
+            }
+        }
+        UnaryOp::Expm1 => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.exp_m1());
+            }
+        }
+        UnaryOp::Log2 => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.log2());
+            }
+        }
+        UnaryOp::Log10 => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.log10());
+            }
+        }
+        UnaryOp::Log1p => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.ln_1p());
+            }
+        }
+        UnaryOp::Asin => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.asin());
+            }
+        }
+        UnaryOp::Acos => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.acos());
+            }
+        }
+        UnaryOp::Sinh => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.sinh());
+            }
+        }
+        UnaryOp::Cosh => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.cosh());
+            }
+        }
+        UnaryOp::Asinh => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.asinh());
+            }
+        }
+        UnaryOp::Acosh => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.acosh());
+            }
+        }
+        UnaryOp::Atanh => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.atanh());
+            }
+        }
+        UnaryOp::Trunc => {
+            for i in 0..len {
+                let v = a_slice[i].to_f64();
+                out_slice[i] = T::from_f64(v.trunc());
             }
         }
     }

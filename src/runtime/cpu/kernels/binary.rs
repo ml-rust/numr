@@ -106,6 +106,14 @@ unsafe fn binary_op_scalar<T: Element>(
                 };
             }
         }
+        BinaryOp::Atan2 => {
+            // atan2(y, x) requires conversion to f64 and back
+            for i in 0..len {
+                let y = a_slice[i].to_f64();
+                let x = b_slice[i].to_f64();
+                out_slice[i] = T::from_f64(y.atan2(x));
+            }
+        }
     }
 }
 
@@ -162,6 +170,11 @@ pub unsafe fn binary_scalar_f32(
                 *out.add(i) = (*a.add(i)).powf(*b.add(i));
             }
         }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).atan2(*b.add(i));
+            }
+        }
     }
 }
 
@@ -212,6 +225,11 @@ pub unsafe fn binary_scalar_f64(
         BinaryOp::Pow => {
             for i in 0..len {
                 *out.add(i) = (*a.add(i)).powf(*b.add(i));
+            }
+        }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).atan2(*b.add(i));
             }
         }
     }
@@ -293,6 +311,7 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
                     b_val
                 }
             }
+            BinaryOp::Atan2 => T::from_f64(a_val.to_f64().atan2(b_val.to_f64())),
         };
 
         *out.add(out_idx) = result;

@@ -41,9 +41,10 @@ pub use fft::{
     rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
 };
 pub use index::{
-    embedding_lookup_kernel, gather_kernel, index_select_kernel, logical_and_kernel,
-    logical_not_kernel, logical_or_kernel, logical_xor_kernel, masked_count_kernel,
-    masked_fill_kernel, masked_select_kernel, scatter_kernel, where_kernel, where_strided_kernel,
+    embedding_lookup_kernel, gather_kernel, index_put_kernel, index_select_kernel,
+    logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel,
+    masked_count_kernel, masked_fill_kernel, masked_select_kernel, scatter_kernel, where_kernel,
+    where_strided_kernel,
 };
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
 pub use memory::{
