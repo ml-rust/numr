@@ -26,7 +26,8 @@ use super::helpers::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    ScalarOps, TensorOps, compute_reduce_strides, matmul_bias_output_shape, matmul_output_shape,
+    ComplexOps, ConditionalOps, MatmulOps, NormalizationOps, ScalarOps, TensorOps,
+    TypeConversionOps, compute_reduce_strides, matmul_bias_output_shape, matmul_output_shape,
     normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
@@ -38,6 +39,505 @@ use crate::runtime::{
 use crate::tensor::Tensor;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+impl TypeConversionOps<CudaRuntime> for CudaClient {
+    fn cast(&self, a: &Tensor<CudaRuntime>, target_dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        let src_dtype = a.dtype();
+
+        // No-op if types match
+        if src_dtype == target_dtype {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(shape, target_dtype, &self.device);
+
+        unsafe {
+            launch_cast(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                src_dtype,
+                target_dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// ComplexOps Implementation
+// ============================================================================
+
+impl ComplexOps<CudaRuntime> for CudaClient {
+    fn conj(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, conjugate is identity
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_conj(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn real(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, return copy
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        // Determine output dtype: Complex64 → F32, Complex128 → F64
+        let out_dtype = match dtype {
+            DType::Complex64 => DType::F32,
+            DType::Complex128 => DType::F64,
+            _ => return Err(Error::UnsupportedDType { dtype, op: "real" }),
+        };
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+
+        unsafe {
+            launch_real(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn imag(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // Determine output dtype
+        let out_dtype = if dtype.is_complex() {
+            match dtype {
+                DType::Complex64 => DType::F32,
+                DType::Complex128 => DType::F64,
+                _ => return Err(Error::UnsupportedDType { dtype, op: "imag" }),
+            }
+        } else {
+            // For real types, return zeros with same dtype
+            dtype
+        };
+
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+
+        // For real types, fill with zeros
+        if !dtype.is_complex() {
+            unsafe {
+                super::super::kernels::launch_fill_with_f64(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    out_dtype,
+                    0.0,
+                    out.storage().ptr(),
+                    out.numel(),
+                )?;
+            }
+            return Ok(out);
+        }
+
+        // For complex types, extract imaginary part
+        let a_contig = ensure_contiguous(a);
+
+        unsafe {
+            launch_imag(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn angle(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+
+        // Determine output dtype
+        let out_dtype = if dtype.is_complex() {
+            match dtype {
+                DType::Complex64 => DType::F32,
+                DType::Complex128 => DType::F64,
+                _ => return Err(Error::UnsupportedDType { dtype, op: "angle" }),
+            }
+        } else {
+            // For real types, return zeros with same dtype
+            dtype
+        };
+
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
+        let a_contig = ensure_contiguous(a);
+
+        // For real types: angle(x) = 0 if x >= 0, π if x < 0
+        if !dtype.is_complex() {
+            match dtype {
+                DType::F32 | DType::F64 => unsafe {
+                    super::super::kernels::launch_angle_real(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        dtype,
+                        a_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        a.numel(),
+                    )?;
+                },
+                _ => {
+                    // For integer types, return zeros (π as integer doesn't make mathematical sense)
+                    unsafe {
+                        super::super::kernels::launch_fill_with_f64(
+                            &self.context,
+                            &self.stream,
+                            self.device.index,
+                            out_dtype,
+                            0.0,
+                            out.storage().ptr(),
+                            out.numel(),
+                        )?;
+                    }
+                }
+            }
+            return Ok(out);
+        }
+
+        // For complex types, compute phase angle
+
+        unsafe {
+            launch_angle(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+}
+
+impl NormalizationOps<CudaRuntime> for CudaClient {
+    fn rms_norm(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        weight: &Tensor<CudaRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: weight.dtype(),
+            });
+        }
+
+        // Weight must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
+
+        unsafe {
+            launch_rms_norm(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                input_contig.storage().ptr(),
+                weight_contig.storage().ptr(),
+                out.storage().ptr(),
+                batch_size,
+                hidden_size,
+                eps,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn layer_norm(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        weight: &Tensor<CudaRuntime>,
+        bias: &Tensor<CudaRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype || bias.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: if weight.dtype() != dtype {
+                    weight.dtype()
+                } else {
+                    bias.dtype()
+                },
+            });
+        }
+
+        // Weight and bias must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+        if bias.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: bias.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let bias_contig = ensure_contiguous(bias);
+        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
+
+        unsafe {
+            launch_layer_norm(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                input_contig.storage().ptr(),
+                weight_contig.storage().ptr(),
+                bias_contig.storage().ptr(),
+                out.storage().ptr(),
+                batch_size,
+                hidden_size,
+                eps,
+            )?;
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// MatmulOps Implementation
+// ============================================================================
+
+impl MatmulOps<CudaRuntime> for CudaClient {
+    fn matmul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = validate_binary_dtypes(a, b)?;
+
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let m = if a_shape.len() >= 2 {
+            a_shape[a_shape.len() - 2]
+        } else {
+            1
+        };
+        let k = a_shape[a_shape.len() - 1];
+        let n = b_shape[b_shape.len() - 1];
+
+        let k_b = if b_shape.len() >= 2 {
+            b_shape[b_shape.len() - 2]
+        } else {
+            b_shape[b_shape.len() - 1]
+        };
+        if k != k_b {
+            return Err(Error::ShapeMismatch {
+                expected: a_shape.to_vec(),
+                got: b_shape.to_vec(),
+            });
+        }
+
+        let out_shape = matmul_output_shape(a_shape, b_shape).ok_or(Error::ShapeMismatch {
+            expected: a_shape.to_vec(),
+            got: b_shape.to_vec(),
+        })?;
+
+        let batch_size: usize = out_shape
+            .iter()
+            .take(out_shape.len().saturating_sub(2))
+            .product();
+        let batch_size = batch_size.max(1);
+
+        // Native tiled CUDA kernel
+        match dtype {
+            DType::F32 | DType::F64 => {
+                if batch_size > 1 {
+                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
+                } else {
+                    matmul_native(self, a, b, dtype, m, k, n)
+                }
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                if batch_size > 1 {
+                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
+                } else {
+                    matmul_native(self, a, b, dtype, m, k, n)
+                }
+            }
+            _ => matmul_fallback(a, b, &out_shape, &self.device, "matmul"),
+        }
+    }
+
+    fn matmul_bias(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        bias: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::ops::validate_matmul_bias_dtypes;
+
+        // Validate dtypes using unified helper (ensures consistent error handling across backends)
+        let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
+
+        // Validate bias is 1D
+        if bias.shape().len() != 1 {
+            return Err(Error::InvalidArgument {
+                arg: "bias",
+                reason: format!("bias must be 1D tensor, got shape {:?}", bias.shape()),
+            });
+        }
+
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let bias_shape = bias.shape();
+
+        let m = if a_shape.len() >= 2 {
+            a_shape[a_shape.len() - 2]
+        } else {
+            1
+        };
+        let k = a_shape[a_shape.len() - 1];
+        let n = b_shape[b_shape.len() - 1];
+
+        // Validate inner dimensions
+        let k_b = if b_shape.len() >= 2 {
+            b_shape[b_shape.len() - 2]
+        } else {
+            b_shape[b_shape.len() - 1]
+        };
+        if k != k_b {
+            return Err(Error::ShapeMismatch {
+                expected: a_shape.to_vec(),
+                got: b_shape.to_vec(),
+            });
+        }
+
+        // Validate bias length matches N
+        if bias_shape[0] != n {
+            return Err(Error::InvalidArgument {
+                arg: "bias",
+                reason: format!(
+                    "bias length {} must match output columns {}",
+                    bias_shape[0], n
+                ),
+            });
+        }
+
+        let out_shape =
+            matmul_bias_output_shape(a_shape, b_shape, bias_shape).ok_or(Error::ShapeMismatch {
+                expected: a_shape.to_vec(),
+                got: b_shape.to_vec(),
+            })?;
+
+        let batch_size: usize = out_shape
+            .iter()
+            .take(out_shape.len().saturating_sub(2))
+            .product();
+        let batch_size = batch_size.max(1);
+
+        // Native tiled CUDA kernel with fused bias
+        match dtype {
+            DType::F32 | DType::F64 => {
+                if batch_size > 1 {
+                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
+                } else {
+                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
+                }
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                if batch_size > 1 {
+                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
+                } else {
+                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
+                }
+            }
+            _ => {
+                // For unsupported dtypes, return error instead of silent fallback
+                // (matmul_bias requires fused kernel for efficiency - non-fused defeats the purpose)
+                Err(Error::UnsupportedDType {
+                    dtype,
+                    op: "matmul_bias",
+                })
+            }
+        }
+    }
+}
+
+// ============================================================================
+// TensorOps Implementation
+// ============================================================================
 
 impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Binary Operations (Native CUDA Kernels) =====
@@ -252,164 +752,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
-    }
-
-    // ===== Matrix Operations (Native CUDA Kernels) =====
-
-    fn matmul(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        b: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = validate_binary_dtypes(a, b)?;
-
-        let a_shape = a.shape();
-        let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
-
-        let k_b = if b_shape.len() >= 2 {
-            b_shape[b_shape.len() - 2]
-        } else {
-            b_shape[b_shape.len() - 1]
-        };
-        if k != k_b {
-            return Err(Error::ShapeMismatch {
-                expected: a_shape.to_vec(),
-                got: b_shape.to_vec(),
-            });
-        }
-
-        let out_shape = matmul_output_shape(a_shape, b_shape).ok_or(Error::ShapeMismatch {
-            expected: a_shape.to_vec(),
-            got: b_shape.to_vec(),
-        })?;
-
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        let batch_size = batch_size.max(1);
-
-        // Native tiled CUDA kernel
-        match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_native(self, a, b, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
-                if batch_size > 1 {
-                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_native(self, a, b, dtype, m, k, n)
-                }
-            }
-            _ => matmul_fallback(a, b, &out_shape, &self.device, "matmul"),
-        }
-    }
-
-    fn matmul_bias(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        b: &Tensor<CudaRuntime>,
-        bias: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        use crate::ops::validate_matmul_bias_dtypes;
-
-        // Validate dtypes using unified helper (ensures consistent error handling across backends)
-        let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
-
-        // Validate bias is 1D
-        if bias.shape().len() != 1 {
-            return Err(Error::InvalidArgument {
-                arg: "bias",
-                reason: format!("bias must be 1D tensor, got shape {:?}", bias.shape()),
-            });
-        }
-
-        let a_shape = a.shape();
-        let b_shape = b.shape();
-        let bias_shape = bias.shape();
-
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
-
-        // Validate inner dimensions
-        let k_b = if b_shape.len() >= 2 {
-            b_shape[b_shape.len() - 2]
-        } else {
-            b_shape[b_shape.len() - 1]
-        };
-        if k != k_b {
-            return Err(Error::ShapeMismatch {
-                expected: a_shape.to_vec(),
-                got: b_shape.to_vec(),
-            });
-        }
-
-        // Validate bias length matches N
-        if bias_shape[0] != n {
-            return Err(Error::InvalidArgument {
-                arg: "bias",
-                reason: format!(
-                    "bias length {} must match output columns {}",
-                    bias_shape[0], n
-                ),
-            });
-        }
-
-        let out_shape =
-            matmul_bias_output_shape(a_shape, b_shape, bias_shape).ok_or(Error::ShapeMismatch {
-                expected: a_shape.to_vec(),
-                got: b_shape.to_vec(),
-            })?;
-
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        let batch_size = batch_size.max(1);
-
-        // Native tiled CUDA kernel with fused bias
-        match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
-                if batch_size > 1 {
-                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
-                }
-            }
-            _ => {
-                // For unsupported dtypes, return error instead of silent fallback
-                // (matmul_bias requires fused kernel for efficiency - non-fused defeats the purpose)
-                Err(Error::UnsupportedDType {
-                    dtype,
-                    op: "matmul_bias",
-                })
-            }
-        }
     }
 
     // ===== Reductions (Native CUDA Kernels) =====
@@ -706,125 +1048,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
                     inner_size,
                 )?;
             }
-        }
-
-        Ok(out)
-    }
-
-    // ===== Normalization =====
-
-    fn rms_norm(
-        &self,
-        input: &Tensor<CudaRuntime>,
-        weight: &Tensor<CudaRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = input.dtype();
-
-        // Validate dtypes match
-        if weight.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: weight.dtype(),
-            });
-        }
-
-        // Weight must be 1D with size matching input's last dimension
-        let input_shape = input.shape();
-        let hidden_size = input_shape[input_shape.len() - 1];
-        if weight.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: weight.shape().to_vec(),
-            });
-        }
-
-        // Compute batch_size as product of all dimensions except last
-        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
-        let batch_size = batch_size.max(1); // Handle 1D case
-
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
-
-        unsafe {
-            launch_rms_norm(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                input_contig.storage().ptr(),
-                weight_contig.storage().ptr(),
-                out.storage().ptr(),
-                batch_size,
-                hidden_size,
-                eps,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn layer_norm(
-        &self,
-        input: &Tensor<CudaRuntime>,
-        weight: &Tensor<CudaRuntime>,
-        bias: &Tensor<CudaRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = input.dtype();
-
-        // Validate dtypes match
-        if weight.dtype() != dtype || bias.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: if weight.dtype() != dtype {
-                    weight.dtype()
-                } else {
-                    bias.dtype()
-                },
-            });
-        }
-
-        // Weight and bias must be 1D with size matching input's last dimension
-        let input_shape = input.shape();
-        let hidden_size = input_shape[input_shape.len() - 1];
-        if weight.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: weight.shape().to_vec(),
-            });
-        }
-        if bias.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: bias.shape().to_vec(),
-            });
-        }
-
-        // Compute batch_size as product of all dimensions except last
-        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
-        let batch_size = batch_size.max(1); // Handle 1D case
-
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let bias_contig = ensure_contiguous(bias);
-        let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
-
-        unsafe {
-            launch_layer_norm(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                input_contig.storage().ptr(),
-                weight_contig.storage().ptr(),
-                bias_contig.storage().ptr(),
-                out.storage().ptr(),
-                batch_size,
-                hidden_size,
-                eps,
-            )?;
         }
 
         Ok(out)
@@ -1579,145 +1802,10 @@ impl TensorOps<CudaRuntime> for CudaClient {
     }
 
     // ===== Type Casting =====
-
-    fn cast(&self, a: &Tensor<CudaRuntime>, target_dtype: DType) -> Result<Tensor<CudaRuntime>> {
-        let src_dtype = a.dtype();
-
-        // No-op if types match
-        if src_dtype == target_dtype {
-            return Ok(a.clone());
-        }
-
-        let shape = a.shape();
-        let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(shape, target_dtype, &self.device);
-
-        unsafe {
-            launch_cast(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                src_dtype,
-                target_dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                numel,
-            )?;
-        }
-
-        Ok(out)
-    }
+    // Moved to TypeConversionOps impl
 
     // ===== Conditional Operations =====
-
-    fn where_cond(
-        &self,
-        cond: &Tensor<CudaRuntime>,
-        x: &Tensor<CudaRuntime>,
-        y: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Validate that x and y have the same dtype
-        let dtype = validate_binary_dtypes(x, y)?;
-        let cond_dtype = cond.dtype();
-
-        // For same shapes, use optimized element-wise kernel on GPU
-        if cond.shape() == x.shape() && x.shape() == y.shape() {
-            let cond_contig = ensure_contiguous(cond);
-            let x_contig = ensure_contiguous(x);
-            let y_contig = ensure_contiguous(y);
-            let out = Tensor::<CudaRuntime>::empty(x.shape(), dtype, &self.device);
-
-            unsafe {
-                if cond_dtype == DType::U8 {
-                    // Optimized U8 kernel
-                    launch_where_op(
-                        &self.context,
-                        &self.stream,
-                        self.device.index,
-                        dtype,
-                        cond_contig.storage().ptr(),
-                        x_contig.storage().ptr(),
-                        y_contig.storage().ptr(),
-                        out.storage().ptr(),
-                        out.numel(),
-                    )?;
-                } else {
-                    // Generic kernel for F32, F64, I32, I64, U32 conditions
-                    launch_where_generic_op(
-                        &self.context,
-                        &self.stream,
-                        self.device.index,
-                        cond_dtype,
-                        dtype,
-                        cond_contig.storage().ptr(),
-                        x_contig.storage().ptr(),
-                        y_contig.storage().ptr(),
-                        out.storage().ptr(),
-                        out.numel(),
-                    )?;
-                }
-            }
-
-            return Ok(out);
-        }
-
-        // For different shapes, use the broadcast kernel (stays on GPU)
-        // Compute broadcast shape for all three tensors
-        let xy_shape = compute_broadcast_shape(x, y)?;
-        let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| {
-            Error::BroadcastError {
-                lhs: cond.shape().to_vec(),
-                rhs: xy_shape.clone(),
-            }
-        })?;
-
-        let cond_contig = ensure_contiguous(cond);
-        let x_contig = ensure_contiguous(x);
-        let y_contig = ensure_contiguous(y);
-        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
-
-        unsafe {
-            if cond_dtype == DType::U8 {
-                // Optimized U8 broadcast kernel
-                launch_where_broadcast_op(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    &self.device,
-                    dtype,
-                    cond_contig.storage().ptr(),
-                    x_contig.storage().ptr(),
-                    y_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    cond.shape(),
-                    x.shape(),
-                    y.shape(),
-                    &out_shape,
-                )?;
-            } else {
-                // Generic broadcast kernel for non-U8 conditions
-                launch_where_broadcast_generic_op(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    &self.device,
-                    cond_dtype,
-                    dtype,
-                    cond_contig.storage().ptr(),
-                    x_contig.storage().ptr(),
-                    y_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    cond.shape(),
-                    x.shape(),
-                    y.shape(),
-                    &out_shape,
-                )?;
-            }
-        }
-
-        Ok(out)
-    }
+    // Moved to ConditionalOps impl
 
     // ===== Utility Operations =====
 
@@ -3190,183 +3278,7 @@ impl TensorOps<CudaRuntime> for CudaClient {
     }
 
     // ===== Complex Number Operations =====
-
-    fn conj(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, conjugate is identity
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_conj(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn real(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, return copy
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        // Determine output dtype: Complex64 → F32, Complex128 → F64
-        let out_dtype = match dtype {
-            DType::Complex64 => DType::F32,
-            DType::Complex128 => DType::F64,
-            _ => return Err(Error::UnsupportedDType { dtype, op: "real" }),
-        };
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
-
-        unsafe {
-            launch_real(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn imag(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-
-        // Determine output dtype
-        let out_dtype = if dtype.is_complex() {
-            match dtype {
-                DType::Complex64 => DType::F32,
-                DType::Complex128 => DType::F64,
-                _ => return Err(Error::UnsupportedDType { dtype, op: "imag" }),
-            }
-        } else {
-            // For real types, return zeros with same dtype
-            dtype
-        };
-
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
-
-        // For real types, fill with zeros
-        if !dtype.is_complex() {
-            unsafe {
-                super::super::kernels::launch_fill_with_f64(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    out_dtype,
-                    0.0,
-                    out.storage().ptr(),
-                    out.numel(),
-                )?;
-            }
-            return Ok(out);
-        }
-
-        // For complex types, extract imaginary part
-        let a_contig = ensure_contiguous(a);
-
-        unsafe {
-            launch_imag(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn angle(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-
-        // Determine output dtype
-        let out_dtype = if dtype.is_complex() {
-            match dtype {
-                DType::Complex64 => DType::F32,
-                DType::Complex128 => DType::F64,
-                _ => return Err(Error::UnsupportedDType { dtype, op: "angle" }),
-            }
-        } else {
-            // For real types, return zeros with same dtype
-            dtype
-        };
-
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), out_dtype, &self.device);
-        let a_contig = ensure_contiguous(a);
-
-        // For real types: angle(x) = 0 if x >= 0, π if x < 0
-        if !dtype.is_complex() {
-            match dtype {
-                DType::F32 | DType::F64 => unsafe {
-                    super::super::kernels::launch_angle_real(
-                        &self.context,
-                        &self.stream,
-                        self.device.index,
-                        dtype,
-                        a_contig.storage().ptr(),
-                        out.storage().ptr(),
-                        a.numel(),
-                    )?;
-                },
-                _ => {
-                    // For integer types, return zeros (π as integer doesn't make mathematical sense)
-                    unsafe {
-                        super::super::kernels::launch_fill_with_f64(
-                            &self.context,
-                            &self.stream,
-                            self.device.index,
-                            out_dtype,
-                            0.0,
-                            out.storage().ptr(),
-                            out.numel(),
-                        )?;
-                    }
-                }
-            }
-            return Ok(out);
-        }
-
-        // For complex types, compute phase angle
-
-        unsafe {
-            launch_angle(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
+    // Moved to ComplexOps trait in ops/traits/complex.rs
 
     // ===== Sorting and Search Operations =====
 
@@ -3812,6 +3724,121 @@ impl TensorOps<CudaRuntime> for CudaClient {
                 num_values,
                 right,
             )?;
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// ConditionalOps Implementation
+// ============================================================================
+
+/// ConditionalOps implementation for CUDA runtime.
+impl ConditionalOps<CudaRuntime> for CudaClient {
+    fn where_cond(
+        &self,
+        cond: &Tensor<CudaRuntime>,
+        x: &Tensor<CudaRuntime>,
+        y: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Validate that x and y have the same dtype
+        let dtype = validate_binary_dtypes(x, y)?;
+        let cond_dtype = cond.dtype();
+
+        // For same shapes, use optimized element-wise kernel on GPU
+        if cond.shape() == x.shape() && x.shape() == y.shape() {
+            let cond_contig = ensure_contiguous(cond);
+            let x_contig = ensure_contiguous(x);
+            let y_contig = ensure_contiguous(y);
+            let out = Tensor::<CudaRuntime>::empty(x.shape(), dtype, &self.device);
+
+            unsafe {
+                if cond_dtype == DType::U8 {
+                    // Optimized U8 kernel
+                    launch_where_op(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        dtype,
+                        cond_contig.storage().ptr(),
+                        x_contig.storage().ptr(),
+                        y_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        out.numel(),
+                    )?;
+                } else {
+                    // Generic kernel for F32, F64, I32, I64, U32 conditions
+                    launch_where_generic_op(
+                        &self.context,
+                        &self.stream,
+                        self.device.index,
+                        cond_dtype,
+                        dtype,
+                        cond_contig.storage().ptr(),
+                        x_contig.storage().ptr(),
+                        y_contig.storage().ptr(),
+                        out.storage().ptr(),
+                        out.numel(),
+                    )?;
+                }
+            }
+
+            return Ok(out);
+        }
+
+        // For different shapes, use the broadcast kernel (stays on GPU)
+        // Compute broadcast shape for all three tensors
+        let xy_shape = compute_broadcast_shape(x, y)?;
+        let out_shape = crate::ops::broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| {
+            Error::BroadcastError {
+                lhs: cond.shape().to_vec(),
+                rhs: xy_shape.clone(),
+            }
+        })?;
+
+        let cond_contig = ensure_contiguous(cond);
+        let x_contig = ensure_contiguous(x);
+        let y_contig = ensure_contiguous(y);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
+
+        unsafe {
+            if cond_dtype == DType::U8 {
+                // Optimized U8 broadcast kernel
+                launch_where_broadcast_op(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    &self.device,
+                    dtype,
+                    cond_contig.storage().ptr(),
+                    x_contig.storage().ptr(),
+                    y_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    cond.shape(),
+                    x.shape(),
+                    y.shape(),
+                    &out_shape,
+                )?;
+            } else {
+                // Generic broadcast kernel for non-U8 conditions
+                launch_where_broadcast_generic_op(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    &self.device,
+                    cond_dtype,
+                    dtype,
+                    cond_contig.storage().ptr(),
+                    x_contig.storage().ptr(),
+                    y_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    cond.shape(),
+                    x.shape(),
+                    y.shape(),
+                    &out_shape,
+                )?;
+            }
         }
 
         Ok(out)
