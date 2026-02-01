@@ -12,6 +12,7 @@ pub mod cumulative;
 pub mod distributions;
 pub mod fft;
 pub mod index;
+pub mod logical;
 pub mod matmul;
 pub mod memory;
 pub mod norm;
@@ -20,6 +21,7 @@ pub mod scalar;
 pub mod simd;
 pub mod sort;
 pub mod unary;
+pub mod where_select;
 
 // Re-export all kernel functions for convenient access
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
@@ -42,10 +44,9 @@ pub use fft::{
 };
 pub use index::{
     embedding_lookup_kernel, gather_kernel, index_put_kernel, index_select_kernel,
-    logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel,
-    masked_count_kernel, masked_fill_kernel, masked_select_kernel, scatter_kernel, where_kernel,
-    where_strided_kernel,
+    masked_count_kernel, masked_fill_kernel, masked_select_kernel, scatter_kernel,
 };
+pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
 pub use memory::{
     arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
@@ -66,6 +67,9 @@ pub use sort::{
 pub use unary::{
     clamp_kernel, elu_kernel, gelu_kernel, isinf_kernel, isnan_kernel, leaky_relu_kernel,
     relu_kernel, sigmoid_kernel, silu_kernel, unary_op_kernel,
+};
+pub use where_select::{
+    where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,
 };
 
 #[cfg(test)]
