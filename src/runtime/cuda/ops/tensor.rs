@@ -27,9 +27,9 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, MatmulOps,
-    NormalizationOps, ReduceOps, ScalarOps, TensorOps, TypeConversionOps, UtilityOps,
-    compute_reduce_strides, matmul_bias_output_shape, matmul_output_shape, normalize_softmax_dim,
-    reduce_dim_output_shape, reduce_output_shape,
+    NormalizationOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UtilityOps, compute_reduce_strides, matmul_bias_output_shape,
+    matmul_output_shape, normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
@@ -1968,10 +1968,10 @@ impl IndexingOps<CudaRuntime> for CudaClient {
 }
 
 // ============================================================================
-// TensorOps Implementation (continued - Statistical Operations)
+// StatisticalOps Implementation
 // ============================================================================
 
-impl TensorOps<CudaRuntime> for CudaClient {
+impl StatisticalOps<CudaRuntime> for CudaClient {
     // ===== Statistical Operations =====
 
     fn var(
@@ -3032,7 +3032,141 @@ impl TensorOps<CudaRuntime> for CudaClient {
     // Moved to ComplexOps trait in ops/traits/complex.rs
 
     // ===== Sorting and Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
 
+// ============================================================================
+// ReduceOps Implementation
+// ============================================================================
+
+/// ReduceOps implementation for CUDA runtime.
+impl ReduceOps<CudaRuntime> for CudaClient {
+    fn sum(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, None)
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
+    }
+
+    fn mean(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Mean = sum / count
+        // When dims is empty, reduce over all dimensions
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| a.shape()[d]).product()
+        };
+
+        // For empty dims, we need to reduce all dimensions
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..a.shape().len()).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        let sum_result = self.sum(a, &actual_dims, keepdim)?;
+        self.div_scalar(&sum_result, count as f64)
+    }
+
+    fn max(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, None)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
+    }
+
+    fn min(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, None)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, None)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "any", dims, keepdim, None)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "all", dims, keepdim, None)
+    }
+}
+
+// ============================================================================
+// SortingOps Implementation
+// ============================================================================
+
+/// SortingOps implementation for CUDA runtime.
+impl SortingOps<CudaRuntime> for CudaClient {
     fn sort(
         &self,
         a: &Tensor<CudaRuntime>,
@@ -3478,132 +3612,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
-    }
-}
-
-// ============================================================================
-// ReduceOps Implementation
-// ============================================================================
-
-/// ReduceOps implementation for CUDA runtime.
-impl ReduceOps<CudaRuntime> for CudaClient {
-    fn sum(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, None)
-    }
-
-    fn sum_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
-    }
-
-    fn mean(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Mean = sum / count
-        // When dims is empty, reduce over all dimensions
-        let count: usize = if dims.is_empty() {
-            a.numel()
-        } else {
-            dims.iter().map(|&d| a.shape()[d]).product()
-        };
-
-        // For empty dims, we need to reduce all dimensions
-        let actual_dims: Vec<usize> = if dims.is_empty() {
-            (0..a.shape().len()).collect()
-        } else {
-            dims.to_vec()
-        };
-
-        let sum_result = self.sum(a, &actual_dims, keepdim)?;
-        self.div_scalar(&sum_result, count as f64)
-    }
-
-    fn max(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, None)
-    }
-
-    fn max_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
-    }
-
-    fn min(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, None)
-    }
-
-    fn min_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
-    }
-
-    fn prod(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, None)
-    }
-
-    fn prod_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
-    }
-
-    fn any(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "any", dims, keepdim, None)
-    }
-
-    fn all(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "all", dims, keepdim, None)
     }
 }
 
