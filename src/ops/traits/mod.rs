@@ -4,6 +4,7 @@
 //! Implementations are in the backend-specific modules (cpu/, cuda/, wgpu/).
 
 mod activation;
+mod binary;
 mod compare;
 mod complex;
 mod conditional;
@@ -21,9 +22,11 @@ mod shape;
 mod sorting;
 mod statistics;
 mod type_conversion;
+mod unary;
 mod utility;
 
 pub use activation::ActivationOps;
+pub use binary::BinaryOps;
 pub use compare::CompareOps;
 pub use complex::ComplexOps;
 pub use conditional::ConditionalOps;
@@ -41,6 +44,7 @@ pub use shape::ShapeOps;
 pub use sorting::SortingOps;
 pub use statistics::StatisticalOps;
 pub use type_conversion::TypeConversionOps;
+pub use unary::UnaryOps;
 pub use utility::UtilityOps;
 
 // Re-export TensorOps from parent (still in mod.rs for now)
