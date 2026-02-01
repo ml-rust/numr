@@ -232,6 +232,72 @@ pub unsafe fn index_select_kernel<T: Element>(
     }
 }
 
+/// Put values at specified indices along a dimension.
+///
+/// Copies input `a` to output, then overwrites positions specified by `indices`
+/// with values from `src`.
+///
+/// # Arguments
+/// * `a` - Input tensor data pointer
+/// * `indices` - 1D index tensor pointer (i64)
+/// * `src` - Source values to put at indexed positions
+/// * `out` - Output data pointer (must be same size as input)
+/// * `shape` - Shape of input tensor `a`
+/// * `dim` - Dimension along which to put values
+/// * `index_len` - Length of the 1D index tensor
+///
+/// # Safety
+/// - All pointers must be valid for the specified shapes
+/// - `indices` must contain valid indices within bounds of `shape[dim]`
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn index_put_kernel<T: Element>(
+    a: *const T,
+    indices: *const i64,
+    src: *const T,
+    out: *mut T,
+    shape: &[usize],
+    dim: usize,
+    index_len: usize,
+) {
+    let ndim = shape.len();
+    if ndim == 0 {
+        return;
+    }
+
+    // Compute sizes: outer * dim_size * inner
+    let outer_size: usize = shape[..dim].iter().product();
+    let dim_size = shape[dim];
+    let inner_size: usize = shape[dim + 1..].iter().product();
+
+    // First, copy all of a to out
+    let total_size: usize = shape.iter().product();
+    std::ptr::copy_nonoverlapping(a, out, total_size);
+
+    // Now overwrite the indexed positions with src values
+    for outer in 0..outer_size.max(1) {
+        for (sel_idx, &idx_ptr) in std::slice::from_raw_parts(indices, index_len)
+            .iter()
+            .enumerate()
+        {
+            let idx = idx_ptr as usize;
+            if idx >= dim_size {
+                // Out of bounds - skip
+                continue;
+            }
+
+            // Overwrite the entire inner slice at this index
+            for inner in 0..inner_size.max(1) {
+                let out_offset =
+                    outer * dim_size * inner_size.max(1) + idx * inner_size.max(1) + inner;
+                let src_offset =
+                    outer * index_len * inner_size.max(1) + sel_idx * inner_size.max(1) + inner;
+                *out.add(out_offset) = *src.add(src_offset);
+            }
+        }
+    }
+}
+
 /// Count elements where mask is true.
 ///
 /// Returns the count of non-zero elements in the mask.

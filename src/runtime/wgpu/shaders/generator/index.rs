@@ -220,6 +220,58 @@ fn copy_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     ))
 }
 
+/// Generate WGSL shader for index_put operation
+///
+/// This is the inverse of index_select: puts values from src at positions
+/// specified by indices along a dimension. Output should be pre-initialized
+/// with a copy of the input tensor.
+pub fn generate_index_put_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated index_put operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct IndexPutParams {{
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    index_len: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> indices: array<i32>;
+@group(0) @binding(1) var<storage, read> src: array<{t}>;
+@group(0) @binding(2) var<storage, read_write> output: array<{t}>;
+@group(0) @binding(3) var<uniform> params: IndexPutParams;
+
+@compute @workgroup_size(256)
+fn index_put_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = params.outer_size * params.index_len * params.inner_size;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let inner = idx % params.inner_size;
+    let sel_idx = (idx / params.inner_size) % params.index_len;
+    let outer = idx / (params.index_len * params.inner_size);
+
+    let index_val = indices[sel_idx];
+    if (index_val < 0 || u32(index_val) >= params.dim_size) {{
+        return; // Out of bounds - skip
+    }}
+
+    let dst_offset = outer * params.dim_size * params.inner_size + u32(index_val) * params.inner_size + inner;
+    output[dst_offset] = src[idx];
+}}
+"#,
+        t = t,
+        suffix = suffix,
+    ))
+}
+
 /// Generate WGSL shader for embedding_lookup operation
 ///
 /// This is the industry-standard embedding lookup operation used in neural networks
@@ -284,4 +336,41 @@ fn embedding_lookup_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
             _ => "0",
         },
     ))
+}
+
+/// Generate WGSL shader for index bounds validation.
+///
+/// Validates that all indices are within bounds [0, dim_size).
+/// Atomically counts the number of out-of-bounds indices.
+/// Returns count in error_count[0]. If count > 0, some indices are invalid.
+pub fn generate_validate_indices_shader() -> String {
+    r#"// Auto-generated index bounds validation kernel
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct ValidateIndicesParams {
+    index_len: u32,
+    dim_size: u32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+@group(0) @binding(0) var<storage, read> indices: array<i32>;
+@group(0) @binding(1) var<storage, read_write> error_count: atomic<u32>;
+@group(0) @binding(2) var<uniform> params: ValidateIndicesParams;
+
+@compute @workgroup_size(256)
+fn validate_indices(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    if (idx >= params.index_len) {
+        return;
+    }
+
+    let index_val = indices[idx];
+    if (index_val < 0 || u32(index_val) >= params.dim_size) {
+        atomicAdd(&error_count, 1u);
+    }
+}
+"#
+    .to_string()
 }

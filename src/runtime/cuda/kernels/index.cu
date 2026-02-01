@@ -164,6 +164,38 @@ __global__ void masked_fill_##suffix( \
     output[idx] = (mask[idx] != 0) ? fill_value : input[idx]; \
 }
 
+// Macro for index_put kernel
+// Inverse of index_select: puts values from src at positions specified by indices.
+// Output is pre-initialized with a copy of input tensor.
+// For each position (outer, sel_idx, inner):
+//   out[outer * dim_size * inner_size + indices[sel_idx] * inner_size + inner] = src[outer * index_len * inner_size + sel_idx * inner_size + inner]
+#define DEFINE_INDEX_PUT_KERNEL(suffix, dtype) \
+__global__ void index_put_##suffix( \
+    const long long* __restrict__ indices, \
+    const dtype* __restrict__ src, \
+    dtype* __restrict__ output, \
+    unsigned int outer_size, \
+    unsigned int dim_size, \
+    unsigned int inner_size, \
+    unsigned int index_len \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    unsigned int total = outer_size * index_len * inner_size; \
+    if (idx >= total) return; \
+    \
+    unsigned int inner = idx % inner_size; \
+    unsigned int sel_idx = (idx / inner_size) % index_len; \
+    unsigned int outer = idx / (index_len * inner_size); \
+    \
+    long long index_val = indices[sel_idx]; \
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) { \
+        return; /* Out of bounds - skip */ \
+    } \
+    \
+    unsigned int dst_offset = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner; \
+    output[dst_offset] = src[idx]; \
+}
+
 // Macro for embedding_lookup kernel
 // Industry-standard embedding table lookup operation for neural networks.
 // Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
@@ -256,6 +288,43 @@ __global__ void masked_prefix_sum_kernel(
 }
 
 // ============================================================================
+// Index Bounds Validation Kernel (dtype-independent)
+// ============================================================================
+
+// Validates that all indices are within bounds [0, dim_size).
+// Atomically counts the number of out-of-bounds indices.
+// Returns count in error_count[0]. If count > 0, some indices are invalid.
+__global__ void validate_indices_kernel(
+    const long long* __restrict__ indices,
+    unsigned int* __restrict__ error_count,
+    unsigned int index_len,
+    unsigned int dim_size
+) {
+    __shared__ unsigned int shared_count;
+    if (threadIdx.x == 0) {
+        shared_count = 0;
+    }
+    __syncthreads();
+
+    unsigned int local_count = 0;
+    for (unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; i < index_len; i += blockDim.x * gridDim.x) {
+        long long idx = indices[i];
+        if (idx < 0 || idx >= (long long)dim_size) {
+            local_count++;
+        }
+    }
+
+    if (local_count > 0) {
+        atomicAdd(&shared_count, local_count);
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0 && shared_count > 0) {
+        atomicAdd(error_count, shared_count);
+    }
+}
+
+// ============================================================================
 // F32 Kernels
 // ============================================================================
 
@@ -263,6 +332,7 @@ DEFINE_GATHER_KERNEL(f32, float)
 DEFINE_SCATTER_KERNEL(f32, float)
 DEFINE_COPY_KERNEL(f32, float)
 DEFINE_INDEX_SELECT_KERNEL(f32, float)
+DEFINE_INDEX_PUT_KERNEL(f32, float)
 DEFINE_MASKED_SELECT_KERNEL(f32, float)
 DEFINE_MASKED_FILL_KERNEL(f32, float)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(f32, float)
@@ -275,6 +345,7 @@ DEFINE_GATHER_KERNEL(f64, double)
 DEFINE_SCATTER_KERNEL(f64, double)
 DEFINE_COPY_KERNEL(f64, double)
 DEFINE_INDEX_SELECT_KERNEL(f64, double)
+DEFINE_INDEX_PUT_KERNEL(f64, double)
 DEFINE_MASKED_SELECT_KERNEL(f64, double)
 DEFINE_MASKED_FILL_KERNEL(f64, double)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(f64, double)
@@ -287,6 +358,7 @@ DEFINE_GATHER_KERNEL(f16, __half)
 DEFINE_SCATTER_KERNEL(f16, __half)
 DEFINE_COPY_KERNEL(f16, __half)
 DEFINE_INDEX_SELECT_KERNEL(f16, __half)
+DEFINE_INDEX_PUT_KERNEL(f16, __half)
 DEFINE_MASKED_SELECT_KERNEL(f16, __half)
 DEFINE_MASKED_FILL_KERNEL(f16, __half)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(f16, __half)
@@ -299,6 +371,7 @@ DEFINE_GATHER_KERNEL(bf16, __nv_bfloat16)
 DEFINE_SCATTER_KERNEL(bf16, __nv_bfloat16)
 DEFINE_COPY_KERNEL(bf16, __nv_bfloat16)
 DEFINE_INDEX_SELECT_KERNEL(bf16, __nv_bfloat16)
+DEFINE_INDEX_PUT_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_SELECT_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_FILL_KERNEL(bf16, __nv_bfloat16)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(bf16, __nv_bfloat16)
@@ -311,6 +384,7 @@ DEFINE_GATHER_KERNEL(i32, int)
 DEFINE_SCATTER_KERNEL(i32, int)
 DEFINE_COPY_KERNEL(i32, int)
 DEFINE_INDEX_SELECT_KERNEL(i32, int)
+DEFINE_INDEX_PUT_KERNEL(i32, int)
 DEFINE_MASKED_SELECT_KERNEL(i32, int)
 DEFINE_MASKED_FILL_KERNEL(i32, int)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(i32, int)
@@ -323,6 +397,7 @@ DEFINE_GATHER_KERNEL(i64, long long)
 DEFINE_SCATTER_KERNEL(i64, long long)
 DEFINE_COPY_KERNEL(i64, long long)
 DEFINE_INDEX_SELECT_KERNEL(i64, long long)
+DEFINE_INDEX_PUT_KERNEL(i64, long long)
 DEFINE_MASKED_SELECT_KERNEL(i64, long long)
 DEFINE_MASKED_FILL_KERNEL(i64, long long)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(i64, long long)

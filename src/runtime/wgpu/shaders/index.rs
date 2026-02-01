@@ -12,8 +12,9 @@
 use wgpu::{Buffer, Queue};
 
 use super::generator::{
-    generate_embedding_lookup_shader, generate_gather_shader, generate_index_select_shader,
-    generate_masked_fill_shader, generate_masked_select_shader, generate_scatter_shader,
+    generate_embedding_lookup_shader, generate_gather_shader, generate_index_put_shader,
+    generate_index_select_shader, generate_masked_fill_shader, generate_masked_select_shader,
+    generate_scatter_shader, generate_validate_indices_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -40,6 +41,9 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("index_select", DType::F32) => Ok("index_select_f32"),
         ("index_select", DType::I32) => Ok("index_select_i32"),
         ("index_select", DType::U32) => Ok("index_select_u32"),
+        ("index_put", DType::F32) => Ok("index_put_f32"),
+        ("index_put", DType::I32) => Ok("index_put_i32"),
+        ("index_put", DType::U32) => Ok("index_put_u32"),
         ("gather", DType::F32) => Ok("gather_f32"),
         ("gather", DType::I32) => Ok("gather_i32"),
         ("gather", DType::U32) => Ok("gather_u32"),
@@ -107,6 +111,109 @@ pub fn launch_index_select(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Index Put Operation
+// ============================================================================
+
+/// Launch an index_put operation kernel.
+///
+/// Puts values from src at positions specified by indices along the dimension.
+/// Output should be pre-initialized with a copy of the input tensor.
+pub fn launch_index_put(
+    cache: &PipelineCache,
+    queue: &Queue,
+    indices: &Buffer,
+    src: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "index_put")?;
+
+    let name = kernel_name("index_put", dtype)?;
+    let shader_source = generate_index_put_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[indices, src, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("index_put"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("index_put"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Index Bounds Validation
+// ============================================================================
+
+/// Launch index bounds validation kernel.
+///
+/// Validates that all indices are within bounds [0, dim_size).
+/// Returns the count of out-of-bounds indices in error_count buffer.
+/// The error_count buffer must be initialized to 0 before calling.
+pub fn launch_validate_indices(
+    cache: &PipelineCache,
+    queue: &Queue,
+    indices: &Buffer,
+    error_count: &Buffer,
+    params_buffer: &Buffer,
+    index_len: usize,
+) -> Result<()> {
+    if index_len == 0 {
+        return Ok(());
+    }
+
+    let name = "validate_indices";
+    let shader_source = generate_validate_indices_shader();
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[indices, error_count, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("validate_indices"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("validate_indices"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(index_len), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
