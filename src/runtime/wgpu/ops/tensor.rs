@@ -6,12 +6,295 @@ use super::helpers::*;
 use super::native::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{AccumulationPrecision, ScalarOps, TensorOps};
+use crate::ops::{
+    AccumulationPrecision, ComplexOps, ConditionalOps, MatmulOps, NormalizationOps, ScalarOps,
+    TensorOps, TypeConversionOps,
+};
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
     RuntimeClient, ensure_contiguous, normalize_dim, shape_ops, validate_arange, validate_eye,
 };
 use crate::tensor::Tensor;
+
+impl TypeConversionOps<WgpuRuntime> for WgpuClient {
+    fn cast(&self, a: &Tensor<WgpuRuntime>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        let src_dtype = a.dtype();
+
+        // Same-type cast is a no-op
+        if src_dtype == dtype {
+            return Ok(a.clone());
+        }
+
+        // Check if both dtypes are natively supported on WebGPU
+        let wgpu_supported = [DType::F32, DType::I32, DType::U32];
+        let native_cast = wgpu_supported.contains(&src_dtype) && wgpu_supported.contains(&dtype);
+
+        if native_cast {
+            // Use native WGSL cast shader
+            native_cast_op(self, a, dtype)
+        } else {
+            // Fall back to CPU for unsupported dtypes (F64, F16, I8, etc.)
+            use crate::dispatch_dtype;
+            let cpu = crate::runtime::fallback::CpuFallbackContext::new();
+
+            dispatch_dtype!(src_dtype, T => {
+                let a_cpu: crate::tensor::Tensor<crate::runtime::cpu::CpuRuntime> =
+                    cpu.tensor_from_gpu::<T, WgpuRuntime>(a);
+                let result_cpu = cpu.client.cast(&a_cpu, dtype)?;
+
+                dispatch_dtype!(dtype, U => {
+                    let result_data: Vec<U> = result_cpu.to_vec();
+                    return Ok(Tensor::<WgpuRuntime>::from_slice(&result_data, result_cpu.shape(), &self.device_id));
+                }, "cast_output");
+            }, "cast_input");
+        }
+    }
+}
+
+// ============================================================================
+// ComplexOps Implementation
+// ============================================================================
+
+impl ComplexOps<WgpuRuntime> for WgpuClient {
+    fn conj(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, conjugate is identity
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        // WebGPU only supports Complex64
+        if dtype != DType::Complex64 {
+            return Err(Error::UnsupportedDType { dtype, op: "conj" });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let numel = a.numel();
+        let out = alloc_output(self, a.shape(), dtype);
+
+        let a_buf = get_tensor_buffer(&a_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        super::super::shaders::launch_complex_op(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            "conj",
+            &a_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn real(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, return copy
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        // WebGPU only supports Complex64
+        if dtype != DType::Complex64 {
+            return Err(Error::UnsupportedDType { dtype, op: "real" });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let numel = a.numel();
+        let out_dtype = DType::F32; // Complex64 → F32
+        let out = alloc_output(self, a.shape(), out_dtype);
+
+        let a_buf = get_tensor_buffer(&a_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        super::super::shaders::launch_complex_op(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            "real",
+            &a_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn imag(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, return zeros with same dtype
+        if !dtype.is_complex() {
+            return Ok(Tensor::zeros(a.shape(), dtype, self.device()));
+        }
+
+        // WebGPU only supports Complex64
+        if dtype != DType::Complex64 {
+            return Err(Error::UnsupportedDType { dtype, op: "imag" });
+        }
+
+        // For complex types, extract imaginary part
+        let out_dtype = DType::F32; // Complex64 → F32
+        let a_contig = ensure_contiguous(a);
+        let numel = a.numel();
+        let out = alloc_output(self, a.shape(), out_dtype);
+
+        let a_buf = get_tensor_buffer(&a_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        super::super::shaders::launch_complex_op(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            "imag",
+            &a_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn angle(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types: angle(x) = 0 if x >= 0, π if x < 0
+        if !dtype.is_complex() {
+            match dtype {
+                DType::F32 => {
+                    // Use angle_real shader for F32
+                    let a_contig = ensure_contiguous(a);
+                    let numel = a.numel();
+                    let out = alloc_output(self, a.shape(), dtype);
+
+                    let a_buf = get_tensor_buffer(&a_contig)?;
+                    let out_buf = get_tensor_buffer(&out)?;
+
+                    let params = UnaryParams {
+                        numel: numel as u32,
+                    };
+                    let params_buf = create_params_buffer(self, &params);
+
+                    super::super::shaders::launch_angle_real(
+                        self.pipeline_cache(),
+                        self.wgpu_queue(),
+                        &a_buf,
+                        &out_buf,
+                        &params_buf,
+                        numel,
+                    )?;
+
+                    return Ok(out);
+                }
+                _ => {
+                    // For other real types (integers, F64 not supported on WebGPU), return zeros
+                    return Ok(Tensor::zeros(a.shape(), dtype, self.device()));
+                }
+            }
+        }
+
+        // WebGPU only supports Complex64
+        if dtype != DType::Complex64 {
+            return Err(Error::UnsupportedDType { dtype, op: "angle" });
+        }
+
+        // For complex types, compute phase angle
+        let out_dtype = DType::F32; // Complex64 → F32
+        let a_contig = ensure_contiguous(a);
+        let numel = a.numel();
+        let out = alloc_output(self, a.shape(), out_dtype);
+
+        let a_buf = get_tensor_buffer(&a_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        super::super::shaders::launch_complex_op(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            "angle",
+            &a_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+}
+
+impl NormalizationOps<WgpuRuntime> for WgpuClient {
+    fn rms_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        weight: &Tensor<WgpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_rms_norm(self, a, weight, eps)
+    }
+
+    fn layer_norm(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        weight: &Tensor<WgpuRuntime>,
+        bias: &Tensor<WgpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_layer_norm(self, a, weight, bias, eps)
+    }
+}
+
+// ============================================================================
+// MatmulOps Implementation
+// ============================================================================
+
+impl MatmulOps<WgpuRuntime> for WgpuClient {
+    fn matmul(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_matmul(self, a, b)
+    }
+
+    fn matmul_bias(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        bias: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_matmul_bias(self, a, b, bias)
+    }
+}
+
+// ============================================================================
+// TensorOps Implementation
+// ============================================================================
 
 impl TensorOps<WgpuRuntime> for WgpuClient {
     // --- Binary Operations ---
@@ -120,25 +403,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 
     fn round(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "round", a)
-    }
-
-    // --- Matrix Multiplication ---
-
-    fn matmul(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        b: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_matmul(self, a, b)
-    }
-
-    fn matmul_bias(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        b: &Tensor<WgpuRuntime>,
-        bias: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_matmul_bias(self, a, b, bias)
     }
 
     // --- Reduction Operations ---
@@ -357,27 +621,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         self.prod(a, dims, keepdim)
     }
 
-    // --- Normalization ---
-
-    fn rms_norm(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        weight: &Tensor<WgpuRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_rms_norm(self, a, weight, eps)
-    }
-
-    fn layer_norm(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        weight: &Tensor<WgpuRuntime>,
-        bias: &Tensor<WgpuRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_layer_norm(self, a, weight, bias, eps)
-    }
-
     // --- Argmax/Argmin ---
 
     fn argmax(
@@ -399,50 +642,10 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     }
 
     // --- Cast ---
-
-    fn cast(&self, a: &Tensor<WgpuRuntime>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        let src_dtype = a.dtype();
-
-        // Same-type cast is a no-op
-        if src_dtype == dtype {
-            return Ok(a.clone());
-        }
-
-        // Check if both dtypes are natively supported on WebGPU
-        let wgpu_supported = [DType::F32, DType::I32, DType::U32];
-        let native_cast = wgpu_supported.contains(&src_dtype) && wgpu_supported.contains(&dtype);
-
-        if native_cast {
-            // Use native WGSL cast shader
-            native_cast_op(self, a, dtype)
-        } else {
-            // Fall back to CPU for unsupported dtypes (F64, F16, I8, etc.)
-            use crate::dispatch_dtype;
-            let cpu = crate::runtime::fallback::CpuFallbackContext::new();
-
-            dispatch_dtype!(src_dtype, T => {
-                let a_cpu: crate::tensor::Tensor<crate::runtime::cpu::CpuRuntime> =
-                    cpu.tensor_from_gpu::<T, WgpuRuntime>(a);
-                let result_cpu = cpu.client.cast(&a_cpu, dtype)?;
-
-                dispatch_dtype!(dtype, U => {
-                    let result_data: Vec<U> = result_cpu.to_vec();
-                    return Ok(Tensor::<WgpuRuntime>::from_slice(&result_data, result_cpu.shape(), &self.device_id));
-                }, "cast_output");
-            }, "cast_input");
-        }
-    }
+    // Moved to TypeConversionOps impl
 
     // --- Where/Conditional ---
-
-    fn where_cond(
-        &self,
-        cond: &Tensor<WgpuRuntime>,
-        x: &Tensor<WgpuRuntime>,
-        y: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_where_cond(self, cond, x, y)
-    }
+    // Moved to ConditionalOps impl
 
     // --- Utility Operations ---
 
@@ -2041,197 +2244,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     }
 
     // ===== Complex Number Operations =====
-
-    fn conj(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, conjugate is identity
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        // WebGPU only supports Complex64
-        if dtype != DType::Complex64 {
-            return Err(Error::UnsupportedDType { dtype, op: "conj" });
-        }
-
-        let a_contig = ensure_contiguous(a);
-        let numel = a.numel();
-        let out = alloc_output(self, a.shape(), dtype);
-
-        let a_buf = get_tensor_buffer(&a_contig)?;
-        let out_buf = get_tensor_buffer(&out)?;
-
-        let params = UnaryParams {
-            numel: numel as u32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        super::super::shaders::launch_complex_op(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            "conj",
-            &a_buf,
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
-
-    fn real(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, return copy
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        // WebGPU only supports Complex64
-        if dtype != DType::Complex64 {
-            return Err(Error::UnsupportedDType { dtype, op: "real" });
-        }
-
-        let a_contig = ensure_contiguous(a);
-        let numel = a.numel();
-        let out_dtype = DType::F32; // Complex64 → F32
-        let out = alloc_output(self, a.shape(), out_dtype);
-
-        let a_buf = get_tensor_buffer(&a_contig)?;
-        let out_buf = get_tensor_buffer(&out)?;
-
-        let params = UnaryParams {
-            numel: numel as u32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        super::super::shaders::launch_complex_op(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            "real",
-            &a_buf,
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
-
-    fn imag(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, return zeros with same dtype
-        if !dtype.is_complex() {
-            return Ok(Tensor::zeros(a.shape(), dtype, self.device()));
-        }
-
-        // WebGPU only supports Complex64
-        if dtype != DType::Complex64 {
-            return Err(Error::UnsupportedDType { dtype, op: "imag" });
-        }
-
-        // For complex types, extract imaginary part
-        let out_dtype = DType::F32; // Complex64 → F32
-        let a_contig = ensure_contiguous(a);
-        let numel = a.numel();
-        let out = alloc_output(self, a.shape(), out_dtype);
-
-        let a_buf = get_tensor_buffer(&a_contig)?;
-        let out_buf = get_tensor_buffer(&out)?;
-
-        let params = UnaryParams {
-            numel: numel as u32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        super::super::shaders::launch_complex_op(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            "imag",
-            &a_buf,
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
-
-    fn angle(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types: angle(x) = 0 if x >= 0, π if x < 0
-        if !dtype.is_complex() {
-            match dtype {
-                DType::F32 => {
-                    // Use angle_real shader for F32
-                    let a_contig = ensure_contiguous(a);
-                    let numel = a.numel();
-                    let out = alloc_output(self, a.shape(), dtype);
-
-                    let a_buf = get_tensor_buffer(&a_contig)?;
-                    let out_buf = get_tensor_buffer(&out)?;
-
-                    let params = UnaryParams {
-                        numel: numel as u32,
-                    };
-                    let params_buf = create_params_buffer(self, &params);
-
-                    super::super::shaders::launch_angle_real(
-                        self.pipeline_cache(),
-                        self.wgpu_queue(),
-                        &a_buf,
-                        &out_buf,
-                        &params_buf,
-                        numel,
-                    )?;
-
-                    return Ok(out);
-                }
-                _ => {
-                    // For other real types (integers, F64 not supported on WebGPU), return zeros
-                    return Ok(Tensor::zeros(a.shape(), dtype, self.device()));
-                }
-            }
-        }
-
-        // WebGPU only supports Complex64
-        if dtype != DType::Complex64 {
-            return Err(Error::UnsupportedDType { dtype, op: "angle" });
-        }
-
-        // For complex types, compute phase angle
-        let out_dtype = DType::F32; // Complex64 → F32
-        let a_contig = ensure_contiguous(a);
-        let numel = a.numel();
-        let out = alloc_output(self, a.shape(), out_dtype);
-
-        let a_buf = get_tensor_buffer(&a_contig)?;
-        let out_buf = get_tensor_buffer(&out)?;
-
-        let params = UnaryParams {
-            numel: numel as u32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        super::super::shaders::launch_complex_op(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            "angle",
-            &a_buf,
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
+    // Moved to ComplexOps trait in ops/traits/complex.rs
 
     // ===== Sorting & Search Operations =====
 
@@ -2817,5 +2830,21 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         )?;
 
         Ok(out)
+    }
+}
+
+// ============================================================================
+// ConditionalOps Implementation
+// ============================================================================
+
+/// ConditionalOps implementation for WebGPU runtime.
+impl ConditionalOps<WgpuRuntime> for WgpuClient {
+    fn where_cond(
+        &self,
+        cond: &Tensor<WgpuRuntime>,
+        x: &Tensor<WgpuRuntime>,
+        y: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_where_cond(self, cond, x, y)
     }
 }
