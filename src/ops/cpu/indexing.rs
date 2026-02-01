@@ -1,0 +1,167 @@
+//! CPU implementation of indexing operations.
+
+use crate::dtype::DType;
+use crate::error::{Error, Result};
+use crate::ops::{
+    IndexingOps,
+    reduce::{compute_reduce_strides, reduce_dim_output_shape},
+};
+use crate::runtime::cpu::{
+    CpuClient, CpuRuntime,
+    helpers::{
+        dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_impl, index_put_impl,
+        index_select_impl, masked_fill_impl, masked_select_impl, scatter_impl,
+    },
+    kernels,
+};
+use crate::tensor::Tensor;
+
+/// IndexingOps implementation for CPU runtime.
+impl IndexingOps<CpuRuntime> for CpuClient {
+    fn argmax(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmax_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmax");
+
+        Ok(out)
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Validate dimension
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::argmin_kernel::<T>(
+                    a_ptr as *const T,
+                    out_ptr as *mut i64,
+                    outer_size,
+                    reduce_size,
+                    inner_size,
+                );
+            }
+        }, "argmin");
+
+        Ok(out)
+    }
+
+    fn gather(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gather_impl(self, a, dim, index)
+    }
+
+    fn scatter(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        scatter_impl(self, a, dim, index, src)
+    }
+
+    fn index_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_select_impl(self, a, dim, index)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        index_put_impl(self, a, dim, index, src)
+    }
+
+    fn masked_select(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_select_impl(self, a, mask)
+    }
+
+    fn masked_fill(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        mask: &Tensor<CpuRuntime>,
+        value: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        masked_fill_impl(self, a, mask, value)
+    }
+
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<CpuRuntime>,
+        indices: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        embedding_lookup_impl(self, embeddings, indices)
+    }
+}
