@@ -7,9 +7,9 @@ use super::native::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    LinalgOps, MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UtilityOps,
+    AccumulationPrecision, ActivationOps, BinaryOps, ComplexOps, ConditionalOps, CumulativeOps,
+    IndexingOps, LinalgOps, MatmulOps, NormalizationOps, RandomOps, ReduceOps, ScalarOps, ShapeOps,
+    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
@@ -360,7 +360,82 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
 
 impl TensorOps<WgpuRuntime> for WgpuClient {
     // --- Binary Operations ---
+    // Moved to BinaryOps trait implementation below
 
+    // --- Unary Operations ---
+    // Moved to UnaryOps trait implementation below
+
+    // --- Reduction Operations ---
+    // Moved to ReduceOps trait implementation below
+
+    // --- Precision-Aware Reductions ---
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        self.sum(a, dims, keepdim)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        self.max(a, dims, keepdim)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        self.min(a, dims, keepdim)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU currently uses native precision; precision parameter reserved for future use
+        self.prod(a, dims, keepdim)
+    }
+
+    // --- Argmax/Argmin ---
+    // Moved to IndexingOps trait implementation
+
+    // --- Cast ---
+    // Moved to TypeConversionOps impl
+
+    // --- Where/Conditional ---
+    // Moved to ConditionalOps impl
+
+    // --- Utility Operations ---
+    // Moved to separate UtilityOps impl block
+
+    // --- Statistical Operations ---
+    // Moved to StatisticalOps trait implementation below
+
+    // --- Random Operations ---
+    // Moved to RandomOps trait implementation below
+}
+
+// ============================================================================
+// BinaryOps Implementation
+// ============================================================================
+
+/// BinaryOps implementation for WebGPU runtime.
+impl BinaryOps<WgpuRuntime> for WgpuClient {
     fn add(&self, a: &Tensor<WgpuRuntime>, b: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_binary_op(self, "add", a, b)
     }
@@ -404,9 +479,14 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     ) -> Result<Tensor<WgpuRuntime>> {
         native_binary_op(self, "atan2", y, x)
     }
+}
 
-    // --- Unary Operations ---
+// ============================================================================
+// UnaryOps Implementation
+// ============================================================================
 
+/// UnaryOps implementation for WebGPU runtime.
+impl UnaryOps<WgpuRuntime> for WgpuClient {
     fn neg(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "neg", a)
     }
@@ -466,11 +546,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     fn round(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "round", a)
     }
-
-    // --- Reduction Operations ---
-    // Moved to ReduceOps trait implementation below
-
-    // --- Additional Unary Operations ---
 
     fn sign(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "sign", a)
@@ -543,67 +618,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     fn isinf(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "isinf", a)
     }
-
-    // --- Precision-Aware Reductions ---
-
-    fn sum_with_precision(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        _precision: AccumulationPrecision,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        self.sum(a, dims, keepdim)
-    }
-
-    fn max_with_precision(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        _precision: AccumulationPrecision,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        self.max(a, dims, keepdim)
-    }
-
-    fn min_with_precision(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        _precision: AccumulationPrecision,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        self.min(a, dims, keepdim)
-    }
-
-    fn prod_with_precision(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        _precision: AccumulationPrecision,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        // WebGPU currently uses native precision; precision parameter reserved for future use
-        self.prod(a, dims, keepdim)
-    }
-
-    // --- Argmax/Argmin ---
-    // Moved to IndexingOps trait implementation
-
-    // --- Cast ---
-    // Moved to TypeConversionOps impl
-
-    // --- Where/Conditional ---
-    // Moved to ConditionalOps impl
-
-    // --- Utility Operations ---
-    // Moved to separate UtilityOps impl block
-
-    // --- Statistical Operations ---
-    // Moved to StatisticalOps trait implementation below
-
-    // --- Random Operations ---
-    // Moved to RandomOps trait implementation below
 }
 
 // ============================================================================
