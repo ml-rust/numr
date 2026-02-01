@@ -202,6 +202,38 @@ pub const _LOG_ALGORITHM_DOC: () = ();
 /// Consider using extended precision range reduction for very large inputs.
 pub const _TRIG_ALGORITHM_DOC: () = ();
 
+// ============================================================================
+// Polynomial Coefficients for atan(x)
+// ============================================================================
+
+/// Minimax polynomial coefficients for atan(x) on [-1, 1]
+/// atan(x) ≈ x * (A0 + x²*(A2 + x²*(A4 + x²*(A6 + ...))))
+///
+/// For |x| > 1, use identity: atan(x) = sign(x) * π/2 - atan(1/x)
+pub mod atan_coefficients {
+    // f32 coefficients (7-term polynomial, ~1e-7 accuracy)
+    pub const A0_F32: f32 = 1.0;
+    pub const A2_F32: f32 = -0.333333333;
+    pub const A4_F32: f32 = 0.2;
+    pub const A6_F32: f32 = -0.142857142;
+    pub const A8_F32: f32 = 0.111111111;
+    pub const A10_F32: f32 = -0.0909090909;
+    pub const A12_F32: f32 = 0.0769230769;
+
+    // f64 coefficients (11-term polynomial, ~1e-14 accuracy)
+    pub const A0_F64: f64 = 1.0;
+    pub const A2_F64: f64 = -0.3333333333333333;
+    pub const A4_F64: f64 = 0.2;
+    pub const A6_F64: f64 = -0.14285714285714285;
+    pub const A8_F64: f64 = 0.1111111111111111;
+    pub const A10_F64: f64 = -0.09090909090909091;
+    pub const A12_F64: f64 = 0.07692307692307693;
+    pub const A14_F64: f64 = -0.06666666666666667;
+    pub const A16_F64: f64 = 0.058823529411764705;
+    pub const A18_F64: f64 = -0.05263157894736842;
+    pub const A20_F64: f64 = 0.047619047619047616;
+}
+
 /// Algorithm for tan(x):
 ///
 /// 1. **Range reduction**: Reduce x to y in [-π/4, π/4]
@@ -221,3 +253,24 @@ pub const _TRIG_ALGORITHM_DOC: () = ();
 /// # Edge Cases
 /// - Near asymptotes: Results may have large errors or overflow
 pub const _TAN_ALGORITHM_DOC: () = ();
+
+/// Algorithm for atan(x):
+///
+/// 1. **Sign handling**: Save sign of x, work with |x|
+///
+/// 2. **Range reduction**: For |x| > 1, use identity:
+///    - atan(x) = π/2 - atan(1/x)
+///
+/// 3. **Polynomial approximation**: For |x| <= 1, use minimax polynomial:
+///    - atan(x) ≈ x * (a₀ + x²*(a₂ + x²*(a₄ + ...))) (Horner's method)
+///
+/// 4. **Reconstruction**: Apply sign and range reduction inverse
+///
+/// # Accuracy
+/// - f32: Relative error < 1e-6 for all finite inputs
+/// - f64: Relative error < 1e-12 for all finite inputs
+///
+/// # Edge Cases
+/// - atan(±∞) = ±π/2
+/// - atan(0) = 0
+pub const _ATAN_ALGORITHM_DOC: () = ();

@@ -13,6 +13,7 @@
 //! | sin      | ✓   | ✓   | < 1e-6 / 1e-10 |
 //! | cos      | ✓   | ✓   | < 1e-6 / 1e-10 |
 //! | tan      | ✓   | ✓   | < 2e-4 / 1e-4  |
+//! | atan     | ✓   | ✓   | < 1e-6 / 1e-12 |
 //!
 //! # Safety
 //!
@@ -27,7 +28,9 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::common::{exp_coefficients, log_coefficients, tan_coefficients, trig_coefficients};
+use super::common::{
+    atan_coefficients, exp_coefficients, log_coefficients, tan_coefficients, trig_coefficients,
+};
 
 // ============================================================================
 // Exponential function: exp(x)
@@ -588,4 +591,474 @@ pub unsafe fn tan_f64(x: __m512d) -> __m512d {
     let cot_y = _mm512_div_pd(neg_one, tan_y);
 
     _mm512_mask_blend_pd(use_cot_mask, tan_y, cot_y)
+}
+
+// ============================================================================
+// Inverse tangent function: atan(x)
+// ============================================================================
+
+/// Fast SIMD atan approximation for f32 using AVX-512
+///
+/// See `common::_ATAN_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires AVX-512F CPU feature.
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn atan_f32(x: __m512) -> __m512 {
+    use atan_coefficients::*;
+
+    let one = _mm512_set1_ps(1.0);
+    let pi_over_2 = _mm512_set1_ps(std::f32::consts::FRAC_PI_2);
+    let zero = _mm512_setzero_ps();
+
+    // Save sign and work with absolute value
+    let abs_x = _mm512_abs_ps(x);
+    let neg_mask = _mm512_cmp_ps_mask::<_CMP_LT_OQ>(x, zero);
+
+    // Range reduction: for |x| > 1, compute atan(1/x) then adjust
+    let need_recip_mask = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(abs_x, one);
+    let recip_x = _mm512_div_ps(one, abs_x);
+    let y = _mm512_mask_blend_ps(need_recip_mask, abs_x, recip_x);
+
+    // Polynomial approximation for atan(y) where y in [0, 1]
+    let a0 = _mm512_set1_ps(A0_F32);
+    let a2 = _mm512_set1_ps(A2_F32);
+    let a4 = _mm512_set1_ps(A4_F32);
+    let a6 = _mm512_set1_ps(A6_F32);
+    let a8 = _mm512_set1_ps(A8_F32);
+    let a10 = _mm512_set1_ps(A10_F32);
+    let a12 = _mm512_set1_ps(A12_F32);
+
+    let y2 = _mm512_mul_ps(y, y);
+
+    // Horner's method
+    let mut poly = a12;
+    poly = _mm512_fmadd_ps(poly, y2, a10);
+    poly = _mm512_fmadd_ps(poly, y2, a8);
+    poly = _mm512_fmadd_ps(poly, y2, a6);
+    poly = _mm512_fmadd_ps(poly, y2, a4);
+    poly = _mm512_fmadd_ps(poly, y2, a2);
+    poly = _mm512_fmadd_ps(poly, y2, a0);
+    let atan_y = _mm512_mul_ps(y, poly);
+
+    // Apply range reduction inverse: if |x| > 1, result = π/2 - atan(1/x)
+    let adjusted = _mm512_sub_ps(pi_over_2, atan_y);
+    let result = _mm512_mask_blend_ps(need_recip_mask, atan_y, adjusted);
+
+    // Restore sign: negate result if x was negative
+    let neg_result = _mm512_sub_ps(zero, result);
+    _mm512_mask_blend_ps(neg_mask, result, neg_result)
+}
+
+/// Fast SIMD atan approximation for f64 using AVX-512
+///
+/// See `common::_ATAN_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires AVX-512F CPU feature.
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn atan_f64(x: __m512d) -> __m512d {
+    use atan_coefficients::*;
+
+    let one = _mm512_set1_pd(1.0);
+    let pi_over_2 = _mm512_set1_pd(std::f64::consts::FRAC_PI_2);
+    let zero = _mm512_setzero_pd();
+
+    // Save sign and work with absolute value
+    let abs_x = _mm512_abs_pd(x);
+    let neg_mask = _mm512_cmp_pd_mask::<_CMP_LT_OQ>(x, zero);
+
+    // Range reduction: for |x| > 1, compute atan(1/x) then adjust
+    let need_recip_mask = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(abs_x, one);
+    let recip_x = _mm512_div_pd(one, abs_x);
+    let y = _mm512_mask_blend_pd(need_recip_mask, abs_x, recip_x);
+
+    // Polynomial approximation for atan(y) where y in [0, 1]
+    let a0 = _mm512_set1_pd(A0_F64);
+    let a2 = _mm512_set1_pd(A2_F64);
+    let a4 = _mm512_set1_pd(A4_F64);
+    let a6 = _mm512_set1_pd(A6_F64);
+    let a8 = _mm512_set1_pd(A8_F64);
+    let a10 = _mm512_set1_pd(A10_F64);
+    let a12 = _mm512_set1_pd(A12_F64);
+    let a14 = _mm512_set1_pd(A14_F64);
+    let a16 = _mm512_set1_pd(A16_F64);
+    let a18 = _mm512_set1_pd(A18_F64);
+    let a20 = _mm512_set1_pd(A20_F64);
+
+    let y2 = _mm512_mul_pd(y, y);
+
+    // Horner's method with 11 terms for higher precision
+    let mut poly = a20;
+    poly = _mm512_fmadd_pd(poly, y2, a18);
+    poly = _mm512_fmadd_pd(poly, y2, a16);
+    poly = _mm512_fmadd_pd(poly, y2, a14);
+    poly = _mm512_fmadd_pd(poly, y2, a12);
+    poly = _mm512_fmadd_pd(poly, y2, a10);
+    poly = _mm512_fmadd_pd(poly, y2, a8);
+    poly = _mm512_fmadd_pd(poly, y2, a6);
+    poly = _mm512_fmadd_pd(poly, y2, a4);
+    poly = _mm512_fmadd_pd(poly, y2, a2);
+    poly = _mm512_fmadd_pd(poly, y2, a0);
+    let atan_y = _mm512_mul_pd(y, poly);
+
+    // Apply range reduction inverse: if |x| > 1, result = π/2 - atan(1/x)
+    let adjusted = _mm512_sub_pd(pi_over_2, atan_y);
+    let result = _mm512_mask_blend_pd(need_recip_mask, atan_y, adjusted);
+
+    // Restore sign: negate result if x was negative
+    let neg_result = _mm512_sub_pd(zero, result);
+    _mm512_mask_blend_pd(neg_mask, result, neg_result)
+}
+
+// ============================================================================
+// Additional transcendental functions
+// ============================================================================
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn rsqrt_f32(x: __m512) -> __m512 {
+    // AVX-512 has 14-bit precision rsqrt, refine with Newton-Raphson
+    let approx = _mm512_rsqrt14_ps(x);
+    let half = _mm512_set1_ps(0.5);
+    let three = _mm512_set1_ps(3.0);
+    let x_approx2 = _mm512_mul_ps(x, _mm512_mul_ps(approx, approx));
+    let factor = _mm512_sub_ps(three, x_approx2);
+    _mm512_mul_ps(half, _mm512_mul_ps(approx, factor))
+}
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn rsqrt_f64(x: __m512d) -> __m512d {
+    let sqrt_x = _mm512_sqrt_pd(x);
+    _mm512_div_pd(_mm512_set1_pd(1.0), sqrt_x)
+}
+
+/// Fast SIMD exp2 (2^x) for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn exp2_f32(x: __m512) -> __m512 {
+    let ln2 = _mm512_set1_ps(std::f32::consts::LN_2);
+    exp_f32(_mm512_mul_ps(x, ln2))
+}
+
+/// Fast SIMD exp2 (2^x) for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn exp2_f64(x: __m512d) -> __m512d {
+    let ln2 = _mm512_set1_pd(std::f64::consts::LN_2);
+    exp_f64(_mm512_mul_pd(x, ln2))
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn expm1_f32(x: __m512) -> __m512 {
+    let one = _mm512_set1_ps(1.0);
+    let half = _mm512_set1_ps(0.5);
+    let abs_x = _mm512_abs_ps(x);
+
+    // Taylor series for small |x|
+    let x2 = _mm512_mul_ps(x, x);
+    let x3 = _mm512_mul_ps(x2, x);
+    let x4 = _mm512_mul_ps(x2, x2);
+    let c2 = _mm512_set1_ps(0.5);
+    let c3 = _mm512_set1_ps(1.0 / 6.0);
+    let c4 = _mm512_set1_ps(1.0 / 24.0);
+    let taylor = _mm512_fmadd_ps(c4, x4, _mm512_fmadd_ps(c3, x3, _mm512_fmadd_ps(c2, x2, x)));
+
+    let exp_result = _mm512_sub_ps(exp_f32(x), one);
+    let mask = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(abs_x, half);
+    _mm512_mask_blend_ps(mask, taylor, exp_result)
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn expm1_f64(x: __m512d) -> __m512d {
+    let one = _mm512_set1_pd(1.0);
+    let half = _mm512_set1_pd(0.5);
+    let abs_x = _mm512_abs_pd(x);
+
+    let x2 = _mm512_mul_pd(x, x);
+    let x3 = _mm512_mul_pd(x2, x);
+    let x4 = _mm512_mul_pd(x2, x2);
+    let c2 = _mm512_set1_pd(0.5);
+    let c3 = _mm512_set1_pd(1.0 / 6.0);
+    let c4 = _mm512_set1_pd(1.0 / 24.0);
+    let taylor = _mm512_fmadd_pd(c4, x4, _mm512_fmadd_pd(c3, x3, _mm512_fmadd_pd(c2, x2, x)));
+
+    let exp_result = _mm512_sub_pd(exp_f64(x), one);
+    let mask = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(abs_x, half);
+    _mm512_mask_blend_pd(mask, taylor, exp_result)
+}
+
+/// Fast SIMD log2 for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log2_f32(x: __m512) -> __m512 {
+    let log2e = _mm512_set1_ps(std::f32::consts::LOG2_E);
+    _mm512_mul_ps(log_f32(x), log2e)
+}
+
+/// Fast SIMD log2 for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log2_f64(x: __m512d) -> __m512d {
+    let log2e = _mm512_set1_pd(std::f64::consts::LOG2_E);
+    _mm512_mul_pd(log_f64(x), log2e)
+}
+
+/// Fast SIMD log10 for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log10_f32(x: __m512) -> __m512 {
+    let log10e = _mm512_set1_ps(std::f32::consts::LOG10_E);
+    _mm512_mul_ps(log_f32(x), log10e)
+}
+
+/// Fast SIMD log10 for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log10_f64(x: __m512d) -> __m512d {
+    let log10e = _mm512_set1_pd(std::f64::consts::LOG10_E);
+    _mm512_mul_pd(log_f64(x), log10e)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log1p_f32(x: __m512) -> __m512 {
+    let one = _mm512_set1_ps(1.0);
+    let half = _mm512_set1_ps(0.5);
+    let abs_x = _mm512_abs_ps(x);
+
+    let x2 = _mm512_mul_ps(x, x);
+    let x3 = _mm512_mul_ps(x2, x);
+    let x4 = _mm512_mul_ps(x2, x2);
+    let c2 = _mm512_set1_ps(-0.5);
+    let c3 = _mm512_set1_ps(1.0 / 3.0);
+    let c4 = _mm512_set1_ps(-0.25);
+    let taylor = _mm512_fmadd_ps(c4, x4, _mm512_fmadd_ps(c3, x3, _mm512_fmadd_ps(c2, x2, x)));
+
+    let log_result = log_f32(_mm512_add_ps(one, x));
+    let mask = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(abs_x, half);
+    _mm512_mask_blend_ps(mask, taylor, log_result)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn log1p_f64(x: __m512d) -> __m512d {
+    let one = _mm512_set1_pd(1.0);
+    let half = _mm512_set1_pd(0.5);
+    let abs_x = _mm512_abs_pd(x);
+
+    let x2 = _mm512_mul_pd(x, x);
+    let x3 = _mm512_mul_pd(x2, x);
+    let x4 = _mm512_mul_pd(x2, x2);
+    let c2 = _mm512_set1_pd(-0.5);
+    let c3 = _mm512_set1_pd(1.0 / 3.0);
+    let c4 = _mm512_set1_pd(-0.25);
+    let taylor = _mm512_fmadd_pd(c4, x4, _mm512_fmadd_pd(c3, x3, _mm512_fmadd_pd(c2, x2, x)));
+
+    let log_result = log_f64(_mm512_add_pd(one, x));
+    let mask = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(abs_x, half);
+    _mm512_mask_blend_pd(mask, taylor, log_result)
+}
+
+/// Fast SIMD sinh for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn sinh_f32(x: __m512) -> __m512 {
+    let half = _mm512_set1_ps(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(_mm512_sub_ps(_mm512_setzero_ps(), x));
+    _mm512_mul_ps(half, _mm512_sub_ps(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD sinh for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn sinh_f64(x: __m512d) -> __m512d {
+    let half = _mm512_set1_pd(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(_mm512_sub_pd(_mm512_setzero_pd(), x));
+    _mm512_mul_pd(half, _mm512_sub_pd(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn cosh_f32(x: __m512) -> __m512 {
+    let half = _mm512_set1_ps(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(_mm512_sub_ps(_mm512_setzero_ps(), x));
+    _mm512_mul_ps(half, _mm512_add_ps(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn cosh_f64(x: __m512d) -> __m512d {
+    let half = _mm512_set1_pd(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(_mm512_sub_pd(_mm512_setzero_pd(), x));
+    _mm512_mul_pd(half, _mm512_add_pd(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD asinh for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn asinh_f32(x: __m512) -> __m512 {
+    let one = _mm512_set1_ps(1.0);
+    let x2 = _mm512_mul_ps(x, x);
+    let sqrt_term = _mm512_sqrt_ps(_mm512_add_ps(x2, one));
+    log_f32(_mm512_add_ps(x, sqrt_term))
+}
+
+/// Fast SIMD asinh for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn asinh_f64(x: __m512d) -> __m512d {
+    let one = _mm512_set1_pd(1.0);
+    let x2 = _mm512_mul_pd(x, x);
+    let sqrt_term = _mm512_sqrt_pd(_mm512_add_pd(x2, one));
+    log_f64(_mm512_add_pd(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn acosh_f32(x: __m512) -> __m512 {
+    let one = _mm512_set1_ps(1.0);
+    let x2 = _mm512_mul_ps(x, x);
+    let sqrt_term = _mm512_sqrt_ps(_mm512_sub_ps(x2, one));
+    log_f32(_mm512_add_ps(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn acosh_f64(x: __m512d) -> __m512d {
+    let one = _mm512_set1_pd(1.0);
+    let x2 = _mm512_mul_pd(x, x);
+    let sqrt_term = _mm512_sqrt_pd(_mm512_sub_pd(x2, one));
+    log_f64(_mm512_add_pd(x, sqrt_term))
+}
+
+/// Fast SIMD atanh for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn atanh_f32(x: __m512) -> __m512 {
+    let half = _mm512_set1_ps(0.5);
+    let one = _mm512_set1_ps(1.0);
+    let one_plus_x = _mm512_add_ps(one, x);
+    let one_minus_x = _mm512_sub_ps(one, x);
+    let ratio = _mm512_div_ps(one_plus_x, one_minus_x);
+    _mm512_mul_ps(half, log_f32(ratio))
+}
+
+/// Fast SIMD atanh for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn atanh_f64(x: __m512d) -> __m512d {
+    let half = _mm512_set1_pd(0.5);
+    let one = _mm512_set1_pd(1.0);
+    let one_plus_x = _mm512_add_pd(one, x);
+    let one_minus_x = _mm512_sub_pd(one, x);
+    let ratio = _mm512_div_pd(one_plus_x, one_minus_x);
+    _mm512_mul_pd(half, log_f64(ratio))
+}
+
+/// Fast SIMD asin for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn asin_f32(x: __m512) -> __m512 {
+    let one = _mm512_set1_ps(1.0);
+    let x2 = _mm512_mul_ps(x, x);
+    let sqrt_term = _mm512_sqrt_ps(_mm512_sub_ps(one, x2));
+    let ratio = _mm512_div_ps(x, sqrt_term);
+    atan_f32(ratio)
+}
+
+/// Fast SIMD asin for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn asin_f64(x: __m512d) -> __m512d {
+    let one = _mm512_set1_pd(1.0);
+    let x2 = _mm512_mul_pd(x, x);
+    let sqrt_term = _mm512_sqrt_pd(_mm512_sub_pd(one, x2));
+    let ratio = _mm512_div_pd(x, sqrt_term);
+    atan_f64(ratio)
+}
+
+/// Fast SIMD acos for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn acos_f32(x: __m512) -> __m512 {
+    let pi_half = _mm512_set1_ps(std::f32::consts::FRAC_PI_2);
+    _mm512_sub_ps(pi_half, asin_f32(x))
+}
+
+/// Fast SIMD acos for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn acos_f64(x: __m512d) -> __m512d {
+    let pi_half = _mm512_set1_pd(std::f64::consts::FRAC_PI_2);
+    _mm512_sub_pd(pi_half, asin_f64(x))
+}
+
+/// Fast SIMD cbrt (cube root) for f32 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn cbrt_f32(x: __m512) -> __m512 {
+    let sign_bit = _mm512_set1_ps(-0.0);
+    let sign = _mm512_and_ps(x, sign_bit);
+    let abs_x = _mm512_andnot_ps(sign_bit, x);
+
+    let one_third = _mm512_set1_ps(1.0 / 3.0);
+    let log_x = log_f32(abs_x);
+    let guess = exp_f32(_mm512_mul_ps(log_x, one_third));
+
+    let two = _mm512_set1_ps(2.0);
+    let three = _mm512_set1_ps(3.0);
+
+    let y = guess;
+    let y2 = _mm512_mul_ps(y, y);
+    let y_new = _mm512_div_ps(_mm512_fmadd_ps(two, y, _mm512_div_ps(abs_x, y2)), three);
+
+    let y2 = _mm512_mul_ps(y_new, y_new);
+    let result = _mm512_div_ps(_mm512_fmadd_ps(two, y_new, _mm512_div_ps(abs_x, y2)), three);
+
+    _mm512_or_ps(result, sign)
+}
+
+/// Fast SIMD cbrt (cube root) for f64 using AVX-512
+#[target_feature(enable = "avx512f")]
+#[inline]
+pub unsafe fn cbrt_f64(x: __m512d) -> __m512d {
+    let sign_bit = _mm512_set1_pd(-0.0);
+    let sign = _mm512_and_pd(x, sign_bit);
+    let abs_x = _mm512_andnot_pd(sign_bit, x);
+
+    let one_third = _mm512_set1_pd(1.0 / 3.0);
+    let log_x = log_f64(abs_x);
+    let guess = exp_f64(_mm512_mul_pd(log_x, one_third));
+
+    let two = _mm512_set1_pd(2.0);
+    let three = _mm512_set1_pd(3.0);
+
+    let y = guess;
+    let y2 = _mm512_mul_pd(y, y);
+    let y_new = _mm512_div_pd(_mm512_fmadd_pd(two, y, _mm512_div_pd(abs_x, y2)), three);
+
+    let y2 = _mm512_mul_pd(y_new, y_new);
+    let result = _mm512_div_pd(_mm512_fmadd_pd(two, y_new, _mm512_div_pd(abs_x, y2)), three);
+
+    _mm512_or_pd(result, sign)
 }

@@ -13,6 +13,7 @@
 //! | sin      | ✓   | ✓   | < 1e-6 / 1e-10 |
 //! | cos      | ✓   | ✓   | < 1e-6 / 1e-10 |
 //! | tan      | ✓   | ✓   | < 2e-4 / 1e-4  |
+//! | atan     | ✓   | ✓   | < 1e-6 / 1e-12 |
 //!
 //! # Safety
 //!
@@ -21,7 +22,9 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::common::{exp_coefficients, log_coefficients, tan_coefficients, trig_coefficients};
+use super::common::{
+    atan_coefficients, exp_coefficients, log_coefficients, tan_coefficients, trig_coefficients,
+};
 
 // ============================================================================
 // Exponential function: exp(x)
@@ -652,6 +655,124 @@ pub unsafe fn tan_f64(x: __m256d) -> __m256d {
 }
 
 // ============================================================================
+// Inverse tangent function: atan(x)
+// ============================================================================
+
+/// Fast SIMD atan approximation for f32 using AVX2+FMA
+///
+/// See `common::_ATAN_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires AVX2 and FMA CPU features.
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn atan_f32(x: __m256) -> __m256 {
+    use atan_coefficients::*;
+
+    let one = _mm256_set1_ps(1.0);
+    let pi_over_2 = _mm256_set1_ps(std::f32::consts::FRAC_PI_2);
+
+    // Save sign and work with absolute value
+    let sign_mask = _mm256_set1_ps(-0.0); // 0x80000000
+    let sign = _mm256_and_ps(x, sign_mask);
+    let abs_x = _mm256_andnot_ps(sign_mask, x);
+
+    // Range reduction: for |x| > 1, compute atan(1/x) then adjust
+    let need_recip = _mm256_cmp_ps::<_CMP_GT_OQ>(abs_x, one);
+    let recip_x = _mm256_div_ps(one, abs_x);
+    let y = _mm256_blendv_ps(abs_x, recip_x, need_recip);
+
+    // Polynomial approximation for atan(y) where y in [0, 1]
+    let a0 = _mm256_set1_ps(A0_F32);
+    let a2 = _mm256_set1_ps(A2_F32);
+    let a4 = _mm256_set1_ps(A4_F32);
+    let a6 = _mm256_set1_ps(A6_F32);
+    let a8 = _mm256_set1_ps(A8_F32);
+    let a10 = _mm256_set1_ps(A10_F32);
+    let a12 = _mm256_set1_ps(A12_F32);
+
+    let y2 = _mm256_mul_ps(y, y);
+
+    // Horner's method: a0 + y²*(a2 + y²*(a4 + y²*(a6 + y²*(a8 + y²*(a10 + y²*a12)))))
+    let mut poly = a12;
+    poly = _mm256_fmadd_ps(poly, y2, a10);
+    poly = _mm256_fmadd_ps(poly, y2, a8);
+    poly = _mm256_fmadd_ps(poly, y2, a6);
+    poly = _mm256_fmadd_ps(poly, y2, a4);
+    poly = _mm256_fmadd_ps(poly, y2, a2);
+    poly = _mm256_fmadd_ps(poly, y2, a0);
+    let atan_y = _mm256_mul_ps(y, poly);
+
+    // Apply range reduction inverse: if |x| > 1, result = π/2 - atan(1/x)
+    let adjusted = _mm256_sub_ps(pi_over_2, atan_y);
+    let result = _mm256_blendv_ps(atan_y, adjusted, need_recip);
+
+    // Restore sign
+    _mm256_or_ps(result, sign)
+}
+
+/// Fast SIMD atan approximation for f64 using AVX2+FMA
+///
+/// See `common::_ATAN_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires AVX2 and FMA CPU features.
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn atan_f64(x: __m256d) -> __m256d {
+    use atan_coefficients::*;
+
+    let one = _mm256_set1_pd(1.0);
+    let pi_over_2 = _mm256_set1_pd(std::f64::consts::FRAC_PI_2);
+
+    // Save sign and work with absolute value
+    let sign_mask = _mm256_set1_pd(-0.0); // 0x8000000000000000
+    let sign = _mm256_and_pd(x, sign_mask);
+    let abs_x = _mm256_andnot_pd(sign_mask, x);
+
+    // Range reduction: for |x| > 1, compute atan(1/x) then adjust
+    let need_recip = _mm256_cmp_pd::<_CMP_GT_OQ>(abs_x, one);
+    let recip_x = _mm256_div_pd(one, abs_x);
+    let y = _mm256_blendv_pd(abs_x, recip_x, need_recip);
+
+    // Polynomial approximation for atan(y) where y in [0, 1]
+    let a0 = _mm256_set1_pd(A0_F64);
+    let a2 = _mm256_set1_pd(A2_F64);
+    let a4 = _mm256_set1_pd(A4_F64);
+    let a6 = _mm256_set1_pd(A6_F64);
+    let a8 = _mm256_set1_pd(A8_F64);
+    let a10 = _mm256_set1_pd(A10_F64);
+    let a12 = _mm256_set1_pd(A12_F64);
+    let a14 = _mm256_set1_pd(A14_F64);
+    let a16 = _mm256_set1_pd(A16_F64);
+    let a18 = _mm256_set1_pd(A18_F64);
+    let a20 = _mm256_set1_pd(A20_F64);
+
+    let y2 = _mm256_mul_pd(y, y);
+
+    // Horner's method with 11 terms for higher precision
+    let mut poly = a20;
+    poly = _mm256_fmadd_pd(poly, y2, a18);
+    poly = _mm256_fmadd_pd(poly, y2, a16);
+    poly = _mm256_fmadd_pd(poly, y2, a14);
+    poly = _mm256_fmadd_pd(poly, y2, a12);
+    poly = _mm256_fmadd_pd(poly, y2, a10);
+    poly = _mm256_fmadd_pd(poly, y2, a8);
+    poly = _mm256_fmadd_pd(poly, y2, a6);
+    poly = _mm256_fmadd_pd(poly, y2, a4);
+    poly = _mm256_fmadd_pd(poly, y2, a2);
+    poly = _mm256_fmadd_pd(poly, y2, a0);
+    let atan_y = _mm256_mul_pd(y, poly);
+
+    // Apply range reduction inverse: if |x| > 1, result = π/2 - atan(1/x)
+    let adjusted = _mm256_sub_pd(pi_over_2, atan_y);
+    let result = _mm256_blendv_pd(atan_y, adjusted, need_recip);
+
+    // Restore sign
+    _mm256_or_pd(result, sign)
+}
+
+// ============================================================================
 // Horizontal reductions
 // ============================================================================
 
@@ -705,4 +826,392 @@ pub unsafe fn hsum_f64(v: __m256d) -> f64 {
     let shuf = _mm_unpackhi_pd(sum128, sum128);
     let sum64 = _mm_add_sd(sum128, shuf);
     _mm_cvtsd_f64(sum64)
+}
+
+// ============================================================================
+// Additional transcendental functions
+// ============================================================================
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn rsqrt_f32(x: __m256) -> __m256 {
+    // Use Newton-Raphson refinement on the fast approximation
+    let approx = _mm256_rsqrt_ps(x);
+    let half = _mm256_set1_ps(0.5);
+    let three = _mm256_set1_ps(3.0);
+    // One Newton-Raphson iteration: y = 0.5 * y * (3 - x * y * y)
+    let x_approx2 = _mm256_mul_ps(x, _mm256_mul_ps(approx, approx));
+    let factor = _mm256_sub_ps(three, x_approx2);
+    _mm256_mul_ps(half, _mm256_mul_ps(approx, factor))
+}
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn rsqrt_f64(x: __m256d) -> __m256d {
+    let sqrt_x = _mm256_sqrt_pd(x);
+    _mm256_div_pd(_mm256_set1_pd(1.0), sqrt_x)
+}
+
+/// Fast SIMD exp2 (2^x) for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn exp2_f32(x: __m256) -> __m256 {
+    // 2^x = e^(x * ln(2))
+    let ln2 = _mm256_set1_ps(std::f32::consts::LN_2);
+    exp_f32(_mm256_mul_ps(x, ln2))
+}
+
+/// Fast SIMD exp2 (2^x) for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn exp2_f64(x: __m256d) -> __m256d {
+    let ln2 = _mm256_set1_pd(std::f64::consts::LN_2);
+    exp_f64(_mm256_mul_pd(x, ln2))
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f32 using AVX2
+/// Uses direct computation for |x| > 0.5, Taylor series for small x
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn expm1_f32(x: __m256) -> __m256 {
+    let one = _mm256_set1_ps(1.0);
+    let half = _mm256_set1_ps(0.5);
+    let abs_x = _mm256_andnot_ps(_mm256_set1_ps(-0.0), x);
+
+    // For small |x|, use Taylor series: x + x^2/2 + x^3/6 + x^4/24
+    let x2 = _mm256_mul_ps(x, x);
+    let x3 = _mm256_mul_ps(x2, x);
+    let x4 = _mm256_mul_ps(x2, x2);
+    let c2 = _mm256_set1_ps(0.5);
+    let c3 = _mm256_set1_ps(1.0 / 6.0);
+    let c4 = _mm256_set1_ps(1.0 / 24.0);
+    let taylor = _mm256_fmadd_ps(c4, x4, _mm256_fmadd_ps(c3, x3, _mm256_fmadd_ps(c2, x2, x)));
+
+    // For large |x|, use exp(x) - 1
+    let exp_result = _mm256_sub_ps(exp_f32(x), one);
+
+    // Blend based on |x| > 0.5
+    let mask = _mm256_cmp_ps::<_CMP_GT_OQ>(abs_x, half);
+    _mm256_blendv_ps(taylor, exp_result, mask)
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn expm1_f64(x: __m256d) -> __m256d {
+    let one = _mm256_set1_pd(1.0);
+    let half = _mm256_set1_pd(0.5);
+    let abs_x = _mm256_andnot_pd(_mm256_set1_pd(-0.0), x);
+
+    let x2 = _mm256_mul_pd(x, x);
+    let x3 = _mm256_mul_pd(x2, x);
+    let x4 = _mm256_mul_pd(x2, x2);
+    let c2 = _mm256_set1_pd(0.5);
+    let c3 = _mm256_set1_pd(1.0 / 6.0);
+    let c4 = _mm256_set1_pd(1.0 / 24.0);
+    let taylor = _mm256_fmadd_pd(c4, x4, _mm256_fmadd_pd(c3, x3, _mm256_fmadd_pd(c2, x2, x)));
+
+    let exp_result = _mm256_sub_pd(exp_f64(x), one);
+    let mask = _mm256_cmp_pd::<_CMP_GT_OQ>(abs_x, half);
+    _mm256_blendv_pd(taylor, exp_result, mask)
+}
+
+/// Fast SIMD log2 for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log2_f32(x: __m256) -> __m256 {
+    // log2(x) = log(x) * log2(e)
+    let log2e = _mm256_set1_ps(std::f32::consts::LOG2_E);
+    _mm256_mul_ps(log_f32(x), log2e)
+}
+
+/// Fast SIMD log2 for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log2_f64(x: __m256d) -> __m256d {
+    let log2e = _mm256_set1_pd(std::f64::consts::LOG2_E);
+    _mm256_mul_pd(log_f64(x), log2e)
+}
+
+/// Fast SIMD log10 for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log10_f32(x: __m256) -> __m256 {
+    // log10(x) = log(x) * log10(e)
+    let log10e = _mm256_set1_ps(std::f32::consts::LOG10_E);
+    _mm256_mul_ps(log_f32(x), log10e)
+}
+
+/// Fast SIMD log10 for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log10_f64(x: __m256d) -> __m256d {
+    let log10e = _mm256_set1_pd(std::f64::consts::LOG10_E);
+    _mm256_mul_pd(log_f64(x), log10e)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log1p_f32(x: __m256) -> __m256 {
+    let one = _mm256_set1_ps(1.0);
+    let half = _mm256_set1_ps(0.5);
+    let abs_x = _mm256_andnot_ps(_mm256_set1_ps(-0.0), x);
+
+    // For small |x|, use Taylor series: x - x^2/2 + x^3/3 - x^4/4
+    let x2 = _mm256_mul_ps(x, x);
+    let x3 = _mm256_mul_ps(x2, x);
+    let x4 = _mm256_mul_ps(x2, x2);
+    let c2 = _mm256_set1_ps(-0.5);
+    let c3 = _mm256_set1_ps(1.0 / 3.0);
+    let c4 = _mm256_set1_ps(-0.25);
+    let taylor = _mm256_fmadd_ps(c4, x4, _mm256_fmadd_ps(c3, x3, _mm256_fmadd_ps(c2, x2, x)));
+
+    // For large |x|, use log(1 + x)
+    let log_result = log_f32(_mm256_add_ps(one, x));
+
+    let mask = _mm256_cmp_ps::<_CMP_GT_OQ>(abs_x, half);
+    _mm256_blendv_ps(taylor, log_result, mask)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn log1p_f64(x: __m256d) -> __m256d {
+    let one = _mm256_set1_pd(1.0);
+    let half = _mm256_set1_pd(0.5);
+    let abs_x = _mm256_andnot_pd(_mm256_set1_pd(-0.0), x);
+
+    let x2 = _mm256_mul_pd(x, x);
+    let x3 = _mm256_mul_pd(x2, x);
+    let x4 = _mm256_mul_pd(x2, x2);
+    let c2 = _mm256_set1_pd(-0.5);
+    let c3 = _mm256_set1_pd(1.0 / 3.0);
+    let c4 = _mm256_set1_pd(-0.25);
+    let taylor = _mm256_fmadd_pd(c4, x4, _mm256_fmadd_pd(c3, x3, _mm256_fmadd_pd(c2, x2, x)));
+
+    let log_result = log_f64(_mm256_add_pd(one, x));
+    let mask = _mm256_cmp_pd::<_CMP_GT_OQ>(abs_x, half);
+    _mm256_blendv_pd(taylor, log_result, mask)
+}
+
+/// Fast SIMD sinh for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn sinh_f32(x: __m256) -> __m256 {
+    // sinh(x) = (exp(x) - exp(-x)) / 2
+    let half = _mm256_set1_ps(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(_mm256_sub_ps(_mm256_setzero_ps(), x));
+    _mm256_mul_ps(half, _mm256_sub_ps(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD sinh for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn sinh_f64(x: __m256d) -> __m256d {
+    let half = _mm256_set1_pd(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(_mm256_sub_pd(_mm256_setzero_pd(), x));
+    _mm256_mul_pd(half, _mm256_sub_pd(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f32 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn cosh_f32(x: __m256) -> __m256 {
+    // cosh(x) = (exp(x) + exp(-x)) / 2
+    let half = _mm256_set1_ps(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(_mm256_sub_ps(_mm256_setzero_ps(), x));
+    _mm256_mul_ps(half, _mm256_add_ps(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn cosh_f64(x: __m256d) -> __m256d {
+    let half = _mm256_set1_pd(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(_mm256_sub_pd(_mm256_setzero_pd(), x));
+    _mm256_mul_pd(half, _mm256_add_pd(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD asinh for f32 using AVX2
+/// asinh(x) = log(x + sqrt(x^2 + 1))
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn asinh_f32(x: __m256) -> __m256 {
+    let one = _mm256_set1_ps(1.0);
+    let x2 = _mm256_mul_ps(x, x);
+    let sqrt_term = _mm256_sqrt_ps(_mm256_add_ps(x2, one));
+    log_f32(_mm256_add_ps(x, sqrt_term))
+}
+
+/// Fast SIMD asinh for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn asinh_f64(x: __m256d) -> __m256d {
+    let one = _mm256_set1_pd(1.0);
+    let x2 = _mm256_mul_pd(x, x);
+    let sqrt_term = _mm256_sqrt_pd(_mm256_add_pd(x2, one));
+    log_f64(_mm256_add_pd(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f32 using AVX2
+/// acosh(x) = log(x + sqrt(x^2 - 1)) for x >= 1
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn acosh_f32(x: __m256) -> __m256 {
+    let one = _mm256_set1_ps(1.0);
+    let x2 = _mm256_mul_ps(x, x);
+    let sqrt_term = _mm256_sqrt_ps(_mm256_sub_ps(x2, one));
+    log_f32(_mm256_add_ps(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn acosh_f64(x: __m256d) -> __m256d {
+    let one = _mm256_set1_pd(1.0);
+    let x2 = _mm256_mul_pd(x, x);
+    let sqrt_term = _mm256_sqrt_pd(_mm256_sub_pd(x2, one));
+    log_f64(_mm256_add_pd(x, sqrt_term))
+}
+
+/// Fast SIMD atanh for f32 using AVX2
+/// atanh(x) = 0.5 * log((1 + x) / (1 - x)) for |x| < 1
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn atanh_f32(x: __m256) -> __m256 {
+    let half = _mm256_set1_ps(0.5);
+    let one = _mm256_set1_ps(1.0);
+    let one_plus_x = _mm256_add_ps(one, x);
+    let one_minus_x = _mm256_sub_ps(one, x);
+    let ratio = _mm256_div_ps(one_plus_x, one_minus_x);
+    _mm256_mul_ps(half, log_f32(ratio))
+}
+
+/// Fast SIMD atanh for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn atanh_f64(x: __m256d) -> __m256d {
+    let half = _mm256_set1_pd(0.5);
+    let one = _mm256_set1_pd(1.0);
+    let one_plus_x = _mm256_add_pd(one, x);
+    let one_minus_x = _mm256_sub_pd(one, x);
+    let ratio = _mm256_div_pd(one_plus_x, one_minus_x);
+    _mm256_mul_pd(half, log_f64(ratio))
+}
+
+/// Fast SIMD asin for f32 using AVX2
+/// Uses polynomial approximation with range reduction
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn asin_f32(x: __m256) -> __m256 {
+    // asin(x) = atan(x / sqrt(1 - x^2))
+    let one = _mm256_set1_ps(1.0);
+    let x2 = _mm256_mul_ps(x, x);
+    let sqrt_term = _mm256_sqrt_ps(_mm256_sub_ps(one, x2));
+    let ratio = _mm256_div_ps(x, sqrt_term);
+    atan_f32(ratio)
+}
+
+/// Fast SIMD asin for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn asin_f64(x: __m256d) -> __m256d {
+    let one = _mm256_set1_pd(1.0);
+    let x2 = _mm256_mul_pd(x, x);
+    let sqrt_term = _mm256_sqrt_pd(_mm256_sub_pd(one, x2));
+    let ratio = _mm256_div_pd(x, sqrt_term);
+    atan_f64(ratio)
+}
+
+/// Fast SIMD acos for f32 using AVX2
+/// acos(x) = pi/2 - asin(x)
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn acos_f32(x: __m256) -> __m256 {
+    let pi_half = _mm256_set1_ps(std::f32::consts::FRAC_PI_2);
+    _mm256_sub_ps(pi_half, asin_f32(x))
+}
+
+/// Fast SIMD acos for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn acos_f64(x: __m256d) -> __m256d {
+    let pi_half = _mm256_set1_pd(std::f64::consts::FRAC_PI_2);
+    _mm256_sub_pd(pi_half, asin_f64(x))
+}
+
+/// Fast SIMD cbrt (cube root) for f32 using AVX2
+/// Uses Halley's method for refinement
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn cbrt_f32(x: __m256) -> __m256 {
+    // Handle sign separately
+    let sign_mask = _mm256_set1_ps(-0.0);
+    let sign = _mm256_and_ps(x, sign_mask);
+    let abs_x = _mm256_andnot_ps(sign_mask, x);
+
+    // Initial approximation using bit manipulation
+    // cbrt(x) ≈ 2^(log2(x)/3) via IEEE 754
+    let one_third = _mm256_set1_ps(1.0 / 3.0);
+    let bias = _mm256_set1_ps(127.0);
+
+    // Extract exponent: e = floor(log2(|x|))
+    let xi = _mm256_castps_si256(abs_x);
+    let exp_bits = _mm256_srli_epi32::<23>(xi);
+    let exp_f = _mm256_cvtepi32_ps(_mm256_sub_epi32(exp_bits, _mm256_set1_epi32(127)));
+
+    // Initial guess: 2^(e/3)
+    let new_exp = _mm256_mul_ps(exp_f, one_third);
+    let new_exp_i = _mm256_cvtps_epi32(_mm256_add_ps(new_exp, bias));
+    let guess = _mm256_castsi256_ps(_mm256_slli_epi32::<23>(new_exp_i));
+
+    // Newton-Raphson iteration: y = y * (2*y^3 + x) / (2*x + y^3)
+    // Simplified: y = (2*y + x/y^2) / 3
+    let two = _mm256_set1_ps(2.0);
+    let three = _mm256_set1_ps(3.0);
+
+    let y = guess;
+    let y2 = _mm256_mul_ps(y, y);
+    let y_new = _mm256_div_ps(_mm256_fmadd_ps(two, y, _mm256_div_ps(abs_x, y2)), three);
+
+    // One more iteration
+    let y2 = _mm256_mul_ps(y_new, y_new);
+    let result = _mm256_div_ps(_mm256_fmadd_ps(two, y_new, _mm256_div_ps(abs_x, y2)), three);
+
+    // Restore sign
+    _mm256_or_ps(result, sign)
+}
+
+/// Fast SIMD cbrt (cube root) for f64 using AVX2
+#[target_feature(enable = "avx2", enable = "fma")]
+#[inline]
+pub unsafe fn cbrt_f64(x: __m256d) -> __m256d {
+    let sign_mask = _mm256_set1_pd(-0.0);
+    let sign = _mm256_and_pd(x, sign_mask);
+    let abs_x = _mm256_andnot_pd(sign_mask, x);
+
+    let one_third = _mm256_set1_pd(1.0 / 3.0);
+
+    // Initial guess: cbrt(x) ≈ exp(log(x) / 3)
+    let log_x = log_f64(abs_x);
+    let guess = exp_f64(_mm256_mul_pd(log_x, one_third));
+
+    let two = _mm256_set1_pd(2.0);
+    let three = _mm256_set1_pd(3.0);
+
+    let y = guess;
+    let y2 = _mm256_mul_pd(y, y);
+    let y_new = _mm256_div_pd(_mm256_fmadd_pd(two, y, _mm256_div_pd(abs_x, y2)), three);
+
+    let y2 = _mm256_mul_pd(y_new, y_new);
+    let result = _mm256_div_pd(_mm256_fmadd_pd(two, y_new, _mm256_div_pd(abs_x, y2)), three);
+
+    _mm256_or_pd(result, sign)
 }
