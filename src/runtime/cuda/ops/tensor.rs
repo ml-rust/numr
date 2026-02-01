@@ -26,9 +26,10 @@ use super::helpers::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    ComplexOps, ConditionalOps, MatmulOps, NormalizationOps, ScalarOps, TensorOps,
-    TypeConversionOps, compute_reduce_strides, matmul_bias_output_shape, matmul_output_shape,
-    normalize_softmax_dim, reduce_dim_output_shape, reduce_output_shape,
+    ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps, MatmulOps,
+    NormalizationOps, ReduceOps, ScalarOps, TensorOps, TypeConversionOps, UtilityOps,
+    compute_reduce_strides, matmul_bias_output_shape, matmul_output_shape, normalize_softmax_dim,
+    reduce_dim_output_shape, reduce_output_shape,
 };
 use crate::runtime::fallback::{compute_broadcast_shape, matmul_fallback, validate_binary_dtypes};
 use crate::runtime::shape_ops;
@@ -536,6 +537,457 @@ impl MatmulOps<CudaRuntime> for CudaClient {
 }
 
 // ============================================================================
+// CumulativeOps Implementation
+// ============================================================================
+
+impl CumulativeOps<CudaRuntime> for CudaClient {
+    fn cumsum(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Normalize dimension (handle negative indexing)
+        let dim = if dim < 0 {
+            (ndim as isize + dim) as usize
+        } else {
+            dim as usize
+        };
+
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Handle empty tensor
+        if a.numel() == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device));
+        }
+
+        // Ensure contiguous for CUDA kernel
+        let a_contig = ensure_contiguous(a);
+
+        // Calculate dimensions for kernel launch
+        let scan_size = shape[dim];
+        let outer_size: usize = shape[..dim].iter().product();
+        let inner_size: usize = shape[dim + 1..].iter().product();
+
+        // Allocate output
+        let out = Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device);
+
+        // Choose kernel based on dimension position
+        if inner_size == 1 {
+            // Scan along last dimension or effectively contiguous
+            let outer = outer_size.max(1);
+            unsafe {
+                launch_cumsum(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    scan_size,
+                    outer,
+                )?;
+            }
+        } else {
+            // Strided scan for non-last dimension
+            unsafe {
+                launch_cumsum_strided(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    scan_size,
+                    outer_size.max(1),
+                    inner_size,
+                )?;
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn cumprod(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Normalize dimension (handle negative indexing)
+        let dim = if dim < 0 {
+            (ndim as isize + dim) as usize
+        } else {
+            dim as usize
+        };
+
+        if dim >= ndim {
+            return Err(Error::InvalidDimension {
+                dim: dim as isize,
+                ndim,
+            });
+        }
+
+        // Handle empty tensor
+        if a.numel() == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device));
+        }
+
+        // Ensure contiguous for CUDA kernel
+        let a_contig = ensure_contiguous(a);
+
+        // Calculate dimensions for kernel launch
+        let scan_size = shape[dim];
+        let outer_size: usize = shape[..dim].iter().product();
+        let inner_size: usize = shape[dim + 1..].iter().product();
+
+        // Allocate output
+        let out = Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device);
+
+        // Choose kernel based on dimension position
+        if inner_size == 1 {
+            // Scan along last dimension or effectively contiguous
+            let outer = outer_size.max(1);
+            unsafe {
+                launch_cumprod(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    scan_size,
+                    outer,
+                )?;
+            }
+        } else {
+            // Strided scan for non-last dimension
+            unsafe {
+                launch_cumprod_strided(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    scan_size,
+                    outer_size.max(1),
+                    inner_size,
+                )?;
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn logsumexp(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Only support floating point types
+        if !matches!(a.dtype(), DType::F32 | DType::F64) {
+            return Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "logsumexp",
+            });
+        }
+
+        let shape = a.shape();
+        let ndim = shape.len();
+
+        // Handle empty dims (reduce over all dimensions)
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..ndim).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        // Validate dimensions
+        for &dim in &actual_dims {
+            if dim >= ndim {
+                return Err(Error::InvalidDimension {
+                    dim: dim as isize,
+                    ndim,
+                });
+            }
+        }
+
+        // Handle empty tensor
+        if a.numel() == 0 {
+            let out_shape = reduce_output_shape(shape, &actual_dims, keepdim);
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &out_shape,
+                a.dtype(),
+                &self.device,
+            ));
+        }
+
+        // For multi-dimensional reduction, reduce one dimension at a time
+        if actual_dims.len() > 1 {
+            let mut result = a.clone();
+            // Sort dims in descending order to avoid index invalidation
+            let mut sorted_dims = actual_dims.clone();
+            sorted_dims.sort_by(|a, b| b.cmp(a));
+
+            for &dim in &sorted_dims {
+                result = self.logsumexp(&result, &[dim], true)?;
+            }
+
+            // Remove keepdim if not requested
+            if !keepdim {
+                let out_shape = reduce_output_shape(shape, &actual_dims, false);
+                result = result.reshape(&out_shape)?;
+            }
+
+            return Ok(result);
+        }
+
+        // Single dimension reduction
+        let dim = actual_dims[0];
+
+        // Ensure contiguous for CUDA kernel
+        let a_contig = ensure_contiguous(a);
+
+        // Calculate dimensions for kernel launch
+        let reduce_size = shape[dim];
+        let outer_size: usize = shape[..dim].iter().product();
+        let inner_size: usize = shape[dim + 1..].iter().product();
+
+        // Calculate output shape
+        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
+        let out_numel: usize = out_shape.iter().product();
+
+        // Allocate output
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, a.dtype(), &self.device);
+
+        // Choose kernel based on dimension position
+        if inner_size == 1 {
+            // Reduction along last dimension
+            let outer = outer_size.max(1);
+            unsafe {
+                launch_logsumexp(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    reduce_size,
+                    outer,
+                )?;
+            }
+        } else {
+            // Strided reduction for non-last dimension
+            unsafe {
+                launch_logsumexp_strided(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    a.dtype(),
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    reduce_size,
+                    outer_size.max(1),
+                    inner_size,
+                )?;
+            }
+        }
+
+        // Handle keepdim reshape if needed
+        if keepdim && out.numel() == out_numel {
+            Ok(out)
+        } else {
+            Ok(out)
+        }
+    }
+}
+
+// ============================================================================
+// ActivationOps Implementation
+// ============================================================================
+
+impl ActivationOps<CudaRuntime> for CudaClient {
+    fn relu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_relu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn sigmoid(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_sigmoid(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn silu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_silu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn gelu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_gelu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn leaky_relu(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        negative_slope: f64,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_leaky_relu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+                negative_slope as f32,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn elu(&self, a: &Tensor<CudaRuntime>, alpha: f64) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_elu(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.storage().ptr(),
+                out.storage().ptr(),
+                out.numel(),
+                alpha as f32,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        let ndim = a.ndim();
+
+        let dim_idx =
+            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
+
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        let shape = a.shape();
+        let outer_size: usize = shape[..dim_idx].iter().product();
+        let dim_size = shape[dim_idx];
+        let inner_size: usize = shape[dim_idx + 1..].iter().product();
+
+        let outer_size = outer_size.max(1);
+        let inner_size = inner_size.max(1);
+
+        unsafe {
+            if dim_idx == ndim - 1 {
+                // Softmax over last dimension (optimized)
+                launch_softmax(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    outer_size,
+                    dim_size,
+                )?;
+            } else {
+                // Softmax over non-last dimension
+                launch_softmax_dim(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    a_contig.storage().ptr(),
+                    out.storage().ptr(),
+                    outer_size,
+                    dim_size,
+                    inner_size,
+                )?;
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
 // TensorOps Implementation
 // ============================================================================
 
@@ -755,306 +1207,19 @@ impl TensorOps<CudaRuntime> for CudaClient {
     }
 
     // ===== Reductions (Native CUDA Kernels) =====
-
-    fn sum(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, None)
-    }
-
-    fn sum_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
-    }
-
-    fn mean(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Mean = sum / count
-        // When dims is empty, reduce over all dimensions
-        let count: usize = if dims.is_empty() {
-            a.numel()
-        } else {
-            dims.iter().map(|&d| a.shape()[d]).product()
-        };
-
-        // For empty dims, we need to reduce all dimensions
-        let actual_dims: Vec<usize> = if dims.is_empty() {
-            (0..a.shape().len()).collect()
-        } else {
-            dims.to_vec()
-        };
-
-        let sum_result = self.sum(a, &actual_dims, keepdim)?;
-        self.div_scalar(&sum_result, count as f64)
-    }
-
-    fn max(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, None)
-    }
-
-    fn max_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
-    }
-
-    fn min(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, None)
-    }
-
-    fn min_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
-    }
-
-    fn prod(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, None)
-    }
-
-    fn prod_with_precision(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        precision: AccumulationPrecision,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
-    }
-
-    fn any(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "any", dims, keepdim, None)
-    }
-
-    fn all(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "all", dims, keepdim, None)
-    }
-
-    // ===== Activations (Native CUDA Kernels) =====
-
-    fn relu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_relu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn sigmoid(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_sigmoid(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn silu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_silu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn gelu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_gelu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn leaky_relu(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        negative_slope: f64,
-    ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_leaky_relu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-                negative_slope as f32,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn elu(&self, a: &Tensor<CudaRuntime>, alpha: f64) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        unsafe {
-            launch_elu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
-                out.numel(),
-                alpha as f32,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        let ndim = a.ndim();
-
-        let dim_idx =
-            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
-
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
-
-        let shape = a.shape();
-        let outer_size: usize = shape[..dim_idx].iter().product();
-        let dim_size = shape[dim_idx];
-        let inner_size: usize = shape[dim_idx + 1..].iter().product();
-
-        let outer_size = outer_size.max(1);
-        let inner_size = inner_size.max(1);
-
-        unsafe {
-            if dim_idx == ndim - 1 {
-                // Softmax over last dimension (optimized)
-                launch_softmax(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    dtype,
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    outer_size,
-                    dim_size,
-                )?;
-            } else {
-                // Softmax over non-last dimension
-                launch_softmax_dim(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    dtype,
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    outer_size,
-                    dim_size,
-                    inner_size,
-                )?;
-            }
-        }
-
-        Ok(out)
-    }
+    // Moved to ReduceOps trait implementation below
 
     // ===== Index Operations =====
+    // Moved to IndexingOps trait implementation below
+}
 
+// ============================================================================
+// IndexingOps Implementation
+// ============================================================================
+
+/// IndexingOps implementation for CUDA runtime.
+impl IndexingOps<CudaRuntime> for CudaClient {
+    // Index operations methods go here
     fn argmax(
         &self,
         a: &Tensor<CudaRuntime>,
@@ -1800,162 +1965,13 @@ impl TensorOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+}
 
-    // ===== Type Casting =====
-    // Moved to TypeConversionOps impl
+// ============================================================================
+// TensorOps Implementation (continued - Statistical Operations)
+// ============================================================================
 
-    // ===== Conditional Operations =====
-    // Moved to ConditionalOps impl
-
-    // ===== Utility Operations =====
-
-    fn clamp(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        min_val: f64,
-        max_val: f64,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Use native CUDA implementation via composition of maximum and minimum
-        // clamp(x, min, max) = min(max(x, min), max)
-        // This approach uses existing optimized kernels
-
-        // Create scalar tensors for min and max
-        let min_scalar = self.fill(&[], min_val, a.dtype())?;
-        let max_scalar = self.fill(&[], max_val, a.dtype())?;
-
-        // First: max(x, min_val)
-        let clamped_low = self.maximum(a, &min_scalar)?;
-
-        // Then: min(result, max_val)
-        self.minimum(&clamped_low, &max_scalar)
-    }
-
-    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CudaRuntime>> {
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            // Empty tensor - just allocate
-            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
-        }
-
-        // Allocate output tensor
-        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
-
-        // Launch native CUDA fill kernel
-        unsafe {
-            launch_fill_with_f64(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                value,
-                out.storage().ptr(),
-                numel,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn arange(
-        &self,
-        start: f64,
-        stop: f64,
-        step: f64,
-        dtype: DType,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Use shared validation
-        let numel = validate_arange(start, stop, step)?;
-
-        // Handle empty tensor case
-        if numel == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
-        }
-
-        let out = Tensor::<CudaRuntime>::empty(&[numel], dtype, &self.device);
-
-        unsafe {
-            super::super::kernels::launch_arange(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                start,
-                step,
-                out.storage().ptr(),
-                numel,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn linspace(
-        &self,
-        start: f64,
-        stop: f64,
-        steps: usize,
-        dtype: DType,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // linspace supports all numeric dtypes - computation is done in higher precision,
-        // then converted to the output dtype. This matches NumPy behavior.
-
-        // Handle edge cases
-        if steps == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
-        }
-
-        if steps == 1 {
-            return self.fill(&[1], start, dtype);
-        }
-
-        let out = Tensor::<CudaRuntime>::empty(&[steps], dtype, &self.device);
-
-        unsafe {
-            super::super::kernels::launch_linspace(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                start,
-                stop,
-                out.storage().ptr(),
-                steps,
-            )?;
-        }
-
-        Ok(out)
-    }
-
-    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CudaRuntime>> {
-        // Use shared validation
-        let (rows, cols) = validate_eye(n, m);
-
-        // Handle edge cases
-        if rows == 0 || cols == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(
-                &[rows, cols],
-                dtype,
-                &self.device,
-            ));
-        }
-
-        let out = Tensor::<CudaRuntime>::empty(&[rows, cols], dtype, &self.device);
-
-        unsafe {
-            super::super::kernels::launch_eye(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                rows,
-                cols,
-                out.storage().ptr(),
-            )?;
-        }
-
-        Ok(out)
-    }
-
+impl TensorOps<CudaRuntime> for CudaClient {
     // ===== Statistical Operations =====
 
     fn var(
@@ -2089,271 +2105,6 @@ impl TensorOps<CudaRuntime> for CudaClient {
         keepdim: bool,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
         super::statistics::mode_impl(self, a, dim, keepdim)
-    }
-
-    // ===== Cumulative Operations =====
-
-    fn cumsum(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // Normalize dimension (handle negative indexing)
-        let dim = if dim < 0 {
-            (ndim as isize + dim) as usize
-        } else {
-            dim as usize
-        };
-
-        if dim >= ndim {
-            return Err(Error::InvalidDimension {
-                dim: dim as isize,
-                ndim,
-            });
-        }
-
-        // Handle empty tensor
-        if a.numel() == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device));
-        }
-
-        // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
-
-        // Calculate dimensions for kernel launch
-        let scan_size = shape[dim];
-        let outer_size: usize = shape[..dim].iter().product();
-        let inner_size: usize = shape[dim + 1..].iter().product();
-
-        // Allocate output
-        let out = Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device);
-
-        // Choose kernel based on dimension position
-        if inner_size == 1 {
-            // Scan along last dimension or effectively contiguous
-            let outer = outer_size.max(1);
-            unsafe {
-                launch_cumsum(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    scan_size,
-                    outer,
-                )?;
-            }
-        } else {
-            // Strided scan for non-last dimension
-            unsafe {
-                launch_cumsum_strided(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    scan_size,
-                    outer_size.max(1),
-                    inner_size,
-                )?;
-            }
-        }
-
-        Ok(out)
-    }
-
-    fn cumprod(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // Normalize dimension (handle negative indexing)
-        let dim = if dim < 0 {
-            (ndim as isize + dim) as usize
-        } else {
-            dim as usize
-        };
-
-        if dim >= ndim {
-            return Err(Error::InvalidDimension {
-                dim: dim as isize,
-                ndim,
-            });
-        }
-
-        // Handle empty tensor
-        if a.numel() == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device));
-        }
-
-        // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
-
-        // Calculate dimensions for kernel launch
-        let scan_size = shape[dim];
-        let outer_size: usize = shape[..dim].iter().product();
-        let inner_size: usize = shape[dim + 1..].iter().product();
-
-        // Allocate output
-        let out = Tensor::<CudaRuntime>::empty(shape, a.dtype(), &self.device);
-
-        // Choose kernel based on dimension position
-        if inner_size == 1 {
-            // Scan along last dimension or effectively contiguous
-            let outer = outer_size.max(1);
-            unsafe {
-                launch_cumprod(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    scan_size,
-                    outer,
-                )?;
-            }
-        } else {
-            // Strided scan for non-last dimension
-            unsafe {
-                launch_cumprod_strided(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    scan_size,
-                    outer_size.max(1),
-                    inner_size,
-                )?;
-            }
-        }
-
-        Ok(out)
-    }
-
-    fn logsumexp(
-        &self,
-        a: &Tensor<CudaRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<CudaRuntime>> {
-        // Only support floating point types
-        if !matches!(a.dtype(), DType::F32 | DType::F64) {
-            return Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "logsumexp",
-            });
-        }
-
-        let shape = a.shape();
-        let ndim = shape.len();
-
-        // Handle empty dims (reduce over all dimensions)
-        let actual_dims: Vec<usize> = if dims.is_empty() {
-            (0..ndim).collect()
-        } else {
-            dims.to_vec()
-        };
-
-        // Validate dimensions
-        for &dim in &actual_dims {
-            if dim >= ndim {
-                return Err(Error::InvalidDimension {
-                    dim: dim as isize,
-                    ndim,
-                });
-            }
-        }
-
-        // Handle empty tensor
-        if a.numel() == 0 {
-            let out_shape = reduce_output_shape(shape, &actual_dims, keepdim);
-            return Ok(Tensor::<CudaRuntime>::empty(
-                &out_shape,
-                a.dtype(),
-                &self.device,
-            ));
-        }
-
-        // For multi-dimensional reduction, reduce one dimension at a time
-        if actual_dims.len() > 1 {
-            let mut result = a.clone();
-            // Sort dims in descending order to avoid index invalidation
-            let mut sorted_dims = actual_dims.clone();
-            sorted_dims.sort_by(|a, b| b.cmp(a));
-
-            for &dim in &sorted_dims {
-                result = self.logsumexp(&result, &[dim], true)?;
-            }
-
-            // Remove keepdim if not requested
-            if !keepdim {
-                let out_shape = reduce_output_shape(shape, &actual_dims, false);
-                result = result.reshape(&out_shape)?;
-            }
-
-            return Ok(result);
-        }
-
-        // Single dimension reduction
-        let dim = actual_dims[0];
-
-        // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
-
-        // Calculate dimensions for kernel launch
-        let reduce_size = shape[dim];
-        let outer_size: usize = shape[..dim].iter().product();
-        let inner_size: usize = shape[dim + 1..].iter().product();
-
-        // Calculate output shape
-        let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
-        let out_numel: usize = out_shape.iter().product();
-
-        // Allocate output
-        let out = Tensor::<CudaRuntime>::empty(&out_shape, a.dtype(), &self.device);
-
-        // Choose kernel based on dimension position
-        if inner_size == 1 {
-            // Reduction along last dimension
-            let outer = outer_size.max(1);
-            unsafe {
-                launch_logsumexp(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    reduce_size,
-                    outer,
-                )?;
-            }
-        } else {
-            // Strided reduction for non-last dimension
-            unsafe {
-                launch_logsumexp_strided(
-                    &self.context,
-                    &self.stream,
-                    self.device.index,
-                    a.dtype(),
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
-                    reduce_size,
-                    outer_size.max(1),
-                    inner_size,
-                )?;
-            }
-        }
-
-        // Handle keepdim reshape if needed
-        if keepdim && out.numel() == out_numel {
-            Ok(out)
-        } else {
-            Ok(out)
-        }
     }
 
     // ===== Random Operations =====
@@ -3731,6 +3482,132 @@ impl TensorOps<CudaRuntime> for CudaClient {
 }
 
 // ============================================================================
+// ReduceOps Implementation
+// ============================================================================
+
+/// ReduceOps implementation for CUDA runtime.
+impl ReduceOps<CudaRuntime> for CudaClient {
+    fn sum(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, None)
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "sum", dims, keepdim, Some(precision))
+    }
+
+    fn mean(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Mean = sum / count
+        // When dims is empty, reduce over all dimensions
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| a.shape()[d]).product()
+        };
+
+        // For empty dims, we need to reduce all dimensions
+        let actual_dims: Vec<usize> = if dims.is_empty() {
+            (0..a.shape().len()).collect()
+        } else {
+            dims.to_vec()
+        };
+
+        let sum_result = self.sum(a, &actual_dims, keepdim)?;
+        self.div_scalar(&sum_result, count as f64)
+    }
+
+    fn max(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, None)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "max", dims, keepdim, Some(precision))
+    }
+
+    fn min(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, None)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "min", dims, keepdim, Some(precision))
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, None)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        precision: AccumulationPrecision,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "prod", dims, keepdim, Some(precision))
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "any", dims, keepdim, None)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        native_reduce_op(self, a, "all", dims, keepdim, None)
+    }
+}
+
+// ============================================================================
 // ConditionalOps Implementation
 // ============================================================================
 
@@ -3839,6 +3716,160 @@ impl ConditionalOps<CudaRuntime> for CudaClient {
                     &out_shape,
                 )?;
             }
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// UtilityOps Implementation
+// ============================================================================
+
+/// UtilityOps implementation for CUDA runtime.
+impl UtilityOps<CudaRuntime> for CudaClient {
+    fn clamp(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        min_val: f64,
+        max_val: f64,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Use native CUDA implementation via composition of maximum and minimum
+        // clamp(x, min, max) = min(max(x, min), max)
+        // This approach uses existing optimized kernels
+
+        // Create scalar tensors for min and max
+        let min_scalar = self.fill(&[], min_val, a.dtype())?;
+        let max_scalar = self.fill(&[], max_val, a.dtype())?;
+
+        // First: max(x, min_val)
+        let clamped_low = self.maximum(a, &min_scalar)?;
+
+        // Then: min(result, max_val)
+        self.minimum(&clamped_low, &max_scalar)
+    }
+
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            // Empty tensor - just allocate
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        // Allocate output tensor
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        // Launch native CUDA fill kernel
+        unsafe {
+            launch_fill_with_f64(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                value,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn arange(
+        &self,
+        start: f64,
+        stop: f64,
+        step: f64,
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // Use shared validation
+        let numel = validate_arange(start, stop, step)?;
+
+        // Handle empty tensor case
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[numel], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_arange(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                start,
+                step,
+                out.storage().ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn linspace(
+        &self,
+        start: f64,
+        stop: f64,
+        steps: usize,
+        dtype: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // linspace supports all numeric dtypes - computation is done in higher precision,
+        // then converted to the output dtype. This matches NumPy behavior.
+
+        // Handle edge cases
+        if steps == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(&[0], dtype, &self.device));
+        }
+
+        if steps == 1 {
+            return self.fill(&[1], start, dtype);
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[steps], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_linspace(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                start,
+                stop,
+                out.storage().ptr(),
+                steps,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // Use shared validation
+        let (rows, cols) = validate_eye(n, m);
+
+        // Handle edge cases
+        if rows == 0 || cols == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(
+                &[rows, cols],
+                dtype,
+                &self.device,
+            ));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(&[rows, cols], dtype, &self.device);
+
+        unsafe {
+            super::super::kernels::launch_eye(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                rows,
+                cols,
+                out.storage().ptr(),
+            )?;
         }
 
         Ok(out)
