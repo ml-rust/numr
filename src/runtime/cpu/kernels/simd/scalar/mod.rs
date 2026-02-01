@@ -122,6 +122,11 @@ pub unsafe fn scalar_scalar_f32(
                 *out.add(i) = (*a.add(i)).powf(scalar);
             }
         }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).atan2(scalar);
+            }
+        }
     }
 }
 
@@ -170,6 +175,11 @@ pub unsafe fn scalar_scalar_f64(
         BinaryOp::Pow => {
             for i in 0..len {
                 *out.add(i) = (*a.add(i)).powf(scalar);
+            }
+        }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).atan2(scalar);
             }
         }
     }

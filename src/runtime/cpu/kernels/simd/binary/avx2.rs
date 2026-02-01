@@ -157,6 +157,12 @@ pub unsafe fn binary_f32(op: BinaryOp, a: *const f32, b: *const f32, out: *mut f
     // Use streaming stores for large aligned arrays
     let use_streaming = should_stream_f32(len) && is_aligned_avx2(out);
 
+    // Atan2 has no SIMD implementation - use scalar fallback
+    if op == BinaryOp::Atan2 {
+        binary_scalar_f32(op, a, b, out, len);
+        return;
+    }
+
     if use_streaming {
         match op {
             BinaryOp::Add => binary_add_f32_stream(a, b, out, chunks),
@@ -166,6 +172,7 @@ pub unsafe fn binary_f32(op: BinaryOp, a: *const f32, b: *const f32, out: *mut f
             BinaryOp::Max => binary_max_f32_stream(a, b, out, chunks),
             BinaryOp::Min => binary_min_f32_stream(a, b, out, chunks),
             BinaryOp::Pow => binary_pow_f32_stream(a, b, out, chunks),
+            BinaryOp::Atan2 => unreachable!(), // Handled above
         }
         // Memory fence ensures streaming stores are globally visible
         _mm_sfence();
@@ -178,6 +185,7 @@ pub unsafe fn binary_f32(op: BinaryOp, a: *const f32, b: *const f32, out: *mut f
             BinaryOp::Max => binary_max_f32(a, b, out, chunks),
             BinaryOp::Min => binary_min_f32(a, b, out, chunks),
             BinaryOp::Pow => binary_pow_f32(a, b, out, chunks),
+            BinaryOp::Atan2 => unreachable!(), // Handled above
         }
     }
 
@@ -203,6 +211,12 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
     // Use streaming stores for large aligned arrays
     let use_streaming = should_stream_f64(len) && is_aligned_avx2(out);
 
+    // Atan2 has no SIMD implementation - use scalar fallback
+    if op == BinaryOp::Atan2 {
+        binary_scalar_f64(op, a, b, out, len);
+        return;
+    }
+
     if use_streaming {
         match op {
             BinaryOp::Add => binary_add_f64_stream(a, b, out, chunks),
@@ -212,6 +226,7 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
             BinaryOp::Max => binary_max_f64_stream(a, b, out, chunks),
             BinaryOp::Min => binary_min_f64_stream(a, b, out, chunks),
             BinaryOp::Pow => binary_pow_f64_stream(a, b, out, chunks),
+            BinaryOp::Atan2 => unreachable!(), // Handled above
         }
         // Memory fence ensures streaming stores are globally visible
         _mm_sfence();
@@ -224,6 +239,7 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
             BinaryOp::Max => binary_max_f64(a, b, out, chunks),
             BinaryOp::Min => binary_min_f64(a, b, out, chunks),
             BinaryOp::Pow => binary_pow_f64(a, b, out, chunks),
+            BinaryOp::Atan2 => unreachable!(), // Handled above
         }
     }
 

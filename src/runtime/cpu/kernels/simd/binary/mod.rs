@@ -283,6 +283,7 @@ mod tests {
                     BinaryOp::Max => a[i].max(b[i]),
                     BinaryOp::Min => a[i].min(b[i]),
                     BinaryOp::Pow => a[i].powf(b[i]),
+                    BinaryOp::Atan2 => a[i].atan2(b[i]),
                 };
                 assert!(
                     (out[i] - expected).abs() < 1e-5 * expected.abs().max(1.0),

@@ -7,7 +7,7 @@
 //!
 //! ALL operations now have SIMD implementations:
 //! - Neg, Abs, Sqrt, Square, Recip, Floor, Ceil, Round (direct SIMD)
-//! - Exp, Log, Sin, Cos, Tan, Tanh (polynomial approximations from math module)
+//! - Exp, Log, Sin, Cos, Tan, Atan, Tanh (polynomial approximations from math module)
 //! - Sign (comparison-based)
 //! - ReLU (critical for ML)
 
@@ -40,6 +40,7 @@ const fn is_simd_supported(op: UnaryOp) -> bool {
             | UnaryOp::Sin
             | UnaryOp::Cos
             | UnaryOp::Tan
+            | UnaryOp::Atan
             | UnaryOp::Tanh
             | UnaryOp::Square
             | UnaryOp::Recip
