@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{CompareOps, ScalarOps, TensorOps};
+use crate::ops::{CompareOps, ReduceOps, ScalarOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -214,7 +214,7 @@ impl<R: Runtime> MaxBackward<R> {
 
 impl<R: Runtime> GradFn<R> for MaxBackward<R>
 where
-    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R> + ReduceOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -309,7 +309,7 @@ impl<R: Runtime> MinBackward<R> {
 
 impl<R: Runtime> GradFn<R> for MinBackward<R>
 where
-    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R> + ReduceOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -409,7 +409,7 @@ impl<R: Runtime> VarBackward<R> {
 
 impl<R: Runtime> GradFn<R> for VarBackward<R>
 where
-    R::Client: TensorOps<R> + ScalarOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + ReduceOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -514,7 +514,7 @@ impl<R: Runtime> StdBackward<R> {
 
 impl<R: Runtime> GradFn<R> for StdBackward<R>
 where
-    R::Client: TensorOps<R> + ScalarOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R> + ReduceOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());

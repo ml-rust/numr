@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::{CompareOps, TensorOps};
+use crate::ops::{ActivationOps, CompareOps, ReduceOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 
@@ -149,7 +149,7 @@ impl<R: Runtime> SoftmaxBackward<R> {
 
 impl<R: Runtime> GradFn<R> for SoftmaxBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ReduceOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());

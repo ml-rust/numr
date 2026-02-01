@@ -4,7 +4,7 @@
 
 use crate::autograd::GradFn;
 use crate::error::Result;
-use crate::ops::TensorOps;
+use crate::ops::{ReduceOps, TensorOps};
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -373,7 +373,7 @@ fn reduce_grad_for_broadcast<R: Runtime>(
     target_shape: &[usize],
 ) -> Result<Tensor<R>>
 where
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ReduceOps<R>,
 {
     let grad_shape = grad.shape();
 
