@@ -14,12 +14,535 @@ use super::{CpuClient, CpuRuntime, kernels};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, Kernel, LogicalOps, ReduceOp,
-    ScalarOps, TensorOps, UnaryOp, compute_reduce_strides, normalize_softmax_dim,
-    reduce_dim_output_shape,
+    AccumulationPrecision, BinaryOp, CompareOp, CompareOps, ComplexOps, ConditionalOps, Kernel,
+    LogicalOps, MatmulOps, NormalizationOps, ReduceOp, ScalarOps, TensorOps, TypeConversionOps,
+    UnaryOp, compute_reduce_strides, normalize_softmax_dim, reduce_dim_output_shape,
 };
 use crate::runtime::{validate_arange, validate_eye};
 use crate::tensor::Tensor;
+
+// ============================================================================
+// TypeConversionOps Implementation
+// ============================================================================
+
+/// TypeConversionOps implementation for CPU runtime.
+impl TypeConversionOps<CpuRuntime> for CpuClient {
+    fn cast(&self, a: &Tensor<CpuRuntime>, target_dtype: DType) -> Result<Tensor<CpuRuntime>> {
+        let src_dtype = a.dtype();
+
+        // No-op if types match
+        if src_dtype == target_dtype {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(shape, target_dtype, &self.device);
+
+        let src_ptr = a_contig.storage().ptr() as *const u8;
+        let dst_ptr = out.storage().ptr() as *mut u8;
+
+        unsafe {
+            kernels::cast_kernel(src_ptr, dst_ptr, numel, src_dtype, target_dtype)?;
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// ComplexOps Implementation
+// ============================================================================
+
+/// ComplexOps implementation for CPU runtime.
+impl ComplexOps<CpuRuntime> for CpuClient {
+    fn conj(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, conjugate is identity
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::conj_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                DType::Complex128 => {
+                    kernels::conj_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                _ => unreachable!("conj called on non-complex dtype"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn real(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+
+        // For real types, return copy
+        if !dtype.is_complex() {
+            return Ok(a.clone());
+        }
+
+        let shape = a.shape();
+        let numel = a.numel();
+        let a_contig = ensure_contiguous(a);
+
+        // Determine output dtype (F32 for Complex64, F64 for Complex128)
+        let out_dtype = dtype
+            .complex_component_dtype()
+            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
+
+        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::real_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                DType::Complex128 => {
+                    kernels::real_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                _ => unreachable!("real called on non-complex dtype"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn imag(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let numel = a.numel();
+
+        // For real types, return zeros
+        if !dtype.is_complex() {
+            return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
+        }
+
+        let a_contig = ensure_contiguous(a);
+
+        // Determine output dtype (F32 for Complex64, F64 for Complex128)
+        let out_dtype = dtype
+            .complex_component_dtype()
+            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
+
+        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::imag_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                DType::Complex128 => {
+                    kernels::imag_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                _ => unreachable!("imag called on non-complex dtype"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn angle(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        let dtype = a.dtype();
+        let shape = a.shape();
+        let numel = a.numel();
+
+        let a_contig = ensure_contiguous(a);
+
+        // For real types: angle(x) = 0 if x >= 0, π if x < 0
+        if !dtype.is_complex() {
+            let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+
+            // Handle empty tensors
+            if numel == 0 {
+                return Ok(out);
+            }
+
+            let a_ptr = a_contig.storage().ptr();
+            let out_ptr = out.storage().ptr();
+
+            unsafe {
+                match dtype {
+                    DType::F32 => {
+                        kernels::angle_real_f32(a_ptr as *const _, out_ptr as *mut _, numel);
+                    }
+                    DType::F64 => {
+                        kernels::angle_real_f64(a_ptr as *const _, out_ptr as *mut _, numel);
+                    }
+                    _ => {
+                        // For integer types, angle doesn't make mathematical sense
+                        // Return zeros
+                        return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
+                    }
+                }
+            }
+            return Ok(out);
+        }
+
+        // Determine output dtype (F32 for Complex64, F64 for Complex128)
+        let out_dtype = dtype
+            .complex_component_dtype()
+            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
+
+        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let a_ptr = a_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::angle_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                DType::Complex128 => {
+                    kernels::angle_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
+                }
+                _ => unreachable!("angle called on non-complex dtype"),
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// NormalizationOps Implementation
+// ============================================================================
+
+/// NormalizationOps implementation for CPU runtime.
+impl NormalizationOps<CpuRuntime> for CpuClient {
+    fn rms_norm(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        weight: &Tensor<CpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: weight.dtype(),
+            });
+        }
+
+        // Weight must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
+
+        let input_ptr = input_contig.storage().ptr();
+        let weight_ptr = weight_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::rms_norm_kernel::<T>(
+                    input_ptr as *const T,
+                    weight_ptr as *const T,
+                    out_ptr as *mut T,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+            }
+        }, "rms_norm");
+
+        Ok(out)
+    }
+
+    fn layer_norm(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        weight: &Tensor<CpuRuntime>,
+        bias: &Tensor<CpuRuntime>,
+        eps: f32,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = input.dtype();
+
+        // Validate dtypes match
+        if weight.dtype() != dtype || bias.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: if weight.dtype() != dtype {
+                    weight.dtype()
+                } else {
+                    bias.dtype()
+                },
+            });
+        }
+
+        // Weight and bias must be 1D with size matching input's last dimension
+        let input_shape = input.shape();
+        let hidden_size = input_shape[input_shape.len() - 1];
+        if weight.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: weight.shape().to_vec(),
+            });
+        }
+        if bias.shape() != [hidden_size] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![hidden_size],
+                got: bias.shape().to_vec(),
+            });
+        }
+
+        // Compute batch_size as product of all dimensions except last
+        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
+        let batch_size = batch_size.max(1); // Handle 1D case
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let bias_contig = ensure_contiguous(bias);
+        let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
+
+        let input_ptr = input_contig.storage().ptr();
+        let weight_ptr = weight_contig.storage().ptr();
+        let bias_ptr = bias_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::layer_norm_kernel::<T>(
+                    input_ptr as *const T,
+                    weight_ptr as *const T,
+                    bias_ptr as *const T,
+                    out_ptr as *mut T,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+            }
+        }, "layer_norm");
+
+        Ok(out)
+    }
+}
+
+// ============================================================================
+// MatmulOps Implementation
+// ============================================================================
+
+/// MatmulOps implementation for CPU runtime.
+impl MatmulOps<CpuRuntime> for CpuClient {
+    fn matmul(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::ops::matmul_output_shape;
+
+        // Validate dtypes match
+        if a.dtype() != b.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: a.dtype(),
+                rhs: b.dtype(),
+            });
+        }
+
+        let dtype = a.dtype();
+
+        // Compute output shape
+        let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        })?;
+
+        // Get matrix dimensions (last two dims)
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let m = if a_shape.len() >= 2 {
+            a_shape[a_shape.len() - 2]
+        } else {
+            1
+        };
+        let k = a_shape[a_shape.len() - 1];
+        let n = b_shape[b_shape.len() - 1];
+
+        // For now, require contiguous tensors
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+
+        // Calculate batch size
+        let batch_size: usize = out_shape
+            .iter()
+            .take(out_shape.len().saturating_sub(2))
+            .product();
+        let batch_size = batch_size.max(1);
+
+        // Create output tensor
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let b_ptr = b_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        // Leading dimensions for contiguous row-major matrices
+        let lda = k;
+        let ldb = n;
+        let ldc = n;
+
+        // Dispatch based on dtype
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                for batch in 0..batch_size {
+                    let a_offset = batch * m * k;
+                    let b_offset = batch * k * n;
+                    let out_offset = batch * m * n;
+
+                    <Self as Kernel<CpuRuntime>>::matmul::<T>(
+                        self,
+                        (a_ptr as *const T).add(a_offset),
+                        (b_ptr as *const T).add(b_offset),
+                        (out_ptr as *mut T).add(out_offset),
+                        m,
+                        n,
+                        k,
+                        lda,
+                        ldb,
+                        ldc,
+                    );
+                }
+            }
+        }, "matmul");
+
+        Ok(out)
+    }
+
+    fn matmul_bias(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        bias: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::ops::{matmul_bias_output_shape, validate_matmul_bias_dtypes};
+        use crate::runtime::cpu::kernels::matmul_bias_kernel;
+
+        // Validate dtypes using unified helper (ensures consistent error handling across backends)
+        let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
+
+        // Compute output shape (also validates bias shape)
+        let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape()).ok_or(
+            Error::ShapeMismatch {
+                expected: a.shape().to_vec(),
+                got: b.shape().to_vec(),
+            },
+        )?;
+
+        // Get matrix dimensions (last two dims)
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let m = if a_shape.len() >= 2 {
+            a_shape[a_shape.len() - 2]
+        } else {
+            1
+        };
+        let k = a_shape[a_shape.len() - 1];
+        let n = b_shape[b_shape.len() - 1];
+
+        // For now, require contiguous tensors
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let bias_contig = ensure_contiguous(bias);
+
+        // Calculate batch size
+        let batch_size: usize = out_shape
+            .iter()
+            .take(out_shape.len().saturating_sub(2))
+            .product();
+        let batch_size = batch_size.max(1);
+
+        // Create output tensor
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+
+        let a_ptr = a_contig.storage().ptr();
+        let b_ptr = b_contig.storage().ptr();
+        let bias_ptr = bias_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        // Leading dimensions for contiguous row-major matrices
+        let lda = k;
+        let ldb = n;
+        let ldc = n;
+
+        // Dispatch based on dtype
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                for batch in 0..batch_size {
+                    let a_offset = batch * m * k;
+                    let b_offset = batch * k * n;
+                    let out_offset = batch * m * n;
+
+                    matmul_bias_kernel::<T>(
+                        (a_ptr as *const T).add(a_offset),
+                        (b_ptr as *const T).add(b_offset),
+                        bias_ptr as *const T, // bias is 1D, same for all batches
+                        (out_ptr as *mut T).add(out_offset),
+                        m,
+                        n,
+                        k,
+                        lda,
+                        ldb,
+                        ldc,
+                    );
+                }
+            }
+        }, "matmul_bias");
+
+        Ok(out)
+    }
+}
 
 // ============================================================================
 // TensorOps Implementation
@@ -241,171 +764,6 @@ impl TensorOps<CpuRuntime> for CpuClient {
         binary_op_impl(self, BinaryOp::Atan2, y, x, "atan2")
     }
 
-    // ===== Matrix Operations =====
-
-    fn matmul(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        use crate::ops::matmul_output_shape;
-
-        // Validate dtypes match
-        if a.dtype() != b.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: a.dtype(),
-                rhs: b.dtype(),
-            });
-        }
-
-        let dtype = a.dtype();
-
-        // Compute output shape
-        let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
-            expected: a.shape().to_vec(),
-            got: b.shape().to_vec(),
-        })?;
-
-        // Get matrix dimensions (last two dims)
-        let a_shape = a.shape();
-        let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
-
-        // For now, require contiguous tensors
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-
-        // Calculate batch size
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        let batch_size = batch_size.max(1);
-
-        // Create output tensor
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        // Leading dimensions for contiguous row-major matrices
-        let lda = k;
-        let ldb = n;
-        let ldc = n;
-
-        // Dispatch based on dtype
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
-                    let out_offset = batch * m * n;
-
-                    <Self as Kernel<CpuRuntime>>::matmul::<T>(
-                        self,
-                        (a_ptr as *const T).add(a_offset),
-                        (b_ptr as *const T).add(b_offset),
-                        (out_ptr as *mut T).add(out_offset),
-                        m,
-                        n,
-                        k,
-                        lda,
-                        ldb,
-                        ldc,
-                    );
-                }
-            }
-        }, "matmul");
-
-        Ok(out)
-    }
-
-    fn matmul_bias(
-        &self,
-        a: &Tensor<CpuRuntime>,
-        b: &Tensor<CpuRuntime>,
-        bias: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        use crate::ops::{matmul_bias_output_shape, validate_matmul_bias_dtypes};
-        use crate::runtime::cpu::kernels::matmul_bias_kernel;
-
-        // Validate dtypes using unified helper (ensures consistent error handling across backends)
-        let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
-
-        // Compute output shape (also validates bias shape)
-        let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape()).ok_or(
-            Error::ShapeMismatch {
-                expected: a.shape().to_vec(),
-                got: b.shape().to_vec(),
-            },
-        )?;
-
-        // Get matrix dimensions (last two dims)
-        let a_shape = a.shape();
-        let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
-
-        // For now, require contiguous tensors
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
-
-        // Calculate batch size
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        let batch_size = batch_size.max(1);
-
-        // Create output tensor
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let bias_ptr = bias_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        // Leading dimensions for contiguous row-major matrices
-        let lda = k;
-        let ldb = n;
-        let ldc = n;
-
-        // Dispatch based on dtype
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
-                    let out_offset = batch * m * n;
-
-                    matmul_bias_kernel::<T>(
-                        (a_ptr as *const T).add(a_offset),
-                        (b_ptr as *const T).add(b_offset),
-                        bias_ptr as *const T, // bias is 1D, same for all batches
-                        (out_ptr as *mut T).add(out_offset),
-                        m,
-                        n,
-                        k,
-                        lda,
-                        ldb,
-                        ldc,
-                    );
-                }
-            }
-        }, "matmul_bias");
-
-        Ok(out)
-    }
-
     // ===== Reductions =====
 
     fn sum(
@@ -621,130 +979,6 @@ impl TensorOps<CpuRuntime> for CpuClient {
         Ok(out)
     }
 
-    // ===== Normalization =====
-
-    fn rms_norm(
-        &self,
-        input: &Tensor<CpuRuntime>,
-        weight: &Tensor<CpuRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = input.dtype();
-
-        // Validate dtypes match
-        if weight.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: weight.dtype(),
-            });
-        }
-
-        // Weight must be 1D with size matching input's last dimension
-        let input_shape = input.shape();
-        let hidden_size = input_shape[input_shape.len() - 1];
-        if weight.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: weight.shape().to_vec(),
-            });
-        }
-
-        // Compute batch_size as product of all dimensions except last
-        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
-        let batch_size = batch_size.max(1); // Handle 1D case
-
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
-
-        let input_ptr = input_contig.storage().ptr();
-        let weight_ptr = weight_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::rms_norm_kernel::<T>(
-                    input_ptr as *const T,
-                    weight_ptr as *const T,
-                    out_ptr as *mut T,
-                    batch_size,
-                    hidden_size,
-                    eps,
-                );
-            }
-        }, "rms_norm");
-
-        Ok(out)
-    }
-
-    fn layer_norm(
-        &self,
-        input: &Tensor<CpuRuntime>,
-        weight: &Tensor<CpuRuntime>,
-        bias: &Tensor<CpuRuntime>,
-        eps: f32,
-    ) -> Result<Tensor<CpuRuntime>> {
-        let dtype = input.dtype();
-
-        // Validate dtypes match
-        if weight.dtype() != dtype || bias.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: if weight.dtype() != dtype {
-                    weight.dtype()
-                } else {
-                    bias.dtype()
-                },
-            });
-        }
-
-        // Weight and bias must be 1D with size matching input's last dimension
-        let input_shape = input.shape();
-        let hidden_size = input_shape[input_shape.len() - 1];
-        if weight.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: weight.shape().to_vec(),
-            });
-        }
-        if bias.shape() != [hidden_size] {
-            return Err(Error::ShapeMismatch {
-                expected: vec![hidden_size],
-                got: bias.shape().to_vec(),
-            });
-        }
-
-        // Compute batch_size as product of all dimensions except last
-        let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
-        let batch_size = batch_size.max(1); // Handle 1D case
-
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let bias_contig = ensure_contiguous(bias);
-        let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
-
-        let input_ptr = input_contig.storage().ptr();
-        let weight_ptr = weight_contig.storage().ptr();
-        let bias_ptr = bias_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        dispatch_dtype!(dtype, T => {
-            unsafe {
-                kernels::layer_norm_kernel::<T>(
-                    input_ptr as *const T,
-                    weight_ptr as *const T,
-                    bias_ptr as *const T,
-                    out_ptr as *mut T,
-                    batch_size,
-                    hidden_size,
-                    eps,
-                );
-            }
-        }, "layer_norm");
-
-        Ok(out)
-    }
-
     // ===== Index Operations =====
 
     fn argmax(
@@ -897,359 +1131,13 @@ impl TensorOps<CpuRuntime> for CpuClient {
     }
 
     // ===== Type Conversion =====
-
-    fn cast(&self, a: &Tensor<CpuRuntime>, target_dtype: DType) -> Result<Tensor<CpuRuntime>> {
-        let src_dtype = a.dtype();
-
-        // No-op if types match
-        if src_dtype == target_dtype {
-            return Ok(a.clone());
-        }
-
-        let shape = a.shape();
-        let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(shape, target_dtype, &self.device);
-
-        let src_ptr = a_contig.storage().ptr() as *const u8;
-        let dst_ptr = out.storage().ptr() as *mut u8;
-
-        unsafe {
-            kernels::cast_kernel(src_ptr, dst_ptr, numel, src_dtype, target_dtype)?;
-        }
-
-        Ok(out)
-    }
+    // Moved to TypeConversionOps impl
 
     // ===== Complex Number Operations =====
-
-    fn conj(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, conjugate is identity
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        let shape = a.shape();
-        let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
-        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-
-        // Handle empty tensors
-        if numel == 0 {
-            return Ok(out);
-        }
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::conj_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::conj_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("conj called on non-complex dtype"),
-            }
-        }
-
-        Ok(out)
-    }
-
-    fn real(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-
-        // For real types, return copy
-        if !dtype.is_complex() {
-            return Ok(a.clone());
-        }
-
-        let shape = a.shape();
-        let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
-
-        // Determine output dtype (F32 for Complex64, F64 for Complex128)
-        let out_dtype = dtype
-            .complex_component_dtype()
-            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
-
-        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
-
-        // Handle empty tensors
-        if numel == 0 {
-            return Ok(out);
-        }
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::real_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::real_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("real called on non-complex dtype"),
-            }
-        }
-
-        Ok(out)
-    }
-
-    fn imag(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let shape = a.shape();
-        let numel = a.numel();
-
-        // For real types, return zeros
-        if !dtype.is_complex() {
-            return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
-        }
-
-        let a_contig = ensure_contiguous(a);
-
-        // Determine output dtype (F32 for Complex64, F64 for Complex128)
-        let out_dtype = dtype
-            .complex_component_dtype()
-            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
-
-        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
-
-        // Handle empty tensors
-        if numel == 0 {
-            return Ok(out);
-        }
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::imag_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::imag_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("imag called on non-complex dtype"),
-            }
-        }
-
-        Ok(out)
-    }
-
-    fn angle(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        let dtype = a.dtype();
-        let shape = a.shape();
-        let numel = a.numel();
-
-        let a_contig = ensure_contiguous(a);
-
-        // For real types: angle(x) = 0 if x >= 0, π if x < 0
-        if !dtype.is_complex() {
-            let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-
-            // Handle empty tensors
-            if numel == 0 {
-                return Ok(out);
-            }
-
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
-
-            unsafe {
-                match dtype {
-                    DType::F32 => {
-                        kernels::angle_real_f32(a_ptr as *const _, out_ptr as *mut _, numel);
-                    }
-                    DType::F64 => {
-                        kernels::angle_real_f64(a_ptr as *const _, out_ptr as *mut _, numel);
-                    }
-                    _ => {
-                        // For integer types, angle doesn't make mathematical sense
-                        // Return zeros
-                        return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
-                    }
-                }
-            }
-            return Ok(out);
-        }
-
-        // Determine output dtype (F32 for Complex64, F64 for Complex128)
-        let out_dtype = dtype
-            .complex_component_dtype()
-            .ok_or_else(|| Error::Internal("Expected complex dtype".to_string()))?;
-
-        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
-
-        // Handle empty tensors
-        if numel == 0 {
-            return Ok(out);
-        }
-
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
-
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::angle_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::angle_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("angle called on non-complex dtype"),
-            }
-        }
-
-        Ok(out)
-    }
+    // Moved to ComplexOps trait in ops/traits/complex.rs
 
     // ===== Conditional Operations =====
-
-    fn where_cond(
-        &self,
-        cond: &Tensor<CpuRuntime>,
-        x: &Tensor<CpuRuntime>,
-        y: &Tensor<CpuRuntime>,
-    ) -> Result<Tensor<CpuRuntime>> {
-        use crate::ops::broadcast_shape;
-
-        // Validate that x and y have the same dtype
-        if x.dtype() != y.dtype() {
-            return Err(Error::DTypeMismatch {
-                lhs: x.dtype(),
-                rhs: y.dtype(),
-            });
-        }
-        let dtype = x.dtype();
-        let cond_dtype = cond.dtype();
-
-        // Compute broadcast shape (cond, x, y) -> out
-        let xy_shape =
-            broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
-                lhs: x.shape().to_vec(),
-                rhs: y.shape().to_vec(),
-            })?;
-        let out_shape =
-            broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| Error::BroadcastError {
-                lhs: cond.shape().to_vec(),
-                rhs: xy_shape.clone(),
-            })?;
-
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
-
-        // Fast path: all same shape, use simple kernel
-        if cond.shape() == x.shape() && x.shape() == y.shape() {
-            let cond_contig = ensure_contiguous(cond);
-            let x_contig = ensure_contiguous(x);
-            let y_contig = ensure_contiguous(y);
-
-            let cond_ptr = cond_contig.storage().ptr();
-            let x_ptr = x_contig.storage().ptr();
-            let y_ptr = y_contig.storage().ptr();
-            let numel = x.numel();
-
-            // Double dispatch: cond dtype and value dtype
-            // For U8 condition, use optimized SIMD kernel
-            if cond_dtype == DType::U8 {
-                dispatch_dtype!(dtype, T => {
-                    unsafe {
-                        kernels::where_kernel::<T>(
-                            cond_ptr as *const u8,
-                            x_ptr as *const T,
-                            y_ptr as *const T,
-                            out_ptr as *mut T,
-                            numel,
-                        );
-                    }
-                }, "where_cond");
-            } else {
-                // Generic kernel for any condition dtype (non-zero = true)
-                dispatch_dtype!(cond_dtype, C => {
-                    dispatch_dtype!(dtype, T => {
-                        unsafe {
-                            kernels::where_kernel_generic::<C, T>(
-                                cond_ptr as *const C,
-                                x_ptr as *const T,
-                                y_ptr as *const T,
-                                out_ptr as *mut T,
-                                numel,
-                            );
-                        }
-                    }, "where_cond");
-                }, "where_cond");
-            }
-        } else {
-            // Broadcasting path: use strided kernel
-            // Broadcast all inputs to output shape (zero-copy views with stride 0 for broadcast dims)
-            let cond_broadcast = cond.broadcast_to(&out_shape)?;
-            let x_broadcast = x.broadcast_to(&out_shape)?;
-            let y_broadcast = y.broadcast_to(&out_shape)?;
-
-            let cond_ptr = cond_broadcast.storage().ptr();
-            let x_ptr = x_broadcast.storage().ptr();
-            let y_ptr = y_broadcast.storage().ptr();
-
-            // Get strides from broadcast layouts
-            let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();
-            let x_strides: Vec<isize> = x_broadcast.layout().strides().to_vec();
-            let y_strides: Vec<isize> = y_broadcast.layout().strides().to_vec();
-            let cond_offset = cond_broadcast.layout().offset();
-            let x_offset = x_broadcast.layout().offset();
-            let y_offset = y_broadcast.layout().offset();
-
-            // For U8 condition, use optimized kernel
-            if cond_dtype == DType::U8 {
-                dispatch_dtype!(dtype, T => {
-                    unsafe {
-                        kernels::where_strided_kernel::<T>(
-                            cond_ptr as *const u8,
-                            x_ptr as *const T,
-                            y_ptr as *const T,
-                            out_ptr as *mut T,
-                            &out_shape,
-                            &cond_strides,
-                            &x_strides,
-                            &y_strides,
-                            cond_offset,
-                            x_offset,
-                            y_offset,
-                        );
-                    }
-                }, "where_cond");
-            } else {
-                // Generic kernel for any condition dtype
-                dispatch_dtype!(cond_dtype, C => {
-                    dispatch_dtype!(dtype, T => {
-                        unsafe {
-                            kernels::where_strided_kernel_generic::<C, T>(
-                                cond_ptr as *const C,
-                                x_ptr as *const T,
-                                y_ptr as *const T,
-                                out_ptr as *mut T,
-                                &out_shape,
-                                &cond_strides,
-                                &x_strides,
-                                &y_strides,
-                                cond_offset,
-                                x_offset,
-                                y_offset,
-                            );
-                        }
-                    }, "where_cond");
-                }, "where_cond");
-            }
-        }
-
-        Ok(out)
-    }
+    // Moved to ConditionalOps impl
 
     // ===== Utility Operations =====
 
@@ -2359,6 +2247,152 @@ impl TensorOps<CpuRuntime> for CpuClient {
         right: bool,
     ) -> Result<Tensor<CpuRuntime>> {
         super::sort::searchsorted_impl(self, sorted_sequence, values, right)
+    }
+}
+
+// ============================================================================
+// ConditionalOps Implementation
+// ============================================================================
+
+/// ConditionalOps implementation for CPU runtime.
+impl ConditionalOps<CpuRuntime> for CpuClient {
+    fn where_cond(
+        &self,
+        cond: &Tensor<CpuRuntime>,
+        x: &Tensor<CpuRuntime>,
+        y: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::ops::broadcast_shape;
+
+        // Validate that x and y have the same dtype
+        if x.dtype() != y.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: x.dtype(),
+                rhs: y.dtype(),
+            });
+        }
+        let dtype = x.dtype();
+        let cond_dtype = cond.dtype();
+
+        // Compute broadcast shape (cond, x, y) -> out
+        let xy_shape =
+            broadcast_shape(x.shape(), y.shape()).ok_or_else(|| Error::BroadcastError {
+                lhs: x.shape().to_vec(),
+                rhs: y.shape().to_vec(),
+            })?;
+        let out_shape =
+            broadcast_shape(cond.shape(), &xy_shape).ok_or_else(|| Error::BroadcastError {
+                lhs: cond.shape().to_vec(),
+                rhs: xy_shape.clone(),
+            })?;
+
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+        let out_ptr = out.storage().ptr();
+
+        // Fast path: all same shape, use simple kernel
+        if cond.shape() == x.shape() && x.shape() == y.shape() {
+            let cond_contig = ensure_contiguous(cond);
+            let x_contig = ensure_contiguous(x);
+            let y_contig = ensure_contiguous(y);
+
+            let cond_ptr = cond_contig.storage().ptr();
+            let x_ptr = x_contig.storage().ptr();
+            let y_ptr = y_contig.storage().ptr();
+            let numel = x.numel();
+
+            // Double dispatch: cond dtype and value dtype
+            // For U8 condition, use optimized SIMD kernel
+            if cond_dtype == DType::U8 {
+                dispatch_dtype!(dtype, T => {
+                    unsafe {
+                        kernels::where_kernel::<T>(
+                            cond_ptr as *const u8,
+                            x_ptr as *const T,
+                            y_ptr as *const T,
+                            out_ptr as *mut T,
+                            numel,
+                        );
+                    }
+                }, "where_cond");
+            } else {
+                // Generic kernel for any condition dtype (non-zero = true)
+                dispatch_dtype!(cond_dtype, C => {
+                    dispatch_dtype!(dtype, T => {
+                        unsafe {
+                            kernels::where_kernel_generic::<C, T>(
+                                cond_ptr as *const C,
+                                x_ptr as *const T,
+                                y_ptr as *const T,
+                                out_ptr as *mut T,
+                                numel,
+                            );
+                        }
+                    }, "where_cond");
+                }, "where_cond");
+            }
+        } else {
+            // Broadcasting path: use strided kernel
+            // Broadcast all inputs to output shape (zero-copy views with stride 0 for broadcast dims)
+            let cond_broadcast = cond.broadcast_to(&out_shape)?;
+            let x_broadcast = x.broadcast_to(&out_shape)?;
+            let y_broadcast = y.broadcast_to(&out_shape)?;
+
+            let cond_ptr = cond_broadcast.storage().ptr();
+            let x_ptr = x_broadcast.storage().ptr();
+            let y_ptr = y_broadcast.storage().ptr();
+
+            // Get strides from broadcast layouts
+            let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();
+            let x_strides: Vec<isize> = x_broadcast.layout().strides().to_vec();
+            let y_strides: Vec<isize> = y_broadcast.layout().strides().to_vec();
+            let cond_offset = cond_broadcast.layout().offset();
+            let x_offset = x_broadcast.layout().offset();
+            let y_offset = y_broadcast.layout().offset();
+
+            // For U8 condition, use optimized kernel
+            if cond_dtype == DType::U8 {
+                dispatch_dtype!(dtype, T => {
+                    unsafe {
+                        kernels::where_strided_kernel::<T>(
+                            cond_ptr as *const u8,
+                            x_ptr as *const T,
+                            y_ptr as *const T,
+                            out_ptr as *mut T,
+                            &out_shape,
+                            &cond_strides,
+                            &x_strides,
+                            &y_strides,
+                            cond_offset,
+                            x_offset,
+                            y_offset,
+                        );
+                    }
+                }, "where_cond");
+            } else {
+                // Generic kernel for any condition dtype
+                dispatch_dtype!(cond_dtype, C => {
+                    dispatch_dtype!(dtype, T => {
+                        unsafe {
+                            kernels::where_strided_kernel_generic::<C, T>(
+                                cond_ptr as *const C,
+                                x_ptr as *const T,
+                                y_ptr as *const T,
+                                out_ptr as *mut T,
+                                &out_shape,
+                                &cond_strides,
+                                &x_strides,
+                                &y_strides,
+                                cond_offset,
+                                x_offset,
+                                y_offset,
+                            );
+                        }
+                    }, "where_cond");
+                }, "where_cond");
+            }
+        }
+
+        Ok(out)
     }
 }
 
