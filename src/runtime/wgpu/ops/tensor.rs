@@ -7,8 +7,8 @@ use super::native::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    AccumulationPrecision, ComplexOps, ConditionalOps, MatmulOps, NormalizationOps, ScalarOps,
-    TensorOps, TypeConversionOps,
+    AccumulationPrecision, ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    MatmulOps, NormalizationOps, ReduceOps, ScalarOps, TensorOps, TypeConversionOps, UtilityOps,
 };
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
@@ -293,6 +293,67 @@ impl MatmulOps<WgpuRuntime> for WgpuClient {
 }
 
 // ============================================================================
+// CumulativeOps Implementation
+// ============================================================================
+
+impl CumulativeOps<WgpuRuntime> for WgpuClient {
+    fn cumsum(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        native_cumsum(self, a, dim)
+    }
+
+    fn cumprod(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        native_cumprod(self, a, dim)
+    }
+
+    fn logsumexp(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_logsumexp(self, a, dims, keepdim)
+    }
+}
+
+// ============================================================================
+// ActivationOps Implementation
+// ============================================================================
+
+impl ActivationOps<WgpuRuntime> for WgpuClient {
+    fn relu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "relu", a)
+    }
+
+    fn sigmoid(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "sigmoid", a)
+    }
+
+    fn softmax(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
+        native_softmax(self, a, dim)
+    }
+
+    fn silu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "silu", a)
+    }
+
+    fn gelu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        native_unary_op(self, "gelu", a)
+    }
+
+    fn leaky_relu(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        negative_slope: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_parametric_activation(self, "leaky_relu", a, negative_slope)
+    }
+
+    fn elu(&self, a: &Tensor<WgpuRuntime>, alpha: f64) -> Result<Tensor<WgpuRuntime>> {
+        native_parametric_activation(self, "elu", a, alpha)
+    }
+}
+
+// ============================================================================
 // TensorOps Implementation
 // ============================================================================
 
@@ -406,103 +467,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     }
 
     // --- Reduction Operations ---
-
-    fn sum(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "sum", a, dims, keepdim)
-    }
-
-    fn mean(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "mean", a, dims, keepdim)
-    }
-
-    fn max(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "max", a, dims, keepdim)
-    }
-
-    fn min(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "min", a, dims, keepdim)
-    }
-
-    fn prod(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "prod", a, dims, keepdim)
-    }
-
-    fn any(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "any", a, dims, keepdim)
-    }
-
-    fn all(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_reduce_op(self, "all", a, dims, keepdim)
-    }
-
-    // --- Activation Functions ---
-
-    fn relu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "relu", a)
-    }
-
-    fn sigmoid(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "sigmoid", a)
-    }
-
-    fn softmax(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
-        native_softmax(self, a, dim)
-    }
-
-    fn silu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "silu", a)
-    }
-
-    fn gelu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "gelu", a)
-    }
-
-    fn leaky_relu(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        negative_slope: f64,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_parametric_activation(self, "leaky_relu", a, negative_slope)
-    }
-
-    fn elu(&self, a: &Tensor<WgpuRuntime>, alpha: f64) -> Result<Tensor<WgpuRuntime>> {
-        native_parametric_activation(self, "elu", a, alpha)
-    }
+    // Moved to ReduceOps trait implementation below
 
     // --- Additional Unary Operations ---
 
@@ -622,24 +587,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     }
 
     // --- Argmax/Argmin ---
-
-    fn argmax(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_argreduce_op(self, "argmax", a, dim, keepdim)
-    }
-
-    fn argmin(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_argreduce_op(self, "argmin", a, dim, keepdim)
-    }
+    // Moved to IndexingOps trait implementation
 
     // --- Cast ---
     // Moved to TypeConversionOps impl
@@ -648,161 +596,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // Moved to ConditionalOps impl
 
     // --- Utility Operations ---
-
-    fn clamp(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        min_val: f64,
-        max_val: f64,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_clamp(self, a, min_val, max_val)
-    }
-
-    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        let zeros = Tensor::zeros(shape, dtype, self.device());
-        self.add_scalar(&zeros, value)
-    }
-
-    fn arange(
-        &self,
-        start: f64,
-        stop: f64,
-        step: f64,
-        dtype: DType,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        // Use shared validation
-        let numel = validate_arange(start, stop, step)?;
-
-        // Handle empty tensor case
-        if numel == 0 {
-            return Ok(Tensor::empty(&[0], dtype, self.device()));
-        }
-
-        // WebGPU only supports F32, I32, U32 natively (no F64, F16, I64, etc.)
-        // This is a hardware limitation of WGSL.
-        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
-            return Err(Error::UnsupportedDType {
-                dtype,
-                op: "arange",
-            });
-        }
-
-        // Allocate output
-        let out = alloc_output(self, &[numel], dtype);
-        let out_buf = get_tensor_buffer(&out)?;
-
-        // Create params (f32 precision - WebGPU limitation)
-        let params = ArangeParams {
-            numel: numel as u32,
-            start: start as f32,
-            step: step as f32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        // Launch kernel
-        shape::launch_arange(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
-
-    fn linspace(
-        &self,
-        start: f64,
-        stop: f64,
-        steps: usize,
-        dtype: DType,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        // WebGPU linspace only supports F32 because:
-        // 1. WGSL has no F64 support, so computation must be in F32
-        // 2. Integer linspace with F32 intermediate would lose precision
-        // Use CPU backend for integer linspace if needed.
-        if !matches!(dtype, DType::F32) {
-            return Err(Error::UnsupportedDType {
-                dtype,
-                op: "linspace (WebGPU only supports F32; use CPU for integer linspace)",
-            });
-        }
-
-        if steps == 0 {
-            return Ok(Tensor::empty(&[0], dtype, self.device()));
-        }
-
-        if steps == 1 {
-            return Ok(Tensor::from_slice(&[start as f32], &[1], &self.device_id));
-        }
-
-        // Allocate output
-        let out = alloc_output(self, &[steps], dtype);
-        let out_buf = get_tensor_buffer(&out)?;
-
-        // Create params
-        let params = LinspaceParams {
-            steps: steps as u32,
-            start: start as f32,
-            stop: stop as f32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        // Launch kernel
-        shape::launch_linspace(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &out_buf,
-            &params_buf,
-            steps,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
-
-    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
-        // Use shared validation
-        let (rows, cols) = validate_eye(n, m);
-
-        if rows == 0 || cols == 0 {
-            return Ok(Tensor::empty(&[rows, cols], dtype, self.device()));
-        }
-
-        // WebGPU only supports F32, I32, U32 natively (no F64, F16, I64, etc.)
-        // This is a hardware limitation of WGSL.
-        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
-            return Err(Error::UnsupportedDType { dtype, op: "eye" });
-        }
-
-        let numel = rows * cols;
-
-        // Allocate output
-        let out = alloc_output(self, &[rows, cols], dtype);
-        let out_buf = get_tensor_buffer(&out)?;
-
-        // Create params
-        let params = EyeParams {
-            n: rows as u32,
-            m: cols as u32,
-            numel: numel as u32,
-        };
-        let params_buf = create_params_buffer(self, &params);
-
-        // Launch kernel
-        shape::launch_eye(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &out_buf,
-            &params_buf,
-            numel,
-            dtype,
-        )?;
-
-        Ok(out)
-    }
+    // Moved to separate UtilityOps impl block
 
     // --- Statistical Operations ---
 
@@ -915,25 +709,6 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
         keepdim: bool,
     ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
         super::super::statistics::mode_impl(self, a, dim, keepdim)
-    }
-
-    // --- Cumulative Operations ---
-
-    fn cumsum(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
-        native_cumsum(self, a, dim)
-    }
-
-    fn cumprod(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
-        native_cumprod(self, a, dim)
-    }
-
-    fn logsumexp(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_logsumexp(self, a, dims, keepdim)
     }
 
     // --- Random Operations ---
@@ -1762,69 +1537,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     }
 
     // --- Indexing Operations ---
-
-    fn gather(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        index: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_gather(self, a, dim, index)
-    }
-
-    fn scatter(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        index: &Tensor<WgpuRuntime>,
-        src: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_scatter(self, a, dim, index, src)
-    }
-
-    fn index_select(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        index: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_index_select(self, a, dim, index)
-    }
-
-    fn index_put(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: usize,
-        index: &Tensor<WgpuRuntime>,
-        src: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_index_put(self, a, dim, index, src)
-    }
-
-    fn masked_select(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        mask: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_masked_select(self, a, mask)
-    }
-
-    fn masked_fill(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        mask: &Tensor<WgpuRuntime>,
-        value: f64,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_masked_fill(self, a, mask, value)
-    }
-
-    fn embedding_lookup(
-        &self,
-        embeddings: &Tensor<WgpuRuntime>,
-        indices: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        native_embedding_lookup(self, embeddings, indices)
-    }
+    // Moved to IndexingOps trait implementation below
 
     // --- Shape Operations ---
 
@@ -2834,6 +2547,212 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
 }
 
 // ============================================================================
+// IndexingOps Implementation
+// ============================================================================
+
+/// IndexingOps implementation for WebGPU runtime.
+impl IndexingOps<WgpuRuntime> for WgpuClient {
+    fn argmax(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_argreduce_op(self, "argmax", a, dim, keepdim)
+    }
+
+    fn argmin(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_argreduce_op(self, "argmin", a, dim, keepdim)
+    }
+
+    fn gather(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_gather(self, a, dim, index)
+    }
+
+    fn scatter(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_scatter(self, a, dim, index, src)
+    }
+
+    fn index_select(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_index_select(self, a, dim, index)
+    }
+
+    fn index_put(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_index_put(self, a, dim, index, src)
+    }
+
+    fn masked_select(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        mask: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_masked_select(self, a, mask)
+    }
+
+    fn masked_fill(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        mask: &Tensor<WgpuRuntime>,
+        value: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_masked_fill(self, a, mask, value)
+    }
+
+    fn embedding_lookup(
+        &self,
+        embeddings: &Tensor<WgpuRuntime>,
+        indices: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_embedding_lookup(self, embeddings, indices)
+    }
+}
+
+// ============================================================================
+// ReduceOps Implementation
+// ============================================================================
+
+/// ReduceOps implementation for WebGPU runtime.
+impl ReduceOps<WgpuRuntime> for WgpuClient {
+    fn sum(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "sum", a, dims, keepdim)
+    }
+
+    fn sum_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU doesn't support accumulation precision control
+        // Just delegate to standard sum
+        native_reduce_op(self, "sum", a, dims, keepdim)
+    }
+
+    fn mean(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "mean", a, dims, keepdim)
+    }
+
+    fn max(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "max", a, dims, keepdim)
+    }
+
+    fn max_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU doesn't support accumulation precision control
+        // Just delegate to standard max
+        native_reduce_op(self, "max", a, dims, keepdim)
+    }
+
+    fn min(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "min", a, dims, keepdim)
+    }
+
+    fn min_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU doesn't support accumulation precision control
+        // Just delegate to standard min
+        native_reduce_op(self, "min", a, dims, keepdim)
+    }
+
+    fn prod(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "prod", a, dims, keepdim)
+    }
+
+    fn prod_with_precision(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        _precision: AccumulationPrecision,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU doesn't support accumulation precision control
+        // Just delegate to standard prod
+        native_reduce_op(self, "prod", a, dims, keepdim)
+    }
+
+    fn any(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "any", a, dims, keepdim)
+    }
+
+    fn all(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_reduce_op(self, "all", a, dims, keepdim)
+    }
+}
+
+// ============================================================================
 // ConditionalOps Implementation
 // ============================================================================
 
@@ -2846,5 +2765,167 @@ impl ConditionalOps<WgpuRuntime> for WgpuClient {
         y: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_where_cond(self, cond, x, y)
+    }
+}
+
+// ============================================================================
+// UtilityOps Implementation
+// ============================================================================
+
+/// UtilityOps implementation for WebGPU runtime.
+impl UtilityOps<WgpuRuntime> for WgpuClient {
+    fn clamp(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        min_val: f64,
+        max_val: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_clamp(self, a, min_val, max_val)
+    }
+
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        let zeros = Tensor::zeros(shape, dtype, self.device());
+        self.add_scalar(&zeros, value)
+    }
+
+    fn arange(
+        &self,
+        start: f64,
+        stop: f64,
+        step: f64,
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // Use shared validation
+        let numel = validate_arange(start, stop, step)?;
+
+        // Handle empty tensor case
+        if numel == 0 {
+            return Ok(Tensor::empty(&[0], dtype, self.device()));
+        }
+
+        // WebGPU only supports F32, I32, U32 natively (no F64, F16, I64, etc.)
+        // This is a hardware limitation of WGSL.
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "arange",
+            });
+        }
+
+        // Allocate output
+        let out = alloc_output(self, &[numel], dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params (f32 precision - WebGPU limitation)
+        let params = ArangeParams {
+            numel: numel as u32,
+            start: start as f32,
+            step: step as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_arange(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn linspace(
+        &self,
+        start: f64,
+        stop: f64,
+        steps: usize,
+        dtype: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // WebGPU linspace only supports F32 because:
+        // 1. WGSL has no F64 support, so computation must be in F32
+        // 2. Integer linspace with F32 intermediate would lose precision
+        // Use CPU backend for integer linspace if needed.
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "linspace (WebGPU only supports F32; use CPU for integer linspace)",
+            });
+        }
+
+        if steps == 0 {
+            return Ok(Tensor::empty(&[0], dtype, self.device()));
+        }
+
+        if steps == 1 {
+            return Ok(Tensor::from_slice(&[start as f32], &[1], &self.device_id));
+        }
+
+        // Allocate output
+        let out = alloc_output(self, &[steps], dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params
+        let params = LinspaceParams {
+            steps: steps as u32,
+            start: start as f32,
+            stop: stop as f32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_linspace(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            steps,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
+        // Use shared validation
+        let (rows, cols) = validate_eye(n, m);
+
+        if rows == 0 || cols == 0 {
+            return Ok(Tensor::empty(&[rows, cols], dtype, self.device()));
+        }
+
+        // WebGPU only supports F32, I32, U32 natively (no F64, F16, I64, etc.)
+        // This is a hardware limitation of WGSL.
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType { dtype, op: "eye" });
+        }
+
+        let numel = rows * cols;
+
+        // Allocate output
+        let out = alloc_output(self, &[rows, cols], dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Create params
+        let params = EyeParams {
+            n: rows as u32,
+            m: cols as u32,
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        // Launch kernel
+        shape::launch_eye(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
     }
 }
