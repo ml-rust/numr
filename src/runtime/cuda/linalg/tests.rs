@@ -3,6 +3,7 @@
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
 use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+use crate::ops::MatmulOps;
 use crate::runtime::cuda::CudaDevice;
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::Tensor;
@@ -154,7 +155,7 @@ fn test_inverse_identity() {
     let a = Tensor::<CudaRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device);
 
     let inv = LinearAlgebraAlgorithms::inverse(&client, &a).unwrap();
-    let product = TensorOps::matmul(&client, &a, &inv).unwrap();
+    let product = client.matmul(&a, &inv).unwrap();
     let result: Vec<f32> = product.to_vec();
 
     // Should be identity matrix
@@ -204,7 +205,7 @@ fn test_qr_decomposition() {
     let qr = client.qr_decompose(&a).unwrap();
 
     // Verify Q @ R == A
-    let reconstructed = TensorOps::matmul(&client, &qr.q, &qr.r).unwrap();
+    let reconstructed = client.matmul(&qr.q, &qr.r).unwrap();
     let a_data: Vec<f32> = a.to_vec();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();
 

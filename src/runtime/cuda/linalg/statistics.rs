@@ -7,7 +7,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{BinaryOps, LinalgOps, MatmulOps, ReduceOps, TensorOps, UnaryOps, UtilityOps};
 use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -90,9 +90,9 @@ pub fn pinverse_impl(
     let ut = svd.u.transpose(0, 1)?;
 
     // V @ S_inv
-    let v_sinv = TensorOps::matmul(client, &v, &s_inv_mat)?;
+    let v_sinv = client.matmul(&v, &s_inv_mat)?;
     // (V @ S_inv) @ U^T
-    let pinv = TensorOps::matmul(client, &v_sinv, &ut)?;
+    let pinv = client.matmul(&v_sinv, &ut)?;
 
     Ok(pinv)
 }
@@ -172,20 +172,20 @@ pub fn cov_impl(
     }
 
     // Compute mean along axis 0 (mean of each column/feature)
-    let sum = TensorOps::sum(client, a, &[0], true)?; // [1, n_features]
+    let sum = client.sum(a, &[0], true)?; // [1, n_features]
     let n_samples_tensor = match dtype {
         DType::F32 => Tensor::<CudaRuntime>::from_slice(&[n_samples as f32], &[], device),
         DType::F64 => Tensor::<CudaRuntime>::from_slice(&[n_samples as f64], &[], device),
         _ => return Err(Error::UnsupportedDType { dtype, op: "cov" }),
     };
-    let mean = TensorOps::div(client, &sum, &n_samples_tensor)?; // [1, n_features]
+    let mean = client.div(&sum, &n_samples_tensor)?; // [1, n_features]
 
     // Center the data: X_centered = X - mean (broadcast subtraction)
-    let centered = TensorOps::sub(client, a, &mean)?; // [n_samples, n_features]
+    let centered = client.sub(a, &mean)?; // [n_samples, n_features]
 
     // Compute covariance: C = X_centered^T @ X_centered / (n - ddof)
     let centered_t = centered.transpose(0, 1)?; // [n_features, n_samples]
-    let cov_unnorm = TensorOps::matmul(client, &centered_t, &centered)?; // [n_features, n_features]
+    let cov_unnorm = client.matmul(&centered_t, &centered)?; // [n_features, n_features]
 
     // Normalize by (n - ddof)
     let divisor = (n_samples - ddof_val) as f64;
@@ -194,7 +194,7 @@ pub fn cov_impl(
         DType::F64 => Tensor::<CudaRuntime>::from_slice(&[divisor], &[], device),
         _ => unreachable!(),
     };
-    let cov_mat = TensorOps::div(client, &cov_unnorm, &divisor_tensor)?;
+    let cov_mat = client.div(&cov_unnorm, &divisor_tensor)?;
 
     Ok(cov_mat)
 }

@@ -45,7 +45,10 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{ScalarOps, TensorOps};
+use crate::ops::{
+    BinaryOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
+    UnaryOps, UtilityOps,
+};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -87,13 +90,13 @@ pub fn expm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     let z_tensor = Tensor::<CudaRuntime>::from_slice(&z_data, &[n, n], device);
 
     // temp = Z @ exp(T)
-    let temp = TensorOps::matmul(client, &z_tensor, &exp_t_tensor)?;
+    let temp = client.matmul(&z_tensor, &exp_t_tensor)?;
 
     // Z^T
     let z_t = z_tensor.transpose(0, 1)?;
 
     // result = temp @ Z^T
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }
 
 /// Matrix square root using Denman-Beavers iteration
@@ -155,7 +158,7 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
 
     // Denman-Beavers iteration on GPU
     let mut y = a.clone();
-    let mut z = TensorOps::eye(client, n, None, dtype)?;
+    let mut z = client.eye(n, None, dtype)?;
 
     let max_iter = 50;
     let tol = eps * (n as f64);
@@ -181,25 +184,25 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         };
 
         // Y_new = (Y + Z_inv) / 2
-        let y_plus_zinv = TensorOps::add(client, &y, &z_inv)?;
+        let y_plus_zinv = client.add(&y, &z_inv)?;
         let y_new = client.div_scalar(&y_plus_zinv, 2.0)?;
 
         // Z_new = (Z + Y_inv) / 2
-        let z_plus_yinv = TensorOps::add(client, &z, &y_inv)?;
+        let z_plus_yinv = client.add(&z, &y_inv)?;
         let z_new = client.div_scalar(&z_plus_yinv, 2.0)?;
 
         // Check convergence: ||Y_new - Y|| / ||Y||
-        let diff = TensorOps::sub(client, &y_new, &y)?;
+        let diff = client.sub(&y_new, &y)?;
         let diff_norm: f64 = {
-            let diff_sq = TensorOps::mul(client, &diff, &diff)?;
-            let sum = TensorOps::sum(client, &diff_sq, &[], false)?;
+            let diff_sq = client.mul(&diff, &diff)?;
+            let sum = client.sum(&diff_sq, &[], false)?;
             let sum_vec: Vec<f64> = sum.to_vec();
             sum_vec[0].sqrt()
         };
 
         let y_norm: f64 = {
-            let y_sq = TensorOps::mul(client, &y, &y)?;
-            let sum = TensorOps::sum(client, &y_sq, &[], false)?;
+            let y_sq = client.mul(&y, &y)?;
+            let sum = client.sum(&y_sq, &[], false)?;
             let sum_vec: Vec<f64> = sum.to_vec();
             sum_vec[0].sqrt().max(1.0)
         };
@@ -292,9 +295,9 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     let log_t_tensor = Tensor::<CudaRuntime>::from_slice(&log_t, &[n, n], device);
     let z_tensor = Tensor::<CudaRuntime>::from_slice(&z_data, &[n, n], device);
 
-    let temp = TensorOps::matmul(client, &z_tensor, &log_t_tensor)?;
+    let temp = client.matmul(&z_tensor, &log_t_tensor)?;
     let z_t = z_tensor.transpose(0, 1)?;
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }
 
 /// Matrix sign function using Newton iteration
@@ -349,14 +352,14 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         };
 
         // X_new = (X + X^{-1}) / 2
-        let x_plus_inv = TensorOps::add(client, &x, &x_inv)?;
+        let x_plus_inv = client.add(&x, &x_inv)?;
         let x_new = client.div_scalar(&x_plus_inv, 2.0)?;
 
         // Check convergence
-        let diff = TensorOps::sub(client, &x_new, &x)?;
+        let diff = client.sub(&x_new, &x)?;
         let diff_norm: f64 = {
-            let diff_sq = TensorOps::mul(client, &diff, &diff)?;
-            let sum = TensorOps::sum(client, &diff_sq, &[], false)?;
+            let diff_sq = client.mul(&diff, &diff)?;
+            let sum = client.sum(&diff_sq, &[], false)?;
             let sum_vec: Vec<f64> = sum.to_vec();
             sum_vec[0].sqrt()
         };
@@ -388,7 +391,7 @@ pub fn fractional_matrix_power_impl(
 
     // p = 0: Return identity
     if p.abs() < f64::EPSILON {
-        return TensorOps::eye(client, n, None, dtype);
+        return client.eye(n, None, dtype);
     }
 
     // p = 1: Return A
@@ -446,7 +449,7 @@ fn integer_matrix_power_gpu(
     let dtype = a.dtype();
 
     if p == 0 {
-        return TensorOps::eye(client, n, None, dtype);
+        return client.eye(n, None, dtype);
     }
 
     // Handle negative powers
@@ -458,13 +461,13 @@ fn integer_matrix_power_gpu(
     };
 
     // Repeated squaring
-    let mut result = TensorOps::eye(client, n, None, dtype)?;
+    let mut result = client.eye(n, None, dtype)?;
 
     while exp > 0 {
         if exp & 1 == 1 {
-            result = TensorOps::matmul(client, &result, &base)?;
+            result = client.matmul(&result, &base)?;
         }
-        base = TensorOps::matmul(client, &base, &base)?;
+        base = client.matmul(&base, &base)?;
         exp >>= 1;
     }
 
@@ -519,7 +522,7 @@ where
     let f_t_tensor = Tensor::<CudaRuntime>::from_slice(&f_t, &[n, n], device);
     let z_tensor = Tensor::<CudaRuntime>::from_slice(&z_data, &[n, n], device);
 
-    let temp = TensorOps::matmul(client, &z_tensor, &f_t_tensor)?;
+    let temp = client.matmul(&z_tensor, &f_t_tensor)?;
     let z_t = z_tensor.transpose(0, 1)?;
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }

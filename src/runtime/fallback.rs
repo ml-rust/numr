@@ -111,8 +111,8 @@ use crate::dispatch_dtype;
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOp, CompareOp, CompareOps, ReduceOp, ScalarOps, TensorOps, UnaryOp, broadcast_shape,
-    reduce_output_shape,
+    ActivationOps, BinaryOp, BinaryOps, CompareOp, CompareOps, ConditionalOps, MatmulOps, ReduceOp,
+    ReduceOps, ScalarOps, TensorOps, UnaryOp, UnaryOps, broadcast_shape, reduce_output_shape,
 };
 use crate::runtime::{Device, Runtime, cpu};
 use crate::tensor::Tensor;

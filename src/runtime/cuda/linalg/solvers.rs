@@ -7,7 +7,7 @@ use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, MatmulOps, TensorOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -351,7 +351,7 @@ pub fn lstsq_impl(
     };
 
     // Q^T @ B gives [m, num_rhs]
-    let qtb = TensorOps::matmul(client, &q_t, &b_mat)?;
+    let qtb = client.matmul(&q_t, &b_mat)?;
 
     // Allocate output X [n, num_rhs] or [n] for vector
     let x_size = n * num_rhs * dtype.size_in_bytes();

@@ -1,7 +1,7 @@
 //! Higher-order moment statistics for CUDA runtime (skewness, kurtosis)
 
 use crate::error::Result;
-use crate::ops::{ScalarOps, TensorOps};
+use crate::ops::{BinaryOps, ReduceOps, ScalarOps, StatisticalOps, TensorOps, UnaryOps};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::statistics_common::DIVISION_EPSILON;
 use crate::tensor::Tensor;

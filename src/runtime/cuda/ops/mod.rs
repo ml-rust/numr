@@ -49,7 +49,9 @@ mod tensor;
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::TensorOps;
+    use crate::ops::{
+        ActivationOps, BinaryOps, IndexingOps, MatmulOps, NormalizationOps, ReduceOps, TensorOps,
+    };
     use crate::runtime::Runtime;
     use crate::runtime::cuda::{CudaDevice, CudaRuntime};
     use crate::tensor::Tensor;
@@ -77,7 +79,7 @@ mod tests {
         let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
         let b = Tensor::<CudaRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device);
 
-        let c = TensorOps::matmul(&client, &a, &b).unwrap();
+        let c = client.matmul(&a, &b).unwrap();
 
         assert_eq!(c.shape(), &[2, 2]);
         let result: Vec<f32> = c.to_vec();
@@ -97,7 +99,7 @@ mod tests {
             &device,
         );
 
-        let c = TensorOps::matmul(&client, &a, &b).unwrap();
+        let c = client.matmul(&a, &b).unwrap();
 
         assert_eq!(c.shape(), &[3, 4]);
         let result: Vec<f32> = c.to_vec();

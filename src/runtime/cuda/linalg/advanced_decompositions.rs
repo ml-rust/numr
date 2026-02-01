@@ -10,7 +10,7 @@ use crate::algorithm::linalg::{
     PolarDecomposition, SchurDecomposition, validate_linalg_dtype, validate_square_matrix,
 };
 use crate::error::Result;
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, MatmulOps, TensorOps, UtilityOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -227,18 +227,18 @@ pub fn polar_decompose_impl(
     // U_polar = U @ V^T^T = U @ V (n x n matrix)
 
     // U_polar = matmul(U_svd, V)
-    let u_polar = TensorOps::matmul(client, &svd.u, &v)?;
+    let u_polar = client.matmul(&svd.u, &v)?;
 
     // Create diagonal matrix from singular values
     // diagflat(S) gives n x n diagonal matrix
-    let s_diag = TensorOps::diagflat(client, &svd.s)?;
+    let s_diag = LinalgOps::diagflat(client, &svd.s)?;
 
     // Compute P = V @ diag(S) @ V^T
     // First: temp = V @ diag(S)
-    let temp = TensorOps::matmul(client, &v, &s_diag)?;
+    let temp = client.matmul(&v, &s_diag)?;
 
     // Then: P = temp @ V^T
-    let p = TensorOps::matmul(client, &temp, &svd.vt)?;
+    let p = client.matmul(&temp, &svd.vt)?;
 
     Ok(PolarDecomposition { u: u_polar, p })
 }
