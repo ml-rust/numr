@@ -70,11 +70,11 @@
 //! ## Activations
 //! ReLU, sigmoid, softmax for neural network layers.
 
-mod activation;
+pub(crate) mod activation;
 mod arithmetic;
 mod dispatch;
 mod matmul;
-mod reduce;
+pub(crate) mod reduce;
 mod special;
 mod traits;
 
@@ -90,9 +90,7 @@ pub use traits::{
     ShapeOps, SortingOps, StatisticalOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 
-use crate::error::Result;
 use crate::runtime::Runtime;
-use crate::tensor::Tensor;
 
 // Kernel trait moved to traits/kernel.rs
 
