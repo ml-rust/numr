@@ -8,7 +8,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
     AccumulationPrecision, ActivationOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    MatmulOps, NormalizationOps, ReduceOps, ScalarOps, TensorOps, TypeConversionOps, UtilityOps,
+    MatmulOps, NormalizationOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UtilityOps,
 };
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::{
@@ -599,117 +600,7 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // Moved to separate UtilityOps impl block
 
     // --- Statistical Operations ---
-
-    fn var(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        let shape = a.shape();
-        let count: usize = if dims.is_empty() {
-            a.numel()
-        } else {
-            dims.iter().map(|&d| shape[d]).product()
-        };
-
-        let mean_val = self.mean(a, dims, true)?;
-        let diff = self.sub(a, &mean_val)?;
-        let diff_squared = self.square(&diff)?;
-        let sum_sq = self.sum(&diff_squared, dims, keepdim)?;
-        let divisor = (count.saturating_sub(correction)).max(1) as f64;
-        self.div_scalar(&sum_sq, divisor)
-    }
-
-    fn std(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        let variance = self.var(a, dims, keepdim, correction)?;
-        self.sqrt(&variance)
-    }
-
-    fn quantile(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        q: f64,
-        dim: Option<isize>,
-        keepdim: bool,
-        interpolation: &str,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        super::super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
-    }
-
-    fn percentile(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        p: f64,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        super::super::statistics::percentile_impl(self, a, p, dim, keepdim)
-    }
-
-    fn median(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        super::super::statistics::median_impl(self, a, dim, keepdim)
-    }
-
-    fn histogram(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        bins: usize,
-        range: Option<(f64, f64)>,
-    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
-        super::super::statistics::histogram_impl(self, a, bins, range)
-    }
-
-    fn cov(&self, a: &Tensor<WgpuRuntime>, ddof: Option<usize>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::LinearAlgebraAlgorithms;
-        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::cov(self, a, ddof)
-    }
-
-    fn corrcoef(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        use crate::algorithm::LinearAlgebraAlgorithms;
-        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::corrcoef(self, a)
-    }
-
-    fn skew(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        super::super::statistics::skew_impl(self, a, dims, keepdim, correction)
-    }
-
-    fn kurtosis(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dims: &[usize],
-        keepdim: bool,
-        correction: usize,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        super::super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
-    }
-
-    fn mode(
-        &self,
-        a: &Tensor<WgpuRuntime>,
-        dim: Option<isize>,
-        keepdim: bool,
-    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
-        super::super::statistics::mode_impl(self, a, dim, keepdim)
-    }
+    // Moved to StatisticalOps trait implementation below
 
     // --- Random Operations ---
 
@@ -1960,7 +1851,133 @@ impl TensorOps<WgpuRuntime> for WgpuClient {
     // Moved to ComplexOps trait in ops/traits/complex.rs
 
     // ===== Sorting & Search Operations =====
+    // Moved to SortingOps trait implementation below
+}
 
+// ============================================================================
+// StatisticalOps Implementation
+// ============================================================================
+
+/// StatisticalOps implementation for WebGPU runtime.
+impl StatisticalOps<WgpuRuntime> for WgpuClient {
+    fn var(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let shape = a.shape();
+        let count: usize = if dims.is_empty() {
+            a.numel()
+        } else {
+            dims.iter().map(|&d| shape[d]).product()
+        };
+
+        let mean_val = self.mean(a, dims, true)?;
+        let diff = self.sub(a, &mean_val)?;
+        let diff_squared = self.square(&diff)?;
+        let sum_sq = self.sum(&diff_squared, dims, keepdim)?;
+        let divisor = (count.saturating_sub(correction)).max(1) as f64;
+        self.div_scalar(&sum_sq, divisor)
+    }
+
+    fn std(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let variance = self.var(a, dims, keepdim, correction)?;
+        self.sqrt(&variance)
+    }
+
+    fn quantile(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        q: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+        interpolation: &str,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::quantile_impl(self, a, q, dim, keepdim, interpolation)
+    }
+
+    fn percentile(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        p: f64,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::percentile_impl(self, a, p, dim, keepdim)
+    }
+
+    fn median(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::median_impl(self, a, dim, keepdim)
+    }
+
+    fn histogram(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        bins: usize,
+        range: Option<(f64, f64)>,
+    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
+        super::super::statistics::histogram_impl(self, a, bins, range)
+    }
+
+    fn cov(&self, a: &Tensor<WgpuRuntime>, ddof: Option<usize>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::cov(self, a, ddof)
+    }
+
+    fn corrcoef(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::LinearAlgebraAlgorithms;
+        <Self as LinearAlgebraAlgorithms<WgpuRuntime>>::corrcoef(self, a)
+    }
+
+    fn skew(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::skew_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn kurtosis(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dims: &[usize],
+        keepdim: bool,
+        correction: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        super::super::statistics::kurtosis_impl(self, a, dims, keepdim, correction)
+    }
+
+    fn mode(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        dim: Option<isize>,
+        keepdim: bool,
+    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
+        super::super::statistics::mode_impl(self, a, dim, keepdim)
+    }
+}
+
+// ============================================================================
+// SortingOps Implementation
+// ============================================================================
+
+/// SortingOps implementation for WebGPU runtime.
+impl SortingOps<WgpuRuntime> for WgpuClient {
     fn sort(
         &self,
         a: &Tensor<WgpuRuntime>,
