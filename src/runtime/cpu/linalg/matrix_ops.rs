@@ -262,6 +262,77 @@ fn kron_typed<T: Element + LinalgElement>(
     ))
 }
 
+/// Khatri-Rao product (column-wise Kronecker): A ⊙ B
+///
+/// For A of shape [m, k] and B of shape [n, k],
+/// produces output of shape [m * n, k].
+///
+/// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+pub fn khatri_rao_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+    let (m, k_a) = validate_matrix_2d(a.shape())?;
+    let (n, k_b) = validate_matrix_2d(b.shape())?;
+
+    if k_a != k_b {
+        return Err(Error::Internal(format!(
+            "khatri_rao: column count mismatch. A has shape [{}, {}], B has shape [{}, {}]. \
+             Matrices must have the same number of columns.",
+            m, k_a, n, k_b
+        )));
+    }
+
+    let k = k_a;
+
+    match a.dtype() {
+        DType::F32 => khatri_rao_typed::<f32>(client, a, b, m, n, k),
+        DType::F64 => khatri_rao_typed::<f64>(client, a, b, m, n, k),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "khatri_rao",
+        }),
+    }
+}
+
+fn khatri_rao_typed<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    let a_data: Vec<T> = a.to_vec();
+    let b_data: Vec<T> = b.to_vec();
+
+    let m_out = m * n;
+    let mut out: Vec<T> = vec![T::zero(); m_out * k];
+
+    // Compute Khatri-Rao product (column-wise Kronecker)
+    // out[i*n + j, c] = a[i, c] * b[j, c]
+    for c in 0..k {
+        for i in 0..m {
+            let a_val = a_data[i * k + c];
+            for j in 0..n {
+                let out_row = i * n + j;
+                out[out_row * k + c] = a_val * b_data[j * k + c];
+            }
+        }
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(&out, &[m_out, k], device))
+}
+
 /// Matrix rank via singular value thresholding
 /// Uses QR-based approach since SVD is not yet implemented
 pub fn matrix_rank_impl(

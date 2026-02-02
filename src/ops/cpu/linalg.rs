@@ -60,4 +60,18 @@ impl LinalgOps<CpuRuntime> for CpuClient {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
     }
+
+    fn kron(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::kron(self, a, b)
+    }
+
+    fn khatri_rao(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::khatri_rao(self, a, b)
+    }
 }

@@ -97,6 +97,14 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         matrix_ops::kron_impl(self, a, b)
     }
 
+    fn khatri_rao(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        matrix_ops::khatri_rao_impl(self, a, b)
+    }
+
     fn matrix_rank(&self, a: &Tensor<CpuRuntime>, tol: Option<f64>) -> Result<Tensor<CpuRuntime>> {
         matrix_ops::matrix_rank_impl(self, a, tol)
     }
