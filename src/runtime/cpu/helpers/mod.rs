@@ -1,0 +1,35 @@
+//! Helper functions for CPU tensor operations
+//!
+//! This module contains shared helper functions used by operation implementations,
+//! organized by functional category.
+
+pub mod activation;
+pub mod binary;
+pub mod compare;
+pub mod cumulative;
+pub mod indexing;
+pub mod reduce;
+pub mod scalar;
+pub mod shape;
+pub mod unary;
+
+// Re-export all helper functions
+pub use activation::{ActivationOp, activation_op_impl, elu_impl, leaky_relu_impl};
+pub use binary::binary_op_impl;
+pub use compare::compare_op_impl;
+pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
+pub use indexing::{
+    embedding_lookup_impl, gather_impl, index_put_impl, index_select_impl, masked_fill_impl,
+    masked_select_impl, scatter_impl,
+};
+pub use reduce::{reduce_impl, reduce_impl_with_precision};
+pub use scalar::scalar_op_impl;
+pub use shape::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_impl, stack_impl};
+pub use unary::unary_op_impl;
+
+// Re-export operation types used by callers
+pub use crate::ops::{AccumulationPrecision, BinaryOp, CompareOp, ReduceOp, UnaryOp};
+
+// Re-export dispatch macro and shared helpers
+pub use crate::dispatch_dtype;
+pub use crate::runtime::ensure_contiguous;
