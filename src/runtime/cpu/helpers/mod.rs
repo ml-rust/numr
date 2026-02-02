@@ -28,7 +28,7 @@ pub use shape::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_im
 pub use unary::unary_op_impl;
 
 // Re-export operation types used by callers
-pub use crate::ops::{AccumulationPrecision, BinaryOp, CompareOp, ReduceOp, UnaryOp};
+pub use crate::ops::{BinaryOp, UnaryOp};
 
 // Re-export dispatch macro and shared helpers
 pub use crate::dispatch_dtype;

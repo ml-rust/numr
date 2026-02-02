@@ -1,6 +1,5 @@
 //! CPU implementation of activation operations.
 
-use crate::dtype::Element;
 use crate::error::{Error, Result};
 use crate::ops::{ActivationOps, activation::normalize_softmax_dim};
 use crate::runtime::cpu::{

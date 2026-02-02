@@ -5,7 +5,7 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::error::Result;
 use crate::ops::{BinaryOp, Kernel};
-use crate::runtime::{compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes};
+use crate::runtime::{compute_broadcast_shape, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
 /// Helper for binary operations (add, sub, mul, div, pow, max, min)

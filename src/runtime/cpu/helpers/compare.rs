@@ -5,7 +5,7 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::error::Result;
 use crate::ops::CompareOp;
-use crate::runtime::{compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes};
+use crate::runtime::{compute_broadcast_shape, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
 /// Helper for comparison operations (eq, ne, lt, le, gt, ge)
