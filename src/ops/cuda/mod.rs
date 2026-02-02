@@ -12,6 +12,7 @@ pub mod distance;
 pub mod indexing;
 pub mod linalg;
 pub mod matmul;
+pub mod multivariate;
 pub mod normalization;
 pub mod quasirandom;
 pub mod random;

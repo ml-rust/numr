@@ -75,6 +75,7 @@ mod arithmetic;
 pub(crate) mod common;
 mod dispatch;
 pub(crate) mod distance_common;
+pub mod impl_generic;
 mod matmul;
 pub(crate) mod reduce;
 mod special;
@@ -89,8 +90,8 @@ pub use special::SpecialFunctions;
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps,
     CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, Kernel, LinalgOps, LogicalOps,
-    MatmulOps, NormalizationOps, QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ShapeOps,
-    SortingOps, StatisticalOps, TypeConversionOps, UnaryOps, UtilityOps,
+    MatmulOps, MultivariateRandomOps, NormalizationOps, QuasiRandomOps, RandomOps, ReduceOps,
+    ScalarOps, ShapeOps, SortingOps, StatisticalOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 
 use crate::runtime::Runtime;
