@@ -1,11 +1,13 @@
 //! Automatic differentiation (autograd)
 //!
-//! This module provides reverse-mode automatic differentiation for
-//! computing gradients of tensor computations.
+//! This module provides both reverse-mode and forward-mode automatic differentiation
+//! for computing gradients of tensor computations.
 //!
 //! # Overview
 //!
 //! The autograd system consists of:
+//!
+//! ## Reverse-Mode AD (Backpropagation)
 //! - [`Var`]: A tensor that tracks gradients
 //! - [`GradFn`]: Trait for computing gradients in backward pass
 //! - [`GradStore`]: Storage for accumulated gradients (first-order)
@@ -13,7 +15,25 @@
 //! - [`backward`]: Function to compute gradients via reverse-mode AD
 //! - [`backward_with_graph`]: Backward with graph retention for Hessians
 //!
-//! # First-Order Example
+//! ## Forward-Mode AD (JVP)
+//! - [`DualTensor`]: Tensor carrying both primal value and tangent
+//! - [`jvp`]: Compute Jacobian-vector product in a single forward pass
+//! - [`jvp_multi`]: JVP for functions with multiple outputs
+//! - [`jacobian_forward`]: Compute full Jacobian using forward-mode
+//! - `dual_ops`: Operations on dual tensors (dual_add, dual_mul, etc.)
+//!
+//! # When to Use Forward vs Reverse Mode
+//!
+//! - **Reverse-mode (VJP)**: Efficient when inputs >> outputs
+//!   - Training neural networks (many params, scalar loss)
+//!   - Computing gradients of scalar functions
+//!
+//! - **Forward-mode (JVP)**: Efficient when outputs >> inputs
+//!   - Directional derivatives
+//!   - Newton-Krylov methods (need J @ v without forming J)
+//!   - Sensitivity analysis with few inputs
+//!
+//! # First-Order Example (Reverse-Mode)
 //!
 //! ```ignore
 //! use numr::prelude::*;
@@ -35,6 +55,31 @@
 //! // dx = y = 3.0, dy = x = 2.0
 //! let grad_x = grads.get(x.id()).unwrap();
 //! let grad_y = grads.get(y.id()).unwrap();
+//! ```
+//!
+//! # Forward-Mode Example (JVP)
+//!
+//! ```ignore
+//! use numr::prelude::*;
+//! use numr::autograd::{DualTensor, jvp, dual_ops::*};
+//!
+//! let device = CpuDevice::new();
+//! let client = CpuRuntime::default_client(&device);
+//!
+//! // f(x) = x² at x=3, tangent v=1 → df/dx in direction v
+//! let x = Tensor::from_slice(&[3.0f32], &[1], &device);
+//! let v = Tensor::from_slice(&[1.0f32], &[1], &device);
+//!
+//! let (y, dy) = jvp(
+//!     |inputs, c| {
+//!         let x = &inputs[0];
+//!         dual_mul(x, x, c)
+//!     },
+//!     &[&x],
+//!     &[&v],
+//!     &client,
+//! )?;
+//! // y = 9.0, dy = 2*3*1 = 6.0
 //! ```
 //!
 //! # Second-Order Example (Hessian-Vector Product)
@@ -63,6 +108,7 @@
 //! let second_grads = backward(&scalar, &client)?;
 //! ```
 
+// Reverse-mode AD
 mod backward;
 mod grad_fn;
 mod grad_store;
@@ -70,11 +116,21 @@ mod var;
 mod var_grad_store;
 mod var_ops;
 
+// Forward-mode AD
+mod dual;
+pub mod dual_ops;
+mod forward;
+
 pub mod ops;
 
+// Reverse-mode exports
 pub use backward::{backward, backward_with_graph};
 pub use grad_fn::GradFn;
 pub use grad_store::GradStore;
 pub use var::Var;
 pub use var_grad_store::VarGradStore;
 pub use var_ops::*;
+
+// Forward-mode exports
+pub use dual::DualTensor;
+pub use forward::{hvp, jacobian_forward, jvp, jvp_multi};
