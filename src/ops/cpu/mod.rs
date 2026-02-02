@@ -14,6 +14,7 @@ pub mod unary;
 pub mod linalg;
 pub mod statistics;
 pub mod random;
+pub mod distance;
 pub mod reduce;
 pub mod sorting;
 pub mod conditional;

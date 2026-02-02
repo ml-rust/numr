@@ -13,6 +13,7 @@ pub mod unary;
 pub mod indexing;
 pub mod statistics;
 pub mod random;
+pub mod distance;
 pub mod linalg;
 pub mod reduce;
 pub mod shape;

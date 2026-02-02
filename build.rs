@@ -60,6 +60,7 @@ fn compile_cuda_kernels() {
         "index.cu",
         "shape.cu",
         "cumulative.cu",
+        "distance.cu",
         "fft.cu",
         "sort.cu",
         "special.cu",

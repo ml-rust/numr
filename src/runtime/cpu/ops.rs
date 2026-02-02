@@ -71,3 +71,6 @@ mod indexing;
 
 #[path = "../../ops/cpu/shape.rs"]
 mod shape;
+
+#[path = "../../ops/cpu/distance.rs"]
+mod distance;

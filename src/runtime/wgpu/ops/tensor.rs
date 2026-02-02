@@ -62,3 +62,6 @@ mod conditional;
 
 #[path = "../../../ops/wgpu/utility.rs"]
 mod utility;
+
+#[path = "../../../ops/wgpu/distance.rs"]
+mod distance;
