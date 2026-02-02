@@ -71,3 +71,6 @@ mod utility;
 
 #[path = "../../../ops/cuda/distance.rs"]
 mod distance;
+
+#[path = "../../../ops/cuda/multivariate.rs"]
+mod multivariate;

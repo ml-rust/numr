@@ -71,3 +71,6 @@ mod utility;
 
 #[path = "../../../ops/wgpu/distance.rs"]
 mod distance;
+
+#[path = "../../../ops/wgpu/multivariate.rs"]
+mod multivariate;

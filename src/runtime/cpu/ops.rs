@@ -80,3 +80,6 @@ mod shape;
 
 #[path = "../../ops/cpu/distance.rs"]
 mod distance;
+
+#[path = "../../ops/cpu/multivariate.rs"]
+mod multivariate;
