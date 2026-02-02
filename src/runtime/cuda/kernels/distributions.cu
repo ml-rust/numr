@@ -595,3 +595,91 @@ __global__ void f_distribution_bf16(__nv_bfloat16* out, double df1, double df2, 
 }
 
 } // extern "C"
+
+// ============================================================================
+// Multinomial Count Kernel - CDF lookup and counting for multinomial sampling
+// ============================================================================
+
+// Binary search to find category for a uniform sample
+// Returns the index i where cdf[i-1] < u <= cdf[i]
+template<typename T>
+__device__ __forceinline__ unsigned int binary_search_cdf(const T* cdf, unsigned int k, T u) {
+    unsigned int lo = 0;
+    unsigned int hi = k;
+    while (lo < hi) {
+        unsigned int mid = lo + (hi - lo) / 2;
+        if (cdf[mid] <= u) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return min(lo, k - 1);
+}
+
+// Each block processes one sample, threads cooperate on trials
+// Grid: n_samples blocks
+// Block: min(n_trials, 256) threads
+extern "C" __global__ void multinomial_count_f32(
+    const float* __restrict__ cdf,       // [k] - cumulative distribution function
+    const float* __restrict__ uniforms,  // [n_samples, n_trials] - uniform random samples
+    float* __restrict__ counts,          // [n_samples, k] - output counts
+    unsigned int k,
+    unsigned int n_trials
+) {
+    unsigned int sample_idx = blockIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int block_size = blockDim.x;
+
+    // Each thread has its own local counts in shared memory
+    extern __shared__ unsigned int shared_counts[];
+
+    // Initialize shared memory counts to zero
+    for (unsigned int c = tid; c < k; c += block_size) {
+        shared_counts[c] = 0;
+    }
+    __syncthreads();
+
+    // Each thread processes multiple trials
+    for (unsigned int t = tid; t < n_trials; t += block_size) {
+        float u = uniforms[sample_idx * n_trials + t];
+        unsigned int category = binary_search_cdf(cdf, k, u);
+        atomicAdd(&shared_counts[category], 1);
+    }
+    __syncthreads();
+
+    // Write results to global memory
+    for (unsigned int c = tid; c < k; c += block_size) {
+        counts[sample_idx * k + c] = (float)shared_counts[c];
+    }
+}
+
+extern "C" __global__ void multinomial_count_f64(
+    const double* __restrict__ cdf,
+    const double* __restrict__ uniforms,
+    double* __restrict__ counts,
+    unsigned int k,
+    unsigned int n_trials
+) {
+    unsigned int sample_idx = blockIdx.x;
+    unsigned int tid = threadIdx.x;
+    unsigned int block_size = blockDim.x;
+
+    extern __shared__ unsigned int shared_counts[];
+
+    for (unsigned int c = tid; c < k; c += block_size) {
+        shared_counts[c] = 0;
+    }
+    __syncthreads();
+
+    for (unsigned int t = tid; t < n_trials; t += block_size) {
+        double u = uniforms[sample_idx * n_trials + t];
+        unsigned int category = binary_search_cdf(cdf, k, u);
+        atomicAdd(&shared_counts[category], 1);
+    }
+    __syncthreads();
+
+    for (unsigned int c = tid; c < k; c += block_size) {
+        counts[sample_idx * k + c] = (double)shared_counts[c];
+    }
+}

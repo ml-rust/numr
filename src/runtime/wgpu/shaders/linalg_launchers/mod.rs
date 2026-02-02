@@ -19,7 +19,8 @@ mod utilities;
 
 // Re-export all launcher functions
 pub use basic_ops::{
-    launch_create_identity, launch_diag, launch_diagflat, launch_kron, launch_trace,
+    launch_create_identity, launch_diag, launch_diagflat, launch_khatri_rao, launch_kron,
+    launch_trace,
 };
 pub use decompositions::{launch_cholesky_decompose, launch_lu_decompose, launch_qr_decompose};
 pub use eig::{

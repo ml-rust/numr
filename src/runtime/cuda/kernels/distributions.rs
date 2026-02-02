@@ -428,3 +428,67 @@ pub unsafe fn launch_f_distribution(
 
     Ok(())
 }
+
+/// Launch a multinomial count kernel.
+///
+/// Performs CDF lookup for uniform samples and counts occurrences per category.
+/// Used for multinomial sampling: given uniform samples and a CDF, counts how
+/// many samples fall into each category.
+///
+/// # Arguments
+/// * `cdf_ptr` - Device pointer to CDF array [k]
+/// * `uniforms_ptr` - Device pointer to uniform samples [n_samples, n_trials]
+/// * `out_ptr` - Device pointer for output counts [n_samples, k]
+/// * `k` - Number of categories
+/// * `n_trials` - Number of trials per sample
+/// * `n_samples` - Number of samples
+///
+/// # Safety
+/// - All pointers must be valid device pointers with correct sizes
+pub unsafe fn launch_multinomial_count(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    cdf_ptr: u64,
+    uniforms_ptr: u64,
+    out_ptr: u64,
+    k: usize,
+    n_trials: usize,
+    n_samples: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::DISTRIBUTIONS_MODULE)?;
+    let func_name = kernel_name("multinomial_count", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    // Grid: one block per sample
+    // Block: min(n_trials, 256) threads
+    let block_size = n_trials.min(256) as u32;
+    let grid = (n_samples as u32, 1, 1);
+    let block = (block_size, 1, 1);
+
+    // Shared memory: k * sizeof(unsigned int) for counting
+    let shared_mem_bytes = (k * std::mem::size_of::<u32>()) as u32;
+    let cfg = launch_config(grid, block, shared_mem_bytes);
+
+    let k_param = k as u32;
+    let n_trials_param = n_trials as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&cdf_ptr);
+        builder.arg(&uniforms_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&k_param);
+        builder.arg(&n_trials_param);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA multinomial_count kernel '{}' launch failed: {:?}",
+                func_name, e
+            ))
+        })?;
+    }
+
+    Ok(())
+}

@@ -72,8 +72,9 @@ pub use distance::{
     launch_squareform, launch_squareform_inverse,
 };
 pub use distributions::{
-    launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
-    launch_f_distribution, launch_gamma_dist, launch_laplace, launch_poisson, launch_student_t,
+    MultinomialCountParams, launch_bernoulli, launch_beta_dist, launch_binomial,
+    launch_chi_squared, launch_exponential, launch_f_distribution, launch_gamma_dist,
+    launch_laplace, launch_multinomial_count, launch_poisson, launch_student_t,
 };
 pub use generator::{
     dtype_suffix, generate_all_casts_from, generate_arange_shader, generate_binary_shader,

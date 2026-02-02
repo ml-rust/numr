@@ -9,8 +9,8 @@ use wgpu::{Buffer, Queue};
 use super::generator::{
     generate_bernoulli_shader, generate_beta_dist_shader, generate_binomial_shader,
     generate_chi_squared_shader, generate_exponential_shader, generate_f_distribution_shader,
-    generate_gamma_dist_shader, generate_laplace_shader, generate_poisson_shader,
-    generate_student_t_shader,
+    generate_gamma_dist_shader, generate_laplace_shader, generate_multinomial_count_shader,
+    generate_poisson_shader, generate_student_t_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -438,6 +438,71 @@ pub fn launch_f_distribution(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Params struct for multinomial count shader (must match WGSL layout)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MultinomialCountParams {
+    pub k: u32,
+    pub n_trials: u32,
+    pub n_samples: u32,
+    pub _pad: u32,
+}
+
+/// Launch multinomial count kernel.
+///
+/// Performs CDF lookup for uniform samples and counts occurrences per category.
+/// Used for multinomial sampling: given uniform samples and a CDF, counts how
+/// many samples fall into each category.
+///
+/// # Arguments
+/// * `cdf` - CDF array buffer [k]
+/// * `uniforms` - Uniform samples buffer [n_samples, n_trials]
+/// * `counts` - Output counts buffer [n_samples, k]
+/// * `params` - Parameters buffer containing MultinomialCountParams
+/// * `n_samples` - Number of samples (used for workgroup dispatch)
+pub fn launch_multinomial_count(
+    cache: &PipelineCache,
+    queue: &Queue,
+    cdf: &Buffer,
+    uniforms: &Buffer,
+    counts: &Buffer,
+    params: &Buffer,
+    n_samples: usize,
+    dtype: DType,
+) -> Result<()> {
+    if n_samples == 0 {
+        return Ok(());
+    }
+    check_float_dtype(dtype, "multinomial_count")?;
+
+    let name = "multinomial_count_f32";
+    let shader = generate_multinomial_count_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let bind_group = cache.create_bind_group(&layout, &[cdf, uniforms, counts, params]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("multinomial_count"),
+        });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("multinomial_count"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(n_samples), 1, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

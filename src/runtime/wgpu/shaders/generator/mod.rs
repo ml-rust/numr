@@ -61,8 +61,8 @@ pub use cumulative::{
 pub use distributions::{
     generate_bernoulli_shader, generate_beta_dist_shader, generate_binomial_shader,
     generate_chi_squared_shader, generate_exponential_shader, generate_f_distribution_shader,
-    generate_gamma_dist_shader, generate_laplace_shader, generate_poisson_shader,
-    generate_student_t_shader,
+    generate_gamma_dist_shader, generate_laplace_shader, generate_multinomial_count_shader,
+    generate_poisson_shader, generate_student_t_shader,
 };
 pub use fft::{
     MAX_WORKGROUP_FFT_SIZE, generate_copy_complex_shader, generate_fftshift_shader,

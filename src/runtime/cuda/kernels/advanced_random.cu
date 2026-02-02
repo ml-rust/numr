@@ -36,8 +36,11 @@ __device__ __forceinline__ void philox4x32_10(uint32_t* ctr, uint32_t* key) {
     }
 }
 
+// Template implementation functions are marked __device__ (not __global__) to be called
+// by typed extern "C" __global__ wrapper kernels below. This avoids __global__ calling
+// __global__ without launch configuration, which is a CUDA error.
 template<typename T>
-__global__ void philox_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
+__device__ void philox_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 4 >= n) return;
 
@@ -55,7 +58,7 @@ __global__ void philox_uniform_impl(T* out, unsigned int n, uint64_t key, uint64
 }
 
 template<typename T>
-__global__ void philox_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
+__device__ void philox_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 4 >= n) return;
 
@@ -107,7 +110,7 @@ __device__ __forceinline__ void threefry4x64_20(uint64_t* ctr, const uint64_t* k
 }
 
 template<typename T>
-__global__ void threefry_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
+__device__ void threefry_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 4 >= n) return;
 
@@ -121,7 +124,7 @@ __global__ void threefry_uniform_impl(T* out, unsigned int n, uint64_t key, uint
 }
 
 template<typename T>
-__global__ void threefry_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
+__device__ void threefry_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 4 >= n) return;
 
@@ -159,7 +162,7 @@ __device__ __forceinline__ void pcg64_step(uint64_t* lo, uint64_t* hi, uint64_t*
 }
 
 template<typename T>
-__global__ void pcg64_uniform_impl(T* out, unsigned int n, uint64_t seed, uint64_t stream) {
+__device__ void pcg64_uniform_impl(T* out, unsigned int n, uint64_t seed, uint64_t stream) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
 
@@ -170,7 +173,7 @@ __global__ void pcg64_uniform_impl(T* out, unsigned int n, uint64_t seed, uint64
 }
 
 template<typename T>
-__global__ void pcg64_randn_impl(T* out, unsigned int n, uint64_t seed, uint64_t stream) {
+__device__ void pcg64_randn_impl(T* out, unsigned int n, uint64_t seed, uint64_t stream) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 2 >= n) return;
 
@@ -208,7 +211,7 @@ __device__ __forceinline__ uint64_t xoshiro256_next(uint64_t* s) {
 }
 
 template<typename T>
-__global__ void xoshiro256_uniform_impl(T* out, unsigned int n, uint64_t seed) {
+__device__ void xoshiro256_uniform_impl(T* out, unsigned int n, uint64_t seed) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
 
@@ -219,7 +222,7 @@ __global__ void xoshiro256_uniform_impl(T* out, unsigned int n, uint64_t seed) {
 }
 
 template<typename T>
-__global__ void xoshiro256_randn_impl(T* out, unsigned int n, uint64_t seed) {
+__device__ void xoshiro256_randn_impl(T* out, unsigned int n, uint64_t seed) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx * 2 >= n) return;
 
