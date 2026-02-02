@@ -5,6 +5,7 @@
 use super::super::{CudaClient, CudaRuntime};
 use crate::dtype::Element;
 use crate::error::{Error, Result};
+use crate::ops::ReduceOps;
 use crate::sparse::SparseOps;
 use crate::tensor::Tensor;
 
