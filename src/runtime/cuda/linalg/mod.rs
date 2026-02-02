@@ -113,6 +113,14 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         matrix_ops::kron_impl(self, a, b)
     }
 
+    fn khatri_rao(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        matrix_ops::khatri_rao_impl(self, a, b)
+    }
+
     fn matrix_rank(
         &self,
         a: &Tensor<CudaRuntime>,

@@ -261,6 +261,39 @@ __device__ void kron_impl(
 }
 
 // ============================================================================
+// Khatri-Rao Product - A ⊙ B (column-wise Kronecker)
+// For A [m, k] and B [n, k], output is [m*n, k]
+// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+// ============================================================================
+
+template<typename T>
+__device__ void khatri_rao_impl(
+    const T* __restrict__ a,
+    const T* __restrict__ b,
+    T* __restrict__ out,
+    unsigned int m,
+    unsigned int n,
+    unsigned int k
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int m_out = m * n;
+    unsigned int total = m_out * k;
+
+    if (idx < total) {
+        // Compute output row and column
+        unsigned int out_row = idx / k;
+        unsigned int c = idx % k;
+
+        // Map to indices in A and B
+        unsigned int i = out_row / n;
+        unsigned int j = out_row % n;
+
+        // out[i*n + j, c] = a[i, c] * b[j, c]
+        out[idx] = a[i * k + c] * b[j * k + c];
+    }
+}
+
+// ============================================================================
 // Extern "C" wrappers for PTX export
 // ============================================================================
 
@@ -358,6 +391,16 @@ __global__ void kron_f64(const double* a, const double* b, double* out,
     kron_impl<double>(a, b, out, m_a, n_a, m_b, n_b);
 }
 
+__global__ void khatri_rao_f32(const float* a, const float* b, float* out,
+                               unsigned int m, unsigned int n, unsigned int k) {
+    khatri_rao_impl<float>(a, b, out, m, n, k);
+}
+
+__global__ void khatri_rao_f64(const double* a, const double* b, double* out,
+                               unsigned int m, unsigned int n, unsigned int k) {
+    khatri_rao_impl<double>(a, b, out, m, n, k);
+}
+
 // ============================================================================
 // F16 (__half) Wrappers
 // ============================================================================
@@ -408,6 +451,11 @@ __global__ void kron_f16(const __half* a, const __half* b, __half* out,
     kron_impl<__half>(a, b, out, m_a, n_a, m_b, n_b);
 }
 
+__global__ void khatri_rao_f16(const __half* a, const __half* b, __half* out,
+                               unsigned int m, unsigned int n, unsigned int k) {
+    khatri_rao_impl<__half>(a, b, out, m, n, k);
+}
+
 // ============================================================================
 // BF16 (__nv_bfloat16) Wrappers
 // ============================================================================
@@ -456,6 +504,11 @@ __global__ void kron_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_b
                           unsigned int m_a, unsigned int n_a,
                           unsigned int m_b, unsigned int n_b) {
     kron_impl<__nv_bfloat16>(a, b, out, m_a, n_a, m_b, n_b);
+}
+
+__global__ void khatri_rao_bf16(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out,
+                                unsigned int m, unsigned int n, unsigned int k) {
+    khatri_rao_impl<__nv_bfloat16>(a, b, out, m, n, k);
 }
 
 } // extern "C"

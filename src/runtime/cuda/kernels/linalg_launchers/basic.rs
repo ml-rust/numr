@@ -589,3 +589,62 @@ pub unsafe fn launch_kron(
 
     Ok(())
 }
+
+/// Launch Khatri-Rao product kernel: out = A ⊙ B (column-wise Kronecker)
+///
+/// # Safety
+///
+/// - `a_ptr` must point to a valid [m, k] matrix
+/// - `b_ptr` must point to a valid [n, k] matrix
+/// - `out_ptr` must have space for m * n * k elements
+pub unsafe fn launch_khatri_rao(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    out_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::LINALG_BASIC_MODULE)?;
+
+    let func_name = match dtype {
+        DType::F32 => "khatri_rao_f32",
+        DType::F64 => "khatri_rao_f64",
+        DType::F16 => "khatri_rao_f16",
+        DType::BF16 => "khatri_rao_bf16",
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "khatri_rao",
+            });
+        }
+    };
+
+    let func = get_kernel_function(&module, func_name)?;
+
+    let total = m * n * k;
+    let grid = elementwise_launch_config(total);
+    let block = (BLOCK_SIZE, 1, 1);
+
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+
+    let cfg = launch_config(grid, block, 0);
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&a_ptr);
+    builder.arg(&b_ptr);
+    builder.arg(&out_ptr);
+    builder.arg(&m_u32);
+    builder.arg(&n_u32);
+    builder.arg(&k_u32);
+
+    unsafe { builder.launch(cfg) }
+        .map_err(|e| Error::Internal(format!("CUDA khatri_rao kernel launch failed: {:?}", e)))?;
+
+    Ok(())
+}

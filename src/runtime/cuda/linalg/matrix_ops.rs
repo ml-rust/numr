@@ -491,3 +491,63 @@ pub fn kron_impl(
 
     Ok(out)
 }
+
+/// Khatri-Rao product (column-wise Kronecker): A ⊙ B
+///
+/// For A of shape [m, k] and B of shape [n, k],
+/// produces output of shape [m * n, k].
+///
+/// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+pub fn khatri_rao_impl(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+) -> Result<Tensor<CudaRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+
+    let (m, k_a) = validate_matrix_2d(a.shape())?;
+    let (n, k_b) = validate_matrix_2d(b.shape())?;
+
+    if k_a != k_b {
+        return Err(Error::Internal(format!(
+            "khatri_rao: column count mismatch. A has shape [{}, {}], B has shape [{}, {}]. \
+             Matrices must have the same number of columns.",
+            m, k_a, n, k_b
+        )));
+    }
+
+    let k = k_a;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    let m_out = m * n;
+    let out_size = m_out * k * dtype.size_in_bytes();
+    let out_ptr = client.allocator().allocate(out_size);
+
+    unsafe {
+        kernels::launch_khatri_rao(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            a.storage().ptr(),
+            b.storage().ptr(),
+            out_ptr,
+            m,
+            n,
+            k,
+        )?;
+    }
+
+    client.synchronize();
+
+    let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[m_out, k], dtype, device) };
+
+    Ok(out)
+}

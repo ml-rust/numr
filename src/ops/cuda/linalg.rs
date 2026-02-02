@@ -70,4 +70,22 @@ impl LinalgOps<CudaRuntime> for CudaClient {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::matrix_rank(self, a, tol)
     }
+
+    fn kron(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::kron(self, a, b)
+    }
+
+    fn khatri_rao(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::khatri_rao(self, a, b)
+    }
 }
