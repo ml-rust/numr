@@ -28,7 +28,7 @@ pub mod tensor;
 
 #[cfg(test)]
 mod tests {
-    use crate::ops::{CompareOps, ScalarOps, TensorOps};
+    use crate::ops::{ActivationOps, BinaryOps, CompareOps, MatmulOps, ReduceOps, ScalarOps};
     use crate::runtime::Runtime;
     use crate::runtime::wgpu::{WgpuDevice, WgpuRuntime, is_wgpu_available};
     use crate::tensor::Tensor;

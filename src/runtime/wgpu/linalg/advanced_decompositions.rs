@@ -12,7 +12,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, MatmulOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -326,20 +326,20 @@ pub fn polar_decompose(
     // and P = V @ diag(S) @ V^T (symmetric positive semi-definite)
 
     // U_polar = U @ V^T
-    let u_polar = TensorOps::matmul(client, &svd.u, &svd.vt)?;
+    let u_polar = client.matmul(&svd.u, &svd.vt)?;
 
     // P = V @ diag(S) @ V^T
     // First, create S as diagonal matrix
-    let s_diag = TensorOps::diagflat(client, &svd.s)?;
+    let s_diag = LinalgOps::diagflat(client, &svd.s)?;
 
     // V = Vt^T
     let v = svd.vt.transpose(0, 1)?.contiguous();
 
     // V @ diag(S)
-    let v_s = TensorOps::matmul(client, &v, &s_diag)?;
+    let v_s = client.matmul(&v, &s_diag)?;
 
     // P = (V @ S) @ V^T
-    let p = TensorOps::matmul(client, &v_s, &svd.vt)?;
+    let p = client.matmul(&v_s, &svd.vt)?;
 
     Ok(PolarDecomposition { u: u_polar, p })
 }

@@ -7,7 +7,7 @@ use super::decompositions::qr_decompose_internal;
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d, validate_square_matrix};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, MatmulOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -305,7 +305,7 @@ pub fn lstsq(
     let b_mat = b.reshape(&[m, 1])?.contiguous();
 
     // Q^T @ B gives [m, 1]
-    let qtb = TensorOps::matmul(client, &q_t, &b_mat)?;
+    let qtb = client.matmul(&q_t, &b_mat)?;
 
     // Allocate output X [n]
     let x_size = n * dtype.size_in_bytes();

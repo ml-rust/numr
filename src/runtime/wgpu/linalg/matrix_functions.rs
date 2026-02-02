@@ -12,7 +12,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{ScalarOps, TensorOps};
+use crate::ops::{BinaryOps, MatmulOps, ReduceOps, ScalarOps, UtilityOps};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -59,9 +59,9 @@ pub fn expm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     let exp_t_tensor = compute_schur_exp(client, &schur.t, n, dtype)?;
 
     // Reconstruct: exp(A) = Z @ exp(T) @ Z^T
-    let temp = TensorOps::matmul(client, &schur.z, &exp_t_tensor)?;
+    let temp = client.matmul(&schur.z, &exp_t_tensor)?;
     let z_t = schur.z.transpose(0, 1)?;
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }
 
 /// Matrix logarithm: log(A)
@@ -124,9 +124,9 @@ pub fn logm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     let log_t_tensor = compute_schur_log(client, &schur.t, n, dtype)?;
 
     // Reconstruct: log(A) = Z @ log(T) @ Z^T
-    let temp = TensorOps::matmul(client, &schur.z, &log_t_tensor)?;
+    let temp = client.matmul(&schur.z, &log_t_tensor)?;
     let z_t = schur.z.transpose(0, 1)?;
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }
 
 /// Matrix square root: sqrt(A)
@@ -203,7 +203,7 @@ pub fn sqrtm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
 
     // Denman-Beavers iteration
     let mut y = a.clone();
-    let mut z = TensorOps::eye(client, n, None, dtype)?;
+    let mut z = client.eye(n, None, dtype)?;
 
     let max_iter = 50;
     let tol = eps * (n as f64);
@@ -217,14 +217,14 @@ pub fn sqrtm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
             Error::Internal("sqrtm: matrix inversion failed during iteration".to_string())
         })?;
 
-        let y_plus_zinv = TensorOps::add(client, &y, &z_inv)?;
+        let y_plus_zinv = client.add(&y, &z_inv)?;
         let y_new = client.div_scalar(&y_plus_zinv, 2.0)?;
 
-        let z_plus_yinv = TensorOps::add(client, &z, &y_inv)?;
+        let z_plus_yinv = client.add(&z, &y_inv)?;
         let z_new = client.div_scalar(&z_plus_yinv, 2.0)?;
 
         // Check convergence
-        let diff = TensorOps::sub(client, &y_new, &y)?;
+        let diff = client.sub(&y_new, &y)?;
         let diff_norm: f64 = compute_norm(client, &diff)?;
         let y_norm: f64 = compute_norm(client, &y)?;
 
@@ -299,10 +299,10 @@ pub fn signm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
             Error::Internal("signm: matrix became singular during iteration".to_string())
         })?;
 
-        let x_plus_inv = TensorOps::add(client, &x, &x_inv)?;
+        let x_plus_inv = client.add(&x, &x_inv)?;
         let x_new = client.div_scalar(&x_plus_inv, 2.0)?;
 
-        let diff = TensorOps::sub(client, &x_new, &x)?;
+        let diff = client.sub(&x_new, &x)?;
         let diff_norm: f64 = compute_norm(client, &diff)?;
 
         x = x_new;
@@ -353,7 +353,7 @@ pub fn fractional_matrix_power(
 
     // p = 0: Return identity
     if p.abs() < f64::EPSILON {
-        return TensorOps::eye(client, n, None, dtype);
+        return client.eye(n, None, dtype);
     }
 
     // p = 1: Return A
@@ -473,15 +473,15 @@ where
     let f_t_tensor = Tensor::<WgpuRuntime>::from_slice(&f_t, &[n, n], device);
     let z_tensor = Tensor::<WgpuRuntime>::from_slice(&z_data, &[n, n], device);
 
-    let temp = TensorOps::matmul(client, &z_tensor, &f_t_tensor)?;
+    let temp = client.matmul(&z_tensor, &f_t_tensor)?;
     let z_t = z_tensor.transpose(0, 1)?;
-    TensorOps::matmul(client, &temp, &z_t)
+    client.matmul(&temp, &z_t)
 }
 
 // Helper functions
 
 fn compute_norm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<f64> {
-    let a_sq = TensorOps::mul(client, a, a)?;
+    let a_sq = client.mul(a, a)?;
     let sum = client.sum(&a_sq, &[], false)?;
     let sum_vec: Vec<f32> = sum.to_vec();
     Ok((sum_vec[0] as f64).sqrt())
@@ -558,7 +558,7 @@ fn integer_matrix_power(
     dtype: DType,
 ) -> Result<Tensor<WgpuRuntime>> {
     if p == 0 {
-        return TensorOps::eye(client, n, None, dtype);
+        return client.eye(n, None, dtype);
     }
 
     let (mut base, mut exp) = if p < 0 {
@@ -568,13 +568,13 @@ fn integer_matrix_power(
         (a.clone(), p as u64)
     };
 
-    let mut result = TensorOps::eye(client, n, None, dtype)?;
+    let mut result = client.eye(n, None, dtype)?;
 
     while exp > 0 {
         if exp & 1 == 1 {
-            result = TensorOps::matmul(client, &result, &base)?;
+            result = client.matmul(&result, &base)?;
         }
-        base = TensorOps::matmul(client, &base, &base)?;
+        base = client.matmul(&base, &base)?;
         exp >>= 1;
     }
 

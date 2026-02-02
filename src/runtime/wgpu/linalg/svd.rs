@@ -7,7 +7,7 @@ use super::helpers::get_buffer_or_err;
 use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, MatmulOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -234,14 +234,14 @@ pub fn pinverse(
 
     // Create S_inv diagonal matrix on GPU
     let s_inv_diag = Tensor::<WgpuRuntime>::from_slice(&s_inv_data, &[k], device);
-    let s_inv_mat = TensorOps::diagflat(client, &s_inv_diag)?;
+    let s_inv_mat = client.diagflat(&s_inv_diag)?;
 
     // Compute A^+ = V @ S_inv @ U^T
     let v = svd.vt.transpose(0, 1)?.contiguous();
     let ut = svd.u.transpose(0, 1)?.contiguous();
 
-    let v_sinv = TensorOps::matmul(client, &v, &s_inv_mat)?;
-    let pinv = TensorOps::matmul(client, &v_sinv, &ut)?;
+    let v_sinv = client.matmul(&v, &s_inv_mat)?;
+    let pinv = client.matmul(&v_sinv, &ut)?;
 
     Ok(pinv)
 }

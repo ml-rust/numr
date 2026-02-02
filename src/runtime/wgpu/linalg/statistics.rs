@@ -6,7 +6,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{BinaryOps, LinalgOps, MatmulOps, ReduceOps, UnaryOps, UtilityOps};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -36,22 +36,22 @@ pub fn cov(
     }
 
     // Compute mean along axis 0
-    let sum = TensorOps::sum(client, a, &[0], true)?;
+    let sum = client.sum(a, &[0], true)?;
     let n_samples_tensor = Tensor::<WgpuRuntime>::from_slice(&[n_samples as f32], &[], device);
-    let mean = TensorOps::div(client, &sum, &n_samples_tensor)?;
+    let mean = client.div(&sum, &n_samples_tensor)?;
 
     // Center the data
-    let centered = TensorOps::sub(client, a, &mean)?;
+    let centered = client.sub(a, &mean)?;
 
     // Compute covariance: C = X_centered^T @ X_centered / (n - ddof)
     let centered_t = centered.transpose(0, 1)?.contiguous();
     let centered_contig = centered.contiguous();
-    let cov_unnorm = TensorOps::matmul(client, &centered_t, &centered_contig)?;
+    let cov_unnorm = client.matmul(&centered_t, &centered_contig)?;
 
     // Normalize by (n - ddof)
     let divisor = (n_samples - ddof_val) as f32;
     let divisor_tensor = Tensor::<WgpuRuntime>::from_slice(&[divisor], &[], device);
-    let cov_mat = TensorOps::div(client, &cov_unnorm, &divisor_tensor)?;
+    let cov_mat = client.div(&cov_unnorm, &divisor_tensor)?;
 
     Ok(cov_mat)
 }
@@ -90,7 +90,7 @@ pub fn corrcoef(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<W
     let cov_mat = LinearAlgebraAlgorithms::cov(client, a, Some(1))?;
 
     // Extract diagonal (variances) and compute standard deviations
-    let variances = TensorOps::diag(client, &cov_mat)?;
+    let variances = LinalgOps::diag(client, &cov_mat)?;
     let std_devs = client.sqrt(&variances)?;
 
     // Pull data to CPU for zero-variance detection

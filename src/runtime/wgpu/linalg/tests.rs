@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use crate::algorithm::LinearAlgebraAlgorithms;
-    use crate::ops::TensorOps;
+    use crate::ops::MatmulOps;
     use crate::runtime::wgpu::WgpuRuntime;
     use crate::runtime::wgpu::{WgpuDevice, is_wgpu_available};
     use crate::runtime::{Runtime, RuntimeClient};
@@ -28,7 +28,7 @@ mod tests {
         // trace = 1 + 4 = 5
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let t = TensorOps::trace(&client, &a).unwrap();
+        let t = client.trace(&a).unwrap();
         let result: Vec<f32> = t.to_vec();
 
         assert!((result[0] - 5.0).abs() < 1e-5);
@@ -48,7 +48,7 @@ mod tests {
         let a =
             Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device);
 
-        let d = TensorOps::diag(&client, &a).unwrap();
+        let d = client.diag(&a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert_eq!(result.len(), 2);
@@ -68,7 +68,7 @@ mod tests {
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let m = TensorOps::diagflat(&client, &a).unwrap();
+        let m = client.diagflat(&a).unwrap();
         let result: Vec<f32> = m.to_vec();
 
         assert_eq!(m.shape(), &[3, 3]);
@@ -134,7 +134,7 @@ mod tests {
         // det = 1*4 - 2*3 = -2
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let d = TensorOps::det(&client, &a).unwrap();
+        let d = client.det(&a).unwrap();
         let result: Vec<f32> = d.to_vec();
 
         assert!((result[0] - (-2.0)).abs() < 1e-4);
@@ -155,7 +155,7 @@ mod tests {
         let a = Tensor::<WgpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device);
         let b = Tensor::<WgpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device);
 
-        let x = TensorOps::solve(&client, &a, &b).unwrap();
+        let x = client.solve(&a, &b).unwrap();
         let result: Vec<f32> = x.to_vec();
 
         assert!((result[0] - 1.0).abs() < 1e-4);
@@ -176,7 +176,7 @@ mod tests {
         // Inverse: [[0.6, -0.7], [-0.2, 0.4]]
         let a = Tensor::<WgpuRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device);
 
-        let inv = TensorOps::inverse(&client, &a).unwrap();
+        let inv = client.inverse(&a).unwrap();
         let result: Vec<f32> = inv.to_vec();
 
         // Check inverse values (det = 4*6 - 7*2 = 10)
@@ -200,7 +200,7 @@ mod tests {
         // Full rank 2x2 matrix
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-        let rank = TensorOps::matrix_rank(&client, &a, None).unwrap();
+        let rank = client.matrix_rank(&a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 2);
@@ -219,7 +219,7 @@ mod tests {
         // Rank-deficient 2x2 matrix (rows are linearly dependent)
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], device);
 
-        let rank = TensorOps::matrix_rank(&client, &a, None).unwrap();
+        let rank = client.matrix_rank(&a, None).unwrap();
         let result: Vec<i64> = rank.to_vec();
 
         assert_eq!(result[0], 1);
@@ -241,7 +241,7 @@ mod tests {
         let qr = client.qr_decompose(&a).unwrap();
 
         // Verify Q @ R == A
-        let reconstructed = TensorOps::matmul(&client, &qr.q, &qr.r).unwrap();
+        let reconstructed = client.matmul(&qr.q, &qr.r).unwrap();
         let reconstructed = reconstructed.contiguous();
         let a_data: Vec<f32> = a.to_vec();
         let reconstructed_data: Vec<f32> = reconstructed.to_vec();
@@ -273,7 +273,7 @@ mod tests {
             Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device);
         let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
 
-        let x = TensorOps::lstsq(&client, &a, &b).unwrap();
+        let x = client.lstsq(&a, &b).unwrap();
         assert_eq!(x.shape(), &[2]);
         let result: Vec<f32> = x.to_vec();
 

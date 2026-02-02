@@ -8,7 +8,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::TensorOps;
+use crate::ops::{LinalgOps, ReduceOps, UnaryOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -388,7 +388,7 @@ pub fn matrix_rank(
     let qr = qr_decompose_internal(client, a, false)?;
 
     // Get diagonal of R
-    let r_diag = TensorOps::diag(client, &qr.r)?;
+    let r_diag = client.diag(&qr.r)?;
 
     // Allocate GPU buffers for max abs and count
     let max_size = dtype.size_in_bytes();
