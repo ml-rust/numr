@@ -3,10 +3,13 @@
 //! Implements gradient computation for relu, sigmoid, and softmax.
 
 use crate::autograd::GradFn;
+use crate::autograd::var::Var;
+use crate::autograd::var_ops::{var_mul, var_sub, var_sum};
 use crate::error::Result;
-use crate::ops::{BinaryOps, CompareOps, ReduceOps, TensorOps};
-use crate::runtime::Runtime;
+use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps};
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
+use std::sync::Arc;
 
 #[cfg(test)]
 use crate::ops::ActivationOps;
@@ -22,14 +25,20 @@ use crate::ops::ActivationOps;
 pub struct ReluBackward<R: Runtime> {
     input_id: TensorId,
     saved_input: Tensor<R>,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> ReluBackward<R> {
     /// Create a new ReluBackward
-    pub fn new(input_id: TensorId, input: Tensor<R>) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_input: input,
+            input_grad_fn,
         }
     }
 }
@@ -56,8 +65,36 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + CompareOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // ReLU derivative: relu'(x) = 1 if x > 0, 0 otherwise
+        // The mask is non-differentiable (step function), so treat as constant
+        let zero = Tensor::<R>::zeros(
+            self.saved_input.shape(),
+            self.saved_input.dtype(),
+            self.saved_input.device(),
+        );
+        let mask = client.gt(&self.saved_input, &zero)?;
+
+        // Wrap mask as Var without gradient tracking
+        let mask_var = Var::new(mask, false);
+
+        // grad = grad_output * mask using var_mul to track gradients through grad_output
+        let grad = var_mul(grad_output, &mask_var, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
     }
 
     fn saved_tensors(&self) -> &[Tensor<R>] {
@@ -79,14 +116,20 @@ where
 pub struct SigmoidBackward<R: Runtime> {
     input_id: TensorId,
     saved_output: Tensor<R>, // sigmoid(a)
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> SigmoidBackward<R> {
     /// Create a new SigmoidBackward
-    pub fn new(input_id: TensorId, output: Tensor<R>) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        output: Tensor<R>,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_output: output,
+            input_grad_fn,
         }
     }
 }
@@ -112,8 +155,38 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
+        // dL/da = dL/dz * z * (1 - z)
+        // The derivative z * (1 - z) is computed from saved output, treated as constant
+        let one = Tensor::<R>::ones(
+            self.saved_output.shape(),
+            self.saved_output.dtype(),
+            self.saved_output.device(),
+        );
+        let one_minus_sigmoid = client.sub(&one, &self.saved_output)?;
+        let sigmoid_deriv = client.mul(&self.saved_output, &one_minus_sigmoid)?;
+
+        // Wrap derivative as Var without gradient tracking (constant w.r.t. grad_output)
+        let deriv_var = Var::new(sigmoid_deriv, false);
+
+        // grad = grad_output * sigmoid_deriv using var_mul
+        let grad = var_mul(grad_output, &deriv_var, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
     }
 
     fn saved_tensors(&self) -> &[Tensor<R>] {
@@ -137,22 +210,29 @@ pub struct SoftmaxBackward<R: Runtime> {
     input_id: TensorId,
     saved_output: Tensor<R>, // softmax(a)
     dim: isize,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> SoftmaxBackward<R> {
     /// Create a new SoftmaxBackward
-    pub fn new(input_id: TensorId, output: Tensor<R>, dim: isize) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        output: Tensor<R>,
+        dim: isize,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_output: output,
             dim,
+            input_grad_fn,
         }
     }
 }
 
 impl<R: Runtime> GradFn<R> for SoftmaxBackward<R>
 where
-    R::Client: TensorOps<R> + ReduceOps<R>,
+    R::Client: TensorOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -175,8 +255,47 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ReduceOps<R> + ScalarOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Normalize dim
+        let ndim = self.saved_output.ndim();
+        let dim_idx = if self.dim < 0 {
+            (ndim as isize + self.dim) as usize
+        } else {
+            self.dim as usize
+        };
+
+        // softmax gradient: grad_input = softmax * (grad_output - sum(softmax * grad_output, dim))
+        // = z * (dy - sum(z * dy, dim))
+
+        // Wrap softmax output as Var without gradient (constant w.r.t. grad_output)
+        let z_var = Var::new(self.saved_output.clone(), false);
+
+        // z * dy
+        let z_dy = var_mul(&z_var, grad_output, &client)?;
+
+        // sum(z * dy, dim)
+        let sum_z_dy = var_sum(&z_dy, &[dim_idx], true, &client)?;
+
+        // dy - sum(z * dy, dim)
+        let dy_minus_sum = var_sub(grad_output, &sum_z_dy, &client)?;
+
+        // z * (dy - sum(z * dy, dim))
+        let grad = var_mul(&z_var, &dy_minus_sum, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
     }
 
     fn saved_tensors(&self) -> &[Tensor<R>] {
@@ -202,7 +321,7 @@ mod tests {
         let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
         let grad_out = Tensor::<CpuRuntime>::ones(&[3], DType::F32, &device);
 
-        let backward = ReluBackward::<CpuRuntime>::new(input.id(), input);
+        let backward = ReluBackward::<CpuRuntime>::new(input.id(), input, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
@@ -220,7 +339,7 @@ mod tests {
         let input = Tensor::<CpuRuntime>::from_slice(&[-1.0f32, 0.0, 2.0], &[3], &device);
         let grad_out = Tensor::<CpuRuntime>::ones(&[3], DType::F32, &device);
 
-        let backward = ReluBackward::<CpuRuntime>::new(input.id(), input);
+        let backward = ReluBackward::<CpuRuntime>::new(input.id(), input, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
@@ -244,7 +363,7 @@ mod tests {
 
         let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
 
-        let backward = SigmoidBackward::<CpuRuntime>::new(input.id(), output);
+        let backward = SigmoidBackward::<CpuRuntime>::new(input.id(), output, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
@@ -263,7 +382,7 @@ mod tests {
         // dL/dz = [1, 0] - only first element contributes to loss
         let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0], &[2], &device);
 
-        let backward = SoftmaxBackward::<CpuRuntime>::new(input.id(), output, -1);
+        let backward = SoftmaxBackward::<CpuRuntime>::new(input.id(), output, -1, None);
         let grads = backward.backward(&grad_out).unwrap();
 
         let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();

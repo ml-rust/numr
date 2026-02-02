@@ -2,11 +2,15 @@
 //!
 //! These implement the gradient computation for unary operations.
 
-use crate::autograd::GradFn;
+use crate::autograd::{
+    GradFn, Var, var_abs, var_cos, var_div, var_mul, var_mul_scalar, var_neg, var_sin, var_square,
+    var_sub,
+};
 use crate::error::Result;
 use crate::ops::{BinaryOps, CompareOps, ScalarOps, TensorOps, UnaryOps};
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
+use std::sync::Arc;
 
 // ============================================================================
 // NegBackward
@@ -37,6 +41,12 @@ where
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
         let grad = client.neg(grad_output)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        let grad = var_neg(grad_output, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -79,6 +89,15 @@ where
         let client = R::default_client(grad_output.device());
         // dL/da = dL/dz * exp(a) = grad_output * saved_output
         let grad = client.mul(grad_output, &self.saved_output)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved output (exp(a)) - output doesn't need original ID tracking
+        let output_var = Var::new(self.saved_output.clone(), false);
+        // dL/da = grad_output * exp(a)
+        let grad = var_mul(grad_output, &output_var, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -125,6 +144,15 @@ where
         let client = R::default_client(grad_output.device());
         // dL/da = dL/dz / a
         let grad = client.div(grad_output, &self.saved_input)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID for second-order differentiation
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // dL/da = grad_output / a
+        let grad = var_div(grad_output, &input_var, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -176,6 +204,16 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved output (sqrt(a))
+        let output_var = Var::new(self.saved_output.clone(), false);
+        // dL/da = grad_output / (2 * sqrt(a))
+        let two_sqrt = var_mul_scalar(&output_var, 2.0, &client)?;
+        let grad = var_div(grad_output, &two_sqrt, &client)?;
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -219,6 +257,16 @@ where
         let client = R::default_client(grad_output.device());
         let cos_a = client.cos(&self.saved_input)?;
         let grad = client.mul(grad_output, &cos_a)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // dL/da = grad_output * cos(a)
+        let cos_a = var_cos(&input_var, &client)?;
+        let grad = var_mul(grad_output, &cos_a, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -269,6 +317,17 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // dL/da = grad_output * (-sin(a))
+        let sin_a = var_sin(&input_var, &client)?;
+        let neg_sin = var_neg(&sin_a, &client)?;
+        let grad = var_mul(grad_output, &neg_sin, &client)?;
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -306,7 +365,7 @@ impl<R: Runtime> TanhBackward<R> {
 
 impl<R: Runtime> GradFn<R> for TanhBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -319,6 +378,23 @@ where
         );
         let one_minus_tanh2 = client.sub(&one, &tanh_squared)?;
         let grad = client.mul(grad_output, &one_minus_tanh2)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved output (tanh(a))
+        let output_var = Var::new(self.saved_output.clone(), false);
+        // dL/da = grad_output * (1 - tanh²(a))
+        let tanh_squared = var_square(&output_var, &client)?;
+        let one = Tensor::<R>::ones(
+            self.saved_output.shape(),
+            self.saved_output.dtype(),
+            self.saved_output.device(),
+        );
+        let one_var = Var::new(one, false);
+        let one_minus_tanh2 = var_sub(&one_var, &tanh_squared, &client)?;
+        let grad = var_mul(grad_output, &one_minus_tanh2, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -369,6 +445,16 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // dL/da = grad_output * 2 * a
+        let two_a = var_mul_scalar(&input_var, 2.0, &client)?;
+        let grad = var_mul(grad_output, &two_a, &client)?;
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -406,7 +492,7 @@ impl<R: Runtime> RecipBackward<R> {
 
 impl<R: Runtime> GradFn<R> for RecipBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -414,6 +500,17 @@ where
         let z_squared = client.square(&self.saved_output)?;
         let neg_grad = client.neg(grad_output)?;
         let grad = client.mul(&neg_grad, &z_squared)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved output (1/a)
+        let output_var = Var::new(self.saved_output.clone(), false);
+        // dL/da = -grad_output * z²
+        let z_squared = var_square(&output_var, &client)?;
+        let neg_grad = var_neg(grad_output, &client)?;
+        let grad = var_mul(&neg_grad, &z_squared, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -454,7 +551,7 @@ impl<R: Runtime> TanBackward<R> {
 
 impl<R: Runtime> GradFn<R> for TanBackward<R>
 where
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
 {
     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
@@ -462,6 +559,17 @@ where
         let cos_a = client.cos(&self.saved_input)?;
         let cos_squared = client.square(&cos_a)?;
         let grad = client.div(grad_output, &cos_squared)?;
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // dL/da = grad_output / cos²(a)
+        let cos_a = var_cos(&input_var, &client)?;
+        let cos_squared = var_square(&cos_a, &client)?;
+        let grad = var_div(grad_output, &cos_squared, &client)?;
         Ok(vec![Some(grad)])
     }
 
@@ -518,6 +626,17 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        // Wrap saved input with original ID
+        let input_var = Var::with_id(self.saved_input.clone(), self.input_id, true);
+        // sign(a) = a / |a|
+        let abs_a = var_abs(&input_var, &client)?;
+        let grad_sign = var_div(&input_var, &abs_a, &client)?;
+        let grad = var_mul(grad_output, &grad_sign, &client)?;
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -544,16 +663,24 @@ pub struct ClampBackward<R: Runtime> {
     saved_input: Tensor<R>,
     min_val: f64,
     max_val: f64,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
 }
 
 impl<R: Runtime> ClampBackward<R> {
     /// Create a new ClampBackward
-    pub fn new(input_id: TensorId, input: Tensor<R>, min_val: f64, max_val: f64) -> Self {
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        min_val: f64,
+        max_val: f64,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
         Self {
             input_id,
             saved_input: input,
             min_val,
             max_val,
+            input_grad_fn,
         }
     }
 }
@@ -594,8 +721,50 @@ where
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + CompareOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Create mask where min < a < max (gradient flows through)
+        // The mask is non-differentiable (step function), so treat as constant
+        let min_tensor = Tensor::<R>::full_scalar(
+            self.saved_input.shape(),
+            self.saved_input.dtype(),
+            self.min_val,
+            self.saved_input.device(),
+        );
+        let max_tensor = Tensor::<R>::full_scalar(
+            self.saved_input.shape(),
+            self.saved_input.dtype(),
+            self.max_val,
+            self.saved_input.device(),
+        );
+
+        // Check if value is greater than min
+        let gt_min = client.gt(&self.saved_input, &min_tensor)?;
+        // Check if value is less than max
+        let lt_max = client.lt(&self.saved_input, &max_tensor)?;
+
+        // Combine: gradient flows where min < a < max
+        let mask = client.mul(&gt_min, &lt_max)?;
+
+        // Wrap mask as Var without gradient tracking (non-differentiable)
+        let mask_var = Var::new(mask, false);
+
+        // grad = grad_output * mask using var_mul to track gradients through grad_output
+        let grad = var_mul(grad_output, &mask_var, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
     }
 
     fn saved_tensors(&self) -> &[Tensor<R>] {

@@ -2,10 +2,10 @@
 //!
 //! These implement the gradient computation for basic binary operations.
 
-use crate::autograd::GradFn;
+use crate::autograd::{GradFn, Var, var_div, var_log, var_mul, var_neg, var_sum};
 use crate::error::Result;
 use crate::ops::{BinaryOps, ReduceOps, TensorOps, UnaryOps};
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
 
@@ -55,6 +55,17 @@ where
         // if broadcasting occurred
         let grad_a = reduce_grad_for_broadcast::<R>(grad_output, &self.a_shape)?;
         let grad_b = reduce_grad_for_broadcast::<R>(grad_output, &self.b_shape)?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // For add, gradients are just the output gradient (pass through)
+        // No multiplication needed, so we just reduce for broadcasting
+        let grad_a = reduce_var_for_broadcast(grad_output, &self.a_shape, &client)?;
+        let grad_b = reduce_var_for_broadcast(grad_output, &self.b_shape, &client)?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
@@ -124,6 +135,19 @@ where
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // grad_a = grad_output (pass through)
+        let grad_a = reduce_var_for_broadcast(grad_output, &self.a_shape, &client)?;
+
+        // grad_b = -grad_output (using var_neg builds computation graph)
+        let neg_grad = var_neg(grad_output, &client)?;
+        let grad_b = reduce_var_for_broadcast(&neg_grad, &self.b_shape, &client)?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         &self.input_ids
     }
@@ -186,6 +210,43 @@ where
         // grad_b = grad_output * a
         let grad_b_full = client.mul(grad_output, saved_a)?;
         let grad_b = reduce_grad_for_broadcast::<R>(&grad_b_full, saved_b.shape())?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let saved_b = &self.saved_tensors[1];
+
+        // Wrap saved tensors as Vars with ORIGINAL input IDs AND grad_fns.
+        // This is crucial for second-order differentiation: when we differentiate
+        // the gradient computation, we need:
+        // 1. gradients to accumulate to the original variable IDs
+        // 2. the grad_fn chain to continue backward to even earlier inputs
+        //
+        // For example, if we computed y = (x + b)^2, then:
+        // - saved_a = saved_b = x + b
+        // - input_grad_fns[0] = AddBackward pointing to x and b
+        // - When computing second derivatives, we need to continue from x+b to x
+        let a_var = Var::with_id_and_grad_fn(
+            saved_a.clone(),
+            self.input_ids[0],
+            self.input_grad_fns[0].clone(),
+        );
+        let b_var = Var::with_id_and_grad_fn(
+            saved_b.clone(),
+            self.input_ids[1],
+            self.input_grad_fns[1].clone(),
+        );
+
+        // grad_a = grad_output * b (using var_mul builds computation graph)
+        let grad_a_full = var_mul(grad_output, &b_var, &client)?;
+        let grad_a = reduce_var_for_broadcast(&grad_a_full, saved_a.shape(), &client)?;
+
+        // grad_b = grad_output * a (using var_mul builds computation graph)
+        let grad_b_full = var_mul(grad_output, &a_var, &client)?;
+        let grad_b = reduce_var_for_broadcast(&grad_b_full, saved_b.shape(), &client)?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
@@ -260,6 +321,38 @@ where
         let b_squared = client.mul(saved_b, saved_b)?;
         let grad_b_full = client.div(&neg_grad_a, &b_squared)?;
         let grad_b = reduce_grad_for_broadcast::<R>(&grad_b_full, saved_b.shape())?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let saved_b = &self.saved_tensors[1];
+
+        // Wrap saved tensors as Vars with original input IDs AND grad_fns
+        // for proper second-order gradient chain propagation
+        let a_var = Var::with_id_and_grad_fn(
+            saved_a.clone(),
+            self.input_ids[0],
+            self.input_grad_fns[0].clone(),
+        );
+        let b_var = Var::with_id_and_grad_fn(
+            saved_b.clone(),
+            self.input_ids[1],
+            self.input_grad_fns[1].clone(),
+        );
+
+        // grad_a = grad_output / b
+        let grad_a_full = var_div(grad_output, &b_var, &client)?;
+        let grad_a = reduce_var_for_broadcast(&grad_a_full, saved_a.shape(), &client)?;
+
+        // grad_b = -grad_output * a / b²
+        let neg_grad = var_neg(grad_output, &client)?;
+        let neg_grad_a = var_mul(&neg_grad, &a_var, &client)?;
+        let b_squared = var_mul(&b_var, &b_var, &client)?;
+        let grad_b_full = var_div(&neg_grad_a, &b_squared, &client)?;
+        let grad_b = reduce_var_for_broadcast(&grad_b_full, saved_b.shape(), &client)?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
@@ -343,6 +436,42 @@ where
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let saved_b = &self.saved_tensors[1];
+        let saved_output = &self.saved_tensors[2];
+
+        // Wrap saved tensors as Vars with original input IDs AND grad_fns
+        // for proper second-order gradient chain propagation
+        let a_var = Var::with_id_and_grad_fn(
+            saved_a.clone(),
+            self.input_ids[0],
+            self.input_grad_fns[0].clone(),
+        );
+        let b_var = Var::with_id_and_grad_fn(
+            saved_b.clone(),
+            self.input_ids[1],
+            self.input_grad_fns[1].clone(),
+        );
+        // Output is not an input, so it gets a fresh Var (no special ID needed)
+        let output_var = Var::new(saved_output.clone(), false);
+
+        // grad_a = grad_output * b * output / a
+        let grad_a_temp = var_mul(grad_output, &b_var, &client)?;
+        let grad_a_temp2 = var_mul(&grad_a_temp, &output_var, &client)?;
+        let grad_a_full = var_div(&grad_a_temp2, &a_var, &client)?;
+        let grad_a = reduce_var_for_broadcast(&grad_a_full, saved_a.shape(), &client)?;
+
+        // grad_b = grad_output * output * ln(a)
+        let ln_a = var_log(&a_var, &client)?;
+        let grad_b_temp = var_mul(grad_output, &output_var, &client)?;
+        let grad_b_full = var_mul(&grad_b_temp, &ln_a, &client)?;
+        let grad_b = reduce_var_for_broadcast(&grad_b_full, saved_b.shape(), &client)?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         &self.input_ids
     }
@@ -421,6 +550,68 @@ where
     // Reshape to target shape
     if result.shape() != target_shape {
         result = result.reshape(target_shape)?;
+    }
+
+    Ok(result)
+}
+
+/// Reduce Var gradient to match target shape (for broadcasting)
+///
+/// Like [`reduce_grad_for_broadcast`] but operates on Vars and uses var_sum
+/// to maintain the computation graph for second-order differentiation.
+fn reduce_var_for_broadcast<R, C>(
+    var: &Var<R>,
+    target_shape: &[usize],
+    client: &C,
+) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + TensorOps<R>,
+    R::Client: TensorOps<R>,
+{
+    let var_shape = var.shape();
+
+    // If shapes match, no reduction needed
+    if var_shape == target_shape {
+        return Ok(var.clone());
+    }
+
+    // Find dimensions that need reduction
+    let var_ndim = var_shape.len();
+    let target_ndim = target_shape.len();
+
+    // Pad target shape with leading 1s if necessary
+    let mut padded_target = vec![1usize; var_ndim];
+    let offset = var_ndim.saturating_sub(target_ndim);
+    for (i, &dim) in target_shape.iter().enumerate() {
+        padded_target[offset + i] = dim;
+    }
+
+    // Collect dimensions to reduce
+    let mut reduce_dims = Vec::new();
+    for (i, (&var_dim, &target_dim)) in var_shape.iter().zip(padded_target.iter()).enumerate() {
+        if target_dim == 1 && var_dim > 1 {
+            reduce_dims.push(i);
+        }
+    }
+
+    // Reduce over broadcast dimensions using var_sum (builds graph)
+    let mut result = var.clone();
+    if !reduce_dims.is_empty() {
+        result = var_sum(&result, &reduce_dims, true, client)?;
+    }
+
+    // Remove leading dimensions if target has fewer dims
+    if target_ndim < var_ndim {
+        let extra_dims: Vec<usize> = (0..(var_ndim - target_ndim)).collect();
+        if !extra_dims.is_empty() {
+            result = var_sum(&result, &extra_dims, false, client)?;
+        }
+    }
+
+    // Reshape to target shape if needed using var_reshape to maintain gradient chain
+    if result.shape() != target_shape {
+        result = super::shape::var_reshape(&result, target_shape)?;
     }
 
     Ok(result)
