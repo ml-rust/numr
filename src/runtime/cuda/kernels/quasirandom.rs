@@ -5,7 +5,7 @@ use super::loader::{
     kernel_names, launch_config,
 };
 use crate::error::{Error, Result};
-use cudarc::driver::{CudaContext, CudaStream};
+use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
 use std::sync::Arc;
 
 /// Launch Sobol sequence generation kernel (F32).
@@ -27,14 +27,17 @@ pub unsafe fn launch_sobol_f32(
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
+    let n = n_points as u32;
+    let dim = dimension as u32;
+    let skip_u32 = skip as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_points as u32));
-        builder.arg(&(dimension as u32));
-        builder.arg(&(skip as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
+        builder.arg(&skip_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA sobol_f32 kernel launch failed: {:?}", e))
@@ -63,14 +66,17 @@ pub unsafe fn launch_sobol_f64(
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
+    let n = n_points as u32;
+    let dim = dimension as u32;
+    let skip_u32 = skip as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_points as u32));
-        builder.arg(&(dimension as u32));
-        builder.arg(&(skip as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
+        builder.arg(&skip_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA sobol_f64 kernel launch failed: {:?}", e))
@@ -99,14 +105,17 @@ pub unsafe fn launch_halton_f32(
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
+    let n = n_points as u32;
+    let dim = dimension as u32;
+    let skip_u32 = skip as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_points as u32));
-        builder.arg(&(dimension as u32));
-        builder.arg(&(skip as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
+        builder.arg(&skip_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA halton_f32 kernel launch failed: {:?}", e))
@@ -135,14 +144,17 @@ pub unsafe fn launch_halton_f64(
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
+    let n = n_points as u32;
+    let dim = dimension as u32;
+    let skip_u32 = skip as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_points as u32));
-        builder.arg(&(dimension as u32));
-        builder.arg(&(skip as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
+        builder.arg(&skip_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA halton_f64 kernel launch failed: {:?}", e))
@@ -175,13 +187,15 @@ pub unsafe fn launch_latin_hypercube_f32(
 
     // Shared memory for interval shuffling: n_samples * sizeof(u32)
     let shared_mem_bytes = (n_samples * std::mem::size_of::<u32>()) as u32;
+    let n = n_samples as u32;
+    let dim = dimension as u32;
     let cfg = launch_config(grid, block, shared_mem_bytes);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_samples as u32));
-        builder.arg(&(dimension as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
         builder.arg(&seed);
 
         builder.launch(cfg).map_err(|e| {
@@ -218,13 +232,15 @@ pub unsafe fn launch_latin_hypercube_f64(
 
     // Shared memory for interval shuffling: n_samples * sizeof(u32)
     let shared_mem_bytes = (n_samples * std::mem::size_of::<u32>()) as u32;
+    let n = n_samples as u32;
+    let dim = dimension as u32;
     let cfg = launch_config(grid, block, shared_mem_bytes);
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
-        builder.arg(&(n_samples as u32));
-        builder.arg(&(dimension as u32));
+        builder.arg(&n);
+        builder.arg(&dim);
         builder.arg(&seed);
 
         builder.launch(cfg).map_err(|e| {

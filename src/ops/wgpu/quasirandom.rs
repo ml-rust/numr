@@ -148,7 +148,7 @@ mod tests {
     use crate::runtime::wgpu::WgpuDevice;
 
     fn setup() -> (WgpuDevice, WgpuClient) {
-        let device = WgpuDevice::new().expect("WebGPU device not available");
+        let device = WgpuDevice::new(0);
         let client = WgpuRuntime::default_client(&device);
         (device, client)
     }
