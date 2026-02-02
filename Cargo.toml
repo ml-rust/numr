@@ -1,11 +1,11 @@
 [package]
 name = "numr"
-version = "0.0.0"
+version = "0.0.0-beta.1"
 edition = "2024"
 rust-version = "1.89"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
 license = "Apache-2.0"
-repository = "https://github.com/ml-rust/numr"
+repository = "https://github.com/farhan-syah/numr"
 documentation = "https://docs.rs/numr"
 keywords = ["tensor", "ndarray", "fft", "linear-algebra", "gpu"]
 categories = ["science", "mathematics", "data-structures"]
@@ -17,8 +17,8 @@ cuda = ["dep:cudarc"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
 f16 = ["dep:half", "cudarc?/f16"]
-fp8 = []  # 8-bit floating point types (FP8E4M3, FP8E5M2)
-sparse = []  # Sparse tensor formats (CSR, CSC, COO) and operations
+fp8 = []                            # 8-bit floating point types (FP8E4M3, FP8E5M2)
+sparse = []                         # Sparse tensor formats (CSR, CSC, COO) and operations
 
 [dependencies]
 # Core
@@ -39,7 +39,9 @@ rand_distr = "0.5"
 half = { version = "2.7", optional = true, features = ["bytemuck"] }
 
 # Optional: CUDA backend
-cudarc = { version = "0.18", optional = true, features = ["cuda-version-from-build-system"] }
+cudarc = { version = "0.18", optional = true, features = [
+  "cuda-version-from-build-system",
+] }
 
 # Optional: WebGPU backend
 wgpu = { version = "28.0", optional = true }

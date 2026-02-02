@@ -1,188 +1,487 @@
 # numr
 
-**High-performance numerical computing for Rust with multi-backend GPU acceleration.**
+**THE foundational numerical computing library for Rust.**
 
-numr is a numerical computing library that provides n-dimensional arrays (tensors), linear algebra, FFT, and automatic differentiation - with the same API across CPU, CUDA, and WebGPU backends.
+numr provides dense tensors, linear algebra, FFT, statistics, advanced random number generation, and automatic differentiation—with the same API and algorithms across CPU, CUDA, and WebGPU backends.
 
 ## Why numr?
 
-### vs ndarray
+The Rust numerical computing ecosystem is fragmented. You need one library for tensors (ndarray), another for linear algebra (nalgebra/faer), another for FFT (rustfft), another for random numbers, another for statistics. They don't interoperate. They don't have GPU support. They're not optimized together.
 
-[ndarray](https://github.com/rust-ndarray/ndarray) is CPU-only. numr runs on CPU, CUDA, and WebGPU with the same code.
+numr consolidates everything:
 
-```rust
-// Same code, different hardware
-let result_cpu = a.matmul(&b)?;           // CPU
-let result_gpu = a_cuda.matmul(&b_cuda)?; // NVIDIA GPU
-let result_web = a_wgpu.matmul(&b_wgpu)?; // Any GPU via WebGPU
+| Task                      | Old Ecosystem               | numr                         |
+| ------------------------- | --------------------------- | ---------------------------- |
+| Tensors                   | ndarray                     | Tensor<R>                    |
+| Linear algebra            | nalgebra / faer             | numr::linalg                 |
+| FFT                       | rustfft                     | numr::fft                    |
+| Sparse                    | sprs / ndsparse             | numr::sparse (feature-gated) |
+| Statistics                | statrs                      | numr::statistics             |
+| Random numbers            | rand + manual distributions | numr::random + multivariate  |
+| GPU support               | None                        | CPU, CUDA, WebGPU            |
+| Automatic differentiation | None                        | numr::autograd               |
+
+A Rust developer should never need to look elsewhere for numerical computing.
+
+## Architecture
+
+numr is designed with a simple principle: **same code, any backend**.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    Your Application                          │
+│               (any backend-agnostic code)                    │
+└──────────────────────────────────────────────────────────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+   ┌────▼────┐          ┌────▼────┐          ┌───▼────┐
+   │ CPU      │          │ CUDA     │          │ WebGPU │
+   │ Runtime  │          │ Runtime  │          │Runtime │
+   └────┬────┘          └────┬────┘          └───┬────┘
+        │                    │                    │
+   ┌────▼──────────┬────────┴────────┬───────────▼──┐
+   │     Trait     │                 │               │
+   │  Implemen-    │  Same Algorithm │  Different    │
+   │  tations      │  Different Code │  Hardware     │
+   └───────────────┴─────────────────┴───────────────┘
 ```
 
-### vs faer / nalgebra
+## Operations
 
-[faer](https://github.com/sarah-ek/faer-rs) and [nalgebra](https://nalgebra.org/) are excellent CPU linear algebra libraries. numr provides:
+numr implements a comprehensive set of tensor operations across CPU, CUDA, and WebGPU:
 
-- **GPU backends**: CUDA, WebGPU - not just CPU
-- **Automatic differentiation**: Built-in autograd for gradients
-- **Sparse tensors**: CSR, CSC, COO formats with GPU support
-- **N-dimensional**: True tensors, not just matrices
+### Core Arithmetic
 
-### vs numpy bindings (numpy, ndarray-npy)
+- **UnaryOps**: neg, abs, sqrt, exp, log, sin, cos, tan, sinh, cosh, tanh, floor, ceil, round, and more
+- **BinaryOps**: add, sub, mul, div, pow, maximum, minimum (all with NumPy-style broadcasting)
+- **ScalarOps**: tensor-scalar arithmetic
 
-Python bindings require a Python runtime. numr is pure Rust:
+### Shape and Data Movement
 
-- **No Python dependency**: Single binary deployment
-- **No GIL**: True parallelism
-- **No FFI overhead**: Native Rust performance
-- **Compile-time safety**: Catch errors before runtime
+- **ShapeOps**: cat, stack, split, chunk, repeat, pad, roll
+- **IndexingOps**: gather, scatter, index_select, masked_select, masked_fill, embedding_lookup
+- **SortingOps**: sort, argsort, topk, unique, nonzero, searchsorted
 
-### vs cupy / torch bindings
+### Reductions
 
-[cupy](https://cupy.dev/) is CUDA-only. PyTorch bindings require the PyTorch runtime. numr provides:
+- **ReduceOps**: sum, mean, max, min, prod (with precision variants)
+- **CumulativeOps**: cumsum, cumprod, logsumexp
 
-- **Multiple GPU backends**: CUDA and WebGPU (works on NVIDIA, AMD, Intel, Apple)
-- **Native kernels**: Not wrappers around cuBLAS/MKL
-- **Lightweight**: No 2GB PyTorch installation
-- **Same algorithm everywhere**: Identical results across backends
+### Comparisons and Logical
 
-## Features
+- **CompareOps**: eq, ne, lt, le, gt, ge
+- **LogicalOps**: logical_and, logical_or, logical_xor, logical_not
+- **ConditionalOps**: where (ternary conditional)
 
-- **Tensors**: N-dimensional arrays with broadcasting, slicing, views
-- **Linear algebra**: Matmul, LU, QR, SVD, Cholesky, eigendecomposition
-- **FFT**: Fast Fourier transforms (1D, 2D, ND)
-- **Element-wise operations**: Full set of math functions
-- **Reductions**: Sum, mean, max, min, argmax, argmin along axes
-- **Autograd**: Reverse-mode automatic differentiation
-- **Sparse tensors**: CSR, CSC, COO formats (with `sparse` feature)
-- **Multiple dtypes**: f64, f32, f16, bf16, fp8, i64, i32, i16, i8, u64, u32, u16, u8, bool
+### Neural Network Operations
+
+- **ActivationOps**: relu, sigmoid, silu, gelu, leaky_relu, elu, softmax
+- **NormalizationOps**: rms_norm, layer_norm
+
+### Linear Algebra
+
+- **MatmulOps**: matmul, matmul_bias (fused GEMM+bias)
+- **LinalgOps**: solve, lstsq, pinverse, inverse, det, trace, matrix_rank, diag, matrix_norm, kron, khatri_rao
+
+### Statistics and Probability
+
+- **StatisticalOps**: var, std, skew, kurtosis, quantile, percentile, median, cov, corrcoef
+- **RandomOps**: rand, randn, randint, multinomial, bernoulli, poisson, binomial, beta, gamma, exponential, chi_squared, student_t, f_distribution
+- **MultivariateRandomOps**: multivariate_normal, wishart, dirichlet
+- **QuasirandomOps**: Sobol, Halton sequences
+
+### Distance Metrics
+
+- **DistanceOps**: euclidean, manhattan, cosine, hamming, jaccard, minkowski, chebyshev, correlation
+
+### Algorithm Modules
+
+**Linear Algebra (`numr::linalg`):**
+
+- **Decompositions**: LU, QR, Cholesky, SVD, Schur, full eigendecomposition, generalized eigenvalues
+- **Solvers**: solve, lstsq, pinverse
+- **Matrix functions**: exp, log, sqrt, sign
+- **Utilities**: det, trace, rank, matrix norms
+
+**Fast Fourier Transform (`numr::fft`):**
+
+- FFT/IFFT (1D, 2D, ND) - Stockham algorithm
+- Real FFT (RFFT/IRFFT)
+
+**Matrix Multiplication (`numr::matmul`):**
+
+- Tiled GEMM with register blocking
+- Bias fusion support
+
+**Special Functions (`numr::special`):**
+
+- Gamma functions: gamma, lgamma, digamma, polygamma
+- Error functions: erf, erfc, erfcinv
+- Bessel functions: J0, J1, Jn, Y0, Y1, Yn
+- Inverse special functions: erfcinv
+
+**Sparse Tensors (`numr::sparse`, feature-gated):**
+
+- Formats: CSR, CSC, COO
+- Operations: SpGEMM (sparse matrix multiplication), SpMV (sparse matrix-vector), DSMM (dense-sparse matrix)
+
+## Dtypes
+
+numr supports a wide range of numeric types:
+
+| Type    | Size | CPU | CUDA | WebGPU | Feature |
+| ------- | ---- | --- | ---- | ------ | ------- |
+| f64     | 8B   | ✓   | ✓    | ✗      | -       |
+| f32     | 4B   | ✓   | ✓    | ✓      | -       |
+| f16     | 2B   | ✓   | ✓    | ✓      | `f16`   |
+| bf16    | 2B   | ✓   | ✓    | ✗      | `f16`   |
+| fp8e4m3 | 1B   | ✓   | ✓    | ✗      | `fp8`   |
+| fp8e5m2 | 1B   | ✓   | ✓    | ✗      | `fp8`   |
+| i64     | 8B   | ✓   | ✓    | ✗      | -       |
+| i32     | 4B   | ✓   | ✓    | ✓      | -       |
+| i16     | 2B   | ✓   | ✓    | ✗      | -       |
+| i8      | 1B   | ✓   | ✓    | ✗      | -       |
+| u64     | 8B   | ✓   | ✓    | ✗      | -       |
+| u32     | 4B   | ✓   | ✓    | ✓      | -       |
+| u16     | 2B   | ✓   | ✓    | ✗      | -       |
+| u8      | 1B   | ✓   | ✓    | ✓      | -       |
+| bool    | 1B   | ✓   | ✓    | ✓      | -       |
+
+Every operation supports every compatible dtype. No hardcoded f32-only kernels.
 
 ## Backends
 
-| Hardware   | Backend                  | Feature Flag    | Status  |
-| ---------- | ------------------------ | --------------- | ------- |
-| Any CPU    | CPU                      | `cpu` (default) | ✅      |
-| NVIDIA GPU | CUDA                     | `cuda`          | ✅      |
-| NVIDIA GPU | WebGPU                   | `wgpu`          | ✅      |
-| AMD GPU    | WebGPU                   | `wgpu`          | ✅      |
-| Intel GPU  | WebGPU                   | `wgpu`          | ✅      |
-| Apple GPU  | WebGPU                   | `wgpu`          | ✅      |
-| AMD GPU    | ROCm (native)            | -               | Planned |
-| Apple GPU  | Metal (native)           | -               | Planned |
-| CPU        | SIMD (AVX-512/AVX2/NEON) | -               | Planned |
+All backends implement identical algorithms with native kernels—no cuBLAS, MKL, or vendor library dependencies.
 
-All backends use **native kernels** - no cuBLAS, MKL, or other vendor libraries. This means:
+| Hardware     | Backend | Feature       | Status  | Notes              |
+| ------------ | ------- | ------------- | ------- | ------------------ |
+| CPU (x86-64) | CPU     | cpu (default) | ✓       | AVX-512/AVX2 SIMD  |
+| CPU (ARM)    | CPU     | cpu           | Planned | NEON SIMD          |
+| NVIDIA GPU   | CUDA    | cuda          | ✓       | Native PTX kernels |
+| AMD GPU      | WebGPU  | wgpu          | ✓       | WGSL shaders       |
+| Intel GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
+| Apple GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
+| AMD GPU      | ROCm    | -             | Planned | Native HIP kernels |
 
-- No proprietary dependencies to install
-- Same algorithm produces same results on all hardware
-- Works anywhere Rust compiles
+### Why Native Kernels?
+
+1. **Fewer dependencies**: No 2GB+ CUDA toolkit, no MKL installation
+2. **Portability**: Same code on CPU, NVIDIA, AMD, Intel, Apple
+3. **Transparency**: Understand exactly what code runs on your hardware
+4. **Maintainability**: Your code doesn't break when vendor updates drop
+5. **Performance**: Kernels optimize for YOUR workloads, not generic cases
 
 ## Quick Start
 
+### CPU Example
+
 ```rust
 use numr::prelude::*;
+use numr::runtime::cpu::CpuRuntime;
 
-// Create tensors
-let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2])?;
+fn main() -> Result<()> {
+    // Create tensors
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0, 2.0, 3.0, 4.0],
+        &[2, 2],
+    )?;
+    let b = Tensor::<CpuRuntime>::from_slice(
+        &[5.0, 6.0, 7.0, 8.0],
+        &[2, 2],
+    )?;
 
-// Arithmetic
-let c = &a + &b;
-let d = &a * &b;
-let e = a.matmul(&b)?;
+    // Arithmetic (with broadcasting)
+    let c = a.add(&b)?;
+    let d = a.mul(&b)?;
 
-// Reductions
-let sum = c.sum()?;
-let mean = c.mean()?;
-let max = c.max()?;
+    // Matrix multiplication
+    let e = a.matmul(&b)?;
 
-// Reshaping (zero-copy)
-let flat = c.reshape(&[4])?;
-let transposed = c.transpose()?;
+    // Reductions
+    let sum = c.sum()?;
+    let mean = c.mean()?;
+    let max = c.max()?;
+
+    // Element-wise functions
+    let exp = a.exp()?;
+    let sqrt = a.sqrt()?;
+
+    // Reshaping (zero-copy)
+    let flat = c.reshape(&[4])?;
+    let transposed = c.transpose()?;
+
+    Ok(())
+}
 ```
 
-### GPU Example
+### GPU Example (CUDA)
 
 ```rust
 use numr::prelude::*;
+use numr::runtime::cuda::CudaRuntime;
 
-// Create on GPU
-let device = CudaRuntime::default_device()?;
-let a = Tensor::<CudaRuntime>::randn(&[1024, 1024], &device)?;
-let b = Tensor::<CudaRuntime>::randn(&[1024, 1024], &device)?;
+fn main() -> Result<()> {
+    // Create on GPU
+    let device = CudaRuntime::default_device()?;
+    let a = Tensor::<CudaRuntime>::randn(&[1024, 1024], &device)?;
+    let b = Tensor::<CudaRuntime>::randn(&[1024, 1024], &device)?;
 
-// Operations run on GPU
-let c = a.matmul(&b)?;
+    // Operations run on GPU (native CUDA kernels)
+    let c = a.matmul(&b)?;
 
-// Transfer to CPU when needed
-let cpu_data = c.to_vec::<f32>()?;
+    // Transfer result to CPU when needed
+    let cpu_result = c.to_cpu()?;
+    let data = cpu_result.to_vec::<f32>()?;
+
+    Ok(())
+}
 ```
 
 ### Backend-Generic Code
 
 ```rust
 use numr::prelude::*;
+use numr::runtime::Runtime;
+use numr::tensor::Tensor;
 
-// Works on any backend
-fn compute<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
-    let c = a.add(b)?;
-    let d = c.matmul(a)?;
-    d.sum()
+// Works on CPU, CUDA, or WebGPU
+fn matrix_operations<R: Runtime>(
+    a: &Tensor<R>,
+    b: &Tensor<R>,
+    client: &R::Client,
+) -> Result<Tensor<R>> {
+    // Same code, any backend
+    let c = client.add(a, b)?;
+    let d = client.matmul(&c, a)?;
+    client.sum(&d)
 }
 
-// Use the same function on CPU or GPU
-let cpu_result = compute(&cpu_a, &cpu_b)?;
-let cuda_result = compute(&cuda_a, &cuda_b)?;
+// Use the same function on different hardware
+fn main() -> Result<()> {
+    let a_cpu = Tensor::<CpuRuntime>::randn(&[128, 128], &device_cpu)?;
+    let b_cpu = Tensor::<CpuRuntime>::randn(&[128, 128], &device_cpu)?;
+    let result_cpu = matrix_operations(&a_cpu, &b_cpu, &client_cpu)?;
+
+    #[cfg(feature = "cuda")]
+    {
+        let device_cuda = CudaRuntime::default_device()?;
+        let a_cuda = Tensor::<CudaRuntime>::randn(&[128, 128], &device_cuda)?;
+        let b_cuda = Tensor::<CudaRuntime>::randn(&[128, 128], &device_cuda)?;
+        let result_cuda = matrix_operations(&a_cuda, &b_cuda, &client_cuda)?;
+    }
+
+    Ok(())
+}
+```
+
+### Linear Algebra
+
+```rust
+use numr::prelude::*;
+use numr::algorithm::linalg::{LinalgOps, Decomposition};
+
+fn main() -> Result<()> {
+    let a = Tensor::<CpuRuntime>::randn(&[64, 64], &device)?;
+
+    // LU decomposition
+    let (p, l, u) = client.lu(&a)?;
+
+    // QR decomposition
+    let (q, r) = client.qr(&a)?;
+
+    // SVD
+    let (u, s, vt) = client.svd(&a)?;
+
+    // Eigendecomposition
+    let (eigenvalues, eigenvectors) = client.eig(&a)?;
+
+    // Solve linear system: Ax = b
+    let b = Tensor::<CpuRuntime>::randn(&[64, 32], &device)?;
+    let x = client.solve(&a, &b)?;
+
+    // Determinant, trace, rank
+    let det = client.det(&a)?;
+    let tr = client.trace(&a)?;
+    let rank = client.matrix_rank(&a)?;
+
+    Ok(())
+}
+```
+
+### FFT
+
+```rust
+use numr::prelude::*;
+use numr::algorithm::fft::FftOps;
+
+fn main() -> Result<()> {
+    let x = Tensor::<CpuRuntime>::randn(&[1024], &device)?;
+
+    // Complex FFT
+    let fft_result = client.fft(&x)?;
+    let inverse = client.ifft(&fft_result)?;
+
+    // Real FFT (more efficient for real-valued inputs)
+    let rfft_result = client.rfft(&x)?;
+    let irfft_result = client.irfft(&rfft_result, 1024)?;
+
+    // 2D FFT
+    let image = Tensor::<CpuRuntime>::randn(&[256, 256], &device)?;
+    let fft_2d = client.fft_2d(&image)?;
+
+    Ok(())
+}
+```
+
+### Statistics and Distributions
+
+```rust
+use numr::prelude::*;
+
+fn main() -> Result<()> {
+    let data = Tensor::<CpuRuntime>::randn(&[1000], &device)?;
+
+    // Descriptive statistics
+    let mean = client.mean(&data)?;
+    let std = client.std(&data)?;
+    let var = client.var(&data)?;
+    let median = client.median(&data)?;
+    let q25 = client.quantile(&data, 0.25)?;
+
+    // Statistical measures
+    let skewness = client.skew(&data)?;
+    let kurtosis = client.kurtosis(&data)?;
+
+    // Covariance and correlation
+    let x = Tensor::<CpuRuntime>::randn(&[100, 5], &device)?;
+    let y = Tensor::<CpuRuntime>::randn(&[100, 5], &device)?;
+    let cov = client.cov(&x)?;
+    let corr = client.corrcoef(&x)?;
+
+    // Random distributions
+    let normal = Tensor::<CpuRuntime>::randn(&[1000], &device)?; // mean=0, std=1
+    let uniform = Tensor::<CpuRuntime>::rand(&[1000], &device)?; // [0, 1)
+    let gamma = client.gamma(&[1000], shape, scale, &device)?;
+    let poisson = client.poisson(&[1000], lambda, &device)?;
+
+    // Multivariate distributions
+    let mvn = client.multivariate_normal(&[100], &mean, &cov)?;
+    let wishart = client.wishart(&[10], df, &scale_matrix)?;
+
+    Ok(())
+}
 ```
 
 ## Installation
 
+### CPU-only (default)
+
 ```toml
 [dependencies]
-numr = "0.0.0"
+numr = "*"
 ```
 
-With GPU support:
+### With GPU Support
 
 ```toml
-# NVIDIA CUDA
-numr = { version = "0.0.0", features = ["cuda"] }
+[dependencies]
+# NVIDIA CUDA (requires CUDA 12.0+)
+numr = { version = "*", features = ["cuda"] }
 
-# Cross-platform GPU (WebGPU)
-numr = { version = "0.0.0", features = ["wgpu"] }
+# Cross-platform GPU (NVIDIA, AMD, Intel, Apple)
+numr = { version = "*", features = ["wgpu"] }
+```
+
+### With Optional Features
+
+```toml
+[dependencies]
+numr = { version = "*", features = [
+    "cuda",      # NVIDIA GPU support
+    "wgpu",      # Cross-platform GPU (WebGPU)
+    "f16",       # Half-precision (F16, BF16)
+    "fp8",       # 8-bit floating point
+    "sparse",    # Sparse tensors
+] }
 ```
 
 ## Feature Flags
 
-| Feature           | Description                           |
-| ----------------- | ------------------------------------- |
-| `cpu` (default)   | CPU backend                           |
-| `cuda`            | NVIDIA CUDA backend                   |
-| `wgpu`            | Cross-platform GPU via WebGPU         |
-| `rayon` (default) | Multi-threaded CPU operations         |
-| `f16`             | Half-precision floats (F16, BF16)     |
-| `fp8`             | 8-bit floats (FP8E4M3, FP8E5M2)       |
-| `sparse`          | Sparse tensor formats (CSR, CSC, COO) |
-
-## Building on numr
-
-numr is designed as a foundation. Libraries can build on numr to get optimized kernels for free:
-
-- **solvr** - Scientific computing (optimization, ODE solvers, statistics)
-- **boostr** - ML framework (neural network layers, attention mechanisms)
-- **Your library** - Build what you need on numr tensors
-
-When numr's kernels improve, everything built on it improves.
+| Feature  | Description                                        | Default |
+| -------- | -------------------------------------------------- | ------- |
+| `cpu`    | CPU backend (AVX-512/AVX2 on x86-64, NEON planned) | ✓       |
+| `cuda`   | NVIDIA CUDA backend                                | ✗       |
+| `wgpu`   | Cross-platform GPU (WebGPU)                        | ✗       |
+| `rayon`  | Multi-threaded CPU via Rayon                       | ✓       |
+| `f16`    | Half-precision floats (F16, BF16)                  | ✗       |
+| `fp8`    | 8-bit floats (FP8E4M3, FP8E5M2)                    | ✗       |
+| `sparse` | Sparse tensor support (CSR, CSC, COO)              | ✗       |
 
 ## Building from Source
 
 ```bash
-cargo build --release                    # CPU only
-cargo build --release --features cuda    # With CUDA
-cargo build --release --features wgpu    # With WebGPU
+# CPU only
+cargo build --release
 
-cargo test                               # Run tests
-cargo test --features cuda               # CUDA tests
-cargo bench                              # Benchmarks
+# With CUDA
+cargo build --release --features cuda
+
+# With WebGPU
+cargo build --release --features wgpu
+
+# With all features
+cargo build --release --features cuda,wgpu,f16,fp8,sparse
+
+# Run tests
+cargo test --release
+cargo test --release --features cuda
+cargo test --release --features wgpu
+
+# Run benchmarks
+cargo bench
 ```
+
+## How numr Fits in the Stack
+
+numr is the **foundation** that everything else builds on:
+
+```
+┌────────────────────────────────────┐
+│  Applications (oxidizr, blazr)     │
+│  Your domain-specific code         │
+└────────────────┬───────────────────┘
+                 │
+┌────────────────▼───────────────────┐
+│  boostr - ML Framework             │
+│  (neural networks, attention)      │
+│  Builds on numr ops                │
+└────────────────┬───────────────────┘
+                 │
+┌────────────────▼───────────────────┐
+│  solvr - Scientific Computing      │
+│  (optimization, ODE, interpolation)│
+│  Builds on numr ops and linalg     │
+└────────────────┬───────────────────┘
+                 │
+┌────────────────▼───────────────────┐
+│  numr - Foundations                │
+│  (tensors, linalg, FFT, random)    │
+│  Native CPU, CUDA, WebGPU kernels  │
+└────────────────────────────────────┘
+```
+
+When numr's kernels improve, everything above improves automatically.
+
+## Kernels and Extensibility
+
+numr provides default kernels for all operations. You can also:
+
+- **Use default kernels**: All operations work out of the box with optimized SIMD (CPU), PTX (CUDA), and WGSL (WebGPU) kernels
+- **Replace specific kernels**: Swap in your own optimized kernels for performance-critical paths
+- **Add new operations**: Define new traits and implement kernels for all backends
+
+For detailed guidance on writing custom kernels, adding new operations, and backend-specific optimization techniques, see **[docs/extending-numr.md](docs/extending-numr.md)**.
 
 ## License
 
