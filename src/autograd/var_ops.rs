@@ -27,7 +27,7 @@ use super::Var;
 use super::ops::*;
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::error::Result;
-use crate::ops::{CompareOps, ScalarOps, TensorOps};
+use crate::ops::{CompareOps, ReduceOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use std::sync::Arc;
 
@@ -176,7 +176,7 @@ macro_rules! impl_var_scalar_op_id {
             let output = client.$op_method(a.tensor(), scalar)?;
 
             if a.requires_grad() {
-                let grad_fn = $backward_ty::<R>::new(a.id());
+                let grad_fn = $backward_ty::<R>::new(a.id(), a.grad_fn().cloned());
                 Ok(Var::from_op(output, Arc::new(grad_fn)))
             } else {
                 Ok(Var::new(output, false))
@@ -198,7 +198,55 @@ macro_rules! impl_var_scalar_op_scalar {
             let output = client.$op_method(a.tensor(), scalar)?;
 
             if a.requires_grad() {
-                let grad_fn = $backward_ty::<R>::new(a.id(), scalar);
+                let grad_fn = $backward_ty::<R>::new(a.id(), scalar, a.grad_fn().cloned());
+                Ok(Var::from_op(output, Arc::new(grad_fn)))
+            } else {
+                Ok(Var::new(output, false))
+            }
+        }
+    };
+}
+
+/// Unary operation with output-based backward that requires ScalarOps (sqrt, tanh, recip, sigmoid)
+///
+/// These operations save the output tensor and require ScalarOps for backward computation.
+macro_rules! impl_var_unary_op_output_scalar {
+    ($(#[$meta:meta])* $fn_name:ident, $op_method:ident, $backward_ty:ident) => {
+        $(#[$meta])*
+        pub fn $fn_name<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+        where
+            R: Runtime,
+            C: RuntimeClient<R> + TensorOps<R>,
+            R::Client: TensorOps<R> + ScalarOps<R>,
+        {
+            let output = client.$op_method(a.tensor())?;
+
+            if a.requires_grad() {
+                let grad_fn = $backward_ty::<R>::new(a.id(), output.clone());
+                Ok(Var::from_op(output, Arc::new(grad_fn)))
+            } else {
+                Ok(Var::new(output, false))
+            }
+        }
+    };
+}
+
+/// Unary operation with input-based backward that requires ScalarOps (square, tan)
+///
+/// These operations save the input tensor and require ScalarOps for backward computation.
+macro_rules! impl_var_unary_op_input_scalar {
+    ($(#[$meta:meta])* $fn_name:ident, $op_method:ident, $backward_ty:ident) => {
+        $(#[$meta])*
+        pub fn $fn_name<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+        where
+            R: Runtime,
+            C: RuntimeClient<R> + TensorOps<R>,
+            R::Client: TensorOps<R> + ScalarOps<R>,
+        {
+            let output = client.$op_method(a.tensor())?;
+
+            if a.requires_grad() {
+                let grad_fn = $backward_ty::<R>::new(a.id(), a.tensor().clone());
                 Ok(Var::from_op(output, Arc::new(grad_fn)))
             } else {
                 Ok(Var::new(output, false))
@@ -297,24 +345,12 @@ impl_var_unary_op_input!(
     var_log, log, LogBackward
 );
 
-/// Square root: z = sqrt(a)
-///
-/// Note: Requires additional ScalarOps bound.
-pub fn var_sqrt<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
-where
-    R: Runtime,
-    C: RuntimeClient<R> + TensorOps<R>,
-    R::Client: TensorOps<R> + ScalarOps<R>,
-{
-    let output = client.sqrt(a.tensor())?;
-
-    if a.requires_grad() {
-        let grad_fn = SqrtBackward::<R>::new(a.id(), output.clone());
-        Ok(Var::from_op(output, Arc::new(grad_fn)))
-    } else {
-        Ok(Var::new(output, false))
-    }
-}
+impl_var_unary_op_output_scalar!(
+    /// Square root: z = sqrt(a)
+    ///
+    /// Requires ScalarOps bound for backward computation.
+    var_sqrt, sqrt, SqrtBackward
+);
 
 impl_var_unary_op_input!(
     /// Sine: z = sin(a)
@@ -326,32 +362,24 @@ impl_var_unary_op_input!(
     var_cos, cos, CosBackward
 );
 
-impl_var_unary_op_output!(
+impl_var_unary_op_output_scalar!(
     /// Hyperbolic tangent: z = tanh(a)
+    ///
+    /// Requires ScalarOps bound for backward computation.
     var_tanh, tanh, TanhBackward
 );
 
-/// Square: z = a²
-///
-/// Note: Requires additional ScalarOps bound.
-pub fn var_square<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
-where
-    R: Runtime,
-    C: RuntimeClient<R> + TensorOps<R>,
-    R::Client: TensorOps<R> + ScalarOps<R>,
-{
-    let output = client.square(a.tensor())?;
+impl_var_unary_op_input_scalar!(
+    /// Square: z = a²
+    ///
+    /// Requires ScalarOps bound for backward computation.
+    var_square, square, SquareBackward
+);
 
-    if a.requires_grad() {
-        let grad_fn = SquareBackward::<R>::new(a.id(), a.tensor().clone());
-        Ok(Var::from_op(output, Arc::new(grad_fn)))
-    } else {
-        Ok(Var::new(output, false))
-    }
-}
-
-impl_var_unary_op_output!(
+impl_var_unary_op_output_scalar!(
     /// Reciprocal: z = 1/a
+    ///
+    /// Requires ScalarOps bound for backward computation.
     var_recip, recip, RecipBackward
 );
 
@@ -360,8 +388,10 @@ impl_var_unary_op_input!(
     var_abs, abs, AbsBackward
 );
 
-impl_var_unary_op_input!(
+impl_var_unary_op_input_scalar!(
     /// Tangent: z = tan(a)
+    ///
+    /// Requires ScalarOps bound for backward computation.
     var_tan, tan, TanBackward
 );
 
@@ -401,7 +431,8 @@ where
     let output = client.pow_scalar(a.tensor(), scalar)?;
 
     if a.requires_grad() {
-        let grad_fn = PowScalarBackward::<R>::new(a.id(), a.tensor().clone(), scalar);
+        let grad_fn =
+            PowScalarBackward::<R>::new(a.id(), a.tensor().clone(), scalar, a.grad_fn().cloned());
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
@@ -577,7 +608,13 @@ where
     let output = client.clamp(a.tensor(), min_val, max_val)?;
 
     if a.requires_grad() {
-        let grad_fn = ClampBackward::<R>::new(a.id(), a.tensor().clone(), min_val, max_val);
+        let grad_fn = ClampBackward::<R>::new(
+            a.id(),
+            a.tensor().clone(),
+            min_val,
+            max_val,
+            a.grad_fn().cloned(),
+        );
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
@@ -598,29 +635,41 @@ where
     let output = client.relu(a.tensor())?;
 
     if a.requires_grad() {
-        let grad_fn = ReluBackward::<R>::new(a.id(), a.tensor().clone());
+        let grad_fn = ReluBackward::<R>::new(a.id(), a.tensor().clone(), a.grad_fn().cloned());
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
     }
 }
 
-impl_var_unary_op_output!(
-    /// Sigmoid: z = 1 / (1 + exp(-a))
-    var_sigmoid, sigmoid, SigmoidBackward
-);
+/// Sigmoid: z = 1 / (1 + exp(-a))
+pub fn var_sigmoid<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + TensorOps<R>,
+    R::Client: TensorOps<R>,
+{
+    let output = client.sigmoid(a.tensor())?;
+
+    if a.requires_grad() {
+        let grad_fn = SigmoidBackward::<R>::new(a.id(), output.clone(), a.grad_fn().cloned());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
 
 /// Softmax along dimension: z_i = exp(a_i) / sum(exp(a))
 pub fn var_softmax<R, C>(a: &Var<R>, dim: isize, client: &C) -> Result<Var<R>>
 where
     R: Runtime,
     C: RuntimeClient<R> + TensorOps<R>,
-    R::Client: TensorOps<R>,
+    R::Client: TensorOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
     let output = client.softmax(a.tensor(), dim)?;
 
     if a.requires_grad() {
-        let grad_fn = SoftmaxBackward::<R>::new(a.id(), output.clone(), dim);
+        let grad_fn = SoftmaxBackward::<R>::new(a.id(), output.clone(), dim, a.grad_fn().cloned());
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
