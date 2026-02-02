@@ -5,7 +5,11 @@ mod common;
 use common::{assert_allclose_f64, create_cpu_client};
 use numr::algorithm::linalg::MatrixFunctionsAlgorithms;
 use numr::dtype::DType;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 
@@ -70,7 +74,9 @@ fn test_signm_involutory() {
     let a = Tensor::<CpuRuntime>::from_slice(&[2.0, 1.0, 0.5, 3.0], &[2, 2], &device);
     let sign_a = client.signm(&a).expect("signm should succeed");
 
-    let sign_squared = TensorOps::matmul(&client, &sign_a, &sign_a).expect("matmul should succeed");
+    let sign_squared = client
+        .matmul(&sign_a, &sign_a)
+        .expect("matmul should succeed");
 
     let result_data: Vec<f64> = sign_squared.to_vec();
     let expected = vec![1.0, 0.0, 0.0, 1.0];
@@ -152,7 +158,7 @@ fn test_fractional_power_integer() {
         .expect("A^2 should succeed");
 
     // A^2 = A @ A
-    let expected = TensorOps::matmul(&client, &a, &a).expect("matmul should succeed");
+    let expected = client.matmul(&a, &a).expect("matmul should succeed");
 
     let result_data: Vec<f64> = result.to_vec();
     let expected_data: Vec<f64> = expected.to_vec();
@@ -172,7 +178,7 @@ fn test_fractional_power_negative() {
         .expect("A^{-1} should succeed");
 
     // Verify: A @ A^{-1} = I
-    let product = TensorOps::matmul(&client, &a, &result).expect("matmul should succeed");
+    let product = client.matmul(&a, &result).expect("matmul should succeed");
 
     let product_data: Vec<f64> = product.to_vec();
     let expected = vec![1.0, 0.0, 0.0, 1.0];

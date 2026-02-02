@@ -8,7 +8,7 @@
 //! - Edge cases
 
 use numr::dtype::DType;
-use numr::ops::TensorOps;
+use numr::ops::{RandomOps, TensorOps};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 

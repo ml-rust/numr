@@ -8,7 +8,11 @@
 //! - Backend parity: CPU, CUDA, WGPU results match expected values
 
 use numr::algorithm::linalg::LinearAlgebraAlgorithms;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
@@ -130,7 +134,7 @@ fn test_eig_2x2_symmetric() {
 
     // Verify eigenvalue equation: A @ V ≈ V @ diag(λ)
     let av = client.matmul(&a, &eig.eigenvectors).unwrap();
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
 
     let av_data: Vec<f32> = av.to_vec();
@@ -184,7 +188,7 @@ fn test_eig_3x3_symmetric() {
 
     // Verify eigenvalue equation
     let av = client.matmul(&a, &eig.eigenvectors).unwrap();
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
 
     let av_data: Vec<f32> = av.to_vec();
@@ -219,7 +223,7 @@ fn test_eig_identity() {
 
     // Verify eigenvalue equation
     let av = client.matmul(&a, &eig.eigenvectors).unwrap();
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
 
     let av_data: Vec<f32> = av.to_vec();
@@ -304,7 +308,7 @@ fn test_eig_negative_eigenvalues() {
 
     // Verify eigenvalue equation
     let av = client.matmul(&a, &eig.eigenvectors).unwrap();
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
 
     let av_data: Vec<f32> = av.to_vec();
@@ -434,7 +438,7 @@ fn test_eig_larger_matrix() {
 
     // Verify eigenvalue equation
     let av = client.matmul(&a, &eig.eigenvectors).unwrap();
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
 
     let av_data: Vec<f32> = av.to_vec();
@@ -463,7 +467,7 @@ fn test_eig_reconstruction() {
     let eig = client.eig_decompose_symmetric(&a).unwrap();
 
     // Reconstruct: A_reconstructed = V @ diag(λ) @ V^T
-    let lambda_diag = TensorOps::diagflat(&client, &eig.eigenvalues).unwrap();
+    let lambda_diag = LinalgOps::diagflat(&client, &eig.eigenvalues).unwrap();
     let v_lambda = client.matmul(&eig.eigenvectors, &lambda_diag).unwrap();
     let vt = eig.eigenvectors.transpose(0, 1).unwrap();
     let reconstructed = client.matmul(&v_lambda, &vt).unwrap();

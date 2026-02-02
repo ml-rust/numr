@@ -3,7 +3,11 @@
 //! These tests verify the public API of the CPU runtime implementation.
 
 use numr::dtype::DType;
-use numr::ops::{CompareOps, LogicalOps, ScalarOps, TensorOps};
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::runtime::{Allocator, Runtime, RuntimeClient};
 use numr::tensor::Tensor;
@@ -189,7 +193,7 @@ fn test_tensor_matmul_2x2() {
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
     let b = Tensor::<CpuRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device);
 
-    let c = TensorOps::matmul(&client, &a, &b).unwrap();
+    let c = client.matmul(&a, &b).unwrap();
 
     assert_eq!(c.shape(), &[2, 2]);
     let result: Vec<f32> = c.to_vec();
@@ -211,7 +215,7 @@ fn test_tensor_matmul_3x2_2x4() {
         &device,
     );
 
-    let c = TensorOps::matmul(&client, &a, &b).unwrap();
+    let c = client.matmul(&a, &b).unwrap();
 
     assert_eq!(c.shape(), &[3, 4]);
     let result: Vec<f32> = c.to_vec();
@@ -1086,7 +1090,7 @@ fn test_f16_matmul() {
     let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[2, 2], &device);
     let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[2, 2], &device);
 
-    let c = TensorOps::matmul(&client, &a, &b).unwrap();
+    let c = client.matmul(&a, &b).unwrap();
 
     assert_eq!(c.shape(), &[2, 2]);
     let result: Vec<f16> = c.to_vec();

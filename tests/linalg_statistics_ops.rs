@@ -13,7 +13,11 @@
 //! - Edge cases and error conditions
 
 use numr::algorithm::linalg::LinearAlgebraAlgorithms;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
@@ -90,7 +94,7 @@ fn test_pinverse_identity() {
         &device,
     );
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     // Result should be identity
@@ -105,7 +109,7 @@ fn test_pinverse_2x2_invertible() {
     // Well-conditioned 2x2 matrix
     let a = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     // For invertible matrices, pinverse = inverse
@@ -115,8 +119,8 @@ fn test_pinverse_2x2_invertible() {
     assert_allclose_f32(&pinv_data, &expected, 1e-4, 1e-4, "pinverse of 2x2");
 
     // Verify A @ A^+ @ A = A (pseudo-inverse property)
-    let a_pinv = TensorOps::matmul(&client, &a, &pinv).unwrap();
-    let a_pinv_a = TensorOps::matmul(&client, &a_pinv, &a).unwrap();
+    let a_pinv = client.matmul(&a, &pinv).unwrap();
+    let a_pinv_a = client.matmul(&a_pinv, &a).unwrap();
     let result: Vec<f32> = a_pinv_a.to_vec();
     let a_data: Vec<f32> = a.to_vec();
     assert_allclose_f32(&result, &a_data, 1e-4, 1e-4, "A @ pinv @ A = A");
@@ -129,14 +133,14 @@ fn test_pinverse_tall_matrix() {
     // 3x2 matrix (m > n) - overdetermined system
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
 
     // Output shape should be [2, 3] (transposed)
     assert_eq!(pinv.shape(), &[2, 3], "pinverse shape");
 
     // Verify A^+ @ A @ A^+ = A^+ (Moore-Penrose condition)
-    let pinv_a = TensorOps::matmul(&client, &pinv, &a).unwrap();
-    let pinv_a_pinv = TensorOps::matmul(&client, &pinv_a, &pinv).unwrap();
+    let pinv_a = client.matmul(&pinv, &a).unwrap();
+    let pinv_a_pinv = client.matmul(&pinv_a, &pinv).unwrap();
     let result: Vec<f32> = pinv_a_pinv.to_vec();
     let pinv_data: Vec<f32> = pinv.to_vec();
     assert_allclose_f32(&result, &pinv_data, 1e-4, 1e-4, "pinv @ A @ pinv = pinv");
@@ -149,14 +153,14 @@ fn test_pinverse_wide_matrix() {
     // 2x3 matrix (m < n) - underdetermined system
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
 
     // Output shape should be [3, 2] (transposed)
     assert_eq!(pinv.shape(), &[3, 2], "pinverse shape");
 
     // Verify A @ A^+ @ A = A (Moore-Penrose condition)
-    let a_pinv = TensorOps::matmul(&client, &a, &pinv).unwrap();
-    let a_pinv_a = TensorOps::matmul(&client, &a_pinv, &a).unwrap();
+    let a_pinv = client.matmul(&a, &pinv).unwrap();
+    let a_pinv_a = client.matmul(&a_pinv, &a).unwrap();
     let result: Vec<f32> = a_pinv_a.to_vec();
     let a_data: Vec<f32> = a.to_vec();
     assert_allclose_f32(&result, &a_data, 1e-4, 1e-4, "A @ pinv @ A = A");
@@ -169,11 +173,11 @@ fn test_pinverse_f64() {
     // Test with F64 precision
     let a = Tensor::<CpuRuntime>::from_slice(&[3.0f64, 1.0, 1.0, 3.0], &[2, 2], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
 
     // Verify reconstruction with higher precision
-    let a_pinv_a = TensorOps::matmul(&client, &a, &pinv).unwrap();
-    let a_pinv_a = TensorOps::matmul(&client, &a_pinv_a, &a).unwrap();
+    let a_pinv_a = client.matmul(&a, &pinv).unwrap();
+    let a_pinv_a = client.matmul(&a_pinv_a, &a).unwrap();
     let result: Vec<f64> = a_pinv_a.to_vec();
     let a_data: Vec<f64> = a.to_vec();
     assert_allclose_f64(&result, &a_data, 1e-10, 1e-10, "F64 pinverse");
@@ -187,11 +191,11 @@ fn test_pinverse_with_rcond() {
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], &device);
 
     // With default rcond, small singular values are zeroed
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
 
     // Should still satisfy Moore-Penrose conditions
-    let a_pinv = TensorOps::matmul(&client, &a, &pinv).unwrap();
-    let a_pinv_a = TensorOps::matmul(&client, &a_pinv, &a).unwrap();
+    let a_pinv = client.matmul(&a, &pinv).unwrap();
+    let a_pinv_a = client.matmul(&a_pinv, &a).unwrap();
     let result: Vec<f32> = a_pinv_a.to_vec();
     let a_data: Vec<f32> = a.to_vec();
     // Lower tolerance for rank-deficient case
@@ -328,7 +332,7 @@ fn test_cov_2x2() {
         &device,
     );
 
-    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
+    let cov = client.cov(&a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     assert_eq!(cov.shape(), &[2, 2], "cov shape");
@@ -375,7 +379,7 @@ fn test_cov_ddof0() {
         &device,
     );
 
-    let cov = TensorOps::cov(&client, &a, Some(0)).unwrap();
+    let cov = client.cov(&a, Some(0)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     // With ddof=0, divide by n=4 instead of n-1=3
@@ -401,7 +405,7 @@ fn test_cov_uncorrelated() {
         &device,
     );
 
-    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
+    let cov = client.cov(&a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     // Off-diagonal (covariance) should be ~0
@@ -422,7 +426,7 @@ fn test_cov_f64() {
         &device,
     );
 
-    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
+    let cov = client.cov(&a, Some(1)).unwrap();
     let cov_data: Vec<f64> = cov.to_vec();
 
     let expected_var = 20.0f64 / 3.0;
@@ -441,7 +445,7 @@ fn test_cov_single_feature() {
     // Single feature, 4 samples
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 5.0, 7.0], &[4, 1], &device);
 
-    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
+    let cov = client.cov(&a, Some(1)).unwrap();
     let cov_data: Vec<f32> = cov.to_vec();
 
     assert_eq!(cov.shape(), &[1, 1], "Single feature cov shape");
@@ -469,7 +473,7 @@ fn test_corrcoef_perfect_correlation() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     assert_eq!(corr.shape(), &[2, 2], "corrcoef shape");
@@ -503,7 +507,7 @@ fn test_corrcoef_negative_correlation() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Off-diagonal should be -1 (perfect negative correlation)
@@ -525,7 +529,7 @@ fn test_corrcoef_uncorrelated() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Off-diagonal should be ~0
@@ -549,7 +553,7 @@ fn test_corrcoef_bounds() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     for (i, &val) in corr_data.iter().enumerate() {
@@ -572,7 +576,7 @@ fn test_corrcoef_symmetric() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f32> = corr.to_vec();
 
     // Check symmetry: corr[i,j] = corr[j,i]
@@ -604,7 +608,7 @@ fn test_corrcoef_f64() {
         &device,
     );
 
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
     let corr_data: Vec<f64> = corr.to_vec();
 
     // Perfect correlation
@@ -626,7 +630,7 @@ fn test_cov_insufficient_samples() {
     // Only 1 sample, ddof=1 requires at least 2
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device);
 
-    let result = TensorOps::cov(&client, &a, Some(1));
+    let result = client.cov(&a, Some(1));
     assert!(result.is_err(), "cov should fail with insufficient samples");
 }
 
@@ -637,7 +641,7 @@ fn test_corrcoef_insufficient_samples() {
     // Only 1 sample
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device);
 
-    let result = TensorOps::corrcoef(&client, &a);
+    let result = client.corrcoef(&a);
     assert!(
         result.is_err(),
         "corrcoef should fail with insufficient samples"
@@ -651,7 +655,7 @@ fn test_pinverse_1x1() {
     // 1x1 matrix
     let a = Tensor::<CpuRuntime>::from_slice(&[5.0f32], &[1, 1], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
     let pinv_data: Vec<f32> = pinv.to_vec();
 
     assert_eq!(pinv.shape(), &[1, 1]);
@@ -697,12 +701,12 @@ fn test_pinverse_least_squares() {
     );
     let b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 4.0, 6.0, 8.0], &[4, 1], &device);
 
-    let pinv = TensorOps::pinverse(&client, &a, None).unwrap();
-    let x = TensorOps::matmul(&client, &pinv, &b).unwrap();
+    let pinv = client.pinverse(&a, None).unwrap();
+    let x = client.matmul(&pinv, &b).unwrap();
 
     // Verify residual is small
-    let ax = TensorOps::matmul(&client, &a, &x).unwrap();
-    let residual = TensorOps::sub(&client, &ax, &b).unwrap();
+    let ax = client.matmul(&a, &x).unwrap();
+    let residual = client.sub(&ax, &b).unwrap();
     let residual_data: Vec<f32> = residual.to_vec();
     let norm = frobenius_norm_f32(&residual_data);
 
@@ -724,8 +728,8 @@ fn test_cov_corrcoef_relationship() {
         &device,
     );
 
-    let cov = TensorOps::cov(&client, &a, Some(1)).unwrap();
-    let corr = TensorOps::corrcoef(&client, &a).unwrap();
+    let cov = client.cov(&a, Some(1)).unwrap();
+    let corr = client.corrcoef(&a).unwrap();
 
     let cov_data: Vec<f32> = cov.to_vec();
     let corr_data: Vec<f32> = corr.to_vec();

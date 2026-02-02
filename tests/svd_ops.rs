@@ -8,7 +8,11 @@
 //! - Backend parity: CPU results match expected values
 
 use numr::algorithm::linalg::LinearAlgebraAlgorithms;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
@@ -126,7 +130,7 @@ fn test_svd_2x2() {
     assert_near_identity(&v_vt_data, 2, 1e-5, "V @ V^T");
 
     // Verify reconstruction: A ≈ U @ diag(S) @ V^T
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();
@@ -155,7 +159,7 @@ fn test_svd_3x2_tall() {
     assert!(s[1] >= 0.0, "s[1] should be non-negative");
 
     // Verify reconstruction
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();
@@ -190,7 +194,7 @@ fn test_svd_2x3_wide() {
     assert_descending(&s, "singular values");
 
     // Verify reconstruction
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();
@@ -230,7 +234,7 @@ fn test_svd_identity() {
     }
 
     // Verify reconstruction
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();
@@ -318,7 +322,7 @@ fn test_svd_f64() {
     assert!((s[1] - 2.0).abs() < 1e-10, "Expected s[1]=2, got {}", s[1]);
 
     // Verify reconstruction with F64 precision
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f64> = reconstructed.to_vec();
@@ -427,7 +431,7 @@ fn test_svd_larger_matrix() {
     assert_descending(&s, "singular values");
 
     // Verify reconstruction
-    let s_diag = TensorOps::diagflat(&client, &svd.s).unwrap();
+    let s_diag = LinalgOps::diagflat(&client, &svd.s).unwrap();
     let u_s = client.matmul(&svd.u, &s_diag).unwrap();
     let reconstructed = client.matmul(&u_s, &svd.vt).unwrap();
     let reconstructed_data: Vec<f32> = reconstructed.to_vec();

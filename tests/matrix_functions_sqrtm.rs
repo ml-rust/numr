@@ -5,7 +5,11 @@ mod common;
 use common::{assert_allclose_f64, create_cpu_client};
 use numr::algorithm::linalg::MatrixFunctionsAlgorithms;
 use numr::dtype::DType;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 
@@ -69,7 +73,9 @@ fn test_sqrtm_verify_squared() {
     let sqrt_a = client.sqrtm(&a).expect("sqrtm should succeed");
 
     // Compute sqrt_a @ sqrt_a
-    let squared = TensorOps::matmul(&client, &sqrt_a, &sqrt_a).expect("matmul should succeed");
+    let squared = client
+        .matmul(&sqrt_a, &sqrt_a)
+        .expect("matmul should succeed");
 
     let squared_data: Vec<f64> = squared.to_vec();
     let a_data: Vec<f64> = a.to_vec();

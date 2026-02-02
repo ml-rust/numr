@@ -4,7 +4,11 @@
 //! where the bias addition is fused into the GEMM epilogue for efficiency.
 
 use numr::dtype::DType;
-use numr::ops::TensorOps;
+use numr::ops::{
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
+    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
@@ -27,7 +31,7 @@ fn test_matmul_bias_2x2() {
     let b = Tensor::<CpuRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[2, 2]);
     let result: Vec<f32> = c.to_vec();
@@ -52,7 +56,7 @@ fn test_matmul_bias_3x2_2x4() {
     );
     let bias = Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3, 0.4], &[4], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[3, 4]);
     let result: Vec<f32> = c.to_vec();
@@ -76,7 +80,7 @@ fn test_matmul_bias_1x1() {
     let b = Tensor::<CpuRuntime>::from_slice(&[4.0f32], &[1, 1], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[1, 1]);
     let result: Vec<f32> = c.to_vec();
@@ -102,18 +106,15 @@ fn test_matmul_bias_large_matrices() {
     let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[k, n], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&bias_data, &[n], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[m, n]);
 
     // Verify against reference implementation
-    let matmul_result = TensorOps::matmul(&client, &a, &b).unwrap();
-    let expected = TensorOps::add(
-        &client,
-        &matmul_result,
-        &bias.broadcast_to(&[m, n]).unwrap(),
-    )
-    .unwrap();
+    let matmul_result = client.matmul(&a, &b).unwrap();
+    let expected = client
+        .add(&matmul_result, &bias.broadcast_to(&[m, n]).unwrap())
+        .unwrap();
 
     let c_data: Vec<f32> = c.to_vec();
     let expected_data: Vec<f32> = expected.to_vec();
@@ -156,7 +157,7 @@ fn test_matmul_bias_batched_2x2() {
     );
     let bias = Tensor::<CpuRuntime>::from_slice(&[0.5f32, 1.0], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[2, 2, 2]);
     let result: Vec<f32> = c.to_vec();
@@ -194,14 +195,14 @@ fn test_matmul_bias_batched_larger() {
     let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[batch_size, k, n], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&bias_data, &[n], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[batch_size, m, n]);
 
     // Verify against reference
-    let matmul_result = TensorOps::matmul(&client, &a, &b).unwrap();
+    let matmul_result = client.matmul(&a, &b).unwrap();
     let bias_broadcast = bias.broadcast_to(&[batch_size, m, n]).unwrap();
-    let expected = TensorOps::add(&client, &matmul_result, &bias_broadcast).unwrap();
+    let expected = client.add(&matmul_result, &bias_broadcast).unwrap();
 
     let c_data: Vec<f32> = c.to_vec();
     let expected_data: Vec<f32> = expected.to_vec();
@@ -230,7 +231,7 @@ fn test_matmul_bias_f64() {
     let b = Tensor::<CpuRuntime>::from_slice(&[5.0f64, 6.0, 7.0, 8.0], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[0.1f64, 0.2], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[2, 2]);
     assert_eq!(c.dtype(), DType::F64);
@@ -262,8 +263,8 @@ fn test_matmul_bias_zero_bias() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0], &[2], &device);
 
-    let c_bias = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
-    let c_matmul = TensorOps::matmul(&client, &a, &b).unwrap();
+    let c_bias = client.matmul_bias(&a, &b, &bias).unwrap();
+    let c_matmul = client.matmul(&a, &b).unwrap();
 
     let result_bias: Vec<f32> = c_bias.to_vec();
     let result_matmul: Vec<f32> = c_matmul.to_vec();
@@ -285,7 +286,7 @@ fn test_matmul_bias_shape_mismatch_inner_dim() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 4], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 2], &[2], &device);
 
-    let result = TensorOps::matmul_bias(&client, &a, &b, &bias);
+    let result = client.matmul_bias(&a, &b, &bias);
     assert!(result.is_err());
 }
 
@@ -299,7 +300,7 @@ fn test_matmul_bias_wrong_bias_size() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 12], &[3, 4], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 3], &[3], &device); // Wrong: should be [4]
 
-    let result = TensorOps::matmul_bias(&client, &a, &b, &bias);
+    let result = client.matmul_bias(&a, &b, &bias);
     assert!(result.is_err());
 }
 
@@ -313,7 +314,7 @@ fn test_matmul_bias_bias_not_1d() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 4], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 4], &[2, 2], &device); // Wrong: should be [2]
 
-    let result = TensorOps::matmul_bias(&client, &a, &b, &bias);
+    let result = client.matmul_bias(&a, &b, &bias);
     assert!(result.is_err());
 }
 
@@ -327,7 +328,7 @@ fn test_matmul_bias_dtype_mismatch() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f64; 4], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 2], &[2], &device);
 
-    let result = TensorOps::matmul_bias(&client, &a, &b, &bias);
+    let result = client.matmul_bias(&a, &b, &bias);
     assert!(result.is_err());
 }
 
@@ -341,7 +342,7 @@ fn test_matmul_bias_bias_dtype_mismatch() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 4], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f64; 2], &[2], &device);
 
-    let result = TensorOps::matmul_bias(&client, &a, &b, &bias);
+    let result = client.matmul_bias(&a, &b, &bias);
     assert!(result.is_err());
 }
 
@@ -359,7 +360,7 @@ fn test_matmul_bias_single_row() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[0.5f32, 1.0], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[1, 2]);
     let result: Vec<f32> = c.to_vec();
@@ -379,7 +380,7 @@ fn test_matmul_bias_single_col() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2, 1], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[10.0f32], &[1], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[3, 1]);
     let result: Vec<f32> = c.to_vec();
@@ -397,7 +398,7 @@ fn test_matmul_bias_negative_bias() {
     let b = Tensor::<CpuRuntime>::from_slice(&[5.0f32, 6.0, 7.0, 8.0], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[-19.0f32, -22.0], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     assert_eq!(c.shape(), &[2, 2]);
     let result: Vec<f32> = c.to_vec();
@@ -420,16 +421,13 @@ fn test_matmul_bias_numerical_accuracy() {
     let b = Tensor::<CpuRuntime>::from_slice(&[1e6f32, 1e-6, 1e6, 1e-6], &[2, 2], &device);
     let bias = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0], &[2], &device);
 
-    let c = TensorOps::matmul_bias(&client, &a, &b, &bias).unwrap();
+    let c = client.matmul_bias(&a, &b, &bias).unwrap();
 
     // Compare with separate matmul + add
-    let matmul_result = TensorOps::matmul(&client, &a, &b).unwrap();
-    let expected = TensorOps::add(
-        &client,
-        &matmul_result,
-        &bias.broadcast_to(&[2, 2]).unwrap(),
-    )
-    .unwrap();
+    let matmul_result = client.matmul(&a, &b).unwrap();
+    let expected = client
+        .add(&matmul_result, &bias.broadcast_to(&[2, 2]).unwrap())
+        .unwrap();
 
     let c_data: Vec<f32> = c.to_vec();
     let expected_data: Vec<f32> = expected.to_vec();
