@@ -208,6 +208,7 @@ pub fn validate_square_matrix(
 /// # Errors
 /// Returns `UnsupportedDType` if the dtype is not in the supported list.
 #[inline]
+#[allow(dead_code)] // Used by wgpu backend (feature-gated)
 pub fn validate_dtype_supported(
     dtype: DType,
     supported_dtypes: &[DType],
