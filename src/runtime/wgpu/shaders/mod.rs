@@ -31,6 +31,7 @@ pub mod fft;
 pub mod generator;
 pub mod index;
 pub mod linalg;
+pub mod quasirandom;
 pub mod shape;
 pub mod sort;
 pub mod special;
@@ -80,6 +81,7 @@ pub use generator::{
     wgsl_type,
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
+pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
 pub use special::{launch_special_binary, launch_special_ternary, launch_special_unary};
 pub use statistics::{launch_mode_dim, launch_mode_full};
 pub use where_launcher::{launch_where_broadcast_op, launch_where_generic_op, launch_where_op};

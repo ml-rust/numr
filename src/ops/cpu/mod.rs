@@ -13,6 +13,7 @@ pub mod binary;
 pub mod unary;
 pub mod linalg;
 pub mod statistics;
+pub mod quasirandom;
 pub mod random;
 pub mod distance;
 pub mod reduce;

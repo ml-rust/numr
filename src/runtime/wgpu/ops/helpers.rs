@@ -558,6 +558,37 @@ pub(super) struct FDistributionParams {
 }
 
 // ============================================================================
+// Quasi-Random Sequence Params
+// ============================================================================
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct SobolParams {
+    pub(super) n_points: u32,
+    pub(super) dimension: u32,
+    pub(super) skip: u32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct HaltonParams {
+    pub(super) n_points: u32,
+    pub(super) dimension: u32,
+    pub(super) skip: u32,
+    pub(super) _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct LatinHypercubeParams {
+    pub(super) n_samples: u32,
+    pub(super) dimension: u32,
+    pub(super) seed: u32,
+    pub(super) _pad: u32,
+}
+
+// ============================================================================
 // Sort Operation Params
 // ============================================================================
 

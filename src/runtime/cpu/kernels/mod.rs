@@ -17,6 +17,7 @@ pub mod logical;
 pub mod matmul;
 pub mod memory;
 pub mod norm;
+pub mod quasirandom;
 pub mod reduce;
 pub mod scalar;
 pub mod simd;
@@ -56,6 +57,9 @@ pub use memory::{
     rand_normal_kernel, rand_uniform_kernel, randint_kernel,
 };
 pub use norm::{layer_norm_kernel, rms_norm_kernel};
+pub use quasirandom::{
+    halton_f32, halton_f64, latin_hypercube_f32, latin_hypercube_f64, sobol_f32, sobol_f64,
+};
 pub use reduce::{
     Accumulator, argmax_kernel, argmin_kernel, reduce_kernel, reduce_kernel_with_precision,
     softmax_kernel, variance_kernel,

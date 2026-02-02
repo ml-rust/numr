@@ -263,6 +263,8 @@ pub mod kernel_names {
     pub const CUMULATIVE_MODULE: &str = "cumulative";
     /// Distribution sampling operations (bernoulli, beta, gamma, etc.)
     pub const DISTRIBUTIONS_MODULE: &str = "distributions";
+    /// Quasi-random sequence generation (sobol, halton, latin_hypercube)
+    pub const QUASIRANDOM_MODULE: &str = "quasirandom";
     /// Statistics operations (mode)
     pub const STATISTICS_MODULE: &str = "statistics";
 

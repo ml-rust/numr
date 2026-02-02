@@ -65,6 +65,7 @@ fn compile_cuda_kernels() {
         "sort.cu",
         "special.cu",
         "distributions.cu",
+        "quasirandom.cu",
         "statistics.cu",
     ];
 

@@ -11,6 +11,7 @@ pub mod cumulative;
 pub mod activation;
 pub mod binary;
 pub mod unary;
+pub mod quasirandom;
 pub mod random;
 pub mod distance;
 pub mod linalg;

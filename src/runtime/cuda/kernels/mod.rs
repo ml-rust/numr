@@ -59,6 +59,7 @@ mod linalg;
 mod linalg_launchers;
 mod loader;
 mod norm;
+mod quasirandom;
 mod reduce;
 mod scalar;
 #[cfg(feature = "sparse")]
@@ -98,6 +99,7 @@ pub use fft::*;
 pub use index::*;
 pub use linalg::*;
 pub use norm::*;
+pub use quasirandom::*;
 pub use reduce::*;
 pub use scalar::*;
 #[cfg(feature = "sparse")]
