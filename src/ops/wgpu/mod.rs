@@ -3,22 +3,23 @@
 //! Each operation type is implemented in its own module to maintain clean separation
 //! and make the codebase easier to navigate.
 
-pub mod type_conversion;
-pub mod complex;
-pub mod normalization;
-pub mod matmul;
-pub mod cumulative;
 pub mod activation;
+pub mod advanced_random;
 pub mod binary;
-pub mod unary;
+pub mod complex;
+pub mod conditional;
+pub mod cumulative;
+pub mod distance;
+pub mod indexing;
+pub mod linalg;
+pub mod matmul;
+pub mod normalization;
 pub mod quasirandom;
 pub mod random;
-pub mod distance;
-pub mod linalg;
-pub mod shape;
-pub mod statistics;
-pub mod sorting;
-pub mod indexing;
 pub mod reduce;
-pub mod conditional;
+pub mod shape;
+pub mod sorting;
+pub mod statistics;
+pub mod type_conversion;
+pub mod unary;
 pub mod utility;

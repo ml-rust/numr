@@ -2,24 +2,25 @@
 //!
 //! This module contains all operation implementations for the CUDA runtime.
 
-pub mod type_conversion;
-pub mod complex;
-pub mod normalization;
-pub mod matmul;
-pub mod cumulative;
 pub mod activation;
+pub mod advanced_random;
 pub mod binary;
-pub mod unary;
+pub mod complex;
+pub mod conditional;
+pub mod cumulative;
+pub mod distance;
 pub mod indexing;
-pub mod statistics;
+pub mod linalg;
+pub mod matmul;
+pub mod normalization;
 pub mod quasirandom;
 pub mod random;
-pub mod distance;
-pub mod linalg;
 pub mod reduce;
 pub mod shape;
 pub mod sorting;
-pub mod conditional;
+pub mod statistics;
+pub mod type_conversion;
+pub mod unary;
 pub mod utility;
 
 // Re-export commonly used modules
