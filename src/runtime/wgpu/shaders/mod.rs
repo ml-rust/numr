@@ -21,6 +21,7 @@
 //! - `linalg` - Linear algebra kernel launchers
 //! - `copy` - Copy operation shaders (strided to contiguous)
 
+pub mod advanced_random;
 pub mod complex;
 pub mod copy;
 pub mod cumulative;
@@ -56,6 +57,11 @@ mod pipeline;
 mod reduce_wgsl;
 
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
+pub use advanced_random::{
+    launch_pcg64_randn, launch_pcg64_uniform, launch_philox_randn, launch_philox_uniform,
+    launch_threefry_randn, launch_threefry_uniform, launch_xoshiro256_randn,
+    launch_xoshiro256_uniform,
+};
 pub use complex::{launch_angle_real, launch_complex_op};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,

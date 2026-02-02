@@ -45,6 +45,9 @@ mod statistics;
 #[path = "../../../ops/cuda/random.rs"]
 mod random;
 
+#[path = "../../../ops/cuda/advanced_random.rs"]
+mod advanced_random;
+
 #[path = "../../../ops/cuda/quasirandom.rs"]
 mod quasirandom;
 

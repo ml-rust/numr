@@ -4,6 +4,7 @@
 //! Implementations are in the backend-specific modules (cpu/, cuda/, wgpu/).
 
 mod activation;
+mod advanced_random;
 mod binary;
 mod compare;
 mod complex;
@@ -28,6 +29,7 @@ mod unary;
 mod utility;
 
 pub use activation::ActivationOps;
+pub use advanced_random::AdvancedRandomOps;
 pub use binary::BinaryOps;
 pub use compare::CompareOps;
 pub use complex::ComplexOps;

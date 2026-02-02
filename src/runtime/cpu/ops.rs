@@ -45,6 +45,9 @@ mod statistics;
 #[path = "../../ops/cpu/random.rs"]
 mod random;
 
+#[path = "../../ops/cpu/advanced_random.rs"]
+mod advanced_random;
+
 #[path = "../../ops/cpu/quasirandom.rs"]
 mod quasirandom;
 

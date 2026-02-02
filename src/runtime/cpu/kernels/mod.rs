@@ -5,6 +5,7 @@
 
 #![allow(unsafe_op_in_unsafe_fn)] // Kernels are already marked unsafe, inner unsafe is redundant
 
+pub mod advanced_random;
 pub mod binary;
 pub mod compare;
 pub mod complex;
@@ -26,6 +27,11 @@ pub mod unary;
 pub mod where_select;
 
 // Re-export all kernel functions for convenient access
+pub use advanced_random::{
+    pcg64_randn_kernel, pcg64_uniform_kernel, philox_randn_kernel, philox_uniform_kernel,
+    threefry_randn_kernel, threefry_uniform_kernel, xoshiro256_randn_kernel,
+    xoshiro256_uniform_kernel,
+};
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
 pub use compare::{compare_op_kernel, compare_op_strided_kernel};
 pub use complex::{

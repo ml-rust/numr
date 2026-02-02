@@ -46,6 +46,7 @@
 //! - `scan.cu` - Prefix sum operations
 
 mod activation;
+mod advanced_random;
 mod binary;
 mod cast;
 mod compare;
@@ -88,6 +89,7 @@ mod unary;
 mod utility;
 
 pub use activation::*;
+pub use advanced_random::*;
 pub use binary::*;
 pub use cast::*;
 pub use compare::*;

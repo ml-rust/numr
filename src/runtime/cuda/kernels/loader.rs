@@ -265,6 +265,8 @@ pub mod kernel_names {
     pub const DISTRIBUTIONS_MODULE: &str = "distributions";
     /// Quasi-random sequence generation (sobol, halton, latin_hypercube)
     pub const QUASIRANDOM_MODULE: &str = "quasirandom";
+    /// Advanced PRNGs (philox, threefry, pcg64, xoshiro256)
+    pub const ADVANCED_RANDOM_MODULE: &str = "advanced_random";
     /// Statistics operations (mode)
     pub const STATISTICS_MODULE: &str = "statistics";
 

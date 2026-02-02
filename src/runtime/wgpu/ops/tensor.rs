@@ -42,6 +42,9 @@ mod random;
 #[path = "../../../ops/wgpu/quasirandom.rs"]
 mod quasirandom;
 
+#[path = "../../../ops/wgpu/advanced_random.rs"]
+mod advanced_random;
+
 #[path = "../../../ops/wgpu/linalg.rs"]
 mod linalg;
 
