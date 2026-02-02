@@ -1,14 +1,14 @@
 //! Unary operation implementation for WebGPU.
 
-use super::super::shaders::elementwise;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::elementwise;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
-pub(super) fn native_unary_op(
+pub(crate) fn native_unary_op(
     client: &WgpuClient,
     op: &'static str,
     a: &Tensor<WgpuRuntime>,

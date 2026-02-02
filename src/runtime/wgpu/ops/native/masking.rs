@@ -1,15 +1,15 @@
 //! Masking operation implementations for WebGPU.
 
-use super::super::shaders::index;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
 
-pub(super) fn native_masked_fill(
+pub(crate) fn native_masked_fill(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     mask: &Tensor<WgpuRuntime>,
@@ -62,7 +62,7 @@ pub(super) fn native_masked_fill(
     Ok(out)
 }
 
-pub(super) fn native_embedding_lookup(
+pub(crate) fn native_embedding_lookup(
     client: &WgpuClient,
     embeddings: &Tensor<WgpuRuntime>,
     indices: &Tensor<WgpuRuntime>,
@@ -132,7 +132,7 @@ pub(super) fn native_embedding_lookup(
     Ok(out)
 }
 
-pub(super) fn native_masked_select(
+pub(crate) fn native_masked_select(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     mask: &Tensor<WgpuRuntime>,

@@ -1,16 +1,16 @@
 //! Matrix multiplication operation implementations for WebGPU.
 
-use super::super::shaders::matmul;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::Error;
 use crate::error::Result;
 use crate::ops::{matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::matmul;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
-pub(super) fn native_matmul(
+pub(crate) fn native_matmul(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
@@ -90,7 +90,7 @@ pub(super) fn native_matmul(
 ///
 /// Computes C = A @ B + bias where bias is a 1D tensor [N] broadcast across all rows.
 /// The bias addition is fused into the GEMM epilogue for efficiency.
-pub(super) fn native_matmul_bias(
+pub(crate) fn native_matmul_bias(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,

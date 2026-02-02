@@ -1,3 +1,3 @@
 //! Re-export helpers from parent ops module.
 
-pub(super) use super::super::helpers::*;
+pub(super) use crate::runtime::wgpu::ops::helpers::*;

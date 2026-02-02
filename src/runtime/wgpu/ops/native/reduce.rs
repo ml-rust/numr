@@ -1,14 +1,15 @@
 //! Reduction operation implementations for WebGPU.
 
-use super::super::shaders::reduce;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::ScalarOps;
+use crate::runtime::wgpu::shaders::reduce;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 
-pub(super) fn native_reduce_op(
+pub(crate) fn native_reduce_op(
     client: &WgpuClient,
     op: &'static str,
     a: &Tensor<WgpuRuntime>,
@@ -212,7 +213,7 @@ fn native_full_reduce(
     Ok(out)
 }
 
-pub(super) fn native_softmax(
+pub(crate) fn native_softmax(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: isize,
@@ -274,7 +275,7 @@ pub(super) fn native_softmax(
     Ok(out)
 }
 
-pub(super) fn native_argreduce_op(
+pub(crate) fn native_argreduce_op(
     client: &WgpuClient,
     op: &'static str,
     a: &Tensor<WgpuRuntime>,

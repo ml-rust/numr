@@ -1,15 +1,15 @@
 //! Indexing operation implementations for WebGPU.
 
-use super::super::shaders::index;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
 
-pub(super) fn native_index_select(
+pub(crate) fn native_index_select(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: usize,
@@ -115,7 +115,7 @@ pub(super) fn native_index_select(
     Ok(out)
 }
 
-pub(super) fn native_index_put(
+pub(crate) fn native_index_put(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: usize,
@@ -245,7 +245,7 @@ pub(super) fn native_index_put(
     Ok(out)
 }
 
-pub(super) fn native_gather(
+pub(crate) fn native_gather(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: usize,
@@ -333,7 +333,7 @@ pub(super) fn native_gather(
     Ok(out)
 }
 
-pub(super) fn native_scatter(
+pub(crate) fn native_scatter(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: usize,

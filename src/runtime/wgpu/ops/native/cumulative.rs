@@ -1,18 +1,18 @@
 //! Cumulative operation implementations for WebGPU.
 
-use super::super::shaders::cumulative;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::cumulative;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 /// Native cumulative sum along a dimension.
 ///
 /// Computes the cumulative sum of elements along the specified dimension.
 /// Output has the same shape as input.
-pub(super) fn native_cumsum(
+pub(crate) fn native_cumsum(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: isize,
@@ -98,7 +98,7 @@ pub(super) fn native_cumsum(
 ///
 /// Computes the cumulative product of elements along the specified dimension.
 /// Output has the same shape as input.
-pub(super) fn native_cumprod(
+pub(crate) fn native_cumprod(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dim: isize,
@@ -186,7 +186,7 @@ pub(super) fn native_cumprod(
 /// Uses the identity: logsumexp(x) = max(x) + log(sum(exp(x - max(x))))
 ///
 /// Only supports floating-point dtypes (F32 on WebGPU, F16 with extension).
-pub(super) fn native_logsumexp(
+pub(crate) fn native_logsumexp(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dims: &[usize],

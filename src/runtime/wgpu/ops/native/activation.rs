@@ -1,17 +1,17 @@
 //! Parametric activation operation implementation for WebGPU.
 
-use super::super::shaders::activation_launcher;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::activation_launcher;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 /// Native parametric activation operation (leaky_relu, elu).
 ///
 /// These activations take an extra scalar parameter (negative_slope or alpha).
-pub(super) fn native_parametric_activation(
+pub(crate) fn native_parametric_activation(
     client: &WgpuClient,
     op: &'static str,
     a: &Tensor<WgpuRuntime>,

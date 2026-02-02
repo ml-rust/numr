@@ -1,14 +1,14 @@
 //! Normalization operation implementations for WebGPU.
 
-use super::super::shaders::norm;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::norm;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
-pub(super) fn native_rms_norm(
+pub(crate) fn native_rms_norm(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     weight: &Tensor<WgpuRuntime>,
@@ -56,7 +56,7 @@ pub(super) fn native_rms_norm(
     Ok(out)
 }
 
-pub(super) fn native_layer_norm(
+pub(crate) fn native_layer_norm(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     weight: &Tensor<WgpuRuntime>,

@@ -1,17 +1,17 @@
 //! Cast operation implementation for WebGPU.
 
-use super::super::shaders::elementwise;
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::elementwise;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 /// Native cast operation using WGSL compute shader.
 ///
 /// Supports F32 ↔ I32 ↔ U32 conversions on GPU.
-pub(super) fn native_cast_op(
+pub(crate) fn native_cast_op(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     dst_dtype: DType,

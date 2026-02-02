@@ -1,15 +1,15 @@
 //! Conditional operation implementations for WebGPU.
 
-use super::super::shaders::{activation_launcher, where_launcher};
-use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::broadcast_shape;
+use crate::runtime::wgpu::shaders::{activation_launcher, where_launcher};
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, compute_broadcast_shape, ensure_contiguous};
 use crate::tensor::Tensor;
 
-pub(super) fn native_clamp(
+pub(crate) fn native_clamp(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
     min_val: f64,
@@ -44,7 +44,7 @@ pub(super) fn native_clamp(
     Ok(out)
 }
 
-pub(super) fn native_where_cond(
+pub(crate) fn native_where_cond(
     client: &WgpuClient,
     cond: &Tensor<WgpuRuntime>,
     x: &Tensor<WgpuRuntime>,
