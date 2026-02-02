@@ -602,3 +602,79 @@ pub fn kron(
 
     Ok(out)
 }
+
+/// Khatri-Rao product (column-wise Kronecker): A ⊙ B
+///
+/// For A of shape [m, k] and B of shape [n, k],
+/// produces output of shape [m * n, k].
+///
+/// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+pub fn khatri_rao(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: a.dtype(),
+            rhs: b.dtype(),
+        });
+    }
+
+    let (m, k_a) = validate_matrix_2d(a.shape())?;
+    let (n, k_b) = validate_matrix_2d(b.shape())?;
+
+    if k_a != k_b {
+        return Err(Error::Internal(format!(
+            "khatri_rao: column count mismatch. A has shape [{}, {}], B has shape [{}, {}]. \
+             Matrices must have the same number of columns.",
+            m, k_a, n, k_b
+        )));
+    }
+
+    let k = k_a;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "WGPU khatri_rao (only F32 supported)",
+        });
+    }
+
+    let m_out = m * n;
+    let out_size = m_out * k * dtype.size_in_bytes();
+    let out_ptr = client.allocator().allocate(out_size);
+    let out_buffer = get_buffer(out_ptr)
+        .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
+
+    let a_buffer = get_buffer(a.storage().ptr())
+        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+
+    let b_buffer = get_buffer(b.storage().ptr())
+        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
+
+    // params: [m, n, k, _pad]
+    let params: [u32; 4] = [m as u32, n as u32, k as u32, 0];
+    let params_buffer = client.create_uniform_buffer("khatri_rao_params", 16);
+    client.write_buffer(&params_buffer, &params);
+
+    kernels::launch_khatri_rao(
+        client.pipeline_cache(),
+        &client.queue,
+        &a_buffer,
+        &b_buffer,
+        &out_buffer,
+        &params_buffer,
+        m_out * k,
+        dtype,
+    )?;
+
+    client.synchronize();
+
+    let out = unsafe { WgpuClient::tensor_from_raw(out_ptr, &[m_out, k], dtype, device) };
+
+    Ok(out)
+}

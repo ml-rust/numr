@@ -116,6 +116,14 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         matrix_ops::kron(self, a, b)
     }
 
+    fn khatri_rao(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        matrix_ops::khatri_rao(self, a, b)
+    }
+
     fn matrix_rank(
         &self,
         a: &Tensor<WgpuRuntime>,

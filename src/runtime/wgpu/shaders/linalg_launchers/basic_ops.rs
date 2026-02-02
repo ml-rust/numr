@@ -212,3 +212,45 @@ pub fn launch_kron(
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
+
+/// Launch Khatri-Rao product kernel: out = A ⊙ B (column-wise Kronecker)
+pub fn launch_khatri_rao(
+    cache: &PipelineCache,
+    queue: &Queue,
+    a: &Buffer,
+    b: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_f32!(dtype, "khatri_rao");
+
+    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline("linalg", "khatri_rao_f32", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("khatri_rao"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("khatri_rao"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}

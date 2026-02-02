@@ -189,6 +189,50 @@ fn kron_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 // ============================================================================
+// Khatri-Rao Product - A ⊙ B (column-wise Kronecker)
+// For A [m, k] and B [n, k], output is [m*n, k]
+// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+// ============================================================================
+
+struct KhatriRaoParams {
+    m: u32,
+    n: u32,
+    k: u32,
+    _pad: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> khatri_rao_a: array<f32>;
+@group(0) @binding(1) var<storage, read_write> khatri_rao_b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> khatri_rao_output: array<f32>;
+@group(0) @binding(3) var<uniform> khatri_rao_params: KhatriRaoParams;
+
+@compute @workgroup_size(256)
+fn khatri_rao_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    let m = khatri_rao_params.m;
+    let n = khatri_rao_params.n;
+    let k = khatri_rao_params.k;
+
+    let m_out = m * n;
+    let total = m_out * k;
+
+    if (gid < total) {
+        // Compute output row and column
+        let out_row = gid / k;
+        let c = gid % k;
+
+        // Map to indices in A and B
+        let i = out_row / n;
+        let j = out_row % n;
+
+        // out[i*n + j, c] = a[i, c] * b[j, c]
+        let a_val = khatri_rao_a[i * k + c];
+        let b_val = khatri_rao_b[j * k + c];
+        khatri_rao_output[gid] = a_val * b_val;
+    }
+}
+
+// ============================================================================
 // From solvers.rs
 // ============================================================================
 // ============================================================================
