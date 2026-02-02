@@ -36,11 +36,11 @@ numr is designed with a simple principle: **same code, any backend**.
         ┌────────────────────┼────────────────────┐
         │                    │                    │
    ┌────▼────┐          ┌────▼────┐          ┌───▼────┐
-   │ CPU      │          │ CUDA     │          │ WebGPU │
-   │ Runtime  │          │ Runtime  │          │Runtime │
+   │ CPU     │          │ CUDA    │          │ WebGPU │
+   │ Runtime │          │ Runtime │          │Runtime │
    └────┬────┘          └────┬────┘          └───┬────┘
-        │                    │                    │
-   ┌────▼──────────┬────────┴────────┬───────────▼──┐
+        │                    │                   │
+   ┌────▼──────────┬─────────┴───────┬───────────▼───┐
    │     Trait     │                 │               │
    │  Implemen-    │  Same Algorithm │  Different    │
    │  tations      │  Different Code │  Hardware     │
