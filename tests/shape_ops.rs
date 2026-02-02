@@ -11,11 +11,7 @@
 //! We call `.contiguous()` before `.to_vec()` to materialize the view.
 
 use numr::dtype::DType;
-use numr::ops::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
-};
+use numr::ops::ShapeOps;
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;

@@ -5,11 +5,7 @@ mod common;
 use common::{assert_allclose_f64, create_cpu_client};
 use numr::algorithm::linalg::MatrixFunctionsAlgorithms;
 use numr::dtype::DType;
-use numr::ops::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
-};
+use numr::ops::MatmulOps;
 use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 

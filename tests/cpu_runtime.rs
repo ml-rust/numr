@@ -4,9 +4,8 @@
 
 use numr::dtype::DType;
 use numr::ops::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, CumulativeOps, IndexingOps,
-    LinalgOps, LogicalOps, MatmulOps, NormalizationOps, ReduceOps, ScalarOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, CompareOps, ConditionalOps, IndexingOps, LogicalOps, MatmulOps,
+    NormalizationOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::runtime::{Allocator, Runtime, RuntimeClient};
