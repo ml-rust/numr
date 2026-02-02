@@ -634,6 +634,42 @@ impl<R: Runtime> Tensor<R> {
         R::copy_from_device(src_ptr as u64, &mut bytes, self.storage.device());
         bytemuck::cast_slice(&bytes).to_vec()
     }
+
+    /// Extract the scalar value from a single-element tensor
+    ///
+    /// This is the idiomatic way to get a scalar value from a tensor for use
+    /// in Rust control flow (convergence checks, comparisons, etc.).
+    ///
+    /// # Returns
+    ///
+    /// The single element as type `T`, or an error if the tensor doesn't
+    /// contain exactly one element.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let loss = compute_loss(&predictions, &targets)?;
+    /// let loss_val: f32 = loss.item()?;
+    /// if loss_val < tolerance {
+    ///     break;
+    /// }
+    /// ```
+    pub fn item<T: bytemuck::Pod + Copy>(&self) -> Result<T> {
+        if self.numel() != 1 {
+            return Err(Error::ShapeMismatch {
+                expected: vec![1],
+                got: self.shape().to_vec(),
+            });
+        }
+
+        // Extract value, making contiguous only if needed
+        let vec: Vec<T> = if self.is_contiguous() {
+            self.to_vec()
+        } else {
+            self.contiguous().to_vec()
+        };
+        Ok(vec[0])
+    }
 }
 
 impl<R: Runtime> Clone for Tensor<R> {
@@ -836,5 +872,34 @@ mod tests {
 
         let result: Vec<i32> = tensor.to_vec();
         assert_eq!(result, [42, 42, 42, 42]);
+    }
+
+    #[test]
+    fn test_item_scalar() {
+        let device = CpuDevice::new();
+
+        // 0-dimensional scalar
+        let tensor = Tensor::<CpuRuntime>::from_slice(&[3.14f32], &[], &device);
+        let val: f32 = tensor.item().unwrap();
+        assert!((val - 3.14).abs() < 1e-6);
+
+        // Shape [1] tensor
+        let tensor = Tensor::<CpuRuntime>::from_slice(&[42.0f64], &[1], &device);
+        let val: f64 = tensor.item().unwrap();
+        assert!((val - 42.0).abs() < 1e-10);
+
+        // Shape [1, 1, 1] tensor
+        let tensor = Tensor::<CpuRuntime>::from_slice(&[7i32], &[1, 1, 1], &device);
+        let val: i32 = tensor.item().unwrap();
+        assert_eq!(val, 7);
+    }
+
+    #[test]
+    fn test_item_error_on_multi_element() {
+        let device = CpuDevice::new();
+        let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+
+        let result: Result<f32> = tensor.item();
+        assert!(result.is_err());
     }
 }
