@@ -197,7 +197,7 @@ mod tests {
     use crate::runtime::cuda::CudaDevice;
 
     fn setup() -> (CudaDevice, CudaClient) {
-        let device = CudaDevice::new(0).expect("CUDA device not available");
+        let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
         (device, client)
     }
