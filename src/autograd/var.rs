@@ -39,6 +39,43 @@ impl<R: Runtime> Var<R> {
         }
     }
 
+    /// Create a leaf variable with a specific ID
+    ///
+    /// This is used for second-order differentiation where we need to
+    /// preserve the original input IDs so gradients can be accumulated
+    /// correctly across multiple backward passes.
+    pub fn with_id(tensor: Tensor<R>, id: TensorId, requires_grad: bool) -> Self {
+        Self {
+            id,
+            tensor,
+            requires_grad,
+            grad_fn: None,
+        }
+    }
+
+    /// Create a variable with a specific ID and gradient function
+    ///
+    /// This is essential for second-order differentiation. When computing
+    /// gradients of gradients, we need to preserve both:
+    /// 1. The original input ID (so second-order gradients accumulate correctly)
+    /// 2. The grad_fn chain (so the backward traversal can continue through
+    ///    the original computation graph)
+    ///
+    /// Without the grad_fn, second-order backward would stop at saved tensors
+    /// instead of continuing to the original inputs.
+    pub fn with_id_and_grad_fn(
+        tensor: Tensor<R>,
+        id: TensorId,
+        grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            id,
+            tensor,
+            requires_grad: true,
+            grad_fn,
+        }
+    }
+
     /// Create from an operation result with a gradient function
     pub fn from_op(tensor: Tensor<R>, grad_fn: Arc<dyn GradFn<R>>) -> Self {
         Self {
