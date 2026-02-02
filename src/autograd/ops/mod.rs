@@ -12,6 +12,7 @@
 //! - `activation`: Activation functions (relu, sigmoid, softmax)
 //! - `scalar`: Tensor-scalar operations (add_scalar, mul_scalar, etc.)
 //! - `linalg`: Linear algebra operations (trace, inverse, det, solve, cholesky)
+//! - `shape`: Shape operations (reshape, transpose, permute, broadcast)
 
 mod activation;
 mod arithmetic;
@@ -19,6 +20,7 @@ mod linalg;
 mod matmul;
 mod reduce;
 mod scalar;
+mod shape;
 mod unary;
 
 pub use activation::*;
@@ -27,4 +29,5 @@ pub use linalg::*;
 pub use matmul::*;
 pub use reduce::*;
 pub use scalar::*;
+pub use shape::*;
 pub use unary::*;
