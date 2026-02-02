@@ -232,6 +232,34 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - Graph theory (graph products)
     fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Khatri-Rao product (column-wise Kronecker product): A ⊙ B
+    ///
+    /// Computes the column-wise Kronecker product of two matrices.
+    /// For A of shape [m, k] and B of shape [n, k], the result has shape [m*n, k].
+    ///
+    /// # Definition
+    ///
+    /// ```text
+    /// (A ⊙ B)[:, j] = A[:, j] ⊗ B[:, j]
+    /// ```
+    ///
+    /// Each column of the result is the Kronecker product of the corresponding
+    /// columns of A and B.
+    ///
+    /// # Properties
+    ///
+    /// - (A ⊙ B)^T (A ⊙ B) = (A^T A) * (B^T B) (Hadamard/element-wise product)
+    /// - Essential for CP/PARAFAC tensor decomposition
+    /// - Related to mode-n unfolding operations
+    ///
+    /// # Use Cases
+    ///
+    /// - CP/PARAFAC tensor decomposition (ALS updates)
+    /// - Tucker decomposition
+    /// - Multi-linear algebra
+    /// - Compressed sensing
+    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
     /// Matrix rank via SVD
     fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
 

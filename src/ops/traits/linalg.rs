@@ -369,4 +369,122 @@ pub trait LinalgOps<R: Runtime> {
     /// // rank = 1 (rank-deficient: rows are linearly dependent)
     /// ```
     fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
+
+    /// Kronecker product: A ⊗ B
+    ///
+    /// Computes the Kronecker product (tensor product) of two matrices.
+    ///
+    /// # Definition
+    ///
+    /// For matrices A of shape [m, n] and B of shape [p, q], the Kronecker product
+    /// A ⊗ B has shape [m*p, n*q] and is defined as:
+    ///
+    /// ```text
+    /// (A ⊗ B)[i*p + k, j*q + l] = A[i, j] * B[k, l]
+    /// ```
+    ///
+    /// Equivalently, it replaces each element a_ij of A with the block a_ij * B.
+    ///
+    /// # Properties
+    ///
+    /// - (A ⊗ B) ⊗ C = A ⊗ (B ⊗ C) (associative)
+    /// - A ⊗ (B + C) = A ⊗ B + A ⊗ C (distributive)
+    /// - (A ⊗ B)^T = A^T ⊗ B^T
+    /// - (A ⊗ B)(C ⊗ D) = (AC) ⊗ (BD) (mixed-product property)
+    /// - det(A ⊗ B) = det(A)^q * det(B)^m for square matrices
+    /// - tr(A ⊗ B) = tr(A) * tr(B)
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - First matrix [m, n]
+    /// * `b` - Second matrix [p, q]
+    ///
+    /// # Returns
+    ///
+    /// Kronecker product [m*p, n*q]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if inputs are not 2D
+    /// - `DTypeMismatch` if dtypes don't match
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Use Cases
+    ///
+    /// - Quantum computing (tensor products of quantum states/operators)
+    /// - Control theory (Sylvester/Lyapunov equation solvers)
+    /// - Signal processing (2D filtering, separable convolutions)
+    /// - Graph theory (graph products)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let b = Tensor::from_slice(&[0.0, 5.0, 6.0, 7.0], &[2, 2], &device);
+    /// let c = client.kron(&a, &b)?;
+    /// // c has shape [4, 4]:
+    /// // [[0, 5, 0, 10],
+    /// //  [6, 7, 12, 14],
+    /// //  [0, 15, 0, 20],
+    /// //  [18, 21, 24, 28]]
+    /// ```
+    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Khatri-Rao product (column-wise Kronecker product)
+    ///
+    /// Computes the column-wise Kronecker product of two matrices.
+    ///
+    /// # Definition
+    ///
+    /// For matrices A of shape [m, k] and B of shape [n, k] (same number of columns),
+    /// the Khatri-Rao product A ⊙ B has shape [m*n, k] where each column is the
+    /// Kronecker product of the corresponding columns:
+    ///
+    /// ```text
+    /// (A ⊙ B)[:, j] = A[:, j] ⊗ B[:, j]
+    /// ```
+    ///
+    /// # Properties
+    ///
+    /// - Used in tensor decompositions (CP/PARAFAC, Tucker)
+    /// - (A ⊙ B)^T (A ⊙ B) = (A^T A) * (B^T B) (element-wise product)
+    /// - Related to mode-n products in tensor algebra
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - First matrix [m, k]
+    /// * `b` - Second matrix [n, k]
+    ///
+    /// # Returns
+    ///
+    /// Khatri-Rao product [m*n, k]
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if inputs are not 2D or have different number of columns
+    /// - `DTypeMismatch` if dtypes don't match
+    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    ///
+    /// # Use Cases
+    ///
+    /// - CP/PARAFAC tensor decomposition (ALS updates)
+    /// - Tucker decomposition factor updates
+    /// - Multi-linear algebra operations
+    /// - Compressed sensing
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // A = [[1, 2], [3, 4]]  (2x2)
+    /// // B = [[5, 6], [7, 8]]  (2x2)
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let b = Tensor::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2], &device);
+    /// let c = client.khatri_rao(&a, &b)?;
+    /// // c has shape [4, 2]:
+    /// // [[5, 12],   // 1*5, 2*6
+    /// //  [7, 16],   // 1*7, 2*8
+    /// //  [15, 24],  // 3*5, 4*6
+    /// //  [21, 32]]  // 3*7, 4*8
+    /// ```
+    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 }
