@@ -20,16 +20,18 @@ mod schur;
 mod solvers;
 mod statistics;
 mod svd;
+mod tensor_decompose;
 
 #[cfg(test)]
 mod tests;
 
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
-    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
-    QrDecomposition, SvdDecomposition,
+    CholeskyDecomposition, ComplexSchurDecomposition, CpDecomposition, CpOptions,
+    EigenDecomposition, GeneralEigenDecomposition, GeneralizedSchurDecomposition,
+    LinearAlgebraAlgorithms, LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder,
+    PolarDecomposition, QrDecomposition, SvdDecomposition, TensorDecomposeAlgorithms,
+    TensorTrainDecomposition, TuckerDecomposition, TuckerOptions,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;

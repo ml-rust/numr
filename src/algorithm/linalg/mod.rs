@@ -25,6 +25,7 @@
 pub mod decompositions;
 pub mod helpers;
 pub mod matrix_functions_core;
+pub mod tensor_decompose_core;
 pub mod traits;
 
 // Re-export all public types for convenient access

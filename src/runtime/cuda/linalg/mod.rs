@@ -17,6 +17,7 @@ mod schur;
 mod solvers;
 mod statistics;
 mod svd;
+mod tensor_decompose;
 
 #[cfg(test)]
 mod tests;
@@ -24,10 +25,11 @@ mod tests;
 use super::CudaRuntime;
 use super::client::CudaClient;
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
-    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
-    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
-    QrDecomposition, SchurDecomposition, SvdDecomposition,
+    CholeskyDecomposition, ComplexSchurDecomposition, CpDecomposition, CpOptions,
+    EigenDecomposition, GeneralEigenDecomposition, GeneralizedSchurDecomposition,
+    LinearAlgebraAlgorithms, LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder,
+    PolarDecomposition, QrDecomposition, SchurDecomposition, SvdDecomposition,
+    TensorDecomposeAlgorithms, TensorTrainDecomposition, TuckerDecomposition, TuckerOptions,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;

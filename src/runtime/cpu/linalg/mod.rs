@@ -14,6 +14,7 @@ mod schur;
 mod solvers;
 mod statistics;
 mod svd;
+mod tensor_decompose;
 
 #[cfg(test)]
 mod tests;
