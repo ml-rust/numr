@@ -18,12 +18,13 @@
 //! | cholesky    | O(N³)      | O(N³)      | Two triangular solves + matmul  |
 
 use crate::algorithm::LinearAlgebraAlgorithms;
-use crate::autograd::GradFn;
+use crate::autograd::var_ops::{var_matmul, var_mul, var_neg};
+use crate::autograd::{GradFn, Var};
 use crate::error::Result;
 use crate::ops::{
     BinaryOps, LinalgOps, MatmulOps, ScalarOps, TensorOps, TypeConversionOps, UnaryOps,
 };
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
 
@@ -128,6 +129,28 @@ where
         Ok(vec![Some(eye)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
+    {
+        let saved_a = &self.saved_tensors[0];
+        let n = saved_a.shape()[0];
+        let client = R::default_client(saved_a.device());
+
+        // dL/dA = dL/ds * I
+        // Create ones vector (constant, no gradient tracking)
+        let ones_vec = Tensor::<R>::ones(&[n], saved_a.dtype(), saved_a.device());
+        let ones_var = Var::new(ones_vec, false);
+
+        // Scale by grad_output via var_mul to track gradients through grad_output
+        let scaled_diag = var_mul(&ones_var, grad_output, &client)?;
+
+        // Create diagonal matrix (non-differentiable operation on the result)
+        let eye = LinalgOps::diagflat(&client, scaled_diag.tensor())?;
+
+        Ok(vec![Some(Var::new(eye, false))])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         &self.input_ids
     }
@@ -185,6 +208,32 @@ where
 
         // Negate
         let grad_a = client.neg(&grad_a)?;
+
+        Ok(vec![Some(grad_a)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + MatmulOps<R> + TensorOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+        let inv_a = &self.saved_tensors[0];
+
+        // dL/dA = -B^T @ dL/dB @ B^T where B = A^{-1}
+        // The inverse B is saved from forward pass, treat as constant
+        let inv_a_t = inv_a.t()?;
+        let inv_a_t_var = Var::new(inv_a_t, false);
+
+        // temp = B^T @ dL/dB (track gradients through grad_output)
+        let temp = var_matmul(&inv_a_t_var, grad_output, &client)?;
+
+        // grad_a = temp @ B^T (track gradients through temp)
+        let inv_a_t2 = inv_a.t()?;
+        let inv_a_t_var2 = Var::new(inv_a_t2, false);
+        let grad_a = var_matmul(&temp, &inv_a_t_var2, &client)?;
+
+        // Negate (track gradients through neg)
+        let grad_a = var_neg(&grad_a, &client)?;
 
         Ok(vec![Some(grad_a)])
     }
@@ -277,6 +326,37 @@ where
         Ok(vec![Some(grad_a)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
+    {
+        use crate::error::Error;
+
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let det_output = &self.saved_tensors[1];
+
+        // dL/dA = dL/dd * det(A) * A^{-T}
+        // Recompute inverse (same as in backward)
+        let inv_a = LinalgOps::inverse(&client, saved_a).map_err(|e| {
+            Error::Internal(format!(
+                "DetBackward: failed to compute inverse for gradient \
+                 (matrix may be singular or nearly singular): {}",
+                e
+            ))
+        })?;
+        let inv_a_t = inv_a.t()?.contiguous();
+
+        // det_output * inv_a_t is constant (not dependent on grad_output)
+        let det_scaled = client.mul(&inv_a_t, det_output)?;
+        let det_scaled_var = Var::new(det_scaled, false);
+
+        // Scale by grad_output using var_mul to track gradients
+        let grad_a = var_mul(&det_scaled_var, grad_output, &client)?;
+
+        Ok(vec![Some(grad_a)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         &self.input_ids
     }
@@ -348,6 +428,40 @@ where
         let x_t = saved_x.t()?;
         let grad_a = client.matmul(&v, &x_t)?;
         let grad_a = client.neg(&grad_a)?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + MatmulOps<R> + TensorOps<R> + LinearAlgebraAlgorithms<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let saved_x = &self.saved_tensors[1];
+
+        // grad_output = dL/dx
+        // Solve A^T @ v = dL/dx for v
+        // The solve operation is not differentiable in the var sense here,
+        // so we compute v as a constant tensor
+        let a_t = saved_a.t()?.contiguous();
+        let v = LinalgOps::solve(&client, &a_t, grad_output.tensor())?;
+
+        // dL/db = v = solve(A^T, dL/dx)
+        // v depends on grad_output, but solve is not tracked, so grad_b is constant
+        let grad_b = Var::new(v.clone(), false);
+
+        // dL/dA = -v @ x^T
+        // v is constant (result of solve), x^T is constant (saved tensor)
+        let v_var = Var::new(v, false);
+        let x_t = saved_x.t()?;
+        let x_t_var = Var::new(x_t, false);
+
+        // Use var_matmul (though both inputs are constant here)
+        let grad_a = var_matmul(&v_var, &x_t_var, &client)?;
+
+        // Negate using var_neg
+        let grad_a = var_neg(&grad_a, &client)?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
@@ -459,6 +573,58 @@ where
         let grad_a = client.div_scalar(&sum, 2.0)?;
 
         Ok(vec![Some(grad_a)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R>
+            + MatmulOps<R>
+            + TensorOps<R>
+            + ScalarOps<R>
+            + LinearAlgebraAlgorithms<R>,
+    {
+        use crate::error::Error;
+
+        let client = R::default_client(grad_output.tensor().device());
+        let l = &self.saved_tensors[0];
+
+        // Step 1: Compute S = L^T @ grad_L
+        // L is saved (constant), grad_output needs gradient tracking
+        let l_t = l.t()?.contiguous();
+        let l_t_var = Var::new(l_t.clone(), false);
+        let s = var_matmul(&l_t_var, grad_output, &client)?;
+
+        // Step 2: Φ(S) = tril(S) with diagonal halved
+        // This is a non-differentiable mask operation
+        let phi = tril_with_halved_diagonal::<R>(&s.tensor().contiguous(), &client)?;
+
+        // Step 3-5: The triangular solves and symmetrization
+        // These don't have var_ops equivalents, so we compute them as constants
+        let phi_t = phi.t()?.contiguous();
+        let w = client.solve_triangular_upper(&l_t, &phi_t).map_err(|e| {
+            Error::Internal(format!(
+                "CholeskyBackward: triangular solve failed in step 3: {}",
+                e
+            ))
+        })?;
+        let z = w.t()?.contiguous();
+
+        let grad_a_raw = client.solve_triangular_upper(&l_t, &z).map_err(|e| {
+            Error::Internal(format!(
+                "CholeskyBackward: triangular solve failed in step 4: {}",
+                e
+            ))
+        })?;
+
+        // Step 5: Symmetrize: grad_A = (Y + Y^T) / 2
+        let y_contiguous = grad_a_raw.contiguous();
+        let y_t = y_contiguous.t()?.contiguous();
+        let sum = client.add(&y_contiguous, &y_t)?;
+        let grad_a = client.div_scalar(&sum, 2.0)?;
+
+        // The result depends on grad_output through the chain,
+        // but triangular solves are not tracked, so wrap as constant
+        Ok(vec![Some(Var::new(grad_a, false))])
     }
 
     fn inputs(&self) -> &[TensorId] {

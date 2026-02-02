@@ -3,9 +3,11 @@
 //! Implements gradient computation for sum, mean, max, and min reductions.
 
 use crate::autograd::GradFn;
+use crate::autograd::var::Var;
+use crate::autograd::var_ops::{var_div_scalar, var_mul};
 use crate::error::Result;
 use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps};
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
 
@@ -84,6 +86,32 @@ impl<R: Runtime> GradFn<R> for SumBackward<R> {
         Ok(vec![Some(grad)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        // For sum, the gradient is just shape manipulation (unsqueeze + broadcast)
+        // The operations are linear/constant, so second derivative is 0
+        // We still need to track the gradient flow through grad_output
+
+        let mut grad_tensor = grad_output.tensor().clone();
+
+        // If keepdim=false, we need to unsqueeze the dimensions that were reduced
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+
+        // Broadcast to original shape and ensure contiguous
+        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?);
+
+        // Wrap in Var - since sum's backward is purely linear (identity broadcast),
+        // the computation graph for second-order derivatives flows through grad_output
+        // which is already tracked. The broadcast is a view operation.
+        Ok(vec![Some(Var::new(grad_tensor, true))])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -160,6 +188,40 @@ where
 
         // Divide by count
         let grad = client.div_scalar(&grad, count_f64)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Calculate the count (number of elements being averaged)
+        let count: usize = self.dims.iter().map(|&d| self.input_shape[d]).product();
+        let count_f64 = count as f64;
+
+        let mut grad_tensor = grad_output.tensor().clone();
+
+        // If keepdim=false, we need to unsqueeze the dimensions that were reduced
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+
+        // Broadcast to original shape and ensure contiguous
+        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?);
+
+        // Create a Var for the broadcast gradient
+        let grad_var = Var::new(grad_tensor, grad_output.requires_grad());
+
+        // Divide by count using var_div_scalar to track gradients
+        let grad = var_div_scalar(&grad_var, count_f64, &client)?;
 
         Ok(vec![Some(grad)])
     }
@@ -255,6 +317,54 @@ where
         Ok(vec![Some(grad_input)])
     }
 
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + CompareOps<R> + ReduceOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Recompute max to get the max values
+        let max_vals = client.max(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast max values to input shape for comparison
+        let max_broadcast = ensure_contiguous(max_vals.broadcast_to(self.saved_input.shape())?);
+
+        // Create mask where input equals max (handles ties)
+        let mask = client.eq(&self.saved_input, &max_broadcast)?;
+
+        // Count how many elements equal the max per reduction group
+        let mask_sum = client.sum(&mask, &self.dims, true)?;
+
+        // Broadcast mask_sum to input shape
+        let mask_sum_broadcast =
+            ensure_contiguous(mask_sum.broadcast_to(self.saved_input.shape())?);
+
+        // Normalize mask by count (distribute gradient equally among tied elements)
+        let normalized_mask = client.div(&mask, &mask_sum_broadcast)?;
+
+        // Broadcast grad_output to input shape
+        let mut grad_tensor = grad_output.tensor().clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+
+        // Create Vars for the multiplication
+        // The normalized_mask is constant w.r.t. grad_output (it's a hard mask based on input)
+        // So we wrap it as a detached Var
+        let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
+        let mask_var = Var::new(normalized_mask, false); // mask is not differentiable
+
+        // Multiply gradient by normalized mask using var_mul to track gradients through grad_output
+        let grad_input = var_mul(&grad_var, &mask_var, &client)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
     fn inputs(&self) -> &[TensorId] {
         std::slice::from_ref(&self.input_id)
     }
@@ -346,6 +456,53 @@ where
 
         // Multiply gradient by normalized mask
         let grad_input = client.mul(&grad_broadcast, &normalized_mask)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + CompareOps<R> + ReduceOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Recompute min to get the min values
+        let min_vals = client.min(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast min values to input shape for comparison
+        let min_broadcast = ensure_contiguous(min_vals.broadcast_to(self.saved_input.shape())?);
+
+        // Create mask where input equals min (handles ties)
+        let mask = client.eq(&self.saved_input, &min_broadcast)?;
+
+        // Count how many elements equal the min per reduction group
+        let mask_sum = client.sum(&mask, &self.dims, true)?;
+
+        // Broadcast mask_sum to input shape
+        let mask_sum_broadcast =
+            ensure_contiguous(mask_sum.broadcast_to(self.saved_input.shape())?);
+
+        // Normalize mask by count
+        let normalized_mask = client.div(&mask, &mask_sum_broadcast)?;
+
+        // Broadcast grad_output to input shape
+        let mut grad_tensor = grad_output.tensor().clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+
+        // Create Vars for the multiplication
+        // The normalized_mask is constant w.r.t. grad_output (it's a hard mask based on input)
+        let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
+        let mask_var = Var::new(normalized_mask, false); // mask is not differentiable
+
+        // Multiply gradient by normalized mask using var_mul to track gradients through grad_output
+        let grad_input = var_mul(&grad_var, &mask_var, &client)?;
 
         Ok(vec![Some(grad_input)])
     }
@@ -448,6 +605,56 @@ where
 
         // Final gradient
         let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + ReduceOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Calculate N (number of elements in reduction)
+        let n: usize = self
+            .dims
+            .iter()
+            .map(|&d| self.saved_input.shape()[d])
+            .product();
+        let n_minus_corr = (n - self.correction) as f64;
+
+        // Compute mean of input
+        let mean = client.mean(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast mean to input shape
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+
+        // a - mean(a)
+        let centered = client.sub(&self.saved_input, &mean_broadcast)?;
+
+        // 2 * (a - mean) / (N - correction)
+        let scale = 2.0 / n_minus_corr;
+        let grad_contrib = client.mul_scalar(&centered, scale)?;
+
+        // Handle grad_output shape - broadcast to input shape
+        let mut grad_tensor = grad_output.tensor().clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+
+        // Create Vars for the multiplication
+        // grad_contrib depends on input (through centering), but for second-order
+        // differentiation of variance w.r.t. grad_output, it's treated as constant
+        let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
+        let contrib_var = Var::new(grad_contrib, false);
+
+        // Final gradient using var_mul to track gradients through grad_output
+        let grad_input = var_mul(&grad_var, &contrib_var, &client)?;
 
         Ok(vec![Some(grad_input)])
     }
@@ -567,6 +774,70 @@ where
 
         // Final gradient
         let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ScalarOps<R> + ReduceOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        // Calculate N (number of elements in reduction)
+        let n: usize = self
+            .dims
+            .iter()
+            .map(|&d| self.saved_input.shape()[d])
+            .product();
+        let n_minus_corr = (n - self.correction) as f64;
+
+        // Compute mean of input
+        let mean = client.mean(&self.saved_input, &self.dims, true)?;
+
+        // Broadcast mean and std to input shape
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+
+        let std_for_broadcast = if self.keepdim {
+            self.saved_output.clone()
+        } else {
+            let mut std_expanded = self.saved_output.clone();
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                std_expanded = std_expanded.unsqueeze(dim as isize)?;
+            }
+            std_expanded
+        };
+        let std_broadcast =
+            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?);
+
+        // (a - mean)
+        let centered = client.sub(&self.saved_input, &mean_broadcast)?;
+
+        // (a - mean) / ((N - correction) * std)
+        let denominator = client.mul_scalar(&std_broadcast, n_minus_corr)?;
+        let grad_contrib = client.div(&centered, &denominator)?;
+
+        // Handle grad_output shape - broadcast to input shape
+        let mut grad_tensor = grad_output.tensor().clone();
+        if !self.keepdim {
+            let mut sorted_dims = self.dims.clone();
+            sorted_dims.sort();
+            for &dim in &sorted_dims {
+                grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
+            }
+        }
+        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+
+        // Create Vars for the multiplication
+        // grad_contrib depends on input and saved_output, but for second-order
+        // differentiation of std w.r.t. grad_output, it's treated as constant
+        let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
+        let contrib_var = Var::new(grad_contrib, false);
+
+        // Final gradient using var_mul to track gradients through grad_output
+        let grad_input = var_mul(&grad_var, &contrib_var, &client)?;
 
         Ok(vec![Some(grad_input)])
     }

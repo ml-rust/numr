@@ -2,10 +2,11 @@
 //!
 //! Implements gradient computation for matmul: C = A @ B
 
-use crate::autograd::GradFn;
+use crate::autograd::var_ops::var_matmul;
+use crate::autograd::{GradFn, Var};
 use crate::error::Result;
 use crate::ops::{MatmulOps, TensorOps};
-use crate::runtime::Runtime;
+use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
 
@@ -64,6 +65,50 @@ where
         // Transpose A: swap last two dimensions
         let a_t = saved_a.t()?;
         let grad_b = client.matmul(&a_t, grad_output)?;
+
+        Ok(vec![Some(grad_a), Some(grad_b)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + MatmulOps<R> + TensorOps<R>,
+    {
+        use super::shape::var_transpose;
+
+        let client = R::default_client(grad_output.tensor().device());
+        let saved_a = &self.saved_tensors[0];
+        let saved_b = &self.saved_tensors[1];
+
+        // C = A @ B
+        // dL/dA = dL/dC @ B^T
+        // dL/dB = A^T @ dL/dC
+
+        // Wrap saved tensors as Vars with original IDs AND grad_fns
+        // This is essential for second-order derivatives: if A or B themselves
+        // came from computations (e.g., A = X + Y), we need to continue the
+        // gradient chain through them.
+        let a_var = Var::with_id_and_grad_fn(
+            saved_a.clone(),
+            self.input_ids[0],
+            self.input_grad_fns[0].clone(),
+        );
+        let b_var = Var::with_id_and_grad_fn(
+            saved_b.clone(),
+            self.input_ids[1],
+            self.input_grad_fns[1].clone(),
+        );
+
+        // Transpose B using var_transpose to maintain gradient chain
+        let b_t_var = var_transpose(&b_var)?;
+
+        // dL/dA = dL/dC @ B^T
+        let grad_a = var_matmul(grad_output, &b_t_var, &client)?;
+
+        // Transpose A using var_transpose to maintain gradient chain
+        let a_t_var = var_transpose(&a_var)?;
+
+        // dL/dB = A^T @ dL/dC
+        let grad_b = var_matmul(&a_t_var, grad_output, &client)?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
