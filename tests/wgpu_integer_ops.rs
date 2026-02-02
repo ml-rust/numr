@@ -6,7 +6,7 @@
 #![cfg(feature = "wgpu")]
 
 use numr::dtype::DType;
-use numr::ops::{CompareOps, TensorOps};
+use numr::ops::{BinaryOps, CompareOps, ReduceOps, UnaryOps};
 use numr::runtime::Runtime;
 use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 use numr::tensor::Tensor;

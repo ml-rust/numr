@@ -775,12 +775,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[4, 3], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[4, 3], &cuda_device);
 
-        let cpu_result: Vec<f32> = TensorOps::pinverse(&cpu_client, &cpu_a, None)
-            .unwrap()
-            .to_vec();
-        let cuda_result: Vec<f32> = TensorOps::pinverse(&cuda_client, &cuda_a, None)
-            .unwrap()
-            .to_vec();
+        let cpu_result: Vec<f32> = cpu_client.pinverse(&cpu_a, None).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_client.pinverse(&cuda_a, None).unwrap().to_vec();
 
         assert_allclose_f32(
             &cpu_result,
@@ -821,12 +817,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 3], &cuda_device);
 
-        let cpu_result: Vec<f32> = TensorOps::cov(&cpu_client, &cpu_a, Some(1))
-            .unwrap()
-            .to_vec();
-        let cuda_result: Vec<f32> = TensorOps::cov(&cuda_client, &cuda_a, Some(1))
-            .unwrap()
-            .to_vec();
+        let cpu_result: Vec<f32> = cpu_client.cov(&cpu_a, Some(1)).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_client.cov(&cuda_a, Some(1)).unwrap().to_vec();
 
         assert_allclose_f32(&cpu_result, &cuda_result, 1e-4, 1e-4, "cov CPU vs CUDA");
     }
@@ -843,8 +835,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 3], &cuda_device);
 
-        let cpu_result: Vec<f32> = TensorOps::corrcoef(&cpu_client, &cpu_a).unwrap().to_vec();
-        let cuda_result: Vec<f32> = TensorOps::corrcoef(&cuda_client, &cuda_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_client.corrcoef(&cuda_a).unwrap().to_vec();
 
         assert_allclose_f32(
             &cpu_result,
@@ -868,8 +860,8 @@ mod cuda_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 2], &cpu_device);
         let cuda_a = Tensor::<CudaRuntime>::from_slice(&data, &[3, 2], &cuda_device);
 
-        let cpu_result: Vec<f32> = TensorOps::corrcoef(&cpu_client, &cpu_a).unwrap().to_vec();
-        let cuda_result: Vec<f32> = TensorOps::corrcoef(&cuda_client, &cuda_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
+        let cuda_result: Vec<f32> = cuda_client.corrcoef(&cuda_a).unwrap().to_vec();
 
         // Zero-variance handling must match exactly
         assert_allclose_f32(
@@ -916,12 +908,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[4, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[4, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = TensorOps::pinverse(&cpu_client, &cpu_a, None)
-            .unwrap()
-            .to_vec();
-        let wgpu_result: Vec<f32> = TensorOps::pinverse(&wgpu_client, &wgpu_a, None)
-            .unwrap()
-            .to_vec();
+        let cpu_result: Vec<f32> = cpu_client.pinverse(&cpu_a, None).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_client.pinverse(&wgpu_a, None).unwrap().to_vec();
 
         // WGPU uses F32 only, slightly looser tolerance
         assert_allclose_f32(
@@ -963,12 +951,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = TensorOps::cov(&cpu_client, &cpu_a, Some(1))
-            .unwrap()
-            .to_vec();
-        let wgpu_result: Vec<f32> = TensorOps::cov(&wgpu_client, &wgpu_a, Some(1))
-            .unwrap()
-            .to_vec();
+        let cpu_result: Vec<f32> = cpu_client.cov(&cpu_a, Some(1)).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_client.cov(&wgpu_a, Some(1)).unwrap().to_vec();
 
         assert_allclose_f32(&cpu_result, &wgpu_result, 1e-3, 1e-3, "cov CPU vs WGPU");
     }
@@ -985,8 +969,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 3], &wgpu_device);
 
-        let cpu_result: Vec<f32> = TensorOps::corrcoef(&cpu_client, &cpu_a).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = TensorOps::corrcoef(&wgpu_client, &wgpu_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_client.corrcoef(&wgpu_a).unwrap().to_vec();
 
         assert_allclose_f32(
             &cpu_result,
@@ -1010,8 +994,8 @@ mod wgpu_parity {
         let cpu_a = Tensor::<CpuRuntime>::from_slice(&data, &[3, 2], &cpu_device);
         let wgpu_a = Tensor::<WgpuRuntime>::from_slice(&data, &[3, 2], &wgpu_device);
 
-        let cpu_result: Vec<f32> = TensorOps::corrcoef(&cpu_client, &cpu_a).unwrap().to_vec();
-        let wgpu_result: Vec<f32> = TensorOps::corrcoef(&wgpu_client, &wgpu_a).unwrap().to_vec();
+        let cpu_result: Vec<f32> = cpu_client.corrcoef(&cpu_a).unwrap().to_vec();
+        let wgpu_result: Vec<f32> = wgpu_client.corrcoef(&wgpu_a).unwrap().to_vec();
 
         // Zero-variance handling must match exactly
         assert_allclose_f32(

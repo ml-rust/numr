@@ -3,7 +3,7 @@
 //! Tests high-level complex operations: conj, real, imag, angle
 
 use numr::dtype::{Complex64, Complex128, DType};
-use numr::ops::ComplexOps;
+use numr::ops::{BinaryOps, ComplexOps, UnaryOps};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
