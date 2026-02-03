@@ -526,4 +526,269 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+
+    // ========================================================================
+    // Extended Special Functions
+    // ========================================================================
+
+    fn ellipk(&self, m: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(m.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(m.shape(), m.dtype(), device);
+
+        unsafe {
+            kernels::launch_ellipk(
+                self.context(),
+                self.stream(),
+                device.index,
+                m.dtype(),
+                m.storage().ptr(),
+                out.storage().ptr(),
+                m.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn ellipe(&self, m: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(m.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(m.shape(), m.dtype(), device);
+
+        unsafe {
+            kernels::launch_ellipe(
+                self.context(),
+                self.stream(),
+                device.index,
+                m.dtype(),
+                m.storage().ptr(),
+                out.storage().ptr(),
+                m.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn hyp2f1(
+        &self,
+        a: f64,
+        b: f64,
+        c: f64,
+        z: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(z.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(z.shape(), z.dtype(), device);
+
+        unsafe {
+            kernels::launch_hyp2f1(
+                self.context(),
+                self.stream(),
+                device.index,
+                z.dtype(),
+                a,
+                b,
+                c,
+                z.storage().ptr(),
+                out.storage().ptr(),
+                z.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn hyp1f1(&self, a: f64, b: f64, z: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(z.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(z.shape(), z.dtype(), device);
+
+        unsafe {
+            kernels::launch_hyp1f1(
+                self.context(),
+                self.stream(),
+                device.index,
+                z.dtype(),
+                a,
+                b,
+                z.storage().ptr(),
+                out.storage().ptr(),
+                z.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn airy_ai(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_airy_ai(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn airy_bi(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_airy_bi(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn legendre_p(&self, n: i32, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_legendre_p(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                n,
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn legendre_p_assoc(
+        &self,
+        n: i32,
+        m: i32,
+        x: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_legendre_p_assoc(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                n,
+                m,
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn sph_harm(
+        &self,
+        n: i32,
+        m: i32,
+        theta: &Tensor<CudaRuntime>,
+        phi: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(theta.dtype())?;
+        if theta.dtype() != phi.dtype() {
+            return Err(crate::error::Error::DTypeMismatch {
+                lhs: theta.dtype(),
+                rhs: phi.dtype(),
+            });
+        }
+        if theta.shape() != phi.shape() {
+            return Err(crate::error::Error::ShapeMismatch {
+                expected: theta.shape().to_vec(),
+                got: phi.shape().to_vec(),
+            });
+        }
+
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(theta.shape(), theta.dtype(), device);
+
+        unsafe {
+            kernels::launch_sph_harm(
+                self.context(),
+                self.stream(),
+                device.index,
+                theta.dtype(),
+                n,
+                m,
+                theta.storage().ptr(),
+                phi.storage().ptr(),
+                out.storage().ptr(),
+                theta.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn fresnel_s(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_fresnel_s(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn fresnel_c(&self, x: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        let device = self.device();
+        let out = Tensor::<CudaRuntime>::empty(x.shape(), x.dtype(), device);
+
+        unsafe {
+            kernels::launch_fresnel_c(
+                self.context(),
+                self.stream(),
+                device.index,
+                x.dtype(),
+                x.storage().ptr(),
+                out.storage().ptr(),
+                x.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
 }

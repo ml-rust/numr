@@ -30,6 +30,27 @@
 //! - [`bessel_i0`], [`bessel_i1`] - Modified first kind I₀, I₁
 //! - [`bessel_k0`], [`bessel_k1`] - Modified second kind K₀, K₁
 //!
+//! ## Elliptic Integrals
+//! - [`ellipk`] - Complete elliptic integral of first kind K(m)
+//! - [`ellipe`] - Complete elliptic integral of second kind E(m)
+//!
+//! ## Hypergeometric Functions
+//! - [`hyp2f1`] - Gauss hypergeometric function ₂F₁(a, b; c; z)
+//! - [`hyp1f1`] - Confluent hypergeometric function ₁F₁(a; b; z)
+//!
+//! ## Airy Functions
+//! - [`airy_ai`] - Airy function of first kind Ai(x)
+//! - [`airy_bi`] - Airy function of second kind Bi(x)
+//!
+//! ## Legendre Functions and Spherical Harmonics
+//! - [`legendre_p`] - Legendre polynomial P_n(x)
+//! - [`legendre_p_assoc`] - Associated Legendre function P_n^m(x)
+//! - [`sph_harm`] - Real spherical harmonic Y_n^m(θ, φ)
+//!
+//! ## Fresnel Integrals
+//! - [`fresnel_s`] - Fresnel sine integral S(x)
+//! - [`fresnel_c`] - Fresnel cosine integral C(x)
+//!
 //! # Algorithm Sources
 //!
 //! Implementations follow well-established numerical algorithms:
@@ -38,6 +59,10 @@
 //! - Continued fraction expansion for incomplete gamma/beta
 //! - Newton-Raphson iteration for inverse functions
 //! - Numerical Recipes polynomial approximations for Bessel functions
+//! - AGM method for elliptic integrals
+//! - Power series with transformations for hypergeometric functions
+//! - Power series and asymptotic expansions for Airy functions
+//! - Three-term recurrence for Legendre polynomials
 
 pub mod bessel_coefficients;
 pub mod scalar;
@@ -236,6 +261,158 @@ pub trait SpecialFunctions<R: Runtime> {
     ///
     /// K₁(x) → ∞ as x → 0⁺. Domain: x > 0. Decays exponentially.
     fn bessel_k1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Elliptic Integrals
+    // ========================================================================
+
+    /// Compute the complete elliptic integral of the first kind K(m).
+    ///
+    /// ```text
+    /// K(m) = ∫₀^(π/2) dθ / √(1 - m·sin²θ)
+    /// ```
+    ///
+    /// # Properties
+    /// - Domain: m ∈ [0, 1)
+    /// - K(0) = π/2
+    /// - K(m) → ∞ as m → 1
+    /// - Uses parameter convention m = k², where k is the modulus
+    fn ellipk(&self, m: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the complete elliptic integral of the second kind E(m).
+    ///
+    /// ```text
+    /// E(m) = ∫₀^(π/2) √(1 - m·sin²θ) dθ
+    /// ```
+    ///
+    /// # Properties
+    /// - Domain: m ∈ [0, 1]
+    /// - E(0) = π/2
+    /// - E(1) = 1
+    fn ellipe(&self, m: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Hypergeometric Functions
+    // ========================================================================
+
+    /// Compute the Gauss hypergeometric function ₂F₁(a, b; c; z).
+    ///
+    /// ```text
+    /// ₂F₁(a, b; c; z) = Σ_{n=0}^∞ (a)_n (b)_n / ((c)_n n!) z^n
+    /// ```
+    ///
+    /// # Properties
+    /// - Converges for |z| < 1
+    /// - ₂F₁(a, b; c; 0) = 1
+    ///
+    /// # Arguments
+    /// - a, b, c: Scalar parameters
+    /// - z: Input tensor
+    fn hyp2f1(&self, a: f64, b: f64, c: f64, z: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the confluent hypergeometric function ₁F₁(a; b; z) (Kummer's M).
+    ///
+    /// ```text
+    /// ₁F₁(a; b; z) = M(a, b, z) = Σ_{n=0}^∞ (a)_n / ((b)_n n!) z^n
+    /// ```
+    ///
+    /// # Properties
+    /// - ₁F₁(a; b; 0) = 1
+    /// - ₁F₁(0; b; z) = 1
+    /// - Entire function in z
+    fn hyp1f1(&self, a: f64, b: f64, z: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Airy Functions
+    // ========================================================================
+
+    /// Compute the Airy function of the first kind Ai(x).
+    ///
+    /// ```text
+    /// Ai(x) is the solution of y'' - xy = 0 that decays as x → +∞
+    /// ```
+    ///
+    /// # Properties
+    /// - Ai(x) → 0 as x → +∞ (exponentially)
+    /// - Ai(x) oscillates for x < 0
+    /// - Ai(0) ≈ 0.3550280538878172
+    fn airy_ai(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the Airy function of the second kind Bi(x).
+    ///
+    /// ```text
+    /// Bi(x) is the solution of y'' - xy = 0 that grows as x → +∞
+    /// ```
+    ///
+    /// # Properties
+    /// - Bi(x) → +∞ as x → +∞ (exponentially)
+    /// - Bi(x) oscillates for x < 0
+    /// - Bi(0) ≈ 0.6149266274460007
+    fn airy_bi(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Legendre Functions
+    // ========================================================================
+
+    /// Compute the Legendre polynomial P_n(x).
+    ///
+    /// # Properties
+    /// - Domain: x ∈ [-1, 1]
+    /// - P_n(1) = 1
+    /// - P_n(-1) = (-1)^n
+    /// - P_0(x) = 1, P_1(x) = x
+    fn legendre_p(&self, n: i32, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the associated Legendre function P_n^m(x).
+    ///
+    /// Uses Condon-Shortley phase convention (factor of (-1)^m).
+    ///
+    /// # Properties
+    /// - Domain: x ∈ [-1, 1], 0 ≤ m ≤ n
+    /// - P_n^0(x) = P_n(x)
+    fn legendre_p_assoc(&self, n: i32, m: i32, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the real spherical harmonic Y_n^m(θ, φ).
+    ///
+    /// Returns the real-valued spherical harmonic with Schmidt semi-normalization.
+    /// - m > 0: Y_n^m ∝ P_n^m(cos θ) cos(mφ)
+    /// - m = 0: Y_n^0 ∝ P_n(cos θ)
+    /// - m < 0: Y_n^m ∝ P_n^|m|(cos θ) sin(|m|φ)
+    ///
+    /// # Arguments
+    /// - n: degree (n ≥ 0)
+    /// - m: order (-n ≤ m ≤ n)
+    /// - theta: polar angle θ ∈ [0, π] (colatitude)
+    /// - phi: azimuthal angle φ ∈ [0, 2π)
+    fn sph_harm(&self, n: i32, m: i32, theta: &Tensor<R>, phi: &Tensor<R>) -> Result<Tensor<R>>;
+
+    // ========================================================================
+    // Fresnel Integrals
+    // ========================================================================
+
+    /// Compute the Fresnel sine integral S(x).
+    ///
+    /// ```text
+    /// S(x) = ∫₀ˣ sin(π t²/2) dt
+    /// ```
+    ///
+    /// # Properties
+    /// - S(0) = 0
+    /// - S(∞) = 0.5
+    /// - S(-x) = -S(x) (odd function)
+    fn fresnel_s(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Compute the Fresnel cosine integral C(x).
+    ///
+    /// ```text
+    /// C(x) = ∫₀ˣ cos(π t²/2) dt
+    /// ```
+    ///
+    /// # Properties
+    /// - C(0) = 0
+    /// - C(∞) = 0.5
+    /// - C(-x) = -C(x) (odd function)
+    fn fresnel_c(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
 }
 
 // ============================================================================

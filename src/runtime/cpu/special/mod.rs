@@ -1,7 +1,8 @@
 //! CPU implementation of special mathematical functions
 //!
-//! Implements error functions, gamma functions, beta functions, and incomplete
-//! gamma/beta functions using well-established numerical algorithms.
+//! Implements error functions, gamma functions, beta functions, incomplete
+//! gamma/beta functions, elliptic integrals, hypergeometric functions,
+//! Airy functions, Legendre polynomials, and Fresnel integrals.
 //!
 //! # Module Structure
 //!
@@ -14,10 +15,12 @@ mod helpers;
 mod tests;
 
 use crate::algorithm::special::scalar::{
-    bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar, bessel_j1_scalar, bessel_k0_scalar,
-    bessel_k1_scalar, bessel_y0_scalar, bessel_y1_scalar, beta_scalar, betainc_scalar,
-    betaincinv_scalar, digamma_scalar, erf_scalar, erfc_scalar, erfinv_scalar, gamma_scalar,
-    gammainc_scalar, gammaincc_scalar, gammaincinv_scalar, lgamma_scalar,
+    airy_ai_scalar, airy_bi_scalar, bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar,
+    bessel_j1_scalar, bessel_k0_scalar, bessel_k1_scalar, bessel_y0_scalar, bessel_y1_scalar,
+    beta_scalar, betainc_scalar, betaincinv_scalar, digamma_scalar, ellipe_scalar, ellipk_scalar,
+    erf_scalar, erfc_scalar, erfinv_scalar, fresnel_c_scalar, fresnel_s_scalar, gamma_scalar,
+    gammainc_scalar, gammaincc_scalar, gammaincinv_scalar, hyp1f1_scalar, hyp2f1_scalar,
+    legendre_p_assoc_scalar, legendre_p_scalar, lgamma_scalar, sph_harm_scalar,
 };
 use crate::algorithm::special::{SpecialFunctions, validate_special_dtype};
 use crate::error::Result;
@@ -150,5 +153,75 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
     fn bessel_k1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
         helpers::apply_unary(x, &self.device, bessel_k1_scalar)
+    }
+
+    // ========================================================================
+    // Extended Special Functions
+    // ========================================================================
+
+    fn ellipk(&self, m: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(m.dtype())?;
+        helpers::apply_unary(m, &self.device, ellipk_scalar)
+    }
+
+    fn ellipe(&self, m: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(m.dtype())?;
+        helpers::apply_unary(m, &self.device, ellipe_scalar)
+    }
+
+    fn hyp2f1(&self, a: f64, b: f64, c: f64, z: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(z.dtype())?;
+        helpers::apply_unary_with_three_f64s(z, &self.device, a, b, c, hyp2f1_scalar)
+    }
+
+    fn hyp1f1(&self, a: f64, b: f64, z: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(z.dtype())?;
+        helpers::apply_unary_with_two_f64s(z, &self.device, a, b, hyp1f1_scalar)
+    }
+
+    fn airy_ai(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, airy_ai_scalar)
+    }
+
+    fn airy_bi(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, airy_bi_scalar)
+    }
+
+    fn legendre_p(&self, n: i32, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary_with_int(x, &self.device, n, legendre_p_scalar)
+    }
+
+    fn legendre_p_assoc(
+        &self,
+        n: i32,
+        m: i32,
+        x: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary_with_two_ints(x, &self.device, n, m, legendre_p_assoc_scalar)
+    }
+
+    fn sph_harm(
+        &self,
+        n: i32,
+        m: i32,
+        theta: &Tensor<CpuRuntime>,
+        phi: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(theta.dtype())?;
+        helpers::apply_binary_with_two_ints(theta, phi, &self.device, n, m, sph_harm_scalar)
+    }
+
+    fn fresnel_s(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, fresnel_s_scalar)
+    }
+
+    fn fresnel_c(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        validate_special_dtype(x.dtype())?;
+        helpers::apply_unary(x, &self.device, fresnel_c_scalar)
     }
 }

@@ -131,3 +131,151 @@ where
         _ => unreachable!("dtype validated by caller"),
     }
 }
+
+/// Apply a unary scalar function with one extra i32 parameter.
+pub fn apply_unary_with_int<F>(
+    x: &Tensor<CpuRuntime>,
+    device: &CpuDevice,
+    n: i32,
+    f: F,
+) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(i32, f64) -> f64,
+{
+    match x.dtype() {
+        DType::F32 => {
+            let data: Vec<f32> = x.to_vec();
+            let result: Vec<f32> = data.iter().map(|&v| f(n, v as f64) as f32).collect();
+            Ok(Tensor::from_slice(&result, x.shape(), device))
+        }
+        DType::F64 => {
+            let data: Vec<f64> = x.to_vec();
+            let result: Vec<f64> = data.iter().map(|&v| f(n, v)).collect();
+            Ok(Tensor::from_slice(&result, x.shape(), device))
+        }
+        _ => unreachable!("dtype validated by caller"),
+    }
+}
+
+/// Apply a unary scalar function with two extra i32 parameters.
+pub fn apply_unary_with_two_ints<F>(
+    x: &Tensor<CpuRuntime>,
+    device: &CpuDevice,
+    n: i32,
+    m: i32,
+    f: F,
+) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(i32, i32, f64) -> f64,
+{
+    match x.dtype() {
+        DType::F32 => {
+            let data: Vec<f32> = x.to_vec();
+            let result: Vec<f32> = data.iter().map(|&v| f(n, m, v as f64) as f32).collect();
+            Ok(Tensor::from_slice(&result, x.shape(), device))
+        }
+        DType::F64 => {
+            let data: Vec<f64> = x.to_vec();
+            let result: Vec<f64> = data.iter().map(|&v| f(n, m, v)).collect();
+            Ok(Tensor::from_slice(&result, x.shape(), device))
+        }
+        _ => unreachable!("dtype validated by caller"),
+    }
+}
+
+/// Apply a binary scalar function with two extra i32 parameters (for sph_harm).
+pub fn apply_binary_with_two_ints<F>(
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    device: &CpuDevice,
+    n: i32,
+    m: i32,
+    f: F,
+) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(i32, i32, f64, f64) -> f64,
+{
+    if a.shape() != b.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        });
+    }
+
+    match a.dtype() {
+        DType::F32 => {
+            let a_data: Vec<f32> = a.to_vec();
+            let b_data: Vec<f32> = b.to_vec();
+            let result: Vec<f32> = a_data
+                .iter()
+                .zip(b_data.iter())
+                .map(|(&av, &bv)| f(n, m, av as f64, bv as f64) as f32)
+                .collect();
+            Ok(Tensor::from_slice(&result, a.shape(), device))
+        }
+        DType::F64 => {
+            let a_data: Vec<f64> = a.to_vec();
+            let b_data: Vec<f64> = b.to_vec();
+            let result: Vec<f64> = a_data
+                .iter()
+                .zip(b_data.iter())
+                .map(|(&av, &bv)| f(n, m, av, bv))
+                .collect();
+            Ok(Tensor::from_slice(&result, a.shape(), device))
+        }
+        _ => unreachable!("dtype validated by caller"),
+    }
+}
+
+/// Apply a unary scalar function with three extra f64 parameters (for hyp2f1).
+pub fn apply_unary_with_three_f64s<F>(
+    z: &Tensor<CpuRuntime>,
+    device: &CpuDevice,
+    a: f64,
+    b: f64,
+    c: f64,
+    f: F,
+) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(f64, f64, f64, f64) -> f64,
+{
+    match z.dtype() {
+        DType::F32 => {
+            let data: Vec<f32> = z.to_vec();
+            let result: Vec<f32> = data.iter().map(|&v| f(a, b, c, v as f64) as f32).collect();
+            Ok(Tensor::from_slice(&result, z.shape(), device))
+        }
+        DType::F64 => {
+            let data: Vec<f64> = z.to_vec();
+            let result: Vec<f64> = data.iter().map(|&v| f(a, b, c, v)).collect();
+            Ok(Tensor::from_slice(&result, z.shape(), device))
+        }
+        _ => unreachable!("dtype validated by caller"),
+    }
+}
+
+/// Apply a unary scalar function with two extra f64 parameters (for hyp1f1).
+pub fn apply_unary_with_two_f64s<F>(
+    z: &Tensor<CpuRuntime>,
+    device: &CpuDevice,
+    a: f64,
+    b: f64,
+    f: F,
+) -> Result<Tensor<CpuRuntime>>
+where
+    F: Fn(f64, f64, f64) -> f64,
+{
+    match z.dtype() {
+        DType::F32 => {
+            let data: Vec<f32> = z.to_vec();
+            let result: Vec<f32> = data.iter().map(|&v| f(a, b, v as f64) as f32).collect();
+            Ok(Tensor::from_slice(&result, z.shape(), device))
+        }
+        DType::F64 => {
+            let data: Vec<f64> = z.to_vec();
+            let result: Vec<f64> = data.iter().map(|&v| f(a, b, v)).collect();
+            Ok(Tensor::from_slice(&result, z.shape(), device))
+        }
+        _ => unreachable!("dtype validated by caller"),
+    }
+}
