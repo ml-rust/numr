@@ -56,11 +56,13 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 - **UnaryOps**: neg, abs, sqrt, exp, log, sin, cos, tan, sinh, cosh, tanh, floor, ceil, round, and more
 - **BinaryOps**: add, sub, mul, div, pow, maximum, minimum (all with NumPy-style broadcasting)
 - **ScalarOps**: tensor-scalar arithmetic
+- **TypeConversionOps**: cast (convert between dtypes)
+- **UtilityOps**: clamp, fill, arange, linspace, eye
 
 ### Shape and Data Movement
 
 - **ShapeOps**: cat, stack, split, chunk, repeat, pad, roll
-- **IndexingOps**: gather, scatter, index_select, masked_select, masked_fill, embedding_lookup
+- **IndexingOps**: gather, scatter, gather_nd, scatter_reduce, index_select, masked_select, masked_fill, embedding_lookup, bincount, argmax, argmin
 - **SortingOps**: sort, argsort, topk, unique, nonzero, searchsorted
 
 ### Reductions
@@ -78,11 +80,13 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 
 - **ActivationOps**: relu, sigmoid, silu, gelu, leaky_relu, elu, softmax
 - **NormalizationOps**: rms_norm, layer_norm
+- **ConvOps**: conv1d, conv2d, depthwise_conv2d (with stride, padding, dilation, groups)
 
 ### Linear Algebra
 
 - **MatmulOps**: matmul, matmul_bias (fused GEMM+bias)
 - **LinalgOps**: solve, lstsq, pinverse, inverse, det, trace, matrix_rank, diag, matrix_norm, kron, khatri_rao
+- **ComplexOps**: conj, real, imag, angle (for complex tensor support)
 
 ### Statistics and Probability
 
@@ -116,10 +120,16 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 
 **Special Functions (`numr::special`):**
 
-- Gamma functions: gamma, lgamma, digamma, polygamma
-- Error functions: erf, erfc, erfcinv
-- Bessel functions: J0, J1, Jn, Y0, Y1, Yn
-- Inverse special functions: erfcinv
+- Error functions: erf, erfc, erfinv
+- Gamma functions: gamma, lgamma, digamma
+- Beta functions: beta, betainc
+- Incomplete gamma: gammainc, gammaincc
+- Bessel functions: J₀, J₁, Y₀, Y₁, I₀, I₁, K₀, K₁
+- Elliptic integrals: ellipk, ellipe
+- Hypergeometric functions: hyp2f1, hyp1f1
+- Airy functions: airy_ai, airy_bi
+- Legendre functions: legendre_p, legendre_p_assoc, sph_harm
+- Fresnel integrals: fresnel_s, fresnel_c
 
 **Sparse Tensors (`numr::sparse`, feature-gated):**
 
