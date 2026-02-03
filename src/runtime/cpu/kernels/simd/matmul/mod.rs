@@ -32,12 +32,17 @@
 //! - `scalar.rs`: Scalar fallback implementations
 //! - `tiling.rs`: Cache-aware tiled algorithm
 
+#[cfg(target_arch = "x86_64")]
 mod avx2;
+#[cfg(target_arch = "x86_64")]
 mod avx512;
 mod macros;
 mod packing;
 mod scalar;
 mod tiling;
+
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
 
 use super::{SimdLevel, detect_simd};
 use scalar::{matmul_bias_scalar_f32, matmul_bias_scalar_f64};
@@ -97,11 +102,23 @@ pub unsafe fn matmul_f32(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => matmul_tiled_f32::<16>(a, b, out, m, n, k, lda, ldb, ldc, level),
         SimdLevel::Avx2Fma => matmul_tiled_f32::<8>(a, b, out, m, n, k, lda, ldb, ldc, level),
-        SimdLevel::Scalar => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
+        _ => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            matmul_tiled_f32::<4>(a, b, out, m, n, k, lda, ldb, ldc, level)
+        }
+        _ => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc);
 }
 
 /// SIMD-optimized matrix multiplication for f64
@@ -125,11 +142,23 @@ pub unsafe fn matmul_f64(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => matmul_tiled_f64::<8>(a, b, out, m, n, k, lda, ldb, ldc, level),
         SimdLevel::Avx2Fma => matmul_tiled_f64::<4>(a, b, out, m, n, k, lda, ldb, ldc, level),
-        SimdLevel::Scalar => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
+        _ => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            matmul_tiled_f64::<2>(a, b, out, m, n, k, lda, ldb, ldc, level)
+        }
+        _ => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc);
 }
 
 /// Fused matmul with bias: C = A @ B + bias (single-pass, cache-efficient)
@@ -157,6 +186,7 @@ pub unsafe fn matmul_bias_f32(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
             matmul_bias_tiled_f32::<16>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
@@ -164,8 +194,19 @@ pub unsafe fn matmul_bias_f32(
         SimdLevel::Avx2Fma => {
             matmul_bias_tiled_f32::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
-        SimdLevel::Scalar => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
+        _ => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            matmul_bias_tiled_f32::<4>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+        }
+        _ => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc);
 }
 
 /// Fused matmul with bias for f64
@@ -190,6 +231,7 @@ pub unsafe fn matmul_bias_f64(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
             matmul_bias_tiled_f64::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
@@ -197,8 +239,19 @@ pub unsafe fn matmul_bias_f64(
         SimdLevel::Avx2Fma => {
             matmul_bias_tiled_f64::<4>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
-        SimdLevel::Scalar => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
+        _ => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            matmul_bias_tiled_f64::<2>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+        }
+        _ => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc);
 }
 
 // ============================================================================
@@ -215,11 +268,23 @@ pub(crate) unsafe fn call_microkernel_f32(
     ldc: usize,
     level: SimdLevel,
 ) {
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::microkernel_6x16_f32(a, b, c, k, ldc),
         SimdLevel::Avx2Fma => avx2::microkernel_6x8_f32(a, b, c, k, ldc),
-        SimdLevel::Scalar => microkernel_edge_f32(a, b, c, MR, 4, k, ldc),
+        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::microkernel_6x4_f32(a, b, c, k, ldc)
+        }
+        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    microkernel_edge_f32(a, b, c, MR, 4, k, ldc);
 }
 
 /// Dispatch to the appropriate SIMD microkernel for f64
@@ -232,11 +297,23 @@ pub(crate) unsafe fn call_microkernel_f64(
     ldc: usize,
     level: SimdLevel,
 ) {
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::microkernel_6x8_f64(a, b, c, k, ldc),
         SimdLevel::Avx2Fma => avx2::microkernel_6x4_f64(a, b, c, k, ldc),
-        SimdLevel::Scalar => microkernel_edge_f64(a, b, c, MR, 4, k, ldc),
+        _ => microkernel_edge_f64(a, b, c, MR, 4, k, ldc),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::microkernel_6x2_f64(a, b, c, k, ldc)
+        }
+        _ => microkernel_edge_f64(a, b, c, MR, 2, k, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    microkernel_edge_f64(a, b, c, MR, 4, k, ldc);
 }
 
 // ============================================================================

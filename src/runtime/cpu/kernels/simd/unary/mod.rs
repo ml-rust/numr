@@ -1,20 +1,28 @@
 //! SIMD-accelerated unary operations
 //!
-//! This module provides AVX2 and AVX-512 implementations for element-wise
+//! This module provides multi-architecture SIMD implementations for element-wise
 //! unary operations.
 //!
 //! # SIMD Support
 //!
 //! ALL operations now have SIMD implementations:
-//! - Neg, Abs, Sqrt, Square, Recip, Floor, Ceil, Round (direct SIMD)
+//! - Neg, Abs, Sqrt, Square, Recip, Floor, Ceil, Round, Trunc (direct SIMD)
 //! - Exp, Log, Sin, Cos, Tan, Atan, Tanh (polynomial approximations from math module)
 //! - Sign (comparison-based)
 //! - ReLU (critical for ML)
+//!
+//! # Architecture Support
+//!
+//! | Architecture | Instruction Set | Vector Width | f32 lanes | f64 lanes |
+//! |--------------|-----------------|--------------|-----------|-----------|
+//! | x86-64       | AVX-512         | 512 bits     | 16        | 8         |
+//! | x86-64       | AVX2 + FMA      | 256 bits     | 8         | 4         |
+//! | ARM64        | NEON            | 128 bits     | 4         | 2         |
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
 #[cfg(target_arch = "x86_64")]
-mod avx2;
-#[cfg(target_arch = "x86_64")]
-mod avx512;
+mod x86_64;
 
 use super::{SimdLevel, detect_simd};
 use crate::ops::UnaryOp;
@@ -35,18 +43,33 @@ const fn is_simd_supported(op: UnaryOp) -> bool {
         UnaryOp::Neg
             | UnaryOp::Abs
             | UnaryOp::Sqrt
+            | UnaryOp::Rsqrt
+            | UnaryOp::Cbrt
             | UnaryOp::Exp
+            | UnaryOp::Exp2
+            | UnaryOp::Expm1
             | UnaryOp::Log
+            | UnaryOp::Log2
+            | UnaryOp::Log10
+            | UnaryOp::Log1p
             | UnaryOp::Sin
             | UnaryOp::Cos
             | UnaryOp::Tan
+            | UnaryOp::Asin
+            | UnaryOp::Acos
             | UnaryOp::Atan
+            | UnaryOp::Sinh
+            | UnaryOp::Cosh
             | UnaryOp::Tanh
+            | UnaryOp::Asinh
+            | UnaryOp::Acosh
+            | UnaryOp::Atanh
             | UnaryOp::Square
             | UnaryOp::Recip
             | UnaryOp::Floor
             | UnaryOp::Ceil
             | UnaryOp::Round
+            | UnaryOp::Trunc
             | UnaryOp::Sign
     )
 }
@@ -64,11 +87,21 @@ pub unsafe fn unary_f32(op: UnaryOp, a: *const f32, out: *mut f32, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::unary_f32(op, a, out, len),
-        SimdLevel::Avx2Fma => avx2::unary_f32(op, a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::unary_f32(op, a, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::unary_f32(op, a, out, len),
+        _ => unary_scalar_f32(op, a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::unary_f32(op, a, out, len),
+        _ => unary_scalar_f32(op, a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    unary_scalar_f32(op, a, out, len);
 }
 
 /// SIMD unary operation for f64
@@ -84,11 +117,21 @@ pub unsafe fn unary_f64(op: UnaryOp, a: *const f64, out: *mut f64, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::unary_f64(op, a, out, len),
-        SimdLevel::Avx2Fma => avx2::unary_f64(op, a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::unary_f64(op, a, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::unary_f64(op, a, out, len),
+        _ => unary_scalar_f64(op, a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::unary_f64(op, a, out, len),
+        _ => unary_scalar_f64(op, a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    unary_scalar_f64(op, a, out, len);
 }
 
 /// SIMD ReLU for f32
@@ -104,11 +147,21 @@ pub unsafe fn relu_f32(a: *const f32, out: *mut f32, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::relu_f32(a, out, len),
-        SimdLevel::Avx2Fma => avx2::relu_f32(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::relu_f32(a, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::relu_f32(a, out, len),
+        _ => relu_scalar_f32(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::relu_f32(a, out, len),
+        _ => relu_scalar_f32(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    relu_scalar_f32(a, out, len);
 }
 
 /// SIMD ReLU for f64
@@ -124,11 +177,21 @@ pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::relu_f64(a, out, len),
-        SimdLevel::Avx2Fma => avx2::relu_f64(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::relu_f64(a, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::relu_f64(a, out, len),
+        _ => relu_scalar_f64(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::relu_f64(a, out, len),
+        _ => relu_scalar_f64(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    relu_scalar_f64(a, out, len);
 }
 
 #[cfg(test)]

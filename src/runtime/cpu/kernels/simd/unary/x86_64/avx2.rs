@@ -1,16 +1,16 @@
-//! AVX-512 unary operation kernels
+//! AVX2 unary operation kernels
 //!
-//! Processes 16 f32s or 8 f64s per iteration using 512-bit vectors.
+//! Processes 8 f32s or 4 f64s per iteration using 256-bit vectors.
 //!
 //! # Streaming Stores
 //!
-//! For large arrays (> 1MB), this module provides streaming variants that use
-//! non-temporal stores (`_mm512_stream_ps`) to bypass the cache.
+//! For large arrays (> 1MB), ReLU uses non-temporal stores (`_mm256_stream_ps`)
+//! to bypass the cache.
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::super::math::avx512::{
+use super::super::super::math::avx2::{
     acos_f32 as acos_vec_f32, acos_f64 as acos_vec_f64, acosh_f32 as acosh_vec_f32,
     acosh_f64 as acosh_vec_f64, asin_f32 as asin_vec_f32, asin_f64 as asin_vec_f64,
     asinh_f32 as asinh_vec_f32, asinh_f64 as asinh_vec_f64, atan_f32 as atan_vec_f32,
@@ -26,15 +26,15 @@ use super::super::math::avx512::{
     sinh_f32 as sinh_vec_f32, sinh_f64 as sinh_vec_f64, tan_f32 as tan_vec_f32,
     tan_f64 as tan_vec_f64, tanh_f32 as tanh_vec_f32, tanh_f64 as tanh_vec_f64,
 };
-use super::super::streaming::{is_aligned_avx512, should_stream_f32, should_stream_f64};
-use super::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
+use super::super::super::streaming::{is_aligned_avx2, should_stream_f32, should_stream_f64};
+use super::super::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
 use crate::ops::UnaryOp;
 
-const F32_LANES: usize = 16;
-const F64_LANES: usize = 8;
+const F32_LANES: usize = 8;
+const F64_LANES: usize = 4;
 
-/// AVX-512 unary operation for f32
-#[target_feature(enable = "avx512f")]
+/// AVX2 unary operation for f32
+#[target_feature(enable = "avx2")]
 pub unsafe fn unary_f32(op: UnaryOp, a: *const f32, out: *mut f32, len: usize) {
     let chunks = len / F32_LANES;
     let remainder = len % F32_LANES;
@@ -84,15 +84,14 @@ pub unsafe fn unary_f32(op: UnaryOp, a: *const f32, out: *mut f32, len: usize) {
         UnaryOp::Trunc => unary_trunc_f32(a, out, chunks),
     }
 
-    // Handle tail
     if remainder > 0 {
         let offset = chunks * F32_LANES;
         unary_scalar_f32(op, a.add(offset), out.add(offset), remainder);
     }
 }
 
-/// AVX-512 unary operation for f64
-#[target_feature(enable = "avx512f")]
+/// AVX2 unary operation for f64
+#[target_feature(enable = "avx2")]
 pub unsafe fn unary_f64(op: UnaryOp, a: *const f64, out: *mut f64, len: usize) {
     let chunks = len / F64_LANES;
     let remainder = len % F64_LANES;
@@ -148,32 +147,32 @@ pub unsafe fn unary_f64(op: UnaryOp, a: *const f64, out: *mut f64, len: usize) {
     }
 }
 
-/// AVX-512 ReLU for f32
+/// AVX2 ReLU for f32
 ///
 /// Uses streaming (non-temporal) stores for arrays > 1MB when output is aligned.
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn relu_f32(a: *const f32, out: *mut f32, len: usize) {
     let chunks = len / F32_LANES;
     let remainder = len % F32_LANES;
-    let zero = _mm512_setzero_ps();
+    let zero = _mm256_setzero_ps();
 
     // Use streaming stores for large aligned arrays
-    let use_streaming = should_stream_f32(len) && is_aligned_avx512(out);
+    let use_streaming = should_stream_f32(len) && is_aligned_avx2(out);
 
     if use_streaming {
         for i in 0..chunks {
             let offset = i * F32_LANES;
-            let va = _mm512_loadu_ps(a.add(offset));
-            let vr = _mm512_max_ps(va, zero);
-            _mm512_stream_ps(out.add(offset), vr);
+            let va = _mm256_loadu_ps(a.add(offset));
+            let vr = _mm256_max_ps(va, zero);
+            _mm256_stream_ps(out.add(offset), vr);
         }
         _mm_sfence();
     } else {
         for i in 0..chunks {
             let offset = i * F32_LANES;
-            let va = _mm512_loadu_ps(a.add(offset));
-            let vr = _mm512_max_ps(va, zero);
-            _mm512_storeu_ps(out.add(offset), vr);
+            let va = _mm256_loadu_ps(a.add(offset));
+            let vr = _mm256_max_ps(va, zero);
+            _mm256_storeu_ps(out.add(offset), vr);
         }
     }
 
@@ -183,32 +182,32 @@ pub unsafe fn relu_f32(a: *const f32, out: *mut f32, len: usize) {
     }
 }
 
-/// AVX-512 ReLU for f64
+/// AVX2 ReLU for f64
 ///
 /// Uses streaming (non-temporal) stores for arrays > 1MB when output is aligned.
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
     let chunks = len / F64_LANES;
     let remainder = len % F64_LANES;
-    let zero = _mm512_setzero_pd();
+    let zero = _mm256_setzero_pd();
 
     // Use streaming stores for large aligned arrays
-    let use_streaming = should_stream_f64(len) && is_aligned_avx512(out);
+    let use_streaming = should_stream_f64(len) && is_aligned_avx2(out);
 
     if use_streaming {
         for i in 0..chunks {
             let offset = i * F64_LANES;
-            let va = _mm512_loadu_pd(a.add(offset));
-            let vr = _mm512_max_pd(va, zero);
-            _mm512_stream_pd(out.add(offset), vr);
+            let va = _mm256_loadu_pd(a.add(offset));
+            let vr = _mm256_max_pd(va, zero);
+            _mm256_stream_pd(out.add(offset), vr);
         }
         _mm_sfence();
     } else {
         for i in 0..chunks {
             let offset = i * F64_LANES;
-            let va = _mm512_loadu_pd(a.add(offset));
-            let vr = _mm512_max_pd(va, zero);
-            _mm512_storeu_pd(out.add(offset), vr);
+            let va = _mm256_loadu_pd(a.add(offset));
+            let vr = _mm256_max_pd(va, zero);
+            _mm256_storeu_pd(out.add(offset), vr);
         }
     }
 
@@ -222,329 +221,327 @@ pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
 // f32 kernels
 // ============================================================================
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_neg_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let zero = _mm512_setzero_ps();
+    let zero = _mm256_setzero_ps();
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_sub_ps(zero, va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_sub_ps(zero, va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_abs_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let mask = _mm512_set1_ps(f32::from_bits(0x7FFF_FFFF)); // Clear sign bit
+    let mask = _mm256_set1_ps(f32::from_bits(0x7FFF_FFFF));
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_and_ps(va, mask);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_and_ps(va, mask);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_sqrt_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_sqrt_ps(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_sqrt_ps(va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_square_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_mul_ps(va, va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_mul_ps(va, va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_recip_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let one = _mm512_set1_ps(1.0);
+    let one = _mm256_set1_ps(1.0);
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_div_ps(one, va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_div_ps(one, va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_floor_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        // _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC = 0x09
-        let vr = _mm512_roundscale_ps::<0x09>(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_floor_ps(va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_ceil_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        // _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC = 0x0A
-        let vr = _mm512_roundscale_ps::<0x0A>(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        let vr = _mm256_ceil_ps(va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_round_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         // _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC = 0x08
-        let vr = _mm512_roundscale_ps::<0x08>(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let vr = _mm256_round_ps::<0x08>(va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_exp_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = exp_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_tanh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = tanh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = log_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_sin_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = sin_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cos_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = cos_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_tan_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = tan_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_atan_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = atan_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_sign_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let zero = _mm512_setzero_ps();
-    let one = _mm512_set1_ps(1.0);
-    let neg_one = _mm512_set1_ps(-1.0);
+    let zero = _mm256_setzero_ps();
+    let one = _mm256_set1_ps(1.0);
+    let neg_one = _mm256_set1_ps(-1.0);
 
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         // sign(x) = (x > 0) ? 1 : ((x < 0) ? -1 : 0)
-        let pos_mask = _mm512_cmp_ps_mask::<_CMP_GT_OQ>(va, zero);
-        let neg_mask = _mm512_cmp_ps_mask::<_CMP_LT_OQ>(va, zero);
-        let pos_part = _mm512_maskz_mov_ps(pos_mask, one);
-        let neg_part = _mm512_maskz_mov_ps(neg_mask, neg_one);
-        let vr = _mm512_add_ps(pos_part, neg_part);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let pos_mask = _mm256_cmp_ps::<_CMP_GT_OQ>(va, zero);
+        let neg_mask = _mm256_cmp_ps::<_CMP_LT_OQ>(va, zero);
+        let pos_part = _mm256_and_ps(pos_mask, one);
+        let neg_part = _mm256_and_ps(neg_mask, neg_one);
+        let vr = _mm256_or_ps(pos_part, neg_part);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_rsqrt_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = rsqrt_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cbrt_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = cbrt_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_exp2_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = exp2_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_expm1_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = expm1_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log2_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = log2_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log10_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = log10_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log1p_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = log1p_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_asin_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = asin_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_acos_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = acos_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_sinh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = sinh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cosh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = cosh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_asinh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = asinh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_acosh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = acosh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_atanh_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
+        let va = _mm256_loadu_ps(a.add(offset));
         let vr = atanh_vec_f32(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_trunc_f32(a: *const f32, out: *mut f32, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F32_LANES;
-        let va = _mm512_loadu_ps(a.add(offset));
-        // Truncate toward zero
-        let vr = _mm512_roundscale_ps::<{ 0x03 | 0x08 }>(va);
-        _mm512_storeu_ps(out.add(offset), vr);
+        let va = _mm256_loadu_ps(a.add(offset));
+        // _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC = 0x0B
+        let vr = _mm256_round_ps::<0x0B>(va);
+        _mm256_storeu_ps(out.add(offset), vr);
     }
 }
 
@@ -552,327 +549,325 @@ unsafe fn unary_trunc_f32(a: *const f32, out: *mut f32, chunks: usize) {
 // f64 kernels
 // ============================================================================
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_neg_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let zero = _mm512_setzero_pd();
+    let zero = _mm256_setzero_pd();
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_sub_pd(zero, va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_sub_pd(zero, va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_abs_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let mask = _mm512_set1_pd(f64::from_bits(0x7FFF_FFFF_FFFF_FFFF));
+    let mask = _mm256_set1_pd(f64::from_bits(0x7FFF_FFFF_FFFF_FFFF));
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_and_pd(va, mask);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_and_pd(va, mask);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_sqrt_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_sqrt_pd(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_sqrt_pd(va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_square_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_mul_pd(va, va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_mul_pd(va, va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_recip_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let one = _mm512_set1_pd(1.0);
+    let one = _mm256_set1_pd(1.0);
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_div_pd(one, va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_div_pd(one, va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_floor_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        // _MM_FROUND_TO_NEG_INF | _MM_FROUND_NO_EXC = 0x09
-        let vr = _mm512_roundscale_pd::<0x09>(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_floor_pd(va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_ceil_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        // _MM_FROUND_TO_POS_INF | _MM_FROUND_NO_EXC = 0x0A
-        let vr = _mm512_roundscale_pd::<0x0A>(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_ceil_pd(va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_round_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_roundscale_pd::<0x08>(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        let vr = _mm256_round_pd::<0x08>(va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_exp_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = exp_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_tanh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = tanh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = log_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_sin_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = sin_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cos_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = cos_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_tan_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = tan_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_atan_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = atan_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_sign_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let zero = _mm512_setzero_pd();
-    let one = _mm512_set1_pd(1.0);
-    let neg_one = _mm512_set1_pd(-1.0);
+    let zero = _mm256_setzero_pd();
+    let one = _mm256_set1_pd(1.0);
+    let neg_one = _mm256_set1_pd(-1.0);
 
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         // sign(x) = (x > 0) ? 1 : ((x < 0) ? -1 : 0)
-        let pos_mask = _mm512_cmp_pd_mask::<_CMP_GT_OQ>(va, zero);
-        let neg_mask = _mm512_cmp_pd_mask::<_CMP_LT_OQ>(va, zero);
-        let pos_part = _mm512_maskz_mov_pd(pos_mask, one);
-        let neg_part = _mm512_maskz_mov_pd(neg_mask, neg_one);
-        let vr = _mm512_add_pd(pos_part, neg_part);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let pos_mask = _mm256_cmp_pd::<_CMP_GT_OQ>(va, zero);
+        let neg_mask = _mm256_cmp_pd::<_CMP_LT_OQ>(va, zero);
+        let pos_part = _mm256_and_pd(pos_mask, one);
+        let neg_part = _mm256_and_pd(neg_mask, neg_one);
+        let vr = _mm256_or_pd(pos_part, neg_part);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_rsqrt_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = rsqrt_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cbrt_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = cbrt_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_exp2_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = exp2_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_expm1_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = expm1_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log2_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = log2_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log10_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = log10_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_log1p_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = log1p_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_asin_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = asin_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_acos_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = acos_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_sinh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = sinh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_cosh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = cosh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_asinh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = asinh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_acosh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = acosh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn unary_atanh_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
+        let va = _mm256_loadu_pd(a.add(offset));
         let vr = atanh_vec_f64(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }
 
-#[target_feature(enable = "avx512f")]
+#[target_feature(enable = "avx2")]
 unsafe fn unary_trunc_f64(a: *const f64, out: *mut f64, chunks: usize) {
     for i in 0..chunks {
         let offset = i * F64_LANES;
-        let va = _mm512_loadu_pd(a.add(offset));
-        // Truncate toward zero: _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC = 0x0B
-        let vr = _mm512_roundscale_pd::<{ 0x03 | 0x08 }>(va);
-        _mm512_storeu_pd(out.add(offset), vr);
+        let va = _mm256_loadu_pd(a.add(offset));
+        // _MM_FROUND_TO_ZERO | _MM_FROUND_NO_EXC = 0x0B
+        let vr = _mm256_round_pd::<0x0B>(va);
+        _mm256_storeu_pd(out.add(offset), vr);
     }
 }

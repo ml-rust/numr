@@ -1,6 +1,8 @@
 //! Indexing operation helpers for CPU tensors
 
 use super::super::kernels;
+#[cfg(target_arch = "x86_64")]
+use super::super::kernels::simd::index as simd_index;
 use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::dtype::DType;
@@ -348,25 +350,79 @@ pub fn masked_select_impl(
     let a_ptr = a_contig.storage().ptr();
     let mask_ptr = mask_contig.storage().ptr();
 
-    // Count true elements first
-    let count = unsafe { kernels::masked_count_kernel(mask_ptr as *const u8, numel) };
+    // Use SIMD for f32/f64 on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Count true elements using SIMD
+        let count = unsafe { simd_index::masked_count(mask_ptr as *const u8, numel) };
 
-    // Allocate output with correct size
-    let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
-    let out_ptr = out.storage().ptr();
+        // Allocate output with correct size
+        let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
+        let out_ptr = out.storage().ptr();
 
-    dispatch_dtype!(dtype, T => {
-        unsafe {
-            kernels::masked_select_kernel::<T>(
-                a_ptr as *const T,
-                mask_ptr as *const u8,
-                out_ptr as *mut T,
-                numel,
-            );
+        match dtype {
+            DType::F32 => {
+                unsafe {
+                    simd_index::masked_select_f32(
+                        a_ptr as *const f32,
+                        mask_ptr as *const u8,
+                        out_ptr as *mut f32,
+                        numel,
+                    );
+                }
+                return Ok(out);
+            }
+            DType::F64 => {
+                unsafe {
+                    simd_index::masked_select_f64(
+                        a_ptr as *const f64,
+                        mask_ptr as *const u8,
+                        out_ptr as *mut f64,
+                        numel,
+                    );
+                }
+                return Ok(out);
+            }
+            _ => {
+                // Fall through to scalar for other types
+                dispatch_dtype!(dtype, T => {
+                    unsafe {
+                        kernels::masked_select_kernel::<T>(
+                            a_ptr as *const T,
+                            mask_ptr as *const u8,
+                            out_ptr as *mut T,
+                            numel,
+                        );
+                    }
+                }, "masked_select");
+                return Ok(out);
+            }
         }
-    }, "masked_select");
+    }
 
-    Ok(out)
+    // Scalar fallback for non-x86_64
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        // Count true elements first
+        let count = unsafe { kernels::masked_count_kernel(mask_ptr as *const u8, numel) };
+
+        // Allocate output with correct size
+        let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
+        let out_ptr = out.storage().ptr();
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::masked_select_kernel::<T>(
+                    a_ptr as *const T,
+                    mask_ptr as *const u8,
+                    out_ptr as *mut T,
+                    numel,
+                );
+            }
+        }, "masked_select");
+
+        Ok(out)
+    }
 }
 
 /// Fill elements where mask is true with a scalar value.
@@ -398,6 +454,39 @@ pub fn masked_fill_impl(
     let mask_ptr = mask_contig.storage().ptr();
     let out_ptr = out.storage().ptr();
 
+    // Use SIMD for f32/f64 on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        match dtype {
+            DType::F32 => {
+                unsafe {
+                    simd_index::masked_fill_f32(
+                        a_ptr as *const f32,
+                        mask_ptr as *const u8,
+                        out_ptr as *mut f32,
+                        numel,
+                        value as f32,
+                    );
+                }
+                return Ok(out);
+            }
+            DType::F64 => {
+                unsafe {
+                    simd_index::masked_fill_f64(
+                        a_ptr as *const f64,
+                        mask_ptr as *const u8,
+                        out_ptr as *mut f64,
+                        numel,
+                        value,
+                    );
+                }
+                return Ok(out);
+            }
+            _ => {} // Fall through to scalar for other types
+        }
+    }
+
+    // Scalar fallback for non-x86_64 or non-f32/f64 types
     dispatch_dtype!(dtype, T => {
         unsafe {
             kernels::masked_fill_kernel::<T>(

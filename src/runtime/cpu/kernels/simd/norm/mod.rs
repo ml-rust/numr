@@ -14,6 +14,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum hidden_size to justify SIMD overhead
@@ -40,11 +43,23 @@ pub unsafe fn rms_norm_f32(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::rms_norm_f32(input, weight, out, batch_size, hidden_size, eps),
         SimdLevel::Avx2Fma => avx2::rms_norm_f32(input, weight, out, batch_size, hidden_size, eps),
-        SimdLevel::Scalar => unreachable!(),
+        _ => rms_norm_scalar_f32(input, weight, out, batch_size, hidden_size, eps),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::rms_norm_f32(input, weight, out, batch_size, hidden_size, eps)
+        }
+        _ => rms_norm_scalar_f32(input, weight, out, batch_size, hidden_size, eps),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    rms_norm_scalar_f32(input, weight, out, batch_size, hidden_size, eps);
 }
 
 /// SIMD RMS normalization for f64
@@ -68,11 +83,23 @@ pub unsafe fn rms_norm_f64(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::rms_norm_f64(input, weight, out, batch_size, hidden_size, eps),
         SimdLevel::Avx2Fma => avx2::rms_norm_f64(input, weight, out, batch_size, hidden_size, eps),
-        SimdLevel::Scalar => unreachable!(),
+        _ => rms_norm_scalar_f64(input, weight, out, batch_size, hidden_size, eps),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::rms_norm_f64(input, weight, out, batch_size, hidden_size, eps)
+        }
+        _ => rms_norm_scalar_f64(input, weight, out, batch_size, hidden_size, eps),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    rms_norm_scalar_f64(input, weight, out, batch_size, hidden_size, eps);
 }
 
 /// SIMD Layer normalization for f32
@@ -97,6 +124,7 @@ pub unsafe fn layer_norm_f32(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
             avx512::layer_norm_f32(input, weight, bias, out, batch_size, hidden_size, eps)
@@ -104,8 +132,19 @@ pub unsafe fn layer_norm_f32(
         SimdLevel::Avx2Fma => {
             avx2::layer_norm_f32(input, weight, bias, out, batch_size, hidden_size, eps)
         }
-        SimdLevel::Scalar => unreachable!(),
+        _ => layer_norm_scalar_f32(input, weight, bias, out, batch_size, hidden_size, eps),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::layer_norm_f32(input, weight, bias, out, batch_size, hidden_size, eps)
+        }
+        _ => layer_norm_scalar_f32(input, weight, bias, out, batch_size, hidden_size, eps),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    layer_norm_scalar_f32(input, weight, bias, out, batch_size, hidden_size, eps);
 }
 
 /// SIMD Layer normalization for f64
@@ -130,6 +169,7 @@ pub unsafe fn layer_norm_f64(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
             avx512::layer_norm_f64(input, weight, bias, out, batch_size, hidden_size, eps)
@@ -137,8 +177,19 @@ pub unsafe fn layer_norm_f64(
         SimdLevel::Avx2Fma => {
             avx2::layer_norm_f64(input, weight, bias, out, batch_size, hidden_size, eps)
         }
-        SimdLevel::Scalar => unreachable!(),
+        _ => layer_norm_scalar_f64(input, weight, bias, out, batch_size, hidden_size, eps),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::layer_norm_f64(input, weight, bias, out, batch_size, hidden_size, eps)
+        }
+        _ => layer_norm_scalar_f64(input, weight, bias, out, batch_size, hidden_size, eps),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    layer_norm_scalar_f64(input, weight, bias, out, batch_size, hidden_size, eps);
 }
 
 // ============================================================================

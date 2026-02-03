@@ -12,6 +12,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum length to justify SIMD overhead
@@ -31,11 +34,21 @@ pub unsafe fn where_f32(cond: *const u8, x: *const f32, y: *const f32, out: *mut
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::where_f32(cond, x, y, out, len),
         SimdLevel::Avx2Fma => avx2::where_f32(cond, x, y, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => where_scalar_f32(cond, x, y, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::where_f32(cond, x, y, out, len),
+        _ => where_scalar_f32(cond, x, y, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    where_scalar_f32(cond, x, y, out, len);
 }
 
 /// SIMD where for f64
@@ -52,11 +65,21 @@ pub unsafe fn where_f64(cond: *const u8, x: *const f64, y: *const f64, out: *mut
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::where_f64(cond, x, y, out, len),
         SimdLevel::Avx2Fma => avx2::where_f64(cond, x, y, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => where_scalar_f64(cond, x, y, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::where_f64(cond, x, y, out, len),
+        _ => where_scalar_f64(cond, x, y, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    where_scalar_f64(cond, x, y, out, len);
 }
 
 // ============================================================================

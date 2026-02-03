@@ -14,6 +14,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 use crate::ops::CompareOp;
 
@@ -33,11 +36,21 @@ pub unsafe fn compare_f32(op: CompareOp, a: *const f32, b: *const f32, out: *mut
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::compare_f32(op, a, b, out, len),
         SimdLevel::Avx2Fma => avx2::compare_f32(op, a, b, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => compare_scalar_f32(op, a, b, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::compare_f32(op, a, b, out, len),
+        _ => compare_scalar_f32(op, a, b, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    compare_scalar_f32(op, a, b, out, len);
 }
 
 /// SIMD comparison for f64
@@ -53,11 +66,21 @@ pub unsafe fn compare_f64(op: CompareOp, a: *const f64, b: *const f64, out: *mut
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::compare_f64(op, a, b, out, len),
         SimdLevel::Avx2Fma => avx2::compare_f64(op, a, b, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => compare_scalar_f64(op, a, b, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::compare_f64(op, a, b, out, len),
+        _ => compare_scalar_f64(op, a, b, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    compare_scalar_f64(op, a, b, out, len);
 }
 
 // ============================================================================

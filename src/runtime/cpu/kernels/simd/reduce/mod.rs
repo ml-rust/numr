@@ -15,6 +15,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 use crate::ops::ReduceOp;
 
@@ -50,11 +53,23 @@ pub unsafe fn reduce_f32(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::reduce_f32(op, a, out, reduce_size, outer_size),
         SimdLevel::Avx2Fma => avx2::reduce_f32(op, a, out, reduce_size, outer_size),
-        SimdLevel::Scalar => unreachable!(),
+        _ => reduce_scalar_f32(op, a, out, reduce_size, outer_size),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::reduce_f32(op, a, out, reduce_size, outer_size)
+        }
+        _ => reduce_scalar_f32(op, a, out, reduce_size, outer_size),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    reduce_scalar_f32(op, a, out, reduce_size, outer_size);
 }
 
 /// SIMD reduction for f64
@@ -77,11 +92,23 @@ pub unsafe fn reduce_f64(
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::reduce_f64(op, a, out, reduce_size, outer_size),
         SimdLevel::Avx2Fma => avx2::reduce_f64(op, a, out, reduce_size, outer_size),
-        SimdLevel::Scalar => unreachable!(),
+        _ => reduce_scalar_f64(op, a, out, reduce_size, outer_size),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::reduce_f64(op, a, out, reduce_size, outer_size)
+        }
+        _ => reduce_scalar_f64(op, a, out, reduce_size, outer_size),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    reduce_scalar_f64(op, a, out, reduce_size, outer_size);
 }
 
 /// Scalar reduction for f32

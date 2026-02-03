@@ -15,6 +15,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum dimension size to justify SIMD overhead
@@ -39,11 +42,23 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::softmax_f32(a, out, outer_size, dim_size),
         SimdLevel::Avx2Fma => avx2::softmax_f32(a, out, outer_size, dim_size),
-        SimdLevel::Scalar => unreachable!(),
+        _ => softmax_scalar_f32(a, out, outer_size, dim_size),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::softmax_f32(a, out, outer_size, dim_size)
+        }
+        _ => softmax_scalar_f32(a, out, outer_size, dim_size),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    softmax_scalar_f32(a, out, outer_size, dim_size);
 }
 
 /// SIMD softmax for f64
@@ -59,11 +74,23 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::softmax_f64(a, out, outer_size, dim_size),
         SimdLevel::Avx2Fma => avx2::softmax_f64(a, out, outer_size, dim_size),
-        SimdLevel::Scalar => unreachable!(),
+        _ => softmax_scalar_f64(a, out, outer_size, dim_size),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::softmax_f64(a, out, outer_size, dim_size)
+        }
+        _ => softmax_scalar_f64(a, out, outer_size, dim_size),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    softmax_scalar_f64(a, out, outer_size, dim_size);
 }
 
 // ============================================================================

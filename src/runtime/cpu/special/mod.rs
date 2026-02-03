@@ -15,12 +15,11 @@ mod helpers;
 mod tests;
 
 use crate::algorithm::special::scalar::{
-    airy_ai_scalar, airy_bi_scalar, bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar,
-    bessel_j1_scalar, bessel_k0_scalar, bessel_k1_scalar, bessel_y0_scalar, bessel_y1_scalar,
-    beta_scalar, betainc_scalar, betaincinv_scalar, digamma_scalar, ellipe_scalar, ellipk_scalar,
-    erf_scalar, erfc_scalar, erfinv_scalar, fresnel_c_scalar, fresnel_s_scalar, gamma_scalar,
-    gammainc_scalar, gammaincc_scalar, gammaincinv_scalar, hyp1f1_scalar, hyp2f1_scalar,
-    legendre_p_assoc_scalar, legendre_p_scalar, lgamma_scalar, sph_harm_scalar,
+    airy_ai_scalar, airy_bi_scalar, bessel_k0_scalar, bessel_k1_scalar, bessel_y0_scalar,
+    bessel_y1_scalar, beta_scalar, betainc_scalar, betaincinv_scalar, ellipe_scalar, ellipk_scalar,
+    erfinv_scalar, fresnel_c_scalar, fresnel_s_scalar, gammainc_scalar, gammaincc_scalar,
+    gammaincinv_scalar, hyp1f1_scalar, hyp2f1_scalar, legendre_p_assoc_scalar, legendre_p_scalar,
+    sph_harm_scalar,
 };
 use crate::algorithm::special::{SpecialFunctions, validate_special_dtype};
 use crate::error::Result;
@@ -35,12 +34,12 @@ use super::{CpuClient, CpuRuntime};
 impl SpecialFunctions<CpuRuntime> for CpuClient {
     fn erf(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, erf_scalar)
+        helpers::apply_erf(x, &self.device)
     }
 
     fn erfc(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, erfc_scalar)
+        helpers::apply_erfc(x, &self.device)
     }
 
     fn erfinv(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -50,17 +49,17 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
 
     fn gamma(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, gamma_scalar)
+        helpers::apply_gamma(x, &self.device)
     }
 
     fn lgamma(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, lgamma_scalar)
+        helpers::apply_lgamma(x, &self.device)
     }
 
     fn digamma(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, digamma_scalar)
+        helpers::apply_digamma(x, &self.device)
     }
 
     fn beta(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -117,12 +116,12 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
 
     fn bessel_j0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, bessel_j0_scalar)
+        helpers::apply_bessel_j0(x, &self.device)
     }
 
     fn bessel_j1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, bessel_j1_scalar)
+        helpers::apply_bessel_j1(x, &self.device)
     }
 
     fn bessel_y0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
@@ -137,12 +136,12 @@ impl SpecialFunctions<CpuRuntime> for CpuClient {
 
     fn bessel_i0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, bessel_i0_scalar)
+        helpers::apply_bessel_i0(x, &self.device)
     }
 
     fn bessel_i1(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         validate_special_dtype(x.dtype())?;
-        helpers::apply_unary(x, &self.device, bessel_i1_scalar)
+        helpers::apply_bessel_i1(x, &self.device)
     }
 
     fn bessel_k0(&self, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {

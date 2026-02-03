@@ -4,6 +4,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::conv_common::{validate_conv1d, validate_conv2d, validate_depthwise_conv2d};
 use crate::ops::{ConvOps, PaddingMode};
+#[cfg(target_arch = "x86_64")]
+use crate::runtime::cpu::kernels::simd::conv as simd_conv;
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
 
@@ -34,6 +36,51 @@ macro_rules! dispatch_float_dtype {
                     dtype: $dtype,
                     op: $op,
                 })
+            }
+        }
+    };
+}
+
+/// Dispatch to SIMD kernels for F32/F64 on x86_64, scalar for other types/platforms.
+///
+/// This macro eliminates duplication across conv1d, conv2d, and depthwise_conv2d dispatch blocks.
+macro_rules! dispatch_conv {
+    ($dtype:expr, $conv_name:ident, $input_ptr:expr, $weight_ptr:expr, $bias_ptr:expr, $output_ptr:expr, $params:expr) => {
+        paste::paste! {
+            match $dtype {
+                #[cfg(target_arch = "x86_64")]
+                DType::F32 => unsafe {
+                    simd_conv::[<$conv_name _f32>](
+                        $input_ptr as *const f32,
+                        $weight_ptr as *const f32,
+                        $bias_ptr.map(|p| p as *const f32),
+                        $output_ptr as *mut f32,
+                        $params,
+                    );
+                },
+                #[cfg(target_arch = "x86_64")]
+                DType::F64 => unsafe {
+                    simd_conv::[<$conv_name _f64>](
+                        $input_ptr as *const f64,
+                        $weight_ptr as *const f64,
+                        $bias_ptr.map(|p| p as *const f64),
+                        $output_ptr as *mut f64,
+                        $params,
+                    );
+                },
+                _ => {
+                    dispatch_float_dtype!($dtype, T => {
+                        unsafe {
+                            kernels::[<$conv_name _kernel>]::<T>(
+                                $input_ptr as *const T,
+                                $weight_ptr as *const T,
+                                $bias_ptr.map(|p| p as *const T),
+                                $output_ptr as *mut T,
+                                $params,
+                            );
+                        }
+                    }, stringify!($conv_name));
+                }
             }
         }
     };
@@ -92,17 +139,9 @@ impl ConvOps<CpuRuntime> for CpuClient {
         let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
         let output_ptr = output.storage().ptr();
 
-        dispatch_float_dtype!(dtype, T => {
-            unsafe {
-                kernels::conv1d_kernel::<T>(
-                    input_ptr as *const T,
-                    weight_ptr as *const T,
-                    bias_ptr.map(|p| p as *const T),
-                    output_ptr as *mut T,
-                    params,
-                );
-            }
-        }, "conv1d");
+        dispatch_conv!(
+            dtype, conv1d, input_ptr, weight_ptr, bias_ptr, output_ptr, params
+        );
 
         Ok(output)
     }
@@ -159,17 +198,9 @@ impl ConvOps<CpuRuntime> for CpuClient {
         let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
         let output_ptr = output.storage().ptr();
 
-        dispatch_float_dtype!(dtype, T => {
-            unsafe {
-                kernels::conv2d_kernel::<T>(
-                    input_ptr as *const T,
-                    weight_ptr as *const T,
-                    bias_ptr.map(|p| p as *const T),
-                    output_ptr as *mut T,
-                    params,
-                );
-            }
-        }, "conv2d");
+        dispatch_conv!(
+            dtype, conv2d, input_ptr, weight_ptr, bias_ptr, output_ptr, params
+        );
 
         Ok(output)
     }
@@ -224,17 +255,15 @@ impl ConvOps<CpuRuntime> for CpuClient {
         let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
         let output_ptr = output.storage().ptr();
 
-        dispatch_float_dtype!(dtype, T => {
-            unsafe {
-                kernels::depthwise_conv2d_kernel::<T>(
-                    input_ptr as *const T,
-                    weight_ptr as *const T,
-                    bias_ptr.map(|p| p as *const T),
-                    output_ptr as *mut T,
-                    params,
-                );
-            }
-        }, "depthwise_conv2d");
+        dispatch_conv!(
+            dtype,
+            depthwise_conv2d,
+            input_ptr,
+            weight_ptr,
+            bias_ptr,
+            output_ptr,
+            params
+        );
 
         Ok(output)
     }

@@ -49,6 +49,37 @@ pub unsafe fn cumsum_strided_kernel<T: Element>(
     outer_size: usize,
     inner_size: usize,
 ) {
+    // Use SIMD for f32/f64 on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::cumulative;
+
+        match T::DTYPE {
+            DType::F32 => {
+                cumulative::cumsum_strided_f32(
+                    a as *const f32,
+                    out as *mut f32,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            DType::F64 => {
+                cumulative::cumsum_strided_f64(
+                    a as *const f64,
+                    out as *mut f64,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
     // For strided access: element [o, s, i] is at offset o * scan_size * inner_size + s * inner_size + i
     for o in 0..outer_size {
         for i in 0..inner_size {
@@ -109,6 +140,37 @@ pub unsafe fn cumprod_strided_kernel<T: Element>(
     outer_size: usize,
     inner_size: usize,
 ) {
+    // Use SIMD for f32/f64 on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::cumulative;
+
+        match T::DTYPE {
+            DType::F32 => {
+                cumulative::cumprod_strided_f32(
+                    a as *const f32,
+                    out as *mut f32,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            DType::F64 => {
+                cumulative::cumprod_strided_f64(
+                    a as *const f64,
+                    out as *mut f64,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
     for o in 0..outer_size {
         for i in 0..inner_size {
             let mut acc = T::one();

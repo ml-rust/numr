@@ -47,6 +47,9 @@ pub mod avx2;
 #[cfg(target_arch = "x86_64")]
 pub mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+pub mod aarch64;
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_arch = "x86_64")]

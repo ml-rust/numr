@@ -167,12 +167,31 @@ All backends implement identical algorithms with native kernels—no cuBLAS, MKL
 | Hardware     | Backend | Feature       | Status  | Notes              |
 | ------------ | ------- | ------------- | ------- | ------------------ |
 | CPU (x86-64) | CPU     | cpu (default) | ✓       | AVX-512/AVX2 SIMD  |
-| CPU (ARM)    | CPU     | cpu           | Planned | NEON SIMD          |
+| CPU (ARM64)  | CPU     | cpu           | ✓       | NEON SIMD          |
 | NVIDIA GPU   | CUDA    | cuda          | ✓       | Native PTX kernels |
 | AMD GPU      | WebGPU  | wgpu          | ✓       | WGSL shaders       |
 | Intel GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
 | Apple GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
 | AMD GPU      | ROCm    | -             | Planned | Native HIP kernels |
+
+### SIMD Acceleration
+
+The CPU backend automatically detects and uses the best available SIMD instruction set at runtime:
+
+| Architecture | Instruction Set | Vector Width | Elements per Op |
+| ------------ | --------------- | ------------ | --------------- |
+| x86-64       | AVX-512F + FMA  | 512 bits     | 16 f32 / 8 f64  |
+| x86-64       | AVX2 + FMA      | 256 bits     | 8 f32 / 4 f64   |
+| ARM64        | NEON            | 128 bits     | 4 f32 / 2 f64   |
+
+**Vectorized operations include:**
+
+- Element-wise: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tanh, and more
+- Reductions: sum, max, min, prod with horizontal SIMD reductions
+- Activations: sigmoid, silu, gelu, leaky_relu, elu
+- Normalization: softmax, rms_norm, layer_norm, logsumexp
+- Matrix multiplication: tiled GEMM with FMA microkernels
+- Special functions: erf, erfc, bessel, gamma (with polynomial approximations)
 
 ### Why Native Kernels?
 
@@ -418,15 +437,15 @@ numr = { version = "*", features = [
 
 ## Feature Flags
 
-| Feature  | Description                                        | Default |
-| -------- | -------------------------------------------------- | ------- |
-| `cpu`    | CPU backend (AVX-512/AVX2 on x86-64, NEON planned) | ✓       |
-| `cuda`   | NVIDIA CUDA backend                                | ✗       |
-| `wgpu`   | Cross-platform GPU (WebGPU)                        | ✗       |
-| `rayon`  | Multi-threaded CPU via Rayon                       | ✓       |
-| `f16`    | Half-precision floats (F16, BF16)                  | ✗       |
-| `fp8`    | 8-bit floats (FP8E4M3, FP8E5M2)                    | ✗       |
-| `sparse` | Sparse tensor support (CSR, CSC, COO)              | ✗       |
+| Feature  | Description                                         | Default |
+| -------- | --------------------------------------------------- | ------- |
+| `cpu`    | CPU backend (AVX-512/AVX2 on x86-64, NEON on ARM64) | ✓       |
+| `cuda`   | NVIDIA CUDA backend                                 | ✗       |
+| `wgpu`   | Cross-platform GPU (WebGPU)                         | ✗       |
+| `rayon`  | Multi-threaded CPU via Rayon                        | ✓       |
+| `f16`    | Half-precision floats (F16, BF16)                   | ✗       |
+| `fp8`    | 8-bit floats (FP8E4M3, FP8E5M2)                     | ✗       |
+| `sparse` | Sparse tensor support (CSR, CSC, COO)               | ✗       |
 
 ## Building from Source
 
@@ -487,7 +506,10 @@ When numr's kernels improve, everything above improves automatically.
 
 numr provides default kernels for all operations. You can also:
 
-- **Use default kernels**: All operations work out of the box with optimized SIMD (CPU), PTX (CUDA), and WGSL (WebGPU) kernels
+- **Use default kernels**: All operations work out of the box with optimized kernels:
+  - **CPU**: SIMD-vectorized kernels (AVX-512/AVX2 on x86-64, NEON on ARM64)
+  - **CUDA**: Native PTX kernels (compiled at build time, loaded on first use)
+  - **WebGPU**: WGSL compute shaders for cross-platform GPU
 - **Replace specific kernels**: Swap in your own optimized kernels for performance-critical paths
 - **Add new operations**: Define new traits and implement kernels for all backends
 

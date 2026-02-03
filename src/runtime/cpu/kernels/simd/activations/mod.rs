@@ -18,6 +18,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum length to justify SIMD overhead
@@ -36,11 +39,21 @@ pub unsafe fn sigmoid_f32(a: *const f32, out: *mut f32, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::sigmoid_f32(a, out, len),
         SimdLevel::Avx2Fma => avx2::sigmoid_f32(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => sigmoid_scalar_f32(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::sigmoid_f32(a, out, len),
+        _ => sigmoid_scalar_f32(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    sigmoid_scalar_f32(a, out, len);
 }
 
 /// SIMD sigmoid for f64
@@ -56,11 +69,21 @@ pub unsafe fn sigmoid_f64(a: *const f64, out: *mut f64, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::sigmoid_f64(a, out, len),
         SimdLevel::Avx2Fma => avx2::sigmoid_f64(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => sigmoid_scalar_f64(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::sigmoid_f64(a, out, len),
+        _ => sigmoid_scalar_f64(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    sigmoid_scalar_f64(a, out, len);
 }
 
 /// SIMD SiLU for f32
@@ -76,11 +99,21 @@ pub unsafe fn silu_f32(a: *const f32, out: *mut f32, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::silu_f32(a, out, len),
         SimdLevel::Avx2Fma => avx2::silu_f32(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => silu_scalar_f32(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::silu_f32(a, out, len),
+        _ => silu_scalar_f32(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    silu_scalar_f32(a, out, len);
 }
 
 /// SIMD SiLU for f64
@@ -96,11 +129,21 @@ pub unsafe fn silu_f64(a: *const f64, out: *mut f64, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::silu_f64(a, out, len),
         SimdLevel::Avx2Fma => avx2::silu_f64(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => silu_scalar_f64(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::silu_f64(a, out, len),
+        _ => silu_scalar_f64(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    silu_scalar_f64(a, out, len);
 }
 
 /// SIMD GELU for f32
@@ -116,11 +159,21 @@ pub unsafe fn gelu_f32(a: *const f32, out: *mut f32, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::gelu_f32(a, out, len),
         SimdLevel::Avx2Fma => avx2::gelu_f32(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => gelu_scalar_f32(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::gelu_f32(a, out, len),
+        _ => gelu_scalar_f32(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    gelu_scalar_f32(a, out, len);
 }
 
 /// SIMD GELU for f64
@@ -136,11 +189,21 @@ pub unsafe fn gelu_f64(a: *const f64, out: *mut f64, len: usize) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::gelu_f64(a, out, len),
         SimdLevel::Avx2Fma => avx2::gelu_f64(a, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => gelu_scalar_f64(a, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::gelu_f64(a, out, len),
+        _ => gelu_scalar_f64(a, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    gelu_scalar_f64(a, out, len);
 }
 
 /// SIMD Leaky ReLU for f32
@@ -156,11 +219,23 @@ pub unsafe fn leaky_relu_f32(a: *const f32, out: *mut f32, len: usize, negative_
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::leaky_relu_f32(a, out, len, negative_slope),
         SimdLevel::Avx2Fma => avx2::leaky_relu_f32(a, out, len, negative_slope),
-        SimdLevel::Scalar => unreachable!(),
+        _ => leaky_relu_scalar_f32(a, out, len, negative_slope),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::leaky_relu_f32(a, out, len, negative_slope)
+        }
+        _ => leaky_relu_scalar_f32(a, out, len, negative_slope),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    leaky_relu_scalar_f32(a, out, len, negative_slope);
 }
 
 /// SIMD Leaky ReLU for f64
@@ -176,11 +251,23 @@ pub unsafe fn leaky_relu_f64(a: *const f64, out: *mut f64, len: usize, negative_
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::leaky_relu_f64(a, out, len, negative_slope),
         SimdLevel::Avx2Fma => avx2::leaky_relu_f64(a, out, len, negative_slope),
-        SimdLevel::Scalar => unreachable!(),
+        _ => leaky_relu_scalar_f64(a, out, len, negative_slope),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::leaky_relu_f64(a, out, len, negative_slope)
+        }
+        _ => leaky_relu_scalar_f64(a, out, len, negative_slope),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    leaky_relu_scalar_f64(a, out, len, negative_slope);
 }
 
 /// SIMD ELU for f32
@@ -196,11 +283,21 @@ pub unsafe fn elu_f32(a: *const f32, out: *mut f32, len: usize, alpha: f32) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::elu_f32(a, out, len, alpha),
         SimdLevel::Avx2Fma => avx2::elu_f32(a, out, len, alpha),
-        SimdLevel::Scalar => unreachable!(),
+        _ => elu_scalar_f32(a, out, len, alpha),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::elu_f32(a, out, len, alpha),
+        _ => elu_scalar_f32(a, out, len, alpha),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    elu_scalar_f32(a, out, len, alpha);
 }
 
 /// SIMD ELU for f64
@@ -216,11 +313,21 @@ pub unsafe fn elu_f64(a: *const f64, out: *mut f64, len: usize, alpha: f64) {
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::elu_f64(a, out, len, alpha),
         SimdLevel::Avx2Fma => avx2::elu_f64(a, out, len, alpha),
-        SimdLevel::Scalar => unreachable!(),
+        _ => elu_scalar_f64(a, out, len, alpha),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::elu_f64(a, out, len, alpha),
+        _ => elu_scalar_f64(a, out, len, alpha),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    elu_scalar_f64(a, out, len, alpha);
 }
 
 // ============================================================================

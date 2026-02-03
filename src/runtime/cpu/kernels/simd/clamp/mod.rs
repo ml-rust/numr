@@ -12,6 +12,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum length to justify SIMD overhead
@@ -30,11 +33,23 @@ pub unsafe fn clamp_f32(a: *const f32, out: *mut f32, len: usize, min_val: f32, 
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::clamp_f32(a, out, len, min_val, max_val),
         SimdLevel::Avx2Fma => avx2::clamp_f32(a, out, len, min_val, max_val),
-        SimdLevel::Scalar => unreachable!(),
+        _ => clamp_scalar_f32(a, out, len, min_val, max_val),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::clamp_f32(a, out, len, min_val, max_val)
+        }
+        _ => clamp_scalar_f32(a, out, len, min_val, max_val),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    clamp_scalar_f32(a, out, len, min_val, max_val);
 }
 
 /// SIMD clamp for f64
@@ -50,11 +65,23 @@ pub unsafe fn clamp_f64(a: *const f64, out: *mut f64, len: usize, min_val: f64, 
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::clamp_f64(a, out, len, min_val, max_val),
         SimdLevel::Avx2Fma => avx2::clamp_f64(a, out, len, min_val, max_val),
-        SimdLevel::Scalar => unreachable!(),
+        _ => clamp_scalar_f64(a, out, len, min_val, max_val),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::clamp_f64(a, out, len, min_val, max_val)
+        }
+        _ => clamp_scalar_f64(a, out, len, min_val, max_val),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    clamp_scalar_f64(a, out, len, min_val, max_val);
 }
 
 // ============================================================================

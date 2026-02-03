@@ -1,0 +1,1175 @@
+//! NEON mathematical function implementations for ARM64
+//!
+//! Provides vectorized transcendental functions using 128-bit NEON registers.
+//! All algorithms match those in `common.rs` to ensure numerical consistency.
+//!
+//! # Supported Functions
+//!
+//! | Function | f32 | f64 | Relative Error |
+//! |----------|-----|-----|----------------|
+//! | exp      | 4   | 2   | < 1e-6 / 1e-12 |
+//! | tanh     | 4   | 2   | < 1e-6 / 1e-12 |
+//! | log      | 4   | 2   | < 1e-6 / 1e-12 |
+//! | sin      | 4   | 2   | < 1e-6 / 1e-10 |
+//! | cos      | 4   | 2   | < 1e-6 / 1e-10 |
+//! | tan      | 4   | 2   | < 2e-4 / 1e-4  |
+//! | atan     | 4   | 2   | < 1e-6 / 1e-12 |
+//!
+//! # Safety
+//!
+//! All functions require NEON CPU features (always available on AArch64).
+
+#[cfg(target_arch = "aarch64")]
+use std::arch::aarch64::*;
+
+use super::super::common::{
+    atan_coefficients, exp_coefficients, log_coefficients, tan_coefficients, trig_coefficients,
+};
+
+// ============================================================================
+// Horizontal Reductions
+// ============================================================================
+
+/// Horizontal sum of 4 f32 values in a NEON register
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hsum_f32(v: float32x4_t) -> f32 {
+    // NEON has efficient pairwise operations
+    // Step 1: Add adjacent pairs: [a+b, c+d, a+b, c+d]
+    let sum = vpadd_f32(vget_low_f32(v), vget_high_f32(v));
+    // Step 2: Add the two remaining pairs
+    vget_lane_f32::<0>(vpadd_f32(sum, sum))
+}
+
+/// Horizontal sum of 2 f64 values in a NEON register
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hsum_f64(v: float64x2_t) -> f64 {
+    vgetq_lane_f64::<0>(v) + vgetq_lane_f64::<1>(v)
+}
+
+/// Horizontal maximum of 4 f32 values in a NEON register
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hmax_f32(v: float32x4_t) -> f32 {
+    // NEON pairwise max
+    let max = vpmax_f32(vget_low_f32(v), vget_high_f32(v));
+    vget_lane_f32::<0>(vpmax_f32(max, max))
+}
+
+/// Horizontal maximum of 2 f64 values in a NEON register
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hmax_f64(v: float64x2_t) -> f64 {
+    let a = vgetq_lane_f64::<0>(v);
+    let b = vgetq_lane_f64::<1>(v);
+    if a > b { a } else { b }
+}
+
+/// Horizontal minimum of 4 f32 values in a NEON register
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hmin_f32(v: float32x4_t) -> f32 {
+    let min = vpmin_f32(vget_low_f32(v), vget_high_f32(v));
+    vget_lane_f32::<0>(vpmin_f32(min, min))
+}
+
+/// Horizontal minimum of 2 f64 values in a NEON register
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn hmin_f64(v: float64x2_t) -> f64 {
+    let a = vgetq_lane_f64::<0>(v);
+    let b = vgetq_lane_f64::<1>(v);
+    if a < b { a } else { b }
+}
+
+// ============================================================================
+// Exponential function: exp(x)
+// ============================================================================
+
+/// Fast SIMD exp approximation for f32 using NEON
+///
+/// See `common::_EXP_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn exp_f32(x: float32x4_t) -> float32x4_t {
+    use exp_coefficients::*;
+
+    let log2e = vdupq_n_f32(std::f32::consts::LOG2_E);
+    let ln2 = vdupq_n_f32(std::f32::consts::LN_2);
+
+    let c0 = vdupq_n_f32(C0_F32);
+    let c1 = vdupq_n_f32(C1_F32);
+    let c2 = vdupq_n_f32(C2_F32);
+    let c3 = vdupq_n_f32(C3_F32);
+    let c4 = vdupq_n_f32(C4_F32);
+    let c5 = vdupq_n_f32(C5_F32);
+    let c6 = vdupq_n_f32(C6_F32);
+
+    // Clamp input to avoid overflow/underflow
+    let x = vmaxq_f32(x, vdupq_n_f32(MIN_F32));
+    let x = vminq_f32(x, vdupq_n_f32(MAX_F32));
+
+    // y = x * log2(e)
+    let y = vmulq_f32(x, log2e);
+
+    // n = round(y) - integer part
+    let n = vrndnq_f32(y);
+
+    // f = y - n - fractional part in [-0.5, 0.5]
+    let f = vsubq_f32(y, n);
+
+    // r = f * ln(2) - convert back to natural log scale
+    let r = vmulq_f32(f, ln2);
+
+    // Polynomial approximation using Horner's method with FMA
+    let r2 = vmulq_f32(r, r);
+    let r3 = vmulq_f32(r2, r);
+    let r4 = vmulq_f32(r2, r2);
+    let r5 = vmulq_f32(r4, r);
+    let r6 = vmulq_f32(r4, r2);
+
+    let mut poly = c0;
+    poly = vfmaq_f32(poly, c1, r);
+    poly = vfmaq_f32(poly, c2, r2);
+    poly = vfmaq_f32(poly, c3, r3);
+    poly = vfmaq_f32(poly, c4, r4);
+    poly = vfmaq_f32(poly, c5, r5);
+    poly = vfmaq_f32(poly, c6, r6);
+
+    // Compute 2^n using IEEE 754 bit manipulation
+    // 2^n = reinterpret((n + 127) << 23) for f32
+    let n_i32 = vcvtq_s32_f32(n);
+    let bias = vdupq_n_s32(127);
+    let exp_bits = vshlq_n_s32::<23>(vaddq_s32(n_i32, bias));
+    let pow2n = vreinterpretq_f32_s32(exp_bits);
+
+    // Result = 2^n * exp(r)
+    vmulq_f32(pow2n, poly)
+}
+
+/// Fast SIMD exp approximation for f64 using NEON
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn exp_f64(x: float64x2_t) -> float64x2_t {
+    use exp_coefficients::*;
+
+    let log2e = vdupq_n_f64(std::f64::consts::LOG2_E);
+    let ln2 = vdupq_n_f64(std::f64::consts::LN_2);
+
+    let c0 = vdupq_n_f64(C0_F64);
+    let c1 = vdupq_n_f64(C1_F64);
+    let c2 = vdupq_n_f64(C2_F64);
+    let c3 = vdupq_n_f64(C3_F64);
+    let c4 = vdupq_n_f64(C4_F64);
+    let c5 = vdupq_n_f64(C5_F64);
+    let c6 = vdupq_n_f64(C6_F64);
+
+    // Clamp input
+    let x = vmaxq_f64(x, vdupq_n_f64(MIN_F64));
+    let x = vminq_f64(x, vdupq_n_f64(MAX_F64));
+
+    let y = vmulq_f64(x, log2e);
+    let n = vrndnq_f64(y);
+    let f = vsubq_f64(y, n);
+    let r = vmulq_f64(f, ln2);
+
+    let r2 = vmulq_f64(r, r);
+    let r3 = vmulq_f64(r2, r);
+    let r4 = vmulq_f64(r2, r2);
+    let r5 = vmulq_f64(r4, r);
+    let r6 = vmulq_f64(r4, r2);
+
+    let mut poly = c0;
+    poly = vfmaq_f64(poly, c1, r);
+    poly = vfmaq_f64(poly, c2, r2);
+    poly = vfmaq_f64(poly, c3, r3);
+    poly = vfmaq_f64(poly, c4, r4);
+    poly = vfmaq_f64(poly, c5, r5);
+    poly = vfmaq_f64(poly, c6, r6);
+
+    // Compute 2^n using IEEE 754 bit manipulation for f64
+    // 2^n = reinterpret((n + 1023) << 52) for f64
+    let n_i64 = vcvtq_s64_f64(n);
+    let bias = vdupq_n_s64(1023);
+    let exp_bits = vshlq_n_s64::<52>(vaddq_s64(n_i64, bias));
+    let pow2n = vreinterpretq_f64_s64(exp_bits);
+
+    vmulq_f64(pow2n, poly)
+}
+
+// ============================================================================
+// Hyperbolic tangent: tanh(x)
+// ============================================================================
+
+/// Fast SIMD tanh approximation for f32 using NEON
+///
+/// Algorithm: tanh(x) = (exp(2x) - 1) / (exp(2x) + 1)
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn tanh_f32(x: float32x4_t) -> float32x4_t {
+    let two = vdupq_n_f32(2.0);
+    let one = vdupq_n_f32(1.0);
+
+    let exp2x = exp_f32(vmulq_f32(two, x));
+    let num = vsubq_f32(exp2x, one);
+    let den = vaddq_f32(exp2x, one);
+
+    vdivq_f32(num, den)
+}
+
+/// Fast SIMD tanh approximation for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn tanh_f64(x: float64x2_t) -> float64x2_t {
+    let two = vdupq_n_f64(2.0);
+    let one = vdupq_n_f64(1.0);
+
+    let exp2x = exp_f64(vmulq_f64(two, x));
+    let num = vsubq_f64(exp2x, one);
+    let den = vaddq_f64(exp2x, one);
+
+    vdivq_f64(num, den)
+}
+
+// ============================================================================
+// Natural logarithm: log(x)
+// ============================================================================
+
+/// Fast SIMD log approximation for f32 using NEON
+///
+/// See `common::_LOG_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log_f32(x: float32x4_t) -> float32x4_t {
+    use log_coefficients::*;
+
+    let one = vdupq_n_f32(1.0);
+    let ln2 = vdupq_n_f32(std::f32::consts::LN_2);
+    let sqrt2 = vdupq_n_f32(std::f32::consts::SQRT_2);
+    let half = vdupq_n_f32(0.5);
+
+    let c1 = vdupq_n_f32(C1_F32);
+    let c2 = vdupq_n_f32(C2_F32);
+    let c3 = vdupq_n_f32(C3_F32);
+    let c4 = vdupq_n_f32(C4_F32);
+    let c5 = vdupq_n_f32(C5_F32);
+    let c6 = vdupq_n_f32(C6_F32);
+    let c7 = vdupq_n_f32(C7_F32);
+
+    // Extract exponent: reinterpret as int, shift right by 23, subtract bias
+    let x_bits = vreinterpretq_s32_f32(x);
+    let exp_raw = vshrq_n_s32::<23>(x_bits);
+    let exp_unbiased = vsubq_s32(exp_raw, vdupq_n_s32(EXP_BIAS_F32));
+    let mut n = vcvtq_f32_s32(exp_unbiased);
+
+    // Extract mantissa and set exponent to 0 (so mantissa is in [1, 2))
+    let mantissa_mask = vdupq_n_s32(MANTISSA_MASK_F32);
+    let exp_zero = vdupq_n_s32(EXP_ZERO_F32);
+    let m_bits = vorrq_s32(vandq_s32(x_bits, mantissa_mask), exp_zero);
+    let mut m = vreinterpretq_f32_s32(m_bits);
+
+    // Normalize: if m > sqrt(2), divide by 2 and increment exponent
+    let need_adjust = vcgtq_f32(m, sqrt2);
+    m = vbslq_f32(need_adjust, vmulq_f32(m, half), m);
+    n = vbslq_f32(need_adjust, vaddq_f32(n, one), n);
+
+    // f = m - 1, so log(m) = log(1 + f)
+    let f = vsubq_f32(m, one);
+
+    // Horner's method: ((((((c7*f + c6)*f + c5)*f + c4)*f + c3)*f + c2)*f + c1)*f
+    let mut poly = c7;
+    poly = vfmaq_f32(c6, poly, f);
+    poly = vfmaq_f32(c5, poly, f);
+    poly = vfmaq_f32(c4, poly, f);
+    poly = vfmaq_f32(c3, poly, f);
+    poly = vfmaq_f32(c2, poly, f);
+    poly = vfmaq_f32(c1, poly, f);
+    poly = vmulq_f32(poly, f);
+
+    // Result = n * ln(2) + log(m)
+    vfmaq_f32(poly, n, ln2)
+}
+
+/// Fast SIMD log approximation for f64 using NEON
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log_f64(x: float64x2_t) -> float64x2_t {
+    use log_coefficients::*;
+
+    let one = vdupq_n_f64(1.0);
+    let ln2 = vdupq_n_f64(std::f64::consts::LN_2);
+    let sqrt2_val = std::f64::consts::SQRT_2;
+
+    let c1 = vdupq_n_f64(C1_F64);
+    let c2 = vdupq_n_f64(C2_F64);
+    let c3 = vdupq_n_f64(C3_F64);
+    let c4 = vdupq_n_f64(C4_F64);
+    let c5 = vdupq_n_f64(C5_F64);
+    let c6 = vdupq_n_f64(C6_F64);
+    let c7 = vdupq_n_f64(C7_F64);
+    let c8 = vdupq_n_f64(C8_F64);
+    let c9 = vdupq_n_f64(C9_F64);
+
+    // Use SIMD for bit manipulation
+    let x_bits = vreinterpretq_s64_f64(x);
+
+    // Extract exponent using 64-bit SIMD shift
+    let exp_raw = vshrq_n_s64::<52>(x_bits);
+
+    // Extract mantissa and set exponent to bias (so mantissa is in [1, 2))
+    let mantissa_mask = vdupq_n_s64(MANTISSA_MASK_F64 as i64);
+    let exp_zero = vdupq_n_s64(EXP_ZERO_F64 as i64);
+    let m_bits = vorrq_s64(vandq_s64(x_bits, mantissa_mask), exp_zero);
+    let m_initial = vreinterpretq_f64_s64(m_bits);
+
+    // Extract for normalization (NEON lacks some 64-bit comparison intrinsics)
+    let mut m_arr = [0.0f64; 2];
+    let mut exp_arr = [0i64; 2];
+    vst1q_f64(m_arr.as_mut_ptr(), m_initial);
+    vst1q_s64(exp_arr.as_mut_ptr(), exp_raw);
+
+    let mut n_arr = [0.0f64; 2];
+    for i in 0..2 {
+        let mut exp_unbiased = exp_arr[i] - EXP_BIAS_F64;
+        let mut m = m_arr[i];
+
+        if m > sqrt2_val {
+            m *= 0.5;
+            exp_unbiased += 1;
+        }
+
+        n_arr[i] = exp_unbiased as f64;
+        m_arr[i] = m;
+    }
+
+    let n = vld1q_f64(n_arr.as_ptr());
+    let m = vld1q_f64(m_arr.as_ptr());
+
+    // f = m - 1 (fully SIMD from here)
+    let f = vsubq_f64(m, one);
+
+    // Horner's method for polynomial
+    let mut poly = c9;
+    poly = vfmaq_f64(c8, poly, f);
+    poly = vfmaq_f64(c7, poly, f);
+    poly = vfmaq_f64(c6, poly, f);
+    poly = vfmaq_f64(c5, poly, f);
+    poly = vfmaq_f64(c4, poly, f);
+    poly = vfmaq_f64(c3, poly, f);
+    poly = vfmaq_f64(c2, poly, f);
+    poly = vfmaq_f64(c1, poly, f);
+    poly = vmulq_f64(poly, f);
+
+    // Result = n * ln(2) + log(m)
+    vfmaq_f64(poly, n, ln2)
+}
+
+// ============================================================================
+// Trigonometric functions: sin, cos, tan
+// ============================================================================
+
+/// Fast SIMD sin approximation for f32 using NEON
+///
+/// See `common::_TRIG_ALGORITHM_DOC` for algorithm details.
+///
+/// # Safety
+/// Requires NEON (always available on AArch64)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn sin_f32(x: float32x4_t) -> float32x4_t {
+    use trig_coefficients::*;
+
+    let two_over_pi = vdupq_n_f32(std::f32::consts::FRAC_2_PI);
+    let pi_over_2 = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+
+    let s1 = vdupq_n_f32(S1_F32);
+    let s3 = vdupq_n_f32(S3_F32);
+    let s5 = vdupq_n_f32(S5_F32);
+    let s7 = vdupq_n_f32(S7_F32);
+
+    let c0 = vdupq_n_f32(C0_F32);
+    let c2 = vdupq_n_f32(C2_F32);
+    let c4 = vdupq_n_f32(C4_F32);
+    let c6 = vdupq_n_f32(C6_F32);
+
+    // Range reduction: j = round(x * 2/π), y = x - j * π/2
+    let j = vrndnq_f32(vmulq_f32(x, two_over_pi));
+    let j_int = vcvtq_s32_f32(j);
+
+    // y = x - j * (π/2) using FMA for precision
+    let y = vfmsq_f32(x, j, pi_over_2);
+
+    let y2 = vmulq_f32(y, y);
+    let y3 = vmulq_f32(y2, y);
+    let y4 = vmulq_f32(y2, y2);
+    let y5 = vmulq_f32(y4, y);
+    let y6 = vmulq_f32(y4, y2);
+    let y7 = vmulq_f32(y4, y3);
+
+    // sin(y) polynomial: s1*y + s3*y³ + s5*y⁵ + s7*y⁷
+    let sin_y = vfmaq_f32(
+        vfmaq_f32(vfmaq_f32(vmulq_f32(s1, y), s3, y3), s5, y5),
+        s7,
+        y7,
+    );
+
+    // cos(y) polynomial: c0 + c2*y² + c4*y⁴ + c6*y⁶
+    let cos_y = vfmaq_f32(vfmaq_f32(vfmaq_f32(c0, c2, y2), c4, y4), c6, y6);
+
+    // Select sin or cos based on j mod 4
+    let j_mod_4 = vandq_s32(j_int, vdupq_n_s32(3));
+
+    // Use cos when j mod 4 is 1 or 3
+    let use_cos_mask = vceqq_s32(vandq_s32(j_mod_4, vdupq_n_s32(1)), vdupq_n_s32(1));
+    let use_cos_mask = vreinterpretq_u32_s32(use_cos_mask);
+
+    // Negate when j mod 4 is 2 or 3
+    let negate_mask = vceqq_s32(vandq_s32(j_mod_4, vdupq_n_s32(2)), vdupq_n_s32(2));
+    let negate_mask = vreinterpretq_u32_s32(negate_mask);
+
+    let result = vbslq_f32(use_cos_mask, cos_y, sin_y);
+    let negated = vnegq_f32(result);
+    vbslq_f32(negate_mask, negated, result)
+}
+
+/// Fast SIMD sin approximation for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn sin_f64(x: float64x2_t) -> float64x2_t {
+    use trig_coefficients::*;
+
+    let two_over_pi = vdupq_n_f64(std::f64::consts::FRAC_2_PI);
+    let pi_over_2 = vdupq_n_f64(std::f64::consts::FRAC_PI_2);
+
+    let s1 = vdupq_n_f64(S1_F64);
+    let s3 = vdupq_n_f64(S3_F64);
+    let s5 = vdupq_n_f64(S5_F64);
+    let s7 = vdupq_n_f64(S7_F64);
+    let s9 = vdupq_n_f64(S9_F64);
+
+    let c0 = vdupq_n_f64(C0_F64);
+    let c2 = vdupq_n_f64(C2_F64);
+    let c4 = vdupq_n_f64(C4_F64);
+    let c6 = vdupq_n_f64(C6_F64);
+    let c8 = vdupq_n_f64(C8_F64);
+
+    let j = vrndnq_f64(vmulq_f64(x, two_over_pi));
+
+    // Get j as integers for quadrant selection
+    let mut j_arr = [0.0f64; 2];
+    vst1q_f64(j_arr.as_mut_ptr(), j);
+    let j_int: [i32; 2] = [j_arr[0] as i32, j_arr[1] as i32];
+
+    let y = vfmsq_f64(x, j, pi_over_2);
+
+    let y2 = vmulq_f64(y, y);
+    let y3 = vmulq_f64(y2, y);
+    let y4 = vmulq_f64(y2, y2);
+    let y5 = vmulq_f64(y4, y);
+    let y6 = vmulq_f64(y4, y2);
+    let y7 = vmulq_f64(y4, y3);
+    let y8 = vmulq_f64(y4, y4);
+    let y9 = vmulq_f64(y8, y);
+
+    // sin(y) and cos(y) polynomials
+    let mut sin_y = vmulq_f64(s1, y);
+    sin_y = vfmaq_f64(sin_y, s3, y3);
+    sin_y = vfmaq_f64(sin_y, s5, y5);
+    sin_y = vfmaq_f64(sin_y, s7, y7);
+    sin_y = vfmaq_f64(sin_y, s9, y9);
+
+    let mut cos_y = c0;
+    cos_y = vfmaq_f64(cos_y, c2, y2);
+    cos_y = vfmaq_f64(cos_y, c4, y4);
+    cos_y = vfmaq_f64(cos_y, c6, y6);
+    cos_y = vfmaq_f64(cos_y, c8, y8);
+
+    // Compute result per-element based on quadrant
+    let mut sin_arr = [0.0f64; 2];
+    let mut cos_arr = [0.0f64; 2];
+    vst1q_f64(sin_arr.as_mut_ptr(), sin_y);
+    vst1q_f64(cos_arr.as_mut_ptr(), cos_y);
+
+    let mut result = [0.0f64; 2];
+    for i in 0..2 {
+        let quadrant = j_int[i] & 3;
+        result[i] = match quadrant {
+            0 => sin_arr[i],
+            1 => cos_arr[i],
+            2 => -sin_arr[i],
+            3 => -cos_arr[i],
+            _ => unreachable!(),
+        };
+    }
+
+    vld1q_f64(result.as_ptr())
+}
+
+/// Fast SIMD cos approximation for f32 using NEON
+///
+/// Implemented as: cos(x) = sin(x + π/2)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cos_f32(x: float32x4_t) -> float32x4_t {
+    let pi_over_2 = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+    sin_f32(vaddq_f32(x, pi_over_2))
+}
+
+/// Fast SIMD cos approximation for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cos_f64(x: float64x2_t) -> float64x2_t {
+    let pi_over_2 = vdupq_n_f64(std::f64::consts::FRAC_PI_2);
+    sin_f64(vaddq_f64(x, pi_over_2))
+}
+
+/// Fast SIMD tan approximation for f32 using NEON
+///
+/// See `common::_TAN_ALGORITHM_DOC` for algorithm details.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn tan_f32(x: float32x4_t) -> float32x4_t {
+    use tan_coefficients::*;
+
+    let two_over_pi = vdupq_n_f32(std::f32::consts::FRAC_2_PI);
+    let pi_over_2 = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+
+    // Range reduction
+    let j = vrndnq_f32(vmulq_f32(x, two_over_pi));
+    let y = vfmsq_f32(x, j, pi_over_2);
+
+    let t1 = vdupq_n_f32(T1_F32);
+    let t3 = vdupq_n_f32(T3_F32);
+    let t5 = vdupq_n_f32(T5_F32);
+    let t7 = vdupq_n_f32(T7_F32);
+    let t9 = vdupq_n_f32(T9_F32);
+    let t11 = vdupq_n_f32(T11_F32);
+
+    let y2 = vmulq_f32(y, y);
+
+    // Horner's method
+    let mut poly = t11;
+    poly = vfmaq_f32(t9, poly, y2);
+    poly = vfmaq_f32(t7, poly, y2);
+    poly = vfmaq_f32(t5, poly, y2);
+    poly = vfmaq_f32(t3, poly, y2);
+    poly = vfmaq_f32(t1, poly, y2);
+    let tan_y = vmulq_f32(y, poly);
+
+    // For quadrants 1 and 3, tan(y + π/2) = -1/tan(y) = -cot(y)
+    let j_int = vcvtq_s32_f32(j);
+    let use_cot_mask = vceqq_s32(vandq_s32(j_int, vdupq_n_s32(1)), vdupq_n_s32(1));
+    let use_cot_mask = vreinterpretq_u32_s32(use_cot_mask);
+
+    let neg_one = vdupq_n_f32(-1.0);
+    let cot_y = vdivq_f32(neg_one, tan_y);
+
+    vbslq_f32(use_cot_mask, cot_y, tan_y)
+}
+
+/// Fast SIMD tan approximation for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn tan_f64(x: float64x2_t) -> float64x2_t {
+    use tan_coefficients::*;
+
+    let two_over_pi = vdupq_n_f64(std::f64::consts::FRAC_2_PI);
+    let pi_over_2 = vdupq_n_f64(std::f64::consts::FRAC_PI_2);
+
+    let j = vrndnq_f64(vmulq_f64(x, two_over_pi));
+    let y = vfmsq_f64(x, j, pi_over_2);
+
+    let t1 = vdupq_n_f64(T1_F64);
+    let t3 = vdupq_n_f64(T3_F64);
+    let t5 = vdupq_n_f64(T5_F64);
+    let t7 = vdupq_n_f64(T7_F64);
+    let t9 = vdupq_n_f64(T9_F64);
+    let t11 = vdupq_n_f64(T11_F64);
+    let t13 = vdupq_n_f64(T13_F64);
+
+    let y2 = vmulq_f64(y, y);
+
+    // Horner's method
+    let mut poly = t13;
+    poly = vfmaq_f64(t11, poly, y2);
+    poly = vfmaq_f64(t9, poly, y2);
+    poly = vfmaq_f64(t7, poly, y2);
+    poly = vfmaq_f64(t5, poly, y2);
+    poly = vfmaq_f64(t3, poly, y2);
+    poly = vfmaq_f64(t1, poly, y2);
+    let tan_y = vmulq_f64(y, poly);
+
+    // Handle quadrant for cotangent
+    let mut j_arr = [0.0f64; 2];
+    let mut tan_arr = [0.0f64; 2];
+    vst1q_f64(j_arr.as_mut_ptr(), j);
+    vst1q_f64(tan_arr.as_mut_ptr(), tan_y);
+
+    let mut result = [0.0f64; 2];
+    for i in 0..2 {
+        let j_int = j_arr[i] as i32;
+        result[i] = if (j_int & 1) == 1 {
+            -1.0 / tan_arr[i]
+        } else {
+            tan_arr[i]
+        };
+    }
+
+    vld1q_f64(result.as_ptr())
+}
+
+// ============================================================================
+// Inverse tangent function: atan(x)
+// ============================================================================
+
+/// Fast SIMD atan approximation for f32 using NEON
+///
+/// See `common::_ATAN_ALGORITHM_DOC` for algorithm details.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn atan_f32(x: float32x4_t) -> float32x4_t {
+    use atan_coefficients::*;
+
+    let one = vdupq_n_f32(1.0);
+    let pi_over_2 = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+
+    // Save sign and work with absolute value
+    let sign_mask = vdupq_n_u32(0x80000000);
+    let sign = vandq_u32(vreinterpretq_u32_f32(x), sign_mask);
+    let abs_x = vabsq_f32(x);
+
+    // Range reduction: for |x| > 1, compute atan(1/x) then adjust
+    let need_recip = vcgtq_f32(abs_x, one);
+    let recip_x = vdivq_f32(one, abs_x);
+    let y = vbslq_f32(need_recip, recip_x, abs_x);
+
+    // Polynomial approximation for atan(y) where y in [0, 1]
+    let a0 = vdupq_n_f32(A0_F32);
+    let a2 = vdupq_n_f32(A2_F32);
+    let a4 = vdupq_n_f32(A4_F32);
+    let a6 = vdupq_n_f32(A6_F32);
+    let a8 = vdupq_n_f32(A8_F32);
+    let a10 = vdupq_n_f32(A10_F32);
+    let a12 = vdupq_n_f32(A12_F32);
+
+    let y2 = vmulq_f32(y, y);
+
+    // Horner's method
+    let mut poly = a12;
+    poly = vfmaq_f32(a10, poly, y2);
+    poly = vfmaq_f32(a8, poly, y2);
+    poly = vfmaq_f32(a6, poly, y2);
+    poly = vfmaq_f32(a4, poly, y2);
+    poly = vfmaq_f32(a2, poly, y2);
+    poly = vfmaq_f32(a0, poly, y2);
+    let atan_y = vmulq_f32(y, poly);
+
+    // Apply range reduction inverse: if |x| > 1, result = π/2 - atan(1/x)
+    let adjusted = vsubq_f32(pi_over_2, atan_y);
+    let result = vbslq_f32(need_recip, adjusted, atan_y);
+
+    // Restore sign
+    vreinterpretq_f32_u32(vorrq_u32(vreinterpretq_u32_f32(result), sign))
+}
+
+/// Fast SIMD atan approximation for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn atan_f64(x: float64x2_t) -> float64x2_t {
+    use atan_coefficients::*;
+
+    let one = vdupq_n_f64(1.0);
+    let pi_over_2 = vdupq_n_f64(std::f64::consts::FRAC_PI_2);
+
+    // Save sign and work with absolute value
+    let sign_mask = vdupq_n_u64(0x8000000000000000);
+    let sign = vandq_u64(vreinterpretq_u64_f64(x), sign_mask);
+    let abs_x = vabsq_f64(x);
+
+    // Range reduction
+    let need_recip = vcgtq_f64(abs_x, one);
+    let recip_x = vdivq_f64(one, abs_x);
+    let y = vbslq_f64(need_recip, recip_x, abs_x);
+
+    let a0 = vdupq_n_f64(A0_F64);
+    let a2 = vdupq_n_f64(A2_F64);
+    let a4 = vdupq_n_f64(A4_F64);
+    let a6 = vdupq_n_f64(A6_F64);
+    let a8 = vdupq_n_f64(A8_F64);
+    let a10 = vdupq_n_f64(A10_F64);
+    let a12 = vdupq_n_f64(A12_F64);
+    let a14 = vdupq_n_f64(A14_F64);
+    let a16 = vdupq_n_f64(A16_F64);
+    let a18 = vdupq_n_f64(A18_F64);
+    let a20 = vdupq_n_f64(A20_F64);
+
+    let y2 = vmulq_f64(y, y);
+
+    // Horner's method with 11 terms
+    let mut poly = a20;
+    poly = vfmaq_f64(a18, poly, y2);
+    poly = vfmaq_f64(a16, poly, y2);
+    poly = vfmaq_f64(a14, poly, y2);
+    poly = vfmaq_f64(a12, poly, y2);
+    poly = vfmaq_f64(a10, poly, y2);
+    poly = vfmaq_f64(a8, poly, y2);
+    poly = vfmaq_f64(a6, poly, y2);
+    poly = vfmaq_f64(a4, poly, y2);
+    poly = vfmaq_f64(a2, poly, y2);
+    poly = vfmaq_f64(a0, poly, y2);
+    let atan_y = vmulq_f64(y, poly);
+
+    let adjusted = vsubq_f64(pi_over_2, atan_y);
+    let result = vbslq_f64(need_recip, adjusted, atan_y);
+
+    // Restore sign
+    vreinterpretq_f64_u64(vorrq_u64(vreinterpretq_u64_f64(result), sign))
+}
+
+// ============================================================================
+// Additional transcendental functions
+// ============================================================================
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn rsqrt_f32(x: float32x4_t) -> float32x4_t {
+    // NEON provides vrsqrteq_f32 with Newton-Raphson refinement
+    let est = vrsqrteq_f32(x);
+    let step1 = vmulq_f32(est, x);
+    let step2 = vrsqrtsq_f32(step1, est);
+    let refined = vmulq_f32(est, step2);
+    let step3 = vmulq_f32(refined, x);
+    let step4 = vrsqrtsq_f32(step3, refined);
+    vmulq_f32(refined, step4)
+}
+
+/// Fast SIMD rsqrt (1/sqrt(x)) for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn rsqrt_f64(x: float64x2_t) -> float64x2_t {
+    let est = vrsqrteq_f64(x);
+    let step1 = vmulq_f64(est, x);
+    let step2 = vrsqrtsq_f64(step1, est);
+    let refined = vmulq_f64(est, step2);
+    let step3 = vmulq_f64(refined, x);
+    let step4 = vrsqrtsq_f64(step3, refined);
+    vmulq_f64(refined, step4)
+}
+
+/// Fast SIMD exp2 (2^x) for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn exp2_f32(x: float32x4_t) -> float32x4_t {
+    let ln2 = vdupq_n_f32(std::f32::consts::LN_2);
+    exp_f32(vmulq_f32(x, ln2))
+}
+
+/// Fast SIMD exp2 (2^x) for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn exp2_f64(x: float64x2_t) -> float64x2_t {
+    let ln2 = vdupq_n_f64(std::f64::consts::LN_2);
+    exp_f64(vmulq_f64(x, ln2))
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn expm1_f32(x: float32x4_t) -> float32x4_t {
+    let one = vdupq_n_f32(1.0);
+    let half = vdupq_n_f32(0.5);
+    let abs_x = vabsq_f32(x);
+
+    // For small |x|, use Taylor series
+    let x2 = vmulq_f32(x, x);
+    let x3 = vmulq_f32(x2, x);
+    let x4 = vmulq_f32(x2, x2);
+    let c2 = vdupq_n_f32(0.5);
+    let c3 = vdupq_n_f32(1.0 / 6.0);
+    let c4 = vdupq_n_f32(1.0 / 24.0);
+    let taylor = vfmaq_f32(vfmaq_f32(vfmaq_f32(x, c2, x2), c3, x3), c4, x4);
+
+    // For large |x|, use exp(x) - 1
+    let exp_result = vsubq_f32(exp_f32(x), one);
+
+    // Blend based on |x| > 0.5
+    let mask = vcgtq_f32(abs_x, half);
+    vbslq_f32(mask, exp_result, taylor)
+}
+
+/// Fast SIMD expm1 (e^x - 1) for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn expm1_f64(x: float64x2_t) -> float64x2_t {
+    let one = vdupq_n_f64(1.0);
+    let half = vdupq_n_f64(0.5);
+    let abs_x = vabsq_f64(x);
+
+    let x2 = vmulq_f64(x, x);
+    let x3 = vmulq_f64(x2, x);
+    let x4 = vmulq_f64(x2, x2);
+    let c2 = vdupq_n_f64(0.5);
+    let c3 = vdupq_n_f64(1.0 / 6.0);
+    let c4 = vdupq_n_f64(1.0 / 24.0);
+    let taylor = vfmaq_f64(vfmaq_f64(vfmaq_f64(x, c2, x2), c3, x3), c4, x4);
+
+    let exp_result = vsubq_f64(exp_f64(x), one);
+    let mask = vcgtq_f64(abs_x, half);
+    vbslq_f64(mask, exp_result, taylor)
+}
+
+/// Fast SIMD log2 for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log2_f32(x: float32x4_t) -> float32x4_t {
+    let log2e = vdupq_n_f32(std::f32::consts::LOG2_E);
+    vmulq_f32(log_f32(x), log2e)
+}
+
+/// Fast SIMD log2 for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log2_f64(x: float64x2_t) -> float64x2_t {
+    let log2e = vdupq_n_f64(std::f64::consts::LOG2_E);
+    vmulq_f64(log_f64(x), log2e)
+}
+
+/// Fast SIMD log10 for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log10_f32(x: float32x4_t) -> float32x4_t {
+    let log10e = vdupq_n_f32(std::f32::consts::LOG10_E);
+    vmulq_f32(log_f32(x), log10e)
+}
+
+/// Fast SIMD log10 for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log10_f64(x: float64x2_t) -> float64x2_t {
+    let log10e = vdupq_n_f64(std::f64::consts::LOG10_E);
+    vmulq_f64(log_f64(x), log10e)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log1p_f32(x: float32x4_t) -> float32x4_t {
+    let one = vdupq_n_f32(1.0);
+    let half = vdupq_n_f32(0.5);
+    let abs_x = vabsq_f32(x);
+
+    // For small |x|, use Taylor series
+    let x2 = vmulq_f32(x, x);
+    let x3 = vmulq_f32(x2, x);
+    let x4 = vmulq_f32(x2, x2);
+    let c2 = vdupq_n_f32(-0.5);
+    let c3 = vdupq_n_f32(1.0 / 3.0);
+    let c4 = vdupq_n_f32(-0.25);
+    let taylor = vfmaq_f32(vfmaq_f32(vfmaq_f32(x, c2, x2), c3, x3), c4, x4);
+
+    // For large |x|, use log(1 + x)
+    let log_result = log_f32(vaddq_f32(one, x));
+
+    let mask = vcgtq_f32(abs_x, half);
+    vbslq_f32(mask, log_result, taylor)
+}
+
+/// Fast SIMD log1p (log(1+x)) for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn log1p_f64(x: float64x2_t) -> float64x2_t {
+    let one = vdupq_n_f64(1.0);
+    let half = vdupq_n_f64(0.5);
+    let abs_x = vabsq_f64(x);
+
+    let x2 = vmulq_f64(x, x);
+    let x3 = vmulq_f64(x2, x);
+    let x4 = vmulq_f64(x2, x2);
+    let c2 = vdupq_n_f64(-0.5);
+    let c3 = vdupq_n_f64(1.0 / 3.0);
+    let c4 = vdupq_n_f64(-0.25);
+    let taylor = vfmaq_f64(vfmaq_f64(vfmaq_f64(x, c2, x2), c3, x3), c4, x4);
+
+    let log_result = log_f64(vaddq_f64(one, x));
+    let mask = vcgtq_f64(abs_x, half);
+    vbslq_f64(mask, log_result, taylor)
+}
+
+/// Fast SIMD sinh for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn sinh_f32(x: float32x4_t) -> float32x4_t {
+    let half = vdupq_n_f32(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(vnegq_f32(x));
+    vmulq_f32(half, vsubq_f32(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD sinh for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn sinh_f64(x: float64x2_t) -> float64x2_t {
+    let half = vdupq_n_f64(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(vnegq_f64(x));
+    vmulq_f64(half, vsubq_f64(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cosh_f32(x: float32x4_t) -> float32x4_t {
+    let half = vdupq_n_f32(0.5);
+    let exp_x = exp_f32(x);
+    let exp_neg_x = exp_f32(vnegq_f32(x));
+    vmulq_f32(half, vaddq_f32(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD cosh for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cosh_f64(x: float64x2_t) -> float64x2_t {
+    let half = vdupq_n_f64(0.5);
+    let exp_x = exp_f64(x);
+    let exp_neg_x = exp_f64(vnegq_f64(x));
+    vmulq_f64(half, vaddq_f64(exp_x, exp_neg_x))
+}
+
+/// Fast SIMD asinh for f32 using NEON
+/// asinh(x) = log(x + sqrt(x^2 + 1))
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn asinh_f32(x: float32x4_t) -> float32x4_t {
+    let one = vdupq_n_f32(1.0);
+    let x2 = vmulq_f32(x, x);
+    let sqrt_term = vsqrtq_f32(vaddq_f32(x2, one));
+    log_f32(vaddq_f32(x, sqrt_term))
+}
+
+/// Fast SIMD asinh for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn asinh_f64(x: float64x2_t) -> float64x2_t {
+    let one = vdupq_n_f64(1.0);
+    let x2 = vmulq_f64(x, x);
+    let sqrt_term = vsqrtq_f64(vaddq_f64(x2, one));
+    log_f64(vaddq_f64(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f32 using NEON
+/// acosh(x) = log(x + sqrt(x^2 - 1)) for x >= 1
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn acosh_f32(x: float32x4_t) -> float32x4_t {
+    let one = vdupq_n_f32(1.0);
+    let x2 = vmulq_f32(x, x);
+    let sqrt_term = vsqrtq_f32(vsubq_f32(x2, one));
+    log_f32(vaddq_f32(x, sqrt_term))
+}
+
+/// Fast SIMD acosh for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn acosh_f64(x: float64x2_t) -> float64x2_t {
+    let one = vdupq_n_f64(1.0);
+    let x2 = vmulq_f64(x, x);
+    let sqrt_term = vsqrtq_f64(vsubq_f64(x2, one));
+    log_f64(vaddq_f64(x, sqrt_term))
+}
+
+/// Fast SIMD atanh for f32 using NEON
+/// atanh(x) = 0.5 * log((1 + x) / (1 - x)) for |x| < 1
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn atanh_f32(x: float32x4_t) -> float32x4_t {
+    let half = vdupq_n_f32(0.5);
+    let one = vdupq_n_f32(1.0);
+    let one_plus_x = vaddq_f32(one, x);
+    let one_minus_x = vsubq_f32(one, x);
+    let ratio = vdivq_f32(one_plus_x, one_minus_x);
+    vmulq_f32(half, log_f32(ratio))
+}
+
+/// Fast SIMD atanh for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn atanh_f64(x: float64x2_t) -> float64x2_t {
+    let half = vdupq_n_f64(0.5);
+    let one = vdupq_n_f64(1.0);
+    let one_plus_x = vaddq_f64(one, x);
+    let one_minus_x = vsubq_f64(one, x);
+    let ratio = vdivq_f64(one_plus_x, one_minus_x);
+    vmulq_f64(half, log_f64(ratio))
+}
+
+/// Fast SIMD asin for f32 using NEON
+/// asin(x) = atan(x / sqrt(1 - x^2))
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn asin_f32(x: float32x4_t) -> float32x4_t {
+    let one = vdupq_n_f32(1.0);
+    let x2 = vmulq_f32(x, x);
+    let sqrt_term = vsqrtq_f32(vsubq_f32(one, x2));
+    let ratio = vdivq_f32(x, sqrt_term);
+    atan_f32(ratio)
+}
+
+/// Fast SIMD asin for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn asin_f64(x: float64x2_t) -> float64x2_t {
+    let one = vdupq_n_f64(1.0);
+    let x2 = vmulq_f64(x, x);
+    let sqrt_term = vsqrtq_f64(vsubq_f64(one, x2));
+    let ratio = vdivq_f64(x, sqrt_term);
+    atan_f64(ratio)
+}
+
+/// Fast SIMD acos for f32 using NEON
+/// acos(x) = pi/2 - asin(x)
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn acos_f32(x: float32x4_t) -> float32x4_t {
+    let pi_half = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+    vsubq_f32(pi_half, asin_f32(x))
+}
+
+/// Fast SIMD acos for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn acos_f64(x: float64x2_t) -> float64x2_t {
+    let pi_half = vdupq_n_f64(std::f64::consts::FRAC_PI_2);
+    vsubq_f64(pi_half, asin_f64(x))
+}
+
+/// Fast SIMD cbrt (cube root) for f32 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cbrt_f32(x: float32x4_t) -> float32x4_t {
+    // Handle sign separately
+    let sign_mask = vdupq_n_u32(0x80000000);
+    let sign = vandq_u32(vreinterpretq_u32_f32(x), sign_mask);
+    let abs_x = vabsq_f32(x);
+
+    let one_third = vdupq_n_f32(1.0 / 3.0);
+    let bias = vdupq_n_f32(127.0);
+
+    // Extract exponent
+    let xi = vreinterpretq_s32_f32(abs_x);
+    let exp_bits = vshrq_n_s32::<23>(xi);
+    let exp_f = vcvtq_f32_s32(vsubq_s32(exp_bits, vdupq_n_s32(127)));
+
+    // Initial guess: 2^(e/3)
+    let new_exp = vmulq_f32(exp_f, one_third);
+    let new_exp_i = vcvtq_s32_f32(vaddq_f32(new_exp, bias));
+    let guess = vreinterpretq_f32_s32(vshlq_n_s32::<23>(new_exp_i));
+
+    // Newton-Raphson: y = (2*y + x/y^2) / 3
+    let two = vdupq_n_f32(2.0);
+    let three = vdupq_n_f32(3.0);
+
+    let y = guess;
+    let y2 = vmulq_f32(y, y);
+    let y_new = vdivq_f32(vfmaq_f32(vdivq_f32(abs_x, y2), two, y), three);
+
+    let y2 = vmulq_f32(y_new, y_new);
+    let result = vdivq_f32(vfmaq_f32(vdivq_f32(abs_x, y2), two, y_new), three);
+
+    // Restore sign
+    vreinterpretq_f32_u32(vorrq_u32(vreinterpretq_u32_f32(result), sign))
+}
+
+/// Fast SIMD cbrt (cube root) for f64 using NEON
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[inline]
+pub unsafe fn cbrt_f64(x: float64x2_t) -> float64x2_t {
+    let sign_mask = vdupq_n_u64(0x8000000000000000);
+    let sign = vandq_u64(vreinterpretq_u64_f64(x), sign_mask);
+    let abs_x = vabsq_f64(x);
+
+    let one_third = vdupq_n_f64(1.0 / 3.0);
+
+    // Initial guess: cbrt(x) ≈ exp(log(x) / 3)
+    let log_x = log_f64(abs_x);
+    let guess = exp_f64(vmulq_f64(log_x, one_third));
+
+    let two = vdupq_n_f64(2.0);
+    let three = vdupq_n_f64(3.0);
+
+    let y = guess;
+    let y2 = vmulq_f64(y, y);
+    let y_new = vdivq_f64(vfmaq_f64(vdivq_f64(abs_x, y2), two, y), three);
+
+    let y2 = vmulq_f64(y_new, y_new);
+    let result = vdivq_f64(vfmaq_f64(vdivq_f64(abs_x, y2), two, y_new), three);
+
+    vreinterpretq_f64_u64(vorrq_u64(vreinterpretq_u64_f64(result), sign))
+}

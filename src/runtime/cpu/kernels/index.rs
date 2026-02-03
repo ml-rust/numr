@@ -306,9 +306,21 @@ pub unsafe fn index_put_kernel<T: Element>(
 /// # Safety
 /// - `mask` must be valid pointer to `numel` u8 elements
 #[inline]
+#[allow(dead_code)] // Internally called by simd::index on x86_64, kept for API compatibility
 pub unsafe fn masked_count_kernel(mask: *const u8, numel: usize) -> usize {
-    let mask_slice = std::slice::from_raw_parts(mask, numel);
-    mask_slice.iter().filter(|&&m| m != 0).count()
+    // Use SIMD on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::index;
+        return index::masked_count(mask, numel);
+    }
+
+    // Scalar fallback for other architectures
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let mask_slice = std::slice::from_raw_parts(mask, numel);
+        mask_slice.iter().filter(|&&m| m != 0).count()
+    }
 }
 
 /// Select elements where mask is true, returning a flattened result.
@@ -329,6 +341,21 @@ pub unsafe fn masked_select_kernel<T: Element>(
     out: *mut T,
     numel: usize,
 ) {
+    // Use SIMD for f32/f64 types on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::index;
+
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            let _ = index::masked_select_f32(a as *const f32, mask, out as *mut f32, numel);
+            return;
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            let _ = index::masked_select_f64(a as *const f64, mask, out as *mut f64, numel);
+            return;
+        }
+    }
+
+    // Scalar fallback for other types
     let a_slice = std::slice::from_raw_parts(a, numel);
     let mask_slice = std::slice::from_raw_parts(mask, numel);
 
@@ -360,6 +387,21 @@ pub unsafe fn masked_fill_kernel<T: Element>(
     numel: usize,
     value: f64,
 ) {
+    // Use SIMD for f32/f64 types on x86_64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::index;
+
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            index::masked_fill_f32(a as *const f32, mask, out as *mut f32, numel, value as f32);
+            return;
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            index::masked_fill_f64(a as *const f64, mask, out as *mut f64, numel, value);
+            return;
+        }
+    }
+
+    // Scalar fallback for other types
     let a_slice = std::slice::from_raw_parts(a, numel);
     let mask_slice = std::slice::from_raw_parts(mask, numel);
     let out_slice = std::slice::from_raw_parts_mut(out, numel);

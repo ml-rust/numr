@@ -15,6 +15,9 @@ mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
+
 use super::{SimdLevel, detect_simd};
 use crate::ops::BinaryOp;
 
@@ -48,11 +51,21 @@ pub unsafe fn scalar_f32(op: BinaryOp, a: *const f32, scalar: f32, out: *mut f32
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::scalar_f32(op, a, scalar, out, len),
         SimdLevel::Avx2Fma => avx2::scalar_f32(op, a, scalar, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => scalar_scalar_f32(op, a, scalar, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::scalar_f32(op, a, scalar, out, len),
+        _ => scalar_scalar_f32(op, a, scalar, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    scalar_scalar_f32(op, a, scalar, out, len);
 }
 
 /// SIMD scalar operation for f64
@@ -68,11 +81,21 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => avx512::scalar_f64(op, a, scalar, out, len),
         SimdLevel::Avx2Fma => avx2::scalar_f64(op, a, scalar, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        _ => scalar_scalar_f64(op, a, scalar, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::scalar_f64(op, a, scalar, out, len),
+        _ => scalar_scalar_f64(op, a, scalar, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    scalar_scalar_f64(op, a, scalar, out, len);
 }
 
 /// Scalar fallback for f32

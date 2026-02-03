@@ -1,13 +1,12 @@
-//! Tensor operation adapters for special functions
+//! Generic scalar tensor operation adapters
 //!
 //! Provides `apply_unary`, `apply_binary`, and `apply_ternary` helpers that
 //! apply scalar functions element-wise over tensors with proper error handling.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::tensor::Tensor;
-
 use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+use crate::tensor::Tensor;
 
 /// Apply a unary scalar function element-wise over a tensor.
 pub fn apply_unary<F>(

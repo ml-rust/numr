@@ -1,12 +1,20 @@
 //! SIMD-accelerated binary operations
 //!
-//! This module provides AVX2 and AVX-512 implementations for element-wise
-//! binary operations (add, sub, mul, div, max, min).
+//! This module provides multi-architecture SIMD implementations for element-wise
+//! binary operations (add, sub, mul, div, max, min, pow).
+//!
+//! # Architecture Support
+//!
+//! | Architecture | Instruction Set | Vector Width | f32 lanes | f64 lanes |
+//! |--------------|-----------------|--------------|-----------|-----------|
+//! | x86-64       | AVX-512         | 512 bits     | 16        | 8         |
+//! | x86-64       | AVX2 + FMA      | 256 bits     | 8         | 4         |
+//! | ARM64        | NEON            | 128 bits     | 4         | 2         |
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
 #[cfg(target_arch = "x86_64")]
-mod avx2;
-#[cfg(target_arch = "x86_64")]
-mod avx512;
+mod x86_64;
 
 use super::{SimdLevel, detect_simd};
 use crate::ops::BinaryOp;
@@ -30,11 +38,21 @@ pub unsafe fn binary_f32(op: BinaryOp, a: *const f32, b: *const f32, out: *mut f
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::binary_f32(op, a, b, out, len),
-        SimdLevel::Avx2Fma => avx2::binary_f32(op, a, b, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::binary_f32(op, a, b, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::binary_f32(op, a, b, out, len),
+        _ => binary_scalar_f32(op, a, b, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::binary_f32(op, a, b, out, len),
+        _ => binary_scalar_f32(op, a, b, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    binary_scalar_f32(op, a, b, out, len);
 }
 
 /// SIMD binary operation for f64
@@ -50,11 +68,21 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
         return;
     }
 
+    #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::binary_f64(op, a, b, out, len),
-        SimdLevel::Avx2Fma => avx2::binary_f64(op, a, b, out, len),
-        SimdLevel::Scalar => unreachable!(),
+        SimdLevel::Avx512 => x86_64::avx512::binary_f64(op, a, b, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2::binary_f64(op, a, b, out, len),
+        _ => binary_scalar_f64(op, a, b, out, len),
     }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::binary_f64(op, a, b, out, len),
+        _ => binary_scalar_f64(op, a, b, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    binary_scalar_f64(op, a, b, out, len);
 }
 
 #[cfg(test)]
@@ -220,16 +248,20 @@ mod tests {
     }
 
     // ============================================================================
-    // Streaming store tests
+    // Streaming store tests (x86-64 only)
     // ============================================================================
 
-    /// Test streaming threshold constant is correctly defined
-    #[test]
-    fn test_streaming_threshold_defined() {
-        use super::super::streaming::{STREAMING_THRESHOLD_F32, STREAMING_THRESHOLD_F64};
-        // 1MB = 262144 f32s, 131072 f64s
-        assert_eq!(STREAMING_THRESHOLD_F32, 262144);
-        assert_eq!(STREAMING_THRESHOLD_F64, 131072);
+    #[cfg(target_arch = "x86_64")]
+    mod streaming_tests {
+        use super::super::super::streaming::{STREAMING_THRESHOLD_F32, STREAMING_THRESHOLD_F64};
+
+        /// Test streaming threshold constant is correctly defined
+        #[test]
+        fn test_streaming_threshold_defined() {
+            // 1MB = 262144 f32s, 131072 f64s
+            assert_eq!(STREAMING_THRESHOLD_F32, 262144);
+            assert_eq!(STREAMING_THRESHOLD_F64, 131072);
+        }
     }
 
     /// Test that large arrays produce correct results (exercises streaming path if aligned)
@@ -297,7 +329,8 @@ mod tests {
         }
     }
 
-    /// Test alignment check functions
+    /// Test alignment check functions (x86-64 only)
+    #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_alignment_checks() {
         use super::super::streaming::{is_aligned_avx2, is_aligned_avx512};

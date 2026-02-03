@@ -56,8 +56,8 @@ pub use fft::{
 };
 pub use index::{
     bincount_kernel, embedding_lookup_kernel, gather_kernel, gather_nd_kernel, index_put_kernel,
-    index_select_kernel, masked_count_kernel, masked_fill_kernel, masked_select_kernel,
-    max_i64_kernel, scatter_kernel, scatter_reduce_kernel,
+    index_select_kernel, masked_fill_kernel, masked_select_kernel, max_i64_kernel, scatter_kernel,
+    scatter_reduce_kernel,
 };
 pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
