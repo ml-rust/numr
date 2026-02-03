@@ -257,6 +257,8 @@ pub mod kernel_names {
     pub const LINALG_ADVANCED_MODULE: &str = "linalg_advanced";
     /// QZ decomposition (generalized Schur - double-shift algorithm)
     pub const LINALG_QZ_MODULE: &str = "linalg_qz";
+    /// Matrix functions (exp, log, sqrt on quasi-triangular matrices)
+    pub const LINALG_MATRIX_FUNCS_MODULE: &str = "linalg_matrix_funcs";
     /// Matrix multiplication operations (native tiled GEMM)
     pub const MATMUL_MODULE: &str = "matmul";
     /// Cumulative operations (cumsum, cumprod, logsumexp)

@@ -52,6 +52,8 @@ fn compile_cuda_kernels() {
         "linalg_decomp.cu",
         "linalg_eigen.cu",
         "linalg_eigen_general.cu",
+        "linalg_matrix_funcs.cu",
+        "linalg_qz.cu",
         "linalg_schur.cu",
         "linalg_solvers.cu",
         "linalg_svd.cu",

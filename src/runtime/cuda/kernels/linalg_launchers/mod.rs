@@ -7,11 +7,13 @@
 //! - `svd` - SVD Jacobi algorithm
 //! - `eigen` - eigendecomposition (symmetric, general, Schur)
 //! - `advanced` - rsf2csf, QZ decomposition
+//! - `matrix_funcs` - matrix functions (exp, log, sqrt) on quasi-triangular matrices
 
 mod advanced;
 mod basic;
 mod decompositions;
 mod eigen;
+mod matrix_funcs;
 mod solvers;
 mod svd;
 
@@ -20,5 +22,6 @@ pub use advanced::*;
 pub use basic::*;
 pub use decompositions::*;
 pub use eigen::*;
+pub use matrix_funcs::*;
 pub use solvers::*;
 pub use svd::*;

@@ -43,6 +43,7 @@ pub mod typed_kernels;
 pub mod activation_launcher;
 pub mod elementwise;
 pub mod matmul;
+pub mod matrix_funcs_launcher;
 pub mod norm;
 pub mod reduce;
 pub mod where_launcher;
@@ -86,6 +87,10 @@ pub use generator::{
     generate_matmul_shader, generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
     generate_scatter_shader, generate_unary_shader, is_wgpu_supported, is_wgsl_float, is_wgsl_int,
     wgsl_type,
+};
+pub use matrix_funcs_launcher::{
+    compute_schur_func_gpu, launch_diagonal_func, launch_parlett_column,
+    launch_validate_eigenvalues,
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};

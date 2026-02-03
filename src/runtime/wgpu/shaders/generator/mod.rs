@@ -35,6 +35,7 @@ pub mod fft;
 pub mod index;
 pub mod masked;
 pub mod matmul;
+pub mod matrix_funcs;
 pub mod norm;
 pub mod reduce;
 pub mod scalar;
@@ -79,6 +80,10 @@ pub use index::{
 };
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};
+pub use matrix_funcs::{
+    generate_diagonal_func_shader, generate_parlett_column_shader,
+    generate_validate_eigenvalues_shader,
+};
 pub use norm::generate_norm_shader;
 pub use reduce::generate_reduce_shader;
 pub use scalar::{generate_fill_shader, generate_scalar_shader};

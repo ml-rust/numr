@@ -1,45 +1,30 @@
 //! Matrix function implementations for CUDA (expm, logm, sqrtm)
 //!
-//! # Architecture: Hybrid GPU/CPU Approach
+//! # Architecture: Full GPU Implementation
 //!
-//! This module uses a **hybrid approach** that leverages GPU for parallelizable
-//! operations and CPU for inherently sequential operations:
+//! This module runs all matrix function operations entirely on GPU:
 //!
-//! ## Why Hybrid?
+//! 1. **Schur decomposition: A = Z @ T @ Z^T** (O(n³)) → GPU
+//! 2. **Matrix function on quasi-triangular T: f(T)** (O(n²)) → GPU kernels
+//! 3. **Reconstruction: Z @ f(T) @ Z^T** (O(n³)) → GPU
 //!
-//! Matrix functions via Schur decomposition have three phases:
+//! ## GPU Kernels
 //!
-//! 1. **Schur decomposition: A = Z @ T @ Z^T** (O(n³))
-//!    - QR iteration with Householder reflections
-//!    - Highly parallelizable → **GPU**
+//! - `diagonal_exp/log/sqrt` - Apply function to 1x1 and 2x2 diagonal blocks
+//! - `parlett_column` - Compute off-diagonal elements via Parlett's recurrence
+//! - `validate_eigenvalues` - Check for problematic eigenvalues
 //!
-//! 2. **Matrix function on quasi-triangular T: f(T)** (O(n²))
-//!    - Parlett recurrence: sequential diagonal-by-diagonal
-//!    - Inherently sequential → **CPU** (via `matrix_functions_core`)
+//! ## Exception: funm
 //!
-//! 3. **Reconstruction: Z @ f(T) @ Z^T** (O(n³))
-//!    - Two matrix multiplications
-//!    - Highly parallelizable → **GPU**
-//!
-//! ## Performance Characteristics
-//!
-//! For an n×n matrix:
-//! - Steps 1 and 3 dominate (O(n³) each)
-//! - Step 2 is O(n²) and sequential regardless of hardware
-//! - Transfer overhead is O(n²), negligible compared to O(n³) compute
-//!
-//! This hybrid approach achieves near-optimal performance by running
-//! parallelizable operations on GPU and avoiding GPU overhead for
-//! operations that wouldn't benefit from it.
-//!
-//! ## Exception: sqrtm and signm
-//!
-//! These use iterative methods (Denman-Beavers, Newton) that are
-//! implemented entirely on GPU since each iteration involves matrix
-//! multiplications and inversions that benefit from GPU acceleration.
+//! The general `funm` function still uses CPU for Parlett recurrence because
+//! it requires applying an arbitrary user-provided function that cannot be
+//! compiled to GPU code.
 
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
+use super::super::kernels::linalg_launchers::{
+    compute_schur_func_gpu, launch_validate_eigenvalues,
+};
 use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, matrix_functions_core, validate_linalg_dtype, validate_square_matrix,
 };
@@ -49,10 +34,15 @@ use crate::ops::{
     BinaryOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, SortingOps, StatisticalOps, TensorOps,
     UnaryOps, UtilityOps,
 };
-use crate::runtime::RuntimeClient;
+use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
-/// Matrix exponential using Schur decomposition
+/// Get the GPU buffer pointer from a tensor.
+fn get_tensor_ptr(tensor: &Tensor<CudaRuntime>) -> u64 {
+    tensor.storage().ptr()
+}
+
+/// Matrix exponential using Schur decomposition - fully on GPU.
 pub fn expm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
     validate_linalg_dtype(a.dtype())?;
     let n = validate_square_matrix(a.shape())?;
@@ -65,41 +55,153 @@ pub fn expm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     }
 
     if n == 1 {
-        let data: Vec<f64> = a.to_vec();
-        let exp_val = data[0].exp();
-        return Ok(Tensor::<CudaRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            exp_val,
-            device,
-        ));
+        // Single element - use GPU unary exp
+        return client.exp(a);
     }
 
-    // Compute Schur decomposition: A = Z @ T @ Z^T
+    // Compute Schur decomposition: A = Z @ T @ Z^T (GPU)
     let schur = client.schur_decompose(a)?;
 
-    // Transfer T to CPU for quasi-triangular exponential computation
-    let t_data: Vec<f64> = schur.t.to_vec();
-    let z_data: Vec<f64> = schur.z.to_vec();
+    // Allocate output for f(T) on GPU
+    let f_t = Tensor::<CudaRuntime>::zeros(&[n, n], dtype, device);
 
-    // Compute exp(T) for quasi-triangular T using shared algorithm
-    let exp_t = matrix_functions_core::exp_quasi_triangular_f64(&t_data, n);
+    // Compute exp(T) entirely on GPU
+    let t_ptr = get_tensor_ptr(&schur.t);
+    let f_ptr = get_tensor_ptr(&f_t);
+
+    unsafe {
+        compute_schur_func_gpu(
+            client.context(),
+            client.stream(),
+            client.device().index,
+            dtype,
+            t_ptr,
+            f_ptr,
+            n,
+            "exp",
+        )?;
+    }
 
     // Reconstruct: exp(A) = Z @ exp(T) @ Z^T on GPU
-    let exp_t_tensor = Tensor::<CudaRuntime>::from_slice(&exp_t, &[n, n], device);
-    let z_tensor = Tensor::<CudaRuntime>::from_slice(&z_data, &[n, n], device);
-
-    // temp = Z @ exp(T)
-    let temp = client.matmul(&z_tensor, &exp_t_tensor)?;
-
-    // Z^T
-    let z_t = z_tensor.transpose(0, 1)?;
-
-    // result = temp @ Z^T
+    let temp = client.matmul(&schur.z, &f_t)?;
+    let z_t = schur.z.transpose(0, 1)?;
     client.matmul(&temp, &z_t)
 }
 
-/// Matrix square root using Denman-Beavers iteration
+/// Matrix logarithm using Schur decomposition - fully on GPU.
+pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+    let dtype = a.dtype();
+    let device = client.device();
+
+    // Handle trivial cases
+    if n == 0 {
+        return Ok(Tensor::<CudaRuntime>::zeros(&[0, 0], dtype, device));
+    }
+
+    if n == 1 {
+        // Single element - use GPU unary log
+        // But we need to check for non-positive value first
+        let data: Vec<f64> = a.to_vec();
+        let val = data[0];
+        if val <= 0.0 {
+            return Err(Error::InvalidArgument {
+                arg: "a",
+                reason: "logm requires matrix with no non-positive real eigenvalues".to_string(),
+            });
+        }
+        return client.log(a);
+    }
+
+    let eps = match dtype {
+        DType::F32 => f32::EPSILON as f64,
+        DType::F64 => f64::EPSILON,
+        _ => f64::EPSILON,
+    };
+
+    // Compute Schur decomposition: A = Z @ T @ Z^T (GPU)
+    let schur = client.schur_decompose(a)?;
+
+    // Validate eigenvalues on GPU
+    let result_buffer = client.allocator.allocate(2 * dtype.size_in_bytes());
+    // Zero-initialize the result buffer
+    let zero_data: [f64; 2] = [0.0, 0.0];
+    unsafe {
+        cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
+            result_buffer,
+            zero_data.as_ptr() as *const std::ffi::c_void,
+            2 * std::mem::size_of::<f64>(),
+            client.stream().cu_stream(),
+        );
+    }
+
+    unsafe {
+        launch_validate_eigenvalues(
+            client.context(),
+            client.stream(),
+            client.device().index,
+            dtype,
+            get_tensor_ptr(&schur.t),
+            result_buffer,
+            n,
+            eps,
+            "log",
+        )?;
+    }
+
+    // Synchronize and check result
+    client
+        .stream()
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream synchronize failed: {:?}", e)))?;
+
+    let mut result_data: [f64; 2] = [0.0, 0.0];
+    unsafe {
+        cudarc::driver::sys::cuMemcpyDtoH_v2(
+            result_data.as_mut_ptr() as *mut std::ffi::c_void,
+            result_buffer,
+            2 * std::mem::size_of::<f64>(),
+        );
+    }
+    client
+        .allocator
+        .deallocate(result_buffer, 2 * dtype.size_in_bytes());
+
+    if result_data[0] > 0.5 {
+        return Err(Error::InvalidArgument {
+            arg: "a",
+            reason: format!(
+                "logm requires matrix with no non-positive real eigenvalues, found {}",
+                result_data[1]
+            ),
+        });
+    }
+
+    // Allocate output for f(T) on GPU
+    let f_t = Tensor::<CudaRuntime>::zeros(&[n, n], dtype, device);
+
+    // Compute log(T) entirely on GPU
+    unsafe {
+        compute_schur_func_gpu(
+            client.context(),
+            client.stream(),
+            client.device().index,
+            dtype,
+            get_tensor_ptr(&schur.t),
+            get_tensor_ptr(&f_t),
+            n,
+            "log",
+        )?;
+    }
+
+    // Reconstruct: log(A) = Z @ log(T) @ Z^T on GPU
+    let temp = client.matmul(&schur.z, &f_t)?;
+    let z_t = schur.z.transpose(0, 1)?;
+    client.matmul(&temp, &z_t)
+}
+
+/// Matrix square root using Denman-Beavers iteration - fully on GPU.
 pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
     validate_linalg_dtype(a.dtype())?;
     let n = validate_square_matrix(a.shape())?;
@@ -120,40 +222,71 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
                 reason: "sqrtm requires matrix with no negative real eigenvalues".to_string(),
             });
         }
-        return Ok(Tensor::<CudaRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            val.sqrt(),
-            device,
-        ));
+        return client.sqrt(a);
     }
+
+    let eps = match dtype {
+        DType::F32 => f32::EPSILON as f64,
+        DType::F64 => f64::EPSILON,
+        _ => f64::EPSILON,
+    };
 
     // Check for negative real eigenvalues using Schur decomposition
     let schur = client.schur_decompose(a)?;
-    let t_data: Vec<f64> = schur.t.to_vec();
-    let eps = if dtype == DType::F32 {
-        f32::EPSILON as f64
-    } else {
-        f64::EPSILON
-    };
 
-    let mut i = 0;
-    while i < n {
-        if i + 1 < n && t_data[(i + 1) * n + i].abs() > eps {
-            i += 2;
-        } else {
-            let eigenvalue = t_data[i * n + i];
-            if eigenvalue < -eps {
-                return Err(Error::InvalidArgument {
-                    arg: "a",
-                    reason: format!(
-                        "sqrtm requires matrix with no negative real eigenvalues, found {}",
-                        eigenvalue
-                    ),
-                });
-            }
-            i += 1;
-        }
+    // Validate eigenvalues on GPU
+    let result_buffer = client.allocator.allocate(2 * dtype.size_in_bytes());
+    // Zero-initialize the result buffer
+    let zero_data: [f64; 2] = [0.0, 0.0];
+    unsafe {
+        cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
+            result_buffer,
+            zero_data.as_ptr() as *const std::ffi::c_void,
+            2 * std::mem::size_of::<f64>(),
+            client.stream().cu_stream(),
+        );
+    }
+
+    unsafe {
+        launch_validate_eigenvalues(
+            client.context(),
+            client.stream(),
+            client.device().index,
+            dtype,
+            get_tensor_ptr(&schur.t),
+            result_buffer,
+            n,
+            eps,
+            "sqrt",
+        )?;
+    }
+
+    // Synchronize and check result
+    client
+        .stream()
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream synchronize failed: {:?}", e)))?;
+
+    let mut result_data: [f64; 2] = [0.0, 0.0];
+    unsafe {
+        cudarc::driver::sys::cuMemcpyDtoH_v2(
+            result_data.as_mut_ptr() as *mut std::ffi::c_void,
+            result_buffer,
+            2 * std::mem::size_of::<f64>(),
+        );
+    }
+    client
+        .allocator
+        .deallocate(result_buffer, 2 * dtype.size_in_bytes());
+
+    if result_data[0] > 0.5 {
+        return Err(Error::InvalidArgument {
+            arg: "a",
+            reason: format!(
+                "sqrtm requires matrix with no negative real eigenvalues, found {}",
+                result_data[1]
+            ),
+        });
     }
 
     // Denman-Beavers iteration on GPU
@@ -191,19 +324,22 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         let z_plus_yinv = client.add(&z, &y_inv)?;
         let z_new = client.div_scalar(&z_plus_yinv, 2.0)?;
 
-        // Check convergence: ||Y_new - Y|| / ||Y||
+        // Check convergence using GPU reduce operations
         let diff = client.sub(&y_new, &y)?;
+        let diff_sq = client.mul(&diff, &diff)?;
+        let diff_sum = client.sum(&diff_sq, &[], false)?;
+
+        let y_sq = client.mul(&y, &y)?;
+        let y_sum = client.sum(&y_sq, &[], false)?;
+
+        // Extract scalar results (small transfer, unavoidable for convergence check)
         let diff_norm: f64 = {
-            let diff_sq = client.mul(&diff, &diff)?;
-            let sum = client.sum(&diff_sq, &[], false)?;
-            let sum_vec: Vec<f64> = sum.to_vec();
+            let sum_vec: Vec<f64> = diff_sum.to_vec();
             sum_vec[0].sqrt()
         };
 
         let y_norm: f64 = {
-            let y_sq = client.mul(&y, &y)?;
-            let sum = client.sum(&y_sq, &[], false)?;
-            let sum_vec: Vec<f64> = sum.to_vec();
+            let sum_vec: Vec<f64> = y_sum.to_vec();
             sum_vec[0].sqrt().max(1.0)
         };
 
@@ -218,89 +354,7 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     Ok(y)
 }
 
-/// Matrix logarithm using Schur decomposition
-pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let n = validate_square_matrix(a.shape())?;
-    let dtype = a.dtype();
-    let device = client.device();
-
-    // Handle trivial cases
-    if n == 0 {
-        return Ok(Tensor::<CudaRuntime>::zeros(&[0, 0], dtype, device));
-    }
-
-    if n == 1 {
-        let data: Vec<f64> = a.to_vec();
-        let val = data[0];
-        if val <= 0.0 {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "logm requires matrix with no non-positive real eigenvalues".to_string(),
-            });
-        }
-        return Ok(Tensor::<CudaRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            val.ln(),
-            device,
-        ));
-    }
-
-    let eps = if dtype == DType::F32 {
-        f32::EPSILON as f64
-    } else {
-        f64::EPSILON
-    };
-
-    // Compute Schur decomposition: A = Z @ T @ Z^T
-    let schur = client.schur_decompose(a)?;
-    let t_data: Vec<f64> = schur.t.to_vec();
-    let z_data: Vec<f64> = schur.z.to_vec();
-
-    // Check for non-positive real eigenvalues
-    let mut i = 0;
-    while i < n {
-        if i + 1 < n && t_data[(i + 1) * n + i].abs() > eps {
-            let a_val = t_data[i * n + i];
-            let b_val = t_data[i * n + (i + 1)];
-            let c_val = t_data[(i + 1) * n + i];
-            if a_val <= eps && b_val * c_val >= -eps {
-                return Err(Error::InvalidArgument {
-                    arg: "a",
-                    reason: "logm requires matrix with no non-positive real eigenvalues"
-                        .to_string(),
-                });
-            }
-            i += 2;
-        } else {
-            let eigenvalue = t_data[i * n + i];
-            if eigenvalue <= eps {
-                return Err(Error::InvalidArgument {
-                    arg: "a",
-                    reason: format!(
-                        "logm requires matrix with no non-positive real eigenvalues, found {}",
-                        eigenvalue
-                    ),
-                });
-            }
-            i += 1;
-        }
-    }
-
-    // Compute log(T) using shared algorithm
-    let log_t = matrix_functions_core::log_quasi_triangular_f64(&t_data, n, eps);
-
-    // Reconstruct: log(A) = Z @ log(T) @ Z^T on GPU
-    let log_t_tensor = Tensor::<CudaRuntime>::from_slice(&log_t, &[n, n], device);
-    let z_tensor = Tensor::<CudaRuntime>::from_slice(&z_data, &[n, n], device);
-
-    let temp = client.matmul(&z_tensor, &log_t_tensor)?;
-    let z_t = z_tensor.transpose(0, 1)?;
-    client.matmul(&temp, &z_t)
-}
-
-/// Matrix sign function using Newton iteration
+/// Matrix sign function using Newton iteration - fully on GPU.
 pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
     let n = crate::algorithm::linalg::validate_square_matrix(a.shape())?;
     let dtype = a.dtype();
@@ -329,10 +383,10 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         ));
     }
 
-    let eps = if dtype == DType::F32 {
-        f32::EPSILON as f64
-    } else {
-        f64::EPSILON
+    let eps = match dtype {
+        DType::F32 => f32::EPSILON as f64,
+        DType::F64 => f64::EPSILON,
+        _ => f64::EPSILON,
     };
 
     // Newton iteration: X_{k+1} = (X_k + X_k^{-1}) / 2
@@ -355,12 +409,14 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         let x_plus_inv = client.add(&x, &x_inv)?;
         let x_new = client.div_scalar(&x_plus_inv, 2.0)?;
 
-        // Check convergence
+        // Check convergence using GPU reduce
         let diff = client.sub(&x_new, &x)?;
+        let diff_sq = client.mul(&diff, &diff)?;
+        let diff_sum = client.sum(&diff_sq, &[], false)?;
+
+        // Extract scalar result (small transfer, unavoidable for convergence check)
         let diff_norm: f64 = {
-            let diff_sq = client.mul(&diff, &diff)?;
-            let sum = client.sum(&diff_sq, &[], false)?;
-            let sum_vec: Vec<f64> = sum.to_vec();
+            let sum_vec: Vec<f64> = diff_sum.to_vec();
             sum_vec[0].sqrt()
         };
 
@@ -474,7 +530,11 @@ fn integer_matrix_power_gpu(
     Ok(result)
 }
 
-/// General matrix function f(A) using Schur-Parlett algorithm
+/// General matrix function f(A) using Schur-Parlett algorithm.
+///
+/// Note: This function still uses CPU for the Parlett recurrence because it
+/// requires applying an arbitrary user-provided function that cannot be
+/// compiled to GPU code. For exp, log, sqrt, use the dedicated GPU implementations.
 pub fn funm_impl<F>(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -515,7 +575,7 @@ where
     let t_data: Vec<f64> = schur.t.to_vec();
     let z_data: Vec<f64> = schur.z.to_vec();
 
-    // Compute f(T) using shared algorithm
+    // Compute f(T) using shared algorithm (CPU - arbitrary function cannot be GPU-ified)
     let f_t = matrix_functions_core::funm_quasi_triangular_f64(&t_data, n, &f)?;
 
     // Reconstruct: f(A) = Z @ f(T) @ Z^T on GPU
