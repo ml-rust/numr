@@ -141,7 +141,7 @@ mod tests {
     fn test_unfold_fold_roundtrip() {
         let client = get_client();
         let data: Vec<f32> = (0..24).map(|x| x as f32).collect();
-        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device);
+        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device_id);
 
         // Test all modes
         for mode in 0..3 {
@@ -166,13 +166,13 @@ mod tests {
         let tensor = Tensor::<WgpuRuntime>::from_slice(
             &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
             &[2, 3],
-            &client.device,
+            &client.device_id,
         );
         // Matrix [4, 2] for mode-0 product
         let matrix = Tensor::<WgpuRuntime>::from_slice(
             &[1.0f32, 0.0, 0.0, 1.0, 1.0, 1.0, -1.0, 1.0],
             &[4, 2],
-            &client.device,
+            &client.device_id,
         );
 
         let result = client
@@ -185,7 +185,7 @@ mod tests {
     fn test_hosvd_basic() {
         let client = get_client();
         let data: Vec<f32> = (0..24).map(|x| x as f32).collect();
-        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device);
+        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device_id);
 
         let decomp = client
             .hosvd(&tensor, &[2, 3, 4])
@@ -221,7 +221,7 @@ mod tests {
         let tensor = Tensor::<WgpuRuntime>::from_slice(
             &[1.0f32, 1.0, 1.0, 2.0, 2.0, 2.0],
             &[2, 3],
-            &client.device,
+            &client.device_id,
         );
 
         let decomp = client
@@ -253,7 +253,7 @@ mod tests {
     fn test_tensor_train_basic() {
         let client = get_client();
         let data: Vec<f32> = (0..24).map(|x| x as f32).collect();
-        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device);
+        let tensor = Tensor::<WgpuRuntime>::from_slice(&data, &[2, 3, 4], &client.device_id);
 
         // Full-rank TT decomposition
         let decomp = client
