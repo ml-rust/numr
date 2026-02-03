@@ -74,36 +74,38 @@ pub unsafe fn launch_cdist(
     d: usize,
     metric: DistanceMetric,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
-    let func_name = kernel_name("cdist", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
+        let func_name = kernel_name("cdist", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let numel = n * m;
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let cfg = launch_config(grid, block, 0);
+        let numel = n * m;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let cfg = launch_config(grid, block, 0);
 
-    let metric_idx = metric_to_index(metric);
-    let p_value = metric_p_value(metric);
-    let n_u32 = n as u32;
-    let m_u32 = m as u32;
-    let d_u32 = d as u32;
+        let metric_idx = metric_to_index(metric);
+        let p_value = metric_p_value(metric);
+        let n_u32 = n as u32;
+        let m_u32 = m as u32;
+        let d_u32 = d as u32;
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&x_ptr);
-    builder.arg(&y_ptr);
-    builder.arg(&out_ptr);
-    builder.arg(&n_u32);
-    builder.arg(&m_u32);
-    builder.arg(&d_u32);
-    builder.arg(&metric_idx);
-    builder.arg(&p_value);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&x_ptr);
+        builder.arg(&y_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&n_u32);
+        builder.arg(&m_u32);
+        builder.arg(&d_u32);
+        builder.arg(&metric_idx);
+        builder.arg(&p_value);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("Failed to launch cdist kernel: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("Failed to launch cdist kernel: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch pdist kernel - pairwise distances within one point set (condensed).
@@ -136,33 +138,35 @@ pub unsafe fn launch_pdist(
     d: usize,
     metric: DistanceMetric,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
-    let func_name = kernel_name("pdist", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
+        let func_name = kernel_name("pdist", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let numel = n * (n - 1) / 2;
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let cfg = launch_config(grid, block, 0);
+        let numel = n * (n - 1) / 2;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let cfg = launch_config(grid, block, 0);
 
-    let metric_idx = metric_to_index(metric);
-    let p_value = metric_p_value(metric);
-    let n_u32 = n as u32;
-    let d_u32 = d as u32;
+        let metric_idx = metric_to_index(metric);
+        let p_value = metric_p_value(metric);
+        let n_u32 = n as u32;
+        let d_u32 = d as u32;
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&x_ptr);
-    builder.arg(&out_ptr);
-    builder.arg(&n_u32);
-    builder.arg(&d_u32);
-    builder.arg(&metric_idx);
-    builder.arg(&p_value);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&x_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&n_u32);
+        builder.arg(&d_u32);
+        builder.arg(&metric_idx);
+        builder.arg(&p_value);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("Failed to launch pdist kernel: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("Failed to launch pdist kernel: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch squareform kernel - condensed to square.
@@ -191,27 +195,29 @@ pub unsafe fn launch_squareform(
     square_ptr: u64,
     n: usize,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
-    let func_name = kernel_name("squareform", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
+        let func_name = kernel_name("squareform", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let numel = n * n;
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let cfg = launch_config(grid, block, 0);
+        let numel = n * n;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let cfg = launch_config(grid, block, 0);
 
-    let n_u32 = n as u32;
+        let n_u32 = n as u32;
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&condensed_ptr);
-    builder.arg(&square_ptr);
-    builder.arg(&n_u32);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&condensed_ptr);
+        builder.arg(&square_ptr);
+        builder.arg(&n_u32);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("Failed to launch squareform kernel: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("Failed to launch squareform kernel: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch squareform_inverse kernel - square to condensed.
@@ -240,28 +246,30 @@ pub unsafe fn launch_squareform_inverse(
     condensed_ptr: u64,
     n: usize,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
-    let func_name = kernel_name("squareform_inverse", dtype);
-    let func = get_kernel_function(&module, &func_name)?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, DISTANCE_MODULE)?;
+        let func_name = kernel_name("squareform_inverse", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
 
-    let numel = n * (n - 1) / 2;
-    let grid = elementwise_launch_config(numel);
-    let block = (BLOCK_SIZE, 1, 1);
-    let cfg = launch_config(grid, block, 0);
+        let numel = n * (n - 1) / 2;
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let cfg = launch_config(grid, block, 0);
 
-    let n_u32 = n as u32;
+        let n_u32 = n as u32;
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&square_ptr);
-    builder.arg(&condensed_ptr);
-    builder.arg(&n_u32);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&square_ptr);
+        builder.arg(&condensed_ptr);
+        builder.arg(&n_u32);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "Failed to launch squareform_inverse kernel: {:?}",
-            e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "Failed to launch squareform_inverse kernel: {:?}",
+                e
+            ))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }

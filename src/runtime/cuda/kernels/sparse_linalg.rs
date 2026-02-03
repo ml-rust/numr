@@ -38,32 +38,34 @@ pub unsafe fn launch_sparse_trsv_lower_level_f32(
     n: i32,
     unit_diagonal: bool,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_trsv_lower_level_f32")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_lower_level_f32")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
-    let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&b);
-    builder.arg(&x);
-    builder.arg(&n);
-    builder.arg(&unit_diag_i32);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+        builder.arg(&unit_diag_i32);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA sparse_trsv_lower_level_f32 launch failed: {:?}",
-            e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_lower_level_f32 launch failed: {:?}",
+                e
+            ))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch level-scheduled lower triangular solve kernel (forward substitution) - f64
@@ -81,32 +83,34 @@ pub unsafe fn launch_sparse_trsv_lower_level_f64(
     n: i32,
     unit_diagonal: bool,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_trsv_lower_level_f64")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_lower_level_f64")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
-    let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&b);
-    builder.arg(&x);
-    builder.arg(&n);
-    builder.arg(&unit_diag_i32);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+        builder.arg(&unit_diag_i32);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA sparse_trsv_lower_level_f64 launch failed: {:?}",
-            e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_lower_level_f64 launch failed: {:?}",
+                e
+            ))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch level-scheduled upper triangular solve kernel (backward substitution)
@@ -123,30 +127,32 @@ pub unsafe fn launch_sparse_trsv_upper_level_f32(
     x: u64,
     n: i32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_trsv_upper_level_f32")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_upper_level_f32")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&b);
-    builder.arg(&x);
-    builder.arg(&n);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA sparse_trsv_upper_level_f32 launch failed: {:?}",
-            e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_upper_level_f32 launch failed: {:?}",
+                e
+            ))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch level-scheduled upper triangular solve kernel - f64
@@ -163,30 +169,32 @@ pub unsafe fn launch_sparse_trsv_upper_level_f64(
     x: u64,
     n: i32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_trsv_upper_level_f64")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_upper_level_f64")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&b);
-    builder.arg(&x);
-    builder.arg(&n);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
 
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA sparse_trsv_upper_level_f64 launch failed: {:?}",
-            e
-        ))
-    })?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_upper_level_f64 launch failed: {:?}",
+                e
+            ))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -207,27 +215,29 @@ pub unsafe fn launch_ilu0_level_f32(
     n: i32,
     diagonal_shift: f32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "ilu0_level_f32")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "ilu0_level_f32")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&diag_indices);
-    builder.arg(&n);
-    builder.arg(&diagonal_shift);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&diag_indices);
+        builder.arg(&n);
+        builder.arg(&diagonal_shift);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA ilu0_level_f32 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA ilu0_level_f32 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch ILU(0) level kernel - f64
@@ -244,27 +254,29 @@ pub unsafe fn launch_ilu0_level_f64(
     n: i32,
     diagonal_shift: f64,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "ilu0_level_f64")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "ilu0_level_f64")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&diag_indices);
-    builder.arg(&n);
-    builder.arg(&diagonal_shift);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&diag_indices);
+        builder.arg(&n);
+        builder.arg(&diagonal_shift);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA ilu0_level_f64 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA ilu0_level_f64 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -285,27 +297,29 @@ pub unsafe fn launch_ic0_level_f32(
     n: i32,
     diagonal_shift: f32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "ic0_level_f32")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "ic0_level_f32")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&diag_indices);
-    builder.arg(&n);
-    builder.arg(&diagonal_shift);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&diag_indices);
+        builder.arg(&n);
+        builder.arg(&diagonal_shift);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA ic0_level_f32 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA ic0_level_f32 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch IC(0) level kernel - f64
@@ -322,27 +336,29 @@ pub unsafe fn launch_ic0_level_f64(
     n: i32,
     diagonal_shift: f64,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "ic0_level_f64")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "ic0_level_f64")?;
 
-    let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((level_size as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&level_rows);
-    builder.arg(&level_size);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&values);
-    builder.arg(&diag_indices);
-    builder.arg(&n);
-    builder.arg(&diagonal_shift);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&diag_indices);
+        builder.arg(&n);
+        builder.arg(&diagonal_shift);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA ic0_level_f64 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA ic0_level_f64 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 // ============================================================================
@@ -359,26 +375,29 @@ pub unsafe fn launch_find_diag_indices(
     diag_indices: u64,
     n: i32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "find_diag_indices")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "find_diag_indices")?;
 
-    let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&row_ptrs);
-    builder.arg(&col_indices);
-    builder.arg(&diag_indices);
-    builder.arg(&n);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&diag_indices);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA find_diag_indices launch failed: {:?}", e)))?;
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA find_diag_indices launch failed: {:?}", e))
+        })?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch copy kernel - f32
+#[allow(dead_code)]
 pub unsafe fn launch_copy_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -387,25 +406,28 @@ pub unsafe fn launch_copy_f32(
     dst: u64,
     n: i32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "copy_f32")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "copy_f32")?;
 
-    let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&src);
-    builder.arg(&dst);
-    builder.arg(&n);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src);
+        builder.arg(&dst);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA copy_f32 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA copy_f32 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
 
 /// Launch copy kernel - f64
+#[allow(dead_code)]
 pub unsafe fn launch_copy_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -414,20 +436,22 @@ pub unsafe fn launch_copy_f64(
     dst: u64,
     n: i32,
 ) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "copy_f64")?;
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "copy_f64")?;
 
-    let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let grid_size = ((n as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
 
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&src);
-    builder.arg(&dst);
-    builder.arg(&n);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src);
+        builder.arg(&dst);
+        builder.arg(&n);
 
-    builder
-        .launch(cfg)
-        .map_err(|e| Error::Internal(format!("CUDA copy_f64 launch failed: {:?}", e)))?;
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA copy_f64 launch failed: {:?}", e)))?;
 
-    Ok(())
+        Ok(())
+    }
 }
