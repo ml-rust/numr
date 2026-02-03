@@ -15,6 +15,7 @@ pub use super::sparse_split::{
     generate_split_lu_scatter_shader, generate_split_lu_scatter_u_shader,
 };
 pub use super::sparse_trsv::{
-    generate_sparse_trsv_lower_shader, generate_sparse_trsv_upper_shader,
+    generate_sparse_trsv_lower_multi_rhs_shader, generate_sparse_trsv_lower_shader,
+    generate_sparse_trsv_upper_multi_rhs_shader, generate_sparse_trsv_upper_shader,
 };
 pub use super::sparse_utils::{generate_copy_shader, generate_find_diag_indices_shader};

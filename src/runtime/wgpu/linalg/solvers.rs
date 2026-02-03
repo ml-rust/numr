@@ -1,18 +1,30 @@
-//! Triangular and linear system solvers for WebGPU backend.
+//! Linear system solvers for WebGPU backend.
+//!
+//! # Supported Data Types
+//!
+//! **F32 only.** WebGPU WGSL shaders do not natively support F64 operations.
+//! All solver functions in this module will return `Error::UnsupportedDType`
+//! for non-F32 inputs.
+//!
+//! For F64 linear algebra, use the CPU or CUDA backends instead.
 
 use wgpu::CommandEncoderDescriptor;
 
 use super::super::client::get_buffer;
 use super::super::shaders::linalg as kernels;
 use super::super::{WgpuClient, WgpuRuntime};
-use super::decompositions::qr_decompose_internal;
-use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d, validate_square_matrix};
+use crate::algorithm::linalg::{validate_linalg_dtype, validate_square_matrix};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::MatmulOps;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
+// Re-export from sub-modules
+pub use super::lstsq::lstsq;
+pub use super::triangular_solve::{solve_triangular_lower, solve_triangular_upper};
+
+/// Solve linear system Ax = b using LU decomposition with partial pivoting.
+/// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs])
 pub fn solve(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -230,217 +242,4 @@ pub fn solve(
         // Make contiguous to get proper row-major layout
         Ok(x.contiguous())
     }
-}
-
-pub fn solve_triangular_lower(
-    client: &WgpuClient,
-    l: &Tensor<WgpuRuntime>,
-    b: &Tensor<WgpuRuntime>,
-    unit_diagonal: bool,
-) -> Result<Tensor<WgpuRuntime>> {
-    validate_linalg_dtype(l.dtype())?;
-    if l.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: l.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    let n = validate_square_matrix(l.shape())?;
-    let dtype = l.dtype();
-    let device = client.device();
-
-    if dtype != DType::F32 {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "WGPU solve_triangular_lower (only F32 supported)",
-        });
-    }
-
-    if b.shape().len() != 1 || b.shape()[0] != n {
-        return Err(Error::ShapeMismatch {
-            expected: vec![n],
-            got: b.shape().to_vec(),
-        });
-    }
-
-    let x_size = n * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
-    let x_buffer =
-        get_buffer(x_ptr).ok_or_else(|| Error::Internal("Failed to get x buffer".to_string()))?;
-
-    let l_buffer = get_buffer(l.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
-    let b_buffer = get_buffer(b.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
-
-    let params: [u32; 2] = [n as u32, if unit_diagonal { 1 } else { 0 }];
-    let params_buffer = client.create_uniform_buffer("forward_params", 8);
-    client.write_buffer(&params_buffer, &params);
-
-    kernels::launch_forward_sub(
-        client.pipeline_cache(),
-        &client.queue,
-        &l_buffer,
-        &b_buffer,
-        &x_buffer,
-        &params_buffer,
-        dtype,
-    )?;
-
-    client.synchronize();
-
-    let x = unsafe { WgpuClient::tensor_from_raw(x_ptr, &[n], dtype, device) };
-
-    Ok(x)
-}
-
-pub fn solve_triangular_upper(
-    client: &WgpuClient,
-    u: &Tensor<WgpuRuntime>,
-    b: &Tensor<WgpuRuntime>,
-) -> Result<Tensor<WgpuRuntime>> {
-    validate_linalg_dtype(u.dtype())?;
-    if u.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: u.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    let n = validate_square_matrix(u.shape())?;
-    let dtype = u.dtype();
-    let device = client.device();
-
-    if dtype != DType::F32 {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "WGPU solve_triangular_upper (only F32 supported)",
-        });
-    }
-
-    if b.shape().len() != 1 || b.shape()[0] != n {
-        return Err(Error::ShapeMismatch {
-            expected: vec![n],
-            got: b.shape().to_vec(),
-        });
-    }
-
-    let x_size = n * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
-    let x_buffer =
-        get_buffer(x_ptr).ok_or_else(|| Error::Internal("Failed to get x buffer".to_string()))?;
-
-    let u_buffer = get_buffer(u.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get U buffer".to_string()))?;
-    let b_buffer = get_buffer(b.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
-
-    let params: [u32; 1] = [n as u32];
-    let params_buffer = client.create_uniform_buffer("backward_params", 4);
-    client.write_buffer(&params_buffer, &params);
-
-    kernels::launch_backward_sub(
-        client.pipeline_cache(),
-        &client.queue,
-        &u_buffer,
-        &b_buffer,
-        &x_buffer,
-        &params_buffer,
-        dtype,
-    )?;
-
-    client.synchronize();
-
-    let x = unsafe { WgpuClient::tensor_from_raw(x_ptr, &[n], dtype, device) };
-
-    Ok(x)
-}
-
-pub fn lstsq(
-    client: &WgpuClient,
-    a: &Tensor<WgpuRuntime>,
-    b: &Tensor<WgpuRuntime>,
-) -> Result<Tensor<WgpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-
-    let (m, n) = validate_matrix_2d(a.shape())?;
-    let dtype = a.dtype();
-    let device = client.device();
-
-    if dtype != DType::F32 {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "WGPU lstsq (only F32 supported)",
-        });
-    }
-
-    // Only handle vector b for now
-    let b_shape = b.shape();
-    if b_shape.len() != 1 {
-        return Err(Error::Internal(
-            "lstsq currently only supports 1D b vector for WGPU".to_string(),
-        ));
-    }
-
-    // Underdetermined systems not supported
-    if m < n {
-        return Err(Error::Internal(format!(
-            "lstsq: underdetermined system not supported (A is {}x{}, requires m >= n)",
-            m, n
-        )));
-    }
-
-    // QR decomposition
-    let qr = qr_decompose_internal(client, a, false)?;
-
-    // Make Q^T contiguous before matmul (transpose creates a view)
-    let q_t = qr.q.transpose(0, 1)?.contiguous();
-    let b_mat = b.reshape(&[m, 1])?.contiguous();
-
-    // Q^T @ B gives [m, 1]
-    let qtb = client.matmul(&q_t, &b_mat)?;
-
-    // Allocate output X [n]
-    let x_size = n * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
-    let x_buffer =
-        get_buffer(x_ptr).ok_or_else(|| Error::Internal("Failed to get x buffer".to_string()))?;
-
-    // Get first n elements of Q^T @ b using GPU-side slicing (no CPU transfer)
-    // qtb is [m, 1], we need the first n elements
-    let qtb_flat = qtb.reshape(&[m])?; // flatten to 1D
-    let qtb_n = qtb_flat.narrow(0, 0, n)?.contiguous(); // slice first n elements on GPU
-    let qtb_buffer = get_buffer(qtb_n.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
-
-    let r_buffer = get_buffer(qr.r.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get R buffer".to_string()))?;
-
-    // Backward substitution: R @ x = qtb[:n]
-    let params: [u32; 1] = [n as u32];
-    let params_buffer = client.create_uniform_buffer("backward_params", 4);
-    client.write_buffer(&params_buffer, &params);
-
-    kernels::launch_backward_sub(
-        client.pipeline_cache(),
-        &client.queue,
-        &r_buffer,
-        &qtb_buffer,
-        &x_buffer,
-        &params_buffer,
-        dtype,
-    )?;
-
-    client.synchronize();
-
-    // Note: qtb_n tensor will be deallocated when it goes out of scope
-
-    let x = unsafe { WgpuClient::tensor_from_raw(x_ptr, &[n], dtype, device) };
-
-    Ok(x)
 }

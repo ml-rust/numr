@@ -4,7 +4,8 @@ use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::generator::sparse_linalg::{
-    generate_sparse_trsv_lower_shader, generate_sparse_trsv_upper_shader,
+    generate_sparse_trsv_lower_multi_rhs_shader, generate_sparse_trsv_lower_shader,
+    generate_sparse_trsv_upper_multi_rhs_shader, generate_sparse_trsv_upper_shader,
 };
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{WORKGROUP_SIZE, create_trsv_layout, validate_wgpu_dtype};
@@ -19,6 +20,7 @@ use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
 /// Sparse triangular solve for WebGPU.
+/// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs]).
 pub fn sparse_solve_triangular_wgpu(
     client: &WgpuClient,
     l_or_u: &CsrData<WgpuRuntime>,
@@ -35,12 +37,6 @@ pub fn sparse_solve_triangular_wgpu(
             lhs: dtype,
             rhs: b.dtype(),
         });
-    }
-
-    if nrhs > 1 {
-        return Err(Error::Internal(
-            "WebGPU sparse triangular solve only supports single RHS for now".to_string(),
-        ));
     }
 
     // Extract CSR data for level analysis
@@ -94,33 +90,68 @@ pub fn sparse_solve_triangular_wgpu(
             continue;
         }
 
-        if lower {
-            launch_sparse_trsv_lower(
-                client,
-                &level_rows_gpu,
-                level_start,
-                level_size,
-                &row_ptrs_gpu,
-                &col_indices_gpu,
-                l_or_u.values(),
-                b,
-                &x,
-                n,
-                unit_diagonal,
-            )?;
+        if nrhs == 1 {
+            // Use single RHS kernels
+            if lower {
+                launch_sparse_trsv_lower(
+                    client,
+                    &level_rows_gpu,
+                    level_start,
+                    level_size,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    unit_diagonal,
+                )?;
+            } else {
+                launch_sparse_trsv_upper(
+                    client,
+                    &level_rows_gpu,
+                    level_start,
+                    level_size,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                )?;
+            }
         } else {
-            launch_sparse_trsv_upper(
-                client,
-                &level_rows_gpu,
-                level_start,
-                level_size,
-                &row_ptrs_gpu,
-                &col_indices_gpu,
-                l_or_u.values(),
-                b,
-                &x,
-                n,
-            )?;
+            // Use multi-RHS kernels
+            if lower {
+                launch_sparse_trsv_lower_multi_rhs(
+                    client,
+                    &level_rows_gpu,
+                    level_start,
+                    level_size,
+                    nrhs,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    unit_diagonal,
+                )?;
+            } else {
+                launch_sparse_trsv_upper_multi_rhs(
+                    client,
+                    &level_rows_gpu,
+                    level_start,
+                    level_size,
+                    nrhs,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                )?;
+            }
         }
     }
 
@@ -324,6 +355,231 @@ fn launch_sparse_trsv_upper(
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("sparse_trsv_upper"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(workgroups, 1, 1);
+    }
+    client.queue.submit(Some(encoder.finish()));
+
+    Ok(())
+}
+
+/// Launch multi-RHS sparse lower triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_sparse_trsv_lower_multi_rhs(
+    client: &WgpuClient,
+    level_rows: &Tensor<WgpuRuntime>,
+    level_start: usize,
+    level_size: usize,
+    nrhs: usize,
+    row_ptrs: &Tensor<WgpuRuntime>,
+    col_indices: &Tensor<WgpuRuntime>,
+    values: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+    x: &Tensor<WgpuRuntime>,
+    n: usize,
+    unit_diagonal: bool,
+) -> Result<()> {
+    let shader_source = generate_sparse_trsv_lower_multi_rhs_shader(DType::F32)?;
+    let module = client
+        .pipeline_cache
+        .get_or_create_module_from_source("sparse_trsv_lower_multi_rhs_f32", &shader_source);
+
+    let layout = create_trsv_layout(&client.wgpu_device);
+
+    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+        "sparse_trsv_lower_multi_rhs_f32",
+        "sparse_trsv_lower_level_multi_rhs_f32",
+        &module,
+        &layout,
+    );
+
+    // Params: level_size, nrhs, n, unit_diagonal, level_start, pad0, pad1, pad2
+    let params: [u32; 8] = [
+        level_size as u32,
+        nrhs as u32,
+        n as u32,
+        if unit_diagonal { 1 } else { 0 },
+        level_start as u32,
+        0,
+        0,
+        0,
+    ];
+    let params_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("trsv_lower_multi_rhs_params"),
+        size: 32,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    client
+        .queue
+        .write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params));
+
+    let level_rows_buf = get_tensor_buffer(level_rows)?;
+    let row_ptrs_buf = get_tensor_buffer(row_ptrs)?;
+    let col_indices_buf = get_tensor_buffer(col_indices)?;
+    let values_buf = get_tensor_buffer(values)?;
+    let b_buf = get_tensor_buffer(b)?;
+    let x_buf = get_tensor_buffer(x)?;
+
+    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
+        label: Some("trsv_lower_multi_rhs_bind_group"),
+        layout: &layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: level_rows_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: row_ptrs_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: col_indices_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: values_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: b_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: x_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    let total_work = (level_size * nrhs) as u32;
+    let workgroups = (total_work + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+    let mut encoder = client
+        .wgpu_device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_trsv_lower_multi_rhs"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(workgroups, 1, 1);
+    }
+    client.queue.submit(Some(encoder.finish()));
+
+    Ok(())
+}
+
+/// Launch multi-RHS sparse upper triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_sparse_trsv_upper_multi_rhs(
+    client: &WgpuClient,
+    level_rows: &Tensor<WgpuRuntime>,
+    level_start: usize,
+    level_size: usize,
+    nrhs: usize,
+    row_ptrs: &Tensor<WgpuRuntime>,
+    col_indices: &Tensor<WgpuRuntime>,
+    values: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+    x: &Tensor<WgpuRuntime>,
+    n: usize,
+) -> Result<()> {
+    let shader_source = generate_sparse_trsv_upper_multi_rhs_shader(DType::F32)?;
+    let module = client
+        .pipeline_cache
+        .get_or_create_module_from_source("sparse_trsv_upper_multi_rhs_f32", &shader_source);
+
+    let layout = create_trsv_layout(&client.wgpu_device);
+
+    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+        "sparse_trsv_upper_multi_rhs_f32",
+        "sparse_trsv_upper_level_multi_rhs_f32",
+        &module,
+        &layout,
+    );
+
+    // Params: level_size, nrhs, n, pad0, level_start, pad1, pad2, pad3
+    let params: [u32; 8] = [
+        level_size as u32,
+        nrhs as u32,
+        n as u32,
+        0,
+        level_start as u32,
+        0,
+        0,
+        0,
+    ];
+    let params_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("trsv_upper_multi_rhs_params"),
+        size: 32,
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    client
+        .queue
+        .write_buffer(&params_buffer, 0, bytemuck::cast_slice(&params));
+
+    let level_rows_buf = get_tensor_buffer(level_rows)?;
+    let row_ptrs_buf = get_tensor_buffer(row_ptrs)?;
+    let col_indices_buf = get_tensor_buffer(col_indices)?;
+    let values_buf = get_tensor_buffer(values)?;
+    let b_buf = get_tensor_buffer(b)?;
+    let x_buf = get_tensor_buffer(x)?;
+
+    let bind_group = client.wgpu_device.create_bind_group(&BindGroupDescriptor {
+        label: Some("trsv_upper_multi_rhs_bind_group"),
+        layout: &layout,
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: level_rows_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: row_ptrs_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: col_indices_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: values_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 4,
+                resource: b_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 5,
+                resource: x_buf.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 6,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    let total_work = (level_size * nrhs) as u32;
+    let workgroups = (total_work + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+
+    let mut encoder = client
+        .wgpu_device
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_trsv_upper_multi_rhs"),
             timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);
