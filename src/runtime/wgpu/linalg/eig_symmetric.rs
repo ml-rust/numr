@@ -90,7 +90,7 @@ pub fn eig_decompose_symmetric(
 
     client.synchronize();
 
-    // Clean up work buffer and converged flag (trust Jacobi algorithm with fixed iterations)
+    // Clean up work buffer and converged flag
     client.allocator().deallocate(work_ptr, work_size);
     client
         .allocator()

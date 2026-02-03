@@ -110,7 +110,7 @@ pub fn svd_decompose_impl(
 
     client.synchronize();
 
-    // Clean up converged flag (we trust the Jacobi algorithm)
+    // Clean up converged flag buffer
     client.allocator().deallocate(converged_flag_ptr, flag_size);
 
     // GPU argsort to get sorted indices (descending order)

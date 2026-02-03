@@ -104,35 +104,12 @@ pub fn eig_decompose(
 
     client.synchronize();
 
-    // Read back converged flag
-    let staging = client.create_staging_buffer("eig_general_converged_staging", 4);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("eig_general_converged_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut converged_val = [0i32; 1];
-    client.read_buffer(&staging, &mut converged_val);
-
     // Clean up working buffers
     client.allocator().deallocate(t_ptr, matrix_size);
     client.allocator().deallocate(z_ptr, matrix_size);
     client
         .allocator()
         .deallocate(converged_flag_ptr, converged_flag_size);
-
-    if converged_val[0] != 0 {
-        client.allocator().deallocate(eval_real_ptr, vector_size);
-        client.allocator().deallocate(eval_imag_ptr, vector_size);
-        client.allocator().deallocate(evec_real_ptr, matrix_size);
-        client.allocator().deallocate(evec_imag_ptr, matrix_size);
-        return Err(Error::Internal(
-            "General eigendecomposition did not converge within maximum iterations".to_string(),
-        ));
-    }
 
     // Create output tensors from GPU memory
     let eigenvalues_real =

@@ -69,7 +69,7 @@ pub fn svd_decompose(
     let s_ptr = client.allocator().allocate(s_size);
     let s_buffer = get_buffer_or_err!(s_ptr, "S (singular values)");
 
-    // Convergence flag buffer (required by kernel but not checked - we trust the algorithm)
+    // Convergence flag buffer (required by kernel)
     let converged_flag_size = std::mem::size_of::<i32>();
     let converged_flag_ptr = client.allocator().allocate(converged_flag_size);
     let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "SVD convergence flag");

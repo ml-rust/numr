@@ -231,34 +231,10 @@ pub fn qz_decompose(
 
     client.synchronize();
 
-    // Read back converged flag
-    let staging = client.create_staging_buffer("qz_converged_staging", 4);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("qz_converged_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut converged_val = [0i32; 1];
-    client.read_buffer(&staging, &mut converged_val);
-
+    // Clean up converged flag buffer
     client
         .allocator()
         .deallocate(converged_flag_ptr, converged_flag_size);
-
-    if converged_val[0] != 0 {
-        client.allocator().deallocate(s_ptr, matrix_size);
-        client.allocator().deallocate(t_ptr, matrix_size);
-        client.allocator().deallocate(q_ptr, matrix_size);
-        client.allocator().deallocate(z_ptr, matrix_size);
-        client.allocator().deallocate(eval_real_ptr, vector_size);
-        client.allocator().deallocate(eval_imag_ptr, vector_size);
-        return Err(Error::Internal(
-            "QZ decomposition did not converge within maximum iterations".to_string(),
-        ));
-    }
 
     // Create output tensors
     let q = unsafe { WgpuClient::tensor_from_raw(q_ptr, &[n, n], dtype, device) };

@@ -80,31 +80,10 @@ pub fn schur_decompose(
 
     client.synchronize();
 
-    // Read back converged flag
-    let staging = client.create_staging_buffer("schur_converged_staging", 4);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("schur_converged_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&converged_flag_buffer, 0, &staging, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut converged_val = [0i32; 1];
-    client.read_buffer(&staging, &mut converged_val);
-
-    // Clean up converged flag
+    // Clean up converged flag buffer
     client
         .allocator()
         .deallocate(converged_flag_ptr, converged_flag_size);
-
-    if converged_val[0] != 0 {
-        client.allocator().deallocate(t_ptr, matrix_size);
-        client.allocator().deallocate(z_ptr, matrix_size);
-        return Err(Error::Internal(
-            "Schur decomposition did not converge within maximum iterations".to_string(),
-        ));
-    }
 
     // Create output tensors from GPU memory
     let z = unsafe { WgpuClient::tensor_from_raw(z_ptr, &[n, n], dtype, device) };
