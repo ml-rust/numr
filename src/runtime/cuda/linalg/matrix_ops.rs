@@ -9,7 +9,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{BinaryOps, ReduceOps, TensorOps, UnaryOps};
+use crate::ops::{CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -309,7 +309,7 @@ pub fn diagflat_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Ten
     Ok(out)
 }
 
-/// Matrix rank via QR decomposition
+/// Matrix rank via QR decomposition - runs entirely on GPU (zero CPU transfers)
 pub fn matrix_rank_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -318,62 +318,14 @@ pub fn matrix_rank_impl(
     validate_linalg_dtype(a.dtype())?;
     let (m, n) = validate_matrix_2d(a.shape())?;
     let dtype = a.dtype();
-    let device = client.device();
     let k = m.min(n);
 
-    // Use QR decomposition to estimate rank
-    let qr = client.qr_decompose(a)?;
-
-    // Get diagonal of R
-    let r_diag = LinearAlgebraAlgorithms::diag(client, &qr.r)?;
-
-    // Allocate GPU buffers for max abs and count
-    let max_size = dtype.size_in_bytes();
-    let max_ptr = client.allocator().allocate(max_size);
-    let count_size = std::mem::size_of::<u32>();
-    let count_ptr = client.allocator().allocate(count_size);
-
-    // Zero-initialize max and count on GPU
-    let zero_bytes = vec![0u8; max_size.max(count_size)];
-    CudaRuntime::copy_to_device(&zero_bytes[..max_size], max_ptr, device);
-    CudaRuntime::copy_to_device(&zero_bytes[..count_size], count_ptr, device);
-
-    // Compute max absolute value on GPU (no CPU transfer of full diagonal)
-    let result = unsafe {
-        kernels::launch_max_abs(
-            client.context(),
-            client.stream(),
-            device.index,
-            dtype,
-            r_diag.storage().ptr(),
-            max_ptr,
-            k,
-        )
-    };
-    if let Err(e) = result {
-        client.allocator().deallocate(max_ptr, max_size);
-        client.allocator().deallocate(count_ptr, count_size);
-        return Err(e);
+    // Handle empty matrix
+    if k == 0 {
+        return Ok(Tensor::<CudaRuntime>::from_slice(&[0i64], &[], a.device()));
     }
 
-    client.synchronize();
-
-    // Read max value (single element transfer, not entire diagonal)
-    let max_diag: f64 = match dtype {
-        DType::F32 => {
-            let mut max_bytes = [0u8; 4];
-            CudaRuntime::copy_from_device(max_ptr, &mut max_bytes, device);
-            f32::from_ne_bytes(max_bytes) as f64
-        }
-        DType::F64 => {
-            let mut max_bytes = [0u8; 8];
-            CudaRuntime::copy_from_device(max_ptr, &mut max_bytes, device);
-            f64::from_ne_bytes(max_bytes)
-        }
-        _ => unreachable!(),
-    };
-
-    // Compute tolerance
+    // Compute tolerance factor (depends only on dimensions, no GPU data needed)
     let base_tol = tol.unwrap_or_else(|| {
         let eps = match dtype {
             DType::F32 => f32::EPSILON as f64,
@@ -382,41 +334,31 @@ pub fn matrix_rank_impl(
         };
         (m.max(n) as f64) * eps
     });
-    let threshold = base_tol * max_diag;
 
-    // Count elements above threshold on GPU
-    let result = unsafe {
-        kernels::launch_count_above_threshold(
-            client.context(),
-            client.stream(),
-            device.index,
-            dtype,
-            r_diag.storage().ptr(),
-            count_ptr,
-            k,
-            threshold,
-        )
-    };
-    if let Err(e) = result {
-        client.allocator().deallocate(max_ptr, max_size);
-        client.allocator().deallocate(count_ptr, count_size);
-        return Err(e);
-    }
+    // Use QR decomposition to estimate rank
+    let qr = client.qr_decompose(a)?;
 
-    client.synchronize();
+    // Get diagonal of R
+    let r_diag = LinearAlgebraAlgorithms::diag(client, &qr.r)?;
 
-    // Read count (single u32 transfer)
-    let mut count_bytes = [0u8; 4];
-    CudaRuntime::copy_from_device(count_ptr, &mut count_bytes, device);
-    let rank = u32::from_ne_bytes(count_bytes) as i64;
+    // Compute abs(r_diag) on GPU
+    let abs_diag = client.abs(&r_diag)?;
 
-    // Clean up
-    client.allocator().deallocate(max_ptr, max_size);
-    client.allocator().deallocate(count_ptr, count_size);
+    // Compute max(abs(r_diag)) on GPU - returns scalar tensor
+    let max_val = client.max(&abs_diag, &[], false)?;
 
-    // Create rank tensor on GPU
-    let rank_data: [i64; 1] = [rank];
-    let rank_tensor = Tensor::<CudaRuntime>::from_slice(&rank_data, &[], device);
+    // Compute threshold = base_tol * max on GPU
+    let threshold = client.mul_scalar(&max_val, base_tol)?;
+
+    // Compare abs_diag > threshold on GPU (broadcasts threshold)
+    // CUDA comparisons return same dtype (0.0/1.0), not Bool
+    let above_mask = client.gt(&abs_diag, &threshold)?;
+
+    // Sum the mask directly (values are 0.0 or 1.0)
+    let rank_float = client.sum(&above_mask, &[], false)?;
+
+    // Cast to I64 for integer result
+    let rank_tensor = client.cast(&rank_float, DType::I64)?;
 
     Ok(rank_tensor)
 }

@@ -8,7 +8,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{LinalgOps, ReduceOps, UnaryOps};
+use crate::ops::{CompareOps, LinalgOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -365,6 +365,7 @@ pub fn diagflat(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<W
     Ok(out)
 }
 
+/// Matrix rank via QR decomposition - runs entirely on GPU (zero CPU transfers)
 pub fn matrix_rank(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -373,7 +374,6 @@ pub fn matrix_rank(
     validate_linalg_dtype(a.dtype())?;
     let (m, n) = validate_matrix_2d(a.shape())?;
     let dtype = a.dtype();
-    let device = client.device();
     let k = m.min(n);
 
     if dtype != DType::F32 {
@@ -383,6 +383,17 @@ pub fn matrix_rank(
         });
     }
 
+    // Handle empty matrix
+    if k == 0 {
+        return Ok(Tensor::<WgpuRuntime>::from_slice(&[0i64], &[], a.device()));
+    }
+
+    // Compute tolerance factor (depends only on dimensions, no GPU data needed)
+    let base_tol = tol.unwrap_or_else(|| {
+        let eps = f32::EPSILON as f64;
+        (m.max(n) as f64) * eps
+    });
+
     // Use QR decomposition to estimate rank
     use super::decompositions::qr_decompose_internal;
     let qr = qr_decompose_internal(client, a, false)?;
@@ -390,107 +401,26 @@ pub fn matrix_rank(
     // Get diagonal of R
     let r_diag = client.diag(&qr.r)?;
 
-    // Allocate GPU buffers for max abs and count
-    let max_size = dtype.size_in_bytes();
-    let max_ptr = client.allocator().allocate(max_size);
-    let max_buffer = get_buffer(max_ptr)
-        .ok_or_else(|| Error::Internal("Failed to get max buffer".to_string()))?;
+    // Compute abs(r_diag) on GPU
+    let abs_diag = client.abs(&r_diag)?;
 
-    let count_size = std::mem::size_of::<u32>();
-    let count_ptr = client.allocator().allocate(count_size);
-    let count_buffer = get_buffer(count_ptr)
-        .ok_or_else(|| Error::Internal("Failed to get count buffer".to_string()))?;
+    // Compute max(abs(r_diag)) on GPU - returns scalar tensor
+    let max_val = client.max(&abs_diag, &[], false)?;
 
-    let r_diag_buffer = get_buffer(r_diag.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get r_diag buffer".to_string()))?;
+    // Compute threshold = base_tol * max on GPU
+    let threshold = client.mul_scalar(&max_val, base_tol)?;
 
-    // Zero-initialize
-    let zero_f32: [f32; 1] = [0.0];
-    let zero_u32: [u32; 1] = [0];
-    client.write_buffer(&max_buffer, &zero_f32);
-    client.write_buffer(&count_buffer, &zero_u32);
+    // Compare abs_diag > threshold on GPU (broadcasts threshold)
+    let above_mask = client.gt(&abs_diag, &threshold)?;
 
-    // Compute max absolute value
-    let max_params: [u32; 1] = [k as u32];
-    let max_params_buffer = client.create_uniform_buffer("max_params", 4);
-    client.write_buffer(&max_params_buffer, &max_params);
+    // Cast bool mask to F32 for counting (WebGPU sum only supports F32)
+    let above_f32 = client.cast(&above_mask, DType::F32)?;
 
-    kernels::launch_max_abs(
-        client.pipeline_cache(),
-        &client.queue,
-        &r_diag_buffer,
-        &max_buffer,
-        &max_params_buffer,
-        k,
-        dtype,
-    )?;
+    // Sum to get rank (count of true values)
+    let rank_f32 = client.sum(&above_f32, &[], false)?;
 
-    client.synchronize();
-
-    // Read max value
-    let staging = client.create_staging_buffer("max_staging", 4);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("max_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&max_buffer, 0, &staging, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut max_data = [0.0f32; 1];
-    client.read_buffer(&staging, &mut max_data);
-    let max_diag = max_data[0] as f64;
-
-    // Compute tolerance
-    let base_tol = tol.unwrap_or_else(|| {
-        let eps = f32::EPSILON as f64;
-        (m.max(n) as f64) * eps
-    });
-    let threshold = (base_tol * max_diag) as f32;
-
-    // Count elements above threshold
-    let count_params_buffer = client.create_uniform_buffer("count_params", 8);
-    // Pack k and threshold into uniform buffer
-    client
-        .queue
-        .write_buffer(&count_params_buffer, 0, bytemuck::cast_slice(&[k as u32]));
-    client
-        .queue
-        .write_buffer(&count_params_buffer, 4, bytemuck::cast_slice(&[threshold]));
-
-    kernels::launch_count_above_threshold(
-        client.pipeline_cache(),
-        &client.queue,
-        &r_diag_buffer,
-        &count_buffer,
-        &count_params_buffer,
-        k,
-        dtype,
-    )?;
-
-    client.synchronize();
-
-    // Read count
-    let staging_count = client.create_staging_buffer("count_staging", 4);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("count_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&count_buffer, 0, &staging_count, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut count_data = [0u32; 1];
-    client.read_buffer(&staging_count, &mut count_data);
-    let rank = count_data[0] as i64;
-
-    // Clean up
-    client.allocator().deallocate(max_ptr, max_size);
-    client.allocator().deallocate(count_ptr, count_size);
-
-    // Create rank tensor
-    let rank_data: [i64; 1] = [rank];
-    let rank_tensor = Tensor::<WgpuRuntime>::from_slice(&rank_data, &[], device);
+    // Cast to I64 for final result
+    let rank_tensor = client.cast(&rank_f32, DType::I64)?;
 
     Ok(rank_tensor)
 }
@@ -523,14 +453,9 @@ pub fn matrix_norm(
             // Spectral norm is the largest singular value
             use super::svd::svd_decompose;
             let svd = svd_decompose(client, a)?;
-            // S is already sorted descending, so s[0] is the largest
-            let s_vec: Vec<f32> = svd.s.to_vec();
-            let spectral_val = s_vec.first().copied().unwrap_or(0.0);
-            Ok(Tensor::<WgpuRuntime>::from_slice(
-                &[spectral_val],
-                &[],
-                a.device(),
-            ))
+            // S is already sorted descending, so max(S) = s[0] = largest singular value
+            // Using max keeps computation on GPU (no transfer needed)
+            client.max(&svd.s, &[], false)
         }
         MatrixNormOrder::Nuclear => {
             // Nuclear norm is sum of singular values
