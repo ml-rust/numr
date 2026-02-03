@@ -72,7 +72,7 @@ pub trait DistanceOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `x` - First point set with shape (n, d) where n is the number of points
-    ///         and d is the dimensionality
+    ///   and d is the dimensionality
     /// * `y` - Second point set with shape (m, d)
     /// * `metric` - Distance metric to use
     ///

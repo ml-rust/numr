@@ -114,8 +114,6 @@ fn multinomial_count_typed<T>(
 where
     T: crate::dtype::Element + PartialOrd,
 {
-    use crate::dtype::Element;
-
     let cdf_data: Vec<T> = cdf.to_vec();
     let uniform_data: Vec<T> = uniforms.to_vec();
     let mut counts = vec![T::zero(); n_samples * k];

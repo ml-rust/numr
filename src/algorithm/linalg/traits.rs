@@ -526,7 +526,7 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// * `tensor` - Input tensor of arbitrary dimension
     /// * `ranks` - Multilinear ranks [R₁, R₂, ..., Rₙ]. Each Rₖ ≤ Iₖ.
-    ///             Use 0 or dimension size to keep full rank for that mode.
+    ///   Use 0 or dimension size to keep full rank for that mode.
     ///
     /// # Returns
     ///

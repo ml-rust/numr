@@ -54,13 +54,13 @@ pub const AVX512_ALIGN: usize = 64;
 /// Check if pointer is aligned for AVX2 streaming stores (32-byte)
 #[inline]
 pub fn is_aligned_avx2<T>(ptr: *const T) -> bool {
-    (ptr as usize) % AVX2_ALIGN == 0
+    (ptr as usize).is_multiple_of(AVX2_ALIGN)
 }
 
 /// Check if pointer is aligned for AVX-512 streaming stores (64-byte)
 #[inline]
 pub fn is_aligned_avx512<T>(ptr: *const T) -> bool {
-    (ptr as usize) % AVX512_ALIGN == 0
+    (ptr as usize).is_multiple_of(AVX512_ALIGN)
 }
 
 #[cfg(test)]
