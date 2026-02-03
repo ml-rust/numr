@@ -7,7 +7,7 @@ use super::helpers::get_buffer_or_err;
 use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{LinalgOps, MatmulOps};
+use crate::ops::{LinalgOps, MatmulOps, ReduceOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -218,15 +218,18 @@ pub fn pinverse(
     let svd = svd_decompose(client, a)?;
 
     let k = m.min(n);
-    let s_data: Vec<f32> = svd.s.to_vec();
+
+    // Compute max singular value on GPU
+    let max_sv_tensor = client.max(&svd.s, &[0], false)?;
+    let max_sv = max_sv_tensor.to_vec::<f32>()[0] as f64;
 
     // Determine cutoff threshold
-    let max_sv = s_data.iter().cloned().fold(0.0_f32, f32::max) as f64;
     let default_rcond = (m.max(n) as f64) * (f32::EPSILON as f64);
     let rcond_val = rcond.unwrap_or(default_rcond);
     let cutoff = (rcond_val * max_sv) as f32;
 
-    // Compute S_inv
+    // Compute S_inv (still needs CPU for conditional - TODO: GPU kernel)
+    let s_data: Vec<f32> = svd.s.to_vec();
     let s_inv_data: Vec<f32> = s_data
         .iter()
         .map(|&s| if s > cutoff { 1.0 / s } else { 0.0 })
@@ -268,12 +271,13 @@ pub fn cond(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     // Compute SVD
     let svd = svd_decompose(client, a)?;
 
-    // Get singular values
-    let s_data: Vec<f32> = svd.s.to_vec();
+    // Condition number = max(S) / min(S) using GPU reduce operations
+    let max_sv_tensor = client.max(&svd.s, &[0], false)?;
+    let min_sv_tensor = client.min(&svd.s, &[0], false)?;
 
-    // Condition number = max(S) / min(S)
-    let max_sv = s_data.iter().cloned().fold(0.0_f32, f32::max);
-    let min_sv = s_data.iter().cloned().fold(f32::INFINITY, f32::min);
+    // Extract scalar results (small transfer - just 2 floats)
+    let max_sv: f32 = max_sv_tensor.to_vec::<f32>()[0];
+    let min_sv: f32 = min_sv_tensor.to_vec::<f32>()[0];
 
     let cond_val = if min_sv == 0.0 || !min_sv.is_finite() {
         f32::INFINITY

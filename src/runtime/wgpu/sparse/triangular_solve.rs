@@ -14,6 +14,7 @@ use crate::algorithm::sparse_linalg_levels::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::Runtime;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
@@ -73,9 +74,15 @@ pub fn sparse_solve_triangular_wgpu(
         &client.device_id,
     );
 
-    // Allocate output and copy b into it (must be separate buffer)
-    let b_data: Vec<f32> = b.to_vec();
-    let x = Tensor::<WgpuRuntime>::from_slice(&b_data, b.shape(), &client.device_id);
+    // Allocate output and copy b into it on GPU (must be separate buffer)
+    let x = Tensor::<WgpuRuntime>::zeros(b.shape(), dtype, &client.device_id);
+    let copy_size = b.numel() * dtype.size_in_bytes();
+    WgpuRuntime::copy_within_device(
+        b.storage().ptr(),
+        x.storage().ptr(),
+        copy_size,
+        &client.device_id,
+    );
 
     // Process each level
     for level in 0..schedule.num_levels {
