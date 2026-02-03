@@ -19,8 +19,8 @@ struct MaskedFillParams {{
     fill_value: f32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
-@group(0) @binding(1) var<storage, read> mask: array<u32>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> mask: array<u32>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: MaskedFillParams;
 
@@ -62,7 +62,7 @@ struct CountParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> count_mask: array<u32>;
+@group(0) @binding(0) var<storage, read_write> count_mask: array<u32>;
 @group(0) @binding(1) var<storage, read_write> count_result: atomic<u32>;
 @group(0) @binding(2) var<uniform> count_params: CountParams;
 
@@ -98,7 +98,7 @@ struct PrefixSumParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> prefix_mask: array<u32>;
+@group(0) @binding(0) var<storage, read_write> prefix_mask: array<u32>;
 @group(0) @binding(1) var<storage, read_write> prefix_sum: array<u32>;
 @group(0) @binding(2) var<uniform> prefix_params: PrefixSumParams;
 
@@ -122,9 +122,9 @@ struct SelectParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> select_input: array<{t}>;
-@group(0) @binding(1) var<storage, read> select_mask: array<u32>;
-@group(0) @binding(2) var<storage, read> select_prefix: array<u32>;
+@group(0) @binding(0) var<storage, read_write> select_input: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> select_mask: array<u32>;
+@group(0) @binding(2) var<storage, read_write> select_prefix: array<u32>;
 @group(0) @binding(3) var<storage, read_write> select_output: array<{t}>;
 @group(0) @binding(4) var<uniform> select_params: SelectParams;
 

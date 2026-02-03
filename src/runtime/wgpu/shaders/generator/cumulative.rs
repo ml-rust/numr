@@ -33,7 +33,7 @@ struct CumsumParams {{
     outer_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: CumsumParams;
 
@@ -83,7 +83,7 @@ struct CumsumStridedParams {{
     inner_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: CumsumStridedParams;
 
@@ -136,7 +136,7 @@ struct CumprodParams {{
     outer_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: CumprodParams;
 
@@ -186,7 +186,7 @@ struct CumprodStridedParams {{
     inner_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: CumprodStridedParams;
 
@@ -244,7 +244,7 @@ struct LogsumexpParams {{
     outer_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: LogsumexpParams;
 
@@ -307,7 +307,7 @@ struct LogsumexpStridedParams {{
     inner_size: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(2) var<uniform> params: LogsumexpStridedParams;
 

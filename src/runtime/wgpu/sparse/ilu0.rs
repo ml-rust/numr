@@ -117,6 +117,7 @@ pub(super) fn launch_find_diag_indices(
         .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("find_diag_indices_layout"),
             entries: &[
+                // row_ptrs (read-only input)
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -127,6 +128,7 @@ pub(super) fn launch_find_diag_indices(
                     },
                     count: None,
                 },
+                // col_indices (read-only input)
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -137,6 +139,7 @@ pub(super) fn launch_find_diag_indices(
                     },
                     count: None,
                 },
+                // diag_indices (output)
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::COMPUTE,

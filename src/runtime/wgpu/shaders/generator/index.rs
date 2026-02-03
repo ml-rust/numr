@@ -21,8 +21,8 @@ struct IndexSelectParams {{
     index_len: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
-@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: IndexSelectParams;
 
@@ -82,8 +82,8 @@ struct GatherParams {{
     output_strides: vec4<u32>,
 }}
 
-@group(0) @binding(0) var<storage, read> input: array<{t}>;
-@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> input: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: GatherParams;
 
@@ -155,8 +155,8 @@ struct ScatterParams {{
     src_strides: vec4<u32>,
 }}
 
-@group(0) @binding(0) var<storage, read> src: array<{t}>;
-@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: ScatterParams;
 
@@ -198,7 +198,7 @@ fn scatter_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 }}
 
 // Copy kernel for initializing output from input
-@group(0) @binding(0) var<storage, read> copy_src: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> copy_src: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> copy_dst: array<{t}>;
 
 struct CopyParams {{
@@ -241,8 +241,8 @@ struct IndexPutParams {{
     index_len: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> indices: array<i32>;
-@group(0) @binding(1) var<storage, read> src: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> indices: array<i32>;
+@group(0) @binding(1) var<storage, read_write> src: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: IndexPutParams;
 
@@ -297,8 +297,8 @@ struct EmbeddingLookupParams {{
     _pad0: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> embeddings: array<{t}>;
-@group(0) @binding(1) var<storage, read> indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> embeddings: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> output: array<{t}>;
 @group(0) @binding(3) var<uniform> params: EmbeddingLookupParams;
 
@@ -355,7 +355,7 @@ struct ValidateIndicesParams {
     _pad1: u32,
 }
 
-@group(0) @binding(0) var<storage, read> indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> indices: array<i32>;
 @group(0) @binding(1) var<storage, read_write> error_count: atomic<u32>;
 @group(0) @binding(2) var<uniform> params: ValidateIndicesParams;
 

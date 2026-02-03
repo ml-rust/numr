@@ -64,8 +64,8 @@ struct Params {{
     p: f32,
 }}
 
-@group(0) @binding(0) var<storage, read> x: array<f32>;
-@group(0) @binding(1) var<storage, read> y: array<f32>;
+@group(0) @binding(0) var<storage, read_write> x: array<f32>;
+@group(0) @binding(1) var<storage, read_write> y: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out: array<f32>;
 @group(0) @binding(3) var<uniform> params: Params;
 
@@ -260,7 +260,7 @@ struct Params {{
     p: f32,
 }}
 
-@group(0) @binding(0) var<storage, read> x: array<f32>;
+@group(0) @binding(0) var<storage, read_write> x: array<f32>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -458,7 +458,7 @@ struct Params {{
     n: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> condensed: array<f32>;
+@group(0) @binding(0) var<storage, read_write> condensed: array<f32>;
 @group(0) @binding(1) var<storage, read_write> square: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -501,7 +501,7 @@ struct Params {{
     n: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> square: array<f32>;
+@group(0) @binding(0) var<storage, read_write> square: array<f32>;
 @group(0) @binding(1) var<storage, read_write> condensed: array<f32>;
 @group(0) @binding(2) var<uniform> params: Params;
 

@@ -20,6 +20,8 @@ var<workgroup> reduce_shared: array<{t}, 256>;
 struct ReduceParams {{
     reduce_size: u32,
     outer_size: u32,
+    inner_size: u32,
+    numel_out: u32,
 }}
 
 @group(0) @binding(0) var<storage, read_write> reduce_input: array<{t}>;

@@ -41,7 +41,15 @@ pub mod reduce;
 pub mod scalar;
 pub mod sort;
 #[cfg(feature = "sparse")]
+pub mod sparse_factorize;
+#[cfg(feature = "sparse")]
 pub mod sparse_linalg;
+#[cfg(feature = "sparse")]
+pub mod sparse_split;
+#[cfg(feature = "sparse")]
+pub mod sparse_trsv;
+#[cfg(feature = "sparse")]
+pub mod sparse_utils;
 pub mod special;
 pub mod unary;
 pub mod utility;
@@ -92,12 +100,19 @@ pub use sort::{
     generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
     generate_topk_shader, generate_unique_shader,
 };
+// Sparse linear algebra exports from split modules
 #[cfg(feature = "sparse")]
-pub use sparse_linalg::{
-    generate_copy_shader, generate_find_diag_indices_shader, generate_ic0_level_shader,
-    generate_ilu0_level_shader, generate_sparse_trsv_lower_shader,
-    generate_sparse_trsv_upper_shader,
+pub use sparse_factorize::{generate_ic0_level_shader, generate_ilu0_level_shader};
+#[cfg(feature = "sparse")]
+pub use sparse_split::{
+    generate_extract_lower_count_shader, generate_extract_lower_scatter_shader,
+    generate_split_lu_count_shader, generate_split_lu_scatter_l_shader,
+    generate_split_lu_scatter_shader, generate_split_lu_scatter_u_shader,
 };
+#[cfg(feature = "sparse")]
+pub use sparse_trsv::{generate_sparse_trsv_lower_shader, generate_sparse_trsv_upper_shader};
+#[cfg(feature = "sparse")]
+pub use sparse_utils::{generate_copy_shader, generate_find_diag_indices_shader};
 pub use special::{
     generate_special_binary_shader, generate_special_ternary_shader, generate_special_unary_shader,
 };

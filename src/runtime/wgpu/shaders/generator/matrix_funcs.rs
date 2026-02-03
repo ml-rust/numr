@@ -29,7 +29,7 @@ struct Params {{
     _pad2: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> matrix_t: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> matrix_t: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> result: array<{t}>;  // [has_error, error_value]
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -261,7 +261,7 @@ struct Params {{
     _pad2: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input_t: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input_t: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output_f: array<{t}>;
 @group(0) @binding(2) var<uniform> params: Params;
 
@@ -347,7 +347,7 @@ struct Params {{
     _pad: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> input_t: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> input_t: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> output_f: array<{t}>;
 @group(0) @binding(2) var<uniform> params: Params;
 

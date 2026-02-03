@@ -528,8 +528,8 @@ struct MultinomialCountParams {{
     _pad: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> cdf: array<{t}>;
-@group(0) @binding(1) var<storage, read> uniforms: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> cdf: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> uniforms: array<{t}>;
 @group(0) @binding(2) var<storage, read_write> counts: array<{t}>;
 @group(0) @binding(3) var<uniform> params: MultinomialCountParams;
 

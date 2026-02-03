@@ -359,7 +359,7 @@ struct MultinomialParams {{
     seed: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> probs: array<f32>;
+@group(0) @binding(0) var<storage, read_write> probs: array<f32>;
 @group(0) @binding(1) var<storage, read_write> multinomial_out: array<i32>;
 @group(0) @binding(2) var<uniform> multinomial_params: MultinomialParams;
 
@@ -430,7 +430,7 @@ struct MultinomialParams {{
     seed: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> probs: array<f32>;
+@group(0) @binding(0) var<storage, read_write> probs: array<f32>;
 @group(0) @binding(1) var<storage, read_write> multinomial_out: array<i32>;
 @group(0) @binding(2) var<uniform> multinomial_params: MultinomialParams;
 

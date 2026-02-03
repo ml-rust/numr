@@ -73,12 +73,16 @@ pub(super) struct ScalarParams {
     pub(super) scalar: f32,
 }
 
+/// Parameters for clamp operation.
+/// Padding ensures 16-byte alignment for WebGPU uniform buffers.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct ClampParams {
     pub(super) numel: u32,
     pub(super) min_val: f32,
     pub(super) max_val: f32,
+    /// Padding for 16-byte alignment (WebGPU uniform buffer requirement)
+    pub(super) _pad0: u32,
 }
 
 #[repr(C)]

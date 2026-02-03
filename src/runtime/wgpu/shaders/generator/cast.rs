@@ -35,7 +35,7 @@ struct CastParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> cast_input: array<{src_t}>;
+@group(0) @binding(0) var<storage, read_write> cast_input: array<{src_t}>;
 @group(0) @binding(1) var<storage, read_write> cast_output: array<{dst_t}>;
 @group(0) @binding(2) var<uniform> cast_params: CastParams;
 
@@ -82,7 +82,7 @@ struct CastParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> cast_input: array<{src_t}>;
+@group(0) @binding(0) var<storage, read_write> cast_input: array<{src_t}>;
 "#
     );
 

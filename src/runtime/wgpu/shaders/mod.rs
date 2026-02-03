@@ -46,6 +46,8 @@ pub mod matmul;
 pub mod matrix_funcs_launcher;
 pub mod norm;
 pub mod reduce;
+#[cfg(feature = "sparse")]
+pub mod sparse_linalg_launcher;
 pub mod where_launcher;
 
 mod elementwise_wgsl;
@@ -94,6 +96,11 @@ pub use matrix_funcs_launcher::{
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
+#[cfg(feature = "sparse")]
+pub use sparse_linalg_launcher::{
+    launch_extract_lower_count, launch_extract_lower_scatter, launch_split_lu_count,
+    launch_split_lu_scatter_l, launch_split_lu_scatter_u,
+};
 pub use special::{launch_special_binary, launch_special_ternary, launch_special_unary};
 pub use statistics::{launch_mode_dim, launch_mode_full};
 pub use where_launcher::{launch_where_broadcast_op, launch_where_generic_op, launch_where_op};

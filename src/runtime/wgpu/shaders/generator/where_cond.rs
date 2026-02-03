@@ -55,9 +55,9 @@ struct WhereParams {{
     numel: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> where_cond_arr: array<{cond_t}>;
-@group(0) @binding(1) var<storage, read> where_x: array<{out_t}>;
-@group(0) @binding(2) var<storage, read> where_y: array<{out_t}>;
+@group(0) @binding(0) var<storage, read_write> where_cond_arr: array<{cond_t}>;
+@group(0) @binding(1) var<storage, read_write> where_x: array<{out_t}>;
+@group(0) @binding(2) var<storage, read_write> where_y: array<{out_t}>;
 @group(0) @binding(3) var<storage, read_write> where_out: array<{out_t}>;
 @group(0) @binding(4) var<uniform> where_params: WhereParams;
 
@@ -82,14 +82,14 @@ struct WhereBroadcastParams {{
     _pad1: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> bc_cond: array<{cond_t}>;
-@group(0) @binding(1) var<storage, read> bc_x: array<{out_t}>;
-@group(0) @binding(2) var<storage, read> bc_y: array<{out_t}>;
+@group(0) @binding(0) var<storage, read_write> bc_cond: array<{cond_t}>;
+@group(0) @binding(1) var<storage, read_write> bc_x: array<{out_t}>;
+@group(0) @binding(2) var<storage, read_write> bc_y: array<{out_t}>;
 @group(0) @binding(3) var<storage, read_write> bc_out: array<{out_t}>;
-@group(0) @binding(4) var<storage, read> cond_strides: array<u32>;
-@group(0) @binding(5) var<storage, read> x_strides: array<u32>;
-@group(0) @binding(6) var<storage, read> y_strides: array<u32>;
-@group(0) @binding(7) var<storage, read> out_shape: array<u32>;
+@group(0) @binding(4) var<storage, read_write> cond_strides: array<u32>;
+@group(0) @binding(5) var<storage, read_write> x_strides: array<u32>;
+@group(0) @binding(6) var<storage, read_write> y_strides: array<u32>;
+@group(0) @binding(7) var<storage, read_write> out_shape: array<u32>;
 @group(0) @binding(8) var<uniform> bc_params: WhereBroadcastParams;
 
 @compute @workgroup_size(256)

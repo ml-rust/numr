@@ -35,6 +35,8 @@ pub(crate) fn native_reduce_op(
         }
 
         // Remove dims if !keepdim
+        // sorted_dims is in descending order, so we remove from highest to lowest
+        // to avoid index shifting issues
         if !keepdim {
             let mut out_shape: Vec<usize> = shape.to_vec();
             for &dim in &sorted_dims {

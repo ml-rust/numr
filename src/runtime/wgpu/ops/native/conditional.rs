@@ -28,6 +28,7 @@ pub(crate) fn native_clamp(
         numel: numel as u32,
         min_val: min_val as f32,
         max_val: max_val as f32,
+        _pad0: 0,
     };
     let params_buf = create_params_buffer(client, &params);
 

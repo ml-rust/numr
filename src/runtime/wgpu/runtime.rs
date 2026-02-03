@@ -189,6 +189,7 @@ impl Runtime for WgpuRuntime {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("strided_copy_layout"),
                     entries: &[
+                        // src (read-only input)
                         wgpu::BindGroupLayoutEntry {
                             binding: 0,
                             visibility: wgpu::ShaderStages::COMPUTE,
@@ -199,6 +200,7 @@ impl Runtime for WgpuRuntime {
                             },
                             count: None,
                         },
+                        // dst (output)
                         wgpu::BindGroupLayoutEntry {
                             binding: 1,
                             visibility: wgpu::ShaderStages::COMPUTE,
@@ -209,6 +211,7 @@ impl Runtime for WgpuRuntime {
                             },
                             count: None,
                         },
+                        // params (read-only input)
                         wgpu::BindGroupLayoutEntry {
                             binding: 2,
                             visibility: wgpu::ShaderStages::COMPUTE,

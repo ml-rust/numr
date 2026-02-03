@@ -53,7 +53,7 @@ struct ModeParams {{
     _pad: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> sorted: array<{wgsl_t}>;
+@group(0) @binding(0) var<storage, read_write> sorted: array<{wgsl_t}>;
 @group(0) @binding(1) var<storage, read_write> mode_values: array<{wgsl_t}>;
 @group(0) @binding(2) var<storage, read_write> mode_counts: array<i32>;
 @group(0) @binding(3) var<uniform> params: ModeParams;

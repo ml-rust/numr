@@ -10,6 +10,8 @@ use wgpu::{
 use super::super::{WgpuClient, WgpuRuntime};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::{CumulativeOps, ShapeOps};
+use crate::runtime::RuntimeClient;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
@@ -29,7 +31,7 @@ pub fn create_ilu_ic_layout(device: &wgpu::Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("ilu_ic_layout"),
         entries: &[
-            // level_rows
+            // level_rows (read-only input)
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -40,7 +42,7 @@ pub fn create_ilu_ic_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // row_ptrs
+            // row_ptrs (read-only input)
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::COMPUTE,
@@ -51,7 +53,7 @@ pub fn create_ilu_ic_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // col_indices
+            // col_indices (read-only input)
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::COMPUTE,
@@ -73,7 +75,7 @@ pub fn create_ilu_ic_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // diag_indices
+            // diag_indices (read-only input, written by find_diag_indices separately)
             BindGroupLayoutEntry {
                 binding: 4,
                 visibility: ShaderStages::COMPUTE,
@@ -104,7 +106,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
     device.create_bind_group_layout(&BindGroupLayoutDescriptor {
         label: Some("trsv_layout"),
         entries: &[
-            // level_rows
+            // level_rows (read-only input)
             BindGroupLayoutEntry {
                 binding: 0,
                 visibility: ShaderStages::COMPUTE,
@@ -115,7 +117,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // row_ptrs
+            // row_ptrs (read-only input)
             BindGroupLayoutEntry {
                 binding: 1,
                 visibility: ShaderStages::COMPUTE,
@@ -126,7 +128,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // col_indices
+            // col_indices (read-only input)
             BindGroupLayoutEntry {
                 binding: 2,
                 visibility: ShaderStages::COMPUTE,
@@ -137,7 +139,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // values
+            // values (read-only input)
             BindGroupLayoutEntry {
                 binding: 3,
                 visibility: ShaderStages::COMPUTE,
@@ -148,7 +150,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // b
+            // b (read-only input)
             BindGroupLayoutEntry {
                 binding: 4,
                 visibility: ShaderStages::COMPUTE,
@@ -159,7 +161,7 @@ pub fn create_trsv_layout(device: &wgpu::Device) -> BindGroupLayout {
                 },
                 count: None,
             },
-            // x (read_write)
+            // x (read_write output)
             BindGroupLayoutEntry {
                 binding: 5,
                 visibility: ShaderStages::COMPUTE,
@@ -195,7 +197,10 @@ impl WgpuClient {
     }
 }
 
-/// Split factored LU matrix into L and U components.
+/// Split factored LU matrix into L and U components - GPU-native implementation.
+///
+/// Keeps values entirely on GPU. Only row_ptrs and col_indices are on CPU
+/// (they come from level scheduling which currently requires CPU).
 pub fn split_lu_wgpu(
     client: &WgpuClient,
     n: usize,
@@ -203,64 +208,152 @@ pub fn split_lu_wgpu(
     col_indices: &[i64],
     values_gpu: &Tensor<WgpuRuntime>,
 ) -> Result<crate::algorithm::sparse_linalg::IluDecomposition<WgpuRuntime>> {
-    // Extract values to CPU for splitting (TODO: could be GPU kernel)
-    let values: Vec<f32> = values_gpu.to_vec();
+    use super::super::ops::helpers::get_tensor_buffer;
 
-    // Split into L and U
-    let mut l_row_ptrs = vec![0i64; n + 1];
-    let mut l_col_indices = Vec::new();
-    let mut l_values = Vec::new();
-    let mut u_row_ptrs = vec![0i64; n + 1];
-    let mut u_col_indices = Vec::new();
-    let mut u_values = Vec::new();
+    let dtype = values_gpu.dtype();
+    let device = client.device();
 
-    for i in 0..n {
-        let start = row_ptrs[i] as usize;
-        let end = row_ptrs[i + 1] as usize;
-
-        for idx in start..end {
-            let j = col_indices[idx] as usize;
-            let val = values[idx];
-
-            if j < i {
-                l_col_indices.push(j as i64);
-                l_values.push(val);
-            } else {
-                u_col_indices.push(j as i64);
-                u_values.push(val);
-            }
-        }
-
-        l_row_ptrs[i + 1] = l_col_indices.len() as i64;
-        u_row_ptrs[i + 1] = u_col_indices.len() as i64;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "split_lu_wgpu (GPU version only supports F32)",
+        });
     }
 
-    // Create output tensors
-    let l_row_ptrs_t = Tensor::<WgpuRuntime>::from_slice(&l_row_ptrs, &[n + 1], &client.device_id);
-    let l_col_indices_t = Tensor::<WgpuRuntime>::from_slice(
-        &l_col_indices,
-        &[l_col_indices.len()],
-        &client.device_id,
-    );
-    let u_row_ptrs_t = Tensor::<WgpuRuntime>::from_slice(&u_row_ptrs, &[n + 1], &client.device_id);
-    let u_col_indices_t = Tensor::<WgpuRuntime>::from_slice(
-        &u_col_indices,
-        &[u_col_indices.len()],
+    // Upload row_ptrs and col_indices to GPU (convert I64 → I32 for WebGPU)
+    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
+    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+
+    let row_ptrs_gpu =
+        Tensor::<WgpuRuntime>::from_slice(&row_ptrs_i32, &[n + 1], &client.device_id);
+    let col_indices_gpu = Tensor::<WgpuRuntime>::from_slice(
+        &col_indices_i32,
+        &[col_indices.len()],
         &client.device_id,
     );
 
-    let l_values_t =
-        Tensor::<WgpuRuntime>::from_slice(&l_values, &[l_values.len()], &client.device_id);
-    let u_values_t =
-        Tensor::<WgpuRuntime>::from_slice(&u_values, &[u_values.len()], &client.device_id);
+    // Step 1: Count L and U non-zeros per row on GPU
+    let l_counts_gpu = Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, device);
+    let u_counts_gpu = Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, device);
 
-    let l = CsrData::new(l_row_ptrs_t, l_col_indices_t, l_values_t, [n, n])?;
-    let u = CsrData::new(u_row_ptrs_t, u_col_indices_t, u_values_t, [n, n])?;
+    let row_ptrs_buf = get_tensor_buffer(&row_ptrs_gpu)?;
+    let col_indices_buf = get_tensor_buffer(&col_indices_gpu)?;
+    let l_counts_buf = get_tensor_buffer(&l_counts_gpu)?;
+    let u_counts_buf = get_tensor_buffer(&u_counts_gpu)?;
+
+    let count_params: [u32; 4] = [n as u32, 0, 0, 0];
+    let count_params_buf = client.create_uniform_buffer("split_lu_count_params", 16);
+    client.write_buffer(&count_params_buf, &count_params);
+
+    // Launch count kernel using proper launcher
+    super::super::shaders::launch_split_lu_count(
+        client.pipeline_cache(),
+        &client.queue,
+        &*row_ptrs_buf,
+        &*col_indices_buf,
+        &*l_counts_buf,
+        &*u_counts_buf,
+        &count_params_buf,
+        n,
+    )?;
+
+    // Step 2: Compute prefix sum to get row_ptrs
+    // Prepend zero on GPU using concat
+    let zero_i32 = Tensor::<WgpuRuntime>::zeros(&[1], DType::I32, device);
+    let l_counts_with_zero = client.cat(&[&zero_i32, &l_counts_gpu], 0)?;
+    let u_counts_with_zero = client.cat(&[&zero_i32, &u_counts_gpu], 0)?;
+
+    let l_row_ptrs_i32 = client.cumsum(&l_counts_with_zero, 0)?;
+    let u_row_ptrs_i32 = client.cumsum(&u_counts_with_zero, 0)?;
+
+    // Get total sizes from last element of row_ptrs
+    // This is the ONE necessary scalar read for allocation
+    let l_nnz = {
+        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        last.to_vec::<i32>()[0] as usize
+    };
+    let u_nnz = {
+        let last = u_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        last.to_vec::<i32>()[0] as usize
+    };
+
+    // Step 3: Allocate output buffers
+    let l_col_indices_gpu = Tensor::<WgpuRuntime>::zeros(&[l_nnz], DType::I32, device);
+    let l_values_gpu = Tensor::<WgpuRuntime>::zeros(&[l_nnz], dtype, device);
+    let u_col_indices_gpu = Tensor::<WgpuRuntime>::zeros(&[u_nnz], DType::I32, device);
+    let u_values_gpu = Tensor::<WgpuRuntime>::zeros(&[u_nnz], dtype, device);
+
+    // Step 4: Scatter values into L and U on GPU
+    let values_buf = get_tensor_buffer(values_gpu)?;
+    let l_row_ptrs_buf = get_tensor_buffer(&l_row_ptrs_i32)?;
+    let l_col_indices_buf = get_tensor_buffer(&l_col_indices_gpu)?;
+    let l_values_buf = get_tensor_buffer(&l_values_gpu)?;
+    let u_row_ptrs_buf = get_tensor_buffer(&u_row_ptrs_i32)?;
+    let u_col_indices_buf = get_tensor_buffer(&u_col_indices_gpu)?;
+    let u_values_buf = get_tensor_buffer(&u_values_gpu)?;
+
+    let scatter_params: [u32; 4] = [n as u32, 0, 0, 0];
+    let scatter_params_buf = client.create_uniform_buffer("split_lu_scatter_params", 16);
+    client.write_buffer(&scatter_params_buf, &scatter_params);
+
+    // Launch scatter kernels using proper launchers (split to stay within 8-buffer limit)
+    super::super::shaders::launch_split_lu_scatter_l(
+        client.pipeline_cache(),
+        &client.queue,
+        &*row_ptrs_buf,
+        &*col_indices_buf,
+        &*values_buf,
+        &*l_row_ptrs_buf,
+        &*l_col_indices_buf,
+        &*l_values_buf,
+        &scatter_params_buf,
+        n,
+        dtype,
+    )?;
+
+    super::super::shaders::launch_split_lu_scatter_u(
+        client.pipeline_cache(),
+        &client.queue,
+        &*row_ptrs_buf,
+        &*col_indices_buf,
+        &*values_buf,
+        &*u_row_ptrs_buf,
+        &*u_col_indices_buf,
+        &*u_values_buf,
+        &scatter_params_buf,
+        n,
+        dtype,
+    )?;
+
+    client.poll_wait();
+
+    // Convert I32 to I64 on CPU (WGSL limitation - no I64 support)
+    // This transfers metadata only (row_ptrs, col_indices), not VALUES
+    let l_row_ptrs_i32_vec: Vec<i32> = l_row_ptrs_i32.to_vec();
+    let u_row_ptrs_i32_vec: Vec<i32> = u_row_ptrs_i32.to_vec();
+    let l_col_indices_i32_vec: Vec<i32> = l_col_indices_gpu.to_vec();
+    let u_col_indices_i32_vec: Vec<i32> = u_col_indices_gpu.to_vec();
+
+    let l_row_ptrs_i64: Vec<i64> = l_row_ptrs_i32_vec.iter().map(|&x| x as i64).collect();
+    let u_row_ptrs_i64: Vec<i64> = u_row_ptrs_i32_vec.iter().map(|&x| x as i64).collect();
+    let l_col_indices_i64: Vec<i64> = l_col_indices_i32_vec.iter().map(|&x| x as i64).collect();
+    let u_col_indices_i64: Vec<i64> = u_col_indices_i32_vec.iter().map(|&x| x as i64).collect();
+
+    let l_row_ptrs_t = Tensor::<WgpuRuntime>::from_slice(&l_row_ptrs_i64, &[n + 1], device);
+    let l_col_indices_t = Tensor::<WgpuRuntime>::from_slice(&l_col_indices_i64, &[l_nnz], device);
+    let u_row_ptrs_t = Tensor::<WgpuRuntime>::from_slice(&u_row_ptrs_i64, &[n + 1], device);
+    let u_col_indices_t = Tensor::<WgpuRuntime>::from_slice(&u_col_indices_i64, &[u_nnz], device);
+
+    let l = CsrData::new(l_row_ptrs_t, l_col_indices_t, l_values_gpu, [n, n])?;
+    let u = CsrData::new(u_row_ptrs_t, u_col_indices_t, u_values_gpu, [n, n])?;
 
     Ok(crate::algorithm::sparse_linalg::IluDecomposition { l, u })
 }
 
-/// Extract lower triangular matrix after IC factorization.
+/// Extract lower triangular matrix after IC factorization - GPU-native implementation.
+///
+/// Keeps values entirely on GPU. Only row_ptrs and col_indices are on CPU
+/// (they come from level scheduling which currently requires CPU).
 pub fn extract_lower_wgpu(
     client: &WgpuClient,
     n: usize,
@@ -268,41 +361,109 @@ pub fn extract_lower_wgpu(
     col_indices: &[i64],
     values_gpu: &Tensor<WgpuRuntime>,
 ) -> Result<crate::algorithm::sparse_linalg::IcDecomposition<WgpuRuntime>> {
-    // Extract values to CPU (TODO: could be GPU kernel)
-    let values: Vec<f32> = values_gpu.to_vec();
+    use super::super::ops::helpers::get_tensor_buffer;
 
-    // Filter to lower triangle
-    let mut new_row_ptrs = vec![0i64; n + 1];
-    let mut new_col_indices = Vec::new();
-    let mut new_values = Vec::new();
+    let dtype = values_gpu.dtype();
+    let device = client.device();
 
-    for i in 0..n {
-        let start = row_ptrs[i] as usize;
-        let end = row_ptrs[i + 1] as usize;
-
-        for idx in start..end {
-            let j = col_indices[idx] as usize;
-            if j <= i {
-                new_col_indices.push(j as i64);
-                new_values.push(values[idx]);
-            }
-        }
-
-        new_row_ptrs[i + 1] = new_col_indices.len() as i64;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "extract_lower_wgpu (GPU version only supports F32)",
+        });
     }
 
-    // Create output tensors
-    let l_row_ptrs_t =
-        Tensor::<WgpuRuntime>::from_slice(&new_row_ptrs, &[n + 1], &client.device_id);
-    let l_col_indices_t = Tensor::<WgpuRuntime>::from_slice(
-        &new_col_indices,
-        &[new_col_indices.len()],
+    // Upload row_ptrs and col_indices to GPU (convert I64 → I32 for WebGPU)
+    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
+    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+
+    let row_ptrs_gpu =
+        Tensor::<WgpuRuntime>::from_slice(&row_ptrs_i32, &[n + 1], &client.device_id);
+    let col_indices_gpu = Tensor::<WgpuRuntime>::from_slice(
+        &col_indices_i32,
+        &[col_indices.len()],
         &client.device_id,
     );
-    let l_values_t =
-        Tensor::<WgpuRuntime>::from_slice(&new_values, &[new_values.len()], &client.device_id);
 
-    let l = CsrData::new(l_row_ptrs_t, l_col_indices_t, l_values_t, [n, n])?;
+    // Step 1: Count lower triangle non-zeros per row on GPU
+    let l_counts_gpu = Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, device);
+
+    let row_ptrs_buf = get_tensor_buffer(&row_ptrs_gpu)?;
+    let col_indices_buf = get_tensor_buffer(&col_indices_gpu)?;
+    let l_counts_buf = get_tensor_buffer(&l_counts_gpu)?;
+
+    let count_params: [u32; 4] = [n as u32, 0, 0, 0];
+    let count_params_buf = client.create_uniform_buffer("extract_lower_count_params", 16);
+    client.write_buffer(&count_params_buf, &count_params);
+
+    // Launch count kernel using proper launcher
+    super::super::shaders::launch_extract_lower_count(
+        client.pipeline_cache(),
+        &client.queue,
+        &*row_ptrs_buf,
+        &*col_indices_buf,
+        &*l_counts_buf,
+        &count_params_buf,
+        n,
+    )?;
+
+    // Step 2: Compute prefix sum to get row_ptrs
+    // Prepend zero on GPU using concat
+    let zero_i32 = Tensor::<WgpuRuntime>::zeros(&[1], DType::I32, device);
+    let l_counts_with_zero = client.cat(&[&zero_i32, &l_counts_gpu], 0)?;
+
+    let l_row_ptrs_i32 = client.cumsum(&l_counts_with_zero, 0)?;
+
+    // Get total size from last element of row_ptrs
+    // This is the ONE necessary scalar read for allocation
+    let l_nnz = {
+        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        last.to_vec::<i32>()[0] as usize
+    };
+
+    // Step 3: Allocate output buffers
+    let l_col_indices_gpu = Tensor::<WgpuRuntime>::zeros(&[l_nnz], DType::I32, device);
+    let l_values_gpu = Tensor::<WgpuRuntime>::zeros(&[l_nnz], dtype, device);
+
+    // Step 4: Scatter values into L on GPU
+    let values_buf = get_tensor_buffer(values_gpu)?;
+    let l_row_ptrs_buf = get_tensor_buffer(&l_row_ptrs_i32)?;
+    let l_col_indices_buf = get_tensor_buffer(&l_col_indices_gpu)?;
+    let l_values_buf = get_tensor_buffer(&l_values_gpu)?;
+
+    let scatter_params: [u32; 4] = [n as u32, 0, 0, 0];
+    let scatter_params_buf = client.create_uniform_buffer("extract_lower_scatter_params", 16);
+    client.write_buffer(&scatter_params_buf, &scatter_params);
+
+    // Launch scatter kernel using proper launcher
+    super::super::shaders::launch_extract_lower_scatter(
+        client.pipeline_cache(),
+        &client.queue,
+        &*row_ptrs_buf,
+        &*col_indices_buf,
+        &*values_buf,
+        &*l_row_ptrs_buf,
+        &*l_col_indices_buf,
+        &*l_values_buf,
+        &scatter_params_buf,
+        n,
+        dtype,
+    )?;
+
+    client.poll_wait();
+
+    // Convert I32 to I64 on CPU (WGSL limitation - no I64 support)
+    // This transfers metadata only (row_ptrs, col_indices), not VALUES
+    let l_row_ptrs_i32_vec: Vec<i32> = l_row_ptrs_i32.to_vec();
+    let l_col_indices_i32_vec: Vec<i32> = l_col_indices_gpu.to_vec();
+
+    let l_row_ptrs_i64: Vec<i64> = l_row_ptrs_i32_vec.iter().map(|&x| x as i64).collect();
+    let l_col_indices_i64: Vec<i64> = l_col_indices_i32_vec.iter().map(|&x| x as i64).collect();
+
+    let l_row_ptrs_t = Tensor::<WgpuRuntime>::from_slice(&l_row_ptrs_i64, &[n + 1], device);
+    let l_col_indices_t = Tensor::<WgpuRuntime>::from_slice(&l_col_indices_i64, &[l_nnz], device);
+
+    let l = CsrData::new(l_row_ptrs_t, l_col_indices_t, l_values_gpu, [n, n])?;
 
     Ok(crate::algorithm::sparse_linalg::IcDecomposition { l })
 }

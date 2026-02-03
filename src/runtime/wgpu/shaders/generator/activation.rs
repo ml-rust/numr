@@ -28,10 +28,10 @@ struct ClampParams {{
     numel: u32,
     min_val: f32,
     max_val: f32,
-    _pad: u32,
+    _pad0: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> clamp_a: array<{t}>;
+@group(0) @binding(0) var<storage, read_write> clamp_a: array<{t}>;
 @group(0) @binding(1) var<storage, read_write> clamp_out: array<{t}>;
 @group(0) @binding(2) var<uniform> clamp_params: ClampParams;
 
