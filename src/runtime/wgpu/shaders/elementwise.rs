@@ -12,7 +12,24 @@
 //! All operations run entirely on GPU with no CPU fallback.
 
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+// ============================================================================
+// Lock Helpers (Handle Poisoned Locks Gracefully)
+// ============================================================================
+
+/// Acquire read lock, recovering from poison if necessary.
+/// Cache data remains valid even after a panic in another thread.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Acquire write lock, recovering from poison if necessary.
+/// Cache data remains valid even after a panic in another thread.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use wgpu::{Buffer, Queue};
 
@@ -47,7 +64,7 @@ fn get_or_leak_shader(dtype: DType, op_type: &'static str) -> Result<&'static st
 
     // Check if already cached
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&shader_ref) = read_guard.get(&(dtype, op_type)) {
             return Ok(shader_ref);
         }
@@ -65,7 +82,7 @@ fn get_or_leak_shader(dtype: DType, op_type: &'static str) -> Result<&'static st
     // Leak ONCE and cache the reference
     let leaked: &'static str = Box::leak(shader.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert((dtype, op_type), leaked);
 
     Ok(leaked)
@@ -78,7 +95,7 @@ fn get_or_leak_module_key(dtype: DType, op_type: &'static str) -> Result<&'stati
 
     // Check if already cached
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&key_ref) = read_guard.get(&(dtype, op_type)) {
             return Ok(key_ref);
         }
@@ -91,7 +108,7 @@ fn get_or_leak_module_key(dtype: DType, op_type: &'static str) -> Result<&'stati
     // Leak ONCE and cache the reference
     let leaked: &'static str = Box::leak(key.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert((dtype, op_type), leaked);
 
     Ok(leaked)
@@ -110,7 +127,7 @@ fn get_or_leak_entry_point(op: &str, dtype: DType) -> Result<&'static str> {
 
     // Check if already cached
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&entry_ref) = read_guard.get(&key) {
             return Ok(entry_ref);
         }
@@ -123,7 +140,7 @@ fn get_or_leak_entry_point(op: &str, dtype: DType) -> Result<&'static str> {
     // Leak ONCE and cache the reference
     let leaked: &'static str = Box::leak(entry.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert(key, leaked);
 
     Ok(leaked)
@@ -188,6 +205,99 @@ pub fn launch_binary_op(
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(op),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch a broadcast binary element-wise operation kernel.
+///
+/// Computes `out[i] = a[broadcast_idx_a] op b[broadcast_idx_b]` for all elements,
+/// where broadcast indices are computed from strides (0 for broadcast dimensions).
+///
+/// Supports F32, I32, U32 dtypes.
+#[allow(clippy::too_many_arguments)]
+pub fn launch_broadcast_binary_op(
+    cache: &PipelineCache,
+    queue: &Queue,
+    op: &'static str,
+    a: &Buffer,
+    b: &Buffer,
+    out: &Buffer,
+    a_strides: &Buffer,
+    b_strides: &Buffer,
+    out_strides: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    // Validate dtype support for this operation
+    dtype_support::check_binary_dtype_support(op, dtype)?;
+
+    // Normalize operation name
+    let op_name = match op {
+        "maximum" => "max",
+        "minimum" => "min",
+        _ => op,
+    };
+
+    // Generate entry point name
+    let suffix = super::generator::dtype_suffix(dtype)?;
+    let entry_point_str = format!("broadcast_{}_{}", op_name, suffix);
+    let entry_point: &'static str = Box::leak(entry_point_str.into_boxed_str());
+
+    // Generate broadcast shader (cached per dtype)
+    let shader = {
+        use super::generator::generate_broadcast_binary_shader;
+        let shader_cache =
+            SHADER_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
+        let cache_key = (dtype, "broadcast_binary");
+        {
+            let read_guard = read_lock(shader_cache);
+            if let Some(&cached) = read_guard.get(&cache_key) {
+                cached
+            } else {
+                drop(read_guard);
+                let generated = generate_broadcast_binary_shader(dtype)?;
+                let leaked: &'static str = Box::leak(generated.into_boxed_str());
+                let mut write_guard = write_lock(shader_cache);
+                write_guard.insert(cache_key, leaked);
+                leaked
+            }
+        }
+    };
+
+    let module_key = format!("broadcast_binary_{}", suffix);
+    let module_key: &'static str = Box::leak(module_key.into_boxed_str());
+
+    let module = cache.get_or_create_module(module_key, shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 6,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
+
+    let bind_group = cache.create_bind_group(
+        &layout,
+        &[a, b, out, a_strides, b_strides, out_strides, params_buffer],
+    );
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("broadcast_binary"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("broadcast_binary"),
             timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);

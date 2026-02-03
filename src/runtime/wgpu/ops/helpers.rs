@@ -60,6 +60,15 @@ pub(super) struct BinaryParams {
     pub(super) numel: u32,
 }
 
+/// Parameters for broadcast binary operations.
+/// Matches the BroadcastBinaryParams struct in WGSL shaders.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct BroadcastBinaryParams {
+    pub(super) numel: u32,
+    pub(super) ndim: u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct UnaryParams {

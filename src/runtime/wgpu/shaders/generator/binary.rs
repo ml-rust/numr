@@ -123,3 +123,158 @@ fn min_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         float_ops = float_ops
     ))
 }
+
+/// Generate WGSL shader for broadcast binary element-wise operations.
+///
+/// This shader handles tensors with different shapes that need broadcasting.
+/// Strides are passed as storage buffers with 0 for broadcast dimensions.
+pub fn generate_broadcast_binary_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    let float_ops = if is_wgsl_float(dtype) {
+        format!(
+            r#"
+@compute @workgroup_size(256)
+fn broadcast_pow_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= broadcast_params.numel) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var a_offset: u32 = 0u;
+    var b_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < broadcast_params.ndim; d = d + 1u) {{
+        let stride = broadcast_out_strides[d];
+        let coord = remaining / stride;
+        remaining = remaining % stride;
+
+        a_offset = a_offset + coord * broadcast_a_strides[d];
+        b_offset = b_offset + coord * broadcast_b_strides[d];
+    }}
+
+    broadcast_out[idx] = pow(broadcast_a[a_offset], broadcast_b[b_offset]);
+}}
+"#,
+            suffix = suffix
+        )
+    } else {
+        String::new() // Integer pow not commonly needed for broadcast
+    };
+
+    // Define all broadcast binary operations
+    let ops = [("add", "+"), ("sub", "-"), ("mul", "*"), ("div", "/")];
+
+    let mut op_shaders = String::new();
+    for (op_name, op_sym) in ops.iter() {
+        op_shaders.push_str(&format!(
+            r#"
+@compute @workgroup_size(256)
+fn broadcast_{op_name}_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= broadcast_params.numel) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var a_offset: u32 = 0u;
+    var b_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < broadcast_params.ndim; d = d + 1u) {{
+        let stride = broadcast_out_strides[d];
+        let coord = remaining / stride;
+        remaining = remaining % stride;
+
+        a_offset = a_offset + coord * broadcast_a_strides[d];
+        b_offset = b_offset + coord * broadcast_b_strides[d];
+    }}
+
+    broadcast_out[idx] = broadcast_a[a_offset] {op_sym} broadcast_b[b_offset];
+}}
+"#,
+            op_name = op_name,
+            suffix = suffix,
+            op_sym = op_sym,
+        ));
+    }
+
+    // max/min use built-in functions
+    op_shaders.push_str(&format!(
+        r#"
+@compute @workgroup_size(256)
+fn broadcast_max_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= broadcast_params.numel) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var a_offset: u32 = 0u;
+    var b_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < broadcast_params.ndim; d = d + 1u) {{
+        let stride = broadcast_out_strides[d];
+        let coord = remaining / stride;
+        remaining = remaining % stride;
+
+        a_offset = a_offset + coord * broadcast_a_strides[d];
+        b_offset = b_offset + coord * broadcast_b_strides[d];
+    }}
+
+    broadcast_out[idx] = max(broadcast_a[a_offset], broadcast_b[b_offset]);
+}}
+
+@compute @workgroup_size(256)
+fn broadcast_min_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= broadcast_params.numel) {{
+        return;
+    }}
+
+    var remaining = idx;
+    var a_offset: u32 = 0u;
+    var b_offset: u32 = 0u;
+
+    for (var d: u32 = 0u; d < broadcast_params.ndim; d = d + 1u) {{
+        let stride = broadcast_out_strides[d];
+        let coord = remaining / stride;
+        remaining = remaining % stride;
+
+        a_offset = a_offset + coord * broadcast_a_strides[d];
+        b_offset = b_offset + coord * broadcast_b_strides[d];
+    }}
+
+    broadcast_out[idx] = min(broadcast_a[a_offset], broadcast_b[b_offset]);
+}}
+"#,
+        suffix = suffix
+    ));
+
+    Ok(format!(
+        r#"// Auto-generated broadcast binary operations for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct BroadcastBinaryParams {{
+    numel: u32,
+    ndim: u32,
+}}
+
+@group(0) @binding(0) var<storage, read_write> broadcast_a: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> broadcast_b: array<{t}>;
+@group(0) @binding(2) var<storage, read_write> broadcast_out: array<{t}>;
+@group(0) @binding(3) var<storage, read_write> broadcast_a_strides: array<u32>;
+@group(0) @binding(4) var<storage, read_write> broadcast_b_strides: array<u32>;
+@group(0) @binding(5) var<storage, read_write> broadcast_out_strides: array<u32>;
+@group(0) @binding(6) var<uniform> broadcast_params: BroadcastBinaryParams;
+
+{op_shaders}
+{float_ops}
+"#,
+        t = t,
+        op_shaders = op_shaders,
+        float_ops = float_ops
+    ))
+}

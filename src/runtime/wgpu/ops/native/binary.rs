@@ -1,7 +1,8 @@
 //! Binary and scalar operation implementations for WebGPU.
 
 use super::helpers::*;
-use crate::error::{Error, Result};
+use crate::dtype::DType;
+use crate::error::Result;
 use crate::runtime::wgpu::shaders::elementwise;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes};
@@ -17,54 +18,104 @@ pub(crate) fn native_binary_op(
     let dtype = validate_binary_dtypes(a, b)?;
     let out_shape = compute_broadcast_shape(a, b)?;
 
-    // Broadcasting not yet implemented natively - fall back for different shapes
-    if a.shape() != b.shape() {
-        return crate::runtime::fallback::binary_op_fallback(
-            a,
-            b,
-            match op {
-                "add" => crate::ops::BinaryOp::Add,
-                "sub" => crate::ops::BinaryOp::Sub,
-                "mul" => crate::ops::BinaryOp::Mul,
-                "div" => crate::ops::BinaryOp::Div,
-                "pow" => crate::ops::BinaryOp::Pow,
-                "maximum" | "max" => crate::ops::BinaryOp::Max,
-                "minimum" | "min" => crate::ops::BinaryOp::Min,
-                _ => return Err(Error::Internal(format!("Unknown binary op: {}", op))),
-            },
-            &client.device_id,
-            op,
-        );
-    }
-
     let a_contig = ensure_contiguous(a);
     let b_contig = ensure_contiguous(b);
 
-    let numel = out_shape.iter().product();
+    let numel: usize = out_shape.iter().product();
     let out = alloc_output(client, &out_shape, dtype);
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let b_buf = get_tensor_buffer(&b_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = BinaryParams {
+    // Use broadcast kernel if shapes differ, element-wise kernel otherwise
+    if a.shape() != b.shape() {
+        launch_broadcast_binary(
+            client,
+            op,
+            &a_buf,
+            &b_buf,
+            &out_buf,
+            a.shape(),
+            b.shape(),
+            &out_shape,
+            numel,
+            dtype,
+        )?;
+    } else {
+        let params = BinaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(client, &params);
+
+        elementwise::launch_binary_op(
+            client.pipeline_cache(),
+            client.wgpu_queue(),
+            op,
+            &a_buf,
+            &b_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Launch broadcast binary op with stride buffers.
+#[allow(clippy::too_many_arguments)]
+fn launch_broadcast_binary(
+    client: &WgpuClient,
+    op: &'static str,
+    a_buf: &wgpu::Buffer,
+    b_buf: &wgpu::Buffer,
+    out_buf: &wgpu::Buffer,
+    a_shape: &[usize],
+    b_shape: &[usize],
+    out_shape: &[usize],
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    let ndim = out_shape.len();
+
+    // Compute broadcast strides (0 for broadcast dimensions)
+    let a_strides = compute_broadcast_strides(a_shape, out_shape);
+    let b_strides = compute_broadcast_strides(b_shape, out_shape);
+
+    // Compute output strides (row-major)
+    let mut out_strides = vec![1u32; ndim];
+    for i in (0..ndim.saturating_sub(1)).rev() {
+        out_strides[i] = out_strides[i + 1] * out_shape[i + 1] as u32;
+    }
+
+    // Create stride buffers
+    let a_strides_buf = create_storage_buffer(client, &a_strides);
+    let b_strides_buf = create_storage_buffer(client, &b_strides);
+    let out_strides_buf = create_storage_buffer(client, &out_strides);
+
+    // Create params: [numel, ndim]
+    let params = BroadcastBinaryParams {
         numel: numel as u32,
+        ndim: ndim as u32,
     };
     let params_buf = create_params_buffer(client, &params);
 
-    elementwise::launch_binary_op(
+    elementwise::launch_broadcast_binary_op(
         client.pipeline_cache(),
         client.wgpu_queue(),
         op,
-        &a_buf,
-        &b_buf,
-        &out_buf,
+        a_buf,
+        b_buf,
+        out_buf,
+        &a_strides_buf,
+        &b_strides_buf,
+        &out_strides_buf,
         &params_buf,
         numel,
         dtype,
-    )?;
-
-    Ok(out)
+    )
 }
 
 pub(crate) fn native_scalar_op(

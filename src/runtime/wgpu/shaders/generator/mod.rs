@@ -57,7 +57,7 @@ pub mod utility;
 pub mod where_cond;
 
 pub use activation::generate_clamp_shader;
-pub use binary::generate_binary_shader;
+pub use binary::{generate_binary_shader, generate_broadcast_binary_shader};
 pub use cast::{generate_all_casts_from, generate_cast_shader};
 pub use cat::{
     generate_cat_shader, generate_pad_shader, generate_repeat_shader, generate_roll_shader,
