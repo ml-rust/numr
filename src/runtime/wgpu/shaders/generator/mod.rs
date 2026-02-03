@@ -22,6 +22,7 @@
 //!
 //! Shaders are cached by `(dtype, operation)` key in the pipeline cache.
 
+pub mod activation;
 pub mod binary;
 pub mod cast;
 pub mod cat;
@@ -45,6 +46,7 @@ pub mod unary;
 pub mod utility;
 pub mod where_cond;
 
+pub use activation::generate_clamp_shader;
 pub use binary::generate_binary_shader;
 pub use cast::{generate_all_casts_from, generate_cast_shader};
 pub use cat::{

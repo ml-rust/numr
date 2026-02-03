@@ -19,6 +19,28 @@ fn pow_scalar_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
         scalar_out[idx] = pow(scalar_a[idx], {t}(scalar_params.scalar));
     }}
 }}
+
+// Leaky ReLU: max(negative_slope * x, x)
+@compute @workgroup_size(256)
+fn leaky_relu_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < scalar_params.numel) {{
+        let x = scalar_a[idx];
+        let slope = {t}(scalar_params.scalar);
+        scalar_out[idx] = max(slope * x, x);
+    }}
+}}
+
+// ELU: x if x > 0, else alpha * (exp(x) - 1)
+@compute @workgroup_size(256)
+fn elu_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < scalar_params.numel) {{
+        let x = scalar_a[idx];
+        let alpha = {t}(scalar_params.scalar);
+        scalar_out[idx] = select(alpha * (exp(x) - 1.0), x, x > 0.0);
+    }}
+}}
 "#,
             suffix = suffix,
             t = t
