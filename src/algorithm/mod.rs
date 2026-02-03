@@ -51,6 +51,15 @@ pub mod special;
 #[cfg(feature = "sparse")]
 pub mod sparse;
 
+#[cfg(feature = "sparse")]
+pub mod sparse_linalg;
+
+#[cfg(feature = "sparse")]
+pub mod sparse_linalg_cpu;
+
+#[cfg(feature = "sparse")]
+pub mod sparse_linalg_levels;
+
 pub use linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
     LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
@@ -69,4 +78,18 @@ pub use special::{
 pub use sparse::{
     SparseAlgorithms, validate_dsmm_shapes, validate_dtype_match, validate_spgemm_shapes,
     zero_tolerance,
+};
+
+#[cfg(feature = "sparse")]
+pub use sparse_linalg::{
+    IcDecomposition, IcOptions, IluDecomposition, IluOptions, SparseLinAlgAlgorithms,
+    validate_square_sparse, validate_triangular_solve_dims,
+};
+
+#[cfg(feature = "sparse")]
+pub use sparse_linalg_cpu::{ic0_cpu, ilu0_cpu, sparse_solve_triangular_cpu};
+
+#[cfg(feature = "sparse")]
+pub use sparse_linalg_levels::{
+    LevelSchedule, compute_levels_ilu, compute_levels_lower, compute_levels_upper, flatten_levels,
 };
