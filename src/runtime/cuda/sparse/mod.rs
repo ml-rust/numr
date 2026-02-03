@@ -34,6 +34,7 @@ mod conversions;
 mod dsmm;
 mod esc_spgemm;
 mod high_level_ops;
+mod linalg;
 mod merge;
 mod spmv;
 

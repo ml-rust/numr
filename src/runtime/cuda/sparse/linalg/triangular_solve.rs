@@ -1,0 +1,292 @@
+//! CUDA sparse triangular solve implementation.
+
+use super::super::{CudaClient, CudaRuntime};
+use super::common::validate_cuda_dtype;
+use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
+use crate::algorithm::sparse_linalg_levels::{
+    compute_levels_lower, compute_levels_upper, flatten_levels,
+};
+use crate::dtype::DType;
+use crate::error::{Error, Result};
+use crate::runtime::cuda::kernels;
+use crate::sparse::CsrData;
+use crate::tensor::Tensor;
+
+/// Sparse triangular solve for CUDA.
+pub fn sparse_solve_triangular_cuda(
+    client: &CudaClient,
+    l_or_u: &CsrData<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    lower: bool,
+    unit_diagonal: bool,
+) -> Result<Tensor<CudaRuntime>> {
+    let (n, nrhs) = validate_triangular_solve_dims(l_or_u.shape, b.shape())?;
+    let dtype = l_or_u.values().dtype();
+    validate_cuda_dtype(dtype, "sparse_solve_triangular")?;
+
+    if b.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: b.dtype(),
+        });
+    }
+
+    // Only support single RHS for now (batch would need more complex handling)
+    if nrhs > 1 {
+        return Err(Error::Internal(
+            "CUDA sparse triangular solve only supports single RHS for now".to_string(),
+        ));
+    }
+
+    // Extract CSR data for level analysis
+    let row_ptrs: Vec<i64> = l_or_u.row_ptrs().to_vec();
+    let col_indices: Vec<i64> = l_or_u.col_indices().to_vec();
+
+    // Compute level schedule
+    let schedule = if lower {
+        compute_levels_lower(n, &row_ptrs, &col_indices)?
+    } else {
+        compute_levels_upper(n, &row_ptrs, &col_indices)?
+    };
+    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+
+    // Device reference
+    let device = &client.device;
+
+    // Allocate GPU buffers
+    let level_rows_gpu =
+        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
+
+    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
+    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+    let row_ptrs_gpu =
+        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
+    let col_indices_gpu =
+        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
+
+    // Allocate output (initialized from b)
+    let x = b.clone();
+
+    // Process each level
+    for level in 0..schedule.num_levels {
+        let level_start = level_ptrs[level] as usize;
+        let level_end = level_ptrs[level + 1] as usize;
+        let level_size = (level_end - level_start) as i32;
+
+        if level_size == 0 {
+            continue;
+        }
+
+        let level_rows_ptr =
+            level_rows_gpu.storage().ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
+
+        if lower {
+            launch_trsv_lower(
+                client,
+                level_rows_ptr,
+                level_size,
+                &row_ptrs_gpu,
+                &col_indices_gpu,
+                l_or_u.values(),
+                b,
+                &x,
+                n,
+                unit_diagonal,
+                dtype,
+            )?;
+        } else {
+            launch_trsv_upper(
+                client,
+                level_rows_ptr,
+                level_size,
+                &row_ptrs_gpu,
+                &col_indices_gpu,
+                l_or_u.values(),
+                b,
+                &x,
+                n,
+                dtype,
+            )?;
+        }
+    }
+
+    client
+        .stream
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
+
+    Ok(x)
+}
+
+/// Launch lower triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_trsv_lower(
+    client: &CudaClient,
+    level_rows_ptr: u64,
+    level_size: i32,
+    row_ptrs: &Tensor<CudaRuntime>,
+    col_indices: &Tensor<CudaRuntime>,
+    values: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    x: &Tensor<CudaRuntime>,
+    n: usize,
+    unit_diagonal: bool,
+    dtype: DType,
+) -> Result<()> {
+    match dtype {
+        DType::F32 => unsafe {
+            kernels::launch_sparse_trsv_lower_level_f32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+                unit_diagonal,
+            )?;
+        },
+        DType::F64 => unsafe {
+            kernels::launch_sparse_trsv_lower_level_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+                unit_diagonal,
+            )?;
+        },
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// Launch upper triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_trsv_upper(
+    client: &CudaClient,
+    level_rows_ptr: u64,
+    level_size: i32,
+    row_ptrs: &Tensor<CudaRuntime>,
+    col_indices: &Tensor<CudaRuntime>,
+    values: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    x: &Tensor<CudaRuntime>,
+    n: usize,
+    dtype: DType,
+) -> Result<()> {
+    match dtype {
+        DType::F32 => unsafe {
+            kernels::launch_sparse_trsv_upper_level_f32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+            )?;
+        },
+        DType::F64 => unsafe {
+            kernels::launch_sparse_trsv_upper_level_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+            )?;
+        },
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::algorithm::sparse_linalg::SparseLinAlgAlgorithms;
+    use crate::runtime::Runtime;
+
+    fn get_client() -> CudaClient {
+        let device = CudaRuntime::default_device();
+        CudaRuntime::default_client(&device)
+    }
+
+    #[test]
+    fn test_sparse_solve_triangular_lower() {
+        let client = get_client();
+        let device = &client.device;
+
+        // Create a simple lower triangular matrix:
+        // L = [2 0 0]
+        //     [1 3 0]
+        //     [0 2 4]
+        let row_ptrs = Tensor::<CudaRuntime>::from_slice(&[0i64, 1, 3, 5], &[4], device);
+        let col_indices = Tensor::<CudaRuntime>::from_slice(&[0i64, 0, 1, 1, 2], &[5], device);
+        let values = Tensor::<CudaRuntime>::from_slice(&[2.0f32, 1.0, 3.0, 2.0, 4.0], &[5], device);
+
+        let l = CsrData::new(row_ptrs, col_indices, values, [3, 3])
+            .expect("CSR creation should succeed");
+
+        // Solve L*x = b where b = [2, 4, 8]
+        let b = Tensor::<CudaRuntime>::from_slice(&[2.0f32, 4.0, 8.0], &[3], device);
+
+        let x = client
+            .sparse_solve_triangular(&l, &b, true, false)
+            .expect("Triangular solve should succeed");
+
+        let x_data: Vec<f32> = x.to_vec();
+        assert!((x_data[0] - 1.0).abs() < 1e-5);
+        assert!((x_data[1] - 1.0).abs() < 1e-5);
+        assert!((x_data[2] - 1.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_sparse_solve_triangular_upper() {
+        let client = get_client();
+        let device = &client.device;
+
+        // Create a simple upper triangular matrix:
+        // U = [2 1 0]
+        //     [0 3 2]
+        //     [0 0 4]
+        let row_ptrs = Tensor::<CudaRuntime>::from_slice(&[0i64, 2, 4, 5], &[4], device);
+        let col_indices = Tensor::<CudaRuntime>::from_slice(&[0i64, 1, 1, 2, 2], &[5], device);
+        let values = Tensor::<CudaRuntime>::from_slice(&[2.0f32, 1.0, 3.0, 2.0, 4.0], &[5], device);
+
+        let u = CsrData::new(row_ptrs, col_indices, values, [3, 3])
+            .expect("CSR creation should succeed");
+
+        // Solve U*x = b
+        let b = Tensor::<CudaRuntime>::from_slice(&[5.0f32, 7.0, 8.0], &[3], device);
+
+        let x = client
+            .sparse_solve_triangular(&u, &b, false, false)
+            .expect("Triangular solve should succeed");
+
+        let x_data: Vec<f32> = x.to_vec();
+        assert!((x_data[0] - 2.0).abs() < 1e-5);
+        assert!((x_data[1] - 1.0).abs() < 1e-5);
+        assert!((x_data[2] - 2.0).abs() < 1e-5);
+    }
+}

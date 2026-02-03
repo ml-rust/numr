@@ -72,6 +72,8 @@ mod sparse_convert;
 #[cfg(feature = "sparse")]
 mod sparse_coo;
 #[cfg(feature = "sparse")]
+mod sparse_linalg;
+#[cfg(feature = "sparse")]
 mod sparse_merge;
 #[cfg(feature = "sparse")]
 mod sparse_spmv;
@@ -113,6 +115,8 @@ pub use sort::*;
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
 pub use sparse_coo::*;
+#[cfg(feature = "sparse")]
+pub use sparse_linalg::*;
 #[cfg(feature = "sparse")]
 pub use sparse_merge::*;
 #[cfg(feature = "sparse")]
