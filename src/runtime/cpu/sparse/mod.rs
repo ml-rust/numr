@@ -12,6 +12,7 @@ use crate::tensor::Tensor;
 // Submodules
 mod dsmm;
 mod esc_spgemm;
+mod linalg;
 pub(crate) mod merge;
 #[cfg(test)]
 mod tests;
