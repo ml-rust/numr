@@ -3,6 +3,7 @@
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
 use super::super::kernels;
+use super::svd::svd_decompose_impl;
 use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, MatrixNormOrder, validate_linalg_dtype, validate_matrix_2d,
     validate_square_matrix,
@@ -363,7 +364,7 @@ pub fn matrix_rank_impl(
     Ok(rank_tensor)
 }
 
-/// Matrix norm (Frobenius only for now)
+/// Matrix norm
 pub fn matrix_norm_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -380,9 +381,16 @@ pub fn matrix_norm_impl(
             let sum_sq = client.sum(&squared, &[], false)?;
             client.sqrt(&sum_sq)
         }
-        MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
-            "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
-        )),
+        MatrixNormOrder::Spectral => {
+            // Spectral norm: ||A||_2 = max(singular_values(A))
+            let svd = svd_decompose_impl(client, a)?;
+            client.max(&svd.s, &[], false)
+        }
+        MatrixNormOrder::Nuclear => {
+            // Nuclear norm: ||A||_* = sum(singular_values(A))
+            let svd = svd_decompose_impl(client, a)?;
+            client.sum(&svd.s, &[], false)
+        }
     }
 }
 

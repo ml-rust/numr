@@ -312,16 +312,83 @@ fn test_frobenius_norm_3x3() {
 }
 
 #[test]
-fn test_spectral_norm_not_implemented() {
+fn test_spectral_norm() {
     let client = create_client();
     let device = client.device();
 
+    // Test on a 2x2 matrix [[1, 2], [3, 4]]
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
 
-    let result = client.matrix_norm(&a, MatrixNormOrder::Spectral);
+    let result = client.matrix_norm(&a, MatrixNormOrder::Spectral).unwrap();
+    let norm_val: Vec<f32> = result.to_vec();
+
+    // Spectral norm is the largest singular value
+    // For [[1,2],[3,4]], singular values are approximately 5.465 and 0.366
     assert!(
-        result.is_err(),
-        "Spectral norm should not be implemented yet"
+        (norm_val[0] - 5.465).abs() < 0.01,
+        "Spectral norm of [[1,2],[3,4]] = {} should be ~5.465",
+        norm_val[0]
+    );
+}
+
+#[test]
+fn test_nuclear_norm() {
+    let client = create_client();
+    let device = client.device();
+
+    // Test on a 2x2 matrix [[1, 2], [3, 4]]
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+
+    let result = client.matrix_norm(&a, MatrixNormOrder::Nuclear).unwrap();
+    let norm_val: Vec<f32> = result.to_vec();
+
+    // Nuclear norm is sum of singular values
+    // For [[1,2],[3,4]], singular values are approximately 5.465 and 0.366
+    // Sum is approximately 5.831
+    assert!(
+        (norm_val[0] - 5.831).abs() < 0.01,
+        "Nuclear norm of [[1,2],[3,4]] = {} should be ~5.831",
+        norm_val[0]
+    );
+}
+
+#[test]
+fn test_spectral_norm_identity() {
+    let client = create_client();
+    let device = client.device();
+
+    // Identity matrix has spectral norm = 1 (all singular values = 1)
+    let eye = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[2, 2], device);
+
+    let result = client.matrix_norm(&eye, MatrixNormOrder::Spectral).unwrap();
+    let norm_val: Vec<f32> = result.to_vec();
+
+    assert!(
+        (norm_val[0] - 1.0).abs() < 1e-5,
+        "Spectral norm of 2x2 identity = {} should be 1.0",
+        norm_val[0]
+    );
+}
+
+#[test]
+fn test_nuclear_norm_identity() {
+    let client = create_client();
+    let device = client.device();
+
+    // 3x3 Identity matrix has nuclear norm = 3 (sum of 3 singular values = 1)
+    let eye = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.matrix_norm(&eye, MatrixNormOrder::Nuclear).unwrap();
+    let norm_val: Vec<f32> = result.to_vec();
+
+    assert!(
+        (norm_val[0] - 3.0).abs() < 1e-5,
+        "Nuclear norm of 3x3 identity = {} should be 3.0",
+        norm_val[0]
     );
 }
 

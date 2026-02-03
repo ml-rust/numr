@@ -445,11 +445,11 @@ impl SparseOps<CpuRuntime> for CpuClient {
     }
 
     // =========================================================================
-    // High-Level Operations (Stub implementations for now)
+    // High-Level Operations
     // =========================================================================
     //
-    // These will be properly implemented once we refactor the sparse formats
-    // to use the low-level trait methods.
+    // Format-agnostic wrappers that convert to optimal format and dispatch
+    // to the appropriate low-level implementation.
 
     fn spmv(
         &self,

@@ -40,7 +40,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        // For now, require contiguous tensors
+        // Require row-major contiguous tensors for SIMD-optimized packing
+        // Non-contiguous tensors (transposed, views) are copied to contiguous layout
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
 
@@ -121,7 +122,7 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        // For now, require contiguous tensors
+        // Require row-major contiguous tensors for SIMD-optimized packing
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
         let bias_contig = ensure_contiguous(bias);

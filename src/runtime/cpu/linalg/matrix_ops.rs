@@ -4,6 +4,7 @@ use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
 use super::solvers::solve_impl;
+use super::svd::svd_decompose_impl;
 use crate::algorithm::linalg::{
     MatrixNormOrder, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
@@ -414,9 +415,22 @@ pub fn matrix_norm_impl(
                 op: "matrix_norm",
             }),
         },
-        MatrixNormOrder::Spectral | MatrixNormOrder::Nuclear => Err(Error::Internal(
-            "Spectral and nuclear norms require SVD (not yet implemented)".to_string(),
-        )),
+        MatrixNormOrder::Spectral => match a.dtype() {
+            DType::F32 => spectral_norm_typed::<f32>(client, a),
+            DType::F64 => spectral_norm_typed::<f64>(client, a),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "spectral_norm",
+            }),
+        },
+        MatrixNormOrder::Nuclear => match a.dtype() {
+            DType::F32 => nuclear_norm_typed::<f32>(client, a),
+            DType::F64 => nuclear_norm_typed::<f64>(client, a),
+            _ => Err(Error::UnsupportedDType {
+                dtype: a.dtype(),
+                op: "nuclear_norm",
+            }),
+        },
     }
 }
 
@@ -436,4 +450,46 @@ fn frobenius_norm_typed<T: Element + LinalgElement>(
 
     let norm = sum_sq.sqrt_val();
     Ok(Tensor::<CpuRuntime>::from_slice(&[norm], &[], device))
+}
+
+/// Spectral norm: ||A||_2 = max(singular_values(A))
+fn spectral_norm_typed<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+
+    // Compute SVD to get singular values
+    let svd = svd_decompose_impl(client, a)?;
+    let s_data: Vec<T> = svd.s.to_vec();
+
+    // Find maximum singular value
+    let mut max_sv = T::zero();
+    for &val in &s_data {
+        if val.to_f64() > max_sv.to_f64() {
+            max_sv = val;
+        }
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(&[max_sv], &[], device))
+}
+
+/// Nuclear norm: ||A||_* = sum(singular_values(A))
+fn nuclear_norm_typed<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+
+    // Compute SVD to get singular values
+    let svd = svd_decompose_impl(client, a)?;
+    let s_data: Vec<T> = svd.s.to_vec();
+
+    // Sum of singular values
+    let mut sum_sv = T::zero();
+    for &val in &s_data {
+        sum_sv = sum_sv + val;
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(&[sum_sv], &[], device))
 }

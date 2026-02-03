@@ -22,7 +22,10 @@ use crate::tensor::Tensor;
 /// Launch a comparison operation kernel.
 ///
 /// Performs element-wise comparison: `output[i] = a[i] op b[i]`
-/// Output is the same dtype as input (typically should be bool, but follows input for now).
+///
+/// Output is the same dtype as input (1.0/0.0 for floats, 1/0 for ints).
+/// This is intentional - it allows using comparison results directly
+/// in arithmetic operations (e.g., `mask * tensor`) without dtype conversion.
 ///
 /// # Supported Operations
 ///

@@ -39,7 +39,7 @@ mod binary;
 #[path = "../../../ops/cuda/unary.rs"]
 mod unary;
 
-#[path = "../../../ops/cuda/indexing.rs"]
+#[path = "../../../ops/cuda/indexing/mod.rs"]
 mod indexing;
 
 #[path = "../../../ops/cuda/statistics.rs"]

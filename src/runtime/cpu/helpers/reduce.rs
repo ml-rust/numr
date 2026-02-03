@@ -33,8 +33,8 @@ pub fn reduce_impl(
         }
     }
 
-    // For now, only support reducing the last dimension when contiguous
-    // Full reduction support requires permuting data or strided kernels
+    // Fast path: reduce last dimension when contiguous (uses SIMD kernel)
+    // Multi-dimension reduction uses sequential single-dimension reductions
     if dims.len() == 1 && dims[0] == ndim - 1 && a.is_contiguous() {
         // Simple case: reduce last dimension
         let reduce_size = shape[ndim - 1];
@@ -65,11 +65,13 @@ pub fn reduce_impl(
         // No dimensions to reduce - return a copy
         Ok(a.clone())
     } else {
-        // General case: need to handle arbitrary dimensions
-        // For now, make contiguous and reduce sequentially
+        // General case: reduce multiple/arbitrary dimensions
+        // Sequential reduction (highest dim first) is standard approach
+        // used by PyTorch and other frameworks
         let a_contig = ensure_contiguous(a);
 
         // Reduce one dimension at a time, from highest to lowest
+        // (reduces index shifting issues as shape shrinks)
         let mut sorted_dims: Vec<usize> = dims.to_vec();
         sorted_dims.sort_unstable();
         sorted_dims.reverse();
@@ -265,7 +267,7 @@ pub fn reduce_impl_with_precision(
         }
     }
 
-    // For now, only support reducing the last dimension when contiguous
+    // Fast path: reduce last dimension when contiguous (uses SIMD kernel)
     if dims.len() == 1 && dims[0] == ndim - 1 && a.is_contiguous() {
         // Simple case: reduce last dimension
         let reduce_size = shape[ndim - 1];
@@ -296,10 +298,12 @@ pub fn reduce_impl_with_precision(
         // No dimensions to reduce - return a copy
         Ok(a.clone())
     } else {
-        // General case: need to handle arbitrary dimensions
+        // General case: reduce multiple/arbitrary dimensions
+        // Sequential reduction (highest dim first) is standard approach
         let a_contig = ensure_contiguous(a);
 
         // Reduce one dimension at a time, from highest to lowest
+        // (reduces index shifting issues as shape shrinks)
         let mut sorted_dims: Vec<usize> = dims.to_vec();
         sorted_dims.sort_unstable();
         sorted_dims.reverse();

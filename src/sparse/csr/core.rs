@@ -130,14 +130,21 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Note
     ///
-    /// This method transfers row_ptrs from device memory to host (if on GPU).
-    /// For batch queries, consider using the row_ptrs tensor directly.
+    /// For GPU tensors, this method narrows to a 2-element slice and transfers it
+    /// to host memory. While minimal, this still involves a GPU-to-CPU transfer.
+    /// For batch queries or hot paths, consider using the row_ptrs tensor directly
+    /// with GPU operations to avoid synchronization overhead.
     pub fn row_nnz(&self, row: usize) -> usize {
         debug_assert!(row < self.nrows());
-        // FIXME: GPU-incompatible - requires host memory access
-        // For GPU tensors, this causes device-to-host transfer
-        let row_ptrs: Vec<i64> = self.row_ptrs.to_vec();
-        (row_ptrs[row + 1] - row_ptrs[row]) as usize
+        // Narrow to the 2 values needed: row_ptrs[row] and row_ptrs[row+1]
+        // This minimizes transfer size but still requires GPU→CPU sync
+        let slice = self
+            .row_ptrs
+            .narrow(0, row, 2)
+            .expect("row_nnz: invalid row index");
+        let slice = slice.contiguous();
+        let ptrs: Vec<i64> = slice.to_vec();
+        (ptrs[1] - ptrs[0]) as usize
     }
 }
 

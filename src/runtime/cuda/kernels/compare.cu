@@ -2,6 +2,9 @@
 // Supports: eq, ne, lt, le, gt, ge
 // Types: f32, f64, f16, bf16, i32, i64
 // Output: same type as input (1 for true, 0 for false)
+//
+// NOTE: Same-dtype output is intentional - it allows using comparison results
+// directly in arithmetic operations (e.g., mask * tensor) without dtype conversion.
 // Includes broadcast variants for all types
 
 #include <cuda_fp16.h>
