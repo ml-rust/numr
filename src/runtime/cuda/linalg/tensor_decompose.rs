@@ -124,8 +124,6 @@ impl TensorDecomposeAlgorithms<CudaRuntime> for CudaClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-    use crate::ops::{BinaryOps, ReduceOps};
     use crate::runtime::Runtime;
 
     fn get_client() -> CudaClient {

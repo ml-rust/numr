@@ -332,23 +332,21 @@ where
 // Tucker Decomposition (HOOI)
 // ============================================================================
 
-/// Compute Frobenius norm of a tensor
-fn frobenius_norm<R, C>(client: &C, tensor: &Tensor<R>) -> Result<f64>
+/// Compute Frobenius norm of a tensor - returns GPU scalar tensor (no CPU transfer)
+fn frobenius_norm_tensor<R, C>(client: &C, tensor: &Tensor<R>) -> Result<Tensor<R>>
 where
     R: Runtime,
-    C: ReduceOps<R> + BinaryOps<R>,
+    C: ReduceOps<R> + BinaryOps<R> + UnaryOps<R>,
 {
     let sq = client.mul(tensor, tensor)?;
-    // Reduce all dimensions explicitly
-    let all_dims: Vec<usize> = (0..sq.shape().len()).collect();
-    let sum = client.sum(&sq, &all_dims, false)?.contiguous();
-    let sum_vec: Vec<f64> = sum.to_vec();
-    Ok(sum_vec.first().copied().unwrap_or(0.0).sqrt())
+    let sum = client.sum(&sq, &[], false)?;
+    client.sqrt(&sum)
 }
 
 /// Tucker decomposition via Higher-Order Orthogonal Iteration (HOOI)
 ///
 /// Iteratively refines factor matrices to minimize ||T - G ×₁ A₁ ... ×ₙ Aₙ||²
+/// Runs for `options.max_iter` iterations.
 pub fn tucker_impl<R, C>(
     client: &C,
     tensor: &Tensor<R>,
@@ -391,9 +389,6 @@ where
 
     // HOOI iteration
     for _iter in 0..options.max_iter {
-        // Store old factors for convergence check
-        let old_factors = factors.clone();
-
         // Update each factor
         for mode in 0..ndim {
             // Compute Y = T ×₁ A₁ᵀ ... (skip mode n) ... ×ₙ Aₙᵀ
@@ -416,24 +411,6 @@ where
             } else {
                 factors[mode] = svd.u;
             }
-        }
-
-        // Check convergence: ||A_new - A_old||_F / ||A_old||_F for each factor
-        let mut max_change = 0.0f64;
-        for (new_f, old_f) in factors.iter().zip(old_factors.iter()) {
-            let diff = client.sub(new_f, old_f)?;
-            let diff_norm = frobenius_norm(client, &diff)?;
-            let old_norm = frobenius_norm(client, old_f)?;
-            if old_norm > 0.0 {
-                let change = diff_norm / old_norm;
-                if change > max_change {
-                    max_change = change;
-                }
-            }
-        }
-
-        if max_change < options.tolerance {
-            break;
         }
     }
 
@@ -659,6 +636,9 @@ where
 // ============================================================================
 
 /// Tensor-Train decomposition via sequential SVD
+///
+/// - `max_rank`: Maximum TT-rank (0 = no limit)
+/// - `tolerance`: Truncation tolerance based on singular values (0.0 = no truncation)
 pub fn tensor_train_impl<R, C>(
     client: &C,
     tensor: &Tensor<R>,
@@ -668,17 +648,40 @@ pub fn tensor_train_impl<R, C>(
 ) -> Result<TensorTrainDecomposition<R>>
 where
     R: Runtime,
-    C: LinearAlgebraAlgorithms<R> + ReduceOps<R> + BinaryOps<R>,
+    C: LinearAlgebraAlgorithms<R> + ReduceOps<R> + BinaryOps<R> + UnaryOps<R>,
 {
     let shape = tensor.shape();
     validate_tensor_nd(shape)?;
     validate_decompose_dtype(tensor.dtype(), dtype_support)?;
 
     let ndim = shape.len();
+    let dtype = tensor.dtype();
 
-    // Compute Frobenius norm for tolerance-based truncation
-    let tensor_norm = frobenius_norm(client, tensor)?;
-    let tol_threshold = tolerance * tensor_norm;
+    // Compute tolerance threshold if needed
+    let tol_threshold_sq = if tolerance > 0.0 {
+        let tensor_norm_tensor = frobenius_norm_tensor(client, tensor)?;
+        let norm_val: f64 = match dtype {
+            DType::F32 => tensor_norm_tensor
+                .to_vec::<f32>()
+                .first()
+                .copied()
+                .unwrap_or(0.0) as f64,
+            DType::F64 => tensor_norm_tensor
+                .to_vec::<f64>()
+                .first()
+                .copied()
+                .unwrap_or(0.0),
+            _ => tensor_norm_tensor
+                .to_vec::<f32>()
+                .first()
+                .copied()
+                .unwrap_or(0.0) as f64,
+        };
+        let threshold = tolerance * norm_val;
+        threshold * threshold
+    } else {
+        0.0
+    };
 
     let mut cores: Vec<Tensor<R>> = Vec::with_capacity(ndim);
     let mut ranks: Vec<usize> = Vec::with_capacity(ndim - 1);
@@ -700,17 +703,24 @@ where
         // SVD
         let svd = client.svd_decompose(&matrix)?;
 
-        // Determine rank by tolerance or max_rank
-        let s_vec: Vec<f64> = svd.s.to_vec();
-        let mut trunc_rank = s_vec.len();
+        // Get number of singular values from shape (no GPU transfer)
+        let num_singular_values = svd.s.shape()[0];
+        let mut trunc_rank = num_singular_values;
 
+        // Tolerance-based truncation requires reading singular values to CPU
         if tolerance > 0.0 {
-            // Truncate based on singular value threshold
-            let tol_sq = tol_threshold * tol_threshold;
+            // Extract singular values to CPU for adaptive rank selection
+            let s_vec: Vec<f64> = match dtype {
+                DType::F32 => svd.s.to_vec::<f32>().iter().map(|&x| x as f64).collect(),
+                DType::F64 => svd.s.to_vec::<f64>(),
+                _ => svd.s.to_vec::<f32>().iter().map(|&x| x as f64).collect(),
+            };
+
+            // Truncate based on singular value threshold (cumulative sum from smallest)
             let mut cumsum_sq = 0.0f64;
             for (i, &s) in s_vec.iter().rev().enumerate() {
                 cumsum_sq += s * s;
-                if cumsum_sq > tol_sq {
+                if cumsum_sq > tol_threshold_sq {
                     trunc_rank = s_vec.len() - i;
                     break;
                 }
@@ -738,7 +748,7 @@ where
         ranks.push(trunc_rank);
 
         // Prepare for next mode: S @ Vᵀ (truncated)
-        let s_trunc = if trunc_rank < s_vec.len() {
+        let s_trunc = if trunc_rank < num_singular_values {
             svd.s.narrow(0, 0, trunc_rank)?
         } else {
             svd.s.clone()
