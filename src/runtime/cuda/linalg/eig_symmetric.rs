@@ -1,4 +1,6 @@
 //! Symmetric eigendecomposition for CUDA
+//!
+//! All operations run entirely on GPU with zero CPU transfers.
 
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
@@ -9,7 +11,7 @@ use crate::error::Result;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
-/// Symmetric eigendecomposition via Jacobi method
+/// Symmetric eigendecomposition via Jacobi method - runs entirely on GPU.
 pub fn eig_decompose_symmetric_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -71,14 +73,16 @@ pub fn eig_decompose_symmetric_impl(
         });
     }
 
+    let elem_size = dtype.size_in_bytes();
+
     // Allocate working buffers on GPU
-    let work_size = n * n * dtype.size_in_bytes();
+    let work_size = n * n * elem_size;
     let work_ptr = client.allocator().allocate(work_size);
 
-    let eigenvectors_size = n * n * dtype.size_in_bytes();
+    let eigenvectors_size = n * n * elem_size;
     let eigenvectors_ptr = client.allocator().allocate(eigenvectors_size);
 
-    let eigenvalues_size = n * dtype.size_in_bytes();
+    let eigenvalues_size = n * elem_size;
     let eigenvalues_ptr = client.allocator().allocate(eigenvalues_size);
 
     let flag_size = std::mem::size_of::<i32>();
@@ -121,62 +125,149 @@ pub fn eig_decompose_symmetric_impl(
 
     client.synchronize();
 
-    // Clean up converged flag
+    // Clean up converged flag (we trust the Jacobi algorithm)
     client.allocator().deallocate(converged_flag_ptr, flag_size);
-
-    // Read back eigenvalues for sorting
-    let eigenvalues_data: Vec<f64> = match dtype {
-        DType::F32 => {
-            let mut bytes = vec![0u8; n * 4];
-            CudaRuntime::copy_from_device(eigenvalues_ptr, &mut bytes, device);
-            bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
-                .collect()
-        }
-        DType::F64 => {
-            let mut bytes = vec![0u8; n * 8];
-            CudaRuntime::copy_from_device(eigenvalues_ptr, &mut bytes, device);
-            bytes
-                .chunks_exact(8)
-                .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-                .collect()
-        }
-        _ => unreachable!(),
-    };
-
-    // Sort indices by descending magnitude
-    let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_by(|&i, &j| {
-        eigenvalues_data[j]
-            .abs()
-            .partial_cmp(&eigenvalues_data[i].abs())
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Reorder and create final tensors
-    let (eigenvalues_final, eigenvectors_final) = match dtype {
-        DType::F32 => reorder_eig_f32(
-            client,
-            device,
-            eigenvectors_ptr,
-            &eigenvalues_data,
-            &indices,
-            n,
-        ),
-        DType::F64 => reorder_eig_f64(
-            client,
-            device,
-            eigenvectors_ptr,
-            &eigenvalues_data,
-            &indices,
-            n,
-        ),
-        _ => unreachable!(),
-    };
-
-    // Clean up working buffers
     client.allocator().deallocate(work_ptr, work_size);
+
+    // Compute absolute values of eigenvalues for sorting by magnitude (all on GPU)
+    let abs_eigenvalues_size = n * elem_size;
+    let abs_eigenvalues_ptr = client.allocator().allocate(abs_eigenvalues_size);
+
+    let abs_result = unsafe {
+        kernels::launch_unary_op(
+            client.context(),
+            client.stream(),
+            device.index,
+            "abs",
+            dtype,
+            eigenvalues_ptr,
+            abs_eigenvalues_ptr,
+            n,
+        )
+    };
+
+    if let Err(e) = abs_result {
+        client
+            .allocator()
+            .deallocate(abs_eigenvalues_ptr, abs_eigenvalues_size);
+        client
+            .allocator()
+            .deallocate(eigenvectors_ptr, eigenvectors_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_ptr, eigenvalues_size);
+        return Err(e);
+    }
+
+    // GPU argsort to get sorted indices (descending by magnitude)
+    let indices_size = n * std::mem::size_of::<i64>();
+    let indices_ptr = client.allocator().allocate(indices_size);
+
+    let argsort_result = unsafe {
+        kernels::launch_argsort(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            abs_eigenvalues_ptr, // sort by absolute values
+            indices_ptr,         // output: sorted indices
+            1,                   // outer_size
+            n,                   // sort_size
+            1,                   // inner_size
+            true,                // descending (largest magnitude first)
+        )
+    };
+
+    // Clean up abs eigenvalues buffer
+    client
+        .allocator()
+        .deallocate(abs_eigenvalues_ptr, abs_eigenvalues_size);
+
+    if let Err(e) = argsort_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client
+            .allocator()
+            .deallocate(eigenvectors_ptr, eigenvectors_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_ptr, eigenvalues_size);
+        return Err(e);
+    }
+
+    // Reorder eigenvalues using GPU index_select
+    let eigenvalues_sorted_size = n * elem_size;
+    let eigenvalues_sorted_ptr = client.allocator().allocate(eigenvalues_sorted_size);
+
+    let eigenvalues_select_result = unsafe {
+        kernels::launch_index_select(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            eigenvalues_ptr,        // input
+            indices_ptr,            // indices
+            eigenvalues_sorted_ptr, // output
+            1,                      // outer_size
+            n,                      // dim_size
+            1,                      // inner_size
+            n,                      // index_len (all n eigenvalues)
+        )
+    };
+
+    if let Err(e) = eigenvalues_select_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_sorted_ptr, eigenvalues_sorted_size);
+        client
+            .allocator()
+            .deallocate(eigenvectors_ptr, eigenvectors_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_ptr, eigenvalues_size);
+        return Err(e);
+    }
+
+    // Reorder eigenvector columns using GPU index_select
+    // eigenvectors is [n, n], select n columns -> [n, n]
+    let eigenvectors_sorted_size = n * n * elem_size;
+    let eigenvectors_sorted_ptr = client.allocator().allocate(eigenvectors_sorted_size);
+
+    let eigenvectors_select_result = unsafe {
+        kernels::launch_index_select(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            eigenvectors_ptr,        // input [n, n]
+            indices_ptr,             // indices
+            eigenvectors_sorted_ptr, // output [n, n]
+            n,                       // outer_size (rows)
+            n,                       // dim_size (columns to select from)
+            1,                       // inner_size
+            n,                       // index_len (all n columns)
+        )
+    };
+
+    if let Err(e) = eigenvectors_select_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_sorted_ptr, eigenvalues_sorted_size);
+        client
+            .allocator()
+            .deallocate(eigenvectors_sorted_ptr, eigenvectors_sorted_size);
+        client
+            .allocator()
+            .deallocate(eigenvectors_ptr, eigenvectors_size);
+        client
+            .allocator()
+            .deallocate(eigenvalues_ptr, eigenvalues_size);
+        return Err(e);
+    }
+
+    // Clean up intermediate buffers
+    client.allocator().deallocate(indices_ptr, indices_size);
     client
         .allocator()
         .deallocate(eigenvectors_ptr, eigenvectors_size);
@@ -184,113 +275,14 @@ pub fn eig_decompose_symmetric_impl(
         .allocator()
         .deallocate(eigenvalues_ptr, eigenvalues_size);
 
+    // Create final tensors
+    let eigenvalues =
+        unsafe { CudaClient::tensor_from_raw(eigenvalues_sorted_ptr, &[n], dtype, device) };
+    let eigenvectors =
+        unsafe { CudaClient::tensor_from_raw(eigenvectors_sorted_ptr, &[n, n], dtype, device) };
+
     Ok(EigenDecomposition {
-        eigenvalues: eigenvalues_final,
-        eigenvectors: eigenvectors_final,
+        eigenvalues,
+        eigenvectors,
     })
-}
-
-fn reorder_eig_f32(
-    client: &CudaClient,
-    device: &super::super::CudaDevice,
-    eigenvectors_ptr: u64,
-    eigenvalues_data: &[f64],
-    indices: &[usize],
-    n: usize,
-) -> (Tensor<CudaRuntime>, Tensor<CudaRuntime>) {
-    // Read eigenvectors
-    let mut v_bytes = vec![0u8; n * n * 4];
-    CudaRuntime::copy_from_device(eigenvectors_ptr, &mut v_bytes, device);
-    let v_data: Vec<f32> = v_bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-        .collect();
-
-    // Sorted eigenvalues
-    let eigenvalues_sorted: Vec<f32> = indices
-        .iter()
-        .map(|&idx| eigenvalues_data[idx] as f32)
-        .collect();
-
-    // Sorted eigenvector columns
-    let mut v_sorted = vec![0.0f32; n * n];
-    for (new_idx, &old_idx) in indices.iter().enumerate() {
-        for i in 0..n {
-            v_sorted[i * n + new_idx] = v_data[i * n + old_idx];
-        }
-    }
-
-    // Allocate final output
-    let eigenvalues_size = n * 4;
-    let eigenvectors_size = n * n * 4;
-    let eigenvalues_ptr_final = client.allocator().allocate(eigenvalues_size);
-    let eigenvectors_ptr_final = client.allocator().allocate(eigenvectors_size);
-
-    // Copy sorted results to GPU
-    let eigenvalues_bytes: Vec<u8> = eigenvalues_sorted
-        .iter()
-        .flat_map(|&v| v.to_ne_bytes())
-        .collect();
-    CudaRuntime::copy_to_device(&eigenvalues_bytes, eigenvalues_ptr_final, device);
-
-    let eigenvectors_bytes: Vec<u8> = v_sorted.iter().flat_map(|&v| v.to_ne_bytes()).collect();
-    CudaRuntime::copy_to_device(&eigenvectors_bytes, eigenvectors_ptr_final, device);
-
-    let eigenvalues_final =
-        unsafe { CudaClient::tensor_from_raw(eigenvalues_ptr_final, &[n], DType::F32, device) };
-    let eigenvectors_final =
-        unsafe { CudaClient::tensor_from_raw(eigenvectors_ptr_final, &[n, n], DType::F32, device) };
-
-    (eigenvalues_final, eigenvectors_final)
-}
-
-fn reorder_eig_f64(
-    client: &CudaClient,
-    device: &super::super::CudaDevice,
-    eigenvectors_ptr: u64,
-    eigenvalues_data: &[f64],
-    indices: &[usize],
-    n: usize,
-) -> (Tensor<CudaRuntime>, Tensor<CudaRuntime>) {
-    // Read eigenvectors
-    let mut v_bytes = vec![0u8; n * n * 8];
-    CudaRuntime::copy_from_device(eigenvectors_ptr, &mut v_bytes, device);
-    let v_data: Vec<f64> = v_bytes
-        .chunks_exact(8)
-        .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-        .collect();
-
-    // Sorted eigenvalues
-    let eigenvalues_sorted: Vec<f64> = indices.iter().map(|&idx| eigenvalues_data[idx]).collect();
-
-    // Sorted eigenvector columns
-    let mut v_sorted = vec![0.0f64; n * n];
-    for (new_idx, &old_idx) in indices.iter().enumerate() {
-        for i in 0..n {
-            v_sorted[i * n + new_idx] = v_data[i * n + old_idx];
-        }
-    }
-
-    // Allocate final output
-    let eigenvalues_size = n * 8;
-    let eigenvectors_size = n * n * 8;
-    let eigenvalues_ptr_final = client.allocator().allocate(eigenvalues_size);
-    let eigenvectors_ptr_final = client.allocator().allocate(eigenvectors_size);
-
-    // Copy sorted results to GPU
-    let eigenvalues_bytes: Vec<u8> = eigenvalues_sorted
-        .iter()
-        .flat_map(|&v| v.to_ne_bytes())
-        .collect();
-    CudaRuntime::copy_to_device(&eigenvalues_bytes, eigenvalues_ptr_final, device);
-
-    let eigenvectors_bytes: Vec<u8> = v_sorted.iter().flat_map(|&v| v.to_ne_bytes()).collect();
-    CudaRuntime::copy_to_device(&eigenvectors_bytes, eigenvectors_ptr_final, device);
-
-    let eigenvalues_final =
-        unsafe { CudaClient::tensor_from_raw(eigenvalues_ptr_final, &[n], DType::F64, device) };
-    let eigenvectors_final =
-        unsafe { CudaClient::tensor_from_raw(eigenvectors_ptr_final, &[n, n], DType::F64, device) };
-
-    (eigenvalues_final, eigenvectors_final)
 }

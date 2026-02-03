@@ -1,4 +1,6 @@
 //! SVD decomposition for CUDA
+//!
+//! All operations run entirely on GPU with zero CPU transfers.
 
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
@@ -9,7 +11,7 @@ use crate::error::{Error, Result};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
-/// SVD decomposition via Jacobi method
+/// SVD decomposition via Jacobi method - runs entirely on GPU.
 pub fn svd_decompose_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -37,13 +39,14 @@ pub fn svd_decompose_impl(
     let work_k = work_m.min(work_n);
 
     // Allocate working buffers on GPU
-    let b_size = work_m * work_n * dtype.size_in_bytes();
+    let elem_size = dtype.size_in_bytes();
+    let b_size = work_m * work_n * elem_size;
     let b_ptr = client.allocator().allocate(b_size);
 
-    let v_size = work_n * work_n * dtype.size_in_bytes();
+    let v_size = work_n * work_n * elem_size;
     let v_ptr = client.allocator().allocate(v_size);
 
-    let s_size = work_n * dtype.size_in_bytes();
+    let s_size = work_n * elem_size;
     let s_ptr = client.allocator().allocate(s_size);
 
     let flag_size = std::mem::size_of::<i32>();
@@ -107,241 +110,253 @@ pub fn svd_decompose_impl(
 
     client.synchronize();
 
-    // Clean up converged flag
+    // Clean up converged flag (we trust the Jacobi algorithm)
     client.allocator().deallocate(converged_flag_ptr, flag_size);
 
-    // Read back singular values and indices for sorting
-    let s_data: Vec<f64> = match dtype {
-        DType::F32 => {
-            let mut bytes = vec![0u8; work_n * 4];
-            CudaRuntime::copy_from_device(s_ptr, &mut bytes, device);
-            bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]) as f64)
-                .collect()
-        }
-        DType::F64 => {
-            let mut bytes = vec![0u8; work_n * 8];
-            CudaRuntime::copy_from_device(s_ptr, &mut bytes, device);
-            bytes
-                .chunks_exact(8)
-                .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-                .collect()
-        }
-        _ => unreachable!(),
+    // GPU argsort to get sorted indices (descending order)
+    let indices_size = work_n * std::mem::size_of::<i64>();
+    let indices_ptr = client.allocator().allocate(indices_size);
+
+    let argsort_result = unsafe {
+        kernels::launch_argsort(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            s_ptr,       // input: singular values
+            indices_ptr, // output: sorted indices
+            1,           // outer_size
+            work_n,      // sort_size
+            1,           // inner_size
+            true,        // descending (largest singular values first)
+        )
     };
 
-    // Sort indices by descending singular value
-    let mut indices: Vec<usize> = (0..work_n).collect();
-    indices.sort_by(|&i, &j| {
-        s_data[j]
-            .partial_cmp(&s_data[i])
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    if let Err(e) = argsort_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client.allocator().deallocate(b_ptr, b_size);
+        client.allocator().deallocate(v_ptr, v_size);
+        client.allocator().deallocate(s_ptr, s_size);
+        return Err(e);
+    }
 
-    // Reorder and create final tensors
-    let (u_final, s_final, vt_final) = match dtype {
-        DType::F32 => reorder_svd_f32(
-            client, device, b_ptr, v_ptr, &s_data, &indices, m, n, k, work_m, work_n, work_k,
-            transpose,
-        ),
-        DType::F64 => reorder_svd_f64(
-            client, device, b_ptr, v_ptr, &s_data, &indices, m, n, k, work_m, work_n, work_k,
-            transpose,
-        ),
-        _ => {
-            client.allocator().deallocate(b_ptr, b_size);
-            client.allocator().deallocate(v_ptr, v_size);
-            client.allocator().deallocate(s_ptr, s_size);
-            return Err(Error::UnsupportedDType {
-                dtype,
-                op: "svd_decompose",
-            });
-        }
+    // Now reorder S, U, V using GPU index_select
+    // S_sorted: select first work_k elements using indices
+    let s_sorted_size = work_k * elem_size;
+    let s_sorted_ptr = client.allocator().allocate(s_sorted_size);
+
+    let s_select_result = unsafe {
+        kernels::launch_index_select(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            s_ptr,        // input
+            indices_ptr,  // indices
+            s_sorted_ptr, // output
+            1,            // outer_size
+            work_n,       // dim_size
+            1,            // inner_size
+            work_k,       // index_len (first k indices)
+        )
     };
 
-    // Clean up working buffers
+    if let Err(e) = s_select_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+        client.allocator().deallocate(b_ptr, b_size);
+        client.allocator().deallocate(v_ptr, v_size);
+        client.allocator().deallocate(s_ptr, s_size);
+        return Err(e);
+    }
+
+    // U_sorted: B is [work_m, work_n], select work_k columns -> [work_m, work_k]
+    let u_sorted_size = work_m * work_k * elem_size;
+    let u_sorted_ptr = client.allocator().allocate(u_sorted_size);
+
+    let u_select_result = unsafe {
+        kernels::launch_index_select(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            b_ptr,        // input [work_m, work_n]
+            indices_ptr,  // indices
+            u_sorted_ptr, // output [work_m, work_k]
+            work_m,       // outer_size (rows)
+            work_n,       // dim_size (columns to select from)
+            1,            // inner_size
+            work_k,       // index_len (first k indices)
+        )
+    };
+
+    if let Err(e) = u_select_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+        client.allocator().deallocate(b_ptr, b_size);
+        client.allocator().deallocate(v_ptr, v_size);
+        client.allocator().deallocate(s_ptr, s_size);
+        return Err(e);
+    }
+
+    // V_sorted: V is [work_n, work_n], select work_k columns -> [work_n, work_k]
+    let v_sorted_size = work_n * work_k * elem_size;
+    let v_sorted_ptr = client.allocator().allocate(v_sorted_size);
+
+    let v_select_result = unsafe {
+        kernels::launch_index_select(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            v_ptr,        // input [work_n, work_n]
+            indices_ptr,  // indices
+            v_sorted_ptr, // output [work_n, work_k]
+            work_n,       // outer_size (rows)
+            work_n,       // dim_size (columns to select from)
+            1,            // inner_size
+            work_k,       // index_len (first k indices)
+        )
+    };
+
+    if let Err(e) = v_select_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+        client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
+        client.allocator().deallocate(b_ptr, b_size);
+        client.allocator().deallocate(v_ptr, v_size);
+        client.allocator().deallocate(s_ptr, s_size);
+        return Err(e);
+    }
+
+    // VT = transpose(V_sorted): [work_n, work_k] -> [work_k, work_n]
+    let vt_size = work_k * work_n * elem_size;
+    let vt_ptr = client.allocator().allocate(vt_size);
+
+    let vt_transpose_result = unsafe {
+        kernels::launch_transpose(
+            client.context(),
+            client.stream(),
+            device.index,
+            dtype,
+            v_sorted_ptr, // input [work_n, work_k]
+            vt_ptr,       // output [work_k, work_n]
+            work_n,       // rows of input
+            work_k,       // cols of input
+        )
+    };
+
+    if let Err(e) = vt_transpose_result {
+        client.allocator().deallocate(indices_ptr, indices_size);
+        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+        client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
+        client.allocator().deallocate(vt_ptr, vt_size);
+        client.allocator().deallocate(b_ptr, b_size);
+        client.allocator().deallocate(v_ptr, v_size);
+        client.allocator().deallocate(s_ptr, s_size);
+        return Err(e);
+    }
+
+    // Clean up intermediate buffers
+    client.allocator().deallocate(indices_ptr, indices_size);
+    client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
     client.allocator().deallocate(b_ptr, b_size);
     client.allocator().deallocate(v_ptr, v_size);
     client.allocator().deallocate(s_ptr, s_size);
+
+    // Create final tensors based on transpose flag
+    let (u_final, s_final, vt_final) = if transpose {
+        // When we transposed input: swap roles of U and VT
+        // Original: A^T = U @ S @ VT
+        // So: A = VT^T @ S @ U^T = V @ S @ U^T
+        // Therefore: U_out = V (from VT^T), VT_out = U^T
+
+        // VT^T = V: [work_k, work_n] -> need to transpose to get [m, k] = [work_n, work_k]
+        // But our vt_ptr is [work_k, work_n], we need its transpose [work_n, work_k]
+        // which is [n, k] = [m, k] since m < n means work_n = m
+
+        // Actually, when transpose=true: work_m = n, work_n = m
+        // So VT is [work_k, work_n] = [k, m]
+        // We need U_out [m, k] which is transpose of VT: [k, m]^T = [m, k]
+        let u_out_size = m * k * elem_size;
+        let u_out_ptr = client.allocator().allocate(u_out_size);
+
+        let u_out_transpose_result = unsafe {
+            kernels::launch_transpose(
+                client.context(),
+                client.stream(),
+                device.index,
+                dtype,
+                vt_ptr,    // input [k, m] (since work_k=k, work_n=m)
+                u_out_ptr, // output [m, k]
+                work_k,    // rows of input = k
+                work_n,    // cols of input = m
+            )
+        };
+
+        if let Err(e) = u_out_transpose_result {
+            client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+            client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+            client.allocator().deallocate(vt_ptr, vt_size);
+            client.allocator().deallocate(u_out_ptr, u_out_size);
+            return Err(e);
+        }
+
+        // VT_out = U^T: U_sorted is [work_m, work_k] = [n, k]
+        // We need VT_out [k, n] which is transpose of U_sorted
+        let vt_out_size = k * n * elem_size;
+        let vt_out_ptr = client.allocator().allocate(vt_out_size);
+
+        let vt_out_transpose_result = unsafe {
+            kernels::launch_transpose(
+                client.context(),
+                client.stream(),
+                device.index,
+                dtype,
+                u_sorted_ptr, // input [n, k] (since work_m=n, work_k=k)
+                vt_out_ptr,   // output [k, n]
+                work_m,       // rows of input = n
+                work_k,       // cols of input = k
+            )
+        };
+
+        if let Err(e) = vt_out_transpose_result {
+            client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
+            client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+            client.allocator().deallocate(vt_ptr, vt_size);
+            client.allocator().deallocate(u_out_ptr, u_out_size);
+            client.allocator().deallocate(vt_out_ptr, vt_out_size);
+            return Err(e);
+        }
+
+        // Clean up intermediate
+        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
+        client.allocator().deallocate(vt_ptr, vt_size);
+
+        let u = unsafe { CudaClient::tensor_from_raw(u_out_ptr, &[m, k], dtype, device) };
+        let s = unsafe { CudaClient::tensor_from_raw(s_sorted_ptr, &[k], dtype, device) };
+        let vt = unsafe { CudaClient::tensor_from_raw(vt_out_ptr, &[k, n], dtype, device) };
+
+        (u, s, vt)
+    } else {
+        // No transpose case:
+        // - u_sorted_ptr [m, k] is the final U
+        // - s_sorted_ptr [k] is the final S
+        // - vt_ptr [k, n] is the final VT (already transposed from v_sorted)
+
+        let u = unsafe { CudaClient::tensor_from_raw(u_sorted_ptr, &[m, k], dtype, device) };
+        let s = unsafe { CudaClient::tensor_from_raw(s_sorted_ptr, &[k], dtype, device) };
+        let vt = unsafe { CudaClient::tensor_from_raw(vt_ptr, &[k, n], dtype, device) };
+
+        (u, s, vt)
+    };
 
     Ok(SvdDecomposition {
         u: u_final,
         s: s_final,
         vt: vt_final,
     })
-}
-
-fn reorder_svd_f32(
-    _client: &CudaClient,
-    device: &super::super::CudaDevice,
-    b_ptr: u64,
-    v_ptr: u64,
-    s_data: &[f64],
-    indices: &[usize],
-    m: usize,
-    n: usize,
-    k: usize,
-    work_m: usize,
-    work_n: usize,
-    work_k: usize,
-    transpose: bool,
-) -> (
-    Tensor<CudaRuntime>,
-    Tensor<CudaRuntime>,
-    Tensor<CudaRuntime>,
-) {
-    // Read B (normalized U columns)
-    let mut u_bytes = vec![0u8; work_m * work_n * 4];
-    CudaRuntime::copy_from_device(b_ptr, &mut u_bytes, device);
-    let u_data: Vec<f32> = u_bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-        .collect();
-
-    // Read V
-    let mut v_bytes = vec![0u8; work_n * work_n * 4];
-    CudaRuntime::copy_from_device(v_ptr, &mut v_bytes, device);
-    let v_data: Vec<f32> = v_bytes
-        .chunks_exact(4)
-        .map(|c| f32::from_ne_bytes([c[0], c[1], c[2], c[3]]))
-        .collect();
-
-    // Sorted singular values (take first work_k)
-    let s_sorted: Vec<f32> = indices
-        .iter()
-        .take(work_k)
-        .map(|&idx| s_data[idx] as f32)
-        .collect();
-
-    // Sorted U columns
-    let mut u_sorted = vec![0.0f32; work_m * work_k];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        for i in 0..work_m {
-            u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
-        }
-    }
-
-    // Sorted V^T rows (V columns transposed)
-    let mut vt_sorted = vec![0.0f32; work_k * work_n];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        for j in 0..work_n {
-            vt_sorted[new_idx * work_n + j] = v_data[j * work_n + old_idx];
-        }
-    }
-
-    if transpose {
-        let mut u_final_data = vec![0.0f32; m * k];
-        for i in 0..k {
-            for j in 0..m {
-                u_final_data[j * k + i] = vt_sorted[i * work_n + j];
-            }
-        }
-
-        let mut vt_final_data = vec![0.0f32; k * n];
-        for i in 0..work_m {
-            for j in 0..work_k {
-                vt_final_data[j * n + i] = u_sorted[i * work_k + j];
-            }
-        }
-
-        (
-            Tensor::<CudaRuntime>::from_slice(&u_final_data, &[m, k], device),
-            Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device),
-            Tensor::<CudaRuntime>::from_slice(&vt_final_data, &[k, n], device),
-        )
-    } else {
-        (
-            Tensor::<CudaRuntime>::from_slice(&u_sorted, &[m, k], device),
-            Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device),
-            Tensor::<CudaRuntime>::from_slice(&vt_sorted, &[k, n], device),
-        )
-    }
-}
-
-fn reorder_svd_f64(
-    _client: &CudaClient,
-    device: &super::super::CudaDevice,
-    b_ptr: u64,
-    v_ptr: u64,
-    s_data: &[f64],
-    indices: &[usize],
-    m: usize,
-    n: usize,
-    k: usize,
-    work_m: usize,
-    work_n: usize,
-    work_k: usize,
-    transpose: bool,
-) -> (
-    Tensor<CudaRuntime>,
-    Tensor<CudaRuntime>,
-    Tensor<CudaRuntime>,
-) {
-    // Read B (normalized U columns)
-    let mut u_bytes = vec![0u8; work_m * work_n * 8];
-    CudaRuntime::copy_from_device(b_ptr, &mut u_bytes, device);
-    let u_data: Vec<f64> = u_bytes
-        .chunks_exact(8)
-        .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-        .collect();
-
-    // Read V
-    let mut v_bytes = vec![0u8; work_n * work_n * 8];
-    CudaRuntime::copy_from_device(v_ptr, &mut v_bytes, device);
-    let v_data: Vec<f64> = v_bytes
-        .chunks_exact(8)
-        .map(|c| f64::from_ne_bytes([c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7]]))
-        .collect();
-
-    // Sorted singular values
-    let s_sorted: Vec<f64> = indices
-        .iter()
-        .take(work_k)
-        .map(|&idx| s_data[idx])
-        .collect();
-
-    // Sorted U columns
-    let mut u_sorted = vec![0.0f64; work_m * work_k];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        for i in 0..work_m {
-            u_sorted[i * work_k + new_idx] = u_data[i * work_n + old_idx];
-        }
-    }
-
-    // Sorted V^T rows
-    let mut vt_sorted = vec![0.0f64; work_k * work_n];
-    for (new_idx, &old_idx) in indices.iter().take(work_k).enumerate() {
-        for j in 0..work_n {
-            vt_sorted[new_idx * work_n + j] = v_data[j * work_n + old_idx];
-        }
-    }
-
-    if transpose {
-        let mut u_final_data = vec![0.0f64; m * k];
-        for i in 0..k {
-            for j in 0..m {
-                u_final_data[j * k + i] = vt_sorted[i * work_n + j];
-            }
-        }
-
-        let mut vt_final_data = vec![0.0f64; k * n];
-        for i in 0..work_m {
-            for j in 0..work_k {
-                vt_final_data[j * n + i] = u_sorted[i * work_k + j];
-            }
-        }
-
-        (
-            Tensor::<CudaRuntime>::from_slice(&u_final_data, &[m, k], device),
-            Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device),
-            Tensor::<CudaRuntime>::from_slice(&vt_final_data, &[k, n], device),
-        )
-    } else {
-        (
-            Tensor::<CudaRuntime>::from_slice(&u_sorted, &[m, k], device),
-            Tensor::<CudaRuntime>::from_slice(&s_sorted, &[k], device),
-            Tensor::<CudaRuntime>::from_slice(&vt_sorted, &[k, n], device),
-        )
-    }
 }
