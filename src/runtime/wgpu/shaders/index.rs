@@ -62,6 +62,22 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("embedding_lookup", DType::F32) => Ok("embedding_lookup_f32"),
         ("embedding_lookup", DType::I32) => Ok("embedding_lookup_i32"),
         ("embedding_lookup", DType::U32) => Ok("embedding_lookup_u32"),
+        ("gather_nd", DType::F32) => Ok("gather_nd_f32"),
+        ("gather_nd", DType::I32) => Ok("gather_nd_i32"),
+        ("gather_nd", DType::U32) => Ok("gather_nd_u32"),
+        ("bincount", DType::F32) => Ok("bincount_weighted_f32"),
+        ("bincount", DType::I32) => Ok("bincount_weighted_i32"),
+        ("bincount", DType::U32) => Ok("bincount_weighted_u32"),
+        ("bincount_unweighted", _) => Ok("bincount_i32"),
+        ("scatter_reduce_sum", DType::F32) => Ok("scatter_reduce_sum_f32"),
+        ("scatter_reduce_sum", DType::I32) => Ok("scatter_reduce_sum_i32"),
+        ("scatter_reduce_sum", DType::U32) => Ok("scatter_reduce_sum_u32"),
+        ("scatter_reduce_max", DType::F32) => Ok("scatter_reduce_max_f32"),
+        ("scatter_reduce_max", DType::I32) => Ok("scatter_reduce_max_i32"),
+        ("scatter_reduce_max", DType::U32) => Ok("scatter_reduce_max_u32"),
+        ("scatter_reduce_min", DType::F32) => Ok("scatter_reduce_min_f32"),
+        ("scatter_reduce_min", DType::I32) => Ok("scatter_reduce_min_i32"),
+        ("scatter_reduce_min", DType::U32) => Ok("scatter_reduce_min_u32"),
         _ => Err(Error::UnsupportedDType { dtype, op }),
     }
 }
@@ -559,6 +575,193 @@ pub fn launch_masked_select(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Embedding Lookup Operation
+// ============================================================================
+
+/// Launch a gather_nd operation kernel.
+///
+/// Gathers slices from input using N-dimensional indices.
+/// Input: input tensor, indices [num_slices, index_depth]
+/// Output: output [num_slices, slice_size]
+pub fn launch_gather_nd(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_output: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "gather_nd")?;
+
+    let name = kernel_name("gather_nd", dtype)?;
+    let shader_source = super::generator::generate_gather_nd_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gather_nd"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("gather_nd"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Bincount Operation
+// ============================================================================
+
+/// Launch a bincount operation kernel.
+///
+/// Counts occurrences of each value in an integer tensor.
+/// Input: integer tensor with values in [0, minlength)
+/// Output: count tensor of shape [minlength]
+pub fn launch_bincount(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    weights: Option<&Buffer>,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    n: usize,
+    weights_dtype: Option<DType>,
+) -> Result<()> {
+    let (name, shader_source) = if let Some(dtype) = weights_dtype {
+        let name = kernel_name("bincount", dtype)?;
+        let source = super::generator::generate_bincount_shader(Some(dtype))?;
+        (name, source)
+    } else {
+        let name = kernel_name("bincount_unweighted", DType::I32)?;
+        let source = super::generator::generate_bincount_shader(None)?;
+        (name, source)
+    };
+
+    let module = cache.get_or_create_module(name, &shader_source);
+
+    let (layout, bind_group) = if let Some(weights_buf) = weights {
+        let layout = cache.get_or_create_layout(LayoutKey {
+            num_storage_buffers: 3,
+            num_uniform_buffers: 1,
+        });
+        let bind_group =
+            cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer]);
+        (layout, bind_group)
+    } else {
+        let layout = cache.get_or_create_layout(LayoutKey {
+            num_storage_buffers: 2,
+            num_uniform_buffers: 1,
+        });
+        let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
+        (layout, bind_group)
+    };
+
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("bincount"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("bincount"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Scatter Reduce Operation
+// ============================================================================
+
+/// Launch a scatter_reduce operation kernel.
+///
+/// Scatters values with reduction (sum, max, min).
+/// Uses atomic operations for thread-safe accumulation.
+pub fn launch_scatter_reduce(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    indices: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+    op: &str,
+) -> Result<()> {
+    check_dtype_supported(dtype, "scatter_reduce")?;
+
+    // Get static kernel name based on op type
+    let op_name: &'static str = match op {
+        "sum" => "scatter_reduce_sum",
+        "max" => "scatter_reduce_max",
+        "min" => "scatter_reduce_min",
+        _ => {
+            return Err(Error::InvalidArgument {
+                arg: "op",
+                reason: format!("scatter_reduce op must be sum, max, or min, got {}", op),
+            });
+        }
+    };
+
+    let name = kernel_name(op_name, dtype)?;
+    let shader_source = super::generator::generate_scatter_reduce_shader(dtype, op)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, indices, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_reduce"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter_reduce"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

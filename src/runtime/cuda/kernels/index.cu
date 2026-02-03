@@ -402,4 +402,484 @@ DEFINE_MASKED_SELECT_KERNEL(i64, long long)
 DEFINE_MASKED_FILL_KERNEL(i64, long long)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(i64, long long)
 
+// ============================================================================
+// Gather ND - N-dimensional gather operation
+// Gathers slices from input at positions specified by indices tensor.
+// indices: (num_slices, index_depth) where index_depth <= ndim
+// output: (num_slices, remaining_dims...)
+// ============================================================================
+
+#define DEFINE_GATHER_ND_KERNEL(suffix, dtype) \
+__global__ void gather_nd_##suffix( \
+    const dtype* __restrict__ input, \
+    const long long* __restrict__ indices, \
+    dtype* __restrict__ output, \
+    const unsigned int* __restrict__ input_shape, \
+    const unsigned int* __restrict__ input_strides, \
+    unsigned int num_slices, \
+    unsigned int slice_size, \
+    unsigned int index_depth, \
+    unsigned int ndim \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    unsigned int total = num_slices * slice_size; \
+    if (idx >= total) return; \
+    \
+    unsigned int slice_idx = idx / slice_size; \
+    unsigned int within_slice = idx % slice_size; \
+    \
+    /* Compute offset into input from indices */ \
+    unsigned int src_offset = 0; \
+    bool out_of_bounds = false; \
+    for (unsigned int d = 0; d < index_depth; d++) { \
+        long long index_val = indices[slice_idx * index_depth + d]; \
+        if (index_val < 0 || (unsigned int)index_val >= input_shape[d]) { \
+            out_of_bounds = true; \
+            break; \
+        } \
+        src_offset += (unsigned int)index_val * input_strides[d]; \
+    } \
+    \
+    if (out_of_bounds) { \
+        output[idx] = (dtype)0; \
+        return; \
+    } \
+    \
+    /* Add offset for remaining dimensions */ \
+    src_offset += within_slice; \
+    output[idx] = input[src_offset]; \
+}
+
+// Instantiate gather_nd for all dtypes
+DEFINE_GATHER_ND_KERNEL(f32, float)
+DEFINE_GATHER_ND_KERNEL(f64, double)
+DEFINE_GATHER_ND_KERNEL(f16, __half)
+DEFINE_GATHER_ND_KERNEL(bf16, __nv_bfloat16)
+DEFINE_GATHER_ND_KERNEL(i32, int)
+DEFINE_GATHER_ND_KERNEL(i64, long long)
+
+// ============================================================================
+// Bincount - Count occurrences of each value in an integer tensor
+// input: 1D tensor of non-negative integers
+// weights: Optional 1D tensor of weights (same length as input)
+// output: 1D tensor of counts/sums with length = minlength
+// Uses atomicAdd for thread-safe accumulation
+// ============================================================================
+
+// Bincount without weights (counting)
+__global__ void bincount_i32(
+    const int* __restrict__ input,
+    float* __restrict__ output,
+    unsigned int n,
+    unsigned int minlength
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    int val = input[idx];
+    if (val >= 0 && (unsigned int)val < minlength) {
+        atomicAdd(&output[val], 1.0f);
+    }
+}
+
+__global__ void bincount_i64(
+    const long long* __restrict__ input,
+    float* __restrict__ output,
+    unsigned int n,
+    unsigned int minlength
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    long long val = input[idx];
+    if (val >= 0 && (unsigned long long)val < minlength) {
+        atomicAdd(&output[val], 1.0f);
+    }
+}
+
+// Bincount with f32 weights
+__global__ void bincount_weighted_f32(
+    const int* __restrict__ input,
+    const float* __restrict__ weights,
+    float* __restrict__ output,
+    unsigned int n,
+    unsigned int minlength
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    int val = input[idx];
+    if (val >= 0 && (unsigned int)val < minlength) {
+        atomicAdd(&output[val], weights[idx]);
+    }
+}
+
+// Bincount with f64 weights
+__global__ void bincount_weighted_f64(
+    const int* __restrict__ input,
+    const double* __restrict__ weights,
+    double* __restrict__ output,
+    unsigned int n,
+    unsigned int minlength
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    int val = input[idx];
+    if (val >= 0 && (unsigned int)val < minlength) {
+        atomicAdd(&output[val], weights[idx]);
+    }
+}
+
+// Bincount with i64 input and f32 weights
+__global__ void bincount_i64_weighted_f32(
+    const long long* __restrict__ input,
+    const float* __restrict__ weights,
+    float* __restrict__ output,
+    unsigned int n,
+    unsigned int minlength
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    long long val = input[idx];
+    if (val >= 0 && (unsigned long long)val < minlength) {
+        atomicAdd(&output[val], weights[idx]);
+    }
+}
+
+// ============================================================================
+// Scatter Reduce - Scatter with reduction operations
+// Scatters values from src to dst at positions specified by index with a
+// reduction operation (sum, prod, max, min, mean).
+// Uses atomic operations for thread-safe reduction.
+// Reduce ops: 0=sum, 1=prod, 2=max, 3=min, 4=mean
+// ============================================================================
+
+// Atomic max for float using CAS
+__device__ __forceinline__ float atomicMaxFloat(float* address, float val) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int;
+    int assumed;
+    do {
+        assumed = old;
+        float old_val = __int_as_float(assumed);
+        float new_val = fmaxf(old_val, val);
+        old = atomicCAS(address_as_int, assumed, __float_as_int(new_val));
+    } while (assumed != old);
+    return __int_as_float(old);
+}
+
+// Atomic min for float using CAS
+__device__ __forceinline__ float atomicMinFloat(float* address, float val) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int;
+    int assumed;
+    do {
+        assumed = old;
+        float old_val = __int_as_float(assumed);
+        float new_val = fminf(old_val, val);
+        old = atomicCAS(address_as_int, assumed, __float_as_int(new_val));
+    } while (assumed != old);
+    return __int_as_float(old);
+}
+
+// Atomic max for double using CAS
+__device__ __forceinline__ double atomicMaxDouble(double* address, double val) {
+    unsigned long long* address_as_ull = (unsigned long long*)address;
+    unsigned long long old = *address_as_ull;
+    unsigned long long assumed;
+    do {
+        assumed = old;
+        double old_val = __longlong_as_double(assumed);
+        double new_val = fmax(old_val, val);
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(new_val));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+
+// Atomic min for double using CAS
+__device__ __forceinline__ double atomicMinDouble(double* address, double val) {
+    unsigned long long* address_as_ull = (unsigned long long*)address;
+    unsigned long long old = *address_as_ull;
+    unsigned long long assumed;
+    do {
+        assumed = old;
+        double old_val = __longlong_as_double(assumed);
+        double new_val = fmin(old_val, val);
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(new_val));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+
+// Scatter reduce for F32 - sum operation
+__global__ void scatter_reduce_sum_f32(
+    const float* __restrict__ src,
+    const long long* __restrict__ indices,
+    float* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicAdd(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for F32 - max operation
+__global__ void scatter_reduce_max_f32(
+    const float* __restrict__ src,
+    const long long* __restrict__ indices,
+    float* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMaxFloat(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for F32 - min operation
+__global__ void scatter_reduce_min_f32(
+    const float* __restrict__ src,
+    const long long* __restrict__ indices,
+    float* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMinFloat(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for F64 - sum operation
+__global__ void scatter_reduce_sum_f64(
+    const double* __restrict__ src,
+    const long long* __restrict__ indices,
+    double* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicAdd(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for F64 - max operation
+__global__ void scatter_reduce_max_f64(
+    const double* __restrict__ src,
+    const long long* __restrict__ indices,
+    double* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMaxDouble(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for F64 - min operation
+__global__ void scatter_reduce_min_f64(
+    const double* __restrict__ src,
+    const long long* __restrict__ indices,
+    double* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMinDouble(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for I32 - sum operation
+__global__ void scatter_reduce_sum_i32(
+    const int* __restrict__ src,
+    const long long* __restrict__ indices,
+    int* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicAdd(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for I32 - max operation
+__global__ void scatter_reduce_max_i32(
+    const int* __restrict__ src,
+    const long long* __restrict__ indices,
+    int* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMax(&dst[dst_idx], src[src_idx]);
+}
+
+// Scatter reduce for I32 - min operation
+__global__ void scatter_reduce_min_i32(
+    const int* __restrict__ src,
+    const long long* __restrict__ indices,
+    int* __restrict__ dst,
+    unsigned int dim,
+    unsigned int outer_size,
+    unsigned int dim_size,
+    unsigned int inner_size,
+    unsigned int src_dim_size
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = outer_size * src_dim_size * inner_size;
+    if (idx >= total) return;
+
+    unsigned int inner = idx % inner_size;
+    unsigned int src_d = (idx / inner_size) % src_dim_size;
+    unsigned int outer = idx / (src_dim_size * inner_size);
+
+    long long index_val = indices[src_d];
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) {
+        return;
+    }
+
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner;
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner;
+
+    atomicMin(&dst[dst_idx], src[src_idx]);
+}
+
 } // extern "C"

@@ -1,13 +1,21 @@
 //! Indexing operations for WebGPU runtime
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{IndexingOps, ScatterReduceOp};
+use crate::runtime::RuntimeClient;
+use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
+use crate::runtime::wgpu::ops::helpers::{
+    BincountParams, GatherNdParams, ScatterReduceParams, alloc_output, create_params_buffer,
+    get_tensor_buffer,
+};
 use crate::runtime::wgpu::ops::native::{
     native_argreduce_op, native_embedding_lookup, native_gather, native_index_put,
     native_index_select, native_masked_fill, native_masked_select, native_scatter,
 };
+use crate::runtime::wgpu::shaders::{launch_bincount, launch_gather_nd, launch_scatter_reduce};
 use crate::tensor::Tensor;
 
 impl IndexingOps<WgpuRuntime> for WgpuClient {
@@ -94,41 +102,295 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
 
     fn scatter_reduce(
         &self,
-        _dst: &Tensor<WgpuRuntime>,
-        _dim: usize,
-        _index: &Tensor<WgpuRuntime>,
-        _src: &Tensor<WgpuRuntime>,
-        _op: ScatterReduceOp,
-        _include_self: bool,
+        dst: &Tensor<WgpuRuntime>,
+        dim: usize,
+        index: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+        op: ScatterReduceOp,
+        include_self: bool,
     ) -> Result<Tensor<WgpuRuntime>> {
-        // TODO: Implement WebGPU shader for scatter_reduce
-        // Requires atomics for reduction operations (Sum, Mean) or compare-and-swap for Max/Min
-        Err(Error::NotImplemented {
-            feature: "scatter_reduce on WebGPU (requires atomic operations)",
-        })
+        let dtype = dst.dtype();
+
+        // Only float types supported for scatter_reduce on WebGPU
+        // (atomics use CAS loops with bitcast for floats)
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "scatter_reduce",
+            });
+        }
+
+        // Validate index dtype
+        if !matches!(index.dtype(), DType::I32 | DType::I64) {
+            return Err(Error::InvalidArgument {
+                arg: "index",
+                reason: "scatter_reduce index must be I32 or I64".to_string(),
+            });
+        }
+
+        // Map operation
+        let op_str = match op {
+            ScatterReduceOp::Sum => "sum",
+            ScatterReduceOp::Max => "max",
+            ScatterReduceOp::Min => "min",
+            ScatterReduceOp::Prod => {
+                return Err(Error::NotImplemented {
+                    feature: "scatter_reduce with Prod on WebGPU",
+                });
+            }
+            ScatterReduceOp::Mean => {
+                return Err(Error::NotImplemented {
+                    feature: "scatter_reduce with Mean on WebGPU (requires count tracking)",
+                });
+            }
+        };
+
+        // Ensure contiguous
+        let dst = ensure_contiguous(dst);
+        let index = ensure_contiguous(index);
+        let src = ensure_contiguous(src);
+
+        // Compute shape parameters
+        let dst_shape = dst.shape();
+        let ndim = dst_shape.len();
+        if dim >= ndim {
+            return Err(Error::InvalidArgument {
+                arg: "dim",
+                reason: format!("dim {} out of bounds for tensor with {} dims", dim, ndim),
+            });
+        }
+
+        let outer_size: usize = dst_shape[..dim].iter().product();
+        let dim_size = dst_shape[dim];
+        let inner_size: usize = dst_shape[dim + 1..].iter().product();
+        let src_dim_size = src.shape().get(dim).copied().unwrap_or(1);
+        let total_src = src.numel();
+
+        // Allocate output and initialize
+        let output = if include_self {
+            dst.clone()
+        } else {
+            // Initialize to identity for the operation
+            let identity = match op {
+                ScatterReduceOp::Sum => 0.0f64,
+                ScatterReduceOp::Max => f64::NEG_INFINITY,
+                ScatterReduceOp::Min => f64::INFINITY,
+                _ => 0.0,
+            };
+            Tensor::full_scalar(dst_shape, dtype, identity, self.device())
+        };
+
+        // Get buffers
+        let src_buf = get_tensor_buffer(&src)?;
+        let index_buf = get_tensor_buffer(&index)?;
+        let output_buf = get_tensor_buffer(&output)?;
+
+        // Create params
+        let params = ScatterReduceParams {
+            dim: dim as u32,
+            outer_size: outer_size as u32,
+            dim_size: dim_size as u32,
+            inner_size: inner_size as u32,
+            src_dim_size: src_dim_size as u32,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        launch_scatter_reduce(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &src_buf,
+            &index_buf,
+            &output_buf,
+            &params_buf,
+            total_src,
+            dtype,
+            op_str,
+        )?;
+
+        Ok(output)
     }
 
     fn gather_nd(
         &self,
-        _input: &Tensor<WgpuRuntime>,
-        _indices: &Tensor<WgpuRuntime>,
+        input: &Tensor<WgpuRuntime>,
+        indices: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
-        // TODO: Implement WebGPU shader for gather_nd
-        Err(Error::NotImplemented {
-            feature: "gather_nd on WebGPU",
-        })
+        let dtype = input.dtype();
+
+        // Check supported dtypes
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "gather_nd",
+            });
+        }
+
+        // Validate indices dtype
+        if !matches!(indices.dtype(), DType::I32 | DType::I64) {
+            return Err(Error::InvalidArgument {
+                arg: "indices",
+                reason: "gather_nd indices must be I32 or I64".to_string(),
+            });
+        }
+
+        // Ensure contiguous
+        let input = ensure_contiguous(input);
+        let indices = ensure_contiguous(indices);
+
+        let input_shape = input.shape();
+        let indices_shape = indices.shape();
+
+        // indices has shape [..., index_depth]
+        // where index_depth <= input_ndim
+        let index_depth = *indices_shape.last().unwrap_or(&0);
+        let num_slices: usize = indices_shape[..indices_shape.len() - 1].iter().product();
+
+        if index_depth > input_shape.len() {
+            return Err(Error::InvalidArgument {
+                arg: "indices",
+                reason: format!(
+                    "index depth {} exceeds input dimensions {}",
+                    index_depth,
+                    input_shape.len()
+                ),
+            });
+        }
+
+        // Compute output shape and slice size
+        // Output shape = indices_shape[:-1] + input_shape[index_depth:]
+        let slice_size: usize = input_shape[index_depth..].iter().product();
+        let slice_size = if slice_size == 0 { 1 } else { slice_size };
+
+        let mut output_shape: Vec<usize> = indices_shape[..indices_shape.len() - 1].to_vec();
+        output_shape.extend_from_slice(&input_shape[index_depth..]);
+        if output_shape.is_empty() {
+            output_shape.push(1);
+        }
+
+        let total_output = num_slices * slice_size;
+
+        // Allocate output
+        let output = alloc_output(self, &output_shape, dtype);
+
+        // Get buffers
+        let input_buf = get_tensor_buffer(&input)?;
+        let indices_buf = get_tensor_buffer(&indices)?;
+        let output_buf = get_tensor_buffer(&output)?;
+
+        // Compute strides
+        let ndim = input_shape.len();
+        let mut input_strides = [0u32; 8];
+        let mut input_shape_arr = [0u32; 8];
+        let mut stride = 1usize;
+        for i in (0..ndim).rev() {
+            if i < 8 {
+                input_strides[i] = stride as u32;
+                input_shape_arr[i] = input_shape[i] as u32;
+            }
+            stride *= input_shape[i];
+        }
+
+        // Create params
+        let params = GatherNdParams {
+            num_slices: num_slices as u32,
+            slice_size: slice_size as u32,
+            index_depth: index_depth as u32,
+            ndim: ndim as u32,
+            input_shape: input_shape_arr,
+            input_strides,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        launch_gather_nd(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &input_buf,
+            &indices_buf,
+            &output_buf,
+            &params_buf,
+            total_output,
+            dtype,
+        )?;
+
+        Ok(output)
     }
 
     fn bincount(
         &self,
-        _input: &Tensor<WgpuRuntime>,
-        _weights: Option<&Tensor<WgpuRuntime>>,
-        _minlength: usize,
+        input: &Tensor<WgpuRuntime>,
+        weights: Option<&Tensor<WgpuRuntime>>,
+        minlength: usize,
     ) -> Result<Tensor<WgpuRuntime>> {
-        // TODO: Implement WebGPU shader for bincount
-        // Requires atomics for counting
-        Err(Error::NotImplemented {
-            feature: "bincount on WebGPU (requires atomic operations)",
-        })
+        // Validate input is 1D integer
+        if input.ndim() != 1 {
+            return Err(Error::InvalidArgument {
+                arg: "input",
+                reason: "bincount input must be 1D".to_string(),
+            });
+        }
+
+        if !matches!(input.dtype(), DType::I32 | DType::I64) {
+            return Err(Error::InvalidArgument {
+                arg: "input",
+                reason: "bincount input must be integer type (I32 or I64)".to_string(),
+            });
+        }
+
+        // Determine output dtype
+        let output_dtype = if let Some(w) = weights {
+            if !matches!(w.dtype(), DType::F32 | DType::I32 | DType::U32) {
+                return Err(Error::UnsupportedDType {
+                    dtype: w.dtype(),
+                    op: "bincount weights",
+                });
+            }
+            w.dtype()
+        } else {
+            DType::U32 // Unweighted bincount returns counts as U32
+        };
+
+        // Ensure contiguous
+        let input = ensure_contiguous(input);
+        let weights = weights.map(ensure_contiguous);
+
+        let n = input.numel();
+
+        // Allocate output (zeros)
+        let output = Tensor::zeros(&[minlength], output_dtype, self.device());
+
+        // Get buffers
+        let input_buf = get_tensor_buffer(&input)?;
+        let output_buf = get_tensor_buffer(&output)?;
+
+        let weights_buf = if let Some(ref w) = weights {
+            Some(get_tensor_buffer(w)?)
+        } else {
+            None
+        };
+
+        // Create params
+        let params = BincountParams {
+            n: n as u32,
+            minlength: minlength as u32,
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        launch_bincount(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &input_buf,
+            weights_buf.as_deref(),
+            &output_buf,
+            &params_buf,
+            n,
+            weights.as_ref().map(|w| w.dtype()),
+        )?;
+
+        Ok(output)
     }
 }

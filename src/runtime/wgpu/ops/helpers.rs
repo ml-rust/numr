@@ -656,6 +656,42 @@ pub(super) struct ValidateIndicesParams {
     pub(super) _pad1: u32,
 }
 
+/// Params for gather_nd operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GatherNdParams {
+    pub(crate) num_slices: u32,
+    pub(crate) slice_size: u32,
+    pub(crate) index_depth: u32,
+    pub(crate) ndim: u32,
+    pub(crate) input_shape: [u32; 8],
+    pub(crate) input_strides: [u32; 8],
+}
+
+/// Params for bincount operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct BincountParams {
+    pub(crate) n: u32,
+    pub(crate) minlength: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+}
+
+/// Params for scatter_reduce operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct ScatterReduceParams {
+    pub(crate) dim: u32,
+    pub(crate) outer_size: u32,
+    pub(crate) dim_size: u32,
+    pub(crate) inner_size: u32,
+    pub(crate) src_dim_size: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) _pad2: u32,
+}
+
 /// Params for unique_with_counts operations
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

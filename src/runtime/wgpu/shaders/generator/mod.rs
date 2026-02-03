@@ -29,6 +29,7 @@ pub mod cat;
 pub mod common;
 pub mod compare;
 pub mod complex;
+pub mod conv;
 pub mod cumulative;
 pub mod distributions;
 pub mod fft;
@@ -67,6 +68,7 @@ pub use complex::{
     complex_output_dtype, generate_angle_shader, generate_conj_shader, generate_imag_shader,
     generate_real_shader, get_complex_shader_generator, validate_complex_dtype,
 };
+pub use conv::{generate_conv1d_shader, generate_conv2d_shader, generate_depthwise_conv2d_shader};
 pub use cumulative::{
     generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
     generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
@@ -83,8 +85,9 @@ pub use fft::{
     generate_rfft_truncate_shader, generate_stockham_fft_shader,
 };
 pub use index::{
-    generate_embedding_lookup_shader, generate_gather_shader, generate_index_put_shader,
-    generate_index_select_shader, generate_scatter_shader, generate_validate_indices_shader,
+    generate_bincount_shader, generate_embedding_lookup_shader, generate_gather_nd_shader,
+    generate_gather_shader, generate_index_put_shader, generate_index_select_shader,
+    generate_scatter_reduce_shader, generate_scatter_shader, generate_validate_indices_shader,
 };
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};

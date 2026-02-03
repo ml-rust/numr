@@ -23,6 +23,7 @@
 
 pub mod advanced_random;
 pub mod complex;
+pub mod conv;
 pub mod copy;
 pub mod cumulative;
 pub mod distance;
@@ -66,6 +67,7 @@ pub use advanced_random::{
     launch_xoshiro256_uniform,
 };
 pub use complex::{launch_angle_real, launch_complex_op};
+pub use conv::{launch_conv1d, launch_conv2d, launch_depthwise_conv2d};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,
     launch_logsumexp_strided,
@@ -81,15 +83,18 @@ pub use distributions::{
 };
 pub use generator::{
     dtype_suffix, generate_all_casts_from, generate_arange_shader, generate_binary_shader,
-    generate_cast_shader, generate_cat_shader, generate_compare_shader, generate_cumprod_shader,
+    generate_bincount_shader, generate_cast_shader, generate_cat_shader, generate_compare_shader,
+    generate_conv1d_shader, generate_conv2d_shader, generate_cumprod_shader,
     generate_cumprod_strided_shader, generate_cumsum_shader, generate_cumsum_strided_shader,
-    generate_eye_shader, generate_fill_shader, generate_gather_shader,
-    generate_index_select_shader, generate_linspace_shader, generate_logsumexp_shader,
-    generate_logsumexp_strided_shader, generate_masked_fill_shader, generate_masked_select_shader,
-    generate_matmul_shader, generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
-    generate_scatter_shader, generate_unary_shader, is_wgpu_supported, is_wgsl_float, is_wgsl_int,
-    wgsl_type,
+    generate_depthwise_conv2d_shader, generate_eye_shader, generate_fill_shader,
+    generate_gather_nd_shader, generate_gather_shader, generate_index_select_shader,
+    generate_linspace_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
+    generate_masked_fill_shader, generate_masked_select_shader, generate_matmul_shader,
+    generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
+    generate_scatter_reduce_shader, generate_scatter_shader, generate_unary_shader,
+    is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type,
 };
+pub use index::{launch_bincount, launch_gather_nd, launch_scatter_reduce};
 pub use matrix_funcs_launcher::{
     compute_schur_func_gpu, launch_diagonal_func, launch_parlett_column,
     launch_validate_eigenvalues,
