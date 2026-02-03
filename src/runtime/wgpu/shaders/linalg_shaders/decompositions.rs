@@ -3,7 +3,6 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Decompositions shader: lu_decompose, cholesky_decompose, qr_decompose
-#[allow(dead_code)]
 pub const DECOMPOSITIONS_SHADER: &str = r#"
 // ============================================================================
 // LU Decomposition with Partial Pivoting

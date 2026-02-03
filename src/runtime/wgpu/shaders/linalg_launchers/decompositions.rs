@@ -5,7 +5,7 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::decompositions::DECOMPOSITIONS_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch LU decomposition kernel with partial pivoting.
@@ -21,12 +21,17 @@ pub fn launch_lu_decompose(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "lu_decompose");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_decompositions", DECOMPOSITIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "lu_decompose_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_decompositions",
+        "lu_decompose_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -64,7 +69,7 @@ pub fn launch_cholesky_decompose(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "cholesky_decompose");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_decompositions", DECOMPOSITIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
@@ -106,12 +111,17 @@ pub fn launch_qr_decompose(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "qr_decompose");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_decompositions", DECOMPOSITIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "qr_decompose_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_decompositions",
+        "qr_decompose_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group =
         cache.create_bind_group(&layout, &[q_matrix, r_matrix, workspace, params_buffer]);

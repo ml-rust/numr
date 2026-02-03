@@ -5,7 +5,9 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::eig_general::EIG_GENERAL_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::eig_symmetric::EIG_SYMMETRIC_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::schur::SCHUR_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch eigendecomposition kernel using Jacobi algorithm for symmetric matrices.
@@ -28,13 +30,17 @@ pub fn launch_eig_jacobi_symmetric(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "eig_jacobi_symmetric");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_eig_symmetric", EIG_SYMMETRIC_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
     });
-    let pipeline =
-        cache.get_or_create_pipeline("linalg", "eig_jacobi_symmetric_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_eig_symmetric",
+        "eig_jacobi_symmetric_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -88,12 +94,13 @@ pub fn launch_schur_decompose(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "schur_decompose");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_schur", SCHUR_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "schur_decompose_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_schur", "schur_decompose_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[t, z, converged_flag, params_buffer]);
 
@@ -140,12 +147,12 @@ pub fn launch_rsf2csf(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "rsf2csf");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_schur", SCHUR_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "rsf2csf_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("linalg_schur", "rsf2csf_f32", &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[t_real, t_imag, z_real, z_imag, params_buffer]);
@@ -199,12 +206,13 @@ pub fn launch_qz_decompose(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "qz_decompose");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_eig_general", EIG_GENERAL_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 7,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "qz_decompose_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_eig_general", "qz_decompose_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -269,12 +277,13 @@ pub fn launch_eig_general(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "eig_general");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_eig_general", EIG_GENERAL_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 7,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "eig_general_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_eig_general", "eig_general_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,

@@ -15,14 +15,14 @@
 //! - `eig_general` - General eigendecomposition
 //! - `matrix_functions` - Matrix exponential, square root, logarithm
 //!
-//! # Individual Shader Constants
+//! # Lazy Shader Compilation
 //!
-//! Individual shader constants are exported for fine-grained pipeline management.
-//! This allows users to compile only the shaders they need, reducing compilation
-//! time and memory usage for specialized applications.
+//! Each shader module is compiled on first use via the `PipelineCache`. This allows
+//! applications that only use a subset of linalg operations to avoid the compilation
+//! overhead of unused shaders.
 //!
 //! For backward compatibility, the combined shader is available via
-//! [`super::linalg_wgsl::LINALG_SHADER`] or [`super::linalg_wgsl::get_combined_linalg_shader()`].
+//! [`super::linalg_wgsl::LINALG_SHADER`].
 
 pub mod basic_ops;
 pub mod decompositions;
@@ -34,28 +34,14 @@ pub mod solvers;
 pub mod svd;
 pub mod utilities;
 
-// Individual shader constants for potential future fine-grained compilation.
-// Currently unused - all launchers use the combined LINALG_SHADER for simplicity.
-// Exported as public API for potential future optimization where applications
-// could compile only the shaders they need, reducing compilation time and memory.
-//
-// TODO: Consider implementing fine-grained shader compilation to use these
-// individual modules instead of the monolithic combined shader.
-#[allow(unused_imports)]
+// Individual shader constants for lazy per-category compilation.
+// Each launcher uses only the shader it needs, which is compiled on first use.
 pub use basic_ops::BASIC_OPS_SHADER;
-#[allow(unused_imports)]
 pub use decompositions::DECOMPOSITIONS_SHADER;
-#[allow(unused_imports)]
 pub use eig_general::EIG_GENERAL_SHADER;
-#[allow(unused_imports)]
 pub use eig_symmetric::EIG_SYMMETRIC_SHADER;
-#[allow(unused_imports)]
 pub use matrix_functions::MATRIX_FUNCTIONS_SHADER;
-#[allow(unused_imports)]
 pub use schur::SCHUR_SHADER;
-#[allow(unused_imports)]
 pub use solvers::SOLVERS_SHADER;
-#[allow(unused_imports)]
 pub use svd::SVD_SHADER;
-#[allow(unused_imports)]
 pub use utilities::UTILITIES_SHADER;

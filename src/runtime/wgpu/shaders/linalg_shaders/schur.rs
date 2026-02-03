@@ -3,7 +3,6 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Schur decomposition shader: schur_decompose
-#[allow(dead_code)]
 pub const SCHUR_SHADER: &str = r#"
 // ============================================================================
 // Schur Decomposition - Hessenberg reduction + QR iteration

@@ -3,7 +3,6 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Utilities shader: det, permutation, scatter/extract column, max_abs, count, copy
-#[allow(dead_code)]
 pub const UTILITIES_SHADER: &str = r#"
 const WORKGROUP_SIZE: u32 = 256u;
 

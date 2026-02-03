@@ -5,7 +5,7 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::matrix_functions::MATRIX_FUNCTIONS_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch matrix exponential kernel for quasi-triangular matrix.
@@ -26,13 +26,17 @@ pub fn launch_exp_quasi_triangular(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "exp_quasi_triangular");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_matrix_functions", MATRIX_FUNCTIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline =
-        cache.get_or_create_pipeline("linalg", "exp_quasi_triangular_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_matrix_functions",
+        "exp_quasi_triangular_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(&layout, &[t, result, params_buffer]);
 
@@ -80,13 +84,17 @@ pub fn launch_sqrt_quasi_triangular(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "sqrt_quasi_triangular");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_matrix_functions", MATRIX_FUNCTIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
     });
-    let pipeline =
-        cache.get_or_create_pipeline("linalg", "sqrt_quasi_triangular_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_matrix_functions",
+        "sqrt_quasi_triangular_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(&layout, &[input, y, z, work1, work2, params_buffer]);
 
@@ -134,13 +142,17 @@ pub fn launch_log_quasi_triangular(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "log_quasi_triangular");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_matrix_functions", MATRIX_FUNCTIONS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
     });
-    let pipeline =
-        cache.get_or_create_pipeline("linalg", "log_quasi_triangular_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "linalg_matrix_functions",
+        "log_quasi_triangular_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group =
         cache.create_bind_group(&layout, &[input, work, result, temp, xpower, params_buffer]);

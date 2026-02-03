@@ -5,7 +5,7 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::utilities::UTILITIES_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 
 /// Launch determinant computation from LU decomposition.
@@ -19,12 +19,13 @@ pub fn launch_det_from_lu(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "det_from_lu");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "det_from_lu_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_utilities", "det_from_lu_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[lu_matrix, det_output, params_buffer]);
 
@@ -60,7 +61,7 @@ pub fn launch_apply_lu_permutation(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "apply_lu_permutation");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
@@ -102,12 +103,13 @@ pub fn launch_scatter_column(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "scatter_column");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "scatter_column_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_utilities", "scatter_column_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[vec, matrix, params_buffer]);
 
@@ -143,12 +145,13 @@ pub fn launch_extract_column(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "extract_column");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "extract_column_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_utilities", "extract_column_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[matrix, col_out, params_buffer]);
 
@@ -184,12 +187,13 @@ pub fn launch_max_abs(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "max_abs");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "max_abs_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_utilities", "max_abs_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[values, max_output, params_buffer]);
 
@@ -225,7 +229,7 @@ pub fn launch_count_above_threshold(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "count_above_threshold");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
@@ -267,12 +271,13 @@ pub fn launch_matrix_copy(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "matrix_copy");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_utilities", UTILITIES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "matrix_copy_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_utilities", "matrix_copy_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
 

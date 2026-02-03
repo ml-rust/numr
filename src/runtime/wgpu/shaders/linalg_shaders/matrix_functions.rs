@@ -3,7 +3,6 @@
 //! F32 only - WGSL doesn't support F64.
 
 /// Matrix functions shader: expm, sqrtm, logm
-#[allow(dead_code)]
 pub const MATRIX_FUNCTIONS_SHADER: &str = r#"
 // ============================================================================
 // Matrix Exponential - exp(T) for quasi-triangular T (Parlett recurrence)

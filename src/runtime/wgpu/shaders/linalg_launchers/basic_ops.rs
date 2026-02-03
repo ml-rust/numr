@@ -5,7 +5,7 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::basic_ops::BASIC_OPS_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 
 /// Launch trace kernel to compute sum of diagonal elements.
@@ -20,12 +20,12 @@ pub fn launch_trace(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "trace");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "trace_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "trace_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
@@ -61,12 +61,12 @@ pub fn launch_diag(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "diag");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "diag_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "diag_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
@@ -102,12 +102,13 @@ pub fn launch_diagflat(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "diagflat");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "diagflat_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_basic_ops", "diagflat_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
@@ -142,12 +143,13 @@ pub fn launch_create_identity(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "create_identity");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "create_identity_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_basic_ops", "create_identity_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[output, params_buffer]);
 
@@ -184,12 +186,12 @@ pub fn launch_kron(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "kron");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "kron_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "kron_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer]);
 
@@ -226,12 +228,13 @@ pub fn launch_khatri_rao(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "khatri_rao");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_basic_ops", BASIC_OPS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "khatri_rao_f32", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("linalg_basic_ops", "khatri_rao_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[a, b, output, params_buffer]);
 

@@ -5,7 +5,7 @@ use wgpu::{Buffer, Queue};
 use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::linalg_wgsl::LINALG_SHADER;
+use crate::runtime::wgpu::shaders::linalg_shaders::svd::SVD_SHADER;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch SVD decomposition kernel using One-Sided Jacobi algorithm.
@@ -28,12 +28,12 @@ pub fn launch_svd_jacobi(
 ) -> Result<()> {
     check_dtype_f32!(dtype, "svd_jacobi");
 
-    let module = cache.get_or_create_module("linalg", LINALG_SHADER);
+    let module = cache.get_or_create_module("linalg_svd", SVD_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
     });
-    let pipeline = cache.get_or_create_pipeline("linalg", "svd_jacobi_f32", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("linalg_svd", "svd_jacobi_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[b, v, s, converged_flag, params_buffer]);
 
