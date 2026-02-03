@@ -22,6 +22,7 @@ pub mod quasirandom;
 pub mod reduce;
 pub mod scalar;
 pub mod simd;
+pub mod sobol_data;
 pub mod sort;
 pub mod unary;
 pub mod where_select;

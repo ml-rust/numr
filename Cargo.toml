@@ -35,6 +35,9 @@ rayon = { version = "1.11", optional = true }
 rand = "0.9"
 rand_distr = "0.5"
 
+# Zero-copy serialization for embedded data 
+rkyv = "0.8"
+
 # Optional: Half-precision floats
 half = { version = "2.7", optional = true, features = ["bytemuck"] }
 

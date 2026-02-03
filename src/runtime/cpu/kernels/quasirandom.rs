@@ -2,6 +2,7 @@
 //!
 //! Implements Sobol, Halton, and Latin Hypercube Sampling sequences.
 
+use super::sobol_data::{ArchivedSobolPolynomial, MAX_SOBOL_DIMENSION, get_polynomial};
 use rand::Rng;
 use rand::seq::SliceRandom;
 
@@ -9,68 +10,78 @@ use rand::seq::SliceRandom;
 // Sobol Sequence
 // ============================================================================
 
-/// Direction numbers for Sobol sequence (6 dimensions)
+/// Number of bits for direction vectors (32-bit precision).
+const SOBOL_BITS: usize = 32;
+
+/// Compute direction vectors from polynomial data using the recurrence relation.
 ///
-/// These are the initialization values for the Sobol sequence generator based on
-/// primitive polynomials over GF(2). Source: Joe & Kuo (2008) direction numbers.
+/// The recurrence (from Joe & Kuo 2008):
+/// For i >= s:
+///   m_i = m_{i-s} XOR (m_{i-s} >> s) XOR sum_{j=1}^{s-1} [a_j * (m_{i-j} >> j)]
 ///
-/// **Current limitation:** Only 6 dimensions have direction numbers. Dimensions 7+
-/// fall back to van der Corput sequence (different algorithm, lower quality).
-///
-/// **TODO:** Expand to at least 50-100 dimensions for production use. Full 1000-dimension
-/// table would require ~120KB of data (30 u32 values × 1000 dimensions).
-const SOBOL_DIRECTION_NUMBERS: &[[u32; 30]] = &[
-    // Dimension 0 (implicit: all 1s in binary)
-    [
-        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    // Dimension 1: x^1 + 1
-    [
-        1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    // Dimension 2: x^2 + x + 1
-    [
-        1, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    // Dimension 3: x^3 + x + 1
-    [
-        1, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    // Dimension 4: x^3 + x^2 + 1
-    [
-        1, 3, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-    // Dimension 5: x^4 + x^3 + 1
-    [
-        1, 1, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    ],
-];
+/// where a_j is the j-th bit of coefficient 'a' (from LSB).
+#[inline]
+fn compute_direction_vectors(poly: &ArchivedSobolPolynomial) -> [u32; SOBOL_BITS] {
+    let s = poly.degree as usize;
+    // Convert from archived little-endian to native u32
+    let a: u32 = poly.coeff.into();
+
+    let mut v = [0u32; SOBOL_BITS];
+
+    // Initialize with provided m values, left-shifted to fill MSBs
+    for (i, m) in poly.m_values.iter().enumerate() {
+        let m_native: u32 = (*m).into();
+        v[i] = m_native << (SOBOL_BITS - 1 - i);
+    }
+
+    // Recurrence for remaining positions
+    for i in s..SOBOL_BITS {
+        // Start with the required terms: m_{i-s} XOR (m_{i-s} >> s)
+        let mut vi = v[i - s] ^ (v[i - s] >> s);
+
+        // Add middle terms based on polynomial coefficients
+        // a encodes coefficients a_{s-1}, a_{s-2}, ..., a_1 from MSB to LSB
+        for j in 1..s {
+            if (a >> (s - 1 - j)) & 1 != 0 {
+                vi ^= v[i - j] >> j;
+            }
+        }
+
+        v[i] = vi;
+    }
+
+    v
+}
+
+/// Direction vectors for dimension 0 (implicit: all powers of 2).
+#[inline]
+fn dimension_zero_vectors() -> [u32; SOBOL_BITS] {
+    let mut v = [0u32; SOBOL_BITS];
+    for i in 0..SOBOL_BITS {
+        v[i] = 1u32 << (SOBOL_BITS - 1 - i);
+    }
+    v
+}
 
 /// Generate Sobol sequence points (F32 version).
 ///
-/// **Implementation note:** Only the first 6 dimensions use true Sobol direction
-/// numbers. Dimensions 7+ fall back to van der Corput sequence, which has lower
-/// quality (worse discrepancy) than true Sobol.
+/// Supports up to 21,201 dimensions using Joe & Kuo (2008) direction numbers.
 ///
 /// # Safety
 ///
 /// - `out` must point to valid memory of length `n_points * dimension`
-/// - Dimension should be <= 6 for true Sobol sequence
-/// - Dimensions 7+ will use van der Corput fallback
+/// - Dimension must be <= 21,201
 #[inline]
 pub unsafe fn sobol_f32(out: *mut f32, n_points: usize, dimension: usize, skip: usize) {
-    let max_dim = SOBOL_DIRECTION_NUMBERS.len().min(dimension);
+    assert!(
+        dimension <= MAX_SOBOL_DIMENSION,
+        "Sobol sequence supports up to {} dimensions, got {}",
+        MAX_SOBOL_DIMENSION,
+        dimension
+    );
 
     for d in 0..dimension {
-        if d < max_dim {
-            // Dimensions 0-5: Use true Sobol direction numbers
-            sobol_dimension_f32(out.add(d), n_points, dimension, d, skip);
-        } else {
-            // Dimensions 6+: Fallback to van der Corput (LOWER QUALITY)
-            // This provides quasi-random coverage but NOT the same discrepancy
-            // properties as true Sobol sequences.
-            van_der_corput_f32(out.add(d), n_points, dimension, 2 + d as u32);
-        }
+        sobol_dimension_f32(out.add(d), n_points, dimension, d, skip);
     }
 }
 
@@ -83,58 +94,57 @@ unsafe fn sobol_dimension_f32(
     dimension: usize,
     skip: usize,
 ) {
-    let dir_nums = &SOBOL_DIRECTION_NUMBERS[dimension];
+    // Get direction vectors for this dimension
+    let v = if dimension == 0 {
+        dimension_zero_vectors()
+    } else {
+        // Dimension was validated by caller, so polynomial must exist.
+        // If missing, the embedded sobol_data.bin is corrupted.
+        let poly = get_polynomial(dimension + 1)
+            .expect("INTERNAL: sobol_data.bin corrupted - missing polynomial");
+        compute_direction_vectors(poly)
+    };
 
-    // Initialize direction vectors
-    let mut v = [0u32; 32];
-    for (i, &d) in dir_nums.iter().enumerate() {
-        v[i] = d << (31 - i);
-    }
-
-    let start_index = skip;
+    let scale = 1.0f32 / (1u64 << 32) as f32;
 
     for i in 0..n_points {
-        let index = start_index + i;
+        let index = skip + i;
 
         // Gray code: i XOR (i >> 1)
         let gray = index as u32 ^ (index as u32 >> 1);
 
         // Compute Sobol point using direction vectors
         let mut x = 0u32;
-        for bit in 0..32 {
+        for bit in 0..SOBOL_BITS {
             if (gray & (1 << bit)) != 0 {
                 x ^= v[bit];
             }
         }
 
         // Convert to float in [0, 1)
-        *out.add(i * stride) = (x as f32) / (1u64 << 32) as f32;
+        *out.add(i * stride) = (x as f32) * scale;
     }
 }
 
 /// Generate Sobol sequence points (F64 version).
 ///
-/// **Implementation note:** Only the first 6 dimensions use true Sobol direction
-/// numbers. Dimensions 7+ fall back to van der Corput sequence, which has lower
-/// quality (worse discrepancy) than true Sobol.
+/// Supports up to 21,201 dimensions using Joe & Kuo (2008) direction numbers.
 ///
 /// # Safety
 ///
 /// - `out` must point to valid memory of length `n_points * dimension`
-/// - Dimension should be <= 6 for true Sobol sequence
-/// - Dimensions 7+ will use van der Corput fallback
+/// - Dimension must be <= 21,201
 #[inline]
 pub unsafe fn sobol_f64(out: *mut f64, n_points: usize, dimension: usize, skip: usize) {
-    let max_dim = SOBOL_DIRECTION_NUMBERS.len().min(dimension);
+    assert!(
+        dimension <= MAX_SOBOL_DIMENSION,
+        "Sobol sequence supports up to {} dimensions, got {}",
+        MAX_SOBOL_DIMENSION,
+        dimension
+    );
 
     for d in 0..dimension {
-        if d < max_dim {
-            // Dimensions 0-5: Use true Sobol direction numbers
-            sobol_dimension_f64(out.add(d), n_points, dimension, d, skip);
-        } else {
-            // Dimensions 6+: Fallback to van der Corput (LOWER QUALITY)
-            van_der_corput_f64(out.add(d), n_points, dimension, 2 + d as u32);
-        }
+        sobol_dimension_f64(out.add(d), n_points, dimension, d, skip);
     }
 }
 
@@ -146,27 +156,30 @@ unsafe fn sobol_dimension_f64(
     dimension: usize,
     skip: usize,
 ) {
-    let dir_nums = &SOBOL_DIRECTION_NUMBERS[dimension];
+    let v = if dimension == 0 {
+        dimension_zero_vectors()
+    } else {
+        // Dimension was validated by caller, so polynomial must exist.
+        // If missing, the embedded sobol_data.bin is corrupted.
+        let poly = get_polynomial(dimension + 1)
+            .expect("INTERNAL: sobol_data.bin corrupted - missing polynomial");
+        compute_direction_vectors(poly)
+    };
 
-    let mut v = [0u32; 32];
-    for (i, &d) in dir_nums.iter().enumerate() {
-        v[i] = d << (31 - i);
-    }
-
-    let start_index = skip;
+    let scale = 1.0f64 / (1u64 << 32) as f64;
 
     for i in 0..n_points {
-        let index = start_index + i;
+        let index = skip + i;
         let gray = index as u32 ^ (index as u32 >> 1);
 
         let mut x = 0u32;
-        for bit in 0..32 {
+        for bit in 0..SOBOL_BITS {
             if (gray & (1 << bit)) != 0 {
                 x ^= v[bit];
             }
         }
 
-        *out.add(i * stride) = (x as f64) / (1u64 << 32) as f64;
+        *out.add(i * stride) = (x as f64) * scale;
     }
 }
 
@@ -339,6 +352,68 @@ mod tests {
         // First point should be 0
         assert_eq!(out[0], 0.0);
         assert_eq!(out[1], 0.0);
+    }
+
+    #[test]
+    fn test_sobol_f64_known_values() {
+        // Test against known Sobol sequence values
+        // First few points of dimension 0 (Gray code based):
+        // index 0: gray=0 -> x=0
+        // index 1: gray=1 -> x=v[0] = 0.5
+        // index 2: gray=3 -> x=v[0]^v[1] = 0.5^0.25 = 0.75
+        // index 3: gray=2 -> x=v[1] = 0.25
+        let n = 4;
+        let d = 1;
+        let mut out = vec![0.0f64; n * d];
+
+        unsafe {
+            sobol_f64(out.as_mut_ptr(), n, d, 0);
+        }
+
+        assert!((out[0] - 0.0).abs() < 1e-10);
+        assert!((out[1] - 0.5).abs() < 1e-10);
+        assert!((out[2] - 0.75).abs() < 1e-10);
+        assert!((out[3] - 0.25).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sobol_high_dimension() {
+        // Test that high dimensions work (using Joe & Kuo data)
+        let n = 10;
+        let d = 100; // Much higher than the old 6-dimension limit
+        let mut out = vec![0.0f64; n * d];
+
+        unsafe {
+            sobol_f64(out.as_mut_ptr(), n, d, 0);
+        }
+
+        // Check all values in [0, 1)
+        for &val in &out {
+            assert!(val >= 0.0 && val < 1.0, "Value out of range: {}", val);
+        }
+    }
+
+    #[test]
+    fn test_sobol_very_high_dimension() {
+        // Test dimensions up to 1000
+        let n = 5;
+        let d = 1000;
+        let mut out = vec![0.0f64; n * d];
+
+        unsafe {
+            sobol_f64(out.as_mut_ptr(), n, d, 0);
+        }
+
+        // Check all values in [0, 1)
+        for &val in &out {
+            assert!(val >= 0.0 && val < 1.0, "Value out of range: {}", val);
+        }
+
+        // Check that different dimensions produce different sequences
+        // (not all the same value)
+        let dim0_vals: Vec<f64> = (0..n).map(|i| out[i * d]).collect();
+        let dim999_vals: Vec<f64> = (0..n).map(|i| out[i * d + 999]).collect();
+        assert_ne!(dim0_vals, dim999_vals);
     }
 
     #[test]
