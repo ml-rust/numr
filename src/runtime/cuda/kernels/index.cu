@@ -288,6 +288,139 @@ __global__ void masked_prefix_sum_kernel(
 }
 
 // ============================================================================
+// Broadcast Masked Operations
+// These kernels support broadcasting the mask to the input/output shape.
+// Uses stride-based indexing where stride=0 means broadcast dimension.
+// ============================================================================
+
+// Device function to compute mask index with broadcasting
+__device__ __forceinline__ unsigned int compute_broadcast_index(
+    unsigned int linear_idx,
+    const unsigned int* __restrict__ mask_strides,
+    const unsigned int* __restrict__ out_shape,
+    unsigned int ndim
+) {
+    unsigned int mask_offset = 0;
+    unsigned int remaining = linear_idx;
+
+    for (int d = ndim - 1; d >= 0; d--) {
+        unsigned int coord = remaining % out_shape[d];
+        remaining /= out_shape[d];
+        mask_offset += coord * mask_strides[d];
+    }
+    return mask_offset;
+}
+
+// Broadcast masked count - counts true elements in mask broadcast to output shape
+__global__ void masked_count_broadcast_kernel(
+    const unsigned char* __restrict__ mask,
+    unsigned int* __restrict__ count,
+    const unsigned int* __restrict__ mask_strides,
+    const unsigned int* __restrict__ out_shape,
+    unsigned int ndim,
+    unsigned int n
+) {
+    __shared__ unsigned int shared_count;
+    if (threadIdx.x == 0) {
+        shared_count = 0;
+    }
+    __syncthreads();
+
+    unsigned int local_count = 0;
+    for (unsigned int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x) {
+        unsigned int mask_idx = compute_broadcast_index(i, mask_strides, out_shape, ndim);
+        if (mask[mask_idx] != 0) {
+            local_count++;
+        }
+    }
+
+    atomicAdd(&shared_count, local_count);
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        atomicAdd(count, shared_count);
+    }
+}
+
+// Broadcast masked prefix sum - computes prefix sum with broadcast mask
+__global__ void masked_prefix_sum_broadcast_kernel(
+    const unsigned char* __restrict__ mask,
+    unsigned int* __restrict__ prefix_sum,
+    const unsigned int* __restrict__ mask_strides,
+    const unsigned int* __restrict__ out_shape,
+    unsigned int ndim,
+    unsigned int n
+) {
+    // Sequential prefix sum (for small tensors or as fallback)
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        unsigned int sum = 0;
+        for (unsigned int i = 0; i < n; i++) {
+            prefix_sum[i] = sum;
+            unsigned int mask_idx = compute_broadcast_index(i, mask_strides, out_shape, ndim);
+            if (mask[mask_idx] != 0) {
+                sum++;
+            }
+        }
+    }
+}
+
+// Macro for broadcast masked_select kernel
+#define DEFINE_MASKED_SELECT_BROADCAST_KERNEL(suffix, dtype) \
+__global__ void masked_select_broadcast_##suffix( \
+    const dtype* __restrict__ input, \
+    const unsigned char* __restrict__ mask, \
+    dtype* __restrict__ output, \
+    const unsigned int* __restrict__ prefix_sum, \
+    const unsigned int* __restrict__ mask_strides, \
+    const unsigned int* __restrict__ out_shape, \
+    unsigned int ndim, \
+    unsigned int n \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (idx >= n) return; \
+    \
+    unsigned int mask_idx = compute_broadcast_index(idx, mask_strides, out_shape, ndim); \
+    if (mask[mask_idx] != 0) { \
+        unsigned int out_idx = prefix_sum[idx]; \
+        output[out_idx] = input[idx]; \
+    } \
+}
+
+// Macro for broadcast masked_fill kernel
+#define DEFINE_MASKED_FILL_BROADCAST_KERNEL(suffix, dtype) \
+__global__ void masked_fill_broadcast_##suffix( \
+    const dtype* __restrict__ input, \
+    const unsigned char* __restrict__ mask, \
+    dtype* __restrict__ output, \
+    dtype fill_value, \
+    const unsigned int* __restrict__ mask_strides, \
+    const unsigned int* __restrict__ out_shape, \
+    unsigned int ndim, \
+    unsigned int n \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (idx >= n) return; \
+    \
+    unsigned int mask_idx = compute_broadcast_index(idx, mask_strides, out_shape, ndim); \
+    output[idx] = (mask[mask_idx] != 0) ? fill_value : input[idx]; \
+}
+
+// Instantiate broadcast masked operations for all types
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(f32, float)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(f64, double)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(f16, __half)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(bf16, __nv_bfloat16)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(i32, int)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(i64, long long)
+
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(f32, float)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(f64, double)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(f16, __half)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(bf16, __nv_bfloat16)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(i32, int)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(i64, long long)
+
+// ============================================================================
 // Index Bounds Validation Kernel (dtype-independent)
 // ============================================================================
 

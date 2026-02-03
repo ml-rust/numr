@@ -416,6 +416,170 @@ __global__ void ic0_level_f64(
 }
 
 // ============================================================================
+// Multi-RHS Sparse Triangular Solve
+// Supports b and x with shape [n, nrhs] (row-major: b[row * nrhs + col])
+// Each thread processes one (row, rhs_column) pair
+// ============================================================================
+
+__global__ void sparse_trsv_lower_level_multi_rhs_f32(
+    const int* level_rows,       // Rows to process in this level
+    int level_size,              // Number of rows in this level
+    int nrhs,                    // Number of right-hand sides
+    const int* row_ptrs,
+    const int* col_indices,
+    const float* values,
+    const float* b,              // [n, nrhs] row-major
+    float* x,                    // [n, nrhs] row-major
+    int n,
+    bool unit_diagonal
+) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_work = level_size * nrhs;
+    if (tid >= total_work) return;
+
+    int row_idx = tid / nrhs;
+    int rhs_col = tid % nrhs;
+    int row = level_rows[row_idx];
+
+    int start = row_ptrs[row];
+    int end = row_ptrs[row + 1];
+
+    float sum = b[row * nrhs + rhs_col];
+    float diag = 1.0f;
+
+    for (int idx = start; idx < end; idx++) {
+        int col = col_indices[idx];
+        if (col < row) {
+            sum -= values[idx] * x[col * nrhs + rhs_col];
+        } else if (col == row && !unit_diagonal) {
+            diag = values[idx];
+        }
+    }
+
+    if (!unit_diagonal) {
+        sum /= diag;
+    }
+
+    x[row * nrhs + rhs_col] = sum;
+}
+
+__global__ void sparse_trsv_lower_level_multi_rhs_f64(
+    const int* level_rows,
+    int level_size,
+    int nrhs,
+    const int* row_ptrs,
+    const int* col_indices,
+    const double* values,
+    const double* b,
+    double* x,
+    int n,
+    bool unit_diagonal
+) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_work = level_size * nrhs;
+    if (tid >= total_work) return;
+
+    int row_idx = tid / nrhs;
+    int rhs_col = tid % nrhs;
+    int row = level_rows[row_idx];
+
+    int start = row_ptrs[row];
+    int end = row_ptrs[row + 1];
+
+    double sum = b[row * nrhs + rhs_col];
+    double diag = 1.0;
+
+    for (int idx = start; idx < end; idx++) {
+        int col = col_indices[idx];
+        if (col < row) {
+            sum -= values[idx] * x[col * nrhs + rhs_col];
+        } else if (col == row && !unit_diagonal) {
+            diag = values[idx];
+        }
+    }
+
+    if (!unit_diagonal) {
+        sum /= diag;
+    }
+
+    x[row * nrhs + rhs_col] = sum;
+}
+
+__global__ void sparse_trsv_upper_level_multi_rhs_f32(
+    const int* level_rows,
+    int level_size,
+    int nrhs,
+    const int* row_ptrs,
+    const int* col_indices,
+    const float* values,
+    const float* b,
+    float* x,
+    int n
+) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_work = level_size * nrhs;
+    if (tid >= total_work) return;
+
+    int row_idx = tid / nrhs;
+    int rhs_col = tid % nrhs;
+    int row = level_rows[row_idx];
+
+    int start = row_ptrs[row];
+    int end = row_ptrs[row + 1];
+
+    float sum = b[row * nrhs + rhs_col];
+    float diag = 1.0f;
+
+    for (int idx = start; idx < end; idx++) {
+        int col = col_indices[idx];
+        if (col > row) {
+            sum -= values[idx] * x[col * nrhs + rhs_col];
+        } else if (col == row) {
+            diag = values[idx];
+        }
+    }
+
+    x[row * nrhs + rhs_col] = sum / diag;
+}
+
+__global__ void sparse_trsv_upper_level_multi_rhs_f64(
+    const int* level_rows,
+    int level_size,
+    int nrhs,
+    const int* row_ptrs,
+    const int* col_indices,
+    const double* values,
+    const double* b,
+    double* x,
+    int n
+) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_work = level_size * nrhs;
+    if (tid >= total_work) return;
+
+    int row_idx = tid / nrhs;
+    int rhs_col = tid % nrhs;
+    int row = level_rows[row_idx];
+
+    int start = row_ptrs[row];
+    int end = row_ptrs[row + 1];
+
+    double sum = b[row * nrhs + rhs_col];
+    double diag = 1.0;
+
+    for (int idx = start; idx < end; idx++) {
+        int col = col_indices[idx];
+        if (col > row) {
+            sum -= values[idx] * x[col * nrhs + rhs_col];
+        } else if (col == row) {
+            diag = values[idx];
+        }
+    }
+
+    x[row * nrhs + rhs_col] = sum / diag;
+}
+
+// ============================================================================
 // Utility Kernels
 // ============================================================================
 
@@ -452,6 +616,95 @@ __global__ void copy_f64(const double* src, double* dst, int n) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         dst[idx] = src[idx];
+    }
+}
+
+// ============================================================================
+// LU Split Kernels - Scatter values from factored matrix to L and U
+// ============================================================================
+
+// Scatter values from source array to L and U arrays based on column comparison with row
+// l_map[i] = destination index in l_values for source index i (or -1 if not in L)
+// u_map[i] = destination index in u_values for source index i (or -1 if not in U)
+__global__ void split_lu_scatter_f32(
+    const float* src_values,
+    float* l_values,
+    float* u_values,
+    const int* l_map,
+    const int* u_map,
+    int nnz
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= nnz) return;
+
+    float val = src_values[idx];
+    int l_dest = l_map[idx];
+    int u_dest = u_map[idx];
+
+    if (l_dest >= 0) {
+        l_values[l_dest] = val;
+    }
+    if (u_dest >= 0) {
+        u_values[u_dest] = val;
+    }
+}
+
+__global__ void split_lu_scatter_f64(
+    const double* src_values,
+    double* l_values,
+    double* u_values,
+    const int* l_map,
+    const int* u_map,
+    int nnz
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= nnz) return;
+
+    double val = src_values[idx];
+    int l_dest = l_map[idx];
+    int u_dest = u_map[idx];
+
+    if (l_dest >= 0) {
+        l_values[l_dest] = val;
+    }
+    if (u_dest >= 0) {
+        u_values[u_dest] = val;
+    }
+}
+
+// ============================================================================
+// Lower Triangle Extraction Kernel - For IC(0) decomposition
+// ============================================================================
+
+// Scatter values from source array to lower triangular output
+// lower_map[i] = destination index in output for source index i (or -1 if not in lower)
+__global__ void extract_lower_scatter_f32(
+    const float* src_values,
+    float* dst_values,
+    const int* lower_map,
+    int nnz
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= nnz) return;
+
+    int dest = lower_map[idx];
+    if (dest >= 0) {
+        dst_values[dest] = src_values[idx];
+    }
+}
+
+__global__ void extract_lower_scatter_f64(
+    const double* src_values,
+    double* dst_values,
+    const int* lower_map,
+    int nnz
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= nnz) return;
+
+    int dest = lower_map[idx];
+    if (dest >= 0) {
+        dst_values[dest] = src_values[idx];
     }
 }
 

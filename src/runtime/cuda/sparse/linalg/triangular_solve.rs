@@ -13,6 +13,7 @@ use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
 /// Sparse triangular solve for CUDA.
+/// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs]).
 pub fn sparse_solve_triangular_cuda(
     client: &CudaClient,
     l_or_u: &CsrData<CudaRuntime>,
@@ -29,13 +30,6 @@ pub fn sparse_solve_triangular_cuda(
             lhs: dtype,
             rhs: b.dtype(),
         });
-    }
-
-    // Only support single RHS for now (batch would need more complex handling)
-    if nrhs > 1 {
-        return Err(Error::Internal(
-            "CUDA sparse triangular solve only supports single RHS for now".to_string(),
-        ));
     }
 
     // Extract CSR data for level analysis
@@ -80,33 +74,68 @@ pub fn sparse_solve_triangular_cuda(
         let level_rows_ptr =
             level_rows_gpu.storage().ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
 
-        if lower {
-            launch_trsv_lower(
-                client,
-                level_rows_ptr,
-                level_size,
-                &row_ptrs_gpu,
-                &col_indices_gpu,
-                l_or_u.values(),
-                b,
-                &x,
-                n,
-                unit_diagonal,
-                dtype,
-            )?;
+        if nrhs == 1 {
+            // Use single RHS kernels for vectors
+            if lower {
+                launch_trsv_lower(
+                    client,
+                    level_rows_ptr,
+                    level_size,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    unit_diagonal,
+                    dtype,
+                )?;
+            } else {
+                launch_trsv_upper(
+                    client,
+                    level_rows_ptr,
+                    level_size,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    dtype,
+                )?;
+            }
         } else {
-            launch_trsv_upper(
-                client,
-                level_rows_ptr,
-                level_size,
-                &row_ptrs_gpu,
-                &col_indices_gpu,
-                l_or_u.values(),
-                b,
-                &x,
-                n,
-                dtype,
-            )?;
+            // Use multi-RHS kernels for matrices
+            if lower {
+                launch_trsv_lower_multi_rhs(
+                    client,
+                    level_rows_ptr,
+                    level_size,
+                    nrhs,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    unit_diagonal,
+                    dtype,
+                )?;
+            } else {
+                launch_trsv_upper_multi_rhs(
+                    client,
+                    level_rows_ptr,
+                    level_size,
+                    nrhs,
+                    &row_ptrs_gpu,
+                    &col_indices_gpu,
+                    l_or_u.values(),
+                    b,
+                    &x,
+                    n,
+                    dtype,
+                )?;
+            }
         }
     }
 
@@ -208,6 +237,115 @@ fn launch_trsv_upper(
                 client.device.index,
                 level_rows_ptr,
                 level_size,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+            )?;
+        },
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// Launch multi-RHS lower triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_trsv_lower_multi_rhs(
+    client: &CudaClient,
+    level_rows_ptr: u64,
+    level_size: i32,
+    nrhs: usize,
+    row_ptrs: &Tensor<CudaRuntime>,
+    col_indices: &Tensor<CudaRuntime>,
+    values: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    x: &Tensor<CudaRuntime>,
+    n: usize,
+    unit_diagonal: bool,
+    dtype: DType,
+) -> Result<()> {
+    match dtype {
+        DType::F32 => unsafe {
+            kernels::launch_sparse_trsv_lower_level_multi_rhs_f32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                nrhs as i32,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+                unit_diagonal,
+            )?;
+        },
+        DType::F64 => unsafe {
+            kernels::launch_sparse_trsv_lower_level_multi_rhs_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                nrhs as i32,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+                unit_diagonal,
+            )?;
+        },
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+/// Launch multi-RHS upper triangular solve kernel.
+#[allow(clippy::too_many_arguments)]
+fn launch_trsv_upper_multi_rhs(
+    client: &CudaClient,
+    level_rows_ptr: u64,
+    level_size: i32,
+    nrhs: usize,
+    row_ptrs: &Tensor<CudaRuntime>,
+    col_indices: &Tensor<CudaRuntime>,
+    values: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    x: &Tensor<CudaRuntime>,
+    n: usize,
+    dtype: DType,
+) -> Result<()> {
+    match dtype {
+        DType::F32 => unsafe {
+            kernels::launch_sparse_trsv_upper_level_multi_rhs_f32(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                nrhs as i32,
+                row_ptrs.storage().ptr(),
+                col_indices.storage().ptr(),
+                values.storage().ptr(),
+                b.storage().ptr(),
+                x.storage().ptr(),
+                n as i32,
+            )?;
+        },
+        DType::F64 => unsafe {
+            kernels::launch_sparse_trsv_upper_level_multi_rhs_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                level_rows_ptr,
+                level_size,
+                nrhs as i32,
                 row_ptrs.storage().ptr(),
                 col_indices.storage().ptr(),
                 values.storage().ptr(),

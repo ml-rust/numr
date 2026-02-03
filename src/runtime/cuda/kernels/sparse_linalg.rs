@@ -198,6 +198,201 @@ pub unsafe fn launch_sparse_trsv_upper_level_f64(
 }
 
 // ============================================================================
+// Multi-RHS Level-Scheduled Triangular Solve Launchers
+// These kernels handle multiple right-hand sides [n, nrhs] in parallel
+// ============================================================================
+
+/// Launch multi-RHS lower triangular solve kernel (forward substitution) - f32
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f32(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    level_rows: u64,
+    level_size: i32,
+    nrhs: i32,
+    row_ptrs: u64,
+    col_indices: u64,
+    values: u64,
+    b: u64,
+    x: u64,
+    n: i32,
+    unit_diagonal: bool,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_lower_level_multi_rhs_f32")?;
+
+        let total_work = (level_size * nrhs) as u32;
+        let grid_size = (total_work + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&nrhs);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+        builder.arg(&unit_diag_i32);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_lower_level_multi_rhs_f32 launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch multi-RHS lower triangular solve kernel - f64
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f64(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    level_rows: u64,
+    level_size: i32,
+    nrhs: i32,
+    row_ptrs: u64,
+    col_indices: u64,
+    values: u64,
+    b: u64,
+    x: u64,
+    n: i32,
+    unit_diagonal: bool,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_lower_level_multi_rhs_f64")?;
+
+        let total_work = (level_size * nrhs) as u32;
+        let grid_size = (total_work + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+        let unit_diag_i32: i32 = if unit_diagonal { 1 } else { 0 };
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&nrhs);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+        builder.arg(&unit_diag_i32);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_lower_level_multi_rhs_f64 launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch multi-RHS upper triangular solve kernel (backward substitution) - f32
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f32(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    level_rows: u64,
+    level_size: i32,
+    nrhs: i32,
+    row_ptrs: u64,
+    col_indices: u64,
+    values: u64,
+    b: u64,
+    x: u64,
+    n: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_upper_level_multi_rhs_f32")?;
+
+        let total_work = (level_size * nrhs) as u32;
+        let grid_size = (total_work + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&nrhs);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_upper_level_multi_rhs_f32 launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch multi-RHS upper triangular solve kernel - f64
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f64(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    level_rows: u64,
+    level_size: i32,
+    nrhs: i32,
+    row_ptrs: u64,
+    col_indices: u64,
+    values: u64,
+    b: u64,
+    x: u64,
+    n: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "sparse_trsv_upper_level_multi_rhs_f64")?;
+
+        let total_work = (level_size * nrhs) as u32;
+        let grid_size = (total_work + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&level_rows);
+        builder.arg(&level_size);
+        builder.arg(&nrhs);
+        builder.arg(&row_ptrs);
+        builder.arg(&col_indices);
+        builder.arg(&values);
+        builder.arg(&b);
+        builder.arg(&x);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA sparse_trsv_upper_level_multi_rhs_f64 launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
 // ILU(0) Level Kernel Launchers
 // ============================================================================
 
@@ -451,6 +646,166 @@ pub unsafe fn launch_copy_f64(
         builder
             .launch(cfg)
             .map_err(|e| Error::Internal(format!("CUDA copy_f64 launch failed: {:?}", e)))?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// LU Split Scatter Kernel Launchers
+// ============================================================================
+
+/// Launch kernel to scatter values from factored LU matrix to separate L and U arrays - f32
+///
+/// # Arguments
+/// * `src_values` - Source values array from factored matrix
+/// * `l_values` - Output L values array
+/// * `u_values` - Output U values array
+/// * `l_map` - Mapping: l_map[i] = destination index in l_values, or -1 if not in L
+/// * `u_map` - Mapping: u_map[i] = destination index in u_values, or -1 if not in U
+/// * `nnz` - Number of non-zero elements in source
+pub unsafe fn launch_split_lu_scatter_f32(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    src_values: u64,
+    l_values: u64,
+    u_values: u64,
+    l_map: u64,
+    u_map: u64,
+    nnz: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "split_lu_scatter_f32")?;
+
+        let grid_size = ((nnz as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src_values);
+        builder.arg(&l_values);
+        builder.arg(&u_values);
+        builder.arg(&l_map);
+        builder.arg(&u_map);
+        builder.arg(&nnz);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA split_lu_scatter_f32 launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch kernel to scatter values from factored LU matrix to separate L and U arrays - f64
+pub unsafe fn launch_split_lu_scatter_f64(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    src_values: u64,
+    l_values: u64,
+    u_values: u64,
+    l_map: u64,
+    u_map: u64,
+    nnz: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "split_lu_scatter_f64")?;
+
+        let grid_size = ((nnz as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src_values);
+        builder.arg(&l_values);
+        builder.arg(&u_values);
+        builder.arg(&l_map);
+        builder.arg(&u_map);
+        builder.arg(&nnz);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA split_lu_scatter_f64 launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Lower Triangle Extraction Scatter Kernel Launchers
+// ============================================================================
+
+/// Launch kernel to scatter values from source to lower triangular output - f32
+///
+/// # Arguments
+/// * `src_values` - Source values array
+/// * `dst_values` - Output values array (lower triangular)
+/// * `lower_map` - Mapping: lower_map[i] = destination index, or -1 if not in lower
+/// * `nnz` - Number of non-zero elements in source
+pub unsafe fn launch_extract_lower_scatter_f32(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    src_values: u64,
+    dst_values: u64,
+    lower_map: u64,
+    nnz: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "extract_lower_scatter_f32")?;
+
+        let grid_size = ((nnz as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src_values);
+        builder.arg(&dst_values);
+        builder.arg(&lower_map);
+        builder.arg(&nnz);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA extract_lower_scatter_f32 launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch kernel to scatter values from source to lower triangular output - f64
+pub unsafe fn launch_extract_lower_scatter_f64(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    src_values: u64,
+    dst_values: u64,
+    lower_map: u64,
+    nnz: i32,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
+        let func = get_kernel_function(&module, "extract_lower_scatter_f64")?;
+
+        let grid_size = ((nnz as u32) + BLOCK_SIZE - 1) / BLOCK_SIZE;
+        let cfg = launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0);
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&src_values);
+        builder.arg(&dst_values);
+        builder.arg(&lower_map);
+        builder.arg(&nnz);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA extract_lower_scatter_f64 launch failed: {:?}",
+                e
+            ))
+        })?;
 
         Ok(())
     }
