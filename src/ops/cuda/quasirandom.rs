@@ -40,6 +40,7 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
                         &self.context,
                         &self.stream,
                         self.device.index,
+                        &self.device,
                         out.storage().ptr(),
                         n_points,
                         dimension,
@@ -51,6 +52,7 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
                         &self.context,
                         &self.stream,
                         self.device.index,
+                        &self.device,
                         out.storage().ptr(),
                         n_points,
                         dimension,
@@ -278,13 +280,15 @@ mod tests {
     fn test_sobol_dimension_limit() {
         let (_device, client) = setup();
 
-        // Should work up to 6 dimensions (current implementation limit)
-        let result = client.sobol(10, 6, 0, DType::F32);
+        // Should work up to 21,201 dimensions (full Joe & Kuo dataset)
+        let result = client.sobol(10, 100, 0, DType::F32);
         assert!(result.is_ok());
 
-        // Should fail beyond 6 dimensions (current implementation limit)
-        // NOTE: Once full direction numbers are implemented, this should be updated to 1000
-        let result = client.sobol(10, 7, 0, DType::F32);
+        let result = client.sobol(10, 1000, 0, DType::F32);
+        assert!(result.is_ok());
+
+        // Should fail beyond 21,201
+        let result = client.sobol(10, 21202, 0, DType::F32);
         assert!(result.is_err());
     }
 

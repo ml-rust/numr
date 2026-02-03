@@ -5,6 +5,9 @@ use super::loader::{
     launch_config,
 };
 use crate::error::{Error, Result};
+use crate::ops::common::quasirandom::compute_all_direction_vectors;
+use crate::runtime::Runtime;
+use crate::runtime::cuda::{CudaDevice, CudaRuntime};
 use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
 use std::sync::Arc;
 
@@ -16,6 +19,7 @@ pub unsafe fn launch_sobol_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
+    device: &CudaDevice,
     out_ptr: u64,
     n_points: usize,
     dimension: usize,
@@ -24,6 +28,12 @@ pub unsafe fn launch_sobol_f32(
     let module = get_or_load_module(context, device_index, kernel_names::QUASIRANDOM_MODULE)?;
     let func_name = "sobol_f32";
     let func = get_kernel_function(&module, func_name)?;
+
+    // Compute direction vectors on host and upload to GPU
+    let direction_vectors = compute_all_direction_vectors(dimension);
+    let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
+    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device);
+    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device);
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
@@ -35,6 +45,7 @@ pub unsafe fn launch_sobol_f32(
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
+        builder.arg(&dv_ptr);
         builder.arg(&n);
         builder.arg(&dim);
         builder.arg(&skip_u32);
@@ -43,6 +54,13 @@ pub unsafe fn launch_sobol_f32(
             Error::Internal(format!("CUDA sobol_f32 kernel launch failed: {:?}", e))
         })?;
     }
+
+    // Synchronize before deallocating direction vectors
+    stream
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
+
+    CudaRuntime::deallocate(dv_ptr, dv_bytes.len(), device);
 
     Ok(())
 }
@@ -55,6 +73,7 @@ pub unsafe fn launch_sobol_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
+    device: &CudaDevice,
     out_ptr: u64,
     n_points: usize,
     dimension: usize,
@@ -63,6 +82,12 @@ pub unsafe fn launch_sobol_f64(
     let module = get_or_load_module(context, device_index, kernel_names::QUASIRANDOM_MODULE)?;
     let func_name = "sobol_f64";
     let func = get_kernel_function(&module, func_name)?;
+
+    // Compute direction vectors on host and upload to GPU
+    let direction_vectors = compute_all_direction_vectors(dimension);
+    let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
+    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device);
+    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device);
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
@@ -74,6 +99,7 @@ pub unsafe fn launch_sobol_f64(
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&out_ptr);
+        builder.arg(&dv_ptr);
         builder.arg(&n);
         builder.arg(&dim);
         builder.arg(&skip_u32);
@@ -82,6 +108,13 @@ pub unsafe fn launch_sobol_f64(
             Error::Internal(format!("CUDA sobol_f64 kernel launch failed: {:?}", e))
         })?;
     }
+
+    // Synchronize before deallocating direction vectors
+    stream
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
+
+    CudaRuntime::deallocate(dv_ptr, dv_bytes.len(), device);
 
     Ok(())
 }

@@ -2,66 +2,12 @@
 //!
 //! Implements Sobol, Halton, and Latin Hypercube Sampling sequences.
 
-use super::sobol_data::{ArchivedSobolPolynomial, MAX_SOBOL_DIMENSION, get_polynomial};
+use super::sobol_data::{MAX_SOBOL_DIMENSION, get_polynomial};
+use crate::ops::common::quasirandom::{
+    SOBOL_BITS, compute_direction_vectors, dimension_zero_vectors,
+};
 use rand::Rng;
 use rand::seq::SliceRandom;
-
-// ============================================================================
-// Sobol Sequence
-// ============================================================================
-
-/// Number of bits for direction vectors (32-bit precision).
-const SOBOL_BITS: usize = 32;
-
-/// Compute direction vectors from polynomial data using the recurrence relation.
-///
-/// The recurrence (from Joe & Kuo 2008):
-/// For i >= s:
-///   m_i = m_{i-s} XOR (m_{i-s} >> s) XOR sum_{j=1}^{s-1} [a_j * (m_{i-j} >> j)]
-///
-/// where a_j is the j-th bit of coefficient 'a' (from LSB).
-#[inline]
-fn compute_direction_vectors(poly: &ArchivedSobolPolynomial) -> [u32; SOBOL_BITS] {
-    let s = poly.degree as usize;
-    // Convert from archived little-endian to native u32
-    let a: u32 = poly.coeff.into();
-
-    let mut v = [0u32; SOBOL_BITS];
-
-    // Initialize with provided m values, left-shifted to fill MSBs
-    for (i, m) in poly.m_values.iter().enumerate() {
-        let m_native: u32 = (*m).into();
-        v[i] = m_native << (SOBOL_BITS - 1 - i);
-    }
-
-    // Recurrence for remaining positions
-    for i in s..SOBOL_BITS {
-        // Start with the required terms: m_{i-s} XOR (m_{i-s} >> s)
-        let mut vi = v[i - s] ^ (v[i - s] >> s);
-
-        // Add middle terms based on polynomial coefficients
-        // a encodes coefficients a_{s-1}, a_{s-2}, ..., a_1 from MSB to LSB
-        for j in 1..s {
-            if (a >> (s - 1 - j)) & 1 != 0 {
-                vi ^= v[i - j] >> j;
-            }
-        }
-
-        v[i] = vi;
-    }
-
-    v
-}
-
-/// Direction vectors for dimension 0 (implicit: all powers of 2).
-#[inline]
-fn dimension_zero_vectors() -> [u32; SOBOL_BITS] {
-    let mut v = [0u32; SOBOL_BITS];
-    for i in 0..SOBOL_BITS {
-        v[i] = 1u32 << (SOBOL_BITS - 1 - i);
-    }
-    v
-}
 
 /// Generate Sobol sequence points (F32 version).
 ///

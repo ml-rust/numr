@@ -1,9 +1,12 @@
 //! Quasi-random sequence generation for WebGPU runtime
 
+use wgpu::util::DeviceExt;
+
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::common::quasirandom::{
-    validate_halton_params, validate_latin_hypercube_params, validate_sobol_params,
+    compute_all_direction_vectors, validate_halton_params, validate_latin_hypercube_params,
+    validate_sobol_params,
 };
 use crate::ops::traits::QuasiRandomOps;
 use crate::runtime::wgpu::ops::helpers::{
@@ -34,6 +37,16 @@ impl QuasiRandomOps<WgpuRuntime> for WgpuClient {
         let out = alloc_output(self, &shape, dtype);
         let out_buf = get_tensor_buffer(&out)?;
 
+        // Compute direction vectors and upload to GPU
+        let direction_vectors = compute_all_direction_vectors(dimension);
+        let dv_buf = self
+            .wgpu_device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("sobol_direction_vectors"),
+                contents: bytemuck::cast_slice(&direction_vectors),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
         // Create params
         let params = SobolParams {
             n_points: n_points as u32,
@@ -44,13 +57,13 @@ impl QuasiRandomOps<WgpuRuntime> for WgpuClient {
         let params_buf = create_params_buffer(self, &params);
 
         // Launch shader
-        let total_elements = n_points * dimension;
         quasirandom::launch_sobol(
             self.pipeline_cache(),
             self.wgpu_queue(),
             &out_buf,
+            &dv_buf,
             &params_buf,
-            total_elements,
+            n_points,
             dtype,
         )?;
 
@@ -205,13 +218,15 @@ mod tests {
     fn test_sobol_dimension_limit() {
         let (_device, client) = setup();
 
-        // Should work up to 6 dimensions (current implementation limit)
-        let result = client.sobol(10, 6, 0, DType::F32);
+        // Should work up to 21,201 dimensions (full Joe & Kuo dataset)
+        let result = client.sobol(10, 100, 0, DType::F32);
         assert!(result.is_ok());
 
-        // Should fail beyond 6 dimensions (current implementation limit)
-        // NOTE: Once full direction numbers are implemented, this should be updated to 1000
-        let result = client.sobol(10, 7, 0, DType::F32);
+        let result = client.sobol(10, 1000, 0, DType::F32);
+        assert!(result.is_ok());
+
+        // Should fail beyond 21,201
+        let result = client.sobol(10, 21202, 0, DType::F32);
         assert!(result.is_err());
     }
 

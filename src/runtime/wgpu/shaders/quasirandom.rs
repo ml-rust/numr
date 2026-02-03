@@ -23,19 +23,9 @@ fn check_float_dtype(dtype: DType, op: &'static str) -> Result<()> {
 // ============================================================================
 
 const SOBOL_WGSL: &str = r#"
-// Direction numbers for Sobol sequence (6 dimensions only)
-// Based on Joe & Kuo (2008) for primitive polynomials over GF(2)
-//
-// LIMITATION: Only 6 dimensions have direction numbers.
-// Dimensions 7+ fall back to van der Corput (lower quality).
-const SOBOL_DIRECTION_NUMBERS: array<array<u32, 30>, 6> = array(
-    array(1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-    array(1u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-    array(1u, 3u, 7u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-    array(1u, 1u, 5u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-    array(1u, 3u, 1u, 1u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-    array(1u, 1u, 3u, 7u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u),
-);
+// Direction vectors are passed via storage buffer.
+// This supports all 21,201 dimensions from Joe & Kuo (2008).
+// Each dimension has 32 direction vectors.
 
 struct SobolParams {
     n_points: u32,
@@ -45,20 +35,8 @@ struct SobolParams {
 }
 
 @group(0) @binding(0) var<storage, read_write> output: array<f32>;
-@group(0) @binding(1) var<uniform> params: SobolParams;
-
-// van der Corput for dimensions > 6
-fn van_der_corput_f32(index: u32, base: u32) -> f32 {
-    var result = 0.0;
-    var f = 1.0 / f32(base);
-    var i = index;
-    while (i > 0u) {
-        result += f * f32(i % base);
-        i = i / base;
-        f = f / f32(base);
-    }
-    return result;
-}
+@group(0) @binding(1) var<storage, read_write> direction_vectors: array<u32>;
+@group(0) @binding(2) var<uniform> params: SobolParams;
 
 @compute @workgroup_size(256)
 fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -67,37 +45,23 @@ fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let point_index = params.skip + idx;
 
+    // Gray code
+    let gray = point_index ^ (point_index >> 1u);
+
     for (var d = 0u; d < params.dimension; d++) {
-        var value: f32;
+        // Get direction vectors for this dimension
+        let v_offset = d * 32u;
 
-        if (d < 6u) {
-            // Use Sobol direction numbers
-            var v: array<u32, 32>;
-            for (var i = 0u; i < 30u; i++) {
-                v[i] = SOBOL_DIRECTION_NUMBERS[d][i] << (31u - i);
+        // Compute Sobol point using direction vectors
+        var x = 0u;
+        for (var bit = 0u; bit < 32u; bit++) {
+            if ((gray & (1u << bit)) != 0u) {
+                x = x ^ direction_vectors[v_offset + bit];
             }
-            v[30] = 0u;
-            v[31] = 0u;
-
-            // Gray code
-            let gray = point_index ^ (point_index >> 1u);
-
-            // Compute Sobol point
-            var x = 0u;
-            for (var bit = 0u; bit < 32u; bit++) {
-                if ((gray & (1u << bit)) != 0u) {
-                    x = x ^ v[bit];
-                }
-            }
-
-            // Convert to float in [0, 1)
-            value = f32(x) / 4294967296.0; // 2^32
-        } else {
-            // Fallback to van der Corput
-            value = van_der_corput_f32(point_index, 2u + d);
         }
 
-        output[idx * params.dimension + d] = value;
+        // Convert to float in [0, 1)
+        output[idx * params.dimension + d] = f32(x) / 4294967296.0;
     }
 }
 "#;
@@ -107,22 +71,26 @@ fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// Generates low-discrepancy quasi-random sequences using Sobol direction numbers.
 /// Useful for numerical integration and Monte Carlo methods.
 ///
+/// Supports all 21,201 dimensions from Joe & Kuo (2008).
+///
 /// # Arguments
 /// * `cache` - Pipeline cache for shader compilation
 /// * `queue` - Command queue for GPU execution
 /// * `out` - Output buffer for generated samples
+/// * `direction_vectors` - Pre-computed direction vectors buffer [dimension][32]
 /// * `params` - Parameters buffer (dimension, offset)
-/// * `total_elements` - Total number of elements to generate
+/// * `n_points` - Number of points to generate
 /// * `dtype` - Data type (must be floating-point)
 pub fn launch_sobol(
     cache: &PipelineCache,
     queue: &Queue,
     out: &Buffer,
+    direction_vectors: &Buffer,
     params: &Buffer,
-    total_elements: usize,
+    n_points: usize,
     dtype: DType,
 ) -> Result<()> {
-    if total_elements == 0 {
+    if n_points == 0 {
         return Ok(());
     }
     check_float_dtype(dtype, "sobol")?;
@@ -130,11 +98,11 @@ pub fn launch_sobol(
     let name = "sobol_f32";
     let module = cache.get_or_create_module(name, SOBOL_WGSL);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 1,
+        num_storage_buffers: 2,
         num_uniform_buffers: 1,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
-    let bind_group = cache.create_bind_group(&layout, &[out, params]);
+    let bind_group = cache.create_bind_group(&layout, &[out, direction_vectors, params]);
 
     let mut encoder = cache
         .device()
@@ -148,9 +116,8 @@ pub fn launch_sobol(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // Dispatch based on n_points, not total_elements
-        // Since each thread generates all dimensions for one point
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        // Dispatch based on n_points
+        pass.dispatch_workgroups(workgroup_count(n_points), 1, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

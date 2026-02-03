@@ -5,29 +5,12 @@
 #include <math.h>
 
 // ============================================================================
-// Sobol Sequence - Direction Numbers
+// Sobol Sequence - Direction Vectors
 // ============================================================================
 
-// Direction numbers for Sobol sequence (6 dimensions only)
-// Based on Joe & Kuo (2008) direction numbers for primitive polynomials over GF(2)
-//
-// CURRENT LIMITATION: Only 6 dimensions have direction numbers.
-// Dimensions 7+ fall back to van der Corput (different algorithm, lower quality).
-// TODO: Expand to 50-100 dimensions for production use.
-__constant__ unsigned int sobol_direction_numbers[6][30] = {
-    // Dimension 0 (implicit: all 1s in binary)
-    {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // Dimension 1: x^1 + 1
-    {1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // Dimension 2: x^2 + x + 1
-    {1, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // Dimension 3: x^3 + x + 1
-    {1, 1, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // Dimension 4: x^3 + x^2 + 1
-    {1, 3, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-    // Dimension 5: x^4 + x^3 + 1
-    {1, 1, 3, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-};
+// Direction vectors are passed from host via global memory.
+// This allows support for all 21,201 dimensions from Joe & Kuo (2008).
+// Each dimension has 32 direction vectors (one per bit).
 
 // ============================================================================
 // Halton Sequence - Prime Numbers
@@ -115,31 +98,26 @@ __device__ __forceinline__ double van_der_corput_f64(unsigned int index, unsigne
 extern "C" {
 
 // Each thread generates one point across all dimensions
-__global__ void sobol_f32(float* out, unsigned int n_points, unsigned int dimension, unsigned int skip) {
+// direction_vectors: [dimension][32] pre-computed direction vectors from host
+__global__ void sobol_f32(
+    float* out,
+    const unsigned int* direction_vectors,
+    unsigned int n_points,
+    unsigned int dimension,
+    unsigned int skip
+) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n_points) {
         unsigned int point_index = skip + idx;
 
+        // Gray code
+        unsigned int gray = point_index ^ (point_index >> 1);
+
         for (unsigned int d = 0; d < dimension; d++) {
-            // For dimensions beyond 6, use van der Corput fallback
-            if (d >= 6) {
-                out[idx * dimension + d] = van_der_corput_f32(point_index, 2 + d);
-                continue;
-            }
+            // Get direction vectors for this dimension
+            const unsigned int* v = direction_vectors + d * 32;
 
-            // Compute Sobol value using direction vectors
-            unsigned int v[32];
-            for (int i = 0; i < 30; i++) {
-                v[i] = sobol_direction_numbers[d][i] << (31 - i);
-            }
-            for (int i = 30; i < 32; i++) {
-                v[i] = 0;
-            }
-
-            // Gray code
-            unsigned int gray = point_index ^ (point_index >> 1);
-
-            // Compute Sobol point
+            // Compute Sobol point using direction vectors
             unsigned int x = 0;
             for (int bit = 0; bit < 32; bit++) {
                 if ((gray & (1u << bit)) != 0) {
@@ -153,31 +131,25 @@ __global__ void sobol_f32(float* out, unsigned int n_points, unsigned int dimens
     }
 }
 
-__global__ void sobol_f64(double* out, unsigned int n_points, unsigned int dimension, unsigned int skip) {
+__global__ void sobol_f64(
+    double* out,
+    const unsigned int* direction_vectors,
+    unsigned int n_points,
+    unsigned int dimension,
+    unsigned int skip
+) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n_points) {
         unsigned int point_index = skip + idx;
 
+        // Gray code
+        unsigned int gray = point_index ^ (point_index >> 1);
+
         for (unsigned int d = 0; d < dimension; d++) {
-            // For dimensions beyond 6, use van der Corput fallback
-            if (d >= 6) {
-                out[idx * dimension + d] = van_der_corput_f64(point_index, 2 + d);
-                continue;
-            }
+            // Get direction vectors for this dimension
+            const unsigned int* v = direction_vectors + d * 32;
 
-            // Compute Sobol value using direction vectors
-            unsigned int v[32];
-            for (int i = 0; i < 30; i++) {
-                v[i] = sobol_direction_numbers[d][i] << (31 - i);
-            }
-            for (int i = 30; i < 32; i++) {
-                v[i] = 0;
-            }
-
-            // Gray code
-            unsigned int gray = point_index ^ (point_index >> 1);
-
-            // Compute Sobol point
+            // Compute Sobol point using direction vectors
             unsigned int x = 0;
             for (int bit = 0; bit < 32; bit++) {
                 if ((gray & (1u << bit)) != 0) {
