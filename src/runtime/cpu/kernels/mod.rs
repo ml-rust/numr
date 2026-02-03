@@ -9,6 +9,7 @@ pub mod advanced_random;
 pub mod binary;
 pub mod compare;
 pub mod complex;
+pub mod conv;
 pub mod cumulative;
 pub mod distance;
 pub mod distributions;
@@ -39,6 +40,7 @@ pub use complex::{
     angle_complex64, angle_complex128, angle_real_f32, angle_real_f64, conj_complex64,
     conj_complex128, imag_complex64, imag_complex128, real_complex64, real_complex128,
 };
+pub use conv::{conv1d_kernel, conv2d_kernel, depthwise_conv2d_kernel};
 pub use cumulative::{
     cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
     logsumexp_strided_kernel,
@@ -53,8 +55,9 @@ pub use fft::{
     rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
 };
 pub use index::{
-    embedding_lookup_kernel, gather_kernel, index_put_kernel, index_select_kernel,
-    masked_count_kernel, masked_fill_kernel, masked_select_kernel, scatter_kernel,
+    bincount_kernel, embedding_lookup_kernel, gather_kernel, gather_nd_kernel, index_put_kernel,
+    index_select_kernel, masked_count_kernel, masked_fill_kernel, masked_select_kernel,
+    max_i64_kernel, scatter_kernel, scatter_reduce_kernel,
 };
 pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{matmul_bias_kernel, matmul_kernel};

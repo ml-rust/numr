@@ -24,6 +24,9 @@ mod normalization;
 #[path = "../../ops/cpu/matmul.rs"]
 mod matmul;
 
+#[path = "../../ops/cpu/conv.rs"]
+mod conv;
+
 #[path = "../../ops/cpu/cumulative.rs"]
 mod cumulative;
 

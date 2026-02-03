@@ -1,6 +1,7 @@
 //! Index operation kernels (gather, scatter, masked operations)
 
 use crate::dtype::Element;
+use crate::ops::ScatterReduceOp;
 
 /// Gather elements along a dimension using an index tensor.
 ///
@@ -442,4 +443,336 @@ pub unsafe fn embedding_lookup_kernel<T: Element>(
             embedding_dim,
         );
     }
+}
+
+/// Scatter values with reduction into a destination tensor.
+///
+/// # Arguments
+/// * `dst` - Destination tensor data pointer
+/// * `indices` - Index tensor pointer (i64 values)
+/// * `src` - Source values to scatter
+/// * `out` - Output pointer
+/// * `counts` - Optional count buffer for Mean reduction (must be pre-zeroed)
+/// * `shape` - Shape of destination tensor
+/// * `index_shape` - Shape of index/src tensors
+/// * `dim` - Dimension along which to scatter
+/// * `op` - Reduction operation to apply
+/// * `include_self` - Whether to include dst values in reduction
+///
+/// # Safety
+/// - All pointers must be valid for the specified shapes
+/// - `counts` must be valid if op == Mean and include_self == false
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn scatter_reduce_kernel<T: Element>(
+    dst: *const T,
+    indices: *const i64,
+    src: *const T,
+    out: *mut T,
+    counts: *mut u32,
+    shape: &[usize],
+    index_shape: &[usize],
+    dim: usize,
+    op: ScatterReduceOp,
+    include_self: bool,
+) {
+    let ndim = shape.len();
+    if ndim == 0 {
+        return;
+    }
+
+    let dst_numel: usize = shape.iter().product();
+
+    // Initialize output based on operation and include_self
+    if include_self {
+        // Copy dst to out
+        std::ptr::copy_nonoverlapping(dst, out, dst_numel);
+        // Initialize counts to 1 for Mean
+        if op == ScatterReduceOp::Mean && !counts.is_null() {
+            let counts_slice = std::slice::from_raw_parts_mut(counts, dst_numel);
+            for c in counts_slice.iter_mut() {
+                *c = 1;
+            }
+        }
+    } else {
+        // Initialize based on reduction operation
+        let out_slice = std::slice::from_raw_parts_mut(out, dst_numel);
+        match op {
+            ScatterReduceOp::Sum | ScatterReduceOp::Mean => {
+                for elem in out_slice.iter_mut() {
+                    *elem = T::zero();
+                }
+            }
+            ScatterReduceOp::Prod => {
+                for elem in out_slice.iter_mut() {
+                    *elem = T::one();
+                }
+            }
+            ScatterReduceOp::Max => {
+                // Use negative infinity for Max initialization
+                for elem in out_slice.iter_mut() {
+                    *elem = T::from_f64(f64::NEG_INFINITY);
+                }
+            }
+            ScatterReduceOp::Min => {
+                // Use positive infinity for Min initialization
+                for elem in out_slice.iter_mut() {
+                    *elem = T::from_f64(f64::INFINITY);
+                }
+            }
+        }
+        // Initialize counts to 0 for Mean
+        if op == ScatterReduceOp::Mean && !counts.is_null() {
+            let counts_slice = std::slice::from_raw_parts_mut(counts, dst_numel);
+            for c in counts_slice.iter_mut() {
+                *c = 0;
+            }
+        }
+    }
+
+    // Compute strides for output tensor (row-major)
+    let mut out_strides = vec![1usize; ndim];
+    for i in (0..ndim - 1).rev() {
+        out_strides[i] = out_strides[i + 1] * shape[i + 1];
+    }
+
+    // Compute strides for index/src tensor (row-major)
+    let mut idx_strides = vec![1usize; ndim];
+    for i in (0..ndim - 1).rev() {
+        idx_strides[i] = idx_strides[i + 1] * index_shape[i + 1];
+    }
+
+    let total = index_shape.iter().product::<usize>();
+
+    // Scatter with reduction
+    for src_idx in 0..total {
+        // Convert linear index to multi-dimensional indices
+        let mut remaining = src_idx;
+        let mut multi_idx = vec![0usize; ndim];
+        for d in 0..ndim {
+            multi_idx[d] = remaining / idx_strides[d];
+            remaining %= idx_strides[d];
+        }
+
+        // Get the index value from the indices tensor
+        let index_val = *indices.add(src_idx);
+        if index_val < 0 || index_val as usize >= shape[dim] {
+            // Out of bounds - skip
+            continue;
+        }
+
+        // Compute destination position: replace multi_idx[dim] with index_val
+        let mut dst_offset = 0;
+        for d in 0..ndim {
+            let coord = if d == dim {
+                index_val as usize
+            } else {
+                multi_idx[d]
+            };
+            dst_offset += coord * out_strides[d];
+        }
+
+        let src_val = *src.add(src_idx);
+        let dst_val = *out.add(dst_offset);
+
+        // Apply reduction operation
+        let new_val = match op {
+            ScatterReduceOp::Sum | ScatterReduceOp::Mean => dst_val + src_val,
+            ScatterReduceOp::Prod => dst_val * src_val,
+            ScatterReduceOp::Max => {
+                if src_val.to_f64() > dst_val.to_f64() {
+                    src_val
+                } else {
+                    dst_val
+                }
+            }
+            ScatterReduceOp::Min => {
+                if src_val.to_f64() < dst_val.to_f64() {
+                    src_val
+                } else {
+                    dst_val
+                }
+            }
+        };
+
+        *out.add(dst_offset) = new_val;
+
+        // Update count for Mean
+        if op == ScatterReduceOp::Mean && !counts.is_null() {
+            *counts.add(dst_offset) += 1;
+        }
+    }
+
+    // Finalize Mean: divide by count
+    if op == ScatterReduceOp::Mean && !counts.is_null() {
+        let out_slice = std::slice::from_raw_parts_mut(out, dst_numel);
+        let counts_slice = std::slice::from_raw_parts(counts, dst_numel);
+        for (elem, &count) in out_slice.iter_mut().zip(counts_slice.iter()) {
+            if count > 0 {
+                *elem = T::from_f64(elem.to_f64() / count as f64);
+            }
+        }
+    }
+}
+
+/// Gather elements using N-dimensional indices.
+///
+/// The last dimension of `indices` contains coordinates into `input`.
+///
+/// # Arguments
+/// * `input` - Input data pointer
+/// * `indices` - Index tensor pointer (i64 values)
+/// * `out` - Output pointer
+/// * `input_shape` - Shape of input tensor
+/// * `indices_shape` - Shape of indices tensor
+/// * `out_shape` - Shape of output tensor
+///
+/// # Safety
+/// - All pointers must be valid for the specified shapes
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn gather_nd_kernel<T: Element>(
+    input: *const T,
+    indices: *const i64,
+    out: *mut T,
+    input_shape: &[usize],
+    indices_shape: &[usize],
+    out_shape: &[usize],
+) {
+    if input_shape.is_empty() || indices_shape.is_empty() {
+        return;
+    }
+
+    let input_ndim = input_shape.len();
+    let indices_ndim = indices_shape.len();
+    let index_depth = indices_shape[indices_ndim - 1]; // M: number of coordinates
+
+    // Compute input strides
+    let mut input_strides = vec![1usize; input_ndim];
+    for i in (0..input_ndim - 1).rev() {
+        input_strides[i] = input_strides[i + 1] * input_shape[i + 1];
+    }
+
+    // Compute indices strides
+    let mut indices_strides = vec![1usize; indices_ndim];
+    for i in (0..indices_ndim - 1).rev() {
+        indices_strides[i] = indices_strides[i + 1] * indices_shape[i + 1];
+    }
+
+    // Compute output strides
+    let out_ndim = out_shape.len();
+    let mut out_strides = vec![1usize; out_ndim.max(1)];
+    for i in (0..out_ndim.saturating_sub(1)).rev() {
+        out_strides[i] = out_strides[i + 1] * out_shape[i + 1];
+    }
+
+    // Number of index vectors (product of indices.shape[:-1])
+    let num_indices: usize = indices_shape[..indices_ndim - 1]
+        .iter()
+        .product::<usize>()
+        .max(1);
+
+    // Size of trailing dimensions from input (after the indexed dimensions)
+    let trailing_size: usize = if index_depth < input_ndim {
+        input_shape[index_depth..].iter().product()
+    } else {
+        1
+    };
+
+    // For each index vector
+    for idx_vec in 0..num_indices {
+        // Compute offset into indices tensor for this index vector
+        let indices_offset = idx_vec * index_depth;
+
+        // Read the index coordinates
+        let mut input_offset = 0usize;
+        let mut valid = true;
+        for d in 0..index_depth {
+            let coord = *indices.add(indices_offset + d);
+            if coord < 0 || coord as usize >= input_shape[d] {
+                valid = false;
+                break;
+            }
+            input_offset += (coord as usize) * input_strides[d];
+        }
+
+        // Compute output offset
+        let out_offset = idx_vec * trailing_size;
+
+        if !valid {
+            // Out of bounds - fill with zeros
+            for i in 0..trailing_size {
+                *out.add(out_offset + i) = T::zero();
+            }
+        } else {
+            // Copy trailing elements
+            for i in 0..trailing_size {
+                *out.add(out_offset + i) = *input.add(input_offset + i);
+            }
+        }
+    }
+}
+
+/// Count occurrences of each value in an integer tensor.
+///
+/// # Arguments
+/// * `input` - Input integer tensor pointer (i64 values)
+/// * `weights` - Optional weights pointer (same length as input)
+/// * `out` - Output pointer (histogram)
+/// * `numel` - Number of elements in input
+/// * `output_len` - Length of output histogram
+///
+/// # Safety
+/// - All pointers must be valid for the specified sizes
+/// - `input` values must be in range [0, output_len)
+///
+/// # Returns
+/// * `true` if all values were non-negative, `false` if any negative value found
+#[inline]
+pub unsafe fn bincount_kernel<T: Element>(
+    input: *const i64,
+    weights: *const T,
+    out: *mut T,
+    numel: usize,
+    output_len: usize,
+) -> bool {
+    // Initialize output to zero
+    let out_slice = std::slice::from_raw_parts_mut(out, output_len);
+    for elem in out_slice.iter_mut() {
+        *elem = T::zero();
+    }
+
+    let input_slice = std::slice::from_raw_parts(input, numel);
+    let has_weights = !weights.is_null();
+
+    for i in 0..numel {
+        let val = input_slice[i];
+        if val < 0 {
+            return false; // Negative value found
+        }
+        let idx = val as usize;
+        if idx < output_len {
+            if has_weights {
+                let w = *weights.add(i);
+                out_slice[idx] = out_slice[idx] + w;
+            } else {
+                out_slice[idx] = out_slice[idx] + T::one();
+            }
+        }
+    }
+
+    true
+}
+
+/// Find the maximum value in an i64 tensor.
+///
+/// # Safety
+/// - `input` must be valid for `numel` elements
+#[inline]
+pub unsafe fn max_i64_kernel(input: *const i64, numel: usize) -> i64 {
+    if numel == 0 {
+        return -1;
+    }
+    let slice = std::slice::from_raw_parts(input, numel);
+    *slice.iter().max().unwrap_or(&-1)
 }

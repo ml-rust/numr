@@ -19,8 +19,8 @@ pub use binary::binary_op_impl;
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
 pub use indexing::{
-    embedding_lookup_impl, gather_impl, index_put_impl, index_select_impl, masked_fill_impl,
-    masked_select_impl, scatter_impl,
+    bincount_impl, embedding_lookup_impl, gather_impl, gather_nd_impl, index_put_impl,
+    index_select_impl, masked_fill_impl, masked_select_impl, scatter_impl, scatter_reduce_impl,
 };
 pub use reduce::{reduce_impl, reduce_impl_with_precision};
 pub use scalar::scalar_op_impl;

@@ -24,6 +24,9 @@ mod normalization;
 #[path = "../../../ops/cuda/matmul.rs"]
 mod matmul;
 
+#[path = "../../../ops/cuda/conv.rs"]
+mod conv;
+
 #[path = "../../../ops/cuda/cumulative.rs"]
 mod cumulative;
 

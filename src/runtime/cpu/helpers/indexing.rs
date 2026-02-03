@@ -5,6 +5,7 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::ScatterReduceOp;
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
@@ -471,6 +472,280 @@ pub fn embedding_lookup_impl(
             );
         }
     }, "embedding_lookup");
+
+    Ok(out)
+}
+
+/// Scatter values with reduction into a destination tensor.
+#[allow(clippy::too_many_arguments)]
+pub fn scatter_reduce_impl(
+    client: &CpuClient,
+    dst: &Tensor<CpuRuntime>,
+    dim: usize,
+    index: &Tensor<CpuRuntime>,
+    src: &Tensor<CpuRuntime>,
+    op: ScatterReduceOp,
+    include_self: bool,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = dst.dtype();
+    let shape = dst.shape();
+    let ndim = shape.len();
+
+    // Validate dimension
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate dtypes
+    if index.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: index.dtype(),
+        });
+    }
+
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    // Validate that index and src have same shape
+    if index.shape() != src.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: src.shape().to_vec(),
+            got: index.shape().to_vec(),
+        });
+    }
+
+    // Validate that index has same number of dimensions as dst
+    if index.ndim() != ndim {
+        return Err(Error::ShapeMismatch {
+            expected: shape.to_vec(),
+            got: index.shape().to_vec(),
+        });
+    }
+
+    let dst_contig = ensure_contiguous(dst);
+    let index_contig = ensure_contiguous(index);
+    let src_contig = ensure_contiguous(src);
+    let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
+
+    // Allocate counts buffer for Mean operation
+    let dst_numel: usize = shape.iter().product();
+    let counts_buffer: Vec<u32> = vec![0; dst_numel];
+
+    let dst_ptr = dst_contig.storage().ptr();
+    let index_ptr = index_contig.storage().ptr();
+    let src_ptr = src_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+    let counts_ptr = if op == ScatterReduceOp::Mean {
+        counts_buffer.as_ptr() as *mut u32
+    } else {
+        std::ptr::null_mut()
+    };
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::scatter_reduce_kernel::<T>(
+                dst_ptr as *const T,
+                index_ptr as *const i64,
+                src_ptr as *const T,
+                out_ptr as *mut T,
+                counts_ptr,
+                shape,
+                index.shape(),
+                dim,
+                op,
+                include_self,
+            );
+        }
+    }, "scatter_reduce");
+
+    Ok(out)
+}
+
+/// Gather elements using N-dimensional indices.
+pub fn gather_nd_impl(
+    client: &CpuClient,
+    input: &Tensor<CpuRuntime>,
+    indices: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = input.dtype();
+    let input_shape = input.shape();
+    let indices_shape = indices.shape();
+
+    // Validate indices dtype
+    if indices.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: indices.dtype(),
+        });
+    }
+
+    // Indices must have at least 1 dimension
+    if indices_shape.is_empty() {
+        return Err(Error::ShapeMismatch {
+            expected: vec![1],
+            got: indices_shape.to_vec(),
+        });
+    }
+
+    // Last dimension of indices is the number of coordinates (M)
+    let indices_ndim = indices_shape.len();
+    let index_depth = indices_shape[indices_ndim - 1]; // M
+
+    // M must not exceed input dimensions
+    if index_depth > input_shape.len() {
+        return Err(Error::InvalidDimension {
+            dim: index_depth as isize,
+            ndim: input_shape.len(),
+        });
+    }
+
+    // Compute output shape:
+    // indices.shape[:-1] + input.shape[M:]
+    let mut out_shape: Vec<usize> = indices_shape[..indices_ndim - 1].to_vec();
+    out_shape.extend_from_slice(&input_shape[index_depth..]);
+
+    // Handle scalar output case
+    if out_shape.is_empty() {
+        out_shape.push(1);
+    }
+
+    let input_contig = ensure_contiguous(input);
+    let indices_contig = ensure_contiguous(indices);
+    let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
+
+    let input_ptr = input_contig.storage().ptr();
+    let indices_ptr = indices_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::gather_nd_kernel::<T>(
+                input_ptr as *const T,
+                indices_ptr as *const i64,
+                out_ptr as *mut T,
+                input_shape,
+                indices_shape,
+                &out_shape,
+            );
+        }
+    }, "gather_nd");
+
+    Ok(out)
+}
+
+/// Count occurrences of each value in an integer tensor.
+pub fn bincount_impl(
+    client: &CpuClient,
+    input: &Tensor<CpuRuntime>,
+    weights: Option<&Tensor<CpuRuntime>>,
+    minlength: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    // Validate input is 1D
+    if input.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![input.numel()],
+            got: input.shape().to_vec(),
+        });
+    }
+
+    // Validate input is integer type
+    let input_dtype = input.dtype();
+    if !matches!(input_dtype, DType::I32 | DType::I64) {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: input_dtype,
+        });
+    }
+
+    // Validate weights if provided
+    let out_dtype = if let Some(w) = weights {
+        if w.shape() != input.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: input.shape().to_vec(),
+                got: w.shape().to_vec(),
+            });
+        }
+        w.dtype()
+    } else {
+        DType::I64 // Count output is I64 when no weights
+    };
+
+    let input_contig = ensure_contiguous(input);
+    let numel = input.numel();
+
+    // Convert input to i64 if needed
+    let input_i64: Vec<i64> = if input_dtype == DType::I64 {
+        unsafe {
+            std::slice::from_raw_parts(input_contig.storage().ptr() as *const i64, numel).to_vec()
+        }
+    } else {
+        // I32 input
+        let i32_slice = unsafe {
+            std::slice::from_raw_parts(input_contig.storage().ptr() as *const i32, numel)
+        };
+        i32_slice.iter().map(|&x| x as i64).collect()
+    };
+
+    // Find max value to determine output size
+    let max_val = unsafe { kernels::max_i64_kernel(input_i64.as_ptr(), numel) };
+    if max_val < 0 {
+        return Err(Error::InvalidArgument {
+            arg: "input",
+            reason: "bincount requires non-negative values".to_string(),
+        });
+    }
+    let output_len = (max_val as usize + 1).max(minlength);
+
+    let out = Tensor::<CpuRuntime>::empty(&[output_len], out_dtype, &client.device);
+    let out_ptr = out.storage().ptr();
+
+    if let Some(w) = weights {
+        let w_contig = ensure_contiguous(w);
+        let w_ptr = w_contig.storage().ptr();
+
+        dispatch_dtype!(out_dtype, T => {
+            let success = unsafe {
+                kernels::bincount_kernel::<T>(
+                    input_i64.as_ptr(),
+                    w_ptr as *const T,
+                    out_ptr as *mut T,
+                    numel,
+                    output_len,
+                )
+            };
+            if !success {
+                return Err(Error::InvalidArgument {
+                    arg: "input",
+                    reason: "bincount requires non-negative values".to_string(),
+                });
+            }
+        }, "bincount");
+    } else {
+        // No weights - output is I64 counts
+        let success = unsafe {
+            kernels::bincount_kernel::<i64>(
+                input_i64.as_ptr(),
+                std::ptr::null(),
+                out_ptr as *mut i64,
+                numel,
+                output_len,
+            )
+        };
+        if !success {
+            return Err(Error::InvalidArgument {
+                arg: "input",
+                reason: "bincount requires non-negative values".to_string(),
+            });
+        }
+    }
 
     Ok(out)
 }

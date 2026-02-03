@@ -1,7 +1,7 @@
 //! Indexing operations for CUDA runtime
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{IndexingOps, compute_reduce_strides, reduce_dim_output_shape};
+use crate::ops::{IndexingOps, ScatterReduceOp, compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::cuda::kernels::{
     launch_argmax_dim, launch_argmin_dim, launch_copy, launch_embedding_lookup,
     launch_fill_with_f64, launch_gather, launch_index_put, launch_index_select,
@@ -755,5 +755,46 @@ impl IndexingOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn scatter_reduce(
+        &self,
+        _dst: &Tensor<CudaRuntime>,
+        _dim: usize,
+        _index: &Tensor<CudaRuntime>,
+        _src: &Tensor<CudaRuntime>,
+        _op: ScatterReduceOp,
+        _include_self: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // TODO: Implement CUDA kernel for scatter_reduce
+        // Sum: atomicAdd, Max/Min: atomicMax/atomicMin or compare-and-swap
+        // Mean: track counts separately with atomicAdd, then divide
+        Err(Error::NotImplemented {
+            feature: "scatter_reduce on CUDA",
+        })
+    }
+
+    fn gather_nd(
+        &self,
+        _input: &Tensor<CudaRuntime>,
+        _indices: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // TODO: Implement CUDA kernel for gather_nd
+        Err(Error::NotImplemented {
+            feature: "gather_nd on CUDA",
+        })
+    }
+
+    fn bincount(
+        &self,
+        _input: &Tensor<CudaRuntime>,
+        _weights: Option<&Tensor<CudaRuntime>>,
+        _minlength: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        // TODO: Implement CUDA kernel for bincount
+        // Uses atomicAdd for counting/accumulating weights
+        Err(Error::NotImplemented {
+            feature: "bincount on CUDA",
+        })
     }
 }

@@ -3,14 +3,15 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    IndexingOps,
+    IndexingOps, ScatterReduceOp,
     reduce::{compute_reduce_strides, reduce_dim_output_shape},
 };
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
-        dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_impl, index_put_impl,
-        index_select_impl, masked_fill_impl, masked_select_impl, scatter_impl,
+        bincount_impl, dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_impl,
+        gather_nd_impl, index_put_impl, index_select_impl, masked_fill_impl, masked_select_impl,
+        scatter_impl, scatter_reduce_impl,
     },
     kernels,
 };
@@ -163,5 +164,34 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         indices: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         embedding_lookup_impl(self, embeddings, indices)
+    }
+
+    fn scatter_reduce(
+        &self,
+        dst: &Tensor<CpuRuntime>,
+        dim: usize,
+        index: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+        op: ScatterReduceOp,
+        include_self: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        scatter_reduce_impl(self, dst, dim, index, src, op, include_self)
+    }
+
+    fn gather_nd(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        indices: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gather_nd_impl(self, input, indices)
+    }
+
+    fn bincount(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        weights: Option<&Tensor<CpuRuntime>>,
+        minlength: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        bincount_impl(self, input, weights, minlength)
     }
 }

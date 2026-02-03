@@ -4,6 +4,24 @@ use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
+/// Reduction operations for scatter_reduce.
+///
+/// When multiple source values scatter to the same destination index,
+/// this enum determines how they are combined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScatterReduceOp {
+    /// Sum all values that scatter to the same index
+    Sum,
+    /// Take the mean of all values (sum / count)
+    Mean,
+    /// Take the maximum value
+    Max,
+    /// Take the minimum value
+    Min,
+    /// Multiply all values together
+    Prod,
+}
+
 /// Indexing operations
 pub trait IndexingOps<R: Runtime> {
     /// Argmax: returns indices of maximum values along a dimension.
@@ -229,4 +247,132 @@ pub trait IndexingOps<R: Runtime> {
     /// from the embedding table. Each thread handles one index lookup and writes
     /// a full embedding vector.
     fn embedding_lookup(&self, embeddings: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Scatter values with reduction into a destination tensor.
+    ///
+    /// Unlike regular `scatter` which overwrites values, `scatter_reduce` applies
+    /// a reduction operation when multiple source values scatter to the same
+    /// destination index.
+    ///
+    /// # Algorithm
+    ///
+    /// For each position in `src`:
+    /// ```text
+    /// dst[..., index[...], ...] = reduce(dst[..., index[...], ...], src[...])
+    /// ```
+    ///
+    /// Where `reduce` is determined by the `op` parameter.
+    ///
+    /// # Arguments
+    ///
+    /// * `dst` - Destination tensor to scatter into (used as initial values)
+    /// * `dim` - Dimension along which to scatter
+    /// * `index` - Index tensor (I64) specifying scatter positions
+    /// * `src` - Source tensor with values to scatter
+    /// * `op` - Reduction operation to apply (Sum, Mean, Max, Min, Prod)
+    /// * `include_self` - If true, include `dst` values in reduction; if false, initialize
+    ///   destination positions from `src` only
+    ///
+    /// # Returns
+    ///
+    /// New tensor with scattered and reduced values
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// dst = [0, 0, 0, 0]
+    /// index = [0, 0, 2]
+    /// src = [1, 2, 3]
+    /// scatter_reduce(dst, 0, index, src, Sum, include_self=true)
+    /// # Result: [3, 0, 3, 0]  // src[0]+src[1]=3 at index 0, src[2]=3 at index 2
+    /// ```
+    fn scatter_reduce(
+        &self,
+        dst: &Tensor<R>,
+        dim: usize,
+        index: &Tensor<R>,
+        src: &Tensor<R>,
+        op: ScatterReduceOp,
+        include_self: bool,
+    ) -> Result<Tensor<R>>;
+
+    /// Gather elements using N-dimensional indices.
+    ///
+    /// Unlike regular `gather` which gathers along a single dimension,
+    /// `gather_nd` uses an index tensor where the last dimension specifies
+    /// coordinates into the input tensor.
+    ///
+    /// # Algorithm
+    ///
+    /// If `indices` has shape `[..., M]` and `input` has `N` dimensions:
+    /// - If M == N: output has shape `indices.shape()[:-1]`
+    /// - If M < N: output has shape `indices.shape()[:-1] + input.shape()[M:]`
+    ///
+    /// Each index vector `indices[..., :]` specifies coordinates for the first
+    /// M dimensions of `input`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor to gather from
+    /// * `indices` - Index tensor where last dimension contains coordinates
+    ///
+    /// # Returns
+    ///
+    /// Tensor with gathered values
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// input = [[0, 1], [2, 3]]  # shape [2, 2]
+    /// indices = [[0, 0], [1, 1]]  # shape [2, 2], last dim=2 means full coordinates
+    /// gather_nd(input, indices)
+    /// # Result: [0, 3]  # input[0,0]=0, input[1,1]=3
+    ///
+    /// indices = [[0], [1]]  # shape [2, 1], last dim=1 means gather rows
+    /// gather_nd(input, indices)
+    /// # Result: [[0, 1], [2, 3]]  # input[0,:], input[1,:]
+    /// ```
+    fn gather_nd(&self, input: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Count occurrences of each value in an integer tensor.
+    ///
+    /// Returns a histogram where `output[i]` contains the count (or weighted sum)
+    /// of how many times value `i` appears in the input.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - 1D integer tensor with non-negative values (I32 or I64)
+    /// * `weights` - Optional weights tensor, same shape as input. If provided,
+    ///   the output is the sum of weights for each bin instead of counts.
+    /// * `minlength` - Minimum length of the output tensor. Useful when the
+    ///   maximum value is known ahead of time.
+    ///
+    /// # Returns
+    ///
+    /// 1D tensor of length `max(max(input)+1, minlength)` containing counts
+    /// or weighted sums.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// input = [0, 1, 1, 3, 2, 1, 3]
+    /// bincount(input, None, 0)
+    /// # Result: [1, 3, 1, 2]  // counts: 0->1, 1->3, 2->1, 3->2
+    ///
+    /// weights = [0.5, 1.0, 1.5, 2.0, 1.0, 0.5, 3.0]
+    /// bincount(input, Some(weights), 0)
+    /// # Result: [0.5, 3.0, 1.0, 5.0]  // weighted sums per bin
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if input is not 1D or weights shape doesn't match input
+    /// * `DTypeMismatch` - if input is not an integer type
+    /// * `InvalidValue` - if input contains negative values
+    fn bincount(
+        &self,
+        input: &Tensor<R>,
+        weights: Option<&Tensor<R>>,
+        minlength: usize,
+    ) -> Result<Tensor<R>>;
 }

@@ -1,7 +1,7 @@
 //! Indexing operations for WebGPU runtime
 
-use crate::error::Result;
-use crate::ops::IndexingOps;
+use crate::error::{Error, Result};
+use crate::ops::{IndexingOps, ScatterReduceOp};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
@@ -90,5 +90,45 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         indices: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_embedding_lookup(self, embeddings, indices)
+    }
+
+    fn scatter_reduce(
+        &self,
+        _dst: &Tensor<WgpuRuntime>,
+        _dim: usize,
+        _index: &Tensor<WgpuRuntime>,
+        _src: &Tensor<WgpuRuntime>,
+        _op: ScatterReduceOp,
+        _include_self: bool,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // TODO: Implement WebGPU shader for scatter_reduce
+        // Requires atomics for reduction operations (Sum, Mean) or compare-and-swap for Max/Min
+        Err(Error::NotImplemented {
+            feature: "scatter_reduce on WebGPU (requires atomic operations)",
+        })
+    }
+
+    fn gather_nd(
+        &self,
+        _input: &Tensor<WgpuRuntime>,
+        _indices: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // TODO: Implement WebGPU shader for gather_nd
+        Err(Error::NotImplemented {
+            feature: "gather_nd on WebGPU",
+        })
+    }
+
+    fn bincount(
+        &self,
+        _input: &Tensor<WgpuRuntime>,
+        _weights: Option<&Tensor<WgpuRuntime>>,
+        _minlength: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        // TODO: Implement WebGPU shader for bincount
+        // Requires atomics for counting
+        Err(Error::NotImplemented {
+            feature: "bincount on WebGPU (requires atomic operations)",
+        })
     }
 }

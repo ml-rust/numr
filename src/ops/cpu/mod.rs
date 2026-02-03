@@ -9,6 +9,7 @@ pub mod binary;
 pub mod compare;
 pub mod complex;
 pub mod conditional;
+pub mod conv;
 pub mod cumulative;
 pub mod distance;
 pub mod indexing;
