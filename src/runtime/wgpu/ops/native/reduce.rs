@@ -4,9 +4,9 @@ use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ScalarOps;
+use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::reduce;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 
 pub(crate) fn native_reduce_op(

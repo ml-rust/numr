@@ -25,11 +25,10 @@ mod tests;
 use super::CudaRuntime;
 use super::client::CudaClient;
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, ComplexSchurDecomposition, CpDecomposition, CpOptions,
-    EigenDecomposition, GeneralEigenDecomposition, GeneralizedSchurDecomposition,
-    LinearAlgebraAlgorithms, LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder,
-    PolarDecomposition, QrDecomposition, SchurDecomposition, SvdDecomposition,
-    TensorDecomposeAlgorithms, TensorTrainDecomposition, TuckerDecomposition, TuckerOptions,
+    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
+    QrDecomposition, SchurDecomposition, SvdDecomposition,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;

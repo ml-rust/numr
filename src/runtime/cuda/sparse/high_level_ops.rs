@@ -731,7 +731,6 @@ impl SparseOps<CudaRuntime> for CudaClient {
         &self,
         a: &crate::sparse::SparseTensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        use crate::ops::TensorOps;
         use crate::sparse::SparseTensor;
 
         // Sum all non-zero values using GPU reduce kernel (no CPU transfer)

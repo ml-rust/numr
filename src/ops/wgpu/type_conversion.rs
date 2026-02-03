@@ -1,7 +1,7 @@
 //! Type conversion operations for WebGPU runtime
 
 use crate::dtype::DType;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::ops::TypeConversionOps;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;

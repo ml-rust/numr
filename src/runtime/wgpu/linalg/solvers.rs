@@ -9,7 +9,7 @@ use super::decompositions::qr_decompose_internal;
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d, validate_square_matrix};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{LinalgOps, MatmulOps};
+use crate::ops::MatmulOps;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 

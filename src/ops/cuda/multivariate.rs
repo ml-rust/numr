@@ -3,7 +3,6 @@
 //! This module provides implementations that delegate to generic algorithms
 //! while using CUDA kernels for multinomial sampling.
 
-use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::impl_generic::{
     DTypeSupport, MultinomialSamplingOps, dirichlet_impl, multinomial_samples_impl,

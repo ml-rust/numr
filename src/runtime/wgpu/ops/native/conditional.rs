@@ -1,12 +1,11 @@
 //! Conditional operation implementations for WebGPU.
 
 use super::helpers::*;
-use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::broadcast_shape;
 use crate::runtime::wgpu::shaders::{activation_launcher, where_launcher};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{RuntimeClient, compute_broadcast_shape, ensure_contiguous};
+use crate::runtime::{compute_broadcast_shape, ensure_contiguous};
 use crate::tensor::Tensor;
 
 pub(crate) fn native_clamp(

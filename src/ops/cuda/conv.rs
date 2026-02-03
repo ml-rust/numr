@@ -1,6 +1,6 @@
 //! CUDA implementation of convolution operations.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::ops::conv_common::{validate_conv1d, validate_conv2d, validate_depthwise_conv2d};
 use crate::ops::{ConvOps, PaddingMode};
 use crate::runtime::cuda::kernels::{launch_conv1d, launch_conv2d, launch_depthwise_conv2d};

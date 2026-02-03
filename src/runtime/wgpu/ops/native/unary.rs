@@ -1,7 +1,6 @@
 //! Unary operation implementation for WebGPU.
 
 use super::helpers::*;
-use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::elementwise;

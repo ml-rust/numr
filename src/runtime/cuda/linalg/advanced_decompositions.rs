@@ -10,7 +10,7 @@ use crate::algorithm::linalg::{
     PolarDecomposition, SchurDecomposition, validate_linalg_dtype, validate_square_matrix,
 };
 use crate::error::Result;
-use crate::ops::{LinalgOps, MatmulOps, TensorOps, UtilityOps};
+use crate::ops::{LinalgOps, MatmulOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 

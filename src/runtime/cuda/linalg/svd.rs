@@ -6,8 +6,7 @@ use super::super::CudaRuntime;
 use super::super::client::CudaClient;
 use super::super::kernels;
 use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
-use crate::dtype::DType;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 

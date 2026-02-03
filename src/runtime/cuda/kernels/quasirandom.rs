@@ -1,8 +1,8 @@
 //! CUDA kernel launchers for quasi-random sequence generation
 
 use super::loader::{
-    BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
-    kernel_names, launch_config,
+    BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_names,
+    launch_config,
 };
 use crate::error::{Error, Result};
 use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};

@@ -1,7 +1,6 @@
 //! Parametric activation operation implementation for WebGPU.
 
 use super::helpers::*;
-use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::activation_launcher;

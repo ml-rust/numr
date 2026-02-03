@@ -7,7 +7,7 @@ use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 use crate::error::{Error, Result};
-use crate::ops::{LinalgOps, MatmulOps, TensorOps};
+use crate::ops::MatmulOps;
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 

@@ -27,11 +27,10 @@ mod tests;
 
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, ComplexSchurDecomposition, CpDecomposition, CpOptions,
-    EigenDecomposition, GeneralEigenDecomposition, GeneralizedSchurDecomposition,
-    LinearAlgebraAlgorithms, LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder,
-    PolarDecomposition, QrDecomposition, SvdDecomposition, TensorDecomposeAlgorithms,
-    TensorTrainDecomposition, TuckerDecomposition, TuckerOptions,
+    CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, PolarDecomposition,
+    QrDecomposition, SvdDecomposition,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;

@@ -5,9 +5,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::elementwise;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{
-    RuntimeClient, compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes,
-};
+use crate::runtime::{ensure_contiguous, validate_binary_dtypes};
 use crate::tensor::Tensor;
 
 pub(crate) fn native_compare_op(

@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 use crate::ops::{
     BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps,
 };
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Helper to get buffer from tensor, with proper error handling.

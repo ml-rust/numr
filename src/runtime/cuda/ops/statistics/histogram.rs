@@ -2,7 +2,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{BinaryOps, ReduceOps, TensorOps, TypeConversionOps};
+use crate::ops::{ReduceOps, TypeConversionOps};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::statistics_common::compute_histogram_counts;

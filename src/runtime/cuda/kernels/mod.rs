@@ -104,7 +104,6 @@ pub use distributions::*;
 pub use fft::*;
 pub use index::*;
 pub use linalg::*;
-pub use linalg_launchers::*;
 pub use norm::*;
 pub use quasirandom::*;
 pub use reduce::*;

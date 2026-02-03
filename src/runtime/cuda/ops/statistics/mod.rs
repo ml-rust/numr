@@ -34,7 +34,7 @@ pub use quantile::{median_impl, percentile_impl, quantile_impl};
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{TensorOps, TypeConversionOps};
+use crate::ops::TypeConversionOps;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::statistics_common::compute_bin_edges_f64;

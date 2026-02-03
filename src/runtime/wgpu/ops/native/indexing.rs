@@ -5,7 +5,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::index;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{RuntimeClient, compute_contiguous_strides, ensure_contiguous};
+use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
 

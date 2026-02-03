@@ -7,8 +7,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps,
-    UtilityOps,
+    BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps, UnaryOps, UtilityOps,
 };
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;

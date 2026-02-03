@@ -2,9 +2,7 @@
 
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{
-    SortingOps, TensorOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape,
-};
+use crate::ops::{SortingOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::cuda::kernels::launch_mode_dim;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{ensure_contiguous, normalize_dim};
