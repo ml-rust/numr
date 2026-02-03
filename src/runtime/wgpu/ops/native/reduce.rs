@@ -316,9 +316,8 @@ pub(crate) fn native_argreduce_op(
         s
     };
 
-    // Output is I64 for indices (but we use F32 storage for now)
-    // TODO: proper I64 output
-    let out = alloc_output(client, &out_shape, DType::F32);
+    // Output indices as I32 (WebGPU doesn't support I64, shader uses u32)
+    let out = alloc_output(client, &out_shape, DType::I32);
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;

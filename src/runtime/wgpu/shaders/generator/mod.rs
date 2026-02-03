@@ -98,7 +98,7 @@ pub use scalar::{generate_fill_shader, generate_scalar_shader};
 pub use sort::{
     MAX_SHARED_SORT_SIZE, generate_count_nonzero_shader, generate_flat_to_multi_index_shader,
     generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
-    generate_topk_shader, generate_unique_shader,
+    generate_topk_shader, generate_unique_shader, generate_unique_with_counts_shader,
 };
 // Sparse linear algebra exports from split modules
 #[cfg(feature = "sparse")]
