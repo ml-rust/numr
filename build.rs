@@ -42,6 +42,7 @@ fn compile_cuda_kernels() {
         "cast.cu",
         "compare.cu",
         "complex.cu",
+        "conv.cu",
         "cumulative.cu",
         "distance.cu",
         "distributions.cu",
