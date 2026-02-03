@@ -6,6 +6,16 @@ use crate::runtime::cuda::ops::helpers::native_reduce_op;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
 
+/// Normalize dims for reduction: empty means all dimensions
+#[inline]
+fn normalize_reduce_dims(dims: &[usize], ndim: usize) -> Vec<usize> {
+    if dims.is_empty() {
+        (0..ndim).collect()
+    } else {
+        dims.to_vec()
+    }
+}
+
 impl ReduceOps<CudaRuntime> for CudaClient {
     fn sum(
         &self,
@@ -13,7 +23,8 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "sum", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "sum", &dims, keepdim, None)
     }
 
     fn sum_with_precision(
@@ -32,22 +43,14 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Mean = sum / count
-        // When dims is empty, reduce over all dimensions
         let count: usize = if dims.is_empty() {
             a.numel()
         } else {
             dims.iter().map(|&d| a.shape()[d]).product()
         };
 
-        // For empty dims, we need to reduce all dimensions
-        let actual_dims: Vec<usize> = if dims.is_empty() {
-            (0..a.shape().len()).collect()
-        } else {
-            dims.to_vec()
-        };
-
-        let sum_result = self.sum(a, &actual_dims, keepdim)?;
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        let sum_result = self.sum(a, &dims, keepdim)?;
         self.div_scalar(&sum_result, count as f64)
     }
 
@@ -57,7 +60,8 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "max", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "max", &dims, keepdim, None)
     }
 
     fn max_with_precision(
@@ -76,7 +80,8 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "min", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "min", &dims, keepdim, None)
     }
 
     fn min_with_precision(
@@ -95,7 +100,8 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "prod", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "prod", &dims, keepdim, None)
     }
 
     fn prod_with_precision(
@@ -114,7 +120,8 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "any", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "any", &dims, keepdim, None)
     }
 
     fn all(
@@ -123,6 +130,7 @@ impl ReduceOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        native_reduce_op(self, a, "all", dims, keepdim, None)
+        let dims = normalize_reduce_dims(dims, a.shape().len());
+        native_reduce_op(self, a, "all", &dims, keepdim, None)
     }
 }
