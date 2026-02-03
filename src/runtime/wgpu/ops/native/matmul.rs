@@ -1,7 +1,6 @@
 //! Matrix multiplication operation implementations for WebGPU.
 
 use super::helpers::*;
-use crate::dtype::DType;
 use crate::error::Error;
 use crate::error::Result;
 use crate::ops::{matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes};
@@ -17,13 +16,8 @@ pub(crate) fn native_matmul(
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
 
-    let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or_else(|| {
-        Error::Internal(format!(
-            "matmul shape mismatch: {:?} @ {:?}",
-            a.shape(),
-            b.shape()
-        ))
-    })?;
+    let out_shape = matmul_output_shape(a.shape(), b.shape())
+        .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
     let a_shape = a.shape();
     let b_shape = b.shape();
@@ -81,9 +75,65 @@ pub(crate) fn native_matmul(
         return Ok(out);
     }
 
-    // Batched matmul - fall back to CPU for now
-    // TODO: implement batched matmul natively
-    crate::runtime::fallback::matmul_fallback(a, b, &out_shape, &client.device_id, "matmul")
+    // Handle batched (3D) matmul natively
+    if a_shape.len() == 3 && b_shape.len() == 3 {
+        let batch_size = a_shape[0];
+        let m = a_shape[1];
+        let k = a_shape[2];
+        let n = b_shape[2];
+
+        // Validate batch dimensions match
+        if b_shape[0] != batch_size {
+            return Err(Error::ShapeMismatch {
+                expected: vec![batch_size, m, k],
+                got: b_shape.to_vec(),
+            });
+        }
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+
+        let out = alloc_output(client, &out_shape, dtype);
+
+        let a_buf = get_tensor_buffer(&a_contig)?;
+        let b_buf = get_tensor_buffer(&b_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = MatmulParams {
+            m: m as u32,
+            k: k as u32,
+            n: n as u32,
+            batch_size: batch_size as u32,
+        };
+        let params_buf = create_params_buffer(client, &params);
+
+        matmul::launch_batched_matmul(
+            client.pipeline_cache(),
+            client.wgpu_queue(),
+            &a_buf,
+            &b_buf,
+            &out_buf,
+            &params_buf,
+            m,
+            n,
+            batch_size,
+            dtype,
+        )?;
+
+        return Ok(out);
+    }
+
+    // >3D tensors are not supported - return error instead of silent fallback
+    // (WebGPU shader dispatch is limited to 3D workgroups)
+    Err(Error::BackendLimitation {
+        backend: "WebGPU",
+        operation: "matmul",
+        reason: format!(
+            "only supports 2D and 3D tensors, got shapes {:?} and {:?}",
+            a.shape(),
+            b.shape()
+        ),
+    })
 }
 
 /// Native WGPU implementation of fused matrix multiplication with bias.
@@ -100,15 +150,8 @@ pub(crate) fn native_matmul_bias(
     let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
 
     // Validate shapes and compute output shape
-    let out_shape =
-        matmul_bias_output_shape(a.shape(), b.shape(), bias.shape()).ok_or_else(|| {
-            Error::Internal(format!(
-                "matmul_bias shape mismatch: {:?} @ {:?} + {:?}",
-                a.shape(),
-                b.shape(),
-                bias.shape()
-            ))
-        })?;
+    let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape())
+        .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
     let a_shape = a.shape();
     let b_shape = b.shape();
@@ -163,10 +206,10 @@ pub(crate) fn native_matmul_bias(
 
         // Validate batch dimensions match
         if b_shape[0] != batch_size {
-            return Err(Error::Internal(format!(
-                "matmul_bias batch size mismatch: A has {} batches, B has {}",
-                batch_size, b_shape[0]
-            )));
+            return Err(Error::ShapeMismatch {
+                expected: vec![batch_size, m, k],
+                got: b_shape.to_vec(),
+            });
         }
 
         let a_contig = ensure_contiguous(a);
@@ -207,9 +250,13 @@ pub(crate) fn native_matmul_bias(
 
     // >3D tensors are not supported - return error instead of silent fallback
     // (WebGPU shader dispatch is limited to 3D workgroups)
-    Err(Error::Internal(format!(
-        "matmul_bias only supports 2D and 3D tensors in WebGPU backend, got shapes {:?} and {:?}",
-        a.shape(),
-        b.shape()
-    )))
+    Err(Error::BackendLimitation {
+        backend: "WebGPU",
+        operation: "matmul_bias",
+        reason: format!(
+            "only supports 2D and 3D tensors, got shapes {:?} and {:?}",
+            a.shape(),
+            b.shape()
+        ),
+    })
 }
