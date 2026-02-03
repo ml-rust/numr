@@ -33,6 +33,8 @@ mod linalg;
 mod ops;
 mod runtime;
 pub mod shaders;
+#[cfg(feature = "sparse")]
+mod sparse;
 mod special;
 mod statistics;
 

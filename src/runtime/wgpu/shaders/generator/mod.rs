@@ -38,6 +38,8 @@ pub mod norm;
 pub mod reduce;
 pub mod scalar;
 pub mod sort;
+#[cfg(feature = "sparse")]
+pub mod sparse_linalg;
 pub mod special;
 pub mod unary;
 pub mod utility;
@@ -82,6 +84,12 @@ pub use sort::{
     MAX_SHARED_SORT_SIZE, generate_count_nonzero_shader, generate_flat_to_multi_index_shader,
     generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
     generate_topk_shader, generate_unique_shader,
+};
+#[cfg(feature = "sparse")]
+pub use sparse_linalg::{
+    generate_copy_shader, generate_find_diag_indices_shader, generate_ic0_level_shader,
+    generate_ilu0_level_shader, generate_sparse_trsv_lower_shader,
+    generate_sparse_trsv_upper_shader,
 };
 pub use special::{
     generate_special_binary_shader, generate_special_ternary_shader, generate_special_unary_shader,
