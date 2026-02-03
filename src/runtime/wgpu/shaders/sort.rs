@@ -34,10 +34,10 @@ fn get_shader(dtype: DType, op: &'static str) -> Result<String> {
     // Check cache
     {
         let cache = SORT_SHADER_CACHE.read().unwrap();
-        if let Some(ref map) = *cache {
-            if let Some(shader) = map.get(&(dtype, op)) {
-                return Ok(shader.clone());
-            }
+        if let Some(ref map) = *cache
+            && let Some(shader) = map.get(&(dtype, op))
+        {
+            return Ok(shader.clone());
         }
     }
 
@@ -772,10 +772,10 @@ fn get_shader_unique_with_counts(dtype: DType) -> Result<String> {
     // Check cache
     {
         let cache = UNIQUE_COUNTS_SHADER_CACHE.read().unwrap();
-        if let Some(ref map) = *cache {
-            if let Some(shader) = map.get(&dtype) {
-                return Ok(shader.clone());
-            }
+        if let Some(ref map) = *cache
+            && let Some(shader) = map.get(&dtype)
+        {
+            return Ok(shader.clone());
         }
     }
 

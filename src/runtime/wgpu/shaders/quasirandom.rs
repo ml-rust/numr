@@ -102,6 +102,18 @@ fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 "#;
 
+/// Launches the Sobol sequence generator shader.
+///
+/// Generates low-discrepancy quasi-random sequences using Sobol direction numbers.
+/// Useful for numerical integration and Monte Carlo methods.
+///
+/// # Arguments
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - Command queue for GPU execution
+/// * `out` - Output buffer for generated samples
+/// * `params` - Parameters buffer (dimension, offset)
+/// * `total_elements` - Total number of elements to generate
+/// * `dtype` - Data type (must be floating-point)
 pub fn launch_sobol(
     cache: &PipelineCache,
     queue: &Queue,
@@ -194,6 +206,18 @@ fn halton_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 "#;
 
+/// Launches the Halton sequence generator shader.
+///
+/// Generates low-discrepancy quasi-random sequences using the Halton sequence.
+/// Based on van der Corput sequences with different prime bases.
+///
+/// # Arguments
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - Command queue for GPU execution
+/// * `out` - Output buffer for generated samples
+/// * `params` - Parameters buffer (dimension, n_points, skip)
+/// * `total_elements` - Total number of elements to generate
+/// * `dtype` - Data type (must be floating-point)
 pub fn launch_halton(
     cache: &PipelineCache,
     queue: &Queue,
@@ -291,6 +315,18 @@ fn latin_hypercube_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 "#;
 
+/// Launches the Latin Hypercube Sampling (LHS) generator shader.
+///
+/// Generates stratified samples using Latin Hypercube Sampling.
+/// Ensures each dimension is evenly sampled while maintaining randomness.
+///
+/// # Arguments
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - Command queue for GPU execution
+/// * `out` - Output buffer for generated samples
+/// * `params` - Parameters buffer (dimension, n_samples, seed)
+/// * `total_workgroups` - Total number of workgroups to dispatch
+/// * `dtype` - Data type (must be floating-point)
 pub fn launch_latin_hypercube(
     cache: &PipelineCache,
     queue: &Queue,

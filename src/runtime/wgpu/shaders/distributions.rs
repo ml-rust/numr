@@ -447,9 +447,13 @@ pub fn launch_f_distribution(
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MultinomialCountParams {
+    /// Number of categories
     pub k: u32,
+    /// Number of trials per sample
     pub n_trials: u32,
+    /// Number of samples
     pub n_samples: u32,
+    /// Padding for alignment
     pub _pad: u32,
 }
 

@@ -22,4 +22,5 @@
 ///
 /// This shader is used by all linear algebra launchers and includes all operations
 /// from basic matrix ops to advanced decompositions.
+#[allow(dead_code)]
 pub const LINALG_SHADER: &str = include_str!("linalg_combined.wgsl");

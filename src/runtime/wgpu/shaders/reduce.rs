@@ -33,10 +33,10 @@ fn get_shader_for_dtype(dtype: DType) -> String {
     // Check cache first
     {
         let cache = SHADER_CACHE.read().unwrap();
-        if let Some(ref map) = *cache {
-            if let Some(shader) = map.get(&dtype) {
-                return shader.clone();
-            }
+        if let Some(ref map) = *cache
+            && let Some(shader) = map.get(&dtype)
+        {
+            return shader.clone();
         }
     }
 
