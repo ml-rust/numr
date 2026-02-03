@@ -6,7 +6,22 @@
 //! - `launch_where_broadcast_op` - Broadcast support with generic condition dtype
 
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+// ============================================================================
+// Lock Helpers (Handle Poisoned Locks Gracefully)
+// ============================================================================
+
+/// Acquire read lock, recovering from poison if necessary.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Acquire write lock, recovering from poison if necessary.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use wgpu::{Buffer, Queue};
 
@@ -36,7 +51,7 @@ fn get_or_leak_where_shader(cond_dtype: DType, out_dtype: DType) -> Result<&'sta
     let cache = WHERE_SHADER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&shader_ref) = read_guard.get(&(cond_dtype, out_dtype)) {
             return Ok(shader_ref);
         }
@@ -45,7 +60,7 @@ fn get_or_leak_where_shader(cond_dtype: DType, out_dtype: DType) -> Result<&'sta
     let shader = generate_where_cond_shader(cond_dtype, out_dtype)?;
     let leaked: &'static str = Box::leak(shader.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert((cond_dtype, out_dtype), leaked);
 
     Ok(leaked)
@@ -56,7 +71,7 @@ fn get_or_leak_where_module_key(cond_dtype: DType, out_dtype: DType) -> Result<&
     let cache = WHERE_MODULE_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&key_ref) = read_guard.get(&(cond_dtype, out_dtype)) {
             return Ok(key_ref);
         }
@@ -67,7 +82,7 @@ fn get_or_leak_where_module_key(cond_dtype: DType, out_dtype: DType) -> Result<&
     let key = format!("where_cond_{}_{}", cond_suffix, out_suffix);
     let leaked: &'static str = Box::leak(key.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert((cond_dtype, out_dtype), leaked);
 
     Ok(leaked)
@@ -82,7 +97,7 @@ fn get_or_leak_where_entry(
     let cache = WHERE_ENTRY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&entry_ref) = read_guard.get(&(cond_dtype, out_dtype, broadcast)) {
             return Ok(entry_ref);
         }
@@ -98,7 +113,7 @@ fn get_or_leak_where_entry(
     let entry = format!("{}_{}_{}", prefix, cond_suffix, out_suffix);
     let leaked: &'static str = Box::leak(entry.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert((cond_dtype, out_dtype, broadcast), leaked);
 
     Ok(leaked)

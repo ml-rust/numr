@@ -4,7 +4,22 @@
 //! lgamma, digamma, beta, betainc, gammainc, gammaincc.
 
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+// ============================================================================
+// Lock Helpers (Handle Poisoned Locks Gracefully)
+// ============================================================================
+
+/// Acquire read lock, recovering from poison if necessary.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Acquire write lock, recovering from poison if necessary.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, Queue};
@@ -29,7 +44,7 @@ fn get_or_leak_special_unary_shader(dtype: DType) -> Result<&'static str> {
     let cache = SPECIAL_UNARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&shader_ref) = read_guard.get(&dtype) {
             return Ok(shader_ref);
         }
@@ -38,7 +53,7 @@ fn get_or_leak_special_unary_shader(dtype: DType) -> Result<&'static str> {
     let shader = generate_special_unary_shader(dtype)?;
     let leaked: &'static str = Box::leak(shader.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert(dtype, leaked);
 
     Ok(leaked)
@@ -48,7 +63,7 @@ fn get_or_leak_special_binary_shader(dtype: DType) -> Result<&'static str> {
     let cache = SPECIAL_BINARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&shader_ref) = read_guard.get(&dtype) {
             return Ok(shader_ref);
         }
@@ -57,7 +72,7 @@ fn get_or_leak_special_binary_shader(dtype: DType) -> Result<&'static str> {
     let shader = generate_special_binary_shader(dtype)?;
     let leaked: &'static str = Box::leak(shader.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert(dtype, leaked);
 
     Ok(leaked)
@@ -67,7 +82,7 @@ fn get_or_leak_special_ternary_shader(dtype: DType) -> Result<&'static str> {
     let cache = SPECIAL_TERNARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
 
     {
-        let read_guard = cache.read().unwrap();
+        let read_guard = read_lock(cache);
         if let Some(&shader_ref) = read_guard.get(&dtype) {
             return Ok(shader_ref);
         }
@@ -76,7 +91,7 @@ fn get_or_leak_special_ternary_shader(dtype: DType) -> Result<&'static str> {
     let shader = generate_special_ternary_shader(dtype)?;
     let leaked: &'static str = Box::leak(shader.into_boxed_str());
 
-    let mut write_guard = cache.write().unwrap();
+    let mut write_guard = write_lock(cache);
     write_guard.insert(dtype, leaked);
 
     Ok(leaked)

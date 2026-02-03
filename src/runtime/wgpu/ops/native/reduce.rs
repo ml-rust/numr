@@ -220,7 +220,6 @@ pub(crate) fn native_softmax(
     a: &Tensor<WgpuRuntime>,
     dim: isize,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let dtype = a.dtype();
     let shape = a.shape();
     let ndim = shape.len();
 
@@ -238,18 +237,50 @@ pub(crate) fn native_softmax(
         });
     }
 
-    // Softmax is only efficient on last dimension in our implementation
-    // For other dimensions, use CPU fallback
+    // For non-last dimension, use permute-based approach:
+    // 1. Permute target dim to last position
+    // 2. Make contiguous
+    // 3. Run softmax on last dimension
+    // 4. Permute back to original order
     if dim != ndim - 1 {
-        return crate::runtime::fallback::softmax_fallback(
-            a,
-            dim as isize,
-            &client.device_id,
-            "softmax",
-        );
+        // Build permutation: move dim to end
+        let mut perm: Vec<usize> = (0..ndim).collect();
+        perm.remove(dim);
+        perm.push(dim);
+
+        // Permute to move target dimension to last position
+        let permuted = a.permute(&perm)?;
+        let permuted_contig = permuted.contiguous();
+
+        // Softmax on last dimension (now the original target dimension)
+        let result = native_softmax_last_dim(client, &permuted_contig)?;
+
+        // Build inverse permutation to restore original order
+        // Original was [0, 1, ..., dim-1, dim, dim+1, ..., ndim-1]
+        // After perm: [0, 1, ..., dim-1, dim+1, ..., ndim-1, dim]
+        // inv_perm[perm[i]] = i
+        let mut inv_perm = vec![0; ndim];
+        for (i, &p) in perm.iter().enumerate() {
+            inv_perm[p] = i;
+        }
+
+        return result.permute(&inv_perm);
     }
 
+    native_softmax_last_dim(client, a)
+}
+
+/// Softmax on the last dimension (optimized GPU implementation)
+fn native_softmax_last_dim(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = a.dtype();
+    let shape = a.shape();
+    let ndim = shape.len();
+
     let a_contig = ensure_contiguous(a);
+    let dim = ndim - 1;
     let batch_size: usize = shape[..dim].iter().product();
     let dim_size = shape[dim];
 

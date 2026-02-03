@@ -10,7 +10,22 @@
 //! Multi-dtype support: F32, I32, U32
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+// ============================================================================
+// Lock Helpers (Handle Poisoned Locks Gracefully)
+// ============================================================================
+
+/// Acquire read lock, recovering from poison if necessary.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Acquire write lock, recovering from poison if necessary.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use wgpu::{Buffer, Queue};
 
@@ -33,7 +48,7 @@ static SORT_SHADER_CACHE: RwLock<Option<HashMap<(DType, &'static str), String>>>
 fn get_shader(dtype: DType, op: &'static str) -> Result<String> {
     // Check cache
     {
-        let cache = SORT_SHADER_CACHE.read().unwrap();
+        let cache = read_lock(&SORT_SHADER_CACHE);
         if let Some(ref map) = *cache
             && let Some(shader) = map.get(&(dtype, op))
         {
@@ -60,7 +75,7 @@ fn get_shader(dtype: DType, op: &'static str) -> Result<String> {
 
     // Cache and return
     {
-        let mut cache = SORT_SHADER_CACHE.write().unwrap();
+        let mut cache = write_lock(&SORT_SHADER_CACHE);
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert((dtype, op), shader.clone());
     }
@@ -771,7 +786,7 @@ static UNIQUE_COUNTS_SHADER_CACHE: RwLock<Option<HashMap<DType, String>>> = RwLo
 fn get_shader_unique_with_counts(dtype: DType) -> Result<String> {
     // Check cache
     {
-        let cache = UNIQUE_COUNTS_SHADER_CACHE.read().unwrap();
+        let cache = read_lock(&UNIQUE_COUNTS_SHADER_CACHE);
         if let Some(ref map) = *cache
             && let Some(shader) = map.get(&dtype)
         {
@@ -784,7 +799,7 @@ fn get_shader_unique_with_counts(dtype: DType) -> Result<String> {
 
     // Cache and return
     {
-        let mut cache = UNIQUE_COUNTS_SHADER_CACHE.write().unwrap();
+        let mut cache = write_lock(&UNIQUE_COUNTS_SHADER_CACHE);
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert(dtype, shader.clone());
     }

@@ -9,7 +9,22 @@
 //! All operations run entirely on GPU with no CPU fallback.
 
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+// ============================================================================
+// Lock Helpers (Handle Poisoned Locks Gracefully)
+// ============================================================================
+
+/// Acquire read lock, recovering from poison if necessary.
+fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Acquire write lock, recovering from poison if necessary.
+fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    lock.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 use wgpu::{Buffer, Queue};
 
@@ -32,7 +47,7 @@ static SHADER_CACHE: RwLock<Option<HashMap<DType, String>>> = RwLock::new(None);
 fn get_shader_for_dtype(dtype: DType) -> String {
     // Check cache first
     {
-        let cache = SHADER_CACHE.read().unwrap();
+        let cache = read_lock(&SHADER_CACHE);
         if let Some(ref map) = *cache
             && let Some(shader) = map.get(&dtype)
         {
@@ -43,7 +58,7 @@ fn get_shader_for_dtype(dtype: DType) -> String {
     // Generate and cache
     let shader = generate_reduce_shader(dtype);
     {
-        let mut cache = SHADER_CACHE.write().unwrap();
+        let mut cache = write_lock(&SHADER_CACHE);
         let map = cache.get_or_insert_with(HashMap::new);
         map.insert(dtype, shader.clone());
     }

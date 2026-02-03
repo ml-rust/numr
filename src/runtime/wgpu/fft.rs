@@ -10,6 +10,7 @@
 //!
 //! - Only F32 (Complex64) is supported (WGSL doesn't support F64)
 //! - FFT size limited to power of 2
+//! - Non-last dimension FFT uses permute-based approach (transpose, FFT, transpose back)
 
 use super::client::get_buffer;
 use super::shaders::fft as kernels;
@@ -234,11 +235,23 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                 self.allocator().deallocate(temp_ptr, output_size);
             }
         } else {
-            // FFT on non-last dimension - need to transpose, FFT, transpose back
-            // For simplicity, we'll return an error for now
-            return Err(Error::Internal(
-                "WGPU FFT on non-last dimension not yet implemented".to_string(),
-            ));
+            // FFT on non-last dimension - permute, FFT on last dim, permute back
+            // Free the pre-allocated output buffer since we'll create a new one
+            self.allocator().deallocate(output_ptr, output_size);
+
+            // Create permutation to move target dim to last position
+            let mut perm: Vec<usize> = (0..ndim).collect();
+            perm.swap(dim_usize, ndim - 1);
+
+            // Permute input and make contiguous
+            let transposed = input_contig.permute(&perm)?;
+            let transposed_contig = transposed.contiguous();
+
+            // Compute FFT on last dimension (recursive call)
+            let result = self.fft_dim(&transposed_contig, -1, direction, norm)?;
+
+            // Permute back to original dimension order
+            return result.permute(&perm);
         }
 
         // Create output tensor
