@@ -169,10 +169,13 @@ impl<R: Runtime> Storage<R> {
 
     /// Copy data from device to host
     pub fn to_vec<T: bytemuck::Pod>(&self) -> Vec<T> {
-        let size = self.inner.len * std::mem::size_of::<T>();
-        let mut bytes = vec![0u8; size];
-        R::copy_from_device(self.inner.ptr, &mut bytes, &self.inner.device);
-        bytemuck::cast_slice(&bytes).to_vec()
+        // Allocate with correct alignment for T, then cast to bytes for copy.
+        // This avoids alignment violations that would occur if we allocated
+        // a Vec<u8> and cast to stricter-aligned types like f64/i64.
+        let mut result = vec![T::zeroed(); self.inner.len];
+        let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
+        R::copy_from_device(self.inner.ptr, bytes, &self.inner.device);
+        result
     }
 }
 

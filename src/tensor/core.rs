@@ -144,49 +144,52 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// The scalar is converted to the target dtype.
     pub fn full_scalar(shape: &[usize], dtype: DType, value: f64, device: &R::Device) -> Self {
+        // Helper to convert a typed Vec to bytes safely.
+        // Allocates with correct alignment for T, then copies to u8 vec.
+        #[inline]
+        fn typed_to_bytes<T: bytemuck::NoUninit>(v: Vec<T>) -> Vec<u8> {
+            bytemuck::cast_slice::<T, u8>(&v).to_vec()
+        }
+
         let len: usize = shape.iter().product();
         if len == 0 {
             return Self::empty(shape, dtype, device);
         }
 
-        // Create a host buffer with the fill value and copy to device
-        let size_bytes = len * dtype.size_in_bytes();
-        let mut bytes = vec![0u8; size_bytes];
-
-        // Fill based on dtype
-        match dtype {
-            DType::F64 => {
-                let slice: &mut [f64] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value);
-            }
-            DType::F32 => {
-                let slice: &mut [f32] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as f32);
-            }
-            DType::F16 | DType::BF16 => {
-                let slice: &mut [u16] = bytemuck::cast_slice_mut(&mut bytes);
+        // Allocate with correct type alignment, then convert to bytes.
+        // This avoids alignment violations that would occur if we allocated
+        // a Vec<u8> and cast to stricter-aligned types like f64/i64.
+        let bytes: Vec<u8> = match dtype {
+            DType::F64 => typed_to_bytes(vec![value; len]),
+            DType::F32 => typed_to_bytes(vec![value as f32; len]),
+            DType::F16 => {
                 #[cfg(feature = "f16")]
                 {
-                    use half::{bf16, f16};
-                    let half_bits = if dtype == DType::BF16 {
-                        bf16::from_f32(value as f32).to_bits()
-                    } else {
-                        f16::from_f32(value as f32).to_bits()
-                    };
-                    slice.fill(half_bits);
+                    use half::f16;
+                    typed_to_bytes(vec![f16::from_f64(value); len])
                 }
                 #[cfg(not(feature = "f16"))]
                 {
-                    // Fallback: manual conversion when half crate unavailable
                     let half_bits = half_from_f32(value as f32, dtype);
-                    slice.fill(half_bits);
+                    typed_to_bytes(vec![half_bits; len])
+                }
+            }
+            DType::BF16 => {
+                #[cfg(feature = "f16")]
+                {
+                    use half::bf16;
+                    typed_to_bytes(vec![bf16::from_f64(value); len])
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    let half_bits = half_from_f32(value as f32, dtype);
+                    typed_to_bytes(vec![half_bits; len])
                 }
             }
             DType::FP8E4M3 => {
                 #[cfg(feature = "fp8")]
                 {
-                    let fp8_val = crate::dtype::FP8E4M3::from_f32(value as f32);
-                    bytes.fill(fp8_val.to_bits());
+                    vec![crate::dtype::FP8E4M3::from_f32(value as f32).to_bits(); len]
                 }
                 #[cfg(not(feature = "fp8"))]
                 {
@@ -199,8 +202,7 @@ impl<R: Runtime> Tensor<R> {
             DType::FP8E5M2 => {
                 #[cfg(feature = "fp8")]
                 {
-                    let fp8_val = crate::dtype::FP8E5M2::from_f32(value as f32);
-                    bytes.fill(fp8_val.to_bits());
+                    vec![crate::dtype::FP8E5M2::from_f32(value as f32).to_bits(); len]
                 }
                 #[cfg(not(feature = "fp8"))]
                 {
@@ -210,51 +212,22 @@ impl<R: Runtime> Tensor<R> {
                     );
                 }
             }
-            DType::I64 => {
-                let slice: &mut [i64] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as i64);
-            }
-            DType::I32 => {
-                let slice: &mut [i32] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as i32);
-            }
-            DType::I16 => {
-                let slice: &mut [i16] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as i16);
-            }
-            DType::I8 => {
-                let slice: &mut [i8] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as i8);
-            }
-            DType::U64 => {
-                let slice: &mut [u64] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as u64);
-            }
-            DType::U32 => {
-                let slice: &mut [u32] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as u32);
-            }
-            DType::U16 => {
-                let slice: &mut [u16] = bytemuck::cast_slice_mut(&mut bytes);
-                slice.fill(value as u16);
-            }
-            DType::U8 => {
-                bytes.fill(value as u8);
-            }
-            DType::Bool => {
-                bytes.fill(if value != 0.0 { 1 } else { 0 });
-            }
+            DType::I64 => typed_to_bytes(vec![value as i64; len]),
+            DType::I32 => typed_to_bytes(vec![value as i32; len]),
+            DType::I16 => typed_to_bytes(vec![value as i16; len]),
+            DType::I8 => typed_to_bytes(vec![value as i8; len]),
+            DType::U64 => typed_to_bytes(vec![value as u64; len]),
+            DType::U32 => typed_to_bytes(vec![value as u32; len]),
+            DType::U16 => typed_to_bytes(vec![value as u16; len]),
+            DType::U8 => vec![value as u8; len],
+            DType::Bool => vec![if value != 0.0 { 1u8 } else { 0u8 }; len],
             DType::Complex64 => {
-                let slice: &mut [crate::dtype::Complex64] = bytemuck::cast_slice_mut(&mut bytes);
-                // Fill with complex number where re = value, im = 0
-                slice.fill(crate::dtype::Complex64::new(value as f32, 0.0));
+                typed_to_bytes(vec![crate::dtype::Complex64::new(value as f32, 0.0); len])
             }
             DType::Complex128 => {
-                let slice: &mut [crate::dtype::Complex128] = bytemuck::cast_slice_mut(&mut bytes);
-                // Fill with complex number where re = value, im = 0
-                slice.fill(crate::dtype::Complex128::new(value, 0.0));
+                typed_to_bytes(vec![crate::dtype::Complex128::new(value, 0.0); len])
             }
-        }
+        };
 
         // Allocate and copy to device
         let storage = Storage::from_bytes(&bytes, dtype, device);
@@ -626,13 +599,15 @@ impl<R: Runtime> Tensor<R> {
         let offset = self.layout.offset();
         let elem_size = std::mem::size_of::<T>();
         let byte_offset = offset * elem_size;
-        let byte_len = numel * elem_size;
 
-        // Copy only the viewed portion of the storage
-        let mut bytes = vec![0u8; byte_len];
+        // Allocate with correct alignment for T, then cast to bytes for copy.
+        // This avoids alignment violations that would occur if we allocated
+        // a Vec<u8> and cast to stricter-aligned types like f64/i64.
+        let mut result = vec![T::zeroed(); numel];
+        let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
         let src_ptr = self.storage.ptr() as usize + byte_offset;
-        R::copy_from_device(src_ptr as u64, &mut bytes, self.storage.device());
-        bytemuck::cast_slice(&bytes).to_vec()
+        R::copy_from_device(src_ptr as u64, bytes, self.storage.device());
+        result
     }
 
     /// Extract the scalar value from a single-element tensor
