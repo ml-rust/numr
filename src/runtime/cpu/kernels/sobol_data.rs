@@ -9,8 +9,20 @@
 use rkyv::{Archive, Deserialize, Serialize};
 use std::sync::OnceLock;
 
-/// Embedded rkyv archive of Sobol polynomial data.
-static SOBOL_DATA_BYTES: &[u8] = include_bytes!("sobol_data.bin");
+/// Aligned wrapper for embedded bytes to satisfy rkyv alignment requirements.
+/// rkyv requires 4-byte alignment for archived data access.
+#[repr(C, align(4))]
+struct AlignedBytes<const N: usize>([u8; N]);
+
+/// Embedded rkyv archive of Sobol polynomial data with proper alignment.
+static SOBOL_DATA_ALIGNED: &AlignedBytes<{ include_bytes!("sobol_data.bin").len() }> =
+    &AlignedBytes(*include_bytes!("sobol_data.bin"));
+
+/// Get the aligned bytes as a slice.
+#[inline]
+fn sobol_data_bytes() -> &'static [u8] {
+    &SOBOL_DATA_ALIGNED.0
+}
 
 /// Cached reference to the archived data.
 static SOBOL_DATA: OnceLock<&'static ArchivedSobolData> = OnceLock::new();
@@ -45,7 +57,8 @@ pub fn get_sobol_data() -> &'static ArchivedSobolData {
         // SAFETY: The embedded bytes were serialized with the same rkyv version
         // and struct definitions. This is safe because we control both the
         // serialization (generate_sobol_rkyv tool) and deserialization.
-        unsafe { rkyv::access_unchecked::<ArchivedSobolData>(SOBOL_DATA_BYTES) }
+        // The bytes are properly aligned via AlignedBytes wrapper.
+        unsafe { rkyv::access_unchecked::<ArchivedSobolData>(sobol_data_bytes()) }
     })
 }
 
