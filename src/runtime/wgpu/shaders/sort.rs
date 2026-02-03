@@ -17,7 +17,7 @@ use wgpu::{Buffer, Queue};
 use super::generator::{
     generate_count_nonzero_shader, generate_flat_to_multi_index_shader,
     generate_gather_nonzero_shader, generate_searchsorted_shader, generate_sort_shader,
-    generate_topk_shader, generate_unique_shader,
+    generate_topk_shader, generate_unique_shader, generate_unique_with_counts_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -647,4 +647,156 @@ pub fn launch_extract_unique(
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
+}
+
+// ============================================================================
+// Unique With Counts Operations (Multi-phase)
+// ============================================================================
+
+/// Launch mark_boundaries kernel (marks where value changes in sorted array)
+pub fn launch_mark_boundaries(
+    cache: &PipelineCache,
+    queue: &Queue,
+    sorted_input: &Buffer,
+    boundary_flags: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "unique_with_counts")?;
+
+    let shader = get_shader_unique_with_counts(dtype)?;
+    let module_name = module_key_unique_with_counts(dtype);
+    let ep = entry_point("mark_boundaries", dtype);
+
+    let static_module: &'static str = Box::leak(module_name.into_boxed_str());
+    let static_shader: &'static str = Box::leak(shader.into_boxed_str());
+    let static_ep: &'static str = Box::leak(ep.into_boxed_str());
+
+    let module = cache.get_or_create_module(static_module, static_shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
+
+    let bind_group =
+        cache.create_bind_group(&layout, &[sorted_input, boundary_flags, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("mark_boundaries"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("mark_boundaries"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch scatter_unique_with_counts kernel
+pub fn launch_scatter_unique_with_counts(
+    cache: &PipelineCache,
+    queue: &Queue,
+    sorted_input: &Buffer,
+    prefix_sum: &Buffer,
+    unique_output: &Buffer,
+    inverse_indices: &Buffer,
+    counts_output: &Buffer,
+    params_buffer: &Buffer,
+    numel: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "unique_with_counts")?;
+
+    let shader = get_shader_unique_with_counts(dtype)?;
+    let module_name = module_key_unique_with_counts(dtype);
+    let ep = entry_point("scatter_unique_with_counts", dtype);
+
+    let static_module: &'static str = Box::leak(module_name.into_boxed_str());
+    let static_shader: &'static str = Box::leak(shader.into_boxed_str());
+    let static_ep: &'static str = Box::leak(ep.into_boxed_str());
+
+    let module = cache.get_or_create_module(static_module, static_shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 5,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
+
+    let bind_group = cache.create_bind_group(
+        &layout,
+        &[
+            sorted_input,
+            prefix_sum,
+            unique_output,
+            inverse_indices,
+            counts_output,
+            params_buffer,
+        ],
+    );
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_unique_with_counts"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter_unique_with_counts"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// Cache for unique_with_counts shaders
+static UNIQUE_COUNTS_SHADER_CACHE: RwLock<Option<HashMap<DType, String>>> = RwLock::new(None);
+
+fn get_shader_unique_with_counts(dtype: DType) -> Result<String> {
+    // Check cache
+    {
+        let cache = UNIQUE_COUNTS_SHADER_CACHE.read().unwrap();
+        if let Some(ref map) = *cache {
+            if let Some(shader) = map.get(&dtype) {
+                return Ok(shader.clone());
+            }
+        }
+    }
+
+    // Generate shader
+    let shader = generate_unique_with_counts_shader(dtype)?;
+
+    // Cache and return
+    {
+        let mut cache = UNIQUE_COUNTS_SHADER_CACHE.write().unwrap();
+        let map = cache.get_or_insert_with(HashMap::new);
+        map.insert(dtype, shader.clone());
+    }
+    Ok(shader)
+}
+
+fn module_key_unique_with_counts(dtype: DType) -> String {
+    let suffix = match dtype {
+        DType::F32 => "f32",
+        DType::I32 => "i32",
+        DType::U32 => "u32",
+        _ => "f32",
+    };
+    format!("unique_with_counts_{}", suffix)
 }

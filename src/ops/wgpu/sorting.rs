@@ -2,12 +2,12 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::SortingOps;
+use crate::ops::{CumulativeOps, SortingOps, TypeConversionOps};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
-    CountParams, FlatToMultiParams, SearchsortedParams, SortParams, TopkParams, alloc_output,
-    create_params_buffer, get_tensor_buffer,
+    CountParams, FlatToMultiParams, SearchsortedParams, SortParams, TopkParams, UniqueCountsParams,
+    alloc_output, create_params_buffer, get_tensor_buffer,
 };
 use crate::runtime::wgpu::shaders::sort;
 use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
@@ -413,17 +413,113 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
 
     fn unique_with_counts(
         &self,
-        _a: &Tensor<WgpuRuntime>,
+        a: &Tensor<WgpuRuntime>,
     ) -> Result<(
         Tensor<WgpuRuntime>,
         Tensor<WgpuRuntime>,
         Tensor<WgpuRuntime>,
     )> {
-        // WebGPU unique_with_counts requires complex stream compaction not easily done in WGSL
-        // Return unsupported for now - can be implemented with multiple passes
-        Err(Error::NotImplemented {
-            feature: "unique_with_counts for WebGPU",
-        })
+        let dtype = a.dtype();
+
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "unique_with_counts",
+            });
+        }
+
+        let numel = a.numel();
+
+        if numel == 0 {
+            let empty_values = Tensor::empty(&[0], dtype, self.device());
+            let empty_inverse = Tensor::empty(&[0], DType::I32, self.device());
+            let empty_counts = Tensor::empty(&[0], DType::I32, self.device());
+            return Ok((empty_values, empty_inverse, empty_counts));
+        }
+
+        // Step 1: Flatten and sort
+        let flat = a.reshape(&[numel])?;
+        let sorted_tensor = self.sort(&flat, 0, false)?;
+
+        // Step 2: Mark boundaries (where value changes)
+        // flags[i] = 1 if sorted[i] != sorted[i-1] (or i == 0), else 0
+        let boundary_flags = alloc_output(self, &[numel], DType::U32);
+
+        let sorted_buf = get_tensor_buffer(&sorted_tensor)?;
+        let flags_buf = get_tensor_buffer(&boundary_flags)?;
+
+        let params = UniqueCountsParams {
+            numel: numel as u32,
+            num_unique: 0, // Not known yet
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        sort::launch_mark_boundaries(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &sorted_buf,
+            &flags_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        // Step 3: Compute prefix sum of boundary flags
+        // This gives us the 1-based output index for each element
+        // Cast boundary_flags to appropriate type for cumsum (use I32)
+        let flags_i32 = self.cast(&boundary_flags, DType::I32)?;
+        let prefix_sum = self.cumsum(&flags_i32, 0)?;
+
+        // Step 4: Read the final prefix sum value to get count of unique elements
+        // The last element of prefix_sum tells us how many unique elements there are
+        // We need to read this single scalar from GPU (acceptable for allocation sizing)
+        let prefix_sum_u32 = self.cast(&prefix_sum, DType::U32)?;
+        let prefix_sum_buf = get_tensor_buffer(&prefix_sum_u32)?;
+
+        // Read the count of unique elements
+        let num_unique = read_u32_from_buffer_at_offset(self, &prefix_sum_buf, numel - 1)?;
+
+        if num_unique == 0 {
+            let empty_values = Tensor::empty(&[0], dtype, self.device());
+            let empty_inverse = Tensor::empty(&[0], DType::I32, self.device());
+            let empty_counts = Tensor::empty(&[0], DType::I32, self.device());
+            return Ok((empty_values, empty_inverse, empty_counts));
+        }
+
+        // Step 5: Allocate output tensors
+        let unique_values = alloc_output(self, &[num_unique as usize], dtype);
+        let inverse_indices = alloc_output(self, &[numel], DType::I32);
+        let counts = alloc_output(self, &[num_unique as usize], DType::I32);
+
+        let unique_buf = get_tensor_buffer(&unique_values)?;
+        let inverse_buf = get_tensor_buffer(&inverse_indices)?;
+        let counts_buf = get_tensor_buffer(&counts)?;
+
+        // Step 6: Scatter unique values and compute counts
+        let scatter_params = UniqueCountsParams {
+            numel: numel as u32,
+            num_unique,
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let scatter_params_buf = create_params_buffer(self, &scatter_params);
+
+        sort::launch_scatter_unique_with_counts(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &sorted_buf,
+            &prefix_sum_buf,
+            &unique_buf,
+            &inverse_buf,
+            &counts_buf,
+            &scatter_params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok((unique_values, inverse_indices, counts))
     }
 
     fn nonzero(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -600,8 +696,19 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
     }
 }
 
-// Helper function to read u32 from GPU buffer
+// Helper function to read u32 from GPU buffer (at offset 0)
 fn read_u32_from_buffer(client: &WgpuClient, buffer: &Buffer) -> Result<u32> {
+    read_u32_from_buffer_at_offset(client, buffer, 0)
+}
+
+// Helper function to read u32 from GPU buffer at a specific element index
+fn read_u32_from_buffer_at_offset(
+    client: &WgpuClient,
+    buffer: &Buffer,
+    index: usize,
+) -> Result<u32> {
+    let byte_offset = (index * 4) as u64;
+
     let mut encoder = client
         .wgpu_device()
         .create_command_encoder(&Default::default());
@@ -613,7 +720,7 @@ fn read_u32_from_buffer(client: &WgpuClient, buffer: &Buffer) -> Result<u32> {
         mapped_at_creation: false,
     });
 
-    encoder.copy_buffer_to_buffer(buffer, 0, &staging_buffer, 0, 4);
+    encoder.copy_buffer_to_buffer(buffer, byte_offset, &staging_buffer, 0, 4);
     let submission = client
         .wgpu_queue()
         .submit(std::iter::once(encoder.finish()));

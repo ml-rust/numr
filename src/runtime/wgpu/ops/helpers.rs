@@ -656,6 +656,16 @@ pub(super) struct ValidateIndicesParams {
     pub(super) _pad1: u32,
 }
 
+/// Params for unique_with_counts operations
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct UniqueCountsParams {
+    pub(super) numel: u32,
+    pub(super) num_unique: u32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+}
+
 // ============================================================================
 // Broadcast Helpers
 // ============================================================================
