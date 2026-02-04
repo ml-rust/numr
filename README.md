@@ -225,11 +225,18 @@ The CPU backend automatically detects and uses the best available SIMD instructi
 
 ### Why Native Kernels?
 
-1. **Fewer dependencies**: No 2GB+ CUDA toolkit, no MKL installation
-2. **Portability**: Same code on CPU, NVIDIA, AMD, Intel, Apple
-3. **Transparency**: Understand exactly what code runs on your hardware
-4. **Maintainability**: Your code doesn't break when vendor updates drop
-5. **Performance**: Kernels optimize for YOUR workloads, not generic cases
+numr uses native kernels (SIMD, PTX, WGSL) by default—not cuBLAS/MKL wrappers.
+
+|                     | Vendor Libraries (cuBLAS/MKL)      | numr Native Kernels                       |
+| ------------------- | ---------------------------------- | ----------------------------------------- |
+| **Transparency**    | Black box                          | Whitebox—inspect, debug, step through     |
+| **Portability**     | NVIDIA-only (cuBLAS)               | CPU, NVIDIA, AMD, Intel, Apple            |
+| **Reproducibility** | Heuristics change between versions | Bit-exact results, fixed in crate version |
+| **Choice**          | Locked in                          | Swap in vendor kernels if needed          |
+| **Dependencies**    | 2GB+ CUDA toolkit                  | Minimal                                   |
+| **Deployment**      | Complex linking                    | Simple static binaries                    |
+
+**You're not locked out of vendor libraries**—numr's kernel system is extensible. Use native kernels for portability and transparency, or swap in cuBLAS/MKL for maximum vendor-optimized performance. Other libraries don't give you this choice.
 
 ## Quick Start
 
