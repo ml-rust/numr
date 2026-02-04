@@ -31,6 +31,7 @@ mod device;
 mod fft;
 mod linalg;
 mod ops;
+mod polynomial;
 mod runtime;
 pub mod shaders;
 #[cfg(feature = "sparse")]

@@ -29,6 +29,7 @@ mod fft;
 mod kernels;
 mod linalg;
 mod ops;
+mod polynomial;
 mod runtime;
 #[cfg(feature = "sparse")]
 mod sparse;

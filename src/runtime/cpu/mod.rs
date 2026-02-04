@@ -26,6 +26,7 @@ mod kernel;
 pub(crate) mod kernels;
 mod linalg;
 mod ops;
+mod polynomial;
 mod runtime;
 pub(crate) mod sort;
 #[cfg(feature = "sparse")]

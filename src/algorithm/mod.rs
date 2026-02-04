@@ -46,6 +46,7 @@
 pub mod fft;
 pub mod linalg;
 pub mod matmul;
+pub mod polynomial;
 pub mod special;
 
 #[cfg(feature = "sparse")]
@@ -68,6 +69,11 @@ pub use linalg::{
 };
 
 pub use matmul::{MatmulAlgorithm, TileConfig};
+
+pub use polynomial::{
+    PolynomialAlgorithms, PolynomialRoots, validate_polynomial_coeffs, validate_polynomial_dtype,
+    validate_polynomial_roots,
+};
 
 pub use special::{
     EULER_MASCHERONI, LANCZOS_COEFFICIENTS, LANCZOS_G, LN_SQRT_2PI, SQRT_PI, SpecialFunctions,
