@@ -1,14 +1,42 @@
 # numr
 
-**THE foundational numerical computing library for Rust.**
+**Foundational numerical computing for Rust**
 
-numr provides dense tensors, linear algebra, FFT, statistics, advanced random number generation, and automatic differentiation—with the same API and algorithms across CPU, CUDA, and WebGPU backends.
+`numr` provides n-dimensional tensors, linear algebra, FFT, statistics, and automatic differentiation—with native GPU acceleration across CPU, CUDA, and WebGPU backends.
+
+`numr` is like Numpy in Rust but built with gradients, GPUs, and modern dtypes built-in from day one.
+
+## What numr Is
+
+A **foundation library** - Mathematical building blocks for higher-level libraries and applications.
+
+| numr IS                                  | numr is NOT               |
+| ---------------------------------------- | ------------------------- |
+| Tensor library (like NumPy's ndarray)    | A deep learning framework |
+| Linear algebra (decompositions, solvers) | A high-level ML API       |
+| FFT, statistics, random distributions    | Domain-specific           |
+| Native GPU (CUDA + WebGPU) + autograd    |                           |
+
+**For SciPy-equivalent functionality** (optimization, ODE, interpolation, signal), see [**solvr**](https://github.com/farhan-syah/solvr).
 
 ## Why numr?
 
-The Rust numerical computing ecosystem is fragmented. You need one library for tensors (ndarray), another for linear algebra (nalgebra/faer), another for FFT (rustfft), another for random numbers, another for statistics. They don't interoperate. They don't have GPU support. They're not optimized together.
+### vs NumPy
 
-numr consolidates everything:
+| Capability                    | NumPy                     | numr                           |
+| ----------------------------- | ------------------------- | ------------------------------ |
+| N-dimensional tensors         | ✓                         | ✓                              |
+| Linear algebra, FFT, stats    | ✓                         | ✓                              |
+| **Automatic differentiation** | ✗ Need JAX/PyTorch        | ✓ Built-in `numr::autograd`    |
+| **GPU acceleration**          | ✗ Need CuPy/JAX           | ✓ Native CUDA + WebGPU         |
+| **Non-NVIDIA GPUs**           | ✗ None                    | ✓ AMD, Intel, Apple via WebGPU |
+| **FP8 / BF16 dtypes**         | ✗ / Partial               | ✓ Full support                 |
+| **Sparse tensors**            | ✗ SciPy separate, 2D only | ✓ Integrated, N-dimensional    |
+| **Same code CPU↔GPU**         | ✗ Different libraries     | ✓ `Tensor<R>` abstraction      |
+
+### vs Rust Ecosystem
+
+Fragmented libraries that don't interoperate and lack GPU support. numr consolidates everything:
 
 | Task                      | Old Ecosystem               | numr                         |
 | ------------------------- | --------------------------- | ---------------------------- |
@@ -76,11 +104,13 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 - **LogicalOps**: logical_and, logical_or, logical_xor, logical_not
 - **ConditionalOps**: where (ternary conditional)
 
-### Neural Network Operations
+### Activation & Normalization Functions
 
 - **ActivationOps**: relu, sigmoid, silu, gelu, leaky_relu, elu, softmax
 - **NormalizationOps**: rms_norm, layer_norm
 - **ConvOps**: conv1d, conv2d, depthwise_conv2d (with stride, padding, dilation, groups)
+
+_These are mathematical functions commonly used in ML, but numr itself is not an ML framework._
 
 ### Linear Algebra
 
@@ -476,29 +506,25 @@ cargo bench
 numr is the **foundation** that everything else builds on:
 
 ```
-┌────────────────────────────────────┐
-│  Applications (oxidizr, blazr)     │
-│  Your domain-specific code         │
-└────────────────┬───────────────────┘
-                 │
-┌────────────────▼───────────────────┐
-│  boostr - ML Framework             │
-│  (neural networks, attention)      │
-│  Builds on numr ops                │
-└────────────────┬───────────────────┘
-                 │
-┌────────────────▼───────────────────┐
-│  solvr - Scientific Computing      │
-│  (optimization, ODE, interpolation)│
-│  Builds on numr ops and linalg     │
-└────────────────┬───────────────────┘
-                 │
-┌────────────────▼───────────────────┐
-│  numr - Foundations                │
-│  (tensors, linalg, FFT, random)    │
-│  Native CPU, CUDA, WebGPU kernels  │
-└────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│  Your Application                                 │
+│  (data science, simulation, finance, ML, etc.)   │
+└─────────────────────────┬────────────────────────┘
+                          │
+┌─────────────────────────▼────────────────────────┐
+│  solvr - Scientific Computing (like SciPy)       │
+│  Optimization, ODE/PDE, interpolation, signal    │
+│  https://github.com/farhan-syah/solvr            │
+└─────────────────────────┬────────────────────────┘
+                          │
+┌─────────────────────────▼────────────────────────┐
+│  numr - Foundations (like NumPy)  ◄── YOU ARE HERE│
+│  Tensors, linalg, FFT, statistics, random        │
+│  Native CPU, CUDA, WebGPU kernels + autograd     │
+└──────────────────────────────────────────────────┘
 ```
+
+**numr : solvr :: NumPy : SciPy**
 
 When numr's kernels improve, everything above improves automatically.
 
