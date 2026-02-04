@@ -538,8 +538,10 @@ struct ScatterReduceParams {{
     _pad2: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> scatter_src: array<{t}>;
-@group(0) @binding(1) var<storage, read> scatter_indices: array<i32>;
+// Note: All storage buffers use read_write to match the pipeline cache layout.
+// The actual access pattern is: src (read), indices (read), dst (read_write).
+@group(0) @binding(0) var<storage, read_write> scatter_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> scatter_indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> scatter_dst: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> scatter_params: ScatterReduceParams;
 
@@ -605,8 +607,10 @@ struct ScatterReduceParams {{
     _pad2: u32,
 }}
 
-@group(0) @binding(0) var<storage, read> scatter_src: array<{t}>;
-@group(0) @binding(1) var<storage, read> scatter_indices: array<i32>;
+// Note: All storage buffers use read_write to match the pipeline cache layout.
+// The actual access pattern is: src (read), indices (read), dst (read_write).
+@group(0) @binding(0) var<storage, read_write> scatter_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> scatter_indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> scatter_dst: array<atomic<u32>>;
 @group(0) @binding(3) var<uniform> scatter_params: ScatterReduceParams;
 
