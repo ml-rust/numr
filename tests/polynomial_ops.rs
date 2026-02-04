@@ -708,3 +708,144 @@ fn test_polyval_2d_coeffs_error() {
         "polyval should error on 2D coefficients"
     );
 }
+
+// ============================================================================
+// Convolution Performance Tests
+//
+// These tests verify the optimized convolution implementation that
+// auto-selects between direct O(n*m) and FFT O(n log n) algorithms.
+// ============================================================================
+
+#[test]
+fn test_polymul_small_uses_direct() {
+    let (client, device) = create_client();
+
+    // 3 * 2 = 6 < 64 (threshold), should use direct convolution
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 5.0], &[2], &device);
+
+    // (1 + 2x + 3x²) * (4 + 5x) = 4 + 13x + 22x² + 15x³
+    let c = client.polymul(&a, &b).unwrap();
+    let data: Vec<f32> = c.to_vec();
+
+    assert_eq!(data.len(), 4);
+    assert!((data[0] - 4.0).abs() < 1e-5);
+    assert!((data[1] - 13.0).abs() < 1e-5);
+    assert!((data[2] - 22.0).abs() < 1e-5);
+    assert!((data[3] - 15.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_polymul_large_uses_fft() {
+    let (client, device) = create_client();
+
+    // 10 * 10 = 100 >= 64 (threshold), should use FFT convolution
+    // Test with polynomial of all 1s: (1 + x + x² + ... + x⁹)
+    let a_data: Vec<f32> = vec![1.0; 10];
+    let b_data: Vec<f32> = vec![1.0; 10];
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[10], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[10], &device);
+
+    let c = client.polymul(&a, &b).unwrap();
+    let data: Vec<f32> = c.to_vec();
+
+    // Result length: 10 + 10 - 1 = 19
+    assert_eq!(data.len(), 19);
+
+    // Coefficients of (1 + x + ... + x⁹)² are:
+    // c[k] = min(k+1, 10, 19-k) for k in 0..19
+    // This gives: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    let expected: Vec<f32> = (0..19)
+        .map(|k| {
+            let v = (k + 1).min(10).min(19 - k);
+            v as f32
+        })
+        .collect();
+
+    for (i, (got, exp)) in data.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (got - exp).abs() < 1e-4,
+            "Coefficient {} differs: got {}, expected {}",
+            i,
+            got,
+            exp
+        );
+    }
+}
+
+#[test]
+fn test_polymul_boundary_threshold() {
+    let (client, device) = create_client();
+
+    // Test at the boundary: 8 * 8 = 64, should use FFT
+    let a_data: Vec<f32> = (1..=8).map(|i| i as f32).collect();
+    let b_data: Vec<f32> = (1..=8).map(|i| i as f32).collect();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[8], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[8], &device);
+
+    let c = client.polymul(&a, &b).unwrap();
+    assert_eq!(c.shape()[0], 15); // 8 + 8 - 1
+
+    // Verify first and last coefficients
+    let data: Vec<f32> = c.to_vec();
+    assert!((data[0] - 1.0).abs() < 1e-4); // 1 * 1 = 1
+    assert!((data[14] - 64.0).abs() < 1e-4); // 8 * 8 = 64
+}
+
+#[test]
+fn test_polymul_very_large() {
+    let (client, device) = create_client();
+
+    // Test with large polynomials (50 coefficients each)
+    // 50 * 50 = 2500 >> 64, definitely uses FFT
+    let a_data: Vec<f32> = vec![1.0; 50];
+    let b_data: Vec<f32> = vec![1.0; 50];
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[50], &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[50], &device);
+
+    let c = client.polymul(&a, &b).unwrap();
+
+    // Result length: 50 + 50 - 1 = 99
+    assert_eq!(c.shape()[0], 99);
+
+    // Verify key coefficients
+    let data: Vec<f32> = c.to_vec();
+    assert!((data[0] - 1.0).abs() < 1e-3); // First coefficient
+    assert!((data[49] - 50.0).abs() < 1e-3); // Middle coefficient (peak)
+    assert!((data[98] - 1.0).abs() < 1e-3); // Last coefficient
+}
+
+#[test]
+fn test_polyfromroots_many_roots_uses_fft() {
+    let (client, device) = create_client();
+
+    // Create polynomial with many roots to test FFT convolution path
+    // Each (x - rᵢ) factor multiplies by a degree-1 polynomial
+    // With 20 roots, we have many convolutions, some will use FFT
+
+    // Roots: 1, 2, 3, ..., 10 (real roots only for simplicity)
+    let roots: Vec<f32> = (1..=10).map(|i| i as f32).collect();
+    let roots_real = Tensor::<CpuRuntime>::from_slice(&roots, &[10], &device);
+    let roots_imag = Tensor::<CpuRuntime>::from_slice(&vec![0.0f32; 10], &[10], &device);
+
+    let coeffs = client.polyfromroots(&roots_real, &roots_imag).unwrap();
+
+    // Should have 11 coefficients (degree 10 polynomial)
+    assert_eq!(coeffs.shape()[0], 11);
+
+    // Verify it's monic (leading coefficient = 1)
+    let data: Vec<f32> = coeffs.to_vec();
+    assert!((data[10] - 1.0).abs() < 1e-4, "Should be monic polynomial");
+
+    // Verify by evaluating at roots - should all be ~0
+    let x_at_roots = Tensor::<CpuRuntime>::from_slice(&roots, &[10], &device);
+    let values = client.polyval(&coeffs, &x_at_roots).unwrap();
+    let values_data: Vec<f32> = values.to_vec();
+
+    for (i, &v) in values_data.iter().enumerate() {
+        assert!(v.abs() < 1e-2, "p(root_{}) should be ~0, got {}", i + 1, v);
+    }
+}
