@@ -37,8 +37,10 @@ pub use advanced_random::{
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
 pub use compare::{compare_op_kernel, compare_op_strided_kernel};
 pub use complex::{
-    angle_complex64, angle_complex128, angle_real_f32, angle_real_f64, conj_complex64,
-    conj_complex128, imag_complex64, imag_complex128, real_complex64, real_complex128,
+    angle_complex64, angle_complex128, angle_real_f32, angle_real_f64, complex64_div_real,
+    complex64_mul_real, complex128_div_real, complex128_mul_real, conj_complex64, conj_complex128,
+    from_real_imag_f32, from_real_imag_f64, imag_complex64, imag_complex128, real_complex64,
+    real_complex128,
 };
 pub use conv::{conv1d_kernel, conv2d_kernel, depthwise_conv2d_kernel};
 pub use cumulative::{

@@ -66,7 +66,10 @@ pub use advanced_random::{
     launch_threefry_randn, launch_threefry_uniform, launch_xoshiro256_randn,
     launch_xoshiro256_uniform,
 };
-pub use complex::{launch_angle_real, launch_complex_op};
+pub use complex::{
+    launch_angle_real, launch_complex_div_real, launch_complex_mul_real, launch_complex_op,
+    launch_from_real_imag,
+};
 pub use conv::{launch_conv1d, launch_conv2d, launch_depthwise_conv2d};
 pub use cumulative::{
     launch_cumprod, launch_cumprod_strided, launch_cumsum, launch_cumsum_strided, launch_logsumexp,

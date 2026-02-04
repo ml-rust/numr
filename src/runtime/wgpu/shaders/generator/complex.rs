@@ -194,3 +194,92 @@ pub fn complex_output_dtype(input_dtype: DType, op: &str) -> Result<DType> {
         ))),
     }
 }
+
+/// Generate WGSL shader for constructing complex from real and imaginary parts.
+///
+/// Input: F32 arrays for real and imaginary parts
+/// Output: Complex64 (vec2<f32>)
+/// Operation: from_real_imag(real, imag)[i] = vec2(real[i], imag[i])
+pub fn generate_from_real_imag_shader() -> Result<String> {
+    // Note: All storage bindings use read_write to match the pipeline layout
+    // (PipelineCache creates all storage buffers as read_write)
+    Ok(r#"
+struct Params {
+    numel: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> real_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> imag_input: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output: array<vec2<f32>>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+@compute @workgroup_size(256)
+fn from_real_imag_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    if (idx < params.numel) {
+        output[idx] = vec2<f32>(real_input[idx], imag_input[idx]);
+    }
+}
+"#
+    .to_string())
+}
+
+/// Generate WGSL shader for complex × real multiplication.
+///
+/// Input: Complex64 (vec2<f32>) and F32 (real coefficient)
+/// Output: Complex64 (vec2<f32>)
+/// Operation: (a+bi) * r = ar + br*i
+pub fn generate_complex_mul_real_shader() -> Result<String> {
+    // Note: All storage bindings use read_write to match the pipeline layout
+    Ok(r#"
+struct Params {
+    numel: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> complex_input: array<vec2<f32>>;
+@group(0) @binding(1) var<storage, read_write> real_input: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output: array<vec2<f32>>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+@compute @workgroup_size(256)
+fn complex64_mul_real(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    if (idx < params.numel) {
+        let c = complex_input[idx];
+        let r = real_input[idx];
+        output[idx] = vec2<f32>(c.x * r, c.y * r);
+    }
+}
+"#
+    .to_string())
+}
+
+/// Generate WGSL shader for complex / real division.
+///
+/// Input: Complex64 (vec2<f32>) and F32 (real divisor)
+/// Output: Complex64 (vec2<f32>)
+/// Operation: (a+bi) / r = (a/r) + (b/r)*i
+pub fn generate_complex_div_real_shader() -> Result<String> {
+    // Note: All storage bindings use read_write to match the pipeline layout
+    Ok(r#"
+struct Params {
+    numel: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> complex_input: array<vec2<f32>>;
+@group(0) @binding(1) var<storage, read_write> real_input: array<f32>;
+@group(0) @binding(2) var<storage, read_write> output: array<vec2<f32>>;
+@group(0) @binding(3) var<uniform> params: Params;
+
+@compute @workgroup_size(256)
+fn complex64_div_real(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx = gid.x;
+    if (idx < params.numel) {
+        let c = complex_input[idx];
+        let r = real_input[idx];
+        output[idx] = vec2<f32>(c.x / r, c.y / r);
+    }
+}
+"#
+    .to_string())
+}

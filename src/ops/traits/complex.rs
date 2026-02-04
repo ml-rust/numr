@@ -143,4 +143,150 @@ pub trait ComplexOps<R: Runtime> {
     /// For real x, returns 0 if x ≥ 0, π if x < 0.
     /// To compute magnitude, use abs(z) = sqrt(re² + im²) separately.
     fn angle(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Construct complex tensor from separate real and imaginary part tensors.
+    ///
+    /// Creates a complex tensor where each element is `real[i] + imag[i]*i`.
+    ///
+    /// # Arguments
+    ///
+    /// * `real` - Tensor containing real parts (F32 or F64)
+    /// * `imag` - Tensor containing imaginary parts (must match `real` dtype and shape)
+    ///
+    /// # Returns
+    ///
+    /// * F32 inputs → Complex64 tensor with same shape
+    /// * F64 inputs → Complex128 tensor with same shape
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if `real` and `imag` have different shapes
+    /// * `DTypeMismatch` - if `real` and `imag` have different dtypes
+    /// * `UnsupportedDType` - if input dtype is not F32 or F64
+    ///
+    /// # Supported Types
+    ///
+    /// * F32 → Complex64: All backends (CPU, CUDA, WebGPU)
+    /// * F64 → Complex128: CPU and CUDA only (WebGPU does not support F64)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let real = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    /// let imag = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 5.0, 6.0], &[3], &device);
+    /// let complex = client.make_complex(&real, &imag)?;
+    /// // Result: [1.0+4.0i, 2.0+5.0i, 3.0+6.0i]
+    /// ```
+    fn make_complex(&self, real: &Tensor<R>, imag: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Multiply complex tensor by real tensor element-wise.
+    ///
+    /// Computes (a + bi) * r = ar + br*i for each element.
+    ///
+    /// # Arguments
+    ///
+    /// * `complex` - Complex tensor (Complex64 or Complex128)
+    /// * `real` - Real tensor (F32 for Complex64, F64 for Complex128)
+    ///
+    /// # Returns
+    ///
+    /// Complex tensor with same dtype and shape as input complex tensor.
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if shapes don't match (no broadcasting)
+    /// * `DTypeMismatch` - if real dtype doesn't match complex component dtype
+    /// * `UnsupportedDType` - if complex is not Complex64/Complex128
+    ///
+    /// # Supported Types
+    ///
+    /// * Complex64 × F32: All backends (CPU, CUDA, WebGPU)
+    /// * Complex128 × F64: CPU and CUDA only (WebGPU does not support F64)
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let complex = Tensor::<CpuRuntime>::from_slice(
+    ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
+    ///     &[2],
+    ///     &device
+    /// );
+    /// let scale = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.5], &[2], &device);
+    /// let result = client.complex_mul_real(&complex, &scale)?;
+    /// // Result: [2.0+4.0i, 1.5+2.0i]
+    /// ```
+    fn complex_mul_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Divide complex tensor by real tensor element-wise.
+    ///
+    /// Computes (a + bi) / r = (a/r) + (b/r)*i for each element.
+    ///
+    /// # Arguments
+    ///
+    /// * `complex` - Complex tensor (Complex64 or Complex128)
+    /// * `real` - Real tensor (F32 for Complex64, F64 for Complex128)
+    ///
+    /// # Returns
+    ///
+    /// Complex tensor with same dtype and shape as input complex tensor.
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if shapes don't match (no broadcasting)
+    /// * `DTypeMismatch` - if real dtype doesn't match complex component dtype
+    /// * `UnsupportedDType` - if complex is not Complex64/Complex128
+    ///
+    /// # Supported Types
+    ///
+    /// * Complex64 / F32: All backends (CPU, CUDA, WebGPU)
+    /// * Complex128 / F64: CPU and CUDA only (WebGPU does not support F64)
+    ///
+    /// # Note
+    ///
+    /// Division by zero will result in NaN/Inf values, following IEEE 754 semantics.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let complex = Tensor::<CpuRuntime>::from_slice(
+    ///     &[Complex64::new(4.0, 6.0), Complex64::new(2.0, 4.0)],
+    ///     &[2],
+    ///     &device
+    /// );
+    /// let divisor = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0], &[2], &device);
+    /// let result = client.complex_div_real(&complex, &divisor)?;
+    /// // Result: [2.0+3.0i, 1.0+2.0i]
+    /// ```
+    fn complex_div_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Multiply real tensor by complex tensor element-wise.
+    ///
+    /// Computes r * (a + bi) = ra + rb*i for each element.
+    /// This is equivalent to `complex_mul_real` (multiplication is commutative).
+    ///
+    /// # Arguments
+    ///
+    /// * `real` - Real tensor (F32 for Complex64, F64 for Complex128)
+    /// * `complex` - Complex tensor (Complex64 or Complex128)
+    ///
+    /// # Returns
+    ///
+    /// Complex tensor with same dtype and shape as input complex tensor.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let scale = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.5], &[2], &device);
+    /// let complex = Tensor::<CpuRuntime>::from_slice(
+    ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
+    ///     &[2],
+    ///     &device
+    /// );
+    /// let result = client.real_mul_complex(&scale, &complex)?;
+    /// // Result: [2.0+4.0i, 1.5+2.0i]
+    /// ```
+    fn real_mul_complex(&self, real: &Tensor<R>, complex: &Tensor<R>) -> Result<Tensor<R>> {
+        // Multiplication is commutative
+        self.complex_mul_real(complex, real)
+    }
 }

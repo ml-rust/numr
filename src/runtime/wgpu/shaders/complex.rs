@@ -156,3 +156,192 @@ pub fn launch_angle_real(
 
     Ok(())
 }
+
+/// Launch from_real_imag operation on WebGPU.
+///
+/// Constructs Complex64 from separate F32 real and imaginary arrays.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WebGPU queue for command submission
+/// * `real_buf` - Input buffer (F32 real parts)
+/// * `imag_buf` - Input buffer (F32 imaginary parts)
+/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `params_buf` - Parameters buffer containing numel
+/// * `numel` - Number of elements
+pub fn launch_from_real_imag(
+    cache: &PipelineCache,
+    queue: &Queue,
+    real_buf: &Buffer,
+    imag_buf: &Buffer,
+    output_buf: &Buffer,
+    params_buf: &Buffer,
+    numel: usize,
+) -> Result<()> {
+    let shader_src = super::generator::complex::generate_from_real_imag_shader()?;
+    let entry_point = "from_real_imag_f32";
+    let module_name = "from_real_imag_f32";
+
+    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
+    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+
+    let pipeline =
+        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+    let bind_group =
+        cache.create_bind_group(&layout, &[real_buf, imag_buf, output_buf, params_buf]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("From Real Imag"),
+        });
+
+    {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("From Real Imag"),
+            timestamp_writes: None,
+        });
+
+        compute_pass.set_pipeline(&pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        let workgroup_size = 256;
+        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
+
+        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+    }
+
+    queue.submit(Some(encoder.finish()));
+
+    Ok(())
+}
+
+/// Launch complex × real multiplication operation on WebGPU.
+///
+/// Computes (a + bi) * r = ar + br*i element-wise.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WebGPU queue for command submission
+/// * `complex_buf` - Input buffer (Complex64 / vec2<f32> data)
+/// * `real_buf` - Input buffer (F32 real coefficients)
+/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `params_buf` - Parameters buffer containing numel
+/// * `numel` - Number of elements
+pub fn launch_complex_mul_real(
+    cache: &PipelineCache,
+    queue: &Queue,
+    complex_buf: &Buffer,
+    real_buf: &Buffer,
+    output_buf: &Buffer,
+    params_buf: &Buffer,
+    numel: usize,
+) -> Result<()> {
+    let shader_src = super::generator::complex::generate_complex_mul_real_shader()?;
+    let entry_point = "complex64_mul_real";
+    let module_name = "complex64_mul_real";
+
+    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
+    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+
+    let pipeline =
+        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+    let bind_group =
+        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Complex Mul Real"),
+        });
+
+    {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Complex Mul Real"),
+            timestamp_writes: None,
+        });
+
+        compute_pass.set_pipeline(&pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        let workgroup_size = 256;
+        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
+
+        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+    }
+
+    queue.submit(Some(encoder.finish()));
+
+    Ok(())
+}
+
+/// Launch complex / real division operation on WebGPU.
+///
+/// Computes (a + bi) / r = (a/r) + (b/r)*i element-wise.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WebGPU queue for command submission
+/// * `complex_buf` - Input buffer (Complex64 / vec2<f32> data)
+/// * `real_buf` - Input buffer (F32 real divisors)
+/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `params_buf` - Parameters buffer containing numel
+/// * `numel` - Number of elements
+pub fn launch_complex_div_real(
+    cache: &PipelineCache,
+    queue: &Queue,
+    complex_buf: &Buffer,
+    real_buf: &Buffer,
+    output_buf: &Buffer,
+    params_buf: &Buffer,
+    numel: usize,
+) -> Result<()> {
+    let shader_src = super::generator::complex::generate_complex_div_real_shader()?;
+    let entry_point = "complex64_div_real";
+    let module_name = "complex64_div_real";
+
+    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
+    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+
+    let pipeline =
+        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+    let bind_group =
+        cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Complex Div Real"),
+        });
+
+    {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Complex Div Real"),
+            timestamp_writes: None,
+        });
+
+        compute_pass.set_pipeline(&pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+
+        let workgroup_size = 256;
+        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
+
+        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+    }
+
+    queue.submit(Some(encoder.finish()));
+
+    Ok(())
+}

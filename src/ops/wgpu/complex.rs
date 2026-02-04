@@ -3,6 +3,9 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ComplexOps;
+use crate::ops::common::{
+    validate_complex_real_inputs_f32_only, validate_make_complex_inputs_f32_only,
+};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
@@ -198,6 +201,132 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
             &params_buf,
             numel,
             dtype,
+        )?;
+
+        Ok(out)
+    }
+
+    fn make_complex(
+        &self,
+        real: &Tensor<WgpuRuntime>,
+        imag: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_make_complex_inputs_f32_only(real, imag)?;
+
+        let shape = real.shape();
+        let numel = real.numel();
+        let out_dtype = DType::Complex64; // F32 → Complex64
+
+        let real_contig = ensure_contiguous(real);
+        let imag_contig = ensure_contiguous(imag);
+        let out = alloc_output(self, shape, out_dtype);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let real_buf = get_tensor_buffer(&real_contig)?;
+        let imag_buf = get_tensor_buffer(&imag_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        crate::runtime::wgpu::shaders::launch_from_real_imag(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &real_buf,
+            &imag_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+        )?;
+
+        Ok(out)
+    }
+
+    fn complex_mul_real(
+        &self,
+        complex: &Tensor<WgpuRuntime>,
+        real: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_complex_real_inputs_f32_only(complex, real, "complex_mul_real")?;
+
+        let dtype = complex.dtype();
+        let shape = complex.shape();
+        let numel = complex.numel();
+
+        let complex_contig = ensure_contiguous(complex);
+        let real_contig = ensure_contiguous(real);
+        let out = alloc_output(self, shape, dtype);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let complex_buf = get_tensor_buffer(&complex_contig)?;
+        let real_buf = get_tensor_buffer(&real_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        crate::runtime::wgpu::shaders::launch_complex_mul_real(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &complex_buf,
+            &real_buf,
+            &out_buf,
+            &params_buf,
+            numel,
+        )?;
+
+        Ok(out)
+    }
+
+    fn complex_div_real(
+        &self,
+        complex: &Tensor<WgpuRuntime>,
+        real: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        validate_complex_real_inputs_f32_only(complex, real, "complex_div_real")?;
+
+        let dtype = complex.dtype();
+        let shape = complex.shape();
+        let numel = complex.numel();
+
+        let complex_contig = ensure_contiguous(complex);
+        let real_contig = ensure_contiguous(real);
+        let out = alloc_output(self, shape, dtype);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let complex_buf = get_tensor_buffer(&complex_contig)?;
+        let real_buf = get_tensor_buffer(&real_contig)?;
+        let out_buf = get_tensor_buffer(&out)?;
+
+        let params = UnaryParams {
+            numel: numel as u32,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        crate::runtime::wgpu::shaders::launch_complex_div_real(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &complex_buf,
+            &real_buf,
+            &out_buf,
+            &params_buf,
+            numel,
         )?;
 
         Ok(out)

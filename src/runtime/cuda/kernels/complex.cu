@@ -148,4 +148,68 @@ __global__ void angle_real_f64(const double* a, double* out, unsigned int n) {
     }
 }
 
+// ============================================================================
+// Complex Construction: from_real_imag
+// ============================================================================
+
+// Construct Complex64 from separate F32 real and imaginary arrays
+__global__ void from_real_imag_f32(const float* real, const float* imag, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = make_float2(real[idx], imag[idx]);
+    }
+}
+
+// Construct Complex128 from separate F64 real and imaginary arrays
+__global__ void from_real_imag_f64(const double* real, const double* imag, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = make_double2(real[idx], imag[idx]);
+    }
+}
+
+// ============================================================================
+// Complex × Real Operations
+// ============================================================================
+
+// Complex64 × F32: (a+bi) * r = ar + br*i
+__global__ void complex64_mul_real(const float2* complex, const float* real, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float2 c = complex[idx];
+        float r = real[idx];
+        out[idx] = make_float2(c.x * r, c.y * r);
+    }
+}
+
+// Complex128 × F64: (a+bi) * r = ar + br*i
+__global__ void complex128_mul_real(const double2* complex, const double* real, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double2 c = complex[idx];
+        double r = real[idx];
+        out[idx] = make_double2(c.x * r, c.y * r);
+    }
+}
+
+// Complex64 / F32: (a+bi) / r = (a/r) + (b/r)*i
+__global__ void complex64_div_real(const float2* complex, const float* real, float2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float2 c = complex[idx];
+        float r = real[idx];
+        out[idx] = make_float2(c.x / r, c.y / r);
+    }
+}
+
+// Complex128 / F64: (a+bi) / r = (a/r) + (b/r)*i
+__global__ void complex128_div_real(const double2* complex, const double* real, double2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        double2 c = complex[idx];
+        double r = real[idx];
+        out[idx] = make_double2(c.x / r, c.y / r);
+    }
+}
+
 } // extern "C"

@@ -298,3 +298,182 @@ pub unsafe fn launch_angle_real(
         Ok(())
     }
 }
+
+/// Launch from_real_imag kernel.
+///
+/// Constructs complex tensor from separate real and imaginary arrays.
+///
+/// # Output Dtypes
+/// - F32 real, F32 imag → Complex64 output
+/// - F64 real, F64 imag → Complex128 output
+///
+/// # Safety
+/// - All pointers must be valid device memory
+/// - Real and imag tensors must have at least `numel` elements
+/// - Output tensor must have at least `numel` complex elements
+pub unsafe fn launch_from_real_imag(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    input_dtype: DType,
+    real_ptr: u64,
+    imag_ptr: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let kernel_name = match input_dtype {
+        DType::F32 => "from_real_imag_f32",
+        DType::F64 => "from_real_imag_f64",
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype: input_dtype,
+                op: "from_real_imag",
+            });
+        }
+    };
+
+    unsafe {
+        let module = get_or_load_module(context, device_index, COMPLEX_MODULE)?;
+        let func = get_kernel_function(&module, kernel_name)?;
+
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
+
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&real_ptr);
+        builder.arg(&imag_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch complex × real multiplication kernel.
+///
+/// Computes (a + bi) * r = ar + br*i element-wise.
+///
+/// # Supported Dtypes
+/// - Complex64 × F32 → Complex64
+/// - Complex128 × F64 → Complex128
+///
+/// # Safety
+/// - All pointers must be valid device memory
+/// - Complex tensor must have at least `numel` complex elements
+/// - Real tensor must have at least `numel` float elements
+/// - Output tensor must have at least `numel` complex elements
+pub unsafe fn launch_complex_mul_real(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    complex_dtype: DType,
+    complex_ptr: u64,
+    real_ptr: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let kernel_name = match complex_dtype {
+        DType::Complex64 => "complex64_mul_real",
+        DType::Complex128 => "complex128_mul_real",
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype: complex_dtype,
+                op: "complex_mul_real",
+            });
+        }
+    };
+
+    unsafe {
+        let module = get_or_load_module(context, device_index, COMPLEX_MODULE)?;
+        let func = get_kernel_function(&module, kernel_name)?;
+
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
+
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&complex_ptr);
+        builder.arg(&real_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
+/// Launch complex / real division kernel.
+///
+/// Computes (a + bi) / r = (a/r) + (b/r)*i element-wise.
+///
+/// # Supported Dtypes
+/// - Complex64 / F32 → Complex64
+/// - Complex128 / F64 → Complex128
+///
+/// # Safety
+/// - All pointers must be valid device memory
+/// - Complex tensor must have at least `numel` complex elements
+/// - Real tensor must have at least `numel` float elements
+/// - Output tensor must have at least `numel` complex elements
+pub unsafe fn launch_complex_div_real(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    complex_dtype: DType,
+    complex_ptr: u64,
+    real_ptr: u64,
+    out_ptr: u64,
+    numel: usize,
+) -> Result<()> {
+    let kernel_name = match complex_dtype {
+        DType::Complex64 => "complex64_div_real",
+        DType::Complex128 => "complex128_div_real",
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype: complex_dtype,
+                op: "complex_div_real",
+            });
+        }
+    };
+
+    unsafe {
+        let module = get_or_load_module(context, device_index, COMPLEX_MODULE)?;
+        let func = get_kernel_function(&module, kernel_name)?;
+
+        let grid = elementwise_launch_config(numel);
+        let block = (BLOCK_SIZE, 1, 1);
+        let n = numel as u32;
+
+        let cfg = launch_config(grid, block, 0);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&complex_ptr);
+        builder.arg(&real_ptr);
+        builder.arg(&out_ptr);
+        builder.arg(&n);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA {} kernel launch failed: {:?}",
+                kernel_name, e
+            ))
+        })?;
+
+        Ok(())
+    }
+}

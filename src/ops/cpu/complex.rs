@@ -3,6 +3,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ComplexOps;
+use crate::ops::common::{validate_complex_real_inputs, validate_make_complex_inputs};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
 
@@ -189,6 +190,160 @@ impl ComplexOps<CpuRuntime> for CpuClient {
                     kernels::angle_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
                 }
                 _ => unreachable!("angle called on non-complex dtype"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn make_complex(
+        &self,
+        real: &Tensor<CpuRuntime>,
+        imag: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_make_complex_inputs(real, imag)?;
+
+        let input_dtype = real.dtype();
+        let shape = real.shape();
+        let numel = real.numel();
+
+        // Determine output dtype
+        let out_dtype = match input_dtype {
+            DType::F32 => DType::Complex64,
+            DType::F64 => DType::Complex128,
+            _ => unreachable!("validated above"),
+        };
+
+        let real_contig = ensure_contiguous(real);
+        let imag_contig = ensure_contiguous(imag);
+        let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let real_ptr = real_contig.storage().ptr();
+        let imag_ptr = imag_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match input_dtype {
+                DType::F32 => {
+                    kernels::from_real_imag_f32(
+                        real_ptr as *const _,
+                        imag_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                DType::F64 => {
+                    kernels::from_real_imag_f64(
+                        real_ptr as *const _,
+                        imag_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                _ => unreachable!("validated above"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn complex_mul_real(
+        &self,
+        complex: &Tensor<CpuRuntime>,
+        real: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_complex_real_inputs(complex, real, "complex_mul_real")?;
+
+        let dtype = complex.dtype();
+        let shape = complex.shape();
+        let numel = complex.numel();
+
+        let complex_contig = ensure_contiguous(complex);
+        let real_contig = ensure_contiguous(real);
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let complex_ptr = complex_contig.storage().ptr();
+        let real_ptr = real_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::complex64_mul_real(
+                        complex_ptr as *const _,
+                        real_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                DType::Complex128 => {
+                    kernels::complex128_mul_real(
+                        complex_ptr as *const _,
+                        real_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                _ => unreachable!("validated above"),
+            }
+        }
+
+        Ok(out)
+    }
+
+    fn complex_div_real(
+        &self,
+        complex: &Tensor<CpuRuntime>,
+        real: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        validate_complex_real_inputs(complex, real, "complex_div_real")?;
+
+        let dtype = complex.dtype();
+        let shape = complex.shape();
+        let numel = complex.numel();
+
+        let complex_contig = ensure_contiguous(complex);
+        let real_contig = ensure_contiguous(real);
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+
+        // Handle empty tensors
+        if numel == 0 {
+            return Ok(out);
+        }
+
+        let complex_ptr = complex_contig.storage().ptr();
+        let real_ptr = real_contig.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        unsafe {
+            match dtype {
+                DType::Complex64 => {
+                    kernels::complex64_div_real(
+                        complex_ptr as *const _,
+                        real_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                DType::Complex128 => {
+                    kernels::complex128_div_real(
+                        complex_ptr as *const _,
+                        real_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                    );
+                }
+                _ => unreachable!("validated above"),
             }
         }
 
