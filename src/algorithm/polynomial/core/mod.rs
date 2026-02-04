@@ -17,11 +17,13 @@
 //! - `arange` and `eye` for tensor construction
 //! - Broadcasting for element-wise operations
 
+mod convolve;
 mod polyfromroots;
 mod polymul;
 mod polyroots;
 mod polyval;
 
+pub use convolve::convolve_impl;
 pub use polyfromroots::polyfromroots_impl;
 pub use polymul::polymul_impl;
 pub use polyroots::polyroots_impl;
@@ -34,18 +36,21 @@ use crate::tensor::Tensor;
 
 /// DType support flags for backend validation
 ///
-/// Used to specify which floating-point dtypes a backend supports.
+/// Used to specify which floating-point dtypes a backend supports,
+/// and which index dtype to use for indexing operations.
 ///
 /// # Examples
 ///
 /// ```ignore
-/// // CPU and CUDA support both F32 and F64
+/// // CPU and CUDA support both F32 and F64, use I64 indices
 /// let support = DTypeSupport::FULL;
 /// assert!(support.check(DType::F64, "polyroots").is_ok());
+/// assert_eq!(support.index_dtype, DType::I64);
 ///
-/// // WebGPU only supports F32 (WGSL has no f64)
+/// // WebGPU only supports F32, uses I32 indices (WGSL has no i64)
 /// let support = DTypeSupport::F32_ONLY;
 /// assert!(support.check(DType::F64, "polyroots").is_err());
+/// assert_eq!(support.index_dtype, DType::I32);
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct DTypeSupport {
@@ -53,23 +58,28 @@ pub struct DTypeSupport {
     pub f32: bool,
     /// Whether F64 dtype is supported
     pub f64: bool,
+    /// Index dtype to use for indexing operations
+    /// CPU/CUDA use I64, WebGPU uses I32 (WGSL has no i64 type)
+    pub index_dtype: DType,
 }
 
 impl DTypeSupport {
-    /// Full floating-point support (F32 and F64)
+    /// Full floating-point support (F32 and F64) with I64 indices
     ///
     /// Used for CPU and CUDA backends which support both single and double precision.
     pub const FULL: Self = Self {
         f32: true,
         f64: true,
+        index_dtype: DType::I64,
     };
 
-    /// F32 only support
+    /// F32 only support with I32 indices
     ///
-    /// Used for WebGPU backend since WGSL does not support 64-bit floats.
+    /// Used for WebGPU backend since WGSL does not support 64-bit floats or integers.
     pub const F32_ONLY: Self = Self {
         f32: true,
         f64: false,
+        index_dtype: DType::I32,
     };
 
     /// Check if dtype is supported for the given operation
@@ -89,19 +99,48 @@ impl DTypeSupport {
 // Helper Functions (shared across algorithm implementations)
 // ============================================================================
 
-/// Create a single-element I64 index tensor
-pub(crate) fn create_index_tensor<R: Runtime>(index: usize, device: &R::Device) -> Tensor<R> {
-    Tensor::<R>::from_slice(&[index as i64], &[1], device)
+/// Create a single-element index tensor with the specified dtype
+///
+/// # Arguments
+///
+/// * `index` - The index value
+/// * `index_dtype` - The dtype for the index tensor (I32 or I64)
+/// * `device` - The device to create the tensor on
+pub(crate) fn create_index_tensor<R: Runtime>(
+    index: usize,
+    index_dtype: DType,
+    device: &R::Device,
+) -> Tensor<R> {
+    match index_dtype {
+        DType::I32 => Tensor::<R>::from_slice(&[index as i32], &[1], device),
+        _ => Tensor::<R>::from_slice(&[index as i64], &[1], device),
+    }
 }
 
-/// Create an arange-like I64 tensor [start, start+1, ..., end-1]
+/// Create an arange-like index tensor [start, start+1, ..., end-1]
+///
+/// # Arguments
+///
+/// * `start` - Start index (inclusive)
+/// * `end` - End index (exclusive)
+/// * `index_dtype` - The dtype for the index tensor (I32 or I64)
+/// * `device` - The device to create the tensor on
 pub(crate) fn create_arange_tensor<R: Runtime>(
     start: usize,
     end: usize,
+    index_dtype: DType,
     device: &R::Device,
 ) -> Tensor<R> {
-    let indices: Vec<i64> = (start..end).map(|i| i as i64).collect();
-    Tensor::<R>::from_slice(&indices, &[indices.len()], device)
+    match index_dtype {
+        DType::I32 => {
+            let indices: Vec<i32> = (start..end).map(|i| i as i32).collect();
+            Tensor::<R>::from_slice(&indices, &[indices.len()], device)
+        }
+        _ => {
+            let indices: Vec<i64> = (start..end).map(|i| i as i64).collect();
+            Tensor::<R>::from_slice(&indices, &[indices.len()], device)
+        }
+    }
 }
 
 #[cfg(test)]

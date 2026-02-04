@@ -5,7 +5,6 @@ use crate::algorithm::linalg::LinearAlgebraAlgorithms;
 use crate::algorithm::polynomial::helpers::validate_polynomial_coeffs;
 use crate::algorithm::polynomial::helpers::validate_polynomial_dtype;
 use crate::algorithm::polynomial::types::PolynomialRoots;
-use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{
     BinaryOps, CompareOps, IndexingOps, LinalgOps, ReduceOps, ScalarOps, ShapeOps, UtilityOps,
@@ -67,6 +66,7 @@ where
     let n = validate_polynomial_coeffs(coeffs.shape())?;
     let dtype = coeffs.dtype();
     let device = client.device();
+    let index_dtype = dtype_support.index_dtype;
 
     // Degree 0 polynomial (constant) - no roots
     if n == 1 {
@@ -81,7 +81,7 @@ where
 
     // Get leading coefficient as tensor
     // Select last coefficient: coeffs[n-1]
-    let last_idx = create_index_tensor::<R>(n - 1, device);
+    let last_idx = create_index_tensor::<R>(n - 1, index_dtype, device);
     let leading_tensor = client.index_select(coeffs, 0, &last_idx)?; // Shape [1]
 
     // Note: We skip validation of leading coefficient being non-zero.
@@ -110,7 +110,7 @@ where
 
     // Build last column: -coeffs[0:degree] / leading
     // Select coefficients 0 to degree-1
-    let coeff_indices = create_arange_tensor::<R>(0, degree, device);
+    let coeff_indices = create_arange_tensor::<R>(0, degree, index_dtype, device);
     let lower_coeffs = client.index_select(coeffs, 0, &coeff_indices)?; // Shape [degree]
 
     // Negate and divide by leading coefficient
@@ -125,7 +125,7 @@ where
     let last_col_2d = last_col.reshape(&[degree, 1])?;
 
     // Create column indices (all pointing to last column = degree-1)
-    let col_indices = Tensor::full_scalar(&[degree], DType::I64, (degree - 1) as f64, device);
+    let col_indices = Tensor::full_scalar(&[degree], index_dtype, (degree - 1) as f64, device);
 
     // Use scatter to set last column
     let col_indices_2d = col_indices.reshape(&[degree, 1])?;

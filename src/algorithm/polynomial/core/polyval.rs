@@ -50,11 +50,12 @@ where
 
     let n = validate_polynomial_coeffs(coeffs.shape())?;
     let device = client.device();
+    let index_dtype = dtype_support.index_dtype;
 
     // Degree 0 polynomial: constant
     if n == 1 {
         // Get the constant coefficient as a tensor and broadcast to x shape
-        let idx = create_index_tensor::<R>(0, device);
+        let idx = create_index_tensor::<R>(0, index_dtype, device);
         let c0 = client.index_select(coeffs, 0, &idx)?; // Shape [1]
         // Broadcast c0 to x's shape and make contiguous
         let result = c0.broadcast_to(x.shape())?;
@@ -63,7 +64,7 @@ where
 
     // Horner's method using tensor operations
     // Start with leading coefficient (coeffs[n-1])
-    let last_idx = create_index_tensor::<R>(n - 1, device);
+    let last_idx = create_index_tensor::<R>(n - 1, index_dtype, device);
     let mut result = client.index_select(coeffs, 0, &last_idx)?; // Shape [1]
 
     // Broadcast to x's shape for the first multiplication
@@ -76,7 +77,7 @@ where
         result = client.mul(&result, x)?;
 
         // Get coefficient i as tensor
-        let idx = create_index_tensor::<R>(i, device);
+        let idx = create_index_tensor::<R>(i, index_dtype, device);
         let coeff_i = client.index_select(coeffs, 0, &idx)?; // Shape [1]
 
         // Add with broadcasting (coeff_i broadcasts to result's shape)
