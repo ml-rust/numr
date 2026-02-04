@@ -161,6 +161,10 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 - Legendre functions: legendre_p, legendre_p_assoc, sph_harm
 - Fresnel integrals: fresnel_s, fresnel_c
 
+**Polynomial Operations (`numr::polynomial`):**
+
+- polyroots, polyval, polyfromroots, polymul
+
 **Sparse Tensors (`numr::sparse`, feature-gated):**
 
 - Formats: CSR, CSC, COO
