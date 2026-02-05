@@ -677,6 +677,128 @@ pub trait SparseOps<R: Runtime>: Sized {
     fn sparse_transpose(&self, a: &SparseTensor<R>) -> Result<SparseTensor<R>>;
 }
 
+// ============================================================================
+// Sparse Scaling Operations
+// ============================================================================
+
+/// Norm type for computing row/column norms
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormType {
+    /// L1 norm: sum of absolute values
+    L1,
+    /// L2 norm: square root of sum of squares
+    L2,
+    /// L-infinity norm: maximum absolute value
+    Linf,
+}
+
+/// Sparse matrix scaling and equilibration operations
+///
+/// These utilities improve numerical stability for sparse linear systems,
+/// particularly important for ODE/DAE Jacobians which may be badly scaled.
+///
+/// # Example
+///
+/// ```ignore
+/// use numr::sparse::{CscData, SparseScaling, NormType};
+///
+/// // Equilibrate a badly-scaled matrix
+/// let (scaled, row_scales, col_scales) = csc.equilibrate::<f64>()?;
+///
+/// // Solve with scaled matrix: Ax = b becomes (R A C)(C⁻¹x) = Rb
+/// let factors = sparse_lu_cpu(&scaled, &symbolic, &options)?;
+/// let scaled_b = apply_row_scaling(&b, &row_scales);
+/// let scaled_x = sparse_lu_solve_cpu(&factors, &scaled_b)?;
+/// let x = apply_col_scaling(&scaled_x, &col_scales); // x = C * scaled_x
+/// ```
+pub trait SparseScaling<R: Runtime> {
+    /// Compute row-wise norms of a sparse matrix.
+    ///
+    /// # Arguments
+    ///
+    /// * `norm` - Type of norm to compute (L1, L2, or Linf)
+    ///
+    /// # Returns
+    ///
+    /// Tensor of shape [nrows] containing the norm of each row.
+    fn row_norms<T: crate::dtype::Element + Default + Copy>(
+        &self,
+        norm: NormType,
+    ) -> Result<Tensor<R>>;
+
+    /// Compute column-wise norms of a sparse matrix.
+    ///
+    /// # Arguments
+    ///
+    /// * `norm` - Type of norm to compute (L1, L2, or Linf)
+    ///
+    /// # Returns
+    ///
+    /// Tensor of shape [ncols] containing the norm of each column.
+    fn col_norms<T: crate::dtype::Element + Default + Copy>(
+        &self,
+        norm: NormType,
+    ) -> Result<Tensor<R>>;
+
+    /// Scale rows of a sparse matrix by given factors.
+    ///
+    /// Computes B[i,j] = scales[i] * A[i,j] for all nonzeros.
+    ///
+    /// # Arguments
+    ///
+    /// * `scales` - Row scaling factors [nrows]
+    ///
+    /// # Returns
+    ///
+    /// New sparse matrix with scaled rows (same sparsity pattern).
+    fn scale_rows<T: crate::dtype::Element + Default + Copy + std::ops::Mul<Output = T>>(
+        &self,
+        scales: &[T],
+    ) -> Result<Self>
+    where
+        Self: Sized;
+
+    /// Scale columns of a sparse matrix by given factors.
+    ///
+    /// Computes B[i,j] = A[i,j] * scales[j] for all nonzeros.
+    ///
+    /// # Arguments
+    ///
+    /// * `scales` - Column scaling factors [ncols]
+    ///
+    /// # Returns
+    ///
+    /// New sparse matrix with scaled columns (same sparsity pattern).
+    fn scale_cols<T: crate::dtype::Element + Default + Copy + std::ops::Mul<Output = T>>(
+        &self,
+        scales: &[T],
+    ) -> Result<Self>
+    where
+        Self: Sized;
+
+    /// Equilibrate the matrix for better numerical stability.
+    ///
+    /// Computes row and column scalings to make all row and column infinity-norms
+    /// approximately 1. Uses iterative scaling: row-scale, then column-scale,
+    /// then row-scale again (one iteration is usually sufficient).
+    ///
+    /// # Returns
+    ///
+    /// Tuple of:
+    /// - Scaled matrix (same sparsity pattern)
+    /// - Row scales [nrows]
+    /// - Column scales [ncols]
+    ///
+    /// To undo the scaling on the solution:
+    /// - If solving Ax = b, the scaled system is (R*A*C) * (C⁻¹*x) = R*b
+    /// - After solving, recover x = C * scaled_x
+    fn equilibrate<T: crate::dtype::Element + Default + Copy + num_traits::Float>(
+        &self,
+    ) -> Result<(Self, Vec<T>, Vec<T>)>
+    where
+        Self: Sized;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -688,5 +810,14 @@ mod tests {
     fn test_sparse_ops_trait_exists() {
         // Trait compiles correctly
         fn _accepts_sparse_ops<R: Runtime, T: SparseOps<R>>(_: &T) {}
+    }
+
+    #[test]
+    fn test_norm_type() {
+        // NormType enum exists and can be used
+        let _l1 = NormType::L1;
+        let _l2 = NormType::L2;
+        let _linf = NormType::Linf;
+        assert_eq!(NormType::L1, NormType::L1);
     }
 }

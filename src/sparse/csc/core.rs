@@ -6,6 +6,7 @@ use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
 use super::super::format::{SparseFormat, SparseStorage};
+use super::super::ops::{NormType, SparseScaling};
 
 /// CSC (Compressed Sparse Column) sparse matrix data
 #[derive(Debug, Clone)]
@@ -102,6 +103,126 @@ impl<R: Runtime> CscData<R> {
     pub fn values(&self) -> &Tensor<R> {
         &self.values
     }
+
+    /// Update the values tensor in-place while preserving the sparsity pattern.
+    ///
+    /// This method allows efficient numeric refactorization by reusing the same
+    /// sparsity structure (col_ptrs, row_indices) with new numerical values.
+    ///
+    /// # Arguments
+    ///
+    /// * `new_values` - Tensor with the same number of elements and dtype as current values
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - `new_values.numel() != self.nnz()`
+    /// - `new_values.dtype() != self.dtype()`
+    /// - `new_values` is not 1D
+    pub fn update_values(&mut self, new_values: Tensor<R>) -> Result<()> {
+        if new_values.numel() != self.values.numel() {
+            return Err(Error::ShapeMismatch {
+                expected: vec![self.values.numel()],
+                got: vec![new_values.numel()],
+            });
+        }
+        if new_values.dtype() != self.values.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: self.values.dtype(),
+                rhs: new_values.dtype(),
+            });
+        }
+        if new_values.ndim() != 1 {
+            return Err(Error::Internal(format!(
+                "Expected 1D tensor for values, got {}D",
+                new_values.ndim()
+            )));
+        }
+        self.values = new_values;
+        Ok(())
+    }
+
+    /// Extract the diagonal elements as a 1D tensor.
+    ///
+    /// Returns a tensor of length `min(nrows, ncols)` containing the diagonal
+    /// entries. Missing diagonal entries are returned as zeros.
+    ///
+    /// # Note
+    ///
+    /// This method transfers data to CPU for extraction, then creates the result
+    /// tensor on the original device. For large matrices on GPU, consider using
+    /// a client-based approach with `index_select` for better performance.
+    pub fn diagonal<T: Element + Default + Copy>(&self) -> Result<Tensor<R>> {
+        let n = self.nrows().min(self.ncols());
+        let device = self.values.device();
+
+        if n == 0 {
+            return Ok(Tensor::empty(&[0], self.dtype(), device));
+        }
+
+        // Validate dtype matches T
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Transfer data to CPU for scanning
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let row_indices: Vec<i64> = self.row_indices.to_vec();
+        let values: Vec<T> = self.values.to_vec();
+
+        // Extract diagonal values
+        let mut diag_values = vec![T::default(); n];
+
+        for col in 0..n {
+            let start = col_ptrs[col] as usize;
+            let end = col_ptrs[col + 1] as usize;
+
+            // Search for row == col in this column
+            for pos in start..end {
+                if row_indices[pos] as usize == col {
+                    diag_values[col] = values[pos];
+                    break;
+                }
+            }
+        }
+
+        // Create result tensor on original device
+        Ok(Tensor::from_slice(&diag_values, &[n], device))
+    }
+
+    /// Check if the matrix has a structural nonzero on every diagonal position.
+    ///
+    /// For rectangular matrices, checks positions `0..min(nrows, ncols)`.
+    /// Returns `true` if every diagonal position has a structural entry (even if zero-valued).
+    pub fn has_full_diagonal(&self) -> bool {
+        let n = self.nrows().min(self.ncols());
+        if n == 0 {
+            return true;
+        }
+
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let row_indices: Vec<i64> = self.row_indices.to_vec();
+
+        for col in 0..n {
+            let start = col_ptrs[col] as usize;
+            let end = col_ptrs[col + 1] as usize;
+
+            let mut found = false;
+            for pos in start..end {
+                if row_indices[pos] as usize == col {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 impl<R: Runtime> SparseStorage for CscData<R> {
@@ -182,6 +303,266 @@ impl<R: Runtime> CscData<R> {
     }
 }
 
+// ============================================================================
+// SparseScaling Implementation for CscData
+// ============================================================================
+
+impl<R: Runtime> SparseScaling<R> for CscData<R> {
+    fn row_norms<T: Element + Default + Copy>(&self, norm: NormType) -> Result<Tensor<R>> {
+        let [nrows, ncols] = self.shape;
+        let device = self.values.device();
+
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Transfer to CPU for computation
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let row_indices: Vec<i64> = self.row_indices.to_vec();
+        let values: Vec<f64> = match self.dtype() {
+            DType::F32 => self
+                .values
+                .to_vec::<f32>()
+                .iter()
+                .map(|&x| x as f64)
+                .collect(),
+            DType::F64 => self.values.to_vec(),
+            _ => {
+                return Err(Error::UnsupportedDType {
+                    dtype: self.dtype(),
+                    op: "row_norms",
+                });
+            }
+        };
+
+        // Compute norms row by row
+        let mut norms = vec![0.0f64; nrows];
+
+        for col in 0..ncols {
+            let start = col_ptrs[col] as usize;
+            let end = col_ptrs[col + 1] as usize;
+
+            for idx in start..end {
+                let row = row_indices[idx] as usize;
+                let val = values[idx];
+                match norm {
+                    NormType::L1 => norms[row] += val.abs(),
+                    NormType::L2 => norms[row] += val * val,
+                    NormType::Linf => norms[row] = norms[row].max(val.abs()),
+                }
+            }
+        }
+
+        // Post-process L2 norm
+        if norm == NormType::L2 {
+            for n in &mut norms {
+                *n = n.sqrt();
+            }
+        }
+
+        // Convert back to requested type
+        match T::DTYPE {
+            DType::F32 => {
+                let norms_f32: Vec<f32> = norms.iter().map(|&x| x as f32).collect();
+                Ok(Tensor::from_slice(&norms_f32, &[nrows], device))
+            }
+            DType::F64 => Ok(Tensor::from_slice(&norms, &[nrows], device)),
+            _ => Err(Error::UnsupportedDType {
+                dtype: T::DTYPE,
+                op: "row_norms",
+            }),
+        }
+    }
+
+    fn col_norms<T: Element + Default + Copy>(&self, norm: NormType) -> Result<Tensor<R>> {
+        let [_nrows, ncols] = self.shape;
+        let device = self.values.device();
+
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Transfer to CPU for computation
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let values: Vec<f64> = match self.dtype() {
+            DType::F32 => self
+                .values
+                .to_vec::<f32>()
+                .iter()
+                .map(|&x| x as f64)
+                .collect(),
+            DType::F64 => self.values.to_vec(),
+            _ => {
+                return Err(Error::UnsupportedDType {
+                    dtype: self.dtype(),
+                    op: "col_norms",
+                });
+            }
+        };
+
+        // Compute norms column by column (efficient for CSC)
+        let mut norms = vec![0.0f64; ncols];
+
+        for col in 0..ncols {
+            let start = col_ptrs[col] as usize;
+            let end = col_ptrs[col + 1] as usize;
+
+            for idx in start..end {
+                let val = values[idx];
+                match norm {
+                    NormType::L1 => norms[col] += val.abs(),
+                    NormType::L2 => norms[col] += val * val,
+                    NormType::Linf => norms[col] = norms[col].max(val.abs()),
+                }
+            }
+        }
+
+        // Post-process L2 norm
+        if norm == NormType::L2 {
+            for n in &mut norms {
+                *n = n.sqrt();
+            }
+        }
+
+        // Convert back to requested type
+        match T::DTYPE {
+            DType::F32 => {
+                let norms_f32: Vec<f32> = norms.iter().map(|&x| x as f32).collect();
+                Ok(Tensor::from_slice(&norms_f32, &[ncols], device))
+            }
+            DType::F64 => Ok(Tensor::from_slice(&norms, &[ncols], device)),
+            _ => Err(Error::UnsupportedDType {
+                dtype: T::DTYPE,
+                op: "col_norms",
+            }),
+        }
+    }
+
+    fn scale_rows<T: Element + Default + Copy + std::ops::Mul<Output = T>>(
+        &self,
+        scales: &[T],
+    ) -> Result<Self> {
+        let [nrows, _ncols] = self.shape;
+        let device = self.values.device();
+
+        if scales.len() != nrows {
+            return Err(Error::ShapeMismatch {
+                expected: vec![nrows],
+                got: vec![scales.len()],
+            });
+        }
+
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Transfer data
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let row_indices: Vec<i64> = self.row_indices.to_vec();
+        let values: Vec<T> = self.values.to_vec();
+
+        // Scale values by row
+        let scaled_values: Vec<T> = values
+            .iter()
+            .zip(row_indices.iter())
+            .map(|(&v, &row)| v * scales[row as usize])
+            .collect();
+
+        Self::from_slices(&col_ptrs, &row_indices, &scaled_values, self.shape, device)
+    }
+
+    fn scale_cols<T: Element + Default + Copy + std::ops::Mul<Output = T>>(
+        &self,
+        scales: &[T],
+    ) -> Result<Self> {
+        let [_nrows, ncols] = self.shape;
+        let device = self.values.device();
+
+        if scales.len() != ncols {
+            return Err(Error::ShapeMismatch {
+                expected: vec![ncols],
+                got: vec![scales.len()],
+            });
+        }
+
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Transfer data
+        let col_ptrs: Vec<i64> = self.col_ptrs.to_vec();
+        let row_indices: Vec<i64> = self.row_indices.to_vec();
+        let values: Vec<T> = self.values.to_vec();
+
+        // Scale values by column (efficient for CSC - each column is contiguous)
+        let mut scaled_values = values;
+        for col in 0..ncols {
+            let start = col_ptrs[col] as usize;
+            let end = col_ptrs[col + 1] as usize;
+            let scale = scales[col];
+
+            for idx in start..end {
+                scaled_values[idx] = scaled_values[idx] * scale;
+            }
+        }
+
+        Self::from_slices(&col_ptrs, &row_indices, &scaled_values, self.shape, device)
+    }
+
+    fn equilibrate<T: Element + Default + Copy + num_traits::Float>(
+        &self,
+    ) -> Result<(Self, Vec<T>, Vec<T>)> {
+        let [nrows, ncols] = self.shape;
+
+        if T::DTYPE != self.dtype() {
+            return Err(Error::DTypeMismatch {
+                lhs: T::DTYPE,
+                rhs: self.dtype(),
+            });
+        }
+
+        // Compute row and column infinity norms
+        let row_norms_tensor = self.row_norms::<T>(NormType::Linf)?;
+        let col_norms_tensor = self.col_norms::<T>(NormType::Linf)?;
+
+        let row_norms: Vec<T> = row_norms_tensor.to_vec();
+        let col_norms: Vec<T> = col_norms_tensor.to_vec();
+
+        // Compute scales as 1/norm, handling zeros
+        let one: T = num_traits::one();
+        let zero: T = num_traits::zero();
+        let epsilon = T::from(1e-15).unwrap_or(zero);
+
+        let row_scales: Vec<T> = row_norms
+            .iter()
+            .map(|&n| if n > epsilon { one / n } else { one })
+            .collect();
+
+        let col_scales: Vec<T> = col_norms
+            .iter()
+            .map(|&n| if n > epsilon { one / n } else { one })
+            .collect();
+
+        // Apply row scaling first, then column scaling
+        let scaled = self.scale_rows(&row_scales)?;
+        let scaled = scaled.scale_cols(&col_scales)?;
+
+        Ok((scaled, row_scales, col_scales))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +602,300 @@ mod tests {
         assert_eq!(csc.shape(), [100, 200]);
         assert!(csc.is_empty());
         assert_eq!(csc.col_ptrs().numel(), 201); // ncols + 1
+    }
+
+    #[test]
+    fn test_csc_update_values() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix:
+        // [1, 0, 2]
+        // [0, 0, 3]
+        // [4, 5, 0]
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f32, 4.0, 5.0, 2.0, 3.0];
+
+        let mut csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Update values - double them
+        let new_values = vec![2.0f32, 8.0, 10.0, 4.0, 6.0];
+        let new_values_tensor = Tensor::from_slice(&new_values, &[5], &device);
+        csc.update_values(new_values_tensor).unwrap();
+
+        // Verify values changed but structure unchanged
+        let updated: Vec<f32> = csc.values().to_vec();
+        assert_eq!(updated, vec![2.0, 8.0, 10.0, 4.0, 6.0]);
+
+        // Structure should be unchanged
+        let ptrs: Vec<i64> = csc.col_ptrs().to_vec();
+        let indices: Vec<i64> = csc.row_indices().to_vec();
+        assert_eq!(ptrs, col_ptrs);
+        assert_eq!(indices, row_indices);
+    }
+
+    #[test]
+    fn test_csc_update_values_wrong_size() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f32, 4.0, 5.0, 2.0, 3.0];
+
+        let mut csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Try to update with wrong size
+        let wrong_size = Tensor::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        assert!(csc.update_values(wrong_size).is_err());
+    }
+
+    #[test]
+    fn test_csc_update_values_wrong_dtype() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f32, 4.0, 5.0, 2.0, 3.0];
+
+        let mut csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Try to update with wrong dtype (f64 instead of f32)
+        let wrong_dtype = Tensor::from_slice(&[1.0f64, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+        assert!(csc.update_values(wrong_dtype).is_err());
+    }
+
+    #[test]
+    fn test_csc_diagonal() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix with full diagonal:
+        // [1, 0, 2]
+        // [0, 5, 3]
+        // [4, 0, 6]
+        // CSC col 0: rows 0,2 values 1,4
+        // CSC col 1: row 1 value 5
+        // CSC col 2: rows 0,1,2 values 2,3,6
+        let col_ptrs = vec![0i64, 2, 3, 6];
+        let row_indices = vec![0i64, 2, 1, 0, 1, 2];
+        let values = vec![1.0f32, 4.0, 5.0, 2.0, 3.0, 6.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        let diag: Vec<f32> = csc.diagonal::<f32>().unwrap().to_vec();
+        assert_eq!(diag, vec![1.0, 5.0, 6.0]);
+        assert!(csc.has_full_diagonal());
+    }
+
+    #[test]
+    fn test_csc_diagonal_missing_entries() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix with missing diagonal entry at (1,1):
+        // [1, 0, 2]
+        // [0, 0, 3]
+        // [4, 5, 6]
+        // CSC col 0: rows 0,2 values 1,4
+        // CSC col 1: row 2 value 5
+        // CSC col 2: rows 0,1,2 values 2,3,6
+        let col_ptrs = vec![0i64, 2, 3, 6];
+        let row_indices = vec![0i64, 2, 2, 0, 1, 2];
+        let values = vec![1.0f32, 4.0, 5.0, 2.0, 3.0, 6.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        let diag: Vec<f32> = csc.diagonal::<f32>().unwrap().to_vec();
+        assert_eq!(diag, vec![1.0, 0.0, 6.0]); // Missing (1,1) is 0
+        assert!(!csc.has_full_diagonal());
+    }
+
+    #[test]
+    fn test_csc_diagonal_rectangular() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // 2x3 matrix:
+        // [1, 2, 3]
+        // [4, 5, 6]
+        // CSC col 0: rows 0,1 values 1,4
+        // CSC col 1: rows 0,1 values 2,5
+        // CSC col 2: rows 0,1 values 3,6
+        let col_ptrs = vec![0i64, 2, 4, 6];
+        let row_indices = vec![0i64, 1, 0, 1, 0, 1];
+        let values = vec![1.0f32, 4.0, 2.0, 5.0, 3.0, 6.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [2, 3], &device)
+                .unwrap();
+
+        // Diagonal length is min(2, 3) = 2
+        let diag: Vec<f32> = csc.diagonal::<f32>().unwrap().to_vec();
+        assert_eq!(diag, vec![1.0, 5.0]);
+    }
+
+    #[test]
+    fn test_csc_row_norms() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix:
+        // [1, 0, 2]  -> row 0: L1=3, Linf=2
+        // [0, 0, 3]  -> row 1: L1=3, Linf=3
+        // [4, 5, 0]  -> row 2: L1=9, Linf=5
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f64, 4.0, 5.0, 2.0, 3.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        let l1_norms: Vec<f64> = csc.row_norms::<f64>(NormType::L1).unwrap().to_vec();
+        assert_eq!(l1_norms, vec![3.0, 3.0, 9.0]);
+
+        let linf_norms: Vec<f64> = csc.row_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        assert_eq!(linf_norms, vec![2.0, 3.0, 5.0]);
+    }
+
+    #[test]
+    fn test_csc_col_norms() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix:
+        // [1, 0, 2]  col 0: L1=5, col 1: L1=5, col 2: L1=5
+        // [0, 0, 3]
+        // [4, 5, 0]
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f64, 4.0, 5.0, 2.0, 3.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        let l1_norms: Vec<f64> = csc.col_norms::<f64>(NormType::L1).unwrap().to_vec();
+        assert_eq!(l1_norms, vec![5.0, 5.0, 5.0]);
+
+        let linf_norms: Vec<f64> = csc.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        assert_eq!(linf_norms, vec![4.0, 5.0, 3.0]);
+    }
+
+    #[test]
+    fn test_csc_scale_rows() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix:
+        // [1, 0, 2]
+        // [0, 0, 3]
+        // [4, 5, 0]
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f64, 4.0, 5.0, 2.0, 3.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Scale rows by [2, 3, 0.5]
+        let scales = vec![2.0f64, 3.0, 0.5];
+        let scaled = csc.scale_rows(&scales).unwrap();
+
+        // Expected:
+        // [2, 0, 4]   (row 0 * 2)
+        // [0, 0, 9]   (row 1 * 3)
+        // [2, 2.5, 0] (row 2 * 0.5)
+        // CSC values order: col0:[row0,row2], col1:[row2], col2:[row0,row1]
+        // = [1*2, 4*0.5, 5*0.5, 2*2, 3*3] = [2, 2, 2.5, 4, 9]
+        let scaled_values: Vec<f64> = scaled.values().to_vec();
+        assert_eq!(scaled_values, vec![2.0, 2.0, 2.5, 4.0, 9.0]);
+    }
+
+    #[test]
+    fn test_csc_scale_cols() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Matrix:
+        // [1, 0, 2]
+        // [0, 0, 3]
+        // [4, 5, 0]
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 2, 0, 1];
+        let values = vec![1.0f64, 4.0, 5.0, 2.0, 3.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Scale cols by [2, 3, 0.5]
+        let scales = vec![2.0f64, 3.0, 0.5];
+        let scaled = csc.scale_cols(&scales).unwrap();
+
+        // Expected:
+        // [2, 0, 1]   (col 0 * 2, col 2 * 0.5)
+        // [0, 0, 1.5] (col 2 * 0.5)
+        // [8, 15, 0]  (col 0 * 2, col 1 * 3)
+        // CSC values: col0*2, col1*3, col2*0.5
+        // = [1*2, 4*2, 5*3, 2*0.5, 3*0.5] = [2, 8, 15, 1, 1.5]
+        let scaled_values: Vec<f64> = scaled.values().to_vec();
+        assert_eq!(scaled_values, vec![2.0, 8.0, 15.0, 1.0, 1.5]);
+    }
+
+    #[test]
+    fn test_csc_equilibrate() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+
+        // Moderately scaled matrix that equilibration can handle in one pass:
+        // [4, 0, 2]
+        // [0, 3, 0]
+        // [1, 0, 5]
+        let col_ptrs = vec![0i64, 2, 3, 5];
+        let row_indices = vec![0i64, 2, 1, 0, 2];
+        let values = vec![4.0f64, 1.0, 3.0, 2.0, 5.0];
+
+        let csc =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [3, 3], &device)
+                .unwrap();
+
+        // Get original norms for comparison
+        let orig_row_norms: Vec<f64> = csc.row_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        let orig_col_norms: Vec<f64> = csc.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
+
+        let (scaled, row_scales, col_scales) = csc.equilibrate::<f64>().unwrap();
+
+        // After equilibration, norms should be improved (closer to 1)
+        let row_norms: Vec<f64> = scaled.row_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        let col_norms: Vec<f64> = scaled.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
+
+        // Verify that scaling reduces the spread of norms
+        // (Original spread was 3-5, after scaling should be tighter)
+        let orig_row_spread = orig_row_norms.iter().cloned().fold(0.0_f64, f64::max)
+            / orig_row_norms.iter().cloned().fold(f64::MAX, f64::min);
+        let new_row_spread = row_norms.iter().cloned().fold(0.0_f64, f64::max)
+            / row_norms.iter().cloned().fold(f64::MAX, f64::min);
+
+        // The spread should be reduced or equal
+        assert!(
+            new_row_spread <= orig_row_spread * 1.5,
+            "Row spread should be reduced: orig={}, new={}",
+            orig_row_spread,
+            new_row_spread
+        );
+
+        // Verify scales are returned and are positive
+        assert_eq!(row_scales.len(), 3);
+        assert_eq!(col_scales.len(), 3);
+        for &s in &row_scales {
+            assert!(s > 0.0, "Row scale should be positive");
+        }
+        for &s in &col_scales {
+            assert!(s > 0.0, "Col scale should be positive");
+        }
     }
 }

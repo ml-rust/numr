@@ -63,5 +63,5 @@ pub use coo::CooData;
 pub use csc::CscData;
 pub use csr::CsrData;
 pub use format::{SparseFormat, SparseStorage};
-pub use ops::SparseOps;
+pub use ops::{NormType, SparseOps, SparseScaling};
 pub use tensor::SparseTensor;
