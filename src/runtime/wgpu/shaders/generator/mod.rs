@@ -93,9 +93,10 @@ pub use fft::{
     generate_rfft_truncate_shader, generate_stockham_fft_shader,
 };
 pub use index::{
-    generate_bincount_shader, generate_embedding_lookup_shader, generate_gather_nd_shader,
-    generate_gather_shader, generate_index_put_shader, generate_index_select_shader,
-    generate_scatter_reduce_shader, generate_scatter_shader, generate_validate_indices_shader,
+    generate_bincount_shader, generate_embedding_lookup_shader, generate_gather_2d_shader,
+    generate_gather_nd_shader, generate_gather_shader, generate_index_put_shader,
+    generate_index_select_shader, generate_scatter_reduce_shader, generate_scatter_shader,
+    generate_validate_indices_shader,
 };
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};

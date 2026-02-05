@@ -375,4 +375,50 @@ pub trait IndexingOps<R: Runtime> {
         weights: Option<&Tensor<R>>,
         minlength: usize,
     ) -> Result<Tensor<R>>;
+
+    /// Gather elements from a 2D matrix using row and column index vectors.
+    ///
+    /// For each index i, extracts `input[rows[i], cols[i]]`.
+    ///
+    /// This is a specialized gather operation optimized for sparse matrix
+    /// applications where you need to extract values at specific (row, col)
+    /// coordinates.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// output[i] = input[rows[i], cols[i]]  for i in 0..len(rows)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - 2D input tensor of shape `[nrows, ncols]`
+    /// * `rows` - 1D index tensor (I64) specifying row indices
+    /// * `cols` - 1D index tensor (I64) specifying column indices
+    ///
+    /// # Returns
+    ///
+    /// 1D tensor of length `rows.numel()` with gathered values.
+    /// Same dtype as input.
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// input = [[1, 2, 3],
+    ///          [4, 5, 6],
+    ///          [7, 8, 9]]
+    /// rows = [0, 1, 2, 0]
+    /// cols = [0, 1, 2, 2]
+    ///
+    /// gather_2d(input, rows, cols)
+    /// # Result: [1, 5, 9, 3]  // input[0,0], input[1,1], input[2,2], input[0,2]
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// * `ShapeMismatch` - if input is not 2D or rows/cols have different lengths
+    /// * `DTypeMismatch` - if rows or cols are not I64
+    /// * `IndexOutOfBounds` - if any (row, col) pair is out of bounds
+    fn gather_2d(&self, input: &Tensor<R>, rows: &Tensor<R>, cols: &Tensor<R>)
+    -> Result<Tensor<R>>;
 }

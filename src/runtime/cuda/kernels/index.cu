@@ -1015,4 +1015,47 @@ __global__ void scatter_reduce_min_i32(
     atomicMin(&dst[dst_idx], src[src_idx]);
 }
 
+// ============================================================================
+// Gather 2D - Gathers from 2D matrix at (row, col) positions
+// input: 2D tensor [nrows, ncols]
+// rows: 1D tensor of row indices [num_indices]
+// cols: 1D tensor of column indices [num_indices]
+// output: 1D tensor [num_indices]
+// ============================================================================
+
+#define DEFINE_GATHER_2D_KERNEL(suffix, dtype) \
+__global__ void gather_2d_##suffix( \
+    const dtype* __restrict__ input, \
+    const long long* __restrict__ rows, \
+    const long long* __restrict__ cols, \
+    dtype* __restrict__ output, \
+    unsigned int nrows, \
+    unsigned int ncols, \
+    unsigned int num_indices \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (idx >= num_indices) return; \
+    \
+    long long r = rows[idx]; \
+    long long c = cols[idx]; \
+    \
+    /* Bounds checking */ \
+    if (r < 0 || (unsigned int)r >= nrows || c < 0 || (unsigned int)c >= ncols) { \
+        output[idx] = (dtype)0; \
+        return; \
+    } \
+    \
+    /* Row-major indexing: input[r, c] = input[r * ncols + c] */ \
+    unsigned int input_idx = (unsigned int)r * ncols + (unsigned int)c; \
+    output[idx] = input[input_idx]; \
+}
+
+// Instantiate gather_2d for all dtypes
+DEFINE_GATHER_2D_KERNEL(f32, float)
+DEFINE_GATHER_2D_KERNEL(f64, double)
+DEFINE_GATHER_2D_KERNEL(f16, __half)
+DEFINE_GATHER_2D_KERNEL(bf16, __nv_bfloat16)
+DEFINE_GATHER_2D_KERNEL(i32, int)
+DEFINE_GATHER_2D_KERNEL(i64, long long)
+
 } // extern "C"

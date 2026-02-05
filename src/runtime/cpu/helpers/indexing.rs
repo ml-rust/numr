@@ -11,6 +11,103 @@ use crate::ops::ScatterReduceOp;
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
+/// Gather elements from a 2D matrix using row and column index vectors.
+///
+/// For each index i, extracts `input[rows[i], cols[i]]`.
+pub fn gather_2d_impl(
+    client: &CpuClient,
+    input: &Tensor<CpuRuntime>,
+    rows: &Tensor<CpuRuntime>,
+    cols: &Tensor<CpuRuntime>,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = input.dtype();
+    let shape = input.shape();
+
+    // Validate input is 2D
+    if shape.len() != 2 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![0, 0], // Indicates 2D expected
+            got: shape.to_vec(),
+        });
+    }
+
+    let nrows = shape[0];
+    let ncols = shape[1];
+
+    // Validate index dtypes
+    if rows.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: rows.dtype(),
+        });
+    }
+
+    if cols.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: cols.dtype(),
+        });
+    }
+
+    // Validate rows and cols are 1D and have same length
+    if rows.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![rows.numel()],
+            got: rows.shape().to_vec(),
+        });
+    }
+
+    if cols.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![cols.numel()],
+            got: cols.shape().to_vec(),
+        });
+    }
+
+    let num_indices = rows.numel();
+    if cols.numel() != num_indices {
+        return Err(Error::ShapeMismatch {
+            expected: vec![num_indices],
+            got: cols.shape().to_vec(),
+        });
+    }
+
+    // Make all inputs contiguous
+    let input_contig = ensure_contiguous(input);
+    let rows_contig = ensure_contiguous(rows);
+    let cols_contig = ensure_contiguous(cols);
+
+    // Allocate output
+    let out = Tensor::<CpuRuntime>::empty(&[num_indices], dtype, &client.device);
+
+    let input_ptr = input_contig.storage().ptr();
+    let rows_ptr = rows_contig.storage().ptr();
+    let cols_ptr = cols_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        let success = unsafe {
+            kernels::gather_2d_kernel::<T>(
+                input_ptr as *const T,
+                rows_ptr as *const i64,
+                cols_ptr as *const i64,
+                out_ptr as *mut T,
+                nrows,
+                ncols,
+                num_indices,
+            )
+        };
+        if !success {
+            return Err(Error::IndexOutOfBounds {
+                index: 0, // Generic - actual invalid index is in rows/cols
+                size: nrows.max(ncols),
+            });
+        }
+    }, "gather_2d");
+
+    Ok(out)
+}
+
 /// Gather elements along a dimension using an index tensor.
 pub fn gather_impl(
     client: &CpuClient,

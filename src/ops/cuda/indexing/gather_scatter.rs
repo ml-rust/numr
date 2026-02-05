@@ -3,8 +3,8 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels::{
-    launch_copy, launch_fill_with_f64, launch_gather, launch_index_put, launch_index_select,
-    launch_scatter, launch_validate_indices,
+    launch_copy, launch_fill_with_f64, launch_gather, launch_gather_2d, launch_index_put,
+    launch_index_select, launch_scatter, launch_validate_indices,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
@@ -344,6 +344,94 @@ pub fn index_select(
             dim_size,
             inner_size,
             index_len,
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Execute gather_2d operation.
+///
+/// Gathers elements from a 2D matrix at specific (row, col) positions.
+pub fn gather_2d(
+    client: &CudaClient,
+    input: &Tensor<CudaRuntime>,
+    rows: &Tensor<CudaRuntime>,
+    cols: &Tensor<CudaRuntime>,
+) -> Result<Tensor<CudaRuntime>> {
+    let dtype = input.dtype();
+    let shape = input.shape();
+
+    // Validate input is 2D
+    if shape.len() != 2 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![0, 0], // Indicates 2D expected
+            got: shape.to_vec(),
+        });
+    }
+
+    let nrows = shape[0];
+    let ncols = shape[1];
+
+    // Validate index dtypes
+    if rows.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: rows.dtype(),
+        });
+    }
+
+    if cols.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: cols.dtype(),
+        });
+    }
+
+    // Validate rows and cols are 1D and have same length
+    if rows.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![rows.numel()],
+            got: rows.shape().to_vec(),
+        });
+    }
+
+    if cols.ndim() != 1 {
+        return Err(Error::ShapeMismatch {
+            expected: vec![cols.numel()],
+            got: cols.shape().to_vec(),
+        });
+    }
+
+    let num_indices = rows.numel();
+    if cols.numel() != num_indices {
+        return Err(Error::ShapeMismatch {
+            expected: vec![num_indices],
+            got: cols.shape().to_vec(),
+        });
+    }
+
+    // Make all inputs contiguous
+    let input_contig = ensure_contiguous(input);
+    let rows_contig = ensure_contiguous(rows);
+    let cols_contig = ensure_contiguous(cols);
+
+    // Allocate output
+    let out = Tensor::<CudaRuntime>::empty(&[num_indices], dtype, &client.device);
+
+    unsafe {
+        launch_gather_2d(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            input_contig.storage().ptr(),
+            rows_contig.storage().ptr(),
+            cols_contig.storage().ptr(),
+            out.storage().ptr(),
+            nrows,
+            ncols,
+            num_indices,
         )?;
     }
 

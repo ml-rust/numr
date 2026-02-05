@@ -121,4 +121,13 @@ impl IndexingOps<CudaRuntime> for CudaClient {
     ) -> Result<Tensor<CudaRuntime>> {
         advanced::bincount(self, input, weights, minlength)
     }
+
+    fn gather_2d(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        rows: &Tensor<CudaRuntime>,
+        cols: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        gather_scatter::gather_2d(self, input, rows, cols)
+    }
 }

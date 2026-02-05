@@ -1222,3 +1222,73 @@ pub unsafe fn launch_scatter_reduce(
         Ok(())
     }
 }
+
+// ============================================================================
+// Gather 2D
+// ============================================================================
+
+/// Launch gather_2d kernel.
+///
+/// Gathers elements from a 2D matrix at specific (row, col) positions.
+/// For each index i: output[i] = input[rows[i], cols[i]]
+///
+/// # Arguments
+///
+/// * `input_ptr` - 2D input tensor data (row-major)
+/// * `rows_ptr` - 1D row indices tensor (i64)
+/// * `cols_ptr` - 1D column indices tensor (i64)
+/// * `output_ptr` - 1D output tensor
+/// * `nrows` - Number of rows in input
+/// * `ncols` - Number of columns in input
+/// * `num_indices` - Number of (row, col) pairs to gather
+///
+/// # Safety
+///
+/// All pointers must be valid device memory.
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn launch_gather_2d(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    rows_ptr: u64,
+    cols_ptr: u64,
+    output_ptr: u64,
+    nrows: usize,
+    ncols: usize,
+    num_indices: usize,
+) -> Result<()> {
+    if num_indices == 0 {
+        return Ok(());
+    }
+
+    unsafe {
+        let module = get_or_load_module(context, device_index, INDEX_MODULE)?;
+        let func_name = kernel_name("gather_2d", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let grid = elementwise_launch_config(num_indices);
+        let block = (BLOCK_SIZE, 1, 1);
+        let cfg = launch_config(grid, block, 0);
+
+        let nrows_u32 = nrows as u32;
+        let ncols_u32 = ncols as u32;
+        let num_indices_u32 = num_indices as u32;
+
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&rows_ptr);
+        builder.arg(&cols_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&nrows_u32);
+        builder.arg(&ncols_u32);
+        builder.arg(&num_indices_u32);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA gather_2d kernel launch failed: {:?}", e))
+        })?;
+
+        Ok(())
+    }
+}

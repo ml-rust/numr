@@ -701,6 +701,16 @@ pub(crate) struct ScatterReduceParams {
     pub(crate) _pad2: u32,
 }
 
+/// Params for gather_2d operation
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct Gather2dParams {
+    pub(crate) nrows: u32,
+    pub(crate) ncols: u32,
+    pub(crate) num_indices: u32,
+    pub(crate) _pad: u32,
+}
+
 /// Params for unique_with_counts operations
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

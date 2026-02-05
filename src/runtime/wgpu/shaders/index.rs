@@ -78,6 +78,9 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("scatter_reduce_min", DType::F32) => Ok("scatter_reduce_min_f32"),
         ("scatter_reduce_min", DType::I32) => Ok("scatter_reduce_min_i32"),
         ("scatter_reduce_min", DType::U32) => Ok("scatter_reduce_min_u32"),
+        ("gather_2d", DType::F32) => Ok("gather_2d_f32"),
+        ("gather_2d", DType::I32) => Ok("gather_2d_i32"),
+        ("gather_2d", DType::U32) => Ok("gather_2d_u32"),
         _ => Err(Error::UnsupportedDType { dtype, op }),
     }
 }
@@ -813,6 +816,62 @@ pub fn launch_embedding_lookup(
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("embedding_lookup"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Gather 2D Operation
+// ============================================================================
+
+/// Launch a gather_2d operation kernel.
+///
+/// Gathers elements from a 2D matrix at specific (row, col) positions.
+/// Input: input [nrows, ncols], rows [num_indices], cols [num_indices]
+/// Output: output [num_indices]
+///
+/// For each index i: output[i] = input[rows[i], cols[i]]
+#[allow(clippy::too_many_arguments)]
+pub fn launch_gather_2d(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    rows: &Buffer,
+    cols: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    num_indices: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "gather_2d")?;
+
+    let name = kernel_name("gather_2d", dtype)?;
+    let shader_source = super::generator::generate_gather_2d_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 4,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[input, rows, cols, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("gather_2d"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("gather_2d"),
             timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);

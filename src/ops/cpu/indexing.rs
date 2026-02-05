@@ -9,9 +9,9 @@ use crate::ops::{
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
-        bincount_impl, dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_impl,
-        gather_nd_impl, index_put_impl, index_select_impl, masked_fill_impl, masked_select_impl,
-        scatter_impl, scatter_reduce_impl,
+        bincount_impl, dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_2d_impl,
+        gather_impl, gather_nd_impl, index_put_impl, index_select_impl, masked_fill_impl,
+        masked_select_impl, scatter_impl, scatter_reduce_impl,
     },
     kernels,
 };
@@ -193,5 +193,14 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         minlength: usize,
     ) -> Result<Tensor<CpuRuntime>> {
         bincount_impl(self, input, weights, minlength)
+    }
+
+    fn gather_2d(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        rows: &Tensor<CpuRuntime>,
+        cols: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gather_2d_impl(self, input, rows, cols)
     }
 }

@@ -108,7 +108,7 @@ pub use generator::{
 };
 #[cfg(feature = "sparse")]
 pub use generator::{generate_csr_spmm_shader, generate_csr_spmv_shader};
-pub use index::{launch_bincount, launch_gather_nd, launch_scatter_reduce};
+pub use index::{launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce};
 pub use logical::{launch_logical_and, launch_logical_not, launch_logical_or, launch_logical_xor};
 pub use matrix_funcs_launcher::{
     compute_schur_func_gpu, launch_diagonal_func, launch_parlett_column,

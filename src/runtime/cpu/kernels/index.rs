@@ -818,3 +818,56 @@ pub unsafe fn max_i64_kernel(input: *const i64, numel: usize) -> i64 {
     let slice = std::slice::from_raw_parts(input, numel);
     *slice.iter().max().unwrap_or(&-1)
 }
+
+/// Gather elements from a 2D matrix using row and column index vectors.
+///
+/// For each index i, extracts `input[rows[i], cols[i]]`.
+///
+/// # Arguments
+/// * `input` - 2D input data pointer (row-major layout)
+/// * `rows` - Row index pointer (i64 values)
+/// * `cols` - Column index pointer (i64 values)
+/// * `out` - Output pointer
+/// * `nrows` - Number of rows in input
+/// * `ncols` - Number of columns in input
+/// * `num_indices` - Number of (row, col) pairs to gather
+///
+/// # Safety
+/// - All pointers must be valid for the specified sizes
+/// - Indices must be within bounds of input dimensions
+///
+/// # Returns
+/// * `true` if all indices were valid, `false` if any out-of-bounds
+#[inline]
+pub unsafe fn gather_2d_kernel<T: Element>(
+    input: *const T,
+    rows: *const i64,
+    cols: *const i64,
+    out: *mut T,
+    nrows: usize,
+    ncols: usize,
+    num_indices: usize,
+) -> bool {
+    if num_indices == 0 {
+        return true;
+    }
+
+    let rows_slice = std::slice::from_raw_parts(rows, num_indices);
+    let cols_slice = std::slice::from_raw_parts(cols, num_indices);
+
+    for i in 0..num_indices {
+        let r = rows_slice[i];
+        let c = cols_slice[i];
+
+        // Bounds checking
+        if r < 0 || r as usize >= nrows || c < 0 || c as usize >= ncols {
+            return false;
+        }
+
+        // Row-major indexing: input[r, c] = input[r * ncols + c]
+        let input_offset = (r as usize) * ncols + (c as usize);
+        *out.add(i) = *input.add(input_offset);
+    }
+
+    true
+}

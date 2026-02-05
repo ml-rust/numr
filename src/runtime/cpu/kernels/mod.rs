@@ -59,9 +59,9 @@ pub use fft::{
     rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
 };
 pub use index::{
-    bincount_kernel, embedding_lookup_kernel, gather_kernel, gather_nd_kernel, index_put_kernel,
-    index_select_kernel, masked_fill_kernel, masked_select_kernel, max_i64_kernel, scatter_kernel,
-    scatter_reduce_kernel,
+    bincount_kernel, embedding_lookup_kernel, gather_2d_kernel, gather_kernel, gather_nd_kernel,
+    index_put_kernel, index_select_kernel, masked_fill_kernel, masked_select_kernel,
+    max_i64_kernel, scatter_kernel, scatter_reduce_kernel,
 };
 pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
