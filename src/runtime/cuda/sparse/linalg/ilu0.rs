@@ -2,7 +2,9 @@
 
 use super::super::{CudaClient, CudaRuntime};
 use super::common::{split_lu_cuda, validate_cuda_dtype};
-use crate::algorithm::sparse_linalg::{IluDecomposition, IluOptions, validate_square_sparse};
+use crate::algorithm::sparse_linalg::{
+    IluDecomposition, IluOptions, SymbolicIlu0, validate_square_sparse,
+};
 use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -112,6 +114,144 @@ pub fn ilu0_cuda(
     }
 
     // Synchronize to ensure factorization is complete
+    client
+        .stream
+        .synchronize()
+        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
+
+    // Split into L and U
+    split_lu_cuda(client, n, &row_ptrs, &col_indices, &values_gpu, dtype)
+}
+
+/// ILU(0) symbolic factorization for CUDA (runs on CPU, returns reusable symbolic data).
+///
+/// The symbolic phase analyzes the sparsity pattern and precomputes the update schedule.
+/// This can be reused for multiple numeric factorizations with different values.
+pub fn ilu0_symbolic_cuda(
+    _client: &CudaClient,
+    pattern: &CsrData<CudaRuntime>,
+) -> Result<SymbolicIlu0> {
+    let n = validate_square_sparse(pattern.shape)?;
+
+    // Extract CSR structure for CPU-based symbolic analysis
+    // This transfer is acceptable as symbolic analysis happens once per matrix structure
+    let row_ptrs: Vec<i64> = pattern.row_ptrs().to_vec();
+    let col_indices: Vec<i64> = pattern.col_indices().to_vec();
+
+    // Delegate to shared implementation (pure CPU graph analysis)
+    crate::algorithm::sparse_linalg::ilu0_symbolic_impl(n, &row_ptrs, &col_indices)
+}
+
+/// ILU(0) numeric factorization for CUDA using precomputed symbolic data.
+///
+/// Uses the level schedule derived from the symbolic data for parallel execution.
+pub fn ilu0_numeric_cuda(
+    client: &CudaClient,
+    a: &CsrData<CudaRuntime>,
+    symbolic: &SymbolicIlu0,
+    options: IluOptions,
+) -> Result<IluDecomposition<CudaRuntime>> {
+    let n = validate_square_sparse(a.shape)?;
+    let dtype = a.values().dtype();
+    validate_cuda_dtype(dtype, "ilu0")?;
+
+    if n != symbolic.n {
+        return Err(Error::ShapeMismatch {
+            expected: vec![symbolic.n, symbolic.n],
+            got: vec![n, n],
+        });
+    }
+
+    // Extract CSR data - must match symbolic pattern
+    let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
+    let col_indices: Vec<i64> = a.col_indices().to_vec();
+
+    // Compute level schedule from the pattern
+    let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
+    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+
+    let device = &client.device;
+
+    // Upload level data to GPU
+    let level_rows_gpu =
+        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
+
+    // Convert to i32 for GPU
+    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
+    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+    let row_ptrs_gpu =
+        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
+    let col_indices_gpu =
+        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
+
+    // Clone values for in-place factorization
+    let values_gpu = a.values().clone();
+
+    // Allocate diagonal indices buffer
+    let diag_indices_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, device);
+
+    // Find diagonal indices on GPU
+    unsafe {
+        kernels::launch_find_diag_indices(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            row_ptrs_gpu.storage().ptr(),
+            col_indices_gpu.storage().ptr(),
+            diag_indices_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    // Process each level
+    for level in 0..schedule.num_levels {
+        let level_start = level_ptrs[level] as usize;
+        let level_end = level_ptrs[level + 1] as usize;
+        let level_size = (level_end - level_start) as i32;
+
+        if level_size == 0 {
+            continue;
+        }
+
+        let level_rows_ptr =
+            level_rows_gpu.storage().ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
+
+        match dtype {
+            DType::F32 => unsafe {
+                kernels::launch_ilu0_level_f32(
+                    &client.context,
+                    &client.stream,
+                    client.device.index,
+                    level_rows_ptr,
+                    level_size,
+                    row_ptrs_gpu.storage().ptr(),
+                    col_indices_gpu.storage().ptr(),
+                    values_gpu.storage().ptr(),
+                    diag_indices_gpu.storage().ptr(),
+                    n as i32,
+                    options.diagonal_shift as f32,
+                )?;
+            },
+            DType::F64 => unsafe {
+                kernels::launch_ilu0_level_f64(
+                    &client.context,
+                    &client.stream,
+                    client.device.index,
+                    level_rows_ptr,
+                    level_size,
+                    row_ptrs_gpu.storage().ptr(),
+                    col_indices_gpu.storage().ptr(),
+                    values_gpu.storage().ptr(),
+                    diag_indices_gpu.storage().ptr(),
+                    n as i32,
+                    options.diagonal_shift,
+                )?;
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    // Synchronize
     client
         .stream
         .synchronize()
