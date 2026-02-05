@@ -41,6 +41,7 @@
 pub mod cpu;
 pub mod levels;
 pub mod lu;
+pub mod symbolic;
 pub mod traits;
 pub mod types;
 
@@ -58,6 +59,9 @@ pub use levels::{
     LevelSchedule, compute_levels_csc_lower, compute_levels_csc_upper, compute_levels_ilu,
     compute_levels_lower, compute_levels_upper, flatten_levels,
 };
+
+// Re-export shared symbolic implementations
+pub use symbolic::{ilu0_symbolic_impl, iluk_symbolic_impl};
 
 // Re-export CPU implementations
 pub use cpu::{
