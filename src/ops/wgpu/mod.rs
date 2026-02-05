@@ -13,6 +13,7 @@ pub mod cumulative;
 pub mod distance;
 pub mod indexing;
 pub mod linalg;
+pub mod logical;
 pub mod matmul;
 pub mod multivariate;
 pub mod normalization;
