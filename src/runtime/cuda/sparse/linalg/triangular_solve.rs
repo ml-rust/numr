@@ -3,9 +3,7 @@
 use super::super::{CudaClient, CudaRuntime};
 use super::common::validate_cuda_dtype;
 use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
-use crate::algorithm::sparse_linalg_levels::{
-    compute_levels_lower, compute_levels_upper, flatten_levels,
-};
+use crate::algorithm::sparse_linalg::{compute_levels_lower, compute_levels_upper, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;

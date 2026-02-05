@@ -17,6 +17,9 @@ pub(crate) mod merge;
 #[cfg(test)]
 mod tests;
 
+// Re-export merge types and functions for use in fallback
+pub(crate) use merge::{MergeStrategy, OperationSemantics, merge_coo_impl, merge_csc_impl};
+
 // ============================================================================
 // SparseAlgorithms Trait Implementation (Backend Parity Contract)
 // ============================================================================

@@ -7,7 +7,7 @@ use super::{CudaClient, CudaRuntime};
 use crate::algorithm::iterative::{
     BiCgStabOptions, BiCgStabResult, GmresOptions, GmresResult, IterativeSolvers,
 };
-use crate::algorithm::iterative_impl::{bicgstab_impl, gmres_impl};
+use crate::algorithm::iterative::{bicgstab_impl, gmres_impl};
 use crate::error::Result;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;

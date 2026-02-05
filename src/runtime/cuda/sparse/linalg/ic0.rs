@@ -3,7 +3,7 @@
 use super::super::{CudaClient, CudaRuntime};
 use super::common::{extract_lower_cuda, validate_cuda_dtype};
 use crate::algorithm::sparse_linalg::{IcDecomposition, IcOptions, validate_square_sparse};
-use crate::algorithm::sparse_linalg_levels::{compute_levels_ilu, flatten_levels};
+use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;
