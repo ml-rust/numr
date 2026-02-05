@@ -233,3 +233,144 @@ impl LuSymbolicSimple {
         }
     }
 }
+
+// ============================================================================
+// Workspace for Allocation-Free Refactorization
+// ============================================================================
+
+/// Pre-allocated workspace buffers for sparse LU numeric factorization.
+///
+/// This struct enables allocation-free numeric refactorization when the sparsity
+/// pattern remains unchanged (common in Newton iterations for ODEs/DAEs).
+///
+/// # Usage
+///
+/// ```ignore
+/// // First factorization: allocate workspace
+/// let symbolic = compute_symbolic(&a);
+/// let mut workspace = LuWorkspace::new(symbolic.n, &symbolic);
+/// let factors = sparse_lu_cpu_with_workspace(&a, &symbolic, &options, &mut workspace)?;
+///
+/// // Subsequent factorizations: reuse workspace (no allocations!)
+/// let factors2 = sparse_lu_cpu_with_workspace(&a2, &symbolic, &options, &mut workspace)?;
+/// ```
+///
+/// # Thread Safety
+///
+/// `LuWorkspace` is NOT `Send` or `Sync`. Each thread should have its own workspace.
+#[derive(Debug, Clone)]
+pub struct LuWorkspace {
+    /// Dense work vector for scatter/gather operations [n]
+    pub(crate) work: Vec<f64>,
+
+    /// Scratch space for row permutation [n]
+    pub(crate) row_perm: Vec<usize>,
+
+    /// Scratch space for inverse row permutation [n]
+    pub(crate) row_perm_inv: Vec<usize>,
+
+    /// Visited flags for DFS in simple factorization [n]
+    pub(crate) visited: Vec<bool>,
+
+    /// Stack for reach computation in simple factorization
+    pub(crate) reach_stack: Vec<usize>,
+
+    /// Pre-allocated L values buffer
+    pub(crate) l_values_buffer: Vec<f64>,
+
+    /// Pre-allocated L row indices buffer
+    pub(crate) l_row_indices_buffer: Vec<i64>,
+
+    /// Pre-allocated U values buffer
+    pub(crate) u_values_buffer: Vec<f64>,
+
+    /// Pre-allocated U row indices buffer
+    pub(crate) u_row_indices_buffer: Vec<i64>,
+
+    /// Matrix dimension this workspace was created for
+    pub(crate) n: usize,
+}
+
+impl LuWorkspace {
+    /// Create a new workspace for matrices of dimension `n`.
+    ///
+    /// # Arguments
+    ///
+    /// * `n` - Matrix dimension
+    /// * `symbolic` - Symbolic factorization (used to estimate buffer sizes)
+    pub fn new(n: usize, symbolic: &LuSymbolic) -> Self {
+        // Estimate L and U sizes from symbolic analysis (with some slack)
+        let l_capacity = (symbolic.l_nnz() as f64 * 1.2) as usize;
+        let u_capacity = (symbolic.u_nnz() as f64 * 1.2) as usize;
+
+        Self {
+            work: vec![0.0; n],
+            row_perm: (0..n).collect(),
+            row_perm_inv: (0..n).collect(),
+            visited: vec![false; n],
+            reach_stack: Vec::with_capacity(n),
+            l_values_buffer: Vec::with_capacity(l_capacity),
+            l_row_indices_buffer: Vec::with_capacity(l_capacity),
+            u_values_buffer: Vec::with_capacity(u_capacity),
+            u_row_indices_buffer: Vec::with_capacity(u_capacity),
+            n,
+        }
+    }
+
+    /// Create a workspace for simple (non-symbolic) factorization.
+    ///
+    /// Uses conservative estimates for buffer sizes since symbolic info isn't available.
+    pub fn new_simple(n: usize, estimated_nnz: usize) -> Self {
+        // For simple factorization, estimate fill-in at 2-3x original nnz
+        let capacity = estimated_nnz * 3;
+
+        Self {
+            work: vec![0.0; n],
+            row_perm: (0..n).collect(),
+            row_perm_inv: (0..n).collect(),
+            visited: vec![false; n],
+            reach_stack: Vec::with_capacity(n),
+            l_values_buffer: Vec::with_capacity(capacity),
+            l_row_indices_buffer: Vec::with_capacity(capacity),
+            u_values_buffer: Vec::with_capacity(capacity),
+            u_row_indices_buffer: Vec::with_capacity(capacity),
+            n,
+        }
+    }
+
+    /// Clear all buffers to prepare for a new factorization.
+    ///
+    /// This resets all vectors to their initial state without deallocating memory.
+    pub fn clear(&mut self) {
+        // Reset work vector to zeros
+        self.work.fill(0.0);
+
+        // Reset permutations to identity
+        for i in 0..self.n {
+            self.row_perm[i] = i;
+            self.row_perm_inv[i] = i;
+        }
+
+        // Clear visited flags
+        self.visited.fill(false);
+
+        // Clear reach stack
+        self.reach_stack.clear();
+
+        // Clear L and U buffers (keep capacity)
+        self.l_values_buffer.clear();
+        self.l_row_indices_buffer.clear();
+        self.u_values_buffer.clear();
+        self.u_row_indices_buffer.clear();
+    }
+
+    /// Returns the matrix dimension this workspace was created for.
+    pub fn dimension(&self) -> usize {
+        self.n
+    }
+
+    /// Check if this workspace is compatible with the given dimension.
+    pub fn is_compatible(&self, n: usize) -> bool {
+        self.n == n
+    }
+}

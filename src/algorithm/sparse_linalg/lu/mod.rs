@@ -57,14 +57,15 @@ pub mod cuda;
 pub mod wgpu;
 
 // Re-export types
-pub use types::{LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple};
+pub use types::{LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, LuWorkspace};
 
 // Re-export traits
 pub use traits::{SparseLuKernels, SparseLuOps, validate_lu_solve_dims, validate_symbolic_pattern};
 
 // Re-export CPU implementations
 pub use cpu::{
-    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
+    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_cpu_with_workspace,
+    sparse_lu_cpu_with_workspace_and_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
 };
 
 // Re-export CPU kernels

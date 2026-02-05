@@ -11,5 +11,6 @@ pub use crate::runtime::cpu::kernels::sparse::{
 };
 
 pub use lu::{
-    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
+    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_cpu_with_workspace,
+    sparse_lu_cpu_with_workspace_and_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
 };

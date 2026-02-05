@@ -3,7 +3,7 @@
 //! Gilbert-Peierls left-looking algorithm with partial pivoting.
 
 use crate::algorithm::sparse_linalg::lu::types::{
-    LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple,
+    LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, LuWorkspace,
 };
 use crate::algorithm::sparse_linalg::traits::validate_square_sparse;
 use crate::dtype::DType;
@@ -48,6 +48,113 @@ pub fn sparse_lu_cpu_with_metrics<R: Runtime>(
 
     // Run factorization
     let result = gilbert_peierls_lu(n, &col_ptrs, &row_indices, &values, symbolic, options)?;
+
+    // Create output tensors
+    let device = a.values().device();
+    let (l, u) = create_lu_tensors::<R>(
+        n,
+        &result.l_col_ptrs,
+        &result.l_row_indices,
+        &result.l_values,
+        &result.u_col_ptrs,
+        &result.u_row_indices,
+        &result.u_values,
+        dtype,
+        device,
+    )?;
+
+    let factors = LuFactors {
+        l,
+        u,
+        row_perm: result.row_perm,
+        row_perm_inv: result.row_perm_inv,
+    };
+
+    let metrics = LuMetrics {
+        original_nnz: values.len(),
+        l_nnz: result.l_values.len(),
+        u_nnz: result.u_values.len(),
+        fill_ratio: (result.l_values.len() + result.u_values.len()) as f64 / values.len() as f64,
+        small_pivots: result.small_pivots,
+        row_swaps: result.row_swaps,
+        pivot_growth: result.pivot_growth,
+    };
+
+    Ok((factors, metrics))
+}
+
+/// Sparse LU factorization with workspace reuse (CPU)
+///
+/// This is the allocation-free variant for repeated factorizations with the same
+/// sparsity pattern. Ideal for Newton iterations in ODE/DAE solvers.
+///
+/// # Arguments
+///
+/// * `a` - Input matrix in CSC format
+/// * `symbolic` - Precomputed symbolic factorization
+/// * `options` - Factorization options
+/// * `workspace` - Pre-allocated workspace buffers (will be cleared and reused)
+///
+/// # Errors
+///
+/// Returns error if:
+/// - Matrix dimensions don't match symbolic structure
+/// - Workspace dimension doesn't match matrix
+/// - Zero pivot encountered (unless diagonal shift is enabled)
+pub fn sparse_lu_cpu_with_workspace<R: Runtime>(
+    a: &CscData<R>,
+    symbolic: &LuSymbolic,
+    options: &LuOptions,
+    workspace: &mut LuWorkspace,
+) -> Result<LuFactors<R>> {
+    let (factors, _metrics) =
+        sparse_lu_cpu_with_workspace_and_metrics(a, symbolic, options, workspace)?;
+    Ok(factors)
+}
+
+/// Sparse LU factorization with workspace reuse and metrics (CPU)
+pub fn sparse_lu_cpu_with_workspace_and_metrics<R: Runtime>(
+    a: &CscData<R>,
+    symbolic: &LuSymbolic,
+    options: &LuOptions,
+    workspace: &mut LuWorkspace,
+) -> Result<(LuFactors<R>, LuMetrics)> {
+    let n = validate_square_sparse(a.shape)?;
+    let dtype = a.values().dtype();
+
+    if n != symbolic.n {
+        return Err(Error::ShapeMismatch {
+            expected: vec![symbolic.n, symbolic.n],
+            got: vec![n, n],
+        });
+    }
+
+    if !workspace.is_compatible(n) {
+        return Err(Error::Internal(format!(
+            "Workspace dimension {} doesn't match matrix dimension {}",
+            workspace.dimension(),
+            n
+        )));
+    }
+
+    // Clear workspace for reuse
+    workspace.clear();
+
+    // Extract CSC components
+    let col_ptrs: Vec<i64> = a.col_ptrs().to_vec();
+    let row_indices: Vec<i64> = a.row_indices().to_vec();
+    let values: Vec<f64> = extract_values_f64(a)?;
+
+    // Run factorization with workspace
+    let result = gilbert_peierls_lu_with_workspace(
+        n,
+        &col_ptrs,
+        &row_indices,
+        &values,
+        symbolic,
+        options,
+        workspace,
+    )?;
 
     // Create output tensors
     let device = a.values().device();
@@ -403,6 +510,141 @@ fn gilbert_peierls_lu(
         u_values,
         row_perm,
         row_perm_inv,
+        small_pivots,
+        row_swaps,
+        pivot_growth,
+    })
+}
+
+/// Gilbert-Peierls LU with workspace reuse (no allocations)
+fn gilbert_peierls_lu_with_workspace(
+    n: usize,
+    col_ptrs: &[i64],
+    row_indices: &[i64],
+    values: &[f64],
+    symbolic: &LuSymbolic,
+    options: &LuOptions,
+    workspace: &mut LuWorkspace,
+) -> Result<LuNumericResult> {
+    // Use workspace buffers (already cleared by caller)
+    let work = &mut workspace.work;
+    let row_perm = &mut workspace.row_perm;
+    let row_perm_inv = &mut workspace.row_perm_inv;
+
+    // Storage for L and U factors - use workspace buffers
+    let mut l_col_ptrs = vec![0i64; n + 1];
+    workspace.l_row_indices_buffer.clear();
+    workspace.l_values_buffer.clear();
+
+    let mut u_col_ptrs = vec![0i64; n + 1];
+    workspace.u_row_indices_buffer.clear();
+    workspace.u_values_buffer.clear();
+
+    // Track metrics
+    let mut small_pivots = 0usize;
+    let mut row_swaps = 0usize;
+    let max_a = values.iter().map(|v| v.abs()).fold(0.0, f64::max);
+    let mut max_u_diag = 0.0f64;
+
+    // Process columns
+    for k in 0..n {
+        // Step 1: Scatter column k of A into work vector
+        let a_col_start = col_ptrs[k] as usize;
+        let a_col_end = col_ptrs[k + 1] as usize;
+
+        kernels::scatter_column(
+            &values[a_col_start..a_col_end],
+            &row_indices[a_col_start..a_col_end],
+            work,
+        );
+
+        // Step 2: Sparse triangular solve using reach information
+        for &j in &symbolic.reach[k] {
+            if j >= k {
+                continue;
+            }
+
+            let l_col_start = l_col_ptrs[j] as usize;
+            let l_col_end = l_col_ptrs[j + 1] as usize;
+
+            let x_j = work[row_perm_inv[j]];
+
+            kernels::sparse_axpy(
+                x_j,
+                &workspace.l_values_buffer[l_col_start..l_col_end],
+                &workspace.l_row_indices_buffer[l_col_start..l_col_end],
+                work,
+            );
+        }
+
+        // Step 3: Find pivot (partial pivoting)
+        let (pivot_row, pivot_abs) = kernels::find_pivot(work, k, n);
+
+        // Check pivot
+        if pivot_abs < options.pivot_threshold {
+            if options.diagonal_shift > 0.0 {
+                work[pivot_row] = options.diagonal_shift.copysign(work[pivot_row]);
+                small_pivots += 1;
+            } else if options.check_zeros {
+                return Err(Error::Internal(format!(
+                    "Zero pivot at column {} (value: {})",
+                    k, pivot_abs
+                )));
+            }
+        }
+
+        // Step 4: Swap rows if needed
+        if pivot_row != k {
+            kernels::swap_rows(work, row_perm, k, pivot_row);
+            row_perm_inv[row_perm[k]] = k;
+            row_perm_inv[row_perm[pivot_row]] = pivot_row;
+            row_swaps += 1;
+        }
+
+        let pivot = work[k];
+        max_u_diag = max_u_diag.max(pivot.abs());
+
+        // Step 5: Store column k of L and U (into workspace buffers)
+
+        // U[0:k+1, k]
+        for i in 0..=k {
+            let val = work[i];
+            if val.abs() > 1e-15 {
+                workspace.u_row_indices_buffer.push(i as i64);
+                workspace.u_values_buffer.push(val);
+            }
+        }
+        u_col_ptrs[k + 1] = workspace.u_row_indices_buffer.len() as i64;
+
+        // L[k+1:n, k]
+        let inv_pivot = 1.0 / pivot;
+        for i in (k + 1)..n {
+            let val = work[i] * inv_pivot;
+            if val.abs() > 1e-15 {
+                workspace.l_row_indices_buffer.push(i as i64);
+                workspace.l_values_buffer.push(val);
+            }
+        }
+        l_col_ptrs[k + 1] = workspace.l_row_indices_buffer.len() as i64;
+
+        // Clear work vector for next iteration
+        for i in 0..n {
+            work[i] = 0.0;
+        }
+    }
+
+    let pivot_growth = if max_a > 0.0 { max_u_diag / max_a } else { 1.0 };
+
+    // Clone results from workspace (we need to return owned data)
+    Ok(LuNumericResult {
+        l_col_ptrs,
+        l_row_indices: workspace.l_row_indices_buffer.clone(),
+        l_values: workspace.l_values_buffer.clone(),
+        u_col_ptrs,
+        u_row_indices: workspace.u_row_indices_buffer.clone(),
+        u_values: workspace.u_values_buffer.clone(),
+        row_perm: row_perm.clone(),
+        row_perm_inv: row_perm_inv.clone(),
         small_pivots,
         row_swaps,
         pivot_growth,
@@ -786,5 +1028,103 @@ mod tests {
 
         assert_eq!(metrics.original_nnz, 10);
         assert!(metrics.fill_ratio >= 1.0);
+    }
+
+    #[test]
+    fn test_sparse_lu_with_workspace() {
+        let a = create_test_matrix();
+
+        // Create a simple symbolic structure
+        let symbolic = LuSymbolic {
+            n: 4,
+            etree: vec![1, 2, 3, 4],
+            post_order: vec![0, 1, 2, 3],
+            reach: vec![vec![], vec![0], vec![0, 1], vec![0, 1, 2]],
+            l_col_ptrs: vec![0, 1, 2, 3, 3],
+            l_row_indices: vec![1, 2, 3],
+            u_col_ptrs: vec![0, 1, 3, 6, 10],
+            u_row_indices: vec![0, 0, 1, 0, 1, 2, 0, 1, 2, 3],
+            workspace_size: 4,
+        };
+
+        let options = LuOptions::default();
+
+        // Create workspace
+        let mut workspace = LuWorkspace::new(4, &symbolic);
+
+        // First factorization
+        let factors1 =
+            sparse_lu_cpu_with_workspace(&a, &symbolic, &options, &mut workspace).unwrap();
+
+        // Verify factorization works
+        assert_eq!(factors1.row_perm.len(), 4);
+
+        // Create a modified matrix with same pattern but different values
+        let device = <CpuRuntime as crate::runtime::Runtime>::Device::default();
+        let col_ptrs = vec![0i64, 2, 5, 8, 10];
+        let row_indices = vec![0i64, 1, 0, 1, 2, 1, 2, 3, 2, 3];
+        // Different values: multiply all by 2
+        let values = vec![8.0f64, 2.0, 2.0, 8.0, 2.0, 2.0, 8.0, 2.0, 2.0, 8.0];
+        let a2 =
+            CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [4, 4], &device)
+                .unwrap();
+
+        // Second factorization - reuses workspace (no allocations!)
+        let factors2 =
+            sparse_lu_cpu_with_workspace(&a2, &symbolic, &options, &mut workspace).unwrap();
+
+        // Verify second factorization also works
+        assert_eq!(factors2.row_perm.len(), 4);
+
+        // Verify workspace dimension check
+        let mut wrong_workspace = LuWorkspace::new(3, &LuSymbolic::identity(3));
+        let result = sparse_lu_cpu_with_workspace(&a, &symbolic, &options, &mut wrong_workspace);
+        assert!(
+            result.is_err(),
+            "Should fail with wrong workspace dimension"
+        );
+    }
+
+    #[test]
+    fn test_sparse_lu_workspace_solve() {
+        let a = create_test_matrix();
+
+        // Create a simple symbolic structure
+        let symbolic = LuSymbolic {
+            n: 4,
+            etree: vec![1, 2, 3, 4],
+            post_order: vec![0, 1, 2, 3],
+            reach: vec![vec![], vec![0], vec![0, 1], vec![0, 1, 2]],
+            l_col_ptrs: vec![0, 1, 2, 3, 3],
+            l_row_indices: vec![1, 2, 3],
+            u_col_ptrs: vec![0, 1, 3, 6, 10],
+            u_row_indices: vec![0, 0, 1, 0, 1, 2, 0, 1, 2, 3],
+            workspace_size: 4,
+        };
+
+        let options = LuOptions::default();
+        let mut workspace = LuWorkspace::new(4, &symbolic);
+
+        let factors =
+            sparse_lu_cpu_with_workspace(&a, &symbolic, &options, &mut workspace).unwrap();
+
+        // Solve: b = A * [1, 2, 3, 4]^T = [6, 12, 18, 19]
+        let device = <CpuRuntime as crate::runtime::Runtime>::Device::default();
+        let b = Tensor::<CpuRuntime>::from_slice(&[6.0f64, 12.0, 18.0, 19.0], &[4], &device);
+
+        let x = sparse_lu_solve_cpu(&factors, &b).unwrap();
+
+        let x_vec: Vec<f64> = x.to_vec();
+        let expected = vec![1.0, 2.0, 3.0, 4.0];
+
+        for i in 0..4 {
+            assert!(
+                (x_vec[i] - expected[i]).abs() < 1e-10,
+                "x[{}] = {}, expected {}",
+                i,
+                x_vec[i],
+                expected[i]
+            );
+        }
     }
 }
