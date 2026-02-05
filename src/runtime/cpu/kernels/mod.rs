@@ -25,6 +25,8 @@ pub mod scalar;
 pub mod simd;
 pub mod sobol_data;
 pub mod sort;
+#[cfg(feature = "sparse")]
+pub mod sparse;
 pub mod unary;
 pub mod where_select;
 
@@ -88,6 +90,14 @@ pub use unary::{
 };
 pub use where_select::{
     where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,
+};
+
+// Re-export sparse kernel functions for external use
+#[cfg(feature = "sparse")]
+#[allow(unused_imports)]
+pub use sparse::{
+    divide_by_pivot, find_pivot, find_pivot_range, gather_and_clear, gather_and_clear_i32,
+    scatter_column, scatter_column_i32, sparse_axpy, sparse_axpy_i32, swap_rows,
 };
 
 #[cfg(test)]
