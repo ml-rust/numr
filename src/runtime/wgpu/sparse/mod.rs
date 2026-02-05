@@ -4,17 +4,43 @@
 //! using level scheduling for parallel execution.
 
 mod common;
+mod conversions;
+mod dsmm;
+mod esc_spgemm;
+mod high_level_ops;
 mod ic0;
 mod ilu0;
+mod iterative;
+mod merge;
+mod spmv;
 mod triangular_solve;
 
 use super::{WgpuClient, WgpuRuntime};
+use crate::algorithm::sparse::SparseAlgorithms;
 use crate::algorithm::sparse_linalg::{
     IcDecomposition, IcOptions, IluDecomposition, IluOptions, SparseLinAlgAlgorithms,
 };
 use crate::error::Result;
-use crate::sparse::CsrData;
+use crate::sparse::{CscData, CsrData};
 use crate::tensor::Tensor;
+
+impl SparseAlgorithms<WgpuRuntime> for WgpuClient {
+    fn esc_spgemm_csr(
+        &self,
+        a_csr: &CsrData<WgpuRuntime>,
+        b_csr: &CsrData<WgpuRuntime>,
+    ) -> Result<CsrData<WgpuRuntime>> {
+        esc_spgemm::esc_spgemm_csr(self, a_csr, b_csr)
+    }
+
+    fn column_parallel_dsmm(
+        &self,
+        dense_a: &Tensor<WgpuRuntime>,
+        sparse_b_csc: &CscData<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        dsmm::column_parallel_dsmm(self, dense_a, sparse_b_csc)
+    }
+}
 
 impl SparseLinAlgAlgorithms<WgpuRuntime> for WgpuClient {
     fn ilu0(

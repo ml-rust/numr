@@ -42,9 +42,15 @@ pub mod reduce;
 pub mod scalar;
 pub mod sort;
 #[cfg(feature = "sparse")]
+pub mod sparse_algorithms;
+#[cfg(feature = "sparse")]
+pub mod sparse_conversions;
+#[cfg(feature = "sparse")]
 pub mod sparse_factorize;
 #[cfg(feature = "sparse")]
 pub mod sparse_linalg;
+#[cfg(feature = "sparse")]
+pub mod sparse_merge;
 #[cfg(feature = "sparse")]
 pub mod sparse_split;
 #[cfg(feature = "sparse")]
@@ -52,6 +58,8 @@ pub mod sparse_trsv;
 #[cfg(feature = "sparse")]
 pub mod sparse_utils;
 pub mod special;
+#[cfg(feature = "sparse")]
+pub mod spmv;
 pub mod unary;
 pub mod utility;
 pub mod where_cond;
@@ -105,7 +113,28 @@ pub use sort::{
 };
 // Sparse linear algebra exports from split modules
 #[cfg(feature = "sparse")]
+pub use sparse_algorithms::{
+    generate_dsmm_csc_shader, generate_spgemm_numeric_shader, generate_spgemm_symbolic_shader,
+};
+#[cfg(feature = "sparse")]
+pub use sparse_conversions::{
+    generate_coo_to_csc_scatter_shader, generate_coo_to_csr_scatter_shader,
+    generate_copy_ptrs_shader, generate_count_nonzeros_shader, generate_csc_to_csr_scatter_shader,
+    generate_csr_to_csc_scatter_shader, generate_csr_to_dense_shader,
+    generate_dense_to_coo_scatter_shader, generate_expand_col_ptrs_shader,
+    generate_expand_row_ptrs_shader, generate_histogram_shader,
+};
+#[cfg(feature = "sparse")]
 pub use sparse_factorize::{generate_ic0_level_shader, generate_ilu0_level_shader};
+#[cfg(feature = "sparse")]
+pub use sparse_merge::{
+    generate_csc_add_compute_shader, generate_csc_div_compute_shader,
+    generate_csc_merge_count_shader, generate_csc_mul_compute_shader,
+    generate_csc_mul_count_shader, generate_csc_sub_compute_shader,
+    generate_csr_add_compute_shader, generate_csr_div_compute_shader,
+    generate_csr_merge_count_shader, generate_csr_mul_compute_shader,
+    generate_csr_mul_count_shader, generate_csr_sub_compute_shader, generate_exclusive_scan_shader,
+};
 #[cfg(feature = "sparse")]
 pub use sparse_split::{
     generate_extract_lower_count_shader, generate_extract_lower_scatter_shader,
@@ -119,6 +148,8 @@ pub use sparse_utils::{generate_copy_shader, generate_find_diag_indices_shader};
 pub use special::{
     generate_special_binary_shader, generate_special_ternary_shader, generate_special_unary_shader,
 };
+#[cfg(feature = "sparse")]
+pub use spmv::{generate_csr_spmm_shader, generate_csr_spmv_shader};
 pub use unary::generate_unary_shader;
 pub use utility::{
     generate_arange_shader, generate_eye_shader, generate_linspace_shader,

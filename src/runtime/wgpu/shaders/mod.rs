@@ -33,6 +33,7 @@ pub mod fft;
 pub mod generator;
 pub mod index;
 pub mod linalg;
+pub mod logical;
 pub mod quasirandom;
 pub mod shape;
 pub mod sort;
@@ -48,7 +49,15 @@ pub mod matrix_funcs_launcher;
 pub mod norm;
 pub mod reduce;
 #[cfg(feature = "sparse")]
+pub mod sparse_algorithms_launcher;
+#[cfg(feature = "sparse")]
+pub mod sparse_conversions_launcher;
+#[cfg(feature = "sparse")]
 pub mod sparse_linalg_launcher;
+#[cfg(feature = "sparse")]
+pub mod sparse_merge_launcher;
+#[cfg(feature = "sparse")]
+pub mod sparse_spmv_launcher;
 pub mod where_launcher;
 
 mod elementwise_wgsl;
@@ -97,7 +106,10 @@ pub use generator::{
     generate_scatter_reduce_shader, generate_scatter_shader, generate_unary_shader,
     is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type,
 };
+#[cfg(feature = "sparse")]
+pub use generator::{generate_csr_spmm_shader, generate_csr_spmv_shader};
 pub use index::{launch_bincount, launch_gather_nd, launch_scatter_reduce};
+pub use logical::{launch_logical_and, launch_logical_not, launch_logical_or, launch_logical_xor};
 pub use matrix_funcs_launcher::{
     compute_schur_func_gpu, launch_diagonal_func, launch_parlett_column,
     launch_validate_eigenvalues,
@@ -105,10 +117,29 @@ pub use matrix_funcs_launcher::{
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
 #[cfg(feature = "sparse")]
+pub use sparse_algorithms_launcher::{
+    launch_dsmm_csc, launch_spgemm_numeric, launch_spgemm_symbolic,
+};
+#[cfg(feature = "sparse")]
+pub use sparse_conversions_launcher::{
+    launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs, launch_count_nonzeros,
+    launch_csc_to_csr_scatter, launch_csr_to_csc_scatter, launch_csr_to_dense,
+    launch_dense_to_coo_scatter, launch_expand_col_ptrs, launch_expand_row_ptrs, launch_histogram,
+};
+#[cfg(feature = "sparse")]
 pub use sparse_linalg_launcher::{
     launch_extract_lower_count, launch_extract_lower_scatter, launch_split_lu_count,
     launch_split_lu_scatter_l, launch_split_lu_scatter_u,
 };
+#[cfg(feature = "sparse")]
+pub use sparse_merge_launcher::{
+    launch_csc_add_compute, launch_csc_div_compute, launch_csc_merge_count, launch_csc_mul_compute,
+    launch_csc_mul_count, launch_csc_sub_compute, launch_csr_add_compute, launch_csr_div_compute,
+    launch_csr_merge_count, launch_csr_mul_compute, launch_csr_mul_count, launch_csr_sub_compute,
+    launch_exclusive_scan_i32,
+};
+#[cfg(feature = "sparse")]
+pub use sparse_spmv_launcher::{launch_csr_spmm, launch_csr_spmv};
 pub use special::{
     launch_special_binary, launch_special_binary_with_two_ints, launch_special_ternary,
     launch_special_unary, launch_special_unary_with_2f32, launch_special_unary_with_3f32,
