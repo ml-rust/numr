@@ -5,6 +5,7 @@ use super::*;
 mod tests {
     use super::*;
     use crate::runtime::Runtime;
+    use crate::sparse::SparseOps;
 
     #[test]
     fn test_spmv_csr_basic() {
