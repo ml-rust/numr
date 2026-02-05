@@ -132,7 +132,7 @@ mod tests {
     use super::*;
     use crate::dtype::DType;
     use crate::runtime::Runtime;
-    use crate::runtime::cpu::CpuRuntime;
+    use crate::runtime::cpu::{CpuClient, CpuRuntime};
     use crate::sparse::SparseFormat;
     use crate::tensor::Tensor;
 
@@ -273,6 +273,7 @@ mod tests {
     #[test]
     fn test_dense_sparse_roundtrip() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Original dense matrix:
         // [1, 0, 2]
@@ -282,7 +283,7 @@ mod tests {
         let original = Tensor::<CpuRuntime>::from_slice(&original_data, &[3, 3], &device);
 
         // Dense -> Sparse -> Dense
-        let sparse = SparseTensor::from_dense(&original, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &original, 1e-10).unwrap();
         let recovered = sparse.to_dense(&device).unwrap();
 
         let recovered_data: Vec<f32> = recovered.to_vec();
@@ -292,6 +293,7 @@ mod tests {
     #[test]
     fn test_csr_to_dense_to_sparse_roundtrip() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Start with CSR
         let sparse_csr = SparseTensor::<CpuRuntime>::from_csr_slices(
@@ -305,7 +307,7 @@ mod tests {
 
         // CSR -> Dense -> COO
         let dense = sparse_csr.to_dense(&device).unwrap();
-        let sparse_coo = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse_coo = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         assert!(sparse_coo.is_coo());
         assert_eq!(sparse_coo.nnz(), 5);

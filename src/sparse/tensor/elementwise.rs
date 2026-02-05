@@ -338,7 +338,7 @@ mod tests {
     use super::*;
     use crate::dtype::DType;
     use crate::runtime::Runtime;
-    use crate::runtime::cpu::CpuRuntime;
+    use crate::runtime::cpu::{CpuClient, CpuRuntime};
     use crate::sparse::SparseFormat;
     use crate::tensor::Tensor;
 
@@ -552,13 +552,14 @@ mod tests {
     #[test]
     fn test_add_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Create sparse matrices from dense
         let dense_a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 3.0], &[2, 2], &device);
         let dense_b = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 2.0, 4.0, 0.0], &[2, 2], &device);
 
-        let a = SparseTensor::from_dense(&dense_a, 1e-10).unwrap();
-        let b = SparseTensor::from_dense(&dense_b, 1e-10).unwrap();
+        let a = SparseTensor::from_dense(&client, &dense_a, 1e-10).unwrap();
+        let b = SparseTensor::from_dense(&client, &dense_b, 1e-10).unwrap();
 
         let c = a.add(&b).unwrap();
 
@@ -777,13 +778,14 @@ mod tests {
     #[test]
     fn test_sub_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Create sparse matrices from dense
         let dense_a = Tensor::<CpuRuntime>::from_slice(&[5.0f32, 0.0, 0.0, 8.0], &[2, 2], &device);
         let dense_b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0, 4.0, 0.0], &[2, 2], &device);
 
-        let a = SparseTensor::from_dense(&dense_a, 1e-10).unwrap();
-        let b = SparseTensor::from_dense(&dense_b, 1e-10).unwrap();
+        let a = SparseTensor::from_dense(&client, &dense_a, 1e-10).unwrap();
+        let b = SparseTensor::from_dense(&client, &dense_b, 1e-10).unwrap();
 
         let c = a.sub(&b).unwrap();
 
@@ -1055,13 +1057,14 @@ mod tests {
     #[test]
     fn test_mul_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Create sparse matrices from dense
         let dense_a = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0, 0.0, 5.0], &[2, 2], &device);
         let dense_b = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 0.0, 6.0, 7.0], &[2, 2], &device);
 
-        let a = SparseTensor::from_dense(&dense_a, 1e-10).unwrap();
-        let b = SparseTensor::from_dense(&dense_b, 1e-10).unwrap();
+        let a = SparseTensor::from_dense(&client, &dense_a, 1e-10).unwrap();
+        let b = SparseTensor::from_dense(&client, &dense_b, 1e-10).unwrap();
 
         let c = a.mul(&b).unwrap();
 
@@ -1342,6 +1345,7 @@ mod tests {
     #[test]
     fn test_div_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // A = [10, 0; 0, 20]
         // B = [2, 0; 5, 4]
@@ -1349,8 +1353,8 @@ mod tests {
             Tensor::<CpuRuntime>::from_slice(&[10.0f32, 0.0, 0.0, 20.0], &[2, 2], &device);
         let dense_b = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.0, 5.0, 4.0], &[2, 2], &device);
 
-        let sparse_a = SparseTensor::from_dense(&dense_a, 1e-10).unwrap();
-        let sparse_b = SparseTensor::from_dense(&dense_b, 1e-10).unwrap();
+        let sparse_a = SparseTensor::from_dense(&client, &dense_a, 1e-10).unwrap();
+        let sparse_b = SparseTensor::from_dense(&client, &dense_b, 1e-10).unwrap();
 
         let c = sparse_a.div(&sparse_b).unwrap();
 

@@ -130,7 +130,7 @@ mod tests {
     use super::*;
     use crate::dtype::DType;
     use crate::runtime::Runtime;
-    use crate::runtime::cpu::CpuRuntime;
+    use crate::runtime::cpu::{CpuClient, CpuRuntime};
     use crate::sparse::SparseFormat;
     use crate::tensor::Tensor;
 
@@ -210,11 +210,12 @@ mod tests {
     #[test]
     fn test_spmv_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Create sparse from dense
         let dense_data = vec![1.0f32, 0.0, 2.0, 0.0, 0.0, 3.0, 4.0, 5.0, 0.0];
         let dense = Tensor::<CpuRuntime>::from_slice(&dense_data, &[3, 3], &device);
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
         let y = sparse.spmv(&x).unwrap();
@@ -310,11 +311,12 @@ mod tests {
     #[test]
     fn test_spmm_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Create sparse from dense
         let dense_a = vec![1.0f32, 0.0, 2.0, 0.0, 3.0, 0.0];
         let dense = Tensor::<CpuRuntime>::from_slice(&dense_a, &[2, 3], &device);
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         let b =
             Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
