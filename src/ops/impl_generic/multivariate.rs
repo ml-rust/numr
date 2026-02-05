@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_dtype_support_constants() {
-        assert!(DTypeSupport::FULL.f64_supported);
-        assert!(!DTypeSupport::F32_ONLY.f64_supported);
+        const { assert!(DTypeSupport::FULL.f64_supported) };
+        const { assert!(!DTypeSupport::F32_ONLY.f64_supported) };
     }
 }

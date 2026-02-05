@@ -829,7 +829,7 @@ fn test_polyfromroots_many_roots_uses_fft() {
     // Roots: 1, 2, 3, ..., 10 (real roots only for simplicity)
     let roots: Vec<f32> = (1..=10).map(|i| i as f32).collect();
     let roots_real = Tensor::<CpuRuntime>::from_slice(&roots, &[10], &device);
-    let roots_imag = Tensor::<CpuRuntime>::from_slice(&vec![0.0f32; 10], &[10], &device);
+    let roots_imag = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 10], &[10], &device);
 
     let coeffs = client.polyfromroots(&roots_real, &roots_imag).unwrap();
 

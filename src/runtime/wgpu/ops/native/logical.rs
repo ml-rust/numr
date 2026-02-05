@@ -27,6 +27,7 @@ pub(crate) struct LogicalUnaryParams {
 }
 
 /// Native logical AND operation.
+#[allow(dead_code)]
 pub(crate) fn native_logical_and(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -61,6 +62,7 @@ pub(crate) fn native_logical_and(
 }
 
 /// Native logical OR operation.
+#[allow(dead_code)]
 pub(crate) fn native_logical_or(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -95,6 +97,7 @@ pub(crate) fn native_logical_or(
 }
 
 /// Native logical XOR operation.
+#[allow(dead_code)]
 pub(crate) fn native_logical_xor(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -129,6 +132,7 @@ pub(crate) fn native_logical_xor(
 }
 
 /// Native logical NOT operation.
+#[allow(dead_code)]
 pub(crate) fn native_logical_not(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,

@@ -865,9 +865,9 @@ mod tests {
         let device = CpuDevice::new();
 
         // 0-dimensional scalar
-        let tensor = Tensor::<CpuRuntime>::from_slice(&[3.14f32], &[], &device);
+        let tensor = Tensor::<CpuRuntime>::from_slice(&[std::f32::consts::PI], &[], &device);
         let val: f32 = tensor.item().unwrap();
-        assert!((val - 3.14).abs() < 1e-6);
+        assert!((val - std::f32::consts::PI).abs() < 1e-6);
 
         // Shape [1] tensor
         let tensor = Tensor::<CpuRuntime>::from_slice(&[42.0f64], &[1], &device);

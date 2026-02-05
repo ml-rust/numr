@@ -97,8 +97,8 @@ mod tests {
         let _is_avx512 = is_aligned_avx512(ptr);
 
         // Test with known aligned address (0 is trivially aligned to anything)
-        assert!(is_aligned_avx2(0 as *const f32));
-        assert!(is_aligned_avx512(0 as *const f32));
+        assert!(is_aligned_avx2(std::ptr::null::<f32>()));
+        assert!(is_aligned_avx512(std::ptr::null::<f32>()));
         assert!(is_aligned_avx2(32 as *const f32));
         assert!(is_aligned_avx512(64 as *const f32));
         assert!(!is_aligned_avx512(32 as *const f32)); // 32 not aligned to 64
