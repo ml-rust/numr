@@ -100,6 +100,8 @@ pub use sparse_linalg::{
     // Trait and validation
     SparseLinAlgAlgorithms,
     SymbolicIlu0,
+    compute_levels_csc_lower,
+    compute_levels_csc_upper,
     compute_levels_ilu,
     compute_levels_lower,
     compute_levels_upper,

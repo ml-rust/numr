@@ -6,6 +6,7 @@
 //!
 //! # Algorithms
 //!
+//! - **Sparse LU**: Direct LU factorization with partial pivoting (Gilbert-Peierls)
 //! - **ILU(0)**: Incomplete LU factorization with zero fill-in
 //! - **ILU(k)**: Incomplete LU factorization with level-k fill-in
 //! - **IC(0)**: Incomplete Cholesky factorization with zero fill-in
@@ -13,8 +14,7 @@
 //!
 //! # Use Cases
 //!
-//! These algorithms are primarily used as **preconditioners** for iterative solvers:
-//!
+//! - **Sparse LU** → Direct solver for sparse linear systems (with ordering from solvr)
 //! - **ILU(0)** → Preconditioner for GMRES, BiCGSTAB (non-symmetric systems)
 //! - **ILU(k)** → Stronger preconditioner with more fill-in for difficult systems
 //! - **IC(0)** → Preconditioner for CG (symmetric positive definite systems)
@@ -40,6 +40,7 @@
 
 pub mod cpu;
 pub mod levels;
+pub mod lu;
 pub mod traits;
 pub mod types;
 
@@ -54,11 +55,18 @@ pub use traits::{SparseLinAlgAlgorithms, validate_square_sparse, validate_triang
 
 // Re-export level scheduling
 pub use levels::{
-    LevelSchedule, compute_levels_ilu, compute_levels_lower, compute_levels_upper, flatten_levels,
+    LevelSchedule, compute_levels_csc_lower, compute_levels_csc_upper, compute_levels_ilu,
+    compute_levels_lower, compute_levels_upper, flatten_levels,
 };
 
 // Re-export CPU implementations
 pub use cpu::{
     ic0_cpu, ilu0_cpu, ilu0_numeric_cpu, ilu0_symbolic_cpu, iluk_cpu, iluk_numeric_cpu,
     iluk_symbolic_cpu, sparse_solve_triangular_cpu,
+};
+
+// Re-export sparse LU types and functions
+pub use lu::{
+    LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, SparseLuKernels, SparseLuOps,
+    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
 };
