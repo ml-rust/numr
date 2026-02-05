@@ -61,6 +61,12 @@ pub mod sparse_linalg_cpu;
 #[cfg(feature = "sparse")]
 pub mod sparse_linalg_levels;
 
+#[cfg(feature = "sparse")]
+pub mod iterative;
+
+#[cfg(feature = "sparse")]
+pub mod iterative_impl;
+
 pub use linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
     LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
@@ -99,3 +105,12 @@ pub use sparse_linalg_cpu::{ic0_cpu, ilu0_cpu, sparse_solve_triangular_cpu};
 pub use sparse_linalg_levels::{
     LevelSchedule, compute_levels_ilu, compute_levels_lower, compute_levels_upper, flatten_levels,
 };
+
+#[cfg(feature = "sparse")]
+pub use iterative::{
+    BiCgStabOptions, BiCgStabResult, GmresOptions, GmresResult, IterativeSolvers,
+    PreconditionerType, validate_iterative_inputs,
+};
+
+#[cfg(feature = "sparse")]
+pub use iterative_impl::{bicgstab_impl, gmres_impl};
