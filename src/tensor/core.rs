@@ -637,13 +637,24 @@ impl<R: Runtime> Tensor<R> {
             });
         }
 
-        // Extract value, making contiguous only if needed
-        let vec: Vec<T> = if self.is_contiguous() {
-            self.to_vec()
+        // For non-contiguous single-element tensors, compute the actual offset
+        // from strides (the element may not be at offset 0 in storage)
+        let tensor = if self.is_contiguous() {
+            std::borrow::Cow::Borrowed(self)
         } else {
-            self.contiguous().to_vec()
+            std::borrow::Cow::Owned(self.contiguous())
         };
-        Ok(vec[0])
+
+        // Direct single-element copy without Vec allocation
+        let offset = tensor.layout.offset();
+        let elem_size = std::mem::size_of::<T>();
+        let byte_offset = offset * elem_size;
+        let src_ptr = (tensor.storage.ptr() as usize + byte_offset) as u64;
+
+        let mut result = T::zeroed();
+        let bytes: &mut [u8] = bytemuck::bytes_of_mut(&mut result);
+        R::copy_from_device(src_ptr, bytes, tensor.storage.device());
+        Ok(result)
     }
 }
 
