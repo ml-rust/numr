@@ -9,7 +9,7 @@ use super::super::shaders::generator::sparse_linalg::{
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{WORKGROUP_SIZE, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype};
 use crate::algorithm::sparse_linalg::{IluDecomposition, IluOptions, validate_square_sparse};
-use crate::algorithm::sparse_linalg_levels::{compute_levels_ilu, flatten_levels};
+use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::sparse::CsrData;

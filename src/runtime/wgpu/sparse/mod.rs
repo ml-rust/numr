@@ -18,8 +18,10 @@ mod triangular_solve;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::sparse::SparseAlgorithms;
 use crate::algorithm::sparse_linalg::{
-    IcDecomposition, IcOptions, IluDecomposition, IluOptions, SparseLinAlgAlgorithms,
+    IcDecomposition, IcOptions, IluDecomposition, IluFillLevel, IluOptions, IlukDecomposition,
+    IlukOptions, IlukSymbolic, SparseLinAlgAlgorithms, SymbolicIlu0,
 };
+use crate::error::Error;
 use crate::error::Result;
 use crate::sparse::{CscData, CsrData};
 use crate::tensor::Tensor;
@@ -67,5 +69,53 @@ impl SparseLinAlgAlgorithms<WgpuRuntime> for WgpuClient {
         unit_diagonal: bool,
     ) -> Result<Tensor<WgpuRuntime>> {
         triangular_solve::sparse_solve_triangular_wgpu(self, l_or_u, b, lower, unit_diagonal)
+    }
+
+    fn iluk_symbolic(
+        &self,
+        _a: &CsrData<WgpuRuntime>,
+        _level: IluFillLevel,
+    ) -> Result<IlukSymbolic> {
+        Err(Error::NotImplemented {
+            feature: "ILU(k) symbolic for WebGPU",
+        })
+    }
+
+    fn iluk_numeric(
+        &self,
+        _a: &CsrData<WgpuRuntime>,
+        _symbolic: &IlukSymbolic,
+        _opts: &IlukOptions,
+    ) -> Result<IlukDecomposition<WgpuRuntime>> {
+        Err(Error::NotImplemented {
+            feature: "ILU(k) numeric for WebGPU",
+        })
+    }
+
+    fn iluk(
+        &self,
+        _a: &CsrData<WgpuRuntime>,
+        _opts: IlukOptions,
+    ) -> Result<IlukDecomposition<WgpuRuntime>> {
+        Err(Error::NotImplemented {
+            feature: "ILU(k) for WebGPU",
+        })
+    }
+
+    fn ilu0_symbolic(&self, _pattern: &CsrData<WgpuRuntime>) -> Result<SymbolicIlu0> {
+        Err(Error::NotImplemented {
+            feature: "ILU(0) symbolic/numeric split for WebGPU",
+        })
+    }
+
+    fn ilu0_numeric(
+        &self,
+        _a: &CsrData<WgpuRuntime>,
+        _symbolic: &SymbolicIlu0,
+        _options: IluOptions,
+    ) -> Result<IluDecomposition<WgpuRuntime>> {
+        Err(Error::NotImplemented {
+            feature: "ILU(0) symbolic/numeric split for WebGPU",
+        })
     }
 }

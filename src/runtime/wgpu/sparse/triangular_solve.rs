@@ -10,9 +10,7 @@ use super::super::shaders::generator::sparse_linalg::{
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{WORKGROUP_SIZE, create_trsv_layout, validate_wgpu_dtype};
 use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
-use crate::algorithm::sparse_linalg_levels::{
-    compute_levels_lower, compute_levels_upper, flatten_levels,
-};
+use crate::algorithm::sparse_linalg::{compute_levels_lower, compute_levels_upper, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
