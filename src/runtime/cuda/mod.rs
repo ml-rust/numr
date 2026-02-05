@@ -26,7 +26,7 @@ mod cache;
 mod client;
 mod device;
 mod fft;
-mod kernels;
+pub(crate) mod kernels;
 mod linalg;
 mod ops;
 mod polynomial;
