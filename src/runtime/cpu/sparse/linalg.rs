@@ -1,13 +1,30 @@
 //! CPU implementation of sparse linear algebra algorithms.
 //!
 //! This module provides CPU implementations of sparse linear algebra algorithms
-//! using the CPU-optimized algorithms in `algorithm::sparse_linalg_cpu`.
+//! using the CPU-optimized algorithms in `algorithm::sparse_linalg::cpu`.
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::sparse_linalg::{
-    IcDecomposition, IcOptions, IluDecomposition, IluOptions, SparseLinAlgAlgorithms,
+    IcDecomposition,
+    IcOptions,
+    IluDecomposition,
+    IluFillLevel,
+    IluOptions,
+    IlukDecomposition,
+    IlukOptions,
+    IlukSymbolic,
+    SparseLinAlgAlgorithms,
+    SymbolicIlu0,
+    // CPU implementations
+    ic0_cpu,
+    ilu0_cpu,
+    ilu0_numeric_cpu,
+    ilu0_symbolic_cpu,
+    iluk_cpu,
+    iluk_numeric_cpu,
+    iluk_symbolic_cpu,
+    sparse_solve_triangular_cpu,
 };
-use crate::algorithm::sparse_linalg_cpu::{ic0_cpu, ilu0_cpu, sparse_solve_triangular_cpu};
 use crate::error::Result;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
@@ -37,6 +54,40 @@ impl SparseLinAlgAlgorithms<CpuRuntime> for CpuClient {
         unit_diagonal: bool,
     ) -> Result<Tensor<CpuRuntime>> {
         sparse_solve_triangular_cpu(l_or_u, b, lower, unit_diagonal)
+    }
+
+    fn iluk_symbolic(&self, a: &CsrData<CpuRuntime>, level: IluFillLevel) -> Result<IlukSymbolic> {
+        iluk_symbolic_cpu(a, level)
+    }
+
+    fn iluk_numeric(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        symbolic: &IlukSymbolic,
+        opts: &IlukOptions,
+    ) -> Result<IlukDecomposition<CpuRuntime>> {
+        iluk_numeric_cpu(a, symbolic, opts)
+    }
+
+    fn iluk(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        opts: IlukOptions,
+    ) -> Result<IlukDecomposition<CpuRuntime>> {
+        iluk_cpu(a, opts)
+    }
+
+    fn ilu0_symbolic(&self, pattern: &CsrData<CpuRuntime>) -> Result<SymbolicIlu0> {
+        ilu0_symbolic_cpu(pattern)
+    }
+
+    fn ilu0_numeric(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        symbolic: &SymbolicIlu0,
+        options: IluOptions,
+    ) -> Result<IluDecomposition<CpuRuntime>> {
+        ilu0_numeric_cpu(a, symbolic, options)
     }
 }
 

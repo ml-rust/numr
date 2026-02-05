@@ -56,16 +56,7 @@ pub mod sparse;
 pub mod sparse_linalg;
 
 #[cfg(feature = "sparse")]
-pub mod sparse_linalg_cpu;
-
-#[cfg(feature = "sparse")]
-pub mod sparse_linalg_levels;
-
-#[cfg(feature = "sparse")]
 pub mod iterative;
-
-#[cfg(feature = "sparse")]
-pub mod iterative_impl;
 
 pub use linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
@@ -94,23 +85,56 @@ pub use sparse::{
 
 #[cfg(feature = "sparse")]
 pub use sparse_linalg::{
-    IcDecomposition, IcOptions, IluDecomposition, IluOptions, SparseLinAlgAlgorithms,
-    validate_square_sparse, validate_triangular_solve_dims,
-};
-
-#[cfg(feature = "sparse")]
-pub use sparse_linalg_cpu::{ic0_cpu, ilu0_cpu, sparse_solve_triangular_cpu};
-
-#[cfg(feature = "sparse")]
-pub use sparse_linalg_levels::{
-    LevelSchedule, compute_levels_ilu, compute_levels_lower, compute_levels_upper, flatten_levels,
+    // Types
+    IcDecomposition,
+    IcOptions,
+    IluDecomposition,
+    IluFillLevel,
+    IluMetrics,
+    IluOptions,
+    IlukDecomposition,
+    IlukOptions,
+    IlukSymbolic,
+    // Level scheduling
+    LevelSchedule,
+    // Trait and validation
+    SparseLinAlgAlgorithms,
+    SymbolicIlu0,
+    compute_levels_ilu,
+    compute_levels_lower,
+    compute_levels_upper,
+    flatten_levels,
+    // CPU implementations
+    ic0_cpu,
+    ilu0_cpu,
+    ilu0_numeric_cpu,
+    ilu0_symbolic_cpu,
+    iluk_cpu,
+    iluk_numeric_cpu,
+    iluk_symbolic_cpu,
+    sparse_solve_triangular_cpu,
+    validate_square_sparse,
+    validate_triangular_solve_dims,
 };
 
 #[cfg(feature = "sparse")]
 pub use iterative::{
-    BiCgStabOptions, BiCgStabResult, GmresOptions, GmresResult, IterativeSolvers,
-    PreconditionerType, validate_iterative_inputs,
+    // Types
+    AdaptiveGmresResult,
+    AdaptivePreconditionerOptions,
+    BiCgStabOptions,
+    BiCgStabResult,
+    ConvergenceReason,
+    GmresDiagnostics,
+    GmresOptions,
+    GmresResult,
+    // Trait and validation
+    IterativeSolvers,
+    PreconditionerType,
+    StagnationParams,
+    // Implementations
+    adaptive_gmres_impl,
+    bicgstab_impl,
+    gmres_impl,
+    validate_iterative_inputs,
 };
-
-#[cfg(feature = "sparse")]
-pub use iterative_impl::{bicgstab_impl, gmres_impl};

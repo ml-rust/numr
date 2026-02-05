@@ -1,13 +1,19 @@
 //! CPU implementation of iterative solvers.
 //!
 //! This module provides CPU implementations of iterative solvers
-//! using the generic algorithms in `algorithm::iterative_impl`.
+//! using the generic algorithms in `algorithm::iterative::impl_generic`.
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::iterative::{
-    BiCgStabOptions, BiCgStabResult, GmresOptions, GmresResult, IterativeSolvers,
+    BiCgStabOptions,
+    BiCgStabResult,
+    GmresOptions,
+    GmresResult,
+    IterativeSolvers,
+    // Generic implementations
+    bicgstab_impl,
+    gmres_impl,
 };
-use crate::algorithm::iterative_impl::{bicgstab_impl, gmres_impl};
 use crate::error::Result;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
@@ -104,6 +110,7 @@ mod tests {
             rtol: 1e-10,
             atol: 1e-14,
             preconditioner: PreconditionerType::None,
+            ..Default::default()
         };
 
         let result = client
@@ -150,6 +157,7 @@ mod tests {
             rtol: 1e-10,
             atol: 1e-14,
             preconditioner: PreconditionerType::None,
+            ..Default::default()
         };
 
         // ILU(0) on tridiagonal is exact LU, so even small restart works
@@ -159,6 +167,7 @@ mod tests {
             rtol: 1e-10,
             atol: 1e-14,
             preconditioner: PreconditionerType::Ilu0,
+            ..Default::default()
         };
 
         let result_no_precond = client
