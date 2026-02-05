@@ -26,6 +26,7 @@ mod scalar;
 mod shape;
 mod sorting;
 mod statistics;
+mod tensor_ops;
 mod type_conversion;
 mod unary;
 mod utility;
@@ -53,9 +54,7 @@ pub use scalar::ScalarOps;
 pub use shape::ShapeOps;
 pub use sorting::SortingOps;
 pub use statistics::StatisticalOps;
+pub use tensor_ops::TensorOps;
 pub use type_conversion::TypeConversionOps;
 pub use unary::UnaryOps;
 pub use utility::UtilityOps;
-
-// Re-export TensorOps from parent (still in mod.rs for now)
-pub use super::TensorOps;
