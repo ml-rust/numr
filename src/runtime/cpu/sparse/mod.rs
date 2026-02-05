@@ -982,13 +982,17 @@ impl SparseOps<CpuRuntime> for CpuClient {
             }
 
             // Create COO sparse tensor
-            let coo = crate::sparse::CooData::from_slices(
+            let mut coo = crate::sparse::CooData::from_slices(
                 &row_indices,
                 &col_indices,
                 &values,
                 [nrows, ncols],
                 device,
             )?;
+
+            // Data is already sorted by row (then column) from our iteration order
+            // SAFETY: The row-major iteration order guarantees sorted output
+            unsafe { coo.set_sorted(true); }
 
             Ok(SparseTensor::Coo(coo))
         }, "dense_to_sparse")
