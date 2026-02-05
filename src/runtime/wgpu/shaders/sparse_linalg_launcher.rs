@@ -340,3 +340,241 @@ pub fn launch_extract_lower_scatter(
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
+
+// ============================================================================
+// Sparse LU Primitive Operations
+// ============================================================================
+
+/// Sparse LU uniform params for operations that need scalar parameters
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SparseLuParams {
+    pub scale: f32,
+    pub nnz: u32,
+}
+
+/// Launch sparse scatter kernel - f32
+///
+/// Scatters values into work vector: work[row_indices[i]] = values[i]
+pub fn launch_sparse_scatter_f32(
+    cache: &PipelineCache,
+    queue: &Queue,
+    values: &Buffer,
+    row_indices: &Buffer,
+    work: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let shader_source = include_str!("sparse_linalg.wgsl");
+    let module = cache.get_or_create_module_from_source("sparse_scatter_f32", shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 0,
+    });
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_scatter_f32", "sparse_scatter_f32", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[values, row_indices, work]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse_scatter_f32"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_scatter_f32"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch sparse AXPY kernel - f32
+///
+/// Computes: work[row_indices[i]] -= scale * values[i]
+pub fn launch_sparse_axpy_f32(
+    cache: &PipelineCache,
+    queue: &Queue,
+    params_buffer: &Buffer,
+    values: &Buffer,
+    row_indices: &Buffer,
+    work: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let shader_source = include_str!("sparse_linalg.wgsl");
+    let module = cache.get_or_create_module_from_source("sparse_axpy_f32", shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+    });
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_axpy_f32", "sparse_axpy_f32", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[params_buffer, values, row_indices, work]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse_axpy_f32"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_axpy_f32"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch sparse gather and clear kernel - f32
+///
+/// Gathers: output[i] = work[row_indices[i]], then clears work[row_indices[i]] = 0
+pub fn launch_sparse_gather_clear_f32(
+    cache: &PipelineCache,
+    queue: &Queue,
+    work: &Buffer,
+    row_indices: &Buffer,
+    output: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let shader_source = include_str!("sparse_linalg.wgsl");
+    let module = cache.get_or_create_module_from_source("sparse_gather_clear_f32", shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_gather_clear_f32",
+        "sparse_gather_clear_f32",
+        &module,
+        &layout,
+    );
+
+    let bind_group = cache.create_bind_group(&layout, &[work, row_indices, output]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse_gather_clear_f32"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_gather_clear_f32"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Divide by pivot uniform params
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DividePivotParams {
+    pub inv_pivot: f32,
+    pub nnz: u32,
+}
+
+/// Launch sparse divide by pivot kernel - f32
+///
+/// Computes: work[row_indices[i]] *= inv_pivot
+pub fn launch_sparse_divide_pivot_f32(
+    cache: &PipelineCache,
+    queue: &Queue,
+    params_buffer: &Buffer,
+    work: &Buffer,
+    row_indices: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let shader_source = include_str!("sparse_linalg.wgsl");
+    let module = cache.get_or_create_module_from_source("sparse_divide_pivot_f32", shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+    });
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_divide_pivot_f32",
+        "sparse_divide_pivot_f32",
+        &module,
+        &layout,
+    );
+
+    let bind_group = cache.create_bind_group(&layout, &[params_buffer, work, row_indices]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse_divide_pivot_f32"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_divide_pivot_f32"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch sparse clear kernel - f32
+///
+/// Clears: work[row_indices[i]] = 0
+pub fn launch_sparse_clear_f32(
+    cache: &PipelineCache,
+    queue: &Queue,
+    work: &Buffer,
+    row_indices: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let shader_source = include_str!("sparse_linalg.wgsl");
+    let module = cache.get_or_create_module_from_source("sparse_clear_f32", shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 0,
+    });
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_clear_f32", "sparse_clear_f32", &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[work, row_indices]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("sparse_clear_f32"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("sparse_clear_f32"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}

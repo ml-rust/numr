@@ -26,7 +26,7 @@
 //! - `Runtime::copy_from_device` - Panics if read operation fails
 
 mod cache;
-mod client;
+pub(crate) mod client;
 mod device;
 mod fft;
 mod linalg;
