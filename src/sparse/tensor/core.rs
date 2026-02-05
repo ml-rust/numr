@@ -1,7 +1,7 @@
 //! Core SparseTensor implementation: enum, creation, format queries
 
-use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::dtype::DType;
+use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -136,76 +136,32 @@ impl<R: Runtime> SparseTensor<R> {
     /// Elements with absolute value below `threshold` are treated as zero.
     /// The resulting sparse tensor is in COO format.
     ///
+    /// This method delegates to the backend's `SparseOps::dense_to_sparse()`
+    /// implementation, which uses GPU-native kernels on CUDA/WebGPU backends.
+    ///
     /// # Arguments
     ///
+    /// * `client` - Runtime client that implements `SparseOps`
     /// * `tensor` - Dense 2D tensor to convert
     /// * `threshold` - Values with |value| < threshold become zero
     ///
     /// # Errors
     ///
-    /// Returns error if tensor is not 2D.
+    /// Returns error if tensor is not 2D or if the backend doesn't support
+    /// dense-to-sparse conversion.
     ///
     /// # Example
     ///
     /// ```ignore
     /// let dense = Tensor::<CpuRuntime>::from_slice(&[1.0, 0.0, 2.0, 0.0], &[2, 2], &device);
-    /// let sparse = SparseTensor::from_dense(&dense, 1e-10)?;
+    /// let sparse = SparseTensor::from_dense(&client, &dense, 1e-10)?;
     /// assert_eq!(sparse.nnz(), 2);  // Only non-zero elements
     /// ```
-    pub fn from_dense(tensor: &Tensor<R>, threshold: f64) -> Result<Self> {
-        // Validate 2D
-        if tensor.ndim() != 2 {
-            return Err(Error::Internal(format!(
-                "Expected 2D tensor for sparse conversion, got {}D",
-                tensor.ndim()
-            )));
-        }
-
-        let shape = tensor.shape();
-        let nrows = shape[0];
-        let ncols = shape[1];
-        let device = tensor.device();
-        let dtype = tensor.dtype();
-
-        // Dispatch on dtype to extract non-zero elements
-        crate::dispatch_dtype!(dtype, T => {
-            let data: Vec<T> = tensor.to_vec();
-
-            // Find non-zero elements
-            let mut row_indices: Vec<i64> = Vec::new();
-            let mut col_indices: Vec<i64> = Vec::new();
-            let mut values: Vec<T> = Vec::new();
-
-            for row in 0..nrows {
-                for col in 0..ncols {
-                    let idx = row * ncols + col;
-                    let val = data[idx];
-                    let val_f64 = val.to_f64();
-
-                    if val_f64.abs() >= threshold {
-                        row_indices.push(row as i64);
-                        col_indices.push(col as i64);
-                        values.push(val);
-                    }
-                }
-            }
-
-            // Handle empty case
-            if values.is_empty() {
-                return Ok(SparseTensor::Coo(CooData::empty([nrows, ncols], dtype, device)));
-            }
-
-            // Create COO tensors
-            let row_tensor = Tensor::from_slice(&row_indices, &[row_indices.len()], device);
-            let col_tensor = Tensor::from_slice(&col_indices, &[col_indices.len()], device);
-            let val_tensor = Tensor::from_slice(&values, &[values.len()], device);
-
-            let mut coo = CooData::new(row_tensor, col_tensor, val_tensor, [nrows, ncols])?;
-            // Data is already sorted by row (then column) from our iteration order
-            unsafe { coo.set_sorted(true); }
-
-            return Ok(SparseTensor::Coo(coo));
-        }, "dense to sparse conversion");
+    pub fn from_dense<C>(client: &C, tensor: &Tensor<R>, threshold: f64) -> Result<Self>
+    where
+        C: crate::sparse::SparseOps<R>,
+    {
+        client.dense_to_sparse(tensor, threshold)
     }
 
     // =========================================================================
@@ -353,7 +309,7 @@ mod tests {
     use super::*;
     use crate::dtype::DType;
     use crate::runtime::Runtime;
-    use crate::runtime::cpu::CpuRuntime;
+    use crate::runtime::cpu::{CpuClient, CpuRuntime};
     use crate::sparse::SparseFormat;
     use crate::tensor::Tensor;
 
@@ -484,6 +440,7 @@ mod tests {
     #[test]
     fn test_from_dense() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Dense matrix:
         // [1, 0, 2]
@@ -492,7 +449,7 @@ mod tests {
         let data = vec![1.0f32, 0.0, 2.0, 0.0, 0.0, 3.0, 4.0, 5.0, 0.0];
         let dense = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &device);
 
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         assert!(sparse.is_coo());
         assert_eq!(sparse.nnz(), 5);
@@ -513,12 +470,13 @@ mod tests {
     #[test]
     fn test_from_dense_empty() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // All zeros
         let data = vec![0.0f32; 9];
         let dense = Tensor::<CpuRuntime>::from_slice(&data, &[3, 3], &device);
 
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         assert_eq!(sparse.nnz(), 0);
         assert_eq!(sparse.shape(), [3, 3]);
@@ -527,6 +485,7 @@ mod tests {
     #[test]
     fn test_from_dense_with_threshold() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         // Dense matrix with small values:
         // [1.0, 0.001, 2.0]
@@ -535,7 +494,7 @@ mod tests {
         let dense = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &device);
 
         // With threshold 0.01, values below should be treated as zero
-        let sparse = SparseTensor::from_dense(&dense, 0.01).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 0.01).unwrap();
 
         assert_eq!(sparse.nnz(), 2); // Only 1.0 and 2.0
 
@@ -547,11 +506,12 @@ mod tests {
     #[test]
     fn test_from_dense_single_element() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         let data = vec![0.0f32, 0.0, 0.0, 42.0];
         let dense = Tensor::<CpuRuntime>::from_slice(&data, &[2, 2], &device);
 
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         assert_eq!(sparse.nnz(), 1);
 
@@ -568,11 +528,12 @@ mod tests {
     #[test]
     fn test_from_dense_f64() {
         let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
 
         let data = vec![1.0f64, 0.0, 2.0, 3.0];
         let dense = Tensor::<CpuRuntime>::from_slice(&data, &[2, 2], &device);
 
-        let sparse = SparseTensor::from_dense(&dense, 1e-10).unwrap();
+        let sparse = SparseTensor::from_dense(&client, &dense, 1e-10).unwrap();
 
         assert_eq!(sparse.nnz(), 3);
         assert_eq!(sparse.dtype(), DType::F64);

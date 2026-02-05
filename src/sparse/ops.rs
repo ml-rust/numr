@@ -6,7 +6,7 @@ use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
-use super::SparseTensor;
+use super::{CscData, CsrData, SparseTensor};
 
 /// Trait for sparse tensor operations
 ///
@@ -476,6 +476,60 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// * `a` - Dense 2D tensor
     /// * `threshold` - Values with |value| < threshold become zero
     fn dense_to_sparse(&self, a: &Tensor<R>, threshold: f64) -> Result<SparseTensor<R>>;
+
+    /// Convert dense tensor directly to CSR format
+    ///
+    /// This is a convenience method that chains `dense_to_sparse()` with
+    /// format conversion. All operations stay on device (no GPU→CPU transfers).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Dense 2D tensor
+    /// * `threshold` - Values with |value| < threshold become zero
+    ///
+    /// # Returns
+    ///
+    /// CSR sparse matrix data
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let csr = client.dense_to_csr(&dense_matrix, 1e-15)?;
+    /// let result = client.spmv_csr::<f32>(
+    ///     csr.row_ptrs(), csr.col_indices(), csr.values(),
+    ///     &vector, csr.shape()
+    /// )?;
+    /// ```
+    fn dense_to_csr(&self, a: &Tensor<R>, threshold: f64) -> Result<CsrData<R>> {
+        let sparse = self.dense_to_sparse(a, threshold)?;
+        let csr = sparse.to_csr()?;
+        match csr {
+            SparseTensor::Csr(data) => Ok(data),
+            _ => unreachable!("to_csr() always returns SparseTensor::Csr"),
+        }
+    }
+
+    /// Convert dense tensor directly to CSC format
+    ///
+    /// This is a convenience method that chains `dense_to_sparse()` with
+    /// format conversion. All operations stay on device (no GPU→CPU transfers).
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Dense 2D tensor
+    /// * `threshold` - Values with |value| < threshold become zero
+    ///
+    /// # Returns
+    ///
+    /// CSC sparse matrix data
+    fn dense_to_csc(&self, a: &Tensor<R>, threshold: f64) -> Result<CscData<R>> {
+        let sparse = self.dense_to_sparse(a, threshold)?;
+        let csc = sparse.to_csc()?;
+        match csc {
+            SparseTensor::Csc(data) => Ok(data),
+            _ => unreachable!("to_csc() always returns SparseTensor::Csc"),
+        }
+    }
 
     // =========================================================================
     // Format Conversions (Low-Level)
