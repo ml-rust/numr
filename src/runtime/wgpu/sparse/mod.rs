@@ -10,6 +10,7 @@ mod esc_spgemm;
 mod high_level_ops;
 mod ic0;
 mod ilu0;
+mod iluk;
 mod iterative;
 mod merge;
 mod spmv;
@@ -21,7 +22,6 @@ use crate::algorithm::sparse_linalg::{
     IcDecomposition, IcOptions, IluDecomposition, IluFillLevel, IluOptions, IlukDecomposition,
     IlukOptions, IlukSymbolic, SparseLinAlgAlgorithms, SymbolicIlu0,
 };
-use crate::error::Error;
 use crate::error::Result;
 use crate::sparse::{CscData, CsrData};
 use crate::tensor::Tensor;
@@ -71,51 +71,37 @@ impl SparseLinAlgAlgorithms<WgpuRuntime> for WgpuClient {
         triangular_solve::sparse_solve_triangular_wgpu(self, l_or_u, b, lower, unit_diagonal)
     }
 
-    fn iluk_symbolic(
-        &self,
-        _a: &CsrData<WgpuRuntime>,
-        _level: IluFillLevel,
-    ) -> Result<IlukSymbolic> {
-        Err(Error::NotImplemented {
-            feature: "ILU(k) symbolic for WebGPU",
-        })
+    fn iluk_symbolic(&self, a: &CsrData<WgpuRuntime>, level: IluFillLevel) -> Result<IlukSymbolic> {
+        iluk::iluk_symbolic_wgpu(self, a, level)
     }
 
     fn iluk_numeric(
         &self,
-        _a: &CsrData<WgpuRuntime>,
-        _symbolic: &IlukSymbolic,
-        _opts: &IlukOptions,
+        a: &CsrData<WgpuRuntime>,
+        symbolic: &IlukSymbolic,
+        opts: &IlukOptions,
     ) -> Result<IlukDecomposition<WgpuRuntime>> {
-        Err(Error::NotImplemented {
-            feature: "ILU(k) numeric for WebGPU",
-        })
+        iluk::iluk_numeric_wgpu(self, a, symbolic, opts)
     }
 
     fn iluk(
         &self,
-        _a: &CsrData<WgpuRuntime>,
-        _opts: IlukOptions,
+        a: &CsrData<WgpuRuntime>,
+        opts: IlukOptions,
     ) -> Result<IlukDecomposition<WgpuRuntime>> {
-        Err(Error::NotImplemented {
-            feature: "ILU(k) for WebGPU",
-        })
+        iluk::iluk_wgpu(self, a, opts)
     }
 
-    fn ilu0_symbolic(&self, _pattern: &CsrData<WgpuRuntime>) -> Result<SymbolicIlu0> {
-        Err(Error::NotImplemented {
-            feature: "ILU(0) symbolic/numeric split for WebGPU",
-        })
+    fn ilu0_symbolic(&self, pattern: &CsrData<WgpuRuntime>) -> Result<SymbolicIlu0> {
+        ilu0::ilu0_symbolic_wgpu(self, pattern)
     }
 
     fn ilu0_numeric(
         &self,
-        _a: &CsrData<WgpuRuntime>,
-        _symbolic: &SymbolicIlu0,
-        _options: IluOptions,
+        a: &CsrData<WgpuRuntime>,
+        symbolic: &SymbolicIlu0,
+        options: IluOptions,
     ) -> Result<IluDecomposition<WgpuRuntime>> {
-        Err(Error::NotImplemented {
-            feature: "ILU(0) symbolic/numeric split for WebGPU",
-        })
+        ilu0::ilu0_numeric_wgpu(self, a, symbolic, options)
     }
 }

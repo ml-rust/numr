@@ -8,10 +8,12 @@ use super::super::shaders::generator::sparse_linalg::{
 };
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{WORKGROUP_SIZE, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype};
-use crate::algorithm::sparse_linalg::{IluDecomposition, IluOptions, validate_square_sparse};
+use crate::algorithm::sparse_linalg::{
+    IluDecomposition, IluOptions, SymbolicIlu0, validate_square_sparse,
+};
 use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
@@ -30,6 +32,118 @@ pub fn ilu0_wgpu(
     let col_indices: Vec<i64> = a.col_indices().to_vec();
 
     // Compute level schedule
+    let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
+    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+
+    // Convert to i32 for GPU
+    let level_rows_i32: Vec<i32> = level_rows.iter().map(|&x| x as i32).collect();
+    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
+    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+
+    // Create GPU buffers
+    let level_rows_gpu = Tensor::<WgpuRuntime>::from_slice(
+        &level_rows_i32,
+        &[level_rows_i32.len()],
+        &client.device_id,
+    );
+    let row_ptrs_gpu =
+        Tensor::<WgpuRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], &client.device_id);
+    let col_indices_gpu = Tensor::<WgpuRuntime>::from_slice(
+        &col_indices_i32,
+        &[col_indices_i32.len()],
+        &client.device_id,
+    );
+
+    // Clone values for in-place factorization
+    let values_gpu = a.values().clone();
+
+    // Allocate diagonal indices buffer
+    let diag_indices_gpu = Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, &client.device_id);
+
+    // Find diagonal indices on GPU
+    launch_find_diag_indices(
+        client,
+        &row_ptrs_gpu,
+        &col_indices_gpu,
+        &diag_indices_gpu,
+        n,
+    )?;
+
+    // Process each level
+    for level in 0..schedule.num_levels {
+        let level_start = level_ptrs[level] as usize;
+        let level_end = level_ptrs[level + 1] as usize;
+        let level_size = level_end - level_start;
+
+        if level_size == 0 {
+            continue;
+        }
+
+        launch_ilu0_level(
+            client,
+            &level_rows_gpu,
+            level_start,
+            level_size,
+            &row_ptrs_gpu,
+            &col_indices_gpu,
+            &values_gpu,
+            &diag_indices_gpu,
+            n,
+            options.diagonal_shift as f32,
+        )?;
+    }
+
+    // Wait for GPU to complete
+    client.poll_wait();
+
+    // Split into L and U
+    split_lu_wgpu(client, n, &row_ptrs, &col_indices, &values_gpu)
+}
+
+/// ILU(0) symbolic factorization for WebGPU (runs on CPU, returns reusable symbolic data).
+///
+/// The symbolic phase analyzes the sparsity pattern and precomputes the update schedule.
+/// This can be reused for multiple numeric factorizations with different values.
+pub fn ilu0_symbolic_wgpu(
+    _client: &WgpuClient,
+    pattern: &CsrData<WgpuRuntime>,
+) -> Result<SymbolicIlu0> {
+    let n = validate_square_sparse(pattern.shape)?;
+
+    // Extract CSR structure for CPU-based symbolic analysis
+    // This transfer is acceptable as symbolic analysis happens once per matrix structure
+    let row_ptrs: Vec<i64> = pattern.row_ptrs().to_vec();
+    let col_indices: Vec<i64> = pattern.col_indices().to_vec();
+
+    // Delegate to shared implementation (pure CPU graph analysis)
+    crate::algorithm::sparse_linalg::ilu0_symbolic_impl(n, &row_ptrs, &col_indices)
+}
+
+/// ILU(0) numeric factorization for WebGPU using precomputed symbolic data.
+///
+/// Uses the level schedule derived from the symbolic data for parallel execution.
+pub fn ilu0_numeric_wgpu(
+    client: &WgpuClient,
+    a: &CsrData<WgpuRuntime>,
+    symbolic: &SymbolicIlu0,
+    options: IluOptions,
+) -> Result<IluDecomposition<WgpuRuntime>> {
+    let n = validate_square_sparse(a.shape)?;
+    let dtype = a.values().dtype();
+    validate_wgpu_dtype(dtype, "ilu0")?;
+
+    if n != symbolic.n {
+        return Err(Error::ShapeMismatch {
+            expected: vec![symbolic.n, symbolic.n],
+            got: vec![n, n],
+        });
+    }
+
+    // Extract CSR data - must match symbolic pattern
+    let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
+    let col_indices: Vec<i64> = a.col_indices().to_vec();
+
+    // Compute level schedule from the pattern
     let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
     let (level_ptrs, level_rows) = flatten_levels(&schedule);
 
@@ -233,7 +347,7 @@ pub(super) fn launch_find_diag_indices(
 
 /// Launch ILU0 level kernel.
 #[allow(clippy::too_many_arguments)]
-fn launch_ilu0_level(
+pub(super) fn launch_ilu0_level(
     client: &WgpuClient,
     level_rows: &Tensor<WgpuRuntime>,
     level_start: usize,
