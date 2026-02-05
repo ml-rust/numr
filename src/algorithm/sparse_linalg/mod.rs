@@ -6,6 +6,13 @@
 //!
 //! # Algorithms
 //!
+//! ## Preprocessing (CPU-only, structure-based)
+//!
+//! - **COLAMD**: Column Approximate Minimum Degree ordering to minimize fill-in
+//! - **Maximum Transversal**: Hopcroft-Karp algorithm for row permutation
+//!
+//! ## Factorization (multi-backend, value-based)
+//!
 //! - **Sparse LU**: Direct LU factorization with partial pivoting (Gilbert-Peierls)
 //! - **ILU(0)**: Incomplete LU factorization with zero fill-in
 //! - **ILU(k)**: Incomplete LU factorization with level-k fill-in
@@ -14,7 +21,9 @@
 //!
 //! # Use Cases
 //!
-//! - **Sparse LU** → Direct solver for sparse linear systems (with ordering from solvr)
+//! - **COLAMD** → Reduce fill-in before LU/QR factorization
+//! - **Maximum Transversal** → Row permutation for diagonal nonzeros, BTF preprocessing
+//! - **Sparse LU** → Direct solver for sparse linear systems
 //! - **ILU(0)** → Preconditioner for GMRES, BiCGSTAB (non-symmetric systems)
 //! - **ILU(k)** → Stronger preconditioner with more fill-in for difficult systems
 //! - **IC(0)** → Preconditioner for CG (symmetric positive definite systems)
@@ -25,8 +34,9 @@
 //! For repeated solves with the same sparsity pattern (e.g., Newton iterations
 //! in ODE solvers), the factorization can be split into:
 //!
-//! 1. **Symbolic phase**: Compute fill pattern based on sparsity structure
-//! 2. **Numeric phase**: Compute actual values using precomputed pattern
+//! 1. **Ordering phase**: COLAMD/maximum transversal (once per pattern)
+//! 2. **Symbolic phase**: Compute fill pattern based on sparsity structure
+//! 3. **Numeric phase**: Compute actual values using precomputed pattern
 //!
 //! This gives ~10-50x speedup for repeated solves since the expensive symbolic
 //! analysis is only done once.
@@ -41,6 +51,8 @@
 pub mod cpu;
 pub mod levels;
 pub mod lu;
+pub mod matching;
+pub mod ordering;
 pub mod symbolic;
 pub mod traits;
 pub mod types;
@@ -74,3 +86,9 @@ pub use lu::{
     LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, SparseLuKernels, SparseLuOps,
     sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
 };
+
+// Re-export ordering algorithms
+pub use ordering::{ColamdOptions, ColamdStats, SparseOrdering, colamd};
+
+// Re-export matching algorithms
+pub use matching::{BipartiteMatching, MatchingResult, hopcroft_karp, maximum_transversal};
