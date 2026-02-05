@@ -752,16 +752,10 @@ impl SparseOps<WgpuRuntime> for WgpuClient {
 
     fn dense_to_sparse(
         &self,
-        _a: &Tensor<WgpuRuntime>,
-        _threshold: f64,
+        a: &Tensor<WgpuRuntime>,
+        threshold: f64,
     ) -> Result<SparseTensor<WgpuRuntime>> {
-        // dense_to_sparse requires counting non-zeros first (GPU→CPU readback)
-        // then allocating arrays and scattering. The kernels exist but the
-        // orchestration requires a blocking readback which adds complexity.
-        // For now, return NotImplemented - can be added in future if needed.
-        Err(Error::NotImplemented {
-            feature: "WebGPU dense to sparse conversion",
-        })
+        self.dense_to_coo_impl(a, threshold)
     }
 
     // =========================================================================

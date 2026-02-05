@@ -12,17 +12,20 @@
 //! - **CSR → Dense**: Parallel scatter per row
 //! - **Dense → COO**: Count + atomic scatter
 
-use super::super::ops::helpers::get_tensor_buffer;
+use super::super::ops::helpers::{get_tensor_buffer, read_u32_from_buffer};
 use super::super::shaders::{
-    launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs,
+    launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs, launch_count_nonzeros,
     launch_csc_to_csr_scatter, launch_csr_to_csc_scatter, launch_csr_to_dense,
-    launch_exclusive_scan_i32, launch_expand_col_ptrs, launch_expand_row_ptrs, launch_histogram,
+    launch_dense_to_coo_scatter, launch_exclusive_scan_i32, launch_expand_col_ptrs,
+    launch_expand_row_ptrs, launch_histogram,
 };
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::validate_wgpu_dtype;
 use super::merge::ScanParams;
 use crate::dtype::{DType, Element};
-use crate::error::Result;
+use crate::error::{Error, Result};
+use crate::ops::TypeConversionOps;
+use crate::sparse::{CooData, SparseTensor};
 use crate::tensor::Tensor;
 
 /// Uniform buffer params for expand kernels
@@ -83,6 +86,26 @@ pub struct CsrToDenseParams {
     pub ncols: u32,
     pub _pad0: u32,
     pub _pad1: u32,
+}
+
+/// Uniform buffer params for count non-zeros kernel
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct CountNonzerosParams {
+    pub total_elems: u32,
+    pub threshold_bits: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
+}
+
+/// Uniform buffer params for dense to COO scatter kernel
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DenseToCooParams {
+    pub nrows: u32,
+    pub ncols: u32,
+    pub threshold_bits: u32,
+    pub _pad0: u32,
 }
 
 impl WgpuClient {
@@ -865,5 +888,163 @@ impl WgpuClient {
         )?;
 
         Ok(dense)
+    }
+
+    /// Dense → COO: Count non-zeros + atomic scatter.
+    ///
+    /// # Algorithm
+    /// 1. Count non-zeros using atomic counter
+    /// 2. Read back total_nnz (single u32 transfer)
+    /// 3. Allocate output COO tensors
+    /// 4. Scatter non-zero elements using atomic write position
+    ///
+    /// # Arguments
+    /// - `dense`: 2D dense tensor [nrows, ncols]
+    /// - `threshold`: Values with |value| < threshold become zero
+    ///
+    /// # Returns
+    /// SparseTensor in COO format
+    pub(crate) fn dense_to_coo_impl(
+        &self,
+        dense: &Tensor<WgpuRuntime>,
+        threshold: f64,
+    ) -> Result<SparseTensor<WgpuRuntime>> {
+        // Validate input
+        if dense.ndim() != 2 {
+            return Err(Error::Internal(format!(
+                "Expected 2D tensor for dense_to_sparse, got {}D",
+                dense.ndim()
+            )));
+        }
+
+        let shape = dense.shape();
+        let nrows = shape[0];
+        let ncols = shape[1];
+        let total_elems = nrows * ncols;
+        let dtype = dense.dtype();
+        let device = dense.device();
+
+        validate_wgpu_dtype(dtype, "dense_to_sparse")?;
+
+        // Convert threshold to appropriate bits representation
+        let threshold_bits = match dtype {
+            DType::F32 => (threshold as f32).to_bits(),
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                let f16_val = half::f16::from_f64(threshold);
+                f16_val.to_bits() as u32
+            }
+            DType::I32 | DType::U32 => threshold as u32,
+            _ => {
+                return Err(Error::NotImplemented {
+                    feature: "dense_to_sparse for this dtype",
+                });
+            }
+        };
+
+        // Step 1: Create atomic counter buffer (initialized to 0)
+        let count_buffer = self.create_storage_buffer("nnz_count", 4);
+        self.queue.write_buffer(&count_buffer, 0, &[0u8; 4]);
+
+        // Setup count params
+        let count_params = CountNonzerosParams {
+            total_elems: total_elems as u32,
+            threshold_bits,
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let count_params_buffer = self.create_uniform_buffer("count_params", 16);
+        self.write_buffer(
+            &count_params_buffer,
+            &[
+                count_params.total_elems,
+                count_params.threshold_bits,
+                count_params._pad0,
+                count_params._pad1,
+            ],
+        );
+
+        let dense_buf = get_tensor_buffer(dense)?;
+
+        // Launch count kernel
+        launch_count_nonzeros(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &dense_buf,
+            &count_buffer,
+            &count_params_buffer,
+            total_elems,
+            dtype,
+        )?;
+
+        // Step 2: Read back total_nnz (single u32 transfer - unavoidable)
+        let total_nnz = read_u32_from_buffer(self, &count_buffer)? as usize;
+
+        // Handle empty case
+        if total_nnz == 0 {
+            return Ok(SparseTensor::Coo(CooData::empty(
+                [nrows, ncols],
+                dtype,
+                device,
+            )));
+        }
+
+        // Step 3: Allocate output COO tensors
+        // Note: WGSL shader uses i32 for indices, we create I32 tensors
+        let row_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz], DType::I32, &self.device_id);
+        let col_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz], DType::I32, &self.device_id);
+        let values = Tensor::<WgpuRuntime>::zeros(&[total_nnz], dtype, &self.device_id);
+
+        // Create atomic write position buffer (initialized to 0)
+        let write_pos_buffer = self.create_storage_buffer("write_pos", 4);
+        self.queue.write_buffer(&write_pos_buffer, 0, &[0u8; 4]);
+
+        // Setup scatter params
+        let scatter_params = DenseToCooParams {
+            nrows: nrows as u32,
+            ncols: ncols as u32,
+            threshold_bits,
+            _pad0: 0,
+        };
+        let scatter_params_buffer = self.create_uniform_buffer("scatter_params", 16);
+        self.write_buffer(
+            &scatter_params_buffer,
+            &[
+                scatter_params.nrows,
+                scatter_params.ncols,
+                scatter_params.threshold_bits,
+                scatter_params._pad0,
+            ],
+        );
+
+        let row_indices_buf = get_tensor_buffer(&row_indices)?;
+        let col_indices_buf = get_tensor_buffer(&col_indices)?;
+        let values_buf = get_tensor_buffer(&values)?;
+
+        // Step 4: Launch scatter kernel
+        launch_dense_to_coo_scatter(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &dense_buf,
+            &row_indices_buf,
+            &col_indices_buf,
+            &values_buf,
+            &write_pos_buffer,
+            &scatter_params_buffer,
+            total_elems,
+            dtype,
+        )?;
+
+        // Convert I32 indices to I64 for CooData
+        // Note: CooData expects I64 indices, but WGSL only supports i32
+        // We need to cast them
+        let row_indices_i64 = self.cast(&row_indices, DType::I64)?;
+        let col_indices_i64 = self.cast(&col_indices, DType::I64)?;
+
+        // Create COO data
+        // Note: The scatter kernel doesn't guarantee sorted order due to atomic operations
+        let coo = CooData::new(row_indices_i64, col_indices_i64, values, [nrows, ncols])?;
+
+        Ok(SparseTensor::Coo(coo))
     }
 }

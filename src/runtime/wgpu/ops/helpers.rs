@@ -783,7 +783,7 @@ pub(super) fn generate_wgpu_seed() -> u32 {
 }
 
 /// Read a single u32 value from a GPU buffer (synchronous)
-pub(super) fn read_u32_from_buffer(
+pub(crate) fn read_u32_from_buffer(
     client: &super::super::WgpuClient,
     buffer: &wgpu::Buffer,
 ) -> Result<u32> {
