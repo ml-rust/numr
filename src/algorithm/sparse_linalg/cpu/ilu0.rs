@@ -246,97 +246,12 @@ fn split_lu<R: Runtime>(
 pub fn ilu0_symbolic_cpu<R: Runtime>(pattern: &CsrData<R>) -> Result<SymbolicIlu0> {
     let n = validate_square_sparse(pattern.shape)?;
 
+    // Extract CSR structure for CPU-based symbolic analysis
     let row_ptrs: Vec<i64> = pattern.row_ptrs().to_vec();
     let col_indices: Vec<i64> = pattern.col_indices().to_vec();
 
-    // Build column-to-index map for fast lookup
-    let mut col_to_idx: Vec<HashMap<usize, usize>> = vec![HashMap::new(); n];
-    for i in 0..n {
-        let start = row_ptrs[i] as usize;
-        let end = row_ptrs[i + 1] as usize;
-        for idx in start..end {
-            let j = col_indices[idx] as usize;
-            col_to_idx[i].insert(j, idx);
-        }
-    }
-
-    // Build L and U patterns
-    let mut l_row_ptrs = vec![0i64; n + 1];
-    let mut l_col_indices = Vec::new();
-    let mut u_row_ptrs = vec![0i64; n + 1];
-    let mut u_col_indices = Vec::new();
-    let mut diag_positions = vec![0usize; n];
-
-    for i in 0..n {
-        let start = row_ptrs[i] as usize;
-        let end = row_ptrs[i + 1] as usize;
-
-        for idx in start..end {
-            let j = col_indices[idx] as usize;
-            if j < i {
-                l_col_indices.push(j as i64);
-            } else {
-                if j == i {
-                    diag_positions[i] = u_col_indices.len();
-                }
-                u_col_indices.push(j as i64);
-            }
-        }
-
-        l_row_ptrs[i + 1] = l_col_indices.len() as i64;
-        u_row_ptrs[i + 1] = u_col_indices.len() as i64;
-    }
-
-    // Precompute update schedule for IKJ factorization
-    // For each row i, we need to process columns k < i and update A[i,j] -= L[i,k]*U[k,j]
-    let mut update_schedule = Vec::with_capacity(n);
-
-    for i in 0..n {
-        let mut row_updates = Vec::new();
-        let start_i = row_ptrs[i] as usize;
-        let end_i = row_ptrs[i + 1] as usize;
-
-        // For each k < i where A[i,k] exists (will become L[i,k])
-        for idx_ik in start_i..end_i {
-            let k = col_indices[idx_ik] as usize;
-            if k >= i {
-                break;
-            }
-
-            // Build list of updates: (j, idx_ij, idx_kj)
-            let mut updates_for_k = Vec::new();
-            let start_k = row_ptrs[k] as usize;
-            let end_k = row_ptrs[k + 1] as usize;
-
-            for idx_kj in start_k..end_k {
-                let j = col_indices[idx_kj] as usize;
-                if j <= k {
-                    continue;
-                }
-
-                // Check if A[i,j] exists
-                if let Some(&idx_ij) = col_to_idx[i].get(&j) {
-                    updates_for_k.push((j, idx_ij, idx_kj));
-                }
-            }
-
-            if !updates_for_k.is_empty() || col_to_idx[k].contains_key(&k) {
-                row_updates.push((k, idx_ik, updates_for_k));
-            }
-        }
-
-        update_schedule.push(row_updates);
-    }
-
-    Ok(SymbolicIlu0 {
-        n,
-        l_row_ptrs,
-        l_col_indices,
-        u_row_ptrs,
-        u_col_indices,
-        diag_positions,
-        update_schedule,
-    })
+    // Delegate to shared implementation
+    crate::algorithm::sparse_linalg::ilu0_symbolic_impl(n, &row_ptrs, &col_indices)
 }
 
 /// ILU(0) numeric factorization using precomputed symbolic data

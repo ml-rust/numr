@@ -26,102 +26,13 @@ use crate::tensor::Tensor;
 /// Positions with level[i,j] ≤ k are included in the fill pattern.
 pub fn iluk_symbolic_cpu<R: Runtime>(a: &CsrData<R>, level: IluFillLevel) -> Result<IlukSymbolic> {
     let n = validate_square_sparse(a.shape)?;
-    let k = level.level();
 
-    // Extract CSR structure
+    // Extract CSR structure for CPU-based symbolic analysis
     let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
     let col_indices: Vec<i64> = a.col_indices().to_vec();
 
-    // Initialize level-of-fill: 0 for existing entries, infinity (usize::MAX) otherwise
-    let mut level_of_fill: Vec<HashMap<usize, usize>> = vec![HashMap::new(); n];
-
-    for i in 0..n {
-        let start = row_ptrs[i] as usize;
-        let end = row_ptrs[i + 1] as usize;
-        for idx in start..end {
-            let j = col_indices[idx] as usize;
-            level_of_fill[i].insert(j, 0);
-        }
-    }
-
-    // Compute level-of-fill using IKJ order
-    for i in 0..n {
-        // Get sorted column indices < i from level_of_fill[i]
-        let mut k_cols: Vec<usize> = level_of_fill[i]
-            .keys()
-            .filter(|&&col| col < i)
-            .copied()
-            .collect();
-        k_cols.sort_unstable();
-
-        for &k_col in &k_cols {
-            let level_ik = match level_of_fill[i].get(&k_col) {
-                Some(&lvl) if lvl <= k => lvl,
-                _ => continue,
-            };
-
-            // Get columns j > k in row k
-            let k_row_cols: Vec<(usize, usize)> = level_of_fill[k_col]
-                .iter()
-                .filter(|&(&col, &lvl)| col > k_col && lvl <= k)
-                .map(|(&col, &lvl)| (col, lvl))
-                .collect();
-
-            for (j, level_kj) in k_row_cols {
-                let new_level = level_ik + level_kj + 1;
-                if new_level <= k {
-                    let entry = level_of_fill[i].entry(j).or_insert(usize::MAX);
-                    if new_level < *entry {
-                        *entry = new_level;
-                    }
-                }
-            }
-        }
-    }
-
-    // Build L and U patterns from level_of_fill
-    let mut row_ptrs_l = vec![0i64; n + 1];
-    let mut col_indices_l = Vec::new();
-    let mut row_ptrs_u = vec![0i64; n + 1];
-    let mut col_indices_u = Vec::new();
-
-    for i in 0..n {
-        // L: columns j < i
-        let mut l_cols: Vec<usize> = level_of_fill[i]
-            .iter()
-            .filter(|&(&col, &lvl)| col < i && lvl <= k)
-            .map(|(&col, _)| col)
-            .collect();
-        l_cols.sort_unstable();
-
-        for col in l_cols {
-            col_indices_l.push(col as i64);
-        }
-        row_ptrs_l[i + 1] = col_indices_l.len() as i64;
-
-        // U: columns j >= i
-        let mut u_cols: Vec<usize> = level_of_fill[i]
-            .iter()
-            .filter(|&(&col, &lvl)| col >= i && lvl <= k)
-            .map(|(&col, _)| col)
-            .collect();
-        u_cols.sort_unstable();
-
-        for col in u_cols {
-            col_indices_u.push(col as i64);
-        }
-        row_ptrs_u[i + 1] = col_indices_u.len() as i64;
-    }
-
-    Ok(IlukSymbolic {
-        n,
-        level_of_fill,
-        row_ptrs_l,
-        col_indices_l,
-        row_ptrs_u,
-        col_indices_u,
-        fill_level: level,
-    })
+    // Delegate to shared implementation
+    crate::algorithm::sparse_linalg::iluk_symbolic_impl(n, &row_ptrs, &col_indices, level)
 }
 
 /// ILU(k) numeric factorization on CPU using precomputed symbolic data
