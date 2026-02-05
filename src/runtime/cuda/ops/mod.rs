@@ -50,7 +50,7 @@ mod tensor;
 #[cfg(test)]
 mod tests {
     use crate::ops::{
-        ActivationOps, BinaryOps, IndexingOps, MatmulOps, NormalizationOps, ReduceOps, TensorOps,
+        ActivationOps, BinaryOps, IndexingOps, MatmulOps, NormalizationOps, ReduceOps,
     };
     use crate::runtime::Runtime;
     use crate::runtime::cuda::{CudaDevice, CudaRuntime};

@@ -147,7 +147,6 @@ fn test_inverse() {
 
 #[test]
 fn test_inverse_identity() {
-    use crate::ops::TensorOps;
     let client = create_client();
     let device = client.device();
 
@@ -195,7 +194,6 @@ fn test_matrix_rank_deficient() {
 
 #[test]
 fn test_qr_decomposition() {
-    use crate::ops::TensorOps;
     let client = create_client();
     let device = client.device();
 
