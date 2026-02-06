@@ -83,8 +83,9 @@ pub use cpu::{
 
 // Re-export sparse LU types and functions
 pub use lu::{
-    LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, SparseLuKernels, SparseLuOps,
-    sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
+    LuFactors, LuMetrics, LuOptions, LuSymbolic, LuSymbolicSimple, LuWorkspace, SparseLuKernels,
+    SparseLuOps, sparse_lu_cpu, sparse_lu_cpu_with_metrics, sparse_lu_cpu_with_workspace,
+    sparse_lu_cpu_with_workspace_and_metrics, sparse_lu_simple_cpu, sparse_lu_solve_cpu,
 };
 
 // Re-export ordering algorithms
