@@ -945,3 +945,234 @@ fn test_khatri_rao_gram_property() {
     // Full Gram property verification would require matmul which is tested elsewhere
     assert_eq!(kr.shape(), &[4, 2]);
 }
+
+// ============================================================================
+// triu / tril tests
+// ============================================================================
+
+#[test]
+fn test_triu_3x3_default_diagonal() {
+    let client = create_client();
+    let device = client.device();
+
+    // A = [[1, 2, 3], [4, 5, 6], [7, 8, 9]]
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.triu(&a, 0).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[1, 2, 3], [0, 5, 6], [0, 0, 9]]
+    assert_eq!(data, [1.0, 2.0, 3.0, 0.0, 5.0, 6.0, 0.0, 0.0, 9.0]);
+}
+
+#[test]
+fn test_triu_3x3_diagonal_1() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.triu(&a, 1).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[0, 2, 3], [0, 0, 6], [0, 0, 0]]
+    assert_eq!(data, [0.0, 2.0, 3.0, 0.0, 0.0, 6.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn test_triu_3x3_negative_diagonal() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.triu(&a, -1).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[1, 2, 3], [4, 5, 6], [0, 8, 9]]
+    assert_eq!(data, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.0, 8.0, 9.0]);
+}
+
+#[test]
+fn test_tril_3x3_default_diagonal() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.tril(&a, 0).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[1, 0, 0], [4, 5, 0], [7, 8, 9]]
+    assert_eq!(data, [1.0, 0.0, 0.0, 4.0, 5.0, 0.0, 7.0, 8.0, 9.0]);
+}
+
+#[test]
+fn test_tril_3x3_diagonal_1() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.tril(&a, 1).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[1, 2, 0], [4, 5, 6], [7, 8, 9]]
+    assert_eq!(data, [1.0, 2.0, 0.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+}
+
+#[test]
+fn test_triu_rectangular_2x4() {
+    let client = create_client();
+    let device = client.device();
+
+    // A = [[1, 2, 3, 4], [5, 6, 7, 8]]
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        &[2, 4],
+        device,
+    );
+
+    let result = client.triu(&a, 0).unwrap();
+    let data: Vec<f32> = result.to_vec();
+
+    // Expected: [[1, 2, 3, 4], [0, 6, 7, 8]]
+    assert_eq!(data, [1.0, 2.0, 3.0, 4.0, 0.0, 6.0, 7.0, 8.0]);
+}
+
+#[test]
+fn test_triu_i32() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&[1i32, 2, 3, 4, 5, 6, 7, 8, 9], &[3, 3], device);
+
+    let result = client.triu(&a, 0).unwrap();
+    let data: Vec<i32> = result.to_vec();
+
+    assert_eq!(data, [1, 2, 3, 0, 5, 6, 0, 0, 9]);
+}
+
+#[test]
+fn test_triu_f64() {
+    let client = create_client();
+    let device = client.device();
+
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.triu(&a, 0).unwrap();
+    let data: Vec<f64> = result.to_vec();
+
+    assert_eq!(data, [1.0, 2.0, 3.0, 0.0, 5.0, 6.0, 0.0, 0.0, 9.0]);
+}
+
+// ============================================================================
+// slogdet tests
+// ============================================================================
+
+#[test]
+fn test_slogdet_2x2() {
+    let client = create_client();
+    let device = client.device();
+
+    // A = [[1, 2], [3, 4]], det = 1*4 - 2*3 = -2
+    // sign = -1, logabsdet = ln(2)
+    let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device);
+
+    let result = client.slogdet(&a).unwrap();
+
+    let sign_data: Vec<f32> = result.sign.to_vec();
+    let logabsdet_data: Vec<f32> = result.logabsdet.to_vec();
+
+    assert!(
+        (sign_data[0] - (-1.0)).abs() < 1e-5,
+        "sign should be -1, got {}",
+        sign_data[0]
+    );
+    assert!(
+        (logabsdet_data[0] - 2.0f32.ln()).abs() < 1e-5,
+        "logabsdet should be ln(2) ≈ {}, got {}",
+        2.0f32.ln(),
+        logabsdet_data[0]
+    );
+}
+
+#[test]
+fn test_slogdet_3x3_identity() {
+    let client = create_client();
+    let device = client.device();
+
+    // Identity matrix: det = 1, sign = 1, logabsdet = 0
+    let a = Tensor::<CpuRuntime>::from_slice(
+        &[1.0f32, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        &[3, 3],
+        device,
+    );
+
+    let result = client.slogdet(&a).unwrap();
+
+    let sign_data: Vec<f32> = result.sign.to_vec();
+    let logabsdet_data: Vec<f32> = result.logabsdet.to_vec();
+
+    assert!(
+        (sign_data[0] - 1.0).abs() < 1e-5,
+        "sign should be 1, got {}",
+        sign_data[0]
+    );
+    assert!(
+        logabsdet_data[0].abs() < 1e-5,
+        "logabsdet should be 0, got {}",
+        logabsdet_data[0]
+    );
+}
+
+#[test]
+fn test_slogdet_positive_det() {
+    let client = create_client();
+    let device = client.device();
+
+    // A = [[2, 0], [0, 3]], det = 6
+    // sign = 1, logabsdet = ln(6)
+    let a = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.0, 0.0, 3.0], &[2, 2], device);
+
+    let result = client.slogdet(&a).unwrap();
+
+    let sign_data: Vec<f32> = result.sign.to_vec();
+    let logabsdet_data: Vec<f32> = result.logabsdet.to_vec();
+
+    assert!(
+        (sign_data[0] - 1.0).abs() < 1e-5,
+        "sign should be 1, got {}",
+        sign_data[0]
+    );
+    assert!(
+        (logabsdet_data[0] - 6.0f32.ln()).abs() < 1e-4,
+        "logabsdet should be ln(6) ≈ {}, got {}",
+        6.0f32.ln(),
+        logabsdet_data[0]
+    );
+}

@@ -232,6 +232,23 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - Graph theory (graph products)
     fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Upper triangular part of a matrix
+    ///
+    /// Returns a copy of the matrix with elements below the k-th diagonal zeroed.
+    /// Supports all numeric dtypes (not just F32/F64).
+    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+
+    /// Lower triangular part of a matrix
+    ///
+    /// Returns a copy of the matrix with elements above the k-th diagonal zeroed.
+    /// Supports all numeric dtypes (not just F32/F64).
+    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+
+    /// Sign and log-absolute-determinant
+    ///
+    /// Computes sign(det(A)) and log(|det(A)|) separately for numerical stability.
+    fn slogdet(&self, a: &Tensor<R>) -> Result<super::SlogdetResult<R>>;
+
     /// Khatri-Rao product (column-wise Kronecker product): A ⊙ B
     ///
     /// Computes the column-wise Kronecker product of two matrices.

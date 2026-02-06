@@ -209,6 +209,21 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
     fn polar_decompose(&self, a: &Tensor<WgpuRuntime>) -> Result<PolarDecomposition<WgpuRuntime>> {
         advanced_decompositions::polar_decompose(self, a)
     }
+
+    fn triu(&self, a: &Tensor<WgpuRuntime>, diagonal: i64) -> Result<Tensor<WgpuRuntime>> {
+        matrix_ops::triu(self, a, diagonal)
+    }
+
+    fn tril(&self, a: &Tensor<WgpuRuntime>, diagonal: i64) -> Result<Tensor<WgpuRuntime>> {
+        matrix_ops::tril(self, a, diagonal)
+    }
+
+    fn slogdet(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+    ) -> Result<crate::algorithm::linalg::SlogdetResult<WgpuRuntime>> {
+        matrix_ops::slogdet(self, a)
+    }
 }
 
 // Implement MatrixFunctionsAlgorithms for WgpuClient

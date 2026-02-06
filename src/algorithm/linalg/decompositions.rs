@@ -477,6 +477,26 @@ impl Default for CpOptions {
     }
 }
 
+/// Sign and log-absolute-determinant result
+///
+/// For a square matrix A, slogdet computes sign(det(A)) and log(|det(A)|)
+/// separately. This is more numerically stable than computing det(A) directly
+/// for large matrices where the determinant may overflow or underflow.
+///
+/// # Properties
+///
+/// - `det(A) = sign * exp(logabsdet)`
+/// - `sign` is -1, 0, or +1 (scalar tensor, same dtype as input)
+/// - `logabsdet` is log(|det(A)|) (scalar tensor, same dtype as input)
+/// - If `det(A) = 0`, then `sign = 0` and `logabsdet = -inf`
+pub struct SlogdetResult<R: Runtime> {
+    /// Sign of the determinant: -1.0, 0.0, or 1.0 (scalar tensor)
+    pub sign: Tensor<R>,
+
+    /// Natural logarithm of the absolute value of the determinant (scalar tensor)
+    pub logabsdet: Tensor<R>,
+}
+
 /// Tensor-Train (TT) decomposition result: T = G₁ × G₂ × ... × Gₙ
 ///
 /// The Tensor-Train decomposition represents an N-dimensional tensor as a

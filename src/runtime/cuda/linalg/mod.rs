@@ -114,6 +114,21 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         matrix_ops::kron_impl(self, a, b)
     }
 
+    fn triu(&self, a: &Tensor<CudaRuntime>, diagonal: i64) -> Result<Tensor<CudaRuntime>> {
+        matrix_ops::triu_impl(self, a, diagonal)
+    }
+
+    fn tril(&self, a: &Tensor<CudaRuntime>, diagonal: i64) -> Result<Tensor<CudaRuntime>> {
+        matrix_ops::tril_impl(self, a, diagonal)
+    }
+
+    fn slogdet(
+        &self,
+        a: &Tensor<CudaRuntime>,
+    ) -> Result<crate::algorithm::linalg::SlogdetResult<CudaRuntime>> {
+        matrix_ops::slogdet_impl(self, a)
+    }
+
     fn khatri_rao(
         &self,
         a: &Tensor<CudaRuntime>,

@@ -10,7 +10,9 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
+use crate::ops::{
+    BinaryOps, CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, UtilityOps,
+};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -500,4 +502,30 @@ pub fn khatri_rao_impl(
     let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[m_out, k], dtype, device) };
 
     Ok(out)
+}
+
+/// Upper triangular part of a matrix — delegates to impl_generic
+pub fn triu_impl(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<CudaRuntime>> {
+    crate::ops::impl_generic::triu_impl(client, a, diagonal)
+}
+
+/// Lower triangular part of a matrix — delegates to impl_generic
+pub fn tril_impl(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<CudaRuntime>> {
+    crate::ops::impl_generic::tril_impl(client, a, diagonal)
+}
+
+/// Sign and log-absolute-determinant — delegates to impl_generic
+pub fn slogdet_impl(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+) -> Result<crate::algorithm::linalg::SlogdetResult<CudaRuntime>> {
+    crate::ops::impl_generic::slogdet_impl(client, a)
 }

@@ -487,4 +487,89 @@ pub trait LinalgOps<R: Runtime> {
     /// //  [21, 32]]  // 3*7, 4*8
     /// ```
     fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Upper triangular part of a matrix
+    ///
+    /// Returns a copy of the matrix with elements below the k-th diagonal zeroed.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix [m, n]
+    /// * `diagonal` - Diagonal offset. 0 = main diagonal, positive = above, negative = below.
+    ///
+    /// # Returns
+    ///
+    /// Matrix of same shape and dtype with lower triangle zeroed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[3, 3], &device);
+    /// let u = client.triu(&a, 0)?;
+    /// // u = [[1, 2, 3],
+    /// //      [0, 5, 6],
+    /// //      [0, 0, 9]]
+    /// ```
+    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+
+    /// Lower triangular part of a matrix
+    ///
+    /// Returns a copy of the matrix with elements above the k-th diagonal zeroed.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Input 2D matrix [m, n]
+    /// * `diagonal` - Diagonal offset. 0 = main diagonal, positive = above, negative = below.
+    ///
+    /// # Returns
+    ///
+    /// Matrix of same shape and dtype with upper triangle zeroed.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0], &[3, 3], &device);
+    /// let l = client.tril(&a, 0)?;
+    /// // l = [[1, 0, 0],
+    /// //      [4, 5, 0],
+    /// //      [7, 8, 9]]
+    /// ```
+    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+
+    /// Sign and log-absolute-determinant
+    ///
+    /// Computes sign(det(A)) and log(|det(A)|) separately for numerical stability.
+    /// This avoids overflow/underflow issues with large matrices where det(A) may
+    /// be astronomically large or vanishingly small.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. Compute PA = LU (pivoted LU decomposition)
+    /// 2. sign = (-1)^num_swaps * product(sign(U[i,i]))
+    /// 3. logabsdet = sum(log(|U[i,i]|))
+    /// 4. If any U[i,i] == 0: sign = 0, logabsdet = -inf
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Square matrix [n, n]
+    ///
+    /// # Returns
+    ///
+    /// `SlogdetResult` with `sign` (scalar) and `logabsdet` (scalar)
+    ///
+    /// # Errors
+    ///
+    /// - `ShapeMismatch` if matrix is not square
+    /// - `UnsupportedDType` if input is not F32 or F64
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// let result = client.slogdet(&a)?;
+    /// // sign = -1.0, logabsdet = log(2) ≈ 0.693
+    /// ```
+    fn slogdet(&self, a: &Tensor<R>) -> Result<crate::algorithm::linalg::SlogdetResult<R>>;
 }

@@ -90,4 +90,22 @@ impl LinalgOps<WgpuRuntime> for WgpuClient {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
         LinearAlgebraAlgorithms::khatri_rao(self, a, b)
     }
+
+    fn triu(&self, a: &Tensor<WgpuRuntime>, diagonal: i64) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::triu(self, a, diagonal)
+    }
+
+    fn tril(&self, a: &Tensor<WgpuRuntime>, diagonal: i64) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::tril(self, a, diagonal)
+    }
+
+    fn slogdet(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+    ) -> Result<crate::algorithm::linalg::SlogdetResult<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::slogdet(self, a)
+    }
 }

@@ -334,6 +334,156 @@ fn khatri_rao_typed<T: Element + LinalgElement>(
     Ok(Tensor::<CpuRuntime>::from_slice(&out, &[m_out, k], device))
 }
 
+/// Upper triangular part of a matrix
+///
+/// Supports all numeric dtypes (not just F32/F64).
+pub fn triu_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<CpuRuntime>> {
+    let (m, n) = validate_matrix_2d(a.shape())?;
+    let dtype = a.dtype();
+
+    use crate::runtime::cpu::helpers::dispatch_dtype;
+    dispatch_dtype!(dtype, T => {
+        triu_typed::<T>(client, a, m, n, diagonal)
+    }, "triu")
+}
+
+fn triu_typed<T: Element>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
+    diagonal: i64,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    // Single allocation: clone input, then zero out the lower triangle in-place
+    let mut data: Vec<T> = a.to_vec();
+
+    for row in 0..m {
+        // Zero columns below the diagonal: col < row + diagonal
+        let threshold = (row as i64 + diagonal).max(0) as usize;
+        let end = threshold.min(n);
+        for col in 0..end {
+            data[row * n + col] = T::zero();
+        }
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(&data, &[m, n], device))
+}
+
+/// Lower triangular part of a matrix
+///
+/// Supports all numeric dtypes (not just F32/F64).
+pub fn tril_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<CpuRuntime>> {
+    let (m, n) = validate_matrix_2d(a.shape())?;
+    let dtype = a.dtype();
+
+    use crate::runtime::cpu::helpers::dispatch_dtype;
+    dispatch_dtype!(dtype, T => {
+        tril_typed::<T>(client, a, m, n, diagonal)
+    }, "tril")
+}
+
+fn tril_typed<T: Element>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    m: usize,
+    n: usize,
+    diagonal: i64,
+) -> Result<Tensor<CpuRuntime>> {
+    let device = client.device();
+    // Single allocation: clone input, then zero out the upper triangle in-place
+    let mut data: Vec<T> = a.to_vec();
+
+    for row in 0..m {
+        // Zero columns above the diagonal: col > row + diagonal
+        let threshold = (row as i64 + diagonal + 1).max(0) as usize;
+        let start = threshold.min(n);
+        for col in start..n {
+            data[row * n + col] = T::zero();
+        }
+    }
+
+    Ok(Tensor::<CpuRuntime>::from_slice(&data, &[m, n], device))
+}
+
+/// Sign and log-absolute-determinant via LU decomposition
+pub fn slogdet_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+) -> Result<crate::algorithm::linalg::SlogdetResult<CpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    let n = validate_square_matrix(a.shape())?;
+
+    match a.dtype() {
+        DType::F32 => slogdet_typed::<f32>(client, a, n),
+        DType::F64 => slogdet_typed::<f64>(client, a, n),
+        _ => Err(Error::UnsupportedDType {
+            dtype: a.dtype(),
+            op: "slogdet",
+        }),
+    }
+}
+
+fn slogdet_typed<T: Element + LinalgElement>(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    n: usize,
+) -> Result<crate::algorithm::linalg::SlogdetResult<CpuRuntime>> {
+    let device = client.device();
+
+    // Handle special case n=0: det of empty matrix is 1 by convention
+    if n == 0 {
+        return Ok(crate::algorithm::linalg::SlogdetResult {
+            sign: Tensor::<CpuRuntime>::from_slice(&[T::one()], &[], device),
+            logabsdet: Tensor::<CpuRuntime>::from_slice(&[T::zero()], &[], device),
+        });
+    }
+
+    // Compute LU decomposition
+    let lu_decomp = lu_decompose_impl(client, a)?;
+    let lu_data: Vec<T> = lu_decomp.lu.to_vec();
+
+    // Start with sign from row swaps
+    let mut sign_val: f64 = if lu_decomp.num_swaps % 2 == 0 {
+        1.0
+    } else {
+        -1.0
+    };
+
+    let mut logabsdet_val: f64 = 0.0;
+    let mut is_zero = false;
+
+    for i in 0..n {
+        let diag = lu_data[i * n + i].to_f64();
+        if diag == 0.0 {
+            is_zero = true;
+            break;
+        }
+        if diag < 0.0 {
+            sign_val = -sign_val;
+        }
+        logabsdet_val += diag.abs().ln();
+    }
+
+    if is_zero {
+        sign_val = 0.0;
+        logabsdet_val = f64::NEG_INFINITY;
+    }
+
+    Ok(crate::algorithm::linalg::SlogdetResult {
+        sign: Tensor::<CpuRuntime>::from_slice(&[T::from_f64(sign_val)], &[], device),
+        logabsdet: Tensor::<CpuRuntime>::from_slice(&[T::from_f64(logabsdet_val)], &[], device),
+    })
+}
+
 /// Matrix rank via singular value thresholding
 /// Uses QR-based approach since SVD is not yet implemented
 pub fn matrix_rank_impl(

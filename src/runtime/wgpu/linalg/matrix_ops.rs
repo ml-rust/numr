@@ -603,3 +603,29 @@ pub fn khatri_rao(
 
     Ok(out)
 }
+
+/// Upper triangular part of a matrix — delegates to impl_generic
+pub fn triu(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<WgpuRuntime>> {
+    crate::ops::impl_generic::triu_impl(client, a, diagonal)
+}
+
+/// Lower triangular part of a matrix — delegates to impl_generic
+pub fn tril(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    diagonal: i64,
+) -> Result<Tensor<WgpuRuntime>> {
+    crate::ops::impl_generic::tril_impl(client, a, diagonal)
+}
+
+/// Sign and log-absolute-determinant — delegates to impl_generic
+pub fn slogdet(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+) -> Result<crate::algorithm::linalg::SlogdetResult<WgpuRuntime>> {
+    crate::ops::impl_generic::slogdet_impl(client, a)
+}
