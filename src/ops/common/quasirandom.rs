@@ -6,7 +6,9 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cpu::kernels::sobol_data::{ArchivedSobolPolynomial, get_polynomial};
+use crate::runtime::cpu::kernels::sobol_data::ArchivedSobolPolynomial;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+use crate::runtime::cpu::kernels::sobol_data::get_polynomial;
 
 /// Maximum number of dimensions supported for Sobol sequences with full direction numbers.
 ///
@@ -79,6 +81,7 @@ pub fn dimension_zero_vectors() -> [u32; SOBOL_BITS] {
 /// Returns a flattened vector of length `dimension * SOBOL_BITS` containing
 /// the direction vectors for each dimension concatenated.
 #[inline]
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn compute_all_direction_vectors(dimension: usize) -> Vec<u32> {
     let mut all_vectors = Vec::with_capacity(dimension * SOBOL_BITS);
 
@@ -351,6 +354,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cuda", feature = "wgpu"))]
     fn test_compute_all_direction_vectors_length() {
         // Test that we get the right number of vectors
         let dim = 5;
@@ -359,6 +363,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(feature = "cuda", feature = "wgpu"))]
     fn test_compute_all_direction_vectors_dimension_0() {
         // First dimension should match dimension_zero_vectors()
         let vectors = compute_all_direction_vectors(3);

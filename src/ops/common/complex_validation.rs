@@ -56,6 +56,7 @@ pub fn validate_make_complex_inputs<R: Runtime>(real: &Tensor<R>, imag: &Tensor<
 /// - `ShapeMismatch` if real and imag have different shapes
 /// - `DTypeMismatch` if real and imag have different dtypes
 /// - `UnsupportedDType` if dtype is not F32
+#[cfg(feature = "wgpu")]
 pub fn validate_make_complex_inputs_f32_only<R: Runtime>(
     real: &Tensor<R>,
     imag: &Tensor<R>,
@@ -140,6 +141,7 @@ pub fn validate_complex_real_inputs<R: Runtime>(
 /// - `ShapeMismatch` if shapes don't match
 /// - `DTypeMismatch` if real dtype is not F32
 /// - `UnsupportedDType` if complex is not Complex64 or if Complex128 is used
+#[cfg(feature = "wgpu")]
 pub fn validate_complex_real_inputs_f32_only<R: Runtime>(
     complex: &Tensor<R>,
     real: &Tensor<R>,

@@ -19,9 +19,15 @@
 //!             └── wgpu/multivariate.rs delegates here
 //! ```
 
+pub mod linalg;
 pub mod multivariate;
+pub mod random;
+pub mod utility;
 
+pub use linalg::{slogdet_impl, tril_impl, triu_impl};
 pub use multivariate::{
     DTypeSupport, MultinomialSamplingOps, dirichlet_impl, multinomial_samples_impl,
     multivariate_normal_impl, wishart_impl,
 };
+pub use random::randperm_impl;
+pub use utility::one_hot_impl;
