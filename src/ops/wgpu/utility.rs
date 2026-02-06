@@ -128,6 +128,14 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
         Ok(out)
     }
 
+    fn one_hot(
+        &self,
+        indices: &Tensor<WgpuRuntime>,
+        num_classes: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        crate::ops::impl_generic::one_hot_impl(self, indices, num_classes)
+    }
+
     fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         // Use shared validation
         let (rows, cols) = validate_eye(n, m);

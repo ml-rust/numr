@@ -108,4 +108,35 @@ pub trait UtilityOps<R: Runtime> {
     /// let rect = client.eye(2, Some(4), DType::F32)?; // 2x4 matrix with diagonal ones
     /// ```
     fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<R>>;
+
+    /// One-hot encode integer indices
+    ///
+    /// Creates a tensor where each index value is expanded into a one-hot vector.
+    /// The output has one additional dimension of size `num_classes` appended.
+    ///
+    /// # Arguments
+    ///
+    /// * `indices` - Integer tensor of any shape [...]. Values must be in [0, num_classes).
+    /// * `num_classes` - Number of classes (size of the one-hot dimension)
+    ///
+    /// # Returns
+    ///
+    /// F32 tensor of shape [..., num_classes] where output[..., k] = 1.0
+    /// if indices[...] == k, else 0.0.
+    ///
+    /// # Errors
+    ///
+    /// - `UnsupportedDType` if indices is not an integer type
+    /// - `InvalidArgument` if num_classes == 0
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let indices = Tensor::from_slice(&[0i64, 2, 1], &[3], &device);
+    /// let oh = client.one_hot(&indices, 4)?;
+    /// // oh = [[1, 0, 0, 0],
+    /// //       [0, 0, 1, 0],
+    /// //       [0, 1, 0, 0]]
+    /// ```
+    fn one_hot(&self, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>;
 }

@@ -127,6 +127,14 @@ impl UtilityOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn one_hot(
+        &self,
+        indices: &Tensor<CudaRuntime>,
+        num_classes: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        crate::ops::impl_generic::one_hot_impl(self, indices, num_classes)
+    }
+
     fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<CudaRuntime>> {
         // Use shared validation
         let (rows, cols) = validate_eye(n, m);
