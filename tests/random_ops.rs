@@ -1151,3 +1151,139 @@ fn test_distributions_multidim() {
         shape
     );
 }
+
+// ============================================================================
+// Randperm Tests
+// ============================================================================
+
+#[test]
+fn test_randperm_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.randperm(5).unwrap();
+
+    assert_eq!(result.shape(), &[5]);
+    assert_eq!(result.dtype(), DType::I64);
+
+    // Check it's a valid permutation: all values in [0, 5) and unique
+    let data: Vec<i64> = result.to_vec();
+    let mut sorted = data.clone();
+    sorted.sort();
+    assert_eq!(sorted, vec![0, 1, 2, 3, 4]);
+}
+
+#[test]
+fn test_randperm_single() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let result = client.randperm(1).unwrap();
+
+    assert_eq!(result.shape(), &[1]);
+    let data: Vec<i64> = result.to_vec();
+    assert_eq!(data, vec![0]);
+}
+
+#[test]
+fn test_randperm_large() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let n = 100;
+    let result = client.randperm(n).unwrap();
+
+    assert_eq!(result.shape(), &[n]);
+
+    let data: Vec<i64> = result.to_vec();
+    let mut sorted = data.clone();
+    sorted.sort();
+    let expected: Vec<i64> = (0..n as i64).collect();
+    assert_eq!(sorted, expected);
+}
+
+#[test]
+fn test_randperm_zero_errors() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    assert!(client.randperm(0).is_err());
+}
+
+// ============================================================================
+// One-Hot Tests
+// ============================================================================
+
+#[test]
+fn test_one_hot_basic() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let indices = numr::tensor::Tensor::<CpuRuntime>::from_slice(&[0i64, 2, 1], &[3], &device);
+
+    use numr::ops::UtilityOps;
+    let result = client.one_hot(&indices, 4).unwrap();
+
+    assert_eq!(result.shape(), &[3, 4]);
+    assert_eq!(result.dtype(), DType::F32);
+
+    let data: Vec<f32> = result.to_vec();
+    // [1,0,0,0, 0,0,1,0, 0,1,0,0]
+    assert_eq!(
+        data,
+        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+    );
+}
+
+#[test]
+fn test_one_hot_single_class() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let indices = numr::tensor::Tensor::<CpuRuntime>::from_slice(&[0i64, 0, 0], &[3], &device);
+
+    use numr::ops::UtilityOps;
+    let result = client.one_hot(&indices, 1).unwrap();
+
+    assert_eq!(result.shape(), &[3, 1]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn test_one_hot_i32_indices() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let indices = numr::tensor::Tensor::<CpuRuntime>::from_slice(&[1i32, 0, 2], &[3], &device);
+
+    use numr::ops::UtilityOps;
+    let result = client.one_hot(&indices, 3).unwrap();
+
+    assert_eq!(result.shape(), &[3, 3]);
+    let data: Vec<f32> = result.to_vec();
+    // [0,1,0, 1,0,0, 0,0,1]
+    assert_eq!(data, vec![0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+}
+
+#[test]
+fn test_one_hot_zero_classes_errors() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let indices = numr::tensor::Tensor::<CpuRuntime>::from_slice(&[0i64], &[1], &device);
+
+    use numr::ops::UtilityOps;
+    assert!(client.one_hot(&indices, 0).is_err());
+}
+
+#[test]
+fn test_one_hot_float_dtype_errors() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let indices = numr::tensor::Tensor::<CpuRuntime>::from_slice(&[0.0f32, 1.0], &[2], &device);
+
+    use numr::ops::UtilityOps;
+    assert!(client.one_hot(&indices, 3).is_err());
+}

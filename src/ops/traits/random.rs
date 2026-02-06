@@ -691,4 +691,35 @@ pub trait RandomOps<R: Runtime> {
         shape: &[usize],
         dtype: crate::dtype::DType,
     ) -> Result<Tensor<R>>;
+
+    /// Generate a random permutation of integers [0, n)
+    ///
+    /// Creates a 1D tensor containing a random permutation of the integers
+    /// from 0 to n-1. Output dtype is I64.
+    ///
+    /// # Algorithm
+    ///
+    /// Uses Fisher-Yates shuffle:
+    /// 1. Create array [0, 1, 2, ..., n-1]
+    /// 2. For i from n-1 down to 1: swap arr[i] with arr[random(0..=i)]
+    ///
+    /// # Arguments
+    ///
+    /// * `n` - Length of permutation (must be > 0)
+    ///
+    /// # Returns
+    ///
+    /// 1D tensor of shape [n] with dtype I64 containing a random permutation
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::InvalidArgument` if n == 0.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let perm = client.randperm(5)?;
+    /// // perm might be [3, 0, 4, 1, 2] (random ordering of 0..5)
+    /// ```
+    fn randperm(&self, n: usize) -> Result<Tensor<R>>;
 }

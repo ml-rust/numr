@@ -67,8 +67,8 @@ pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, log
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
 pub use memory::{
     arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
-    multinomial_kernel_with_replacement, multinomial_kernel_without_replacement,
-    rand_normal_kernel, rand_uniform_kernel, randint_kernel,
+    multinomial_kernel_with_replacement, multinomial_kernel_without_replacement, one_hot_kernel,
+    rand_normal_kernel, rand_uniform_kernel, randint_kernel, randperm_kernel,
 };
 pub use norm::{layer_norm_kernel, rms_norm_kernel};
 pub use quasirandom::{

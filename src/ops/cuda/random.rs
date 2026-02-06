@@ -686,6 +686,10 @@ impl RandomOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
+
+    fn randperm(&self, n: usize) -> Result<Tensor<CudaRuntime>> {
+        crate::ops::impl_generic::randperm_impl(self, n)
+    }
 }
 
 // ============================================================================

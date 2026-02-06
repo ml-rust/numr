@@ -564,6 +564,24 @@ impl RandomOps<CpuRuntime> for CpuClient {
         Ok(out)
     }
 
+    fn randperm(&self, n: usize) -> Result<Tensor<CpuRuntime>> {
+        if n == 0 {
+            return Err(Error::InvalidArgument {
+                arg: "n",
+                reason: "randperm requires n > 0".to_string(),
+            });
+        }
+
+        let out = Tensor::<CpuRuntime>::empty(&[n], DType::I64, &self.device);
+        let out_ptr = out.storage().ptr() as *mut i64;
+
+        unsafe {
+            kernels::randperm_kernel(out_ptr, n);
+        }
+
+        Ok(out)
+    }
+
     fn f_distribution(
         &self,
         df1: f64,

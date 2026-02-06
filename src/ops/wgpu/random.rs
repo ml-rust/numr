@@ -783,6 +783,10 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         Ok(out)
     }
 
+    fn randperm(&self, n: usize) -> Result<Tensor<WgpuRuntime>> {
+        crate::ops::impl_generic::randperm_impl(self, n)
+    }
+
     fn f_distribution(
         &self,
         df1: f64,

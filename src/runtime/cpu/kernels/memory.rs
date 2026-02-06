@@ -567,3 +567,45 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
         }
     }
 }
+
+/// Fisher-Yates shuffle to generate random permutation of [0, n)
+///
+/// # Safety
+/// - `out` must be a valid pointer to `n` elements of i64
+pub unsafe fn randperm_kernel(out: *mut i64, n: usize) {
+    let mut rng = rand::rng();
+    let out_slice = std::slice::from_raw_parts_mut(out, n);
+
+    // Initialize with [0, 1, 2, ..., n-1]
+    for i in 0..n {
+        out_slice[i] = i as i64;
+    }
+
+    // Fisher-Yates shuffle
+    for i in (1..n).rev() {
+        let j = rng.random_range(0..=i);
+        out_slice.swap(i, j);
+    }
+}
+
+/// One-hot encode integer indices
+///
+/// # Safety
+/// - `indices` must be a valid pointer to `numel` elements of type T (integer)
+/// - `out` must be a valid pointer to `numel * num_classes` f32 elements, zero-initialized
+pub unsafe fn one_hot_kernel<T: Element>(
+    indices: *const T,
+    out: *mut f32,
+    numel: usize,
+    num_classes: usize,
+) {
+    let indices_slice = std::slice::from_raw_parts(indices, numel);
+    let out_slice = std::slice::from_raw_parts_mut(out, numel * num_classes);
+
+    for i in 0..numel {
+        let idx = indices_slice[i].to_f64() as usize;
+        if idx < num_classes {
+            out_slice[i * num_classes + idx] = 1.0;
+        }
+    }
+}
