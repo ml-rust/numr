@@ -9,8 +9,9 @@ use crate::tensor::Tensor;
 
 use super::types::{
     BiCgStabOptions, BiCgStabResult, CgOptions, CgResult, CgsOptions, CgsResult, GmresOptions,
-    GmresResult, MinresOptions, MinresResult, SparseEigComplexResult, SparseEigOptions,
-    SparseEigResult,
+    GmresResult, JacobiOptions, JacobiResult, LgmresOptions, LgmresResult, MinresOptions,
+    MinresResult, QmrOptions, QmrResult, SorOptions, SorResult, SparseEigComplexResult,
+    SparseEigOptions, SparseEigResult, SparseSvdResult, SvdsOptions,
 };
 
 /// Iterative solvers for sparse linear systems
@@ -36,59 +37,6 @@ pub trait IterativeSolvers<R: Runtime>:
     ///
     /// Solves Ax = b for non-symmetric sparse systems using Krylov subspace
     /// iteration with Arnoldi orthogonalization.
-    ///
-    /// # Algorithm (Right-Preconditioned GMRES with Restarts)
-    ///
-    /// ```text
-    /// x = x0 (or zeros)
-    /// for restart_cycle = 1, 2, ... until converged:
-    ///     r = b - A @ x
-    ///     β = ||r||
-    ///     if β < tol: return x
-    ///
-    ///     v[0] = r / β
-    ///     H = zeros(m+1, m)  # Hessenberg matrix
-    ///
-    ///     for j = 0 to m-1:
-    ///         # Apply preconditioner and matrix
-    ///         z = M⁻¹ @ v[j]      # Sparse triangular solves (ILU)
-    ///         w = A @ z            # Sparse matvec
-    ///
-    ///         # Arnoldi: orthogonalize against previous vectors
-    ///         for i = 0 to j:
-    ///             H[i,j] = dot(w, v[i])
-    ///             w = w - H[i,j] * v[i]
-    ///         H[j+1,j] = ||w||
-    ///
-    ///         if H[j+1,j] < eps: break  # Lucky breakdown
-    ///         v[j+1] = w / H[j+1,j]
-    ///
-    ///         # Apply Givens rotations to update QR factorization
-    ///         # Track residual norm efficiently
-    ///
-    ///         if residual < tol: break
-    ///
-    ///     # Solve least squares via back substitution
-    ///     y = solve_upper_triangular(R[:j,:j], g[:j])
-    ///     # Update solution: x = x + V @ (M⁻¹ @ y)
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Sparse coefficient matrix in CSR format [n, n]
-    /// * `b` - Right-hand side vector [n]
-    /// * `x0` - Optional initial guess [n] (defaults to zeros)
-    /// * `options` - Solver options (tolerance, max iterations, preconditioner)
-    ///
-    /// # Returns
-    ///
-    /// `GmresResult` containing the solution, iteration count, and convergence status
-    ///
-    /// # Errors
-    ///
-    /// - Matrix is not square
-    /// - Dimension mismatch between A and b
-    /// - Preconditioner factorization fails
     fn gmres(
         &self,
         a: &CsrData<R>,
@@ -101,49 +49,6 @@ pub trait IterativeSolvers<R: Runtime>:
     ///
     /// Alternative to GMRES for non-symmetric systems. Uses less memory than
     /// GMRES(m) but may have less predictable convergence.
-    ///
-    /// # Algorithm
-    ///
-    /// ```text
-    /// x = x0, r = b - A @ x, r_hat = r
-    /// ρ = 1, α = 1, ω = 1
-    /// v = p = 0
-    ///
-    /// for iter = 1, 2, ... until converged:
-    ///     ρ_new = dot(r_hat, r)
-    ///     β = (ρ_new / ρ) * (α / ω)
-    ///     p = r + β * (p - ω * v)
-    ///
-    ///     # Apply preconditioner
-    ///     p_hat = M⁻¹ @ p
-    ///     v = A @ p_hat
-    ///
-    ///     α = ρ_new / dot(r_hat, v)
-    ///     s = r - α * v
-    ///
-    ///     if ||s|| < tol: x += α * p_hat; return
-    ///
-    ///     s_hat = M⁻¹ @ s
-    ///     t = A @ s_hat
-    ///
-    ///     ω = dot(t, s) / dot(t, t)
-    ///     x = x + α * p_hat + ω * s_hat
-    ///     r = s - ω * t
-    ///     ρ = ρ_new
-    ///
-    ///     if ||r|| < tol: return
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `a` - Sparse coefficient matrix in CSR format [n, n]
-    /// * `b` - Right-hand side vector [n]
-    /// * `x0` - Optional initial guess [n] (defaults to zeros)
-    /// * `options` - Solver options
-    ///
-    /// # Returns
-    ///
-    /// `BiCgStabResult` containing the solution and convergence info
     fn bicgstab(
         &self,
         a: &CsrData<R>,
@@ -155,19 +60,6 @@ pub trait IterativeSolvers<R: Runtime>:
     /// CG (Conjugate Gradient) solver
     ///
     /// Solves Ax = b where A is symmetric positive definite (SPD).
-    /// Optimal for SPD systems — guaranteed convergence in at most n iterations.
-    ///
-    /// # Algorithm (Preconditioned Hestenes-Stiefel)
-    ///
-    /// ```text
-    /// x = x0, r = b - A*x, z = M^-1*r, p = z, rz = <r,z>
-    /// for iter = 1, 2, ...:
-    ///     Ap = A*p;  alpha = rz / <p, Ap>
-    ///     x += alpha*p;  r -= alpha*Ap
-    ///     if ||r|| < tol: return
-    ///     z = M^-1*r;  rz_new = <r,z>;  beta = rz_new/rz
-    ///     p = z + beta*p;  rz = rz_new
-    /// ```
     fn cg(
         &self,
         a: &CsrData<R>,
@@ -179,9 +71,6 @@ pub trait IterativeSolvers<R: Runtime>:
     /// MINRES (Minimum Residual) solver
     ///
     /// Solves Ax = b where A is symmetric (possibly indefinite).
-    /// Unlike CG, does not require positive definiteness.
-    ///
-    /// Uses Lanczos tridiagonalization with Givens rotations (Paige-Saunders).
     fn minres(
         &self,
         a: &CsrData<R>,
@@ -192,8 +81,7 @@ pub trait IterativeSolvers<R: Runtime>:
 
     /// CGS (Conjugate Gradient Squared) solver
     ///
-    /// Solves Ax = b for non-symmetric systems. Alternative to BiCGSTAB
-    /// with potentially faster convergence but less stable residual behavior.
+    /// Solves Ax = b for non-symmetric systems.
     fn cgs(
         &self,
         a: &CsrData<R>,
@@ -202,10 +90,55 @@ pub trait IterativeSolvers<R: Runtime>:
         options: CgsOptions,
     ) -> Result<CgsResult<R>>;
 
-    /// Sparse eigensolver for symmetric matrices (Lanczos)
+    /// LGMRES (Loose GMRES) solver
     ///
-    /// Computes k eigenvalues/eigenvectors of a large sparse symmetric matrix
-    /// using the Implicitly Restarted Lanczos Method.
+    /// Augments GMRES restarts with error approximation vectors from
+    /// previous cycles, improving convergence across restarts.
+    fn lgmres(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: LgmresOptions,
+    ) -> Result<LgmresResult<R>>;
+
+    /// QMR (Quasi-Minimal Residual) solver
+    ///
+    /// Uses coupled two-term Lanczos biorthogonalization for non-symmetric systems.
+    /// More stable than BiCGSTAB for some problems.
+    fn qmr(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: QmrOptions,
+    ) -> Result<QmrResult<R>>;
+
+    /// Jacobi (Weighted Jacobi Iteration) solver
+    ///
+    /// Simple stationary iteration: x_{k+1} = x_k + omega * D^{-1} * (b - Ax_k).
+    /// Best for diagonally dominant systems or as a smoother.
+    fn jacobi(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: JacobiOptions,
+    ) -> Result<JacobiResult<R>>;
+
+    /// SOR (Successive Over-Relaxation) solver
+    ///
+    /// Forward-sweep SOR with relaxation parameter omega.
+    /// omega = 1 is Gauss-Seidel. 1 < omega < 2 for over-relaxation.
+    fn sor(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: SorOptions,
+    ) -> Result<SorResult<R>>;
+
+    /// Sparse eigensolver for symmetric matrices (Lanczos)
     fn sparse_eig_symmetric(
         &self,
         a: &CsrData<R>,
@@ -214,15 +147,18 @@ pub trait IterativeSolvers<R: Runtime>:
     ) -> Result<SparseEigResult<R>>;
 
     /// Sparse eigensolver for general (non-symmetric) matrices (Arnoldi/IRAM)
-    ///
-    /// Computes k eigenvalues/eigenvectors of a large sparse non-symmetric matrix
-    /// using the Implicitly Restarted Arnoldi Method.
     fn sparse_eig(
         &self,
         a: &CsrData<R>,
         k: usize,
         options: SparseEigOptions,
     ) -> Result<SparseEigComplexResult<R>>;
+
+    /// Sparse SVD via Lanczos bidiagonalization
+    ///
+    /// Computes the k largest (or smallest) singular values and vectors
+    /// of a large sparse matrix.
+    fn svds(&self, a: &CsrData<R>, k: usize, options: SvdsOptions) -> Result<SparseSvdResult<R>>;
 }
 
 // ============================================================================
