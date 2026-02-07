@@ -249,6 +249,28 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// Computes sign(det(A)) and log(|det(A)|) separately for numerical stability.
     fn slogdet(&self, a: &Tensor<R>) -> Result<super::SlogdetResult<R>>;
 
+    /// Solve banded linear system Ab*x = b
+    ///
+    /// Uses LAPACK-style band storage where `ab` has shape `[kl + ku + 1, n]`
+    /// and `ab[ku + i - j, j] = A[i, j]` for max(0, j-ku) <= i <= min(n-1, j+kl).
+    ///
+    /// For tridiagonal systems (kl=1, ku=1), uses Thomas algorithm O(n).
+    /// For general banded systems, uses banded LU with partial pivoting.
+    ///
+    /// # Arguments
+    ///
+    /// * `ab` - Band matrix in LAPACK band storage [kl + ku + 1, n]
+    /// * `b` - Right-hand side vector [n] or matrix [n, nrhs]
+    /// * `kl` - Number of subdiagonals
+    /// * `ku` - Number of superdiagonals
+    fn solve_banded(
+        &self,
+        ab: &Tensor<R>,
+        b: &Tensor<R>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<R>>;
+
     /// Khatri-Rao product (column-wise Kronecker product): A ⊙ B
     ///
     /// Computes the column-wise Kronecker product of two matrices.

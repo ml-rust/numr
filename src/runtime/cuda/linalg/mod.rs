@@ -7,6 +7,7 @@
 //! Native CUDA kernels are used - NO cuSOLVER dependency.
 
 mod advanced_decompositions;
+mod banded;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
@@ -84,6 +85,16 @@ impl LinearAlgebraAlgorithms<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         solvers::lstsq_impl(self, a, b)
+    }
+
+    fn solve_banded(
+        &self,
+        ab: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        banded::solve_banded_impl(self, ab, b, kl, ku)
     }
 
     fn inverse(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {

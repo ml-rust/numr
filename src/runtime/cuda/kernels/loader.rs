@@ -241,6 +241,8 @@ pub mod kernel_names {
     pub const DSMM_MODULE: &str = "dsmm";
     /// Linear algebra basic operations (trace, diag, diagflat, identity, transpose)
     pub const LINALG_BASIC_MODULE: &str = "linalg_basic";
+    /// Banded linear system solvers (Thomas, banded LU)
+    pub const LINALG_BANDED_MODULE: &str = "linalg_banded";
     /// Linear algebra solvers (forward_sub, backward_sub, det_from_lu, apply_permutation)
     pub const LINALG_SOLVERS_MODULE: &str = "linalg_solvers";
     /// Matrix decompositions (LU, Cholesky, QR)

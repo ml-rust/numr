@@ -430,6 +430,22 @@ pub trait LinalgOps<R: Runtime> {
     /// ```
     fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// Solve banded linear system using LAPACK-style band storage
+    ///
+    /// # Arguments
+    ///
+    /// * `ab` - Band matrix [kl + ku + 1, n]
+    /// * `b` - Right-hand side [n] or [n, nrhs]
+    /// * `kl` - Number of subdiagonals
+    /// * `ku` - Number of superdiagonals
+    fn solve_banded(
+        &self,
+        ab: &Tensor<R>,
+        b: &Tensor<R>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<R>>;
+
     /// Khatri-Rao product (column-wise Kronecker product)
     ///
     /// Computes the column-wise Kronecker product of two matrices.

@@ -82,6 +82,17 @@ impl LinalgOps<WgpuRuntime> for WgpuClient {
         LinearAlgebraAlgorithms::kron(self, a, b)
     }
 
+    fn solve_banded(
+        &self,
+        ab: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve_banded(self, ab, b, kl, ku)
+    }
+
     fn khatri_rao(
         &self,
         a: &Tensor<WgpuRuntime>,

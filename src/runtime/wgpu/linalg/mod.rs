@@ -16,6 +16,7 @@
 //! Operations use native WGSL compute shaders running entirely on the GPU.
 
 mod advanced_decompositions;
+mod banded;
 mod helpers;
 
 mod decompositions;
@@ -96,6 +97,16 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         b: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         solvers::lstsq(self, a, b)
+    }
+
+    fn solve_banded(
+        &self,
+        ab: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        banded::solve_banded_impl(self, ab, b, kl, ku)
     }
 
     fn inverse(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {

@@ -1,6 +1,7 @@
 //! Linear algebra WGSL kernel launchers
 //!
 //! Split into focused submodules for maintainability:
+//! - `banded` - banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - trace, diag, diagflat, create_identity
 //! - `solvers` - forward/backward substitution
 //! - `decompositions` - LU, Cholesky, QR
@@ -9,6 +10,7 @@
 //! - `eig` - eigendecomposition (symmetric and general)
 //! - `matrix_functions` - exp, sqrt, log of matrices
 
+mod banded;
 mod basic_ops;
 mod decompositions;
 mod eig;
@@ -18,6 +20,7 @@ mod svd;
 mod utilities;
 
 // Re-export all launcher functions
+pub use banded::{launch_banded_lu_solve, launch_thomas_solve};
 pub use basic_ops::{
     launch_create_identity, launch_diag, launch_diagflat, launch_khatri_rao, launch_kron,
     launch_trace,

@@ -10,6 +10,7 @@
 //! - `matrix_funcs` - matrix functions (exp, log, sqrt) on quasi-triangular matrices
 
 mod advanced;
+mod banded;
 mod basic;
 mod decompositions;
 mod eigen;
@@ -19,6 +20,7 @@ mod svd;
 
 // Re-export all launcher functions
 pub use advanced::*;
+pub use banded::*;
 pub use basic::*;
 pub use decompositions::*;
 pub use eigen::*;

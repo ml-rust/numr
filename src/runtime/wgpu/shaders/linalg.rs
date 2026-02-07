@@ -3,6 +3,7 @@
 //! This module re-exports all linalg launcher functions from the split submodules
 //! in `linalg_launchers/`. The actual implementations are organized by category:
 //!
+//! - `banded` - banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - trace, diag, diagflat, create_identity
 //! - `solvers` - forward/backward substitution
 //! - `decompositions` - LU, Cholesky, QR
@@ -17,6 +18,8 @@ pub use super::linalg_launchers::{
     launch_apply_lu_permutation,
     // Solvers
     launch_backward_sub,
+    // Banded solvers
+    launch_banded_lu_solve,
     // Decompositions
     launch_cholesky_decompose,
     launch_count_above_threshold,
@@ -48,5 +51,6 @@ pub use super::linalg_launchers::{
     launch_sqrt_quasi_triangular,
     // SVD
     launch_svd_jacobi,
+    launch_thomas_solve,
     launch_trace,
 };

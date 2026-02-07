@@ -66,6 +66,17 @@ impl LinalgOps<CpuRuntime> for CpuClient {
         LinearAlgebraAlgorithms::kron(self, a, b)
     }
 
+    fn solve_banded(
+        &self,
+        ab: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve_banded(self, ab, b, kl, ku)
+    }
+
     fn khatri_rao(
         &self,
         a: &Tensor<CpuRuntime>,

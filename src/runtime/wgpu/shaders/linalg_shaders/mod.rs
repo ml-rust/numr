@@ -5,6 +5,7 @@
 //!
 //! # Module Organization
 //!
+//! - `banded` - Banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - Trace, diagonal, identity operations
 //! - `solvers` - Forward/backward substitution
 //! - `decompositions` - LU, Cholesky, QR decompositions
@@ -21,6 +22,7 @@
 //! applications that only use a subset of linalg operations to avoid the compilation
 //! overhead of unused shaders.
 
+pub mod banded;
 pub mod basic_ops;
 pub mod decompositions;
 pub mod eig_general;

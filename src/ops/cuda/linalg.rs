@@ -80,6 +80,17 @@ impl LinalgOps<CudaRuntime> for CudaClient {
         LinearAlgebraAlgorithms::kron(self, a, b)
     }
 
+    fn solve_banded(
+        &self,
+        ab: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+        LinearAlgebraAlgorithms::solve_banded(self, ab, b, kl, ku)
+    }
+
     fn khatri_rao(
         &self,
         a: &Tensor<CudaRuntime>,

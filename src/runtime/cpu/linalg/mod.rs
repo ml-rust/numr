@@ -5,6 +5,7 @@
 //! to ensure backend parity with CUDA/WebGPU implementations.
 
 mod advanced_decompositions;
+mod banded;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
@@ -72,6 +73,16 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
 
     fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         solvers::lstsq_impl(self, a, b)
+    }
+
+    fn solve_banded(
+        &self,
+        ab: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        kl: usize,
+        ku: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        banded::solve_banded_impl(self, ab, b, kl, ku)
     }
 
     fn inverse(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {

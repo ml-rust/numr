@@ -49,6 +49,7 @@ fn compile_cuda_kernels() {
         "fft.cu",
         "index.cu",
         "linalg_advanced.cu",
+        "linalg_banded.cu",
         "linalg_basic.cu",
         "linalg_decomp.cu",
         "linalg_eigen.cu",
