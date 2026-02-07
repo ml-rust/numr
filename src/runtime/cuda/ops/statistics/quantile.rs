@@ -2,25 +2,21 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{SortingOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
+use crate::ops::{BinaryOps, IndexingOps, ScalarOps, SortingOps, TypeConversionOps};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::statistics_common::{Interpolation, compute_quantile_interpolation};
-use crate::runtime::{ensure_contiguous, normalize_dim};
+use crate::runtime::normalize_dim;
+use crate::runtime::statistics_common::Interpolation;
 use crate::tensor::Tensor;
 
-/// Compute quantile along a dimension using composition.
+/// Compute quantile along a dimension entirely on GPU.
 ///
 /// # Algorithm
 ///
-/// 1. Sort along dimension (using existing CUDA sort)
-/// 2. Copy sorted data to CPU
-/// 3. Perform interpolation on CPU
-/// 4. Copy result back to GPU
-///
-/// This hybrid approach is efficient because:
-/// - Sorting on GPU is fast (O(n log n))
-/// - Interpolation output is small (reduced dimension)
-/// - Avoids custom CUDA kernel complexity
+/// 1. Sort along dimension (GPU)
+/// 2. Compute floor and ceiling indices based on quantile (CPU calculation)
+/// 3. Index into sorted tensor at floor/ceil positions (GPU)
+/// 4. Interpolate between floor and ceil values using scalar operations (GPU)
+/// 5. All heavy lifting stays on GPU - only scalar indices are computed on CPU
 pub fn quantile_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -76,19 +72,12 @@ pub fn quantile_impl(
         ));
     }
 
-    // Sort along dimension using CUDA sort
+    // Sort along dimension using CUDA sort (GPU)
     let sorted = client.sort(a, dim_val, false)?;
 
-    // Compute output shape and strides
+    // Compute output shape
+    use crate::ops::reduce_dim_output_shape;
     let out_shape = reduce_dim_output_shape(shape, dim_idx, keepdim);
-    let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-
-    // Calculate quantile indices using shared logic
-    let (floor_idx, ceil_idx, frac) =
-        crate::runtime::statistics_common::compute_quantile_indices(q, reduce_size);
-
-    // Ensure sorted is contiguous for data access
-    let sorted_contig = ensure_contiguous(&sorted);
 
     // Check for empty output
     let out_numel = out_shape.iter().product::<usize>();
@@ -100,58 +89,60 @@ pub fn quantile_impl(
         ));
     }
 
-    // Compute on CPU and copy back using shared implementation
-    match dtype {
-        DType::F32 => {
-            let sorted_data: Vec<f32> = sorted_contig.to_vec();
-            let result = compute_quantile_interpolation(
-                &sorted_data,
-                outer_size,
-                reduce_size,
-                inner_size,
-                floor_idx,
-                ceil_idx,
-                frac,
-                interp,
-            );
-            Ok(Tensor::<CudaRuntime>::from_slice(
-                &result,
-                &out_shape,
-                &client.device,
-            ))
+    // Calculate quantile indices (small computation, OK on CPU)
+    let (floor_idx, ceil_idx, frac) =
+        crate::runtime::statistics_common::compute_quantile_indices(q, dim_size);
+
+    // Create index tensors for gather
+    // We need to create tensors of shape matching output that indicate indices to gather
+    let floor_indices =
+        Tensor::<CudaRuntime>::full_scalar(&out_shape, dtype, floor_idx as f64, &client.device);
+    let ceil_indices =
+        Tensor::<CudaRuntime>::full_scalar(&out_shape, dtype, ceil_idx as f64, &client.device);
+
+    // Cast indices to I64 for gather
+    let floor_indices_i64 = client.cast(&floor_indices, DType::I64)?;
+    let ceil_indices_i64 = client.cast(&ceil_indices, DType::I64)?;
+
+    // Gather values at floor and ceiling indices along the dimension
+    let floor_values = client.index_select(&sorted, dim_idx, &floor_indices_i64)?;
+    let ceil_values = client.index_select(&sorted, dim_idx, &ceil_indices_i64)?;
+
+    // Interpolate on GPU based on interpolation method
+    let result = match interp {
+        Interpolation::Linear => {
+            // result = floor_val + frac * (ceil_val - floor_val)
+            if frac.abs() < f64::EPSILON {
+                // No interpolation needed
+                floor_values
+            } else if (frac - 1.0).abs() < f64::EPSILON {
+                // Use ceiling value
+                ceil_values
+            } else {
+                // Linear interpolation on GPU
+                let diff = client.sub(&ceil_values, &floor_values)?;
+                let weighted_diff = client.mul_scalar(&diff, frac)?;
+                client.add(&floor_values, &weighted_diff)?
+            }
         }
-        DType::F64 => {
-            let sorted_data: Vec<f64> = sorted_contig.to_vec();
-            let result = compute_quantile_interpolation(
-                &sorted_data,
-                outer_size,
-                reduce_size,
-                inner_size,
-                floor_idx,
-                ceil_idx,
-                frac,
-                interp,
-            );
-            Ok(Tensor::<CudaRuntime>::from_slice(
-                &result,
-                &out_shape,
-                &client.device,
-            ))
+        Interpolation::Lower => floor_values,
+        Interpolation::Higher => ceil_values,
+        Interpolation::Midpoint => {
+            // (floor + ceil) / 2
+            let sum = client.add(&floor_values, &ceil_values)?;
+            client.mul_scalar(&sum, 0.5)?
         }
-        _ => {
-            // For other dtypes, cast to f32, compute, cast back
-            let sorted_f32 = client.cast(&sorted, DType::F32)?;
-            let result_f32 = quantile_impl(
-                client,
-                &sorted_f32,
-                q,
-                Some(dim_val),
-                keepdim,
-                interpolation,
-            )?;
-            client.cast(&result_f32, dtype)
+        Interpolation::Nearest => {
+            // Choose nearest: if frac >= 0.5, use ceil, else floor
+            if frac >= 0.5 {
+                ceil_values
+            } else {
+                floor_values
+            }
         }
-    }
+    };
+
+    Ok(result)
 }
 
 /// Compute percentile (quantile * 100) along a dimension.

@@ -2,20 +2,29 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{ReduceOps, TypeConversionOps};
-use crate::runtime::statistics_common::compute_histogram_counts;
+use crate::ops::{ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, UtilityOps};
+use crate::runtime::RuntimeClient;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 
 use super::{create_bin_edges, tensor_to_f64};
 
-/// Compute histogram of values using composition.
+/// Compute histogram of values entirely on GPU.
 ///
-/// # Implementation Notes
+/// # Algorithm
 ///
-/// Histogram counting is performed on CPU due to WebGPU's limited atomic support.
-/// The bin edges are created on GPU.
+/// 1. Determine min/max values from input data (GPU reductions)
+/// 2. Compute bin width: `(max - min) / bins`
+/// 3. For each element, compute bin index: `floor((x - min) / bin_width)`
+/// 4. Clamp bin indices to valid range [0, bins-1]
+/// 5. Cast indices to I64 for one_hot operation
+/// 6. Use one_hot to create indicator matrix: shape [numel, bins]
+/// 7. Sum along axis 0 to get histogram counts
+///
+/// # GPU-Only Operations
+///
+/// All computation stays on GPU - no CPU transfers except for scalar min/max values
+/// needed to determine bin ranges (control-flow transfers).
 pub fn histogram_impl(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -54,8 +63,8 @@ pub fn histogram_impl(
     } else {
         let min_tensor = client.min(&flat, &[], false)?;
         let max_tensor = client.max(&flat, &[], false)?;
-        let min_val = tensor_to_f64(&min_tensor)?;
-        let max_val = tensor_to_f64(&max_tensor)?;
+        let min_val = tensor_to_f64(client, &min_tensor)?;
+        let max_val = tensor_to_f64(client, &max_tensor)?;
 
         // Handle case where all values are the same
         if (min_val - max_val).abs() < f64::EPSILON {
@@ -65,26 +74,35 @@ pub fn histogram_impl(
         }
     };
 
-    // Ensure flat is contiguous for to_vec
-    let flat_contig = ensure_contiguous(&flat);
-
-    // Copy to CPU for histogram counting using shared implementation
-    let counts = match dtype {
-        DType::F32 => {
-            let data: Vec<f32> = flat_contig.to_vec();
-            compute_histogram_counts(&data, bins, min_val, max_val)
-        }
-        _ => {
-            // Cast to F32 for processing
-            let flat_f32 = client.cast(&flat, DType::F32)?;
-            let flat_f32_contig = ensure_contiguous(&flat_f32);
-            let data: Vec<f32> = flat_f32_contig.to_vec();
-            compute_histogram_counts(&data, bins, min_val, max_val)
-        }
+    // Cast to F32 for computation if needed
+    let flat_f32 = if dtype != DType::F32 {
+        client.cast(&flat, DType::F32)?
+    } else {
+        flat.clone()
     };
 
-    // Copy counts to GPU
-    let hist = Tensor::<WgpuRuntime>::from_slice(&counts, &[bins], client.device());
+    // Compute bin width
+    let bin_width = (max_val - min_val) / bins as f64;
+
+    // Compute bin indices: floor((x - min_val) / bin_width)
+    let shifted = client.sub_scalar(&flat_f32, min_val)?;
+    let normalized = client.div_scalar(&shifted, bin_width)?;
+    let floored = client.floor(&normalized)?;
+
+    // Clamp to [0, bins-1]
+    let bin_indices = client.clamp(&floored, 0.0, (bins - 1) as f64)?;
+
+    // Cast to I64 for one_hot indexing
+    let bin_indices_i64 = client.cast(&bin_indices, DType::I64)?;
+
+    // Create one-hot encoding: shape [numel, bins]
+    let one_hot_matrix = client.one_hot(&bin_indices_i64, bins)?;
+
+    // Sum along axis 0 to get histogram counts: shape [bins]
+    let hist = client.sum(&one_hot_matrix, &[0], false)?;
+
+    // Cast result back to I64
+    let hist = client.cast(&hist, DType::I64)?;
 
     // Create bin edges
     let edges = create_bin_edges(client, min_val, max_val, bins, dtype)?;

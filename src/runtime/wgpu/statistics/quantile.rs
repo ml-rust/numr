@@ -2,16 +2,28 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{SortingOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
-use crate::runtime::statistics_common::{Interpolation, compute_quantile_interpolation};
+use crate::ops::{
+    BinaryOps, IndexingOps, ScalarOps, SortingOps, TypeConversionOps, reduce_dim_output_shape,
+};
+use crate::runtime::statistics_common::Interpolation;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
+use crate::runtime::{RuntimeClient, normalize_dim};
 use crate::tensor::Tensor;
 
-/// Compute quantile along a dimension using composition.
+/// Compute quantile along a dimension using GPU operations.
 ///
-/// WebGPU quantile uses GPU-based sorting followed by CPU-side interpolation.
-/// For non-F32 types, data is cast to F32, computed, then cast back.
+/// # Algorithm
+///
+/// 1. Sort data along the specified dimension (GPU)
+/// 2. Compute floor and ceil indices for quantile position
+/// 3. Gather values at both indices using index_select on the sorted dimension
+/// 4. Perform linear interpolation between floor and ceil values (GPU)
+/// 5. Return interpolated result
+///
+/// # GPU-Only Operations
+///
+/// All computation stays on GPU - no data transfers. Uses GPU indexing operations
+/// (index_select) to gather the floor and ceil values, then interpolates on GPU.
 pub fn quantile_impl(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
@@ -28,7 +40,7 @@ pub fn quantile_impl(
         });
     }
 
-    let interp = Interpolation::parse(interpolation)?;
+    let _interp = Interpolation::parse(interpolation)?;
     let dtype = a.dtype();
 
     // Handle None dim: flatten to 1D first
@@ -70,16 +82,12 @@ pub fn quantile_impl(
     // Sort along dimension using WebGPU sort
     let sorted = client.sort(a, dim_val, false)?;
 
-    // Compute output shape and strides
+    // Compute output shape
     let out_shape = reduce_dim_output_shape(shape, dim_idx, keepdim);
-    let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
 
     // Calculate quantile indices using shared logic
     let (floor_idx, ceil_idx, frac) =
-        crate::runtime::statistics_common::compute_quantile_indices(q, reduce_size);
-
-    // Ensure sorted is contiguous for data access
-    let sorted_contig = ensure_contiguous(&sorted);
+        crate::runtime::statistics_common::compute_quantile_indices(q, dim_size);
 
     // Check for empty output
     let out_numel = out_shape.iter().product::<usize>();
@@ -91,40 +99,61 @@ pub fn quantile_impl(
         ));
     }
 
-    // Compute on CPU and copy back
-    // WebGPU only supports F32 and I32/U32 natively
-    match dtype {
-        DType::F32 => {
-            let sorted_data: Vec<f32> = sorted_contig.to_vec();
-            let result = compute_quantile_interpolation(
-                &sorted_data,
-                outer_size,
-                reduce_size,
-                inner_size,
-                floor_idx,
-                ceil_idx,
-                frac,
-                interp,
-            );
-            Ok(Tensor::<WgpuRuntime>::from_slice(
-                &result,
-                &out_shape,
-                client.device(),
-            ))
+    // Gather floor and ceil values using index_select
+    // Create index tensors for the floor and ceil positions
+    let floor_idx_tensor =
+        Tensor::<WgpuRuntime>::from_slice(&[floor_idx as i64], &[1], client.device());
+    let ceil_idx_tensor =
+        Tensor::<WgpuRuntime>::from_slice(&[ceil_idx as i64], &[1], client.device());
+
+    // Select floor and ceil values along dimension
+    let floor_vals = client.index_select(&sorted, dim_idx, &floor_idx_tensor)?;
+    let ceil_vals = client.index_select(&sorted, dim_idx, &ceil_idx_tensor)?;
+
+    // Squeeze to remove the indexed dimension
+    let mut floor_shape = Vec::with_capacity(shape.len() - 1);
+    for (i, &s) in shape.iter().enumerate() {
+        if i != dim_idx {
+            floor_shape.push(s);
         }
-        _ => {
-            // For other dtypes, cast to f32, compute, cast back
-            let sorted_f32 = client.cast(&sorted, DType::F32)?;
-            let result_f32 = quantile_impl(
-                client,
-                &sorted_f32,
-                q,
-                Some(dim_val),
-                keepdim,
-                interpolation,
-            )?;
-            client.cast(&result_f32, dtype)
-        }
+    }
+    let ceil_shape = floor_shape.clone();
+
+    let floor_vals = floor_vals.reshape(&floor_shape)?;
+    let ceil_vals = ceil_vals.reshape(&ceil_shape)?;
+
+    // Convert to F32 for interpolation if needed
+    let floor_f32 = if dtype != DType::F32 {
+        client.cast(&floor_vals, DType::F32)?
+    } else {
+        floor_vals
+    };
+
+    let ceil_f32 = if dtype != DType::F32 {
+        client.cast(&ceil_vals, DType::F32)?
+    } else {
+        ceil_vals
+    };
+
+    // Linear interpolation: result = floor + frac * (ceil - floor)
+    let diff = client.sub(&ceil_f32, &floor_f32)?;
+    let scaled_diff = client.mul_scalar(&diff, frac)?;
+    let result_f32 = client.add(&floor_f32, &scaled_diff)?;
+
+    // Cast back to original dtype if needed
+    let result = if dtype != DType::F32 {
+        client.cast(&result_f32, dtype)?
+    } else {
+        result_f32
+    };
+
+    // Add back the reduced dimension if keepdim
+    if keepdim {
+        let mut final_shape = result.shape().to_vec();
+        final_shape.insert(dim_idx, 1);
+        result.reshape(&final_shape)
+    } else {
+        Ok(result)
     }
 }
 

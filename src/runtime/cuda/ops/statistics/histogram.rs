@@ -2,20 +2,24 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{ReduceOps, TypeConversionOps};
+use crate::ops::{BinaryOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, UtilityOps};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::ensure_contiguous;
-use crate::runtime::statistics_common::compute_histogram_counts;
 use crate::tensor::Tensor;
 
-use super::{create_bin_edges, tensor_to_f64};
+use super::{create_bin_edges, read_scalar_f64};
 
-/// Compute histogram of values using composition.
+/// Compute histogram of values entirely on GPU.
 ///
 /// # Implementation Notes
 ///
-/// Uses GPU for min/max computation, CPU for bin counting.
-/// This avoids atomic operations on GPU which would require a custom kernel.
+/// Algorithm:
+/// 1. Cast input to F32 if needed
+/// 2. Compute min/max values (GPU reduce operations)
+/// 3. Compute bin width = (max - min) / bins
+/// 4. For each element, compute bin index: min(floor((x - min) / bin_width), bins - 1)
+/// 5. Create one-hot encoding [n, bins]: indicator matrix
+/// 6. Sum along axis 0 to get bin counts [bins]
+/// 7. All operations run on GPU - no CPU transfers
 pub fn histogram_impl(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -39,10 +43,15 @@ pub fn histogram_impl(
         return Ok((hist, edges));
     }
 
-    // Flatten input
+    // Flatten and cast to F32 for computation (stable for histogram)
     let flat = a.reshape(&[numel])?;
+    let flat_f32 = if dtype == DType::F32 {
+        flat.clone()
+    } else {
+        client.cast(&flat, DType::F32)?
+    };
 
-    // Determine range
+    // Determine range (compute on GPU, read scalars)
     let (min_val, max_val) = if let Some((min, max)) = range {
         if min >= max {
             return Err(Error::InvalidArgument {
@@ -52,10 +61,10 @@ pub fn histogram_impl(
         }
         (min, max)
     } else {
-        let min_tensor = client.min(&flat, &[], false)?;
-        let max_tensor = client.max(&flat, &[], false)?;
-        let min_val = tensor_to_f64(&min_tensor)?;
-        let max_val = tensor_to_f64(&max_tensor)?;
+        let min_tensor = client.min(&flat_f32, &[], false)?;
+        let max_tensor = client.max(&flat_f32, &[], false)?;
+        let min_val = read_scalar_f64(&min_tensor)?;
+        let max_val = read_scalar_f64(&max_tensor)?;
 
         // Handle case where all values are the same
         if (min_val - max_val).abs() < f64::EPSILON {
@@ -65,33 +74,44 @@ pub fn histogram_impl(
         }
     };
 
-    // Ensure flat is contiguous for to_vec
-    let flat_contig = ensure_contiguous(&flat);
+    // Compute on GPU:
+    // 1. Shift: x - min_val
+    let shifted = client.sub_scalar(&flat_f32, min_val)?;
 
-    // Copy to CPU for histogram counting using shared implementation
-    let counts = match dtype {
-        DType::F32 => {
-            let data: Vec<f32> = flat_contig.to_vec();
-            compute_histogram_counts(&data, bins, min_val, max_val)
-        }
-        DType::F64 => {
-            let data: Vec<f64> = flat_contig.to_vec();
-            compute_histogram_counts(&data, bins, min_val, max_val)
-        }
-        _ => {
-            // Cast to F32 for processing
-            let flat_f32 = client.cast(&flat, DType::F32)?;
-            let flat_f32_contig = ensure_contiguous(&flat_f32);
-            let data: Vec<f32> = flat_f32_contig.to_vec();
-            compute_histogram_counts(&data, bins, min_val, max_val)
-        }
+    // 2. Compute bin width
+    let bin_width = (max_val - min_val) / bins as f64;
+
+    // 3. Divide by bin width: (x - min) / bin_width
+    let bin_indices_f = client.div_scalar(&shifted, bin_width)?;
+
+    // 4. Floor to get bin indices
+    let bin_indices_floored = client.floor(&bin_indices_f)?;
+
+    // 5. Clamp to [0, bins-1]: min(index, bins-1)
+    let bin_max_scalar = (bins - 1) as f32;
+    let bin_indices_clamped = if bins > 1 {
+        // Use minimum to clamp to bins-1
+        let ones = Tensor::<CudaRuntime>::ones(&[numel], DType::F32, &client.device);
+        let bin_max_tensor = client.mul_scalar(&ones, bin_max_scalar as f64)?;
+        client.minimum(&bin_indices_floored, &bin_max_tensor)?
+    } else {
+        bin_indices_floored
     };
 
-    // Copy counts to GPU
-    let hist = Tensor::<CudaRuntime>::from_slice(&counts, &[bins], &client.device);
+    // 6. Convert to I64 for one_hot
+    let bin_indices_i64 = client.cast(&bin_indices_clamped, DType::I64)?;
+
+    // 7. Create one-hot encoding [numel, bins]
+    let one_hot = client.one_hot(&bin_indices_i64, bins)?;
+
+    // 8. Sum along axis 0 to get counts
+    let hist = client.sum(&one_hot, &[0], false)?;
+
+    // 9. Cast to I64 for output type
+    let hist_i64 = client.cast(&hist, DType::I64)?;
 
     // Create bin edges
     let edges = create_bin_edges(client, min_val, max_val, bins, dtype)?;
 
-    Ok((hist, edges))
+    Ok((hist_i64, edges))
 }

@@ -36,7 +36,6 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TypeConversionOps;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::ensure_contiguous;
 use crate::runtime::statistics_common::compute_bin_edges_f64;
 use crate::tensor::Tensor;
 
@@ -73,35 +72,82 @@ pub(crate) fn create_bin_edges(
     }
 }
 
-/// Extract scalar f64 value from tensor.
-pub(crate) fn tensor_to_f64(t: &Tensor<CudaRuntime>) -> Result<f64> {
-    let dtype = t.dtype();
-    let t_contig = ensure_contiguous(t);
+/// Read a single scalar value from GPU tensor using cuMemcpyDtoH_v2.
+/// This is used for reading computed min/max values in histogram and statistics operations.
+pub(crate) fn read_scalar_f64(t: &Tensor<CudaRuntime>) -> Result<f64> {
+    // Ensure we have a single-element tensor
+    if t.numel() != 1 {
+        return Err(Error::InvalidArgument {
+            arg: "tensor",
+            reason: "read_scalar_f64 requires a single-element tensor".to_string(),
+        });
+    }
 
-    let val = match dtype {
+    let dtype = t.dtype();
+
+    // Ensure contiguous layout
+    let tensor = if t.is_contiguous() {
+        t.clone()
+    } else {
+        t.contiguous()
+    };
+
+    // Get GPU buffer pointer
+    let ptr = tensor.storage().ptr();
+
+    // Allocate host memory and copy from GPU based on dtype
+    let result = match dtype {
         DType::F32 => {
-            let vec: Vec<f32> = t_contig.to_vec();
-            vec[0] as f64
+            let mut val: f32 = 0.0;
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoH_v2(
+                    &mut val as *mut f32 as *mut std::ffi::c_void,
+                    ptr,
+                    std::mem::size_of::<f32>(),
+                );
+            }
+            val as f64
         }
         DType::F64 => {
-            let vec: Vec<f64> = t_contig.to_vec();
-            vec[0]
+            let mut val: f64 = 0.0;
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoH_v2(
+                    &mut val as *mut f64 as *mut std::ffi::c_void,
+                    ptr,
+                    std::mem::size_of::<f64>(),
+                );
+            }
+            val
         }
         DType::I32 => {
-            let vec: Vec<i32> = t_contig.to_vec();
-            vec[0] as f64
+            let mut val: i32 = 0;
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoH_v2(
+                    &mut val as *mut i32 as *mut std::ffi::c_void,
+                    ptr,
+                    std::mem::size_of::<i32>(),
+                );
+            }
+            val as f64
         }
         DType::I64 => {
-            let vec: Vec<i64> = t_contig.to_vec();
-            vec[0] as f64
+            let mut val: i64 = 0;
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoH_v2(
+                    &mut val as *mut i64 as *mut std::ffi::c_void,
+                    ptr,
+                    std::mem::size_of::<i64>(),
+                );
+            }
+            val as f64
         }
         _ => {
             return Err(Error::UnsupportedDType {
                 dtype,
-                op: "tensor_to_f64",
+                op: "read_scalar_f64",
             });
         }
     };
 
-    Ok(val)
+    Ok(result)
 }
