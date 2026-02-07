@@ -1,42 +1,8 @@
 //! Helper functions and macros for WebGPU linear algebra operations.
 
 use super::super::{WgpuClient, WgpuRuntime};
-use crate::dtype::{DType, Element};
+use crate::dtype::DType;
 use crate::tensor::{Layout, Storage, Tensor};
-
-/// Trait for elements that support linear algebra operations.
-///
-/// This trait extends `Element` with operations needed for numerical
-/// linear algebra algorithms.
-pub trait LinalgElement: Element + Sized {
-    /// Returns machine epsilon for this type
-    fn epsilon_val() -> f64;
-    /// Returns absolute value
-    fn abs_val(&self) -> Self;
-    /// Returns square root
-    fn sqrt_val(&self) -> Self;
-    /// Returns negation
-    fn neg_val(&self) -> Self;
-}
-
-impl LinalgElement for f32 {
-    #[inline]
-    fn epsilon_val() -> f64 {
-        f32::EPSILON as f64
-    }
-    #[inline]
-    fn abs_val(&self) -> Self {
-        self.abs()
-    }
-    #[inline]
-    fn sqrt_val(&self) -> Self {
-        self.sqrt()
-    }
-    #[inline]
-    fn neg_val(&self) -> Self {
-        -*self
-    }
-}
 
 /// Helper macro to get a GPU buffer from a pointer with proper error context.
 ///
