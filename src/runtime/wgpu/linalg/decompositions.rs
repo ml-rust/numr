@@ -110,31 +110,10 @@ pub fn lu_decompose(
         )));
     }
 
-    // Convert i32 pivots to i64
-    let pivots_i64_size = k * std::mem::size_of::<i64>();
-    let pivots_i64_ptr = client.allocator().allocate(pivots_i64_size);
-
-    // Read i32 pivots and convert to i64
-    let staging_pivots = client.create_staging_buffer("pivots_staging", pivots_size as u64);
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("pivots_copy"),
-        });
-    encoder.copy_buffer_to_buffer(&pivots_buffer, 0, &staging_pivots, 0, pivots_size as u64);
-    client.submit_and_wait(encoder);
-
-    let mut pivots_i32 = vec![0i32; k];
-    client.read_buffer(&staging_pivots, &mut pivots_i32);
-
-    let pivots_i64: Vec<i64> = pivots_i32.iter().map(|&p| p as i64).collect();
-    WgpuRuntime::copy_to_device(bytemuck::cast_slice(&pivots_i64), pivots_i64_ptr, device);
-
-    client.allocator().deallocate(pivots_ptr, pivots_size);
-
+    // Keep pivots as I32 tensor directly (WGSL has no i64 support)
     // Create tensors from GPU memory
     let lu = unsafe { WgpuClient::tensor_from_raw(lu_ptr, &[m, n], dtype, device) };
-    let pivots = unsafe { WgpuClient::tensor_from_raw(pivots_i64_ptr, &[k], DType::I64, device) };
+    let pivots = unsafe { WgpuClient::tensor_from_raw(pivots_ptr, &[k], DType::I32, device) };
 
     Ok(LuDecomposition {
         lu,

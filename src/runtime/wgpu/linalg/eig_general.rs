@@ -39,9 +39,14 @@ pub fn eig_decompose(
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
+        // GPU-only: copy scalar on device, no CPU transfer
+        let elem = dtype.size_in_bytes();
+        let eval_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(a.storage().ptr(), eval_ptr, elem, device);
+        let eigenvalues_real =
+            unsafe { WgpuClient::tensor_from_raw(eval_ptr, &[1], dtype, device) };
         return Ok(GeneralEigenDecomposition {
-            eigenvalues_real: Tensor::<WgpuRuntime>::from_slice(&data, &[1], device),
+            eigenvalues_real,
             eigenvalues_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1], device),
             eigenvectors_real: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
             eigenvectors_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),

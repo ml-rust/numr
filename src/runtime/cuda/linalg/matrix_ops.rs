@@ -10,9 +10,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{
-    BinaryOps, CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, UtilityOps,
-};
+use crate::ops::{CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
 use crate::runtime::{Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 

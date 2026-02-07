@@ -16,7 +16,7 @@ use super::super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_square_matrix};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
 // Re-export from sub-modules
@@ -72,16 +72,10 @@ pub fn solve(
     use super::decompositions::lu_decompose;
     let lu_result = lu_decompose(client, a)?;
 
-    // Get LU buffer and convert pivots
-    // NOTE: pivots.to_vec() is necessary because pivots come from CPU-side partial pivoting
-    // in the LU decomposition. This is a small O(n) transfer for pivot indices only.
+    // Get LU and pivots buffers (both already on GPU, no transfers needed)
     let lu_buffer = get_buffer(lu_result.lu.storage().ptr())
         .ok_or_else(|| Error::Internal("Failed to get lu buffer".to_string()))?;
-    let pivots_i64: Vec<i64> = lu_result.pivots.to_vec();
-    let pivots_i32: Vec<i32> = pivots_i64.iter().map(|&p| p as i32).collect();
-    let pivots_ptr = client.allocator().allocate(n * std::mem::size_of::<i32>());
-    WgpuRuntime::copy_to_device(bytemuck::cast_slice(&pivots_i32), pivots_ptr, device);
-    let pivots_buffer = get_buffer(pivots_ptr)
+    let pivots_buffer = get_buffer(lu_result.pivots.storage().ptr())
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     // Allocate temporary buffers for single column operations
@@ -222,9 +216,6 @@ pub fn solve(
     client.allocator().deallocate(pb_ptr, col_size);
     client.allocator().deallocate(y_ptr, col_size);
     client.allocator().deallocate(col_ptr, col_size);
-    client
-        .allocator()
-        .deallocate(pivots_ptr, n * std::mem::size_of::<i32>());
 
     // Create output tensor
     // Results are stored in column-major order (each solved column is contiguous)

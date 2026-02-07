@@ -9,7 +9,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{CompareOps, LinalgOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
 pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -55,16 +55,10 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
         dtype,
     )?;
 
-    // Get LU and pivots buffers
+    // Get LU and pivots buffers (both already on GPU, no transfers needed)
     let lu_buffer = get_buffer(lu_result.lu.storage().ptr())
         .ok_or_else(|| Error::Internal("Failed to get lu buffer".to_string()))?;
-
-    // Convert pivots to i32
-    let pivots_i64: Vec<i64> = lu_result.pivots.to_vec();
-    let pivots_i32: Vec<i32> = pivots_i64.iter().map(|&p| p as i32).collect();
-    let pivots_ptr = client.allocator().allocate(n * std::mem::size_of::<i32>());
-    WgpuRuntime::copy_to_device(bytemuck::cast_slice(&pivots_i32), pivots_ptr, device);
-    let pivots_buffer = get_buffer(pivots_ptr)
+    let pivots_buffer = get_buffer(lu_result.pivots.storage().ptr())
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     // Allocate temporary buffers
@@ -164,9 +158,6 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
 
     // Clean up
     client.allocator().deallocate(identity_ptr, inv_size);
-    client
-        .allocator()
-        .deallocate(pivots_ptr, n * std::mem::size_of::<i32>());
     client.allocator().deallocate(e_ptr, col_size);
     client.allocator().deallocate(pb_ptr, col_size);
     client.allocator().deallocate(y_ptr, col_size);

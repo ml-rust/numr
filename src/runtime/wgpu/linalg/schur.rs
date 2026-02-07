@@ -35,11 +35,13 @@ pub fn schur_decompose(
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        return Ok(SchurDecomposition {
-            z: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
-            t: Tensor::<WgpuRuntime>::from_slice(&data, &[1, 1], device),
-        });
+        // GPU-only: copy scalar on device, no CPU transfer
+        let elem = dtype.size_in_bytes();
+        let t_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(a.storage().ptr(), t_ptr, elem, device);
+        let t = unsafe { WgpuClient::tensor_from_raw(t_ptr, &[1, 1], dtype, device) };
+        let z = Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device);
+        return Ok(SchurDecomposition { z, t });
     }
 
     // Allocate buffers for Schur decomposition

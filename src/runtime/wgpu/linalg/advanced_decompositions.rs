@@ -46,12 +46,16 @@ pub fn rsf2csf(
     }
 
     if n == 1 {
-        let t_data: Vec<f32> = schur.t.to_vec();
-        let z_data: Vec<f32> = schur.z.to_vec();
+        // GPU-only: copy scalars on device, no CPU transfer
+        let elem = dtype.size_in_bytes();
+        let t_real_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(schur.t.storage().ptr(), t_real_ptr, elem, device);
+        let z_real_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(schur.z.storage().ptr(), z_real_ptr, elem, device);
         return Ok(ComplexSchurDecomposition {
-            z_real: Tensor::<WgpuRuntime>::from_slice(&z_data, &[1, 1], device),
+            z_real: unsafe { WgpuClient::tensor_from_raw(z_real_ptr, &[1, 1], dtype, device) },
             z_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),
-            t_real: Tensor::<WgpuRuntime>::from_slice(&t_data, &[1, 1], device),
+            t_real: unsafe { WgpuClient::tensor_from_raw(t_real_ptr, &[1, 1], dtype, device) },
             t_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),
         });
     }
@@ -157,20 +161,29 @@ pub fn qz_decompose(
     }
 
     if n == 1 {
-        let a_data: Vec<f32> = a.to_vec();
-        let b_data: Vec<f32> = b.to_vec();
-        let eval = if b_data[0].abs() > 1e-10 {
-            a_data[0] / b_data[0]
-        } else {
-            f32::INFINITY
-        };
+        // GPU-only: copy scalars on device, compute eigenvalue with GPU div
+        let elem = dtype.size_in_bytes();
+        let s_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(a.storage().ptr(), s_ptr, elem, device);
+        let t_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(b.storage().ptr(), t_ptr, elem, device);
+        let s_tensor = unsafe { WgpuClient::tensor_from_raw(s_ptr, &[1], dtype, device) };
+        let t_tensor = unsafe { WgpuClient::tensor_from_raw(t_ptr, &[1], dtype, device) };
+
+        // eigenvalue = a / b (GPU division handles inf for b≈0)
+        use crate::ops::BinaryOps;
+        let eigenvalues_real = client.div(&s_tensor, &t_tensor)?;
+
+        // Reshape s, t back to [1,1] for output
+        let s_out = s_tensor.reshape(&[1, 1])?;
+        let t_out = t_tensor.reshape(&[1, 1])?;
 
         return Ok(GeneralizedSchurDecomposition {
             q: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
             z: Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device),
-            s: Tensor::<WgpuRuntime>::from_slice(&a_data, &[1, 1], device),
-            t: Tensor::<WgpuRuntime>::from_slice(&b_data, &[1, 1], device),
-            eigenvalues_real: Tensor::<WgpuRuntime>::from_slice(&[eval], &[1], device),
+            s: s_out,
+            t: t_out,
+            eigenvalues_real,
             eigenvalues_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1], device),
         });
     }
@@ -285,13 +298,14 @@ pub fn polar_decompose(
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let val = data[0];
-        let sign = if val >= 0.0 { 1.0f32 } else { -1.0f32 };
-        return Ok(PolarDecomposition {
-            u: Tensor::<WgpuRuntime>::from_slice(&[sign], &[1, 1], device),
-            p: Tensor::<WgpuRuntime>::from_slice(&[val.abs()], &[1, 1], device),
-        });
+        // GPU-only: u = sign(a), p = abs(a)
+        use crate::ops::{BinaryOps, UnaryOps};
+        let a_abs = client.abs(a)?;
+        // sign = a / abs(a) (gives ±1, or NaN for 0 which is acceptable)
+        let sign = client.div(a, &a_abs)?;
+        let u = sign.reshape(&[1, 1])?;
+        let p = a_abs.reshape(&[1, 1])?;
+        return Ok(PolarDecomposition { u, p });
     }
 
     // Compute SVD: A = U_svd @ S @ V^T

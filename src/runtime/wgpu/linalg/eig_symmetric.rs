@@ -37,8 +37,11 @@ pub fn eig_decompose_symmetric(
     }
 
     if n == 1 {
-        let a_data: Vec<f32> = a.to_vec();
-        let eigenvalues = Tensor::<WgpuRuntime>::from_slice(&a_data, &[1], device);
+        // GPU-only: copy scalar on device, no CPU transfer
+        let elem = dtype.size_in_bytes();
+        let eval_ptr = client.allocator().allocate(elem);
+        WgpuRuntime::copy_within_device(a.storage().ptr(), eval_ptr, elem, device);
+        let eigenvalues = unsafe { WgpuClient::tensor_from_raw(eval_ptr, &[1], dtype, device) };
         let eigenvectors = Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device);
         return Ok(EigenDecomposition {
             eigenvalues,
