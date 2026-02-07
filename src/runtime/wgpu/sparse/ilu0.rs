@@ -7,7 +7,9 @@ use super::super::shaders::generator::sparse_linalg::{
     generate_find_diag_indices_shader, generate_ilu0_level_shader,
 };
 use super::super::{WgpuClient, WgpuRuntime};
-use super::common::{WORKGROUP_SIZE, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype};
+use super::common::{
+    WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype,
+};
 use crate::algorithm::sparse_linalg::{
     IluDecomposition, IluOptions, SymbolicIlu0, validate_square_sparse,
 };
@@ -45,8 +47,8 @@ pub fn ilu0_wgpu(
         Tensor::<WgpuRuntime>::from_slice(&col_indices, &[col_indices.len()], &client.device_id);
 
     // Cast i64→i32 on GPU (native WGSL shader, avoids manual conversion)
-    let row_ptrs_gpu = common::cast_i64_to_i32_gpu(client, &row_ptrs_i64_gpu)?;
-    let col_indices_gpu = common::cast_i64_to_i32_gpu(client, &col_indices_i64_gpu)?;
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, &row_ptrs_i64_gpu)?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, &col_indices_i64_gpu)?;
 
     // Create GPU buffer for level rows
     let level_rows_gpu = Tensor::<WgpuRuntime>::from_slice(
@@ -158,8 +160,8 @@ pub fn ilu0_numeric_wgpu(
         Tensor::<WgpuRuntime>::from_slice(&col_indices, &[col_indices.len()], &client.device_id);
 
     // Cast i64→i32 on GPU (native WGSL shader, avoids manual conversion)
-    let row_ptrs_gpu = common::cast_i64_to_i32_gpu(client, &row_ptrs_i64_gpu)?;
-    let col_indices_gpu = common::cast_i64_to_i32_gpu(client, &col_indices_i64_gpu)?;
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, &row_ptrs_i64_gpu)?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, &col_indices_i64_gpu)?;
 
     // Create GPU buffer for level rows
     let level_rows_gpu = Tensor::<WgpuRuntime>::from_slice(

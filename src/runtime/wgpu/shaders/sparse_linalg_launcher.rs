@@ -349,7 +349,9 @@ pub fn launch_extract_lower_scatter(
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SparseLuParams {
+    /// Scaling factor for sparse operations
     pub scale: f32,
+    /// Number of non-zero entries
     pub nnz: u32,
 }
 
@@ -488,7 +490,9 @@ pub fn launch_sparse_gather_clear_f32(
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct DividePivotParams {
+    /// Inverse of the pivot value (1.0 / pivot)
     pub inv_pivot: f32,
+    /// Number of non-zero entries to process
     pub nnz: u32,
 }
 
