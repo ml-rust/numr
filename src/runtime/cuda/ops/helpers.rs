@@ -6,7 +6,8 @@ use super::super::kernels::{
     AccumulationPrecision, launch_binary_op, launch_broadcast_binary_op,
     launch_broadcast_compare_op, launch_compare_op, launch_matmul_batched_kernel,
     launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel, launch_matmul_kernel,
-    launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64, launch_unary_op,
+    launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64,
+    launch_semiring_matmul_batched_kernel, launch_semiring_matmul_kernel, launch_unary_op,
 };
 use super::super::kernels::{
     launch_scalar_op_c64, launch_scalar_op_c128, launch_scalar_op_i32, launch_scalar_op_i64,
@@ -568,6 +569,92 @@ pub(super) fn native_compare_op(
             a.shape(),
             b.shape(),
             &out_shape,
+        )?;
+    }
+
+    Ok(out)
+}
+
+// ============================================================================
+// Semiring Matrix Multiplication
+// ============================================================================
+
+/// Native semiring matrix multiplication using CUDA kernel.
+pub(super) fn semiring_matmul_native(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    dtype: DType,
+    m: usize,
+    k: usize,
+    n: usize,
+    semiring_op: u32,
+) -> Result<Tensor<CudaRuntime>> {
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+
+    let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
+        expected: a.shape().to_vec(),
+        got: b.shape().to_vec(),
+    })?;
+
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_semiring_matmul_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            m,
+            n,
+            k,
+            semiring_op,
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Native batched semiring matrix multiplication using CUDA kernel.
+pub(super) fn semiring_matmul_batched_native(
+    client: &CudaClient,
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    dtype: DType,
+    batch: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+    semiring_op: u32,
+) -> Result<Tensor<CudaRuntime>> {
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+
+    let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
+        expected: a.shape().to_vec(),
+        got: b.shape().to_vec(),
+    })?;
+
+    let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+    unsafe {
+        launch_semiring_matmul_batched_kernel(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            a_contig.storage().ptr(),
+            b_contig.storage().ptr(),
+            out.storage().ptr(),
+            batch,
+            m,
+            n,
+            k,
+            semiring_op,
         )?;
     }
 

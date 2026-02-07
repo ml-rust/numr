@@ -77,3 +77,6 @@ mod distance;
 
 #[path = "../../../ops/cuda/multivariate.rs"]
 mod multivariate;
+
+#[path = "../../../ops/cuda/semiring_matmul.rs"]
+mod semiring_matmul;

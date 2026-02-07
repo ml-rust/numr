@@ -61,6 +61,7 @@ fn compile_cuda_kernels() {
         "linalg_svd.cu",
         "matmul.cu",
         "norm.cu",
+        "semiring_matmul.cu",
         "quasirandom.cu",
         "reduce.cu",
         "scalar.cu",
