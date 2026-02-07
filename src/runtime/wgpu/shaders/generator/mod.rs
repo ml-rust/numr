@@ -40,6 +40,7 @@ pub mod matrix_funcs;
 pub mod norm;
 pub mod reduce;
 pub mod scalar;
+pub mod semiring_matmul;
 pub mod sort;
 #[cfg(feature = "sparse")]
 pub mod sparse_algorithms;

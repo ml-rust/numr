@@ -77,3 +77,6 @@ mod distance;
 
 #[path = "../../../ops/wgpu/multivariate.rs"]
 mod multivariate;
+
+#[path = "../../../ops/wgpu/semiring_matmul.rs"]
+mod semiring_matmul;

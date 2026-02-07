@@ -17,6 +17,7 @@ mod masking;
 mod matmul;
 mod normalization;
 mod reduce;
+mod semiring_matmul;
 mod unary;
 
 // Re-export all native functions for use by ops/wgpu/ implementations
@@ -31,4 +32,5 @@ pub(crate) use masking::{native_embedding_lookup, native_masked_fill, native_mas
 pub(crate) use matmul::{native_matmul, native_matmul_bias};
 pub(crate) use normalization::{native_layer_norm, native_rms_norm};
 pub(crate) use reduce::{native_argreduce_op, native_reduce_op, native_softmax};
+pub(crate) use semiring_matmul::native_semiring_matmul;
 pub(crate) use unary::native_unary_op;

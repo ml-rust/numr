@@ -48,6 +48,7 @@ pub mod matmul;
 pub mod matrix_funcs_launcher;
 pub mod norm;
 pub mod reduce;
+pub mod semiring_matmul;
 #[cfg(feature = "sparse")]
 pub mod sparse_algorithms_launcher;
 #[cfg(feature = "sparse")]

@@ -16,6 +16,7 @@ pub mod linalg;
 pub mod logical;
 pub mod matmul;
 pub mod multivariate;
+pub mod semiring_matmul;
 pub mod normalization;
 pub mod quasirandom;
 pub mod random;
