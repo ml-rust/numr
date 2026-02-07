@@ -68,7 +68,6 @@ pub struct ColamdStats {
 
 /// Marker values for the algorithm state.
 const DEAD: i32 = -1;
-const ALIVE: i32 = 0;
 
 /// Column state during elimination.
 #[derive(Debug, Clone)]
@@ -86,7 +85,7 @@ struct Column {
     /// Next column in degree list.
     next: i32,
     /// Parent in elimination tree (for mass elimination).
-    parent: i32,
+    _parent: i32,
     /// Order in the output permutation, or -1 if not yet ordered.
     order: i32,
 }
@@ -100,7 +99,7 @@ impl Column {
             score: 0,
             prev: -1,
             next: -1,
-            parent: -1,
+            _parent: -1,
             order: -1,
         }
     }
@@ -120,23 +119,23 @@ struct Row {
     /// Number of columns in this row.
     degree: i32,
     /// Head of the column list for this row.
-    head: i32,
+    _head: i32,
     /// Length of the column list.
-    length: i32,
+    _length: i32,
     /// Mark for detecting duplicates during superrow merge.
-    mark: i32,
+    _mark: i32,
     /// First column in the row (for pivot detection).
-    first_col: i32,
+    _first_col: i32,
 }
 
 impl Row {
     fn new() -> Self {
         Self {
             degree: 0,
-            head: -1,
-            length: 0,
-            mark: 0,
-            first_col: -1,
+            _head: -1,
+            _length: 0,
+            _mark: 0,
+            _first_col: -1,
         }
     }
 
@@ -319,7 +318,7 @@ pub fn colamd(
     let mut perm: Vec<usize> = Vec::with_capacity(n_cols);
     let mut min_degree = 0usize;
     let mut n_ordered = 0usize;
-    let n_to_order = n_cols - empty_cols.len() - dense_cols.len();
+    let _n_to_order = n_cols - empty_cols.len() - dense_cols.len();
 
     // Place empty columns first
     for &j in &empty_cols {

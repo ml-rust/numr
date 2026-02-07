@@ -524,7 +524,7 @@ impl<R: Runtime> SparseScaling<R> for CscData<R> {
     fn equilibrate<T: Element + Default + Copy + num_traits::Float>(
         &self,
     ) -> Result<(Self, Vec<T>, Vec<T>)> {
-        let [nrows, ncols] = self.shape;
+        let [_nrows, _ncols] = self.shape;
 
         if T::DTYPE != self.dtype() {
             return Err(Error::DTypeMismatch {
@@ -865,13 +865,13 @@ mod tests {
 
         // Get original norms for comparison
         let orig_row_norms: Vec<f64> = csc.row_norms::<f64>(NormType::Linf).unwrap().to_vec();
-        let orig_col_norms: Vec<f64> = csc.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        let _orig_col_norms: Vec<f64> = csc.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
 
         let (scaled, row_scales, col_scales) = csc.equilibrate::<f64>().unwrap();
 
         // After equilibration, norms should be improved (closer to 1)
         let row_norms: Vec<f64> = scaled.row_norms::<f64>(NormType::Linf).unwrap().to_vec();
-        let col_norms: Vec<f64> = scaled.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
+        let _col_norms: Vec<f64> = scaled.col_norms::<f64>(NormType::Linf).unwrap().to_vec();
 
         // Verify that scaling reduces the spread of norms
         // (Original spread was 3-5, after scaling should be tighter)

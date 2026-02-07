@@ -4,9 +4,10 @@ use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
 /// Which eigenvalues to compute
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum WhichEigenvalues {
     /// Largest eigenvalues by magnitude
+    #[default]
     LargestMagnitude,
     /// Smallest eigenvalues by magnitude
     SmallestMagnitude,
@@ -16,12 +17,6 @@ pub enum WhichEigenvalues {
     SmallestReal,
     /// Eigenvalues closest to the given shift (sigma)
     ClosestTo(f64),
-}
-
-impl Default for WhichEigenvalues {
-    fn default() -> Self {
-        WhichEigenvalues::LargestMagnitude
-    }
 }
 
 /// Configuration options for sparse eigensolvers (Lanczos and Arnoldi)

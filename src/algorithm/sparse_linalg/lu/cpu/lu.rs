@@ -1024,7 +1024,7 @@ mod tests {
         };
 
         let options = LuOptions::default();
-        let (factors, metrics) = sparse_lu_cpu_with_metrics(&a, &symbolic, &options).unwrap();
+        let (_factors, metrics) = sparse_lu_cpu_with_metrics(&a, &symbolic, &options).unwrap();
 
         assert_eq!(metrics.original_nnz, 10);
         assert!(metrics.fill_ratio >= 1.0);

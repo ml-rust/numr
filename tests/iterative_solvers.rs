@@ -168,8 +168,8 @@ fn test_cg_identity() {
     assert_eq!(result.iterations, 1, "Identity should converge in 1 iter");
 
     let x_data: Vec<f64> = result.solution.to_vec();
-    for i in 0..n {
-        assert!((x_data[i] - (i as f64 + 1.0)).abs() < 1e-10);
+    for (i, &val) in x_data.iter().enumerate() {
+        assert!((val - (i as f64 + 1.0)).abs() < 1e-10);
     }
 }
 

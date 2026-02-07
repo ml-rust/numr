@@ -269,7 +269,7 @@ fn banded_lu_solve<T: Element + LinalgElement>(
         if pivot_row != k {
             // Swap row k and pivot_row in the band
             // For column j, row i maps to work[(kl + ku + i - j), j]
-            let j_start = if k > ku { k - ku } else { 0 };
+            let j_start = k.saturating_sub(ku);
             let j_end = std::cmp::min(k + kl + ku + 1, n);
             for j in j_start..j_end {
                 let idx_k = (kl + ku + k - j) as isize;

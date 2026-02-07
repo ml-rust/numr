@@ -122,8 +122,8 @@ pub fn hopcroft_karp(
     ) {
         // Try to find augmenting paths from each unmatched column
         for j in 0..n_cols {
-            if col_to_row[j] == NIL {
-                if dfs(
+            if col_to_row[j] == NIL
+                && dfs(
                     j,
                     n_rows,
                     n_cols,
@@ -132,9 +132,9 @@ pub fn hopcroft_karp(
                     &mut col_to_row,
                     &mut row_to_col,
                     &mut dist,
-                ) {
-                    matching_size += 1;
-                }
+                )
+            {
+                matching_size += 1;
             }
         }
     }
@@ -407,7 +407,6 @@ mod tests {
     #[test]
     fn test_hopcroft_karp_rectangular_more_cols() {
         // 2x4 matrix
-        let col_ptrs = vec![0i64, 1, 2, 2, 1];
         // Column 0: row 0
         // Column 1: row 1
         // Column 2: empty

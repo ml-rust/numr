@@ -156,7 +156,7 @@ where
 
         // Residual update: Q * (beta1 * e1) right-hand side
         let phi = c_new * phibar;
-        phibar = -s_new * phibar; // Note: sign matters for correctness
+        phibar *= -s_new; // Note: sign matters for correctness
 
         // Direction vector: d_new = (z - eps * d2 - delta * d1) / gamma
         if gamma.abs() < BREAKDOWN_TOL {

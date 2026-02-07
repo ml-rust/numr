@@ -25,8 +25,8 @@ use super::dense_eig::tridiagonal_eig;
 /// 1. Build bidiagonal B from A using Lanczos bidiagonalization:
 ///    - p_1 = random, q_1 = A^T*p_1 / ||A^T*p_1||
 ///    - for j = 1, ..., ncv:
-///        p = A*q_j - alpha_j*p_j;  beta_j = ||p||; p_{j+1} = p/beta_j
-///        q = A^T*p_{j+1} - beta_j*q_j;  alpha_{j+1} = ||q||; q_{j+1} = q/alpha_{j+1}
+///      p = A*q_j - alpha_j*p_j;  beta_j = ||p||; p_{j+1} = p/beta_j
+///      q = A^T*p_{j+1} - beta_j*q_j;  alpha_{j+1} = ||q||; q_{j+1} = q/alpha_{j+1}
 /// 2. B is bidiagonal with diagonal alphas and super-diagonal betas
 /// 3. SVD of B gives singular values of A (small dense problem)
 /// 4. Ritz vectors give approximate singular vectors of A
