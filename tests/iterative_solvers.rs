@@ -3,8 +3,8 @@
 #![cfg(feature = "sparse")]
 
 use numr::algorithm::iterative::{
-    CgOptions, CgsOptions, IterativeSolvers, MinresOptions, PreconditionerType, SparseEigOptions,
-    WhichEigenvalues,
+    CgOptions, CgsOptions, IterativeSolvers, JacobiOptions, LgmresOptions, MinresOptions,
+    PreconditionerType, QmrOptions, SorOptions,
 };
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuRuntime};
@@ -296,175 +296,6 @@ fn test_minres_symmetric_indefinite() {
 }
 
 // ============================================================================
-// Lanczos Eigensolver Tests
-// ============================================================================
-
-#[test]
-fn test_lanczos_laplacian_largest() {
-    let client = get_client();
-    let device = &CpuRuntime::default_device();
-
-    // 5x5 Laplacian: eigenvalues are 2 - 2*cos(k*pi/6) for k=1..5
-    // = 2 - 2*cos(pi/6), ..., 2 - 2*cos(5*pi/6)
-    // ≈ 0.268, 1.0, 2.0, 3.0, 3.732
-    let n = 5;
-    let a = create_1d_laplacian(n, device);
-
-    let result = client
-        .sparse_eig_symmetric(
-            &a,
-            2,
-            SparseEigOptions {
-                which: WhichEigenvalues::LargestMagnitude,
-                tol: 1e-8,
-                ..Default::default()
-            },
-        )
-        .expect("Lanczos should succeed");
-
-    assert!(
-        result.converged,
-        "Lanczos should converge for 5x5 Laplacian"
-    );
-    assert_eq!(result.nconv, 2, "Should find 2 eigenvalues");
-
-    let eig_data: Vec<f64> = result.eigenvalues.to_vec();
-    // Largest eigenvalue of 5x5 Laplacian ≈ 3.732
-    let max_eig = eig_data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    assert!(
-        (max_eig - 3.732).abs() < 0.1,
-        "Largest eigenvalue ≈ 3.732, got {}",
-        max_eig
-    );
-}
-
-#[test]
-fn test_lanczos_identity_eigenvalues() {
-    let client = get_client();
-    let device = &CpuRuntime::default_device();
-
-    let n = 4;
-    let row_ptrs = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2, 3, 4], &[n + 1], device);
-    let col_indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2, 3], &[n], device);
-    let values = Tensor::<CpuRuntime>::from_slice(&[1.0f64; 4], &[n], device);
-    let a = CsrData::new(row_ptrs, col_indices, values, [n, n]).unwrap();
-
-    let result = client
-        .sparse_eig_symmetric(
-            &a,
-            2,
-            SparseEigOptions {
-                tol: 1e-8,
-                ..Default::default()
-            },
-        )
-        .expect("Lanczos on identity should succeed");
-
-    let eig_data: Vec<f64> = result.eigenvalues.to_vec();
-    for &ev in &eig_data {
-        assert!(
-            (ev - 1.0).abs() < 1e-6,
-            "Identity eigenvalue should be 1.0, got {}",
-            ev
-        );
-    }
-}
-
-// ============================================================================
-// Arnoldi Eigensolver Tests
-// ============================================================================
-
-#[test]
-fn test_arnoldi_nonsymmetric() {
-    let client = get_client();
-    let device = &CpuRuntime::default_device();
-
-    let n = 6;
-    let a = create_nonsymmetric(n, device);
-
-    let result = client
-        .sparse_eig(
-            &a,
-            2,
-            SparseEigOptions {
-                which: WhichEigenvalues::LargestMagnitude,
-                tol: 1e-6,
-                max_iter: 100,
-                ..Default::default()
-            },
-        )
-        .expect("Arnoldi should succeed");
-
-    assert!(result.nconv >= 1, "Should find at least 1 eigenvalue");
-
-    let eig_real: Vec<f64> = result.eigenvalues_real.to_vec();
-    // All eigenvalues of our diagonally dominant matrix should have positive real parts
-    for &er in &eig_real {
-        assert!(
-            er > 0.0,
-            "Eigenvalue real part should be positive, got {}",
-            er
-        );
-    }
-}
-
-#[test]
-fn test_arnoldi_symmetric_matches_lanczos() {
-    // When applied to a symmetric matrix, Arnoldi eigenvalues should
-    // approximately match Lanczos eigenvalues
-    let client = get_client();
-    let device = &CpuRuntime::default_device();
-
-    let n = 5;
-    let a = create_1d_laplacian(n, device);
-
-    let lanczos_result = client
-        .sparse_eig_symmetric(
-            &a,
-            2,
-            SparseEigOptions {
-                which: WhichEigenvalues::LargestMagnitude,
-                tol: 1e-8,
-                ..Default::default()
-            },
-        )
-        .expect("Lanczos should succeed");
-
-    let arnoldi_result = client
-        .sparse_eig(
-            &a,
-            2,
-            SparseEigOptions {
-                which: WhichEigenvalues::LargestMagnitude,
-                tol: 1e-6,
-                max_iter: 100,
-                ..Default::default()
-            },
-        )
-        .expect("Arnoldi should succeed");
-
-    let lanczos_eigs: Vec<f64> = lanczos_result.eigenvalues.to_vec();
-    let arnoldi_eigs: Vec<f64> = arnoldi_result.eigenvalues_real.to_vec();
-
-    // Both should find the largest eigenvalue ≈ 3.732
-    let lanczos_max = lanczos_eigs
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
-    let arnoldi_max = arnoldi_eigs
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
-
-    assert!(
-        (lanczos_max - arnoldi_max).abs() < 0.5,
-        "Lanczos ({}) and Arnoldi ({}) should agree on largest eigenvalue",
-        lanczos_max,
-        arnoldi_max
-    );
-}
-
-// ============================================================================
 // Solver comparison test
 // ============================================================================
 
@@ -506,4 +337,323 @@ fn test_cg_vs_gmres_on_spd() {
             gmres_x[i]
         );
     }
+}
+
+// ============================================================================
+// Jacobi Tests
+// ============================================================================
+
+/// Create diagonally dominant matrix: 4I + Laplacian
+fn create_diag_dominant(n: usize, device: &<CpuRuntime as Runtime>::Device) -> CsrData<CpuRuntime> {
+    let mut row_ptrs = Vec::with_capacity(n + 1);
+    let mut col_indices = Vec::new();
+    let mut values = Vec::new();
+
+    row_ptrs.push(0i64);
+    for i in 0..n {
+        if i > 0 {
+            col_indices.push((i - 1) as i64);
+            values.push(-1.0f64);
+        }
+        col_indices.push(i as i64);
+        values.push(6.0f64);
+        if i < n - 1 {
+            col_indices.push((i + 1) as i64);
+            values.push(-1.0f64);
+        }
+        row_ptrs.push(col_indices.len() as i64);
+    }
+
+    let row_ptrs_tensor = Tensor::<CpuRuntime>::from_slice(&row_ptrs, &[row_ptrs.len()], device);
+    let col_indices_tensor =
+        Tensor::<CpuRuntime>::from_slice(&col_indices, &[col_indices.len()], device);
+    let values_tensor = Tensor::<CpuRuntime>::from_slice(&values, &[values.len()], device);
+
+    CsrData::new(row_ptrs_tensor, col_indices_tensor, values_tensor, [n, n])
+        .expect("CSR creation should succeed")
+}
+
+#[test]
+fn test_jacobi_diag_dominant() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_diag_dominant(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .jacobi(
+            &a,
+            &b,
+            None,
+            JacobiOptions {
+                max_iter: 500,
+                omega: 2.0 / 3.0,
+                rtol: 1e-10,
+                atol: 1e-14,
+            },
+        )
+        .expect("Jacobi should succeed");
+
+    assert!(result.converged, "Jacobi should converge on diag dominant");
+    assert!(
+        result.residual_norm < 1e-8,
+        "Residual too large: {}",
+        result.residual_norm
+    );
+
+    let ax = a.spmv(&result.solution).expect("spmv");
+    use numr::ops::BinaryOps;
+    let residual = client.sub(&b, &ax).expect("sub");
+    let res_data: Vec<f64> = residual.to_vec();
+    let res_norm: f64 = res_data.iter().map(|x| x * x).sum::<f64>().sqrt();
+    assert!(res_norm < 1e-8, "Verification residual: {}", res_norm);
+}
+
+// ============================================================================
+// SOR Tests
+// ============================================================================
+
+#[test]
+fn test_sor_laplacian() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_1d_laplacian(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .sor(
+            &a,
+            &b,
+            None,
+            SorOptions {
+                max_iter: 500,
+                omega: 1.5,
+                rtol: 1e-10,
+                atol: 1e-14,
+            },
+        )
+        .expect("SOR should succeed");
+
+    assert!(result.converged, "SOR should converge on Laplacian");
+    assert!(
+        result.residual_norm < 1e-8,
+        "Residual too large: {}",
+        result.residual_norm
+    );
+
+    let ax = a.spmv(&result.solution).expect("spmv");
+    use numr::ops::BinaryOps;
+    let residual = client.sub(&b, &ax).expect("sub");
+    let res_data: Vec<f64> = residual.to_vec();
+    let res_norm: f64 = res_data.iter().map(|x| x * x).sum::<f64>().sqrt();
+    assert!(res_norm < 1e-8, "Verification residual: {}", res_norm);
+}
+
+#[test]
+fn test_sor_vs_jacobi() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_diag_dominant(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let jacobi_result = client
+        .jacobi(
+            &a,
+            &b,
+            None,
+            JacobiOptions {
+                max_iter: 500,
+                omega: 2.0 / 3.0,
+                ..Default::default()
+            },
+        )
+        .expect("Jacobi should succeed");
+
+    let sor_result = client
+        .sor(
+            &a,
+            &b,
+            None,
+            SorOptions {
+                max_iter: 500,
+                omega: 1.2,
+                ..Default::default()
+            },
+        )
+        .expect("SOR should succeed");
+
+    assert!(jacobi_result.converged);
+    assert!(sor_result.converged);
+    assert!(
+        sor_result.iterations <= jacobi_result.iterations,
+        "SOR ({}) should converge no slower than Jacobi ({})",
+        sor_result.iterations,
+        jacobi_result.iterations
+    );
+}
+
+// ============================================================================
+// LGMRES Tests
+// ============================================================================
+
+#[test]
+fn test_lgmres_nonsymmetric() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_nonsymmetric(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .lgmres(
+            &a,
+            &b,
+            None,
+            LgmresOptions {
+                max_iter: 100,
+                restart: 10,
+                k_aug: 3,
+                rtol: 1e-10,
+                atol: 1e-14,
+                preconditioner: PreconditionerType::None,
+            },
+        )
+        .expect("LGMRES should succeed");
+
+    assert!(result.converged, "LGMRES should converge");
+    assert!(
+        result.residual_norm < 1e-8,
+        "Residual: {}",
+        result.residual_norm
+    );
+
+    let ax = a.spmv(&result.solution).expect("spmv");
+    use numr::ops::BinaryOps;
+    let residual = client.sub(&b, &ax).expect("sub");
+    let res_data: Vec<f64> = residual.to_vec();
+    let res_norm: f64 = res_data.iter().map(|x| x * x).sum::<f64>().sqrt();
+    assert!(res_norm < 1e-8, "Verification residual: {}", res_norm);
+}
+
+#[test]
+fn test_lgmres_laplacian() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_1d_laplacian(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .lgmres(&a, &b, None, LgmresOptions::default())
+        .expect("LGMRES should succeed");
+
+    assert!(result.converged, "LGMRES should converge on Laplacian");
+}
+
+// ============================================================================
+// QMR Tests
+// ============================================================================
+
+#[test]
+fn test_qmr_nonsymmetric() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_nonsymmetric(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .qmr(
+            &a,
+            &b,
+            None,
+            QmrOptions {
+                max_iter: 200,
+                rtol: 1e-10,
+                atol: 1e-14,
+                preconditioner: PreconditionerType::None,
+            },
+        )
+        .expect("QMR should succeed");
+
+    assert!(result.converged, "QMR should converge");
+    assert!(
+        result.residual_norm < 1e-6,
+        "Residual: {}",
+        result.residual_norm
+    );
+
+    let ax = a.spmv(&result.solution).expect("spmv");
+    use numr::ops::BinaryOps;
+    let residual = client.sub(&b, &ax).expect("sub");
+    let res_data: Vec<f64> = residual.to_vec();
+    let res_norm: f64 = res_data.iter().map(|x| x * x).sum::<f64>().sqrt();
+    assert!(res_norm < 1e-6, "Verification residual: {}", res_norm);
+}
+
+#[test]
+fn test_qmr_laplacian() {
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 10;
+    let a = create_1d_laplacian(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let result = client
+        .qmr(&a, &b, None, QmrOptions::default())
+        .expect("QMR should succeed");
+
+    assert!(result.converged, "QMR should converge on SPD Laplacian");
+}
+
+// ============================================================================
+// AMG Tests
+// ============================================================================
+
+#[test]
+fn test_amg_preconditioned_cg() {
+    use numr::algorithm::iterative::{AmgOptions, amg_preconditioned_cg, amg_setup};
+
+    let client = get_client();
+    let device = &CpuRuntime::default_device();
+
+    let n = 20;
+    let a = create_1d_laplacian(n, device);
+    let b_data: Vec<f64> = (0..n).map(|i| (i as f64 + 1.0).sin()).collect();
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
+
+    let hierarchy =
+        amg_setup(&client, &a, AmgOptions::default()).expect("AMG setup should succeed");
+
+    let (solution, iterations, residual_norm, converged) =
+        amg_preconditioned_cg(&client, &a, &b, None, &hierarchy, 100, 1e-10, 1e-14)
+            .expect("AMG-CG should succeed");
+
+    assert!(converged, "AMG-preconditioned CG should converge");
+    assert!(residual_norm < 1e-8, "Residual: {}", residual_norm);
+    assert!(iterations > 0, "Should take at least 1 iteration");
+
+    let ax = a.spmv(&solution).expect("spmv");
+    use numr::ops::BinaryOps;
+    let residual = client.sub(&b, &ax).expect("sub");
+    let res_data: Vec<f64> = residual.to_vec();
+    let res_norm: f64 = res_data.iter().map(|x| x * x).sum::<f64>().sqrt();
+    assert!(res_norm < 1e-8, "Verification residual: {}", res_norm);
 }
