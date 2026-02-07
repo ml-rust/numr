@@ -241,6 +241,29 @@ where
     Ok(result)
 }
 
+/// Extract the inverse diagonal of a CSR matrix: D_inv[i] = 1 / A[i,i]
+///
+/// Uses the on-device `extract_diagonal_csr` kernel — no GPU↔CPU transfers.
+/// Called once at solver init (not in any iteration loop).
+///
+/// Used by Jacobi, SOR, and AMG V-cycle smoothing.
+pub fn extract_diagonal_inv<R, C>(client: &C, a: &crate::sparse::CsrData<R>) -> Result<Tensor<R>>
+where
+    R: Runtime,
+    C: UnaryOps<R> + BinaryOps<R> + ScalarOps<R> + crate::sparse::SparseOps<R>,
+{
+    let n = a.shape[0];
+    let device = a.values().device();
+    let dtype = a.values().dtype();
+
+    // Extract diagonal on-device via SparseOps kernel
+    let diag = a.diagonal_with_client(client)?;
+
+    // Compute 1/diag on-device: create ones tensor, divide
+    let ones = Tensor::<R>::ones(&[n], dtype, device);
+    client.div(&ones, &diag)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

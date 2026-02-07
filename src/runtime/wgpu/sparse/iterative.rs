@@ -6,11 +6,13 @@
 use super::super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::iterative::{
     BiCgStabOptions, BiCgStabResult, CgOptions, CgResult, CgsOptions, CgsResult, GmresOptions,
-    GmresResult, IterativeSolvers, MinresOptions, MinresResult, SparseEigComplexResult,
-    SparseEigOptions, SparseEigResult,
+    GmresResult, IterativeSolvers, JacobiOptions, JacobiResult, LgmresOptions, LgmresResult,
+    MinresOptions, MinresResult, QmrOptions, QmrResult, SorOptions, SorResult,
+    SparseEigComplexResult, SparseEigOptions, SparseEigResult, SparseSvdResult, SvdsOptions,
 };
 use crate::algorithm::iterative::{
-    arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl, lanczos_eig_impl, minres_impl,
+    arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl, jacobi_impl, lanczos_eig_impl,
+    lgmres_impl, minres_impl, qmr_impl, sor_impl, svds_impl,
 };
 use crate::error::Result;
 use crate::sparse::CsrData;
@@ -67,6 +69,46 @@ impl IterativeSolvers<WgpuRuntime> for WgpuClient {
         cgs_impl(self, a, b, x0, options)
     }
 
+    fn lgmres(
+        &self,
+        a: &CsrData<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        x0: Option<&Tensor<WgpuRuntime>>,
+        options: LgmresOptions,
+    ) -> Result<LgmresResult<WgpuRuntime>> {
+        lgmres_impl(self, a, b, x0, options)
+    }
+
+    fn qmr(
+        &self,
+        a: &CsrData<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        x0: Option<&Tensor<WgpuRuntime>>,
+        options: QmrOptions,
+    ) -> Result<QmrResult<WgpuRuntime>> {
+        qmr_impl(self, a, b, x0, options)
+    }
+
+    fn jacobi(
+        &self,
+        a: &CsrData<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        x0: Option<&Tensor<WgpuRuntime>>,
+        options: JacobiOptions,
+    ) -> Result<JacobiResult<WgpuRuntime>> {
+        jacobi_impl(self, a, b, x0, options)
+    }
+
+    fn sor(
+        &self,
+        a: &CsrData<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        x0: Option<&Tensor<WgpuRuntime>>,
+        options: SorOptions,
+    ) -> Result<SorResult<WgpuRuntime>> {
+        sor_impl(self, a, b, x0, options)
+    }
+
     fn sparse_eig_symmetric(
         &self,
         a: &CsrData<WgpuRuntime>,
@@ -83,5 +125,14 @@ impl IterativeSolvers<WgpuRuntime> for WgpuClient {
         options: SparseEigOptions,
     ) -> Result<SparseEigComplexResult<WgpuRuntime>> {
         arnoldi_eig_impl(self, a, k, options)
+    }
+
+    fn svds(
+        &self,
+        a: &CsrData<WgpuRuntime>,
+        k: usize,
+        options: SvdsOptions,
+    ) -> Result<SparseSvdResult<WgpuRuntime>> {
+        svds_impl(self, a, k, options)
     }
 }

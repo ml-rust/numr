@@ -6,11 +6,13 @@
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::iterative::{
     BiCgStabOptions, BiCgStabResult, CgOptions, CgResult, CgsOptions, CgsResult, GmresOptions,
-    GmresResult, IterativeSolvers, MinresOptions, MinresResult, SparseEigComplexResult,
-    SparseEigOptions, SparseEigResult,
+    GmresResult, IterativeSolvers, JacobiOptions, JacobiResult, LgmresOptions, LgmresResult,
+    MinresOptions, MinresResult, QmrOptions, QmrResult, SorOptions, SorResult,
+    SparseEigComplexResult, SparseEigOptions, SparseEigResult, SparseSvdResult, SvdsOptions,
 };
 use crate::algorithm::iterative::{
-    arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl, lanczos_eig_impl, minres_impl,
+    arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl, jacobi_impl, lanczos_eig_impl,
+    lgmres_impl, minres_impl, qmr_impl, sor_impl, svds_impl,
 };
 use crate::error::Result;
 use crate::sparse::CsrData;
@@ -67,6 +69,46 @@ impl IterativeSolvers<CpuRuntime> for CpuClient {
         cgs_impl(self, a, b, x0, options)
     }
 
+    fn lgmres(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: LgmresOptions,
+    ) -> Result<LgmresResult<CpuRuntime>> {
+        lgmres_impl(self, a, b, x0, options)
+    }
+
+    fn qmr(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: QmrOptions,
+    ) -> Result<QmrResult<CpuRuntime>> {
+        qmr_impl(self, a, b, x0, options)
+    }
+
+    fn jacobi(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: JacobiOptions,
+    ) -> Result<JacobiResult<CpuRuntime>> {
+        jacobi_impl(self, a, b, x0, options)
+    }
+
+    fn sor(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: SorOptions,
+    ) -> Result<SorResult<CpuRuntime>> {
+        sor_impl(self, a, b, x0, options)
+    }
+
     fn sparse_eig_symmetric(
         &self,
         a: &CsrData<CpuRuntime>,
@@ -83,6 +125,15 @@ impl IterativeSolvers<CpuRuntime> for CpuClient {
         options: SparseEigOptions,
     ) -> Result<SparseEigComplexResult<CpuRuntime>> {
         arnoldi_eig_impl(self, a, k, options)
+    }
+
+    fn svds(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        k: usize,
+        options: SvdsOptions,
+    ) -> Result<SparseSvdResult<CpuRuntime>> {
+        svds_impl(self, a, k, options)
     }
 }
 
@@ -271,7 +322,7 @@ mod tests {
         let a = create_1d_laplacian(n, device);
         let b = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 0.0, 1.0], &[n], device);
 
-        let options = BiCgStabOptions {
+        let options = crate::algorithm::iterative::BiCgStabOptions {
             max_iter: 100,
             rtol: 1e-10,
             atol: 1e-14,
