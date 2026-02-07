@@ -12,6 +12,18 @@ use crate::ops::{BinaryOps, ReduceOps, ScalarOps, UnaryOps};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
+/// Near-zero threshold for detecting breakdown (division by near-zero scalar).
+/// Used in CG, MINRES, CGS for inner product denominators.
+pub const BREAKDOWN_TOL: f64 = 1e-40;
+
+/// Threshold for detecting invariant subspace (lucky breakdown) in Krylov methods.
+/// When a new basis vector has norm below this, the Krylov subspace is exhausted.
+pub const INVARIANT_SUBSPACE_TOL: f64 = 1e-14;
+
+/// Tolerance for Gram-Schmidt reorthogonalization corrections.
+/// Projections with magnitude below this are skipped to avoid amplifying noise.
+pub const REORTH_TOL: f64 = 1e-15;
+
 /// Compute vector L2 norm: ||v|| = sqrt(sum(v^2))
 ///
 /// Uses optimized `item()` for scalar extraction (single element copy, no Vec allocation).
@@ -198,6 +210,35 @@ pub fn detect_stagnation(
     // Stagnation if current residual is greater than reduction_factor * past residual
     // i.e., we haven't reduced the residual by the required factor
     current > params.reduction_factor * past
+}
+
+/// Compute a linear combination of basis vectors: result = sum_j coefficients[j] * basis[j]
+///
+/// Accumulates entirely on-device (no GPU↔CPU transfers). Both basis vectors and
+/// the result remain on the compute device throughout.
+///
+/// Coefficients with magnitude below [`REORTH_TOL`] are skipped.
+pub fn accumulate_basis_combination<R, C>(
+    client: &C,
+    basis: &[Tensor<R>],
+    coefficients: &[f64],
+    n: usize,
+    dtype: DType,
+    device: &R::Device,
+) -> Result<Tensor<R>>
+where
+    R: Runtime,
+    C: BinaryOps<R> + ScalarOps<R>,
+{
+    let mut result = Tensor::<R>::zeros(&[n], dtype, device);
+    let len = basis.len().min(coefficients.len());
+    for (vj, &coeff) in basis.iter().zip(coefficients.iter()).take(len) {
+        if coeff.abs() > REORTH_TOL {
+            let scaled = client.mul_scalar(vj, coeff)?;
+            result = client.add(&result, &scaled)?;
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

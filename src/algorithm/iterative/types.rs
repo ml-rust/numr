@@ -366,6 +366,219 @@ impl Default for AdaptivePreconditionerOptions {
     }
 }
 
+// ============================================================================
+// CG Options and Result
+// ============================================================================
+
+/// Configuration options for Conjugate Gradient solver
+#[derive(Debug, Clone)]
+pub struct CgOptions {
+    /// Maximum number of iterations (default: 1000)
+    pub max_iter: usize,
+    /// Relative tolerance (default: 1e-10)
+    pub rtol: f64,
+    /// Absolute tolerance (default: 1e-14)
+    pub atol: f64,
+    /// Preconditioner type (default: None)
+    pub preconditioner: PreconditionerType,
+}
+
+impl Default for CgOptions {
+    fn default() -> Self {
+        Self {
+            max_iter: 1000,
+            rtol: 1e-10,
+            atol: 1e-14,
+            preconditioner: PreconditionerType::None,
+        }
+    }
+}
+
+/// Result of Conjugate Gradient solver
+#[derive(Debug, Clone)]
+pub struct CgResult<R: Runtime> {
+    /// Solution vector x such that Ax ≈ b
+    pub solution: Tensor<R>,
+    /// Number of iterations performed
+    pub iterations: usize,
+    /// Final residual norm ||b - Ax||
+    pub residual_norm: f64,
+    /// Whether the solver converged within tolerance
+    pub converged: bool,
+}
+
+// ============================================================================
+// MINRES Options and Result
+// ============================================================================
+
+/// Configuration options for MINRES solver
+#[derive(Debug, Clone)]
+pub struct MinresOptions {
+    /// Maximum number of iterations (default: 1000)
+    pub max_iter: usize,
+    /// Relative tolerance (default: 1e-10)
+    pub rtol: f64,
+    /// Absolute tolerance (default: 1e-14)
+    pub atol: f64,
+    /// Preconditioner type (default: None)
+    pub preconditioner: PreconditionerType,
+}
+
+impl Default for MinresOptions {
+    fn default() -> Self {
+        Self {
+            max_iter: 1000,
+            rtol: 1e-10,
+            atol: 1e-14,
+            preconditioner: PreconditionerType::None,
+        }
+    }
+}
+
+/// Result of MINRES solver
+#[derive(Debug, Clone)]
+pub struct MinresResult<R: Runtime> {
+    /// Solution vector x such that Ax ≈ b
+    pub solution: Tensor<R>,
+    /// Number of iterations performed
+    pub iterations: usize,
+    /// Final residual norm ||b - Ax||
+    pub residual_norm: f64,
+    /// Whether the solver converged within tolerance
+    pub converged: bool,
+}
+
+// ============================================================================
+// CGS Options and Result
+// ============================================================================
+
+/// Configuration options for CGS (Conjugate Gradient Squared) solver
+#[derive(Debug, Clone)]
+pub struct CgsOptions {
+    /// Maximum number of iterations (default: 1000)
+    pub max_iter: usize,
+    /// Relative tolerance (default: 1e-10)
+    pub rtol: f64,
+    /// Absolute tolerance (default: 1e-14)
+    pub atol: f64,
+    /// Preconditioner type (default: None)
+    pub preconditioner: PreconditionerType,
+}
+
+impl Default for CgsOptions {
+    fn default() -> Self {
+        Self {
+            max_iter: 1000,
+            rtol: 1e-10,
+            atol: 1e-14,
+            preconditioner: PreconditionerType::None,
+        }
+    }
+}
+
+/// Result of CGS solver
+#[derive(Debug, Clone)]
+pub struct CgsResult<R: Runtime> {
+    /// Solution vector x such that Ax ≈ b
+    pub solution: Tensor<R>,
+    /// Number of iterations performed
+    pub iterations: usize,
+    /// Final residual norm ||b - Ax||
+    pub residual_norm: f64,
+    /// Whether the solver converged within tolerance
+    pub converged: bool,
+}
+
+// ============================================================================
+// Sparse Eigensolver Types
+// ============================================================================
+
+/// Which eigenvalues to compute
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum WhichEigenvalues {
+    /// Largest eigenvalues by magnitude
+    LargestMagnitude,
+    /// Smallest eigenvalues by magnitude
+    SmallestMagnitude,
+    /// Largest eigenvalues by real part
+    LargestReal,
+    /// Smallest eigenvalues by real part
+    SmallestReal,
+    /// Eigenvalues closest to the given shift (sigma)
+    ClosestTo(f64),
+}
+
+impl Default for WhichEigenvalues {
+    fn default() -> Self {
+        WhichEigenvalues::LargestMagnitude
+    }
+}
+
+/// Configuration options for sparse eigensolvers (Lanczos and Arnoldi)
+#[derive(Debug, Clone)]
+pub struct SparseEigOptions {
+    /// Maximum number of iterations (default: 1000)
+    pub max_iter: usize,
+    /// Convergence tolerance for eigenvalues (default: 1e-10)
+    pub tol: f64,
+    /// Which eigenvalues to compute (default: LargestMagnitude)
+    pub which: WhichEigenvalues,
+    /// Krylov subspace dimension (default: min(2*k + 1, n))
+    ///
+    /// Must be > k (number of requested eigenvalues).
+    pub ncv: Option<usize>,
+}
+
+impl Default for SparseEigOptions {
+    fn default() -> Self {
+        Self {
+            max_iter: 1000,
+            tol: 1e-10,
+            which: WhichEigenvalues::default(),
+            ncv: None,
+        }
+    }
+}
+
+/// Result of sparse eigensolver for symmetric matrices
+#[derive(Debug, Clone)]
+pub struct SparseEigResult<R: Runtime> {
+    /// Eigenvalues (real), sorted according to `which`
+    pub eigenvalues: Tensor<R>,
+    /// Eigenvectors as columns of [n, k] matrix
+    pub eigenvectors: Tensor<R>,
+    /// Number of iterations performed
+    pub iterations: usize,
+    /// Whether all requested eigenvalues converged
+    pub converged: bool,
+    /// Number of converged eigenvalues
+    pub nconv: usize,
+}
+
+/// Result of sparse eigensolver for non-symmetric matrices
+#[derive(Debug, Clone)]
+pub struct SparseEigComplexResult<R: Runtime> {
+    /// Real parts of eigenvalues [k]
+    pub eigenvalues_real: Tensor<R>,
+    /// Imaginary parts of eigenvalues [k]
+    pub eigenvalues_imag: Tensor<R>,
+    /// Eigenvectors as columns of [n, k] matrix
+    ///
+    /// For complex conjugate pairs, consecutive columns store the
+    /// real and imaginary parts respectively.
+    pub eigenvectors: Tensor<R>,
+    /// Number of iterations performed
+    pub iterations: usize,
+    /// Whether all requested eigenvalues converged
+    pub converged: bool,
+    /// Number of converged eigenvalues
+    pub nconv: usize,
+}
+
+// ============================================================================
+// Adaptive GMRES Types
+// ============================================================================
+
 /// Result of adaptive GMRES solver
 #[derive(Debug, Clone)]
 pub struct AdaptiveGmresResult<R: Runtime> {

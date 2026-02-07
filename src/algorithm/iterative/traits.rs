@@ -7,7 +7,11 @@ use crate::runtime::Runtime;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
-use super::types::{BiCgStabOptions, BiCgStabResult, GmresOptions, GmresResult};
+use super::types::{
+    BiCgStabOptions, BiCgStabResult, CgOptions, CgResult, CgsOptions, CgsResult, GmresOptions,
+    GmresResult, MinresOptions, MinresResult, SparseEigComplexResult, SparseEigOptions,
+    SparseEigResult,
+};
 
 /// Iterative solvers for sparse linear systems
 ///
@@ -147,6 +151,78 @@ pub trait IterativeSolvers<R: Runtime>:
         x0: Option<&Tensor<R>>,
         options: BiCgStabOptions,
     ) -> Result<BiCgStabResult<R>>;
+
+    /// CG (Conjugate Gradient) solver
+    ///
+    /// Solves Ax = b where A is symmetric positive definite (SPD).
+    /// Optimal for SPD systems — guaranteed convergence in at most n iterations.
+    ///
+    /// # Algorithm (Preconditioned Hestenes-Stiefel)
+    ///
+    /// ```text
+    /// x = x0, r = b - A*x, z = M^-1*r, p = z, rz = <r,z>
+    /// for iter = 1, 2, ...:
+    ///     Ap = A*p;  alpha = rz / <p, Ap>
+    ///     x += alpha*p;  r -= alpha*Ap
+    ///     if ||r|| < tol: return
+    ///     z = M^-1*r;  rz_new = <r,z>;  beta = rz_new/rz
+    ///     p = z + beta*p;  rz = rz_new
+    /// ```
+    fn cg(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: CgOptions,
+    ) -> Result<CgResult<R>>;
+
+    /// MINRES (Minimum Residual) solver
+    ///
+    /// Solves Ax = b where A is symmetric (possibly indefinite).
+    /// Unlike CG, does not require positive definiteness.
+    ///
+    /// Uses Lanczos tridiagonalization with Givens rotations (Paige-Saunders).
+    fn minres(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: MinresOptions,
+    ) -> Result<MinresResult<R>>;
+
+    /// CGS (Conjugate Gradient Squared) solver
+    ///
+    /// Solves Ax = b for non-symmetric systems. Alternative to BiCGSTAB
+    /// with potentially faster convergence but less stable residual behavior.
+    fn cgs(
+        &self,
+        a: &CsrData<R>,
+        b: &Tensor<R>,
+        x0: Option<&Tensor<R>>,
+        options: CgsOptions,
+    ) -> Result<CgsResult<R>>;
+
+    /// Sparse eigensolver for symmetric matrices (Lanczos)
+    ///
+    /// Computes k eigenvalues/eigenvectors of a large sparse symmetric matrix
+    /// using the Implicitly Restarted Lanczos Method.
+    fn sparse_eig_symmetric(
+        &self,
+        a: &CsrData<R>,
+        k: usize,
+        options: SparseEigOptions,
+    ) -> Result<SparseEigResult<R>>;
+
+    /// Sparse eigensolver for general (non-symmetric) matrices (Arnoldi/IRAM)
+    ///
+    /// Computes k eigenvalues/eigenvectors of a large sparse non-symmetric matrix
+    /// using the Implicitly Restarted Arnoldi Method.
+    fn sparse_eig(
+        &self,
+        a: &CsrData<R>,
+        k: usize,
+        options: SparseEigOptions,
+    ) -> Result<SparseEigComplexResult<R>>;
 }
 
 // ============================================================================

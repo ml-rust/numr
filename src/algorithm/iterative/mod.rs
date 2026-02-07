@@ -1,14 +1,18 @@
-//! Iterative solvers for sparse linear systems
+//! Iterative solvers for sparse linear systems and eigenvalue problems
 //!
-//! This module provides Krylov subspace methods for solving Ax = b where A is
-//! a sparse matrix. All methods support optional preconditioning to improve
-//! convergence.
+//! # Available Linear Solvers
 //!
-//! # Available Solvers
-//!
-//! - **GMRES** - Generalized Minimal Residual method for non-symmetric systems
+//! - **CG** - Conjugate Gradient for symmetric positive definite systems
+//! - **MINRES** - Minimum Residual for symmetric indefinite systems
+//! - **CGS** - Conjugate Gradient Squared for non-symmetric systems
 //! - **BiCGSTAB** - Bi-Conjugate Gradient Stabilized for non-symmetric systems
+//! - **GMRES** - Generalized Minimal Residual for non-symmetric systems
 //! - **Adaptive GMRES** - GMRES with automatic preconditioner upgrading
+//!
+//! # Available Eigensolvers
+//!
+//! - **Lanczos** - For large sparse symmetric matrices
+//! - **Arnoldi (IRAM)** - For large sparse non-symmetric matrices
 //!
 //! # Architecture
 //!
@@ -29,13 +33,17 @@ pub mod impl_generic;
 
 // Re-export types
 pub use types::{
-    AdaptiveGmresResult, AdaptivePreconditionerOptions, BiCgStabOptions, BiCgStabResult,
-    ConvergenceReason, GmresDiagnostics, GmresOptions, GmresResult, PreconditionerType,
-    StagnationParams,
+    AdaptiveGmresResult, AdaptivePreconditionerOptions, BiCgStabOptions, BiCgStabResult, CgOptions,
+    CgResult, CgsOptions, CgsResult, ConvergenceReason, GmresDiagnostics, GmresOptions,
+    GmresResult, MinresOptions, MinresResult, PreconditionerType, SparseEigComplexResult,
+    SparseEigOptions, SparseEigResult, StagnationParams, WhichEigenvalues,
 };
 
 // Re-export traits
 pub use traits::{IterativeSolvers, validate_iterative_inputs};
 
 // Re-export implementations
-pub use impl_generic::{adaptive_gmres_impl, bicgstab_impl, gmres_impl};
+pub use impl_generic::{
+    adaptive_gmres_impl, arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl,
+    lanczos_eig_impl, minres_impl,
+};

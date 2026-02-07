@@ -5,14 +5,12 @@
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::iterative::{
-    BiCgStabOptions,
-    BiCgStabResult,
-    GmresOptions,
-    GmresResult,
-    IterativeSolvers,
-    // Generic implementations
-    bicgstab_impl,
-    gmres_impl,
+    BiCgStabOptions, BiCgStabResult, CgOptions, CgResult, CgsOptions, CgsResult, GmresOptions,
+    GmresResult, IterativeSolvers, MinresOptions, MinresResult, SparseEigComplexResult,
+    SparseEigOptions, SparseEigResult,
+};
+use crate::algorithm::iterative::{
+    arnoldi_eig_impl, bicgstab_impl, cg_impl, cgs_impl, gmres_impl, lanczos_eig_impl, minres_impl,
 };
 use crate::error::Result;
 use crate::sparse::CsrData;
@@ -37,6 +35,54 @@ impl IterativeSolvers<CpuRuntime> for CpuClient {
         options: BiCgStabOptions,
     ) -> Result<BiCgStabResult<CpuRuntime>> {
         bicgstab_impl(self, a, b, x0, options)
+    }
+
+    fn cg(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: CgOptions,
+    ) -> Result<CgResult<CpuRuntime>> {
+        cg_impl(self, a, b, x0, options)
+    }
+
+    fn minres(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: MinresOptions,
+    ) -> Result<MinresResult<CpuRuntime>> {
+        minres_impl(self, a, b, x0, options)
+    }
+
+    fn cgs(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        x0: Option<&Tensor<CpuRuntime>>,
+        options: CgsOptions,
+    ) -> Result<CgsResult<CpuRuntime>> {
+        cgs_impl(self, a, b, x0, options)
+    }
+
+    fn sparse_eig_symmetric(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        k: usize,
+        options: SparseEigOptions,
+    ) -> Result<SparseEigResult<CpuRuntime>> {
+        lanczos_eig_impl(self, a, k, options)
+    }
+
+    fn sparse_eig(
+        &self,
+        a: &CsrData<CpuRuntime>,
+        k: usize,
+        options: SparseEigOptions,
+    ) -> Result<SparseEigComplexResult<CpuRuntime>> {
+        arnoldi_eig_impl(self, a, k, options)
     }
 }
 
@@ -66,15 +112,12 @@ mod tests {
 
         row_ptrs.push(0i64);
         for i in 0..n {
-            // Entry (i, i-1) = -1 (if i > 0)
             if i > 0 {
                 col_indices.push((i - 1) as i64);
                 values.push(-1.0f64);
             }
-            // Entry (i, i) = 2
             col_indices.push(i as i64);
             values.push(2.0f64);
-            // Entry (i, i+1) = -1 (if i < n-1)
             if i < n - 1 {
                 col_indices.push((i + 1) as i64);
                 values.push(-1.0f64);
@@ -97,11 +140,8 @@ mod tests {
         let client = get_client();
         let device = &client.device;
 
-        // Create small 5x5 Laplacian
         let n = 5;
         let a = create_1d_laplacian(n, device);
-
-        // b = [1, 0, 0, 0, 1] - symmetric RHS
         let b = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 0.0, 1.0], &[n], device);
 
         let options = GmresOptions {
@@ -128,7 +168,6 @@ mod tests {
             result.residual_norm
         );
 
-        // Verify solution: compute ||b - Ax||
         let ax = a.spmv(&result.solution).expect("spmv should work");
         use crate::ops::BinaryOps;
         let residual = client.sub(&b, &ax).expect("sub should work");
@@ -142,28 +181,24 @@ mod tests {
         let client = get_client();
         let device = &client.device;
 
-        // Larger system to show benefit of preconditioning
         let n = 20;
         let a = create_1d_laplacian(n, device);
 
-        // Random-ish RHS
         let b_data: Vec<f64> = (0..n).map(|i| (i as f64).sin()).collect();
         let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[n], device);
 
-        // Use default restart (30) for non-preconditioned to allow convergence
         let options_no_precond = GmresOptions {
             max_iter: 100,
-            restart: 30, // Larger restart needed for non-preconditioned
+            restart: 30,
             rtol: 1e-10,
             atol: 1e-14,
             preconditioner: PreconditionerType::None,
             ..Default::default()
         };
 
-        // ILU(0) on tridiagonal is exact LU, so even small restart works
         let options_ilu = GmresOptions {
             max_iter: 100,
-            restart: 10, // Small restart - ILU makes this sufficient
+            restart: 10,
             rtol: 1e-10,
             atol: 1e-14,
             preconditioner: PreconditionerType::Ilu0,
@@ -180,8 +215,6 @@ mod tests {
         assert!(result_no_precond.converged, "GMRES should converge");
         assert!(result_ilu.converged, "GMRES+ILU should converge");
 
-        // ILU(0) should converge faster (or at least same speed) for well-structured matrices
-        // For tridiagonal, ILU(0) is exact LU, so convergence is immediate
         assert!(
             result_ilu.iterations <= result_no_precond.iterations,
             "ILU should help convergence: {} vs {}",
@@ -195,7 +228,6 @@ mod tests {
         let client = get_client();
         let device = &client.device;
 
-        // Identity matrix - should converge in 1 iteration
         let n = 5;
         let row_ptrs = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2, 3, 4, 5], &[n + 1], device);
         let col_indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2, 3, 4], &[n], device);
@@ -216,7 +248,6 @@ mod tests {
             "Identity should converge in 1 iteration"
         );
 
-        // Solution should equal b
         let x_data: Vec<f64> = result.solution.to_vec();
         let b_data: Vec<f64> = b.to_vec();
         for i in 0..n {
@@ -258,7 +289,6 @@ mod tests {
             result.residual_norm
         );
 
-        // Verify solution
         let ax = a.spmv(&result.solution).expect("spmv should work");
         use crate::ops::BinaryOps;
         let residual = client.sub(&b, &ax).expect("sub should work");
@@ -281,7 +311,6 @@ mod tests {
             .gmres(&a, &b, None, options)
             .expect("GMRES should succeed");
 
-        // Zero RHS should give zero solution immediately
         assert!(result.converged);
         assert_eq!(result.iterations, 0);
 
@@ -300,13 +329,11 @@ mod tests {
         let a = create_1d_laplacian(n, device);
         let b = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 0.0, 1.0], &[n], device);
 
-        // First solve without initial guess
         let result1 = client
             .gmres(&a, &b, None, GmresOptions::default())
             .expect("GMRES should succeed");
         assert!(result1.converged);
 
-        // Use the solution as initial guess - should converge immediately
         let result2 = client
             .gmres(&a, &b, Some(&result1.solution), GmresOptions::default())
             .expect("GMRES should succeed");
