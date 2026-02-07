@@ -69,9 +69,13 @@ where
             let ilu = client.ilu0(a, IluOptions::default())?;
             Some(ilu)
         }
+        PreconditionerType::Amg => {
+            return Err(Error::Internal(
+                "AMG preconditioner not supported for GMRES — use amg_preconditioned_cg"
+                    .to_string(),
+            ));
+        }
         PreconditionerType::Ic0 => {
-            // IC0 returns IcDecomposition, but we need ILU interface
-            // For IC0, M = L * L^T, so M^-1 * v = L^-T * (L^-1 * v)
             return Err(Error::Internal(
                 "IC0 preconditioner not yet supported for GMRES - use ILU0".to_string(),
             ));

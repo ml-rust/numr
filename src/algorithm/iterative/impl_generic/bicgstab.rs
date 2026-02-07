@@ -60,6 +60,12 @@ where
             let ilu = client.ilu0(a, IluOptions::default())?;
             Some(ilu)
         }
+        PreconditionerType::Amg => {
+            return Err(Error::Internal(
+                "AMG preconditioner not supported for BiCGSTAB - use amg_preconditioned_cg"
+                    .to_string(),
+            ));
+        }
         PreconditionerType::Ic0 => {
             return Err(Error::Internal(
                 "IC0 preconditioner not yet supported for BiCGSTAB - use ILU0".to_string(),

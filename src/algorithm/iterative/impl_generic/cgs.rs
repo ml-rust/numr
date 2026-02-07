@@ -74,6 +74,11 @@ where
     let precond = match options.preconditioner {
         PreconditionerType::None => None,
         PreconditionerType::Ilu0 => Some(client.ilu0(a, IluOptions::default())?),
+        PreconditionerType::Amg => {
+            return Err(Error::Internal(
+                "AMG preconditioner not supported for CGS — use amg_preconditioned_cg".to_string(),
+            ));
+        }
         PreconditionerType::Ic0 => {
             return Err(Error::Internal(
                 "IC0 preconditioner not supported for CGS — use ILU0".to_string(),

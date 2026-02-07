@@ -134,7 +134,9 @@ where
             && current_level.upgrade().is_some();
 
         if should_upgrade {
-            current_level = current_level.upgrade().unwrap();
+            current_level = current_level
+                .upgrade()
+                .expect("upgrade checked via is_some() above");
             upgrades += 1;
 
             // Optionally reset residual history on upgrade
