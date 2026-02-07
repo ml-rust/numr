@@ -6,8 +6,8 @@ use crate::runtime::Runtime;
 
 use super::{
     ActivationOps, BinaryOps, ComplexOps, ConditionalOps, CumulativeOps, DistanceOps, IndexingOps,
-    LinalgOps, MatmulOps, NormalizationOps, RandomOps, ReduceOps, ShapeOps, SortingOps,
-    StatisticalOps, TypeConversionOps, UnaryOps, UtilityOps,
+    LinalgOps, MatmulOps, NormalizationOps, RandomOps, ReduceOps, SemiringMatmulOps, ShapeOps,
+    SortingOps, StatisticalOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 
 /// Core tensor operations trait
@@ -48,6 +48,7 @@ pub trait TensorOps<R: Runtime>:
     + RandomOps<R>
     + UnaryOps<R>
     + BinaryOps<R>
+    + SemiringMatmulOps<R>
 {
     // All methods are provided by the individual trait implementations
 }

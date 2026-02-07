@@ -79,6 +79,7 @@ pub(crate) mod distance_common;
 pub mod impl_generic;
 mod matmul;
 pub(crate) mod reduce;
+pub mod semiring;
 mod special;
 pub mod traits;
 
@@ -87,11 +88,12 @@ pub use arithmetic::*;
 pub use dispatch::*;
 pub use matmul::*;
 pub use reduce::*;
+pub use semiring::SemiringOp;
 pub use special::SpecialFunctions;
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
     CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, Kernel, LinalgOps, LogicalOps,
     MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
-    QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ScatterReduceOp, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps,
+    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
