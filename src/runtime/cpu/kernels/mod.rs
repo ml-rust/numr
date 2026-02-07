@@ -22,6 +22,7 @@ pub mod norm;
 pub mod quasirandom;
 pub mod reduce;
 pub mod scalar;
+pub mod semiring_matmul;
 pub mod simd;
 pub mod sobol_data;
 pub mod sort;
