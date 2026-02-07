@@ -136,6 +136,14 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
         crate::ops::impl_generic::one_hot_impl(self, indices, num_classes)
     }
 
+    fn meshgrid(
+        &self,
+        tensors: &[&Tensor<WgpuRuntime>],
+        indexing: crate::ops::MeshgridIndexing,
+    ) -> Result<Vec<Tensor<WgpuRuntime>>> {
+        crate::ops::impl_generic::meshgrid_impl(tensors, indexing)
+    }
+
     fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         // Use shared validation
         let (rows, cols) = validate_eye(n, m);

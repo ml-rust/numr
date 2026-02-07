@@ -202,4 +202,12 @@ impl UtilityOps<CpuRuntime> for CpuClient {
 
         Ok(out)
     }
+
+    fn meshgrid(
+        &self,
+        tensors: &[&Tensor<CpuRuntime>],
+        indexing: crate::ops::MeshgridIndexing,
+    ) -> Result<Vec<Tensor<CpuRuntime>>> {
+        crate::ops::impl_generic::meshgrid_impl(tensors, indexing)
+    }
 }

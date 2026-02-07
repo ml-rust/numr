@@ -57,4 +57,4 @@ pub use statistics::StatisticalOps;
 pub use tensor_ops::TensorOps;
 pub use type_conversion::TypeConversionOps;
 pub use unary::UnaryOps;
-pub use utility::UtilityOps;
+pub use utility::{MeshgridIndexing, UtilityOps};

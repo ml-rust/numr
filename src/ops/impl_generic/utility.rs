@@ -5,7 +5,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{CompareOps, TypeConversionOps, UtilityOps};
+use crate::ops::{CompareOps, MeshgridIndexing, TypeConversionOps, UtilityOps};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -70,4 +70,158 @@ where
 
     // Cast bool mask to F32
     client.cast(&mask, DType::F32)
+}
+
+/// Meshgrid implementation via reshape + broadcast_to + contiguous
+///
+/// Algorithm:
+/// 1. For Xy indexing, swap first two input tensors
+/// 2. Compute output shape from all input lengths
+/// 3. For each input: reshape to have size-1 dims everywhere except its own axis,
+///    then broadcast_to the full shape, then contiguous() to materialize
+pub fn meshgrid_impl<R: Runtime>(
+    tensors: &[&Tensor<R>],
+    indexing: MeshgridIndexing,
+) -> Result<Vec<Tensor<R>>> {
+    if tensors.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Validate all inputs are 1-D
+    for (i, t) in tensors.iter().enumerate() {
+        if t.ndim() != 1 {
+            return Err(Error::InvalidArgument {
+                arg: "tensors",
+                reason: format!(
+                    "meshgrid requires 1-D inputs, but tensor {} has shape {:?}",
+                    i,
+                    t.shape()
+                ),
+            });
+        }
+    }
+
+    // For Xy indexing, swap first two inputs
+    let inputs: Vec<&Tensor<R>> = if indexing == MeshgridIndexing::Xy && tensors.len() >= 2 {
+        let mut v: Vec<&Tensor<R>> = tensors.to_vec();
+        v.swap(0, 1);
+        v
+    } else {
+        tensors.to_vec()
+    };
+
+    let ndim = inputs.len();
+
+    // Compute output shape
+    let output_shape: Vec<usize> = inputs.iter().map(|t| t.shape()[0]).collect();
+
+    let mut grids = Vec::with_capacity(ndim);
+    for (i, t) in inputs.iter().enumerate() {
+        // Build reshape: size-1 everywhere except axis i
+        let mut reshape_dims = vec![1usize; ndim];
+        reshape_dims[i] = t.shape()[0];
+
+        let reshaped = t.reshape(&reshape_dims)?;
+        let broadcasted = reshaped.broadcast_to(&output_shape)?;
+        let materialized = broadcasted.contiguous();
+
+        grids.push(materialized);
+    }
+
+    // For Xy indexing, swap first two outputs back so output[0] corresponds to input x, output[1] to input y
+    if indexing == MeshgridIndexing::Xy && grids.len() >= 2 {
+        grids.swap(0, 1);
+    }
+
+    Ok(grids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::cpu::CpuRuntime;
+    use crate::tensor::Tensor;
+
+    fn cpu_device() -> crate::runtime::cpu::CpuDevice {
+        crate::runtime::cpu::CpuDevice::default()
+    }
+
+    #[test]
+    fn test_meshgrid_2d_ij() {
+        let device = cpu_device();
+        let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 5.0], &[2], &device);
+
+        let grids = meshgrid_impl(&[&x, &y], MeshgridIndexing::Ij).unwrap();
+        assert_eq!(grids.len(), 2);
+        assert_eq!(grids[0].shape(), &[3, 2]);
+        assert_eq!(grids[1].shape(), &[3, 2]);
+
+        let g0: Vec<f32> = grids[0].to_vec();
+        let g1: Vec<f32> = grids[1].to_vec();
+        // g0: [[1,1],[2,2],[3,3]]
+        assert_eq!(g0, vec![1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
+        // g1: [[4,5],[4,5],[4,5]]
+        assert_eq!(g1, vec![4.0, 5.0, 4.0, 5.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_meshgrid_2d_xy() {
+        let device = cpu_device();
+        let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let y = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 5.0], &[2], &device);
+
+        let grids = meshgrid_impl(&[&x, &y], MeshgridIndexing::Xy).unwrap();
+        assert_eq!(grids.len(), 2);
+        // Xy: output shape is [len(y), len(x)] = [2, 3]
+        assert_eq!(grids[0].shape(), &[2, 3]);
+        assert_eq!(grids[1].shape(), &[2, 3]);
+
+        let g0: Vec<f32> = grids[0].to_vec();
+        let g1: Vec<f32> = grids[1].to_vec();
+        // g0 (x values): [[1,2,3],[1,2,3]]
+        assert_eq!(g0, vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0]);
+        // g1 (y values): [[4,4,4],[5,5,5]]
+        assert_eq!(g1, vec![4.0, 4.0, 4.0, 5.0, 5.0, 5.0]);
+    }
+
+    #[test]
+    fn test_meshgrid_3d() {
+        let device = cpu_device();
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+        let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0, 5.0], &[3], &device);
+        let c = Tensor::<CpuRuntime>::from_slice(&[6.0f32, 7.0], &[2], &device);
+
+        let grids = meshgrid_impl(&[&a, &b, &c], MeshgridIndexing::Ij).unwrap();
+        assert_eq!(grids.len(), 3);
+        assert_eq!(grids[0].shape(), &[2, 3, 2]);
+        assert_eq!(grids[1].shape(), &[2, 3, 2]);
+        assert_eq!(grids[2].shape(), &[2, 3, 2]);
+    }
+
+    #[test]
+    fn test_meshgrid_single_input() {
+        let device = cpu_device();
+        let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+
+        let grids = meshgrid_impl(&[&x], MeshgridIndexing::Ij).unwrap();
+        assert_eq!(grids.len(), 1);
+        assert_eq!(grids[0].shape(), &[3]);
+        let g: Vec<f32> = grids[0].to_vec();
+        assert_eq!(g, vec![1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_meshgrid_empty() {
+        let grids = meshgrid_impl::<CpuRuntime>(&[], MeshgridIndexing::Ij).unwrap();
+        assert!(grids.is_empty());
+    }
+
+    #[test]
+    fn test_meshgrid_non_1d_error() {
+        let device = cpu_device();
+        let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+        let result = meshgrid_impl(&[&x], MeshgridIndexing::Ij);
+        assert!(result.is_err());
+    }
 }

@@ -30,4 +30,4 @@ pub use multivariate::{
     multivariate_normal_impl, wishart_impl,
 };
 pub use random::randperm_impl;
-pub use utility::one_hot_impl;
+pub use utility::{meshgrid_impl, one_hot_impl};

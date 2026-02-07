@@ -5,6 +5,15 @@ use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
+/// Indexing mode for meshgrid
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshgridIndexing {
+    /// Matrix indexing (default): first dimension corresponds to first input
+    Ij,
+    /// Cartesian indexing: first two inputs are swapped (x=columns, y=rows)
+    Xy,
+}
+
 /// Utility operations
 pub trait UtilityOps<R: Runtime> {
     /// Clamp tensor values to a range: clamp(x, min, max) = min(max(x, min), max)
@@ -139,4 +148,24 @@ pub trait UtilityOps<R: Runtime> {
     /// //       [0, 1, 0, 0]]
     /// ```
     fn one_hot(&self, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>;
+
+    /// Create coordinate grids from 1-D coordinate vectors
+    ///
+    /// Given N 1-D tensors, returns N N-D tensors where each output tensor
+    /// represents one coordinate along one axis of the N-D grid.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensors` - Slice of 1-D input tensors (the coordinate vectors)
+    /// * `indexing` - Grid indexing convention (Ij for matrix, Xy for Cartesian)
+    ///
+    /// # Returns
+    ///
+    /// Vec of N tensors, each with shape [len(t0), len(t1), ..., len(tN-1)]
+    /// (or with first two dims swapped for Xy indexing)
+    fn meshgrid(
+        &self,
+        tensors: &[&Tensor<R>],
+        indexing: MeshgridIndexing,
+    ) -> Result<Vec<Tensor<R>>>;
 }

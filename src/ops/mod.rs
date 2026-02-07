@@ -91,7 +91,7 @@ pub use special::SpecialFunctions;
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
     CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, Kernel, LinalgOps, LogicalOps,
-    MatmulOps, MultivariateRandomOps, NormalizationOps, PaddingMode, QuasiRandomOps, RandomOps,
-    ReduceOps, ScalarOps, ScatterReduceOp, ShapeOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UnaryOps, UtilityOps,
+    MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
+    QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ScatterReduceOp, ShapeOps, SortingOps,
+    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
