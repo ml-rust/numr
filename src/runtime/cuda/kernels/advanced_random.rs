@@ -11,11 +11,14 @@ use std::sync::Arc;
 
 /// Get kernel suffix for dtype
 #[inline]
-fn dtype_suffix(dtype: DType) -> &'static str {
+fn dtype_suffix(dtype: DType) -> Result<&'static str> {
     match dtype {
-        DType::F32 => "f32",
-        DType::F64 => "f64",
-        _ => panic!("Unsupported dtype for advanced random: {:?}", dtype),
+        DType::F32 => Ok("f32"),
+        DType::F64 => Ok("f64"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "advanced_random",
+        }),
     }
 }
 
@@ -37,7 +40,7 @@ pub unsafe fn launch_philox_uniform(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("philox_uniform_{}", dtype_suffix(dtype));
+    let kernel_name = format!("philox_uniform_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -78,7 +81,7 @@ pub unsafe fn launch_philox_randn(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("philox_randn_{}", dtype_suffix(dtype));
+    let kernel_name = format!("philox_randn_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -123,7 +126,7 @@ pub unsafe fn launch_threefry_uniform(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("threefry_uniform_{}", dtype_suffix(dtype));
+    let kernel_name = format!("threefry_uniform_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -164,7 +167,7 @@ pub unsafe fn launch_threefry_randn(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("threefry_randn_{}", dtype_suffix(dtype));
+    let kernel_name = format!("threefry_randn_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -209,7 +212,7 @@ pub unsafe fn launch_pcg64_uniform(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("pcg64_uniform_{}", dtype_suffix(dtype));
+    let kernel_name = format!("pcg64_uniform_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -250,7 +253,7 @@ pub unsafe fn launch_pcg64_randn(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("pcg64_randn_{}", dtype_suffix(dtype));
+    let kernel_name = format!("pcg64_randn_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -294,7 +297,7 @@ pub unsafe fn launch_xoshiro256_uniform(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("xoshiro256_uniform_{}", dtype_suffix(dtype));
+    let kernel_name = format!("xoshiro256_uniform_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -333,7 +336,7 @@ pub unsafe fn launch_xoshiro256_randn(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("xoshiro256_randn_{}", dtype_suffix(dtype));
+    let kernel_name = format!("xoshiro256_randn_{}", dtype_suffix(dtype)?);
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 

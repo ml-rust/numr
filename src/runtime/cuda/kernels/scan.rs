@@ -114,9 +114,17 @@ pub unsafe fn exclusive_scan_i32_gpu(
         .synchronize()
         .map_err(|e| Error::Internal(format!("Failed to synchronize after scan: {:?}", e)))?;
 
-    // Read the total sum from output[n]
-    let total_vec: Vec<i32> = output.to_vec();
-    let total = total_vec[n] as usize;
+    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow)
+    let mut total_i32: i32 = 0;
+    let offset_bytes = n * std::mem::size_of::<i32>();
+    unsafe {
+        cudarc::driver::sys::cuMemcpyDtoH_v2(
+            &mut total_i32 as *mut i32 as *mut std::ffi::c_void,
+            output.storage().ptr() + offset_bytes as u64,
+            std::mem::size_of::<i32>(),
+        );
+    }
+    let total = total_i32 as usize;
 
     Ok((output, total))
 }
@@ -363,9 +371,17 @@ pub unsafe fn exclusive_scan_i64_gpu(
         .synchronize()
         .map_err(|e| Error::Internal(format!("Failed to synchronize after scan: {:?}", e)))?;
 
-    // Read the total sum from output[n]
-    let total_vec: Vec<i64> = output.to_vec();
-    let total = total_vec[n] as usize;
+    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow)
+    let mut total_i64: i64 = 0;
+    let offset_bytes = n * std::mem::size_of::<i64>();
+    unsafe {
+        cudarc::driver::sys::cuMemcpyDtoH_v2(
+            &mut total_i64 as *mut i64 as *mut std::ffi::c_void,
+            output.storage().ptr() + offset_bytes as u64,
+            std::mem::size_of::<i64>(),
+        );
+    }
+    let total = total_i64 as usize;
 
     Ok((output, total))
 }

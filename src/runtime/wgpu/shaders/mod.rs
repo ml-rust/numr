@@ -53,6 +53,8 @@ pub mod sparse_algorithms_launcher;
 #[cfg(feature = "sparse")]
 pub mod sparse_conversions_launcher;
 #[cfg(feature = "sparse")]
+pub mod sparse_level_compute_launcher;
+#[cfg(feature = "sparse")]
 pub mod sparse_linalg_launcher;
 #[cfg(feature = "sparse")]
 pub mod sparse_merge_launcher;
@@ -68,6 +70,14 @@ mod matmul_wgsl;
 mod norm_wgsl;
 mod pipeline;
 mod reduce_wgsl;
+
+#[cfg(feature = "sparse")]
+pub mod sparse_level_compute {
+    pub use crate::runtime::wgpu::shaders::sparse_level_compute_launcher::{
+        launch_cast_i64_to_i32, launch_compute_levels_ilu_iter, launch_compute_levels_lower_iter,
+        launch_compute_levels_upper_iter, launch_scatter_by_level,
+    };
+}
 
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
 pub use advanced_random::{
@@ -125,6 +135,11 @@ pub use sparse_conversions_launcher::{
     launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs, launch_count_nonzeros,
     launch_csc_to_csr_scatter, launch_csr_to_csc_scatter, launch_csr_to_dense,
     launch_dense_to_coo_scatter, launch_expand_col_ptrs, launch_expand_row_ptrs, launch_histogram,
+};
+#[cfg(feature = "sparse")]
+pub use sparse_level_compute_launcher::{
+    launch_cast_i64_to_i32, launch_compute_levels_ilu_iter, launch_compute_levels_lower_iter,
+    launch_compute_levels_upper_iter, launch_scatter_by_level,
 };
 #[cfg(feature = "sparse")]
 pub use sparse_linalg_launcher::{

@@ -295,7 +295,16 @@ impl Runtime for CudaRuntime {
 
             // Check kernel launch result
             if let Err(e) = kernel_result {
-                panic!("[numr::cuda] Strided copy kernel failed: {:?}", e);
+                panic!(
+                    "[numr::cuda] Strided copy kernel failed: {} bytes ({} elements × {} bytes/elem) from {} to {} on device {}: {:?}",
+                    numel * elem_size,
+                    numel,
+                    elem_size,
+                    src_handle,
+                    dst_handle,
+                    device.index,
+                    e
+                );
             }
 
             // Synchronize to ensure copy is complete

@@ -8,7 +8,7 @@ use super::super::kernels;
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Validate banded system inputs and return (n, nrhs).
