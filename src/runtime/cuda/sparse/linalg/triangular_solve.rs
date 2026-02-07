@@ -1,9 +1,10 @@
 //! CUDA sparse triangular solve implementation.
 
 use super::super::{CudaClient, CudaRuntime};
-use super::common::validate_cuda_dtype;
+use super::common::{
+    cast_i64_to_i32_gpu, compute_levels_lower_gpu, compute_levels_upper_gpu, validate_cuda_dtype,
+};
 use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
-use crate::algorithm::sparse_linalg::{compute_levels_lower, compute_levels_upper, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;
@@ -30,37 +31,22 @@ pub fn sparse_solve_triangular_cuda(
         });
     }
 
-    // Extract CSR data for level analysis
-    let row_ptrs: Vec<i64> = l_or_u.row_ptrs().to_vec();
-    let col_indices: Vec<i64> = l_or_u.col_indices().to_vec();
+    // Cast CSR structure to i32 on GPU (no CPU transfer of large arrays)
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, l_or_u.row_ptrs())?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, l_or_u.col_indices())?;
 
-    // Compute level schedule
-    let schedule = if lower {
-        compute_levels_lower(n, &row_ptrs, &col_indices)?
+    // Compute level schedule on GPU
+    let (level_ptrs, level_rows_gpu, num_levels) = if lower {
+        compute_levels_lower_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?
     } else {
-        compute_levels_upper(n, &row_ptrs, &col_indices)?
+        compute_levels_upper_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?
     };
-    let (level_ptrs, level_rows) = flatten_levels(&schedule);
-
-    // Device reference
-    let device = &client.device;
-
-    // Allocate GPU buffers
-    let level_rows_gpu =
-        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
-
-    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
-    let row_ptrs_gpu =
-        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
-    let col_indices_gpu =
-        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
 
     // Allocate output (initialized from b)
     let x = b.clone();
 
     // Process each level
-    for level in 0..schedule.num_levels {
+    for level in 0..num_levels {
         let level_start = level_ptrs[level] as usize;
         let level_end = level_ptrs[level + 1] as usize;
         let level_size = (level_end - level_start) as i32;

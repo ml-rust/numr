@@ -4,11 +4,12 @@
 //! This module implements the numeric phase on GPU using level scheduling.
 
 use super::super::{CudaClient, CudaRuntime};
-use super::common::{split_lu_cuda, validate_cuda_dtype};
+use super::common::{
+    cast_i64_to_i32_gpu, compute_levels_lower_gpu, split_lu_cuda, validate_cuda_dtype,
+};
 use crate::algorithm::sparse_linalg::{
     IluFillLevel, IluMetrics, IlukDecomposition, IlukOptions, IlukSymbolic, validate_square_sparse,
 };
-use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;
@@ -46,23 +47,25 @@ pub fn iluk_numeric_cuda(
     let orig_row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
     let orig_col_indices: Vec<i64> = a.col_indices().to_vec();
 
-    // Compute level schedule on combined pattern
-    let schedule = compute_levels_ilu(n, &combined_row_ptrs, &combined_col_indices)?;
-    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+    // Convert combined pattern to GPU tensors on GPU (no CPU transfer of large arrays)
+    let combined_row_ptrs_gpu = Tensor::<CudaRuntime>::from_slice(
+        &combined_row_ptrs,
+        &[combined_row_ptrs.len()],
+        &client.device,
+    );
+    let combined_col_indices_gpu = Tensor::<CudaRuntime>::from_slice(
+        &combined_col_indices,
+        &[combined_col_indices.len()],
+        &client.device,
+    );
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, &combined_row_ptrs_gpu)?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, &combined_col_indices_gpu)?;
+
+    // Compute level schedule on combined pattern on GPU
+    let (level_ptrs, level_rows_gpu, num_levels) =
+        compute_levels_lower_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?;
 
     let device = &client.device;
-
-    // Upload level data to GPU
-    let level_rows_gpu =
-        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
-
-    // Convert combined pattern to i32 for GPU
-    let row_ptrs_i32: Vec<i32> = combined_row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = combined_col_indices.iter().map(|&x| x as i32).collect();
-    let row_ptrs_gpu =
-        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
-    let col_indices_gpu =
-        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
 
     // Initialize combined values array on GPU
     // Start with zeros, then scatter original values to their positions
@@ -94,7 +97,7 @@ pub fn iluk_numeric_cuda(
     }
 
     // Process each level using ILU(0) kernel (same algorithm, different pattern)
-    for level in 0..schedule.num_levels {
+    for level in 0..num_levels {
         let level_start = level_ptrs[level] as usize;
         let level_end = level_ptrs[level + 1] as usize;
         let level_size = (level_end - level_start) as i32;

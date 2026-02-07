@@ -16,6 +16,258 @@ pub fn validate_cuda_dtype(dtype: DType, op: &'static str) -> Result<()> {
     Ok(())
 }
 
+// ============================================================================
+// GPU-Native Level Computation (eliminates GPU↔CPU transfers)
+// ============================================================================
+
+/// Cast i64 GPU tensor to i32 GPU tensor (no CPU transfer)
+pub fn cast_i64_to_i32_gpu(
+    client: &CudaClient,
+    tensor: &Tensor<CudaRuntime>,
+) -> Result<Tensor<CudaRuntime>> {
+    if tensor.dtype() != DType::I64 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: tensor.dtype(),
+        });
+    }
+
+    let n = tensor.numel() as i32;
+    let output = Tensor::<CudaRuntime>::zeros(&[tensor.numel()], DType::I32, &client.device);
+
+    unsafe {
+        kernels::launch_cast_i64_to_i32(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            tensor.storage().ptr(),
+            output.storage().ptr(),
+            n,
+        )?;
+    }
+
+    Ok(output)
+}
+
+/// Compute level schedule on GPU for lower triangular (returns level_ptrs on CPU, level_rows on GPU, num_levels)
+///
+/// The level_ptrs is a small O(num_levels+1) array - acceptable control-flow data.
+/// level_rows is a full-size O(n) array that stays on GPU.
+pub fn compute_levels_lower_gpu(
+    client: &CudaClient,
+    row_ptrs_i32: &Tensor<CudaRuntime>,
+    col_indices_i32: &Tensor<CudaRuntime>,
+    n: usize,
+) -> Result<(Vec<i32>, Tensor<CudaRuntime>, usize)> {
+    // Allocate levels[n] initialized to 0
+    let levels_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, &client.device);
+
+    // Allocate changed flag (atomic integer)
+    let changed_gpu = Tensor::<CudaRuntime>::zeros(&[1], DType::I32, &client.device);
+
+    // Iterative level computation until convergence
+    let max_iterations = n as i32 + 10; // Safety limit
+    for _ in 0..max_iterations {
+        // The changed flag is reset by GPU kernel (single integer atomic - acceptable control flow)
+
+        // Launch level iteration kernel
+        unsafe {
+            kernels::launch_compute_levels_lower_iter(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                row_ptrs_i32.storage().ptr(),
+                col_indices_i32.storage().ptr(),
+                levels_gpu.storage().ptr(),
+                changed_gpu.storage().ptr(),
+                n as i32,
+            )?;
+        }
+
+        // Read changed flag (1 scalar - acceptable for control flow)
+        client.stream.synchronize()?;
+        let changed_vec: Vec<i32> = changed_gpu.to_vec();
+
+        if changed_vec[0] == 0 {
+            break;
+        }
+    }
+
+    // Find max level (num_levels = max + 1)
+    let max_level_gpu = Tensor::<CudaRuntime>::zeros(&[1], DType::I32, &client.device);
+    unsafe {
+        kernels::launch_reduce_max_i32(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            max_level_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    client.stream.synchronize()?;
+    let max_level_vec: Vec<i32> = max_level_gpu.to_vec();
+    let num_levels = (max_level_vec[0] + 1) as usize;
+
+    // Compute histogram of levels
+    let histogram_gpu = Tensor::<CudaRuntime>::zeros(&[num_levels], DType::I32, &client.device);
+    unsafe {
+        kernels::launch_histogram_levels(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            histogram_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    // Read histogram (O(num_levels) - acceptable)
+    client.stream.synchronize()?;
+    let histogram: Vec<i32> = histogram_gpu.to_vec();
+
+    // Compute prefix sum -> level_ptrs on CPU
+    let mut level_ptrs = vec![0i32; num_levels + 1];
+    for i in 0..num_levels {
+        level_ptrs[i + 1] = level_ptrs[i] + histogram[i];
+    }
+
+    // Upload level_ptrs to GPU for scatter
+    let level_ptrs_gpu =
+        Tensor::<CudaRuntime>::from_slice(&level_ptrs, &[num_levels + 1], &client.device);
+
+    // Allocate level_rows[n] and level_counters[num_levels]
+    let level_rows_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, &client.device);
+    let level_counters_gpu =
+        Tensor::<CudaRuntime>::zeros(&[num_levels], DType::I32, &client.device);
+
+    // Scatter rows by level
+    unsafe {
+        kernels::launch_scatter_by_level(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            level_ptrs_gpu.storage().ptr(),
+            level_rows_gpu.storage().ptr(),
+            level_counters_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    client.stream.synchronize()?;
+
+    Ok((level_ptrs, level_rows_gpu, num_levels))
+}
+
+/// Compute level schedule on GPU for upper triangular (returns level_ptrs on CPU, level_rows on GPU, num_levels)
+pub fn compute_levels_upper_gpu(
+    client: &CudaClient,
+    row_ptrs_i32: &Tensor<CudaRuntime>,
+    col_indices_i32: &Tensor<CudaRuntime>,
+    n: usize,
+) -> Result<(Vec<i32>, Tensor<CudaRuntime>, usize)> {
+    // Allocate levels[n] initialized to 0
+    let levels_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, &client.device);
+
+    // Allocate changed flag
+    let changed_gpu = Tensor::<CudaRuntime>::zeros(&[1], DType::I32, &client.device);
+
+    // Iterative level computation until convergence
+    let max_iterations = n as i32 + 10;
+    for _ in 0..max_iterations {
+        // Reset changed flag on GPU
+        let _zero_tensor = Tensor::<CudaRuntime>::from_slice(&[0i32], &[1], &client.device);
+
+        // Launch level iteration kernel
+        unsafe {
+            kernels::launch_compute_levels_upper_iter(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                row_ptrs_i32.storage().ptr(),
+                col_indices_i32.storage().ptr(),
+                levels_gpu.storage().ptr(),
+                changed_gpu.storage().ptr(),
+                n as i32,
+            )?;
+        }
+
+        // Read changed flag
+        client.stream.synchronize()?;
+        let changed_vec: Vec<i32> = changed_gpu.to_vec();
+
+        if changed_vec[0] == 0 {
+            break;
+        }
+    }
+
+    // Find max level
+    let max_level_gpu = Tensor::<CudaRuntime>::zeros(&[1], DType::I32, &client.device);
+    unsafe {
+        kernels::launch_reduce_max_i32(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            max_level_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    client.stream.synchronize()?;
+    let max_level_vec: Vec<i32> = max_level_gpu.to_vec();
+    let num_levels = (max_level_vec[0] + 1) as usize;
+
+    // Compute histogram
+    let histogram_gpu = Tensor::<CudaRuntime>::zeros(&[num_levels], DType::I32, &client.device);
+    unsafe {
+        kernels::launch_histogram_levels(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            histogram_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    client.stream.synchronize()?;
+    let histogram: Vec<i32> = histogram_gpu.to_vec();
+
+    // Compute prefix sum
+    let mut level_ptrs = vec![0i32; num_levels + 1];
+    for i in 0..num_levels {
+        level_ptrs[i + 1] = level_ptrs[i] + histogram[i];
+    }
+
+    let level_ptrs_gpu =
+        Tensor::<CudaRuntime>::from_slice(&level_ptrs, &[num_levels + 1], &client.device);
+
+    // Allocate and scatter
+    let level_rows_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, &client.device);
+    let level_counters_gpu =
+        Tensor::<CudaRuntime>::zeros(&[num_levels], DType::I32, &client.device);
+
+    unsafe {
+        kernels::launch_scatter_by_level(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            levels_gpu.storage().ptr(),
+            level_ptrs_gpu.storage().ptr(),
+            level_rows_gpu.storage().ptr(),
+            level_counters_gpu.storage().ptr(),
+            n as i32,
+        )?;
+    }
+
+    client.stream.synchronize()?;
+
+    Ok((level_ptrs, level_rows_gpu, num_levels))
+}
+
 /// Split factored LU matrix into L and U components.
 ///
 /// Uses GPU kernel to scatter values - no GPU→CPU transfer of values.

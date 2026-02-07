@@ -1,9 +1,10 @@
 //! CUDA IC(0) factorization implementation.
 
 use super::super::{CudaClient, CudaRuntime};
-use super::common::{extract_lower_cuda, validate_cuda_dtype};
+use super::common::{
+    cast_i64_to_i32_gpu, compute_levels_lower_gpu, extract_lower_cuda, validate_cuda_dtype,
+};
 use crate::algorithm::sparse_linalg::{IcDecomposition, IcOptions, validate_square_sparse};
-use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;
@@ -20,28 +21,19 @@ pub fn ic0_cuda(
     let dtype = a.values().dtype();
     validate_cuda_dtype(dtype, "ic0")?;
 
-    // Extract CSR data for level analysis
+    // Extract CSR structure (needed for extract_lower_cuda which is O(n) metadata, not tensor data)
     let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
     let col_indices: Vec<i64> = a.col_indices().to_vec();
 
-    // Compute level schedule (same as ILU for IC)
-    let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
-    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+    // Cast CSR structure to i32 on GPU (no CPU transfer of large arrays)
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, a.row_ptrs())?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, a.col_indices())?;
 
-    // Device reference
+    // Compute level schedule on GPU (IC uses same level computation as ILU lower)
+    let (level_ptrs, level_rows_gpu, num_levels) =
+        compute_levels_lower_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?;
+
     let device = &client.device;
-
-    // Allocate GPU buffers
-    let level_rows_gpu =
-        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
-
-    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
-    let row_ptrs_gpu =
-        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
-    let col_indices_gpu =
-        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
-
     let values_gpu = a.values().clone();
     let diag_indices_gpu = Tensor::<CudaRuntime>::zeros(&[n], DType::I32, device);
 
@@ -59,7 +51,7 @@ pub fn ic0_cuda(
     }
 
     // Process each level
-    for level in 0..schedule.num_levels {
+    for level in 0..num_levels {
         let level_start = level_ptrs[level] as usize;
         let level_end = level_ptrs[level + 1] as usize;
         let level_size = (level_end - level_start) as i32;
@@ -111,7 +103,7 @@ pub fn ic0_cuda(
         .synchronize()
         .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
 
-    // Extract lower triangular L
+    // Extract lower triangular L (CPU arrays here are O(n) metadata, not tensor data)
     extract_lower_cuda(client, n, &row_ptrs, &col_indices, &values_gpu, dtype)
 }
 

@@ -467,3 +467,43 @@ pub fn extract_lower_wgpu(
 
     Ok(crate::algorithm::sparse_linalg::IcDecomposition { l })
 }
+
+// ============================================================================
+// GPU-native i64→i32 casting (avoids manual CPU conversion)
+// ============================================================================
+
+/// Cast i64 CSR indices to i32 on GPU to eliminate manual CPU conversion.
+///
+/// WebGPU doesn't support i64 compute types, but we can cast on GPU by reading
+/// raw bytes (i64 stored as pair of u32, we extract low 32 bits).
+///
+/// **Why this matters**: Without this, code transfers i64 tensors to CPU, converts
+/// to i32, then uploads back. This GPU-native cast stays entirely on the device.
+pub fn cast_i64_to_i32_gpu(
+    client: &WgpuClient,
+    tensor_i64: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    use super::super::ops::helpers::get_tensor_buffer;
+
+    let n = tensor_i64.numel();
+    let device = client.device();
+
+    // Allocate output i32 tensor
+    let tensor_i32 = Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, device);
+
+    // Launch GPU-native cast kernel
+    let input_buf = get_tensor_buffer(tensor_i64)?;
+    let output_buf = get_tensor_buffer(&tensor_i32)?;
+
+    super::super::shaders::sparse_level_compute::launch_cast_i64_to_i32(
+        client.pipeline_cache(),
+        &client.queue,
+        &*input_buf,
+        &*output_buf,
+        n,
+    )?;
+
+    client.poll_wait();
+
+    Ok(tensor_i32)
+}

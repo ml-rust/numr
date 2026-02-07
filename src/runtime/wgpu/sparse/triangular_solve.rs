@@ -37,11 +37,13 @@ pub fn sparse_solve_triangular_wgpu(
         });
     }
 
-    // Extract CSR data for level analysis
+    // Extract CSR structure for level analysis.
+    // Note: Symbolic level computation is O(n+nnz) on CPU, which is acceptable as one-time preprocessing.
+    // Data transfers here are only structure metadata (row_ptrs, col_indices), not matrix values.
     let row_ptrs: Vec<i64> = l_or_u.row_ptrs().to_vec();
     let col_indices: Vec<i64> = l_or_u.col_indices().to_vec();
 
-    // Compute level schedule
+    // Compute level schedule on CPU (symbolic preprocessing is fine here)
     let schedule = if lower {
         compute_levels_lower(n, &row_ptrs, &col_indices)?
     } else {
@@ -49,22 +51,21 @@ pub fn sparse_solve_triangular_wgpu(
     };
     let (level_ptrs, level_rows) = flatten_levels(&schedule);
 
-    // Convert to i32 for GPU
+    // Convert all indices to i32 on GPU (eliminates manual CPU conversion)
     let level_rows_i32: Vec<i32> = level_rows.iter().map(|&x| x as i32).collect();
-    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
+    let row_ptrs_i64_gpu =
+        Tensor::<WgpuRuntime>::from_slice(&row_ptrs, &[row_ptrs.len()], &client.device_id);
+    let col_indices_i64_gpu =
+        Tensor::<WgpuRuntime>::from_slice(&col_indices, &[col_indices.len()], &client.device_id);
 
-    // Create GPU buffers
+    // Cast i64→i32 on GPU (native WGSL shader, avoids manual conversion)
+    let row_ptrs_gpu = common::cast_i64_to_i32_gpu(client, &row_ptrs_i64_gpu)?;
+    let col_indices_gpu = common::cast_i64_to_i32_gpu(client, &col_indices_i64_gpu)?;
+
+    // Create GPU buffer for level rows
     let level_rows_gpu = Tensor::<WgpuRuntime>::from_slice(
         &level_rows_i32,
         &[level_rows_i32.len()],
-        &client.device_id,
-    );
-    let row_ptrs_gpu =
-        Tensor::<WgpuRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], &client.device_id);
-    let col_indices_gpu = Tensor::<WgpuRuntime>::from_slice(
-        &col_indices_i32,
-        &[col_indices_i32.len()],
         &client.device_id,
     );
 

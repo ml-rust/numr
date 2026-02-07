@@ -1,11 +1,12 @@
 //! CUDA ILU(0) factorization implementation.
 
 use super::super::{CudaClient, CudaRuntime};
-use super::common::{split_lu_cuda, validate_cuda_dtype};
+use super::common::{
+    cast_i64_to_i32_gpu, compute_levels_lower_gpu, split_lu_cuda, validate_cuda_dtype,
+};
 use crate::algorithm::sparse_linalg::{
     IluDecomposition, IluOptions, SymbolicIlu0, validate_square_sparse,
 };
-use crate::algorithm::sparse_linalg::{compute_levels_ilu, flatten_levels};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels;
@@ -22,28 +23,20 @@ pub fn ilu0_cuda(
     let dtype = a.values().dtype();
     validate_cuda_dtype(dtype, "ilu0")?;
 
-    // Extract CSR data for level analysis (this transfer is unavoidable for analysis)
+    // Extract CSR structure (needed for split_lu_cuda which is O(n) metadata)
     let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
     let col_indices: Vec<i64> = a.col_indices().to_vec();
 
-    // Compute level schedule
-    let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
-    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+    // Cast CSR structure to i32 on GPU (no CPU transfer of large arrays)
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, a.row_ptrs())?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, a.col_indices())?;
+
+    // Compute level schedule on GPU (ILU uses lower triangular level computation)
+    let (level_ptrs, level_rows_gpu, num_levels) =
+        compute_levels_lower_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?;
 
     // Device reference
     let device = &client.device;
-
-    // Allocate GPU buffers for level data
-    let level_rows_gpu =
-        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
-
-    // Convert row_ptrs and col_indices to i32 for GPU
-    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
-    let row_ptrs_gpu =
-        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
-    let col_indices_gpu =
-        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
 
     // Clone values for in-place factorization
     let values_gpu = a.values().clone();
@@ -65,7 +58,7 @@ pub fn ilu0_cuda(
     }
 
     // Process each level
-    for level in 0..schedule.num_levels {
+    for level in 0..num_levels {
         let level_start = level_ptrs[level] as usize;
         let level_end = level_ptrs[level + 1] as usize;
         let level_size = (level_end - level_start) as i32;
@@ -162,27 +155,19 @@ pub fn ilu0_numeric_cuda(
         });
     }
 
-    // Extract CSR data - must match symbolic pattern
+    // Extract CSR structure (needed for split_lu_cuda which is O(n) metadata)
     let row_ptrs: Vec<i64> = a.row_ptrs().to_vec();
     let col_indices: Vec<i64> = a.col_indices().to_vec();
 
-    // Compute level schedule from the pattern
-    let schedule = compute_levels_ilu(n, &row_ptrs, &col_indices)?;
-    let (level_ptrs, level_rows) = flatten_levels(&schedule);
+    // Cast CSR structure to i32 on GPU (no CPU transfer of large arrays)
+    let row_ptrs_gpu = cast_i64_to_i32_gpu(client, a.row_ptrs())?;
+    let col_indices_gpu = cast_i64_to_i32_gpu(client, a.col_indices())?;
+
+    // Compute level schedule on GPU (ILU uses lower triangular level computation)
+    let (level_ptrs, level_rows_gpu, num_levels) =
+        compute_levels_lower_gpu(client, &row_ptrs_gpu, &col_indices_gpu, n)?;
 
     let device = &client.device;
-
-    // Upload level data to GPU
-    let level_rows_gpu =
-        Tensor::<CudaRuntime>::from_slice(&level_rows, &[level_rows.len()], device);
-
-    // Convert to i32 for GPU
-    let row_ptrs_i32: Vec<i32> = row_ptrs.iter().map(|&x| x as i32).collect();
-    let col_indices_i32: Vec<i32> = col_indices.iter().map(|&x| x as i32).collect();
-    let row_ptrs_gpu =
-        Tensor::<CudaRuntime>::from_slice(&row_ptrs_i32, &[row_ptrs_i32.len()], device);
-    let col_indices_gpu =
-        Tensor::<CudaRuntime>::from_slice(&col_indices_i32, &[col_indices_i32.len()], device);
 
     // Clone values for in-place factorization
     let values_gpu = a.values().clone();
@@ -204,7 +189,7 @@ pub fn ilu0_numeric_cuda(
     }
 
     // Process each level
-    for level in 0..schedule.num_levels {
+    for level in 0..num_levels {
         let level_start = level_ptrs[level] as usize;
         let level_end = level_ptrs[level + 1] as usize;
         let level_size = (level_end - level_start) as i32;

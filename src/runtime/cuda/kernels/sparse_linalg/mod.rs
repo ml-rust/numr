@@ -7,15 +7,18 @@
 //!
 //! - `trsv` - Triangular solve launchers (CSR and CSC formats)
 //! - `ilu_ic` - ILU(0) and IC(0) factorization launchers
+//! - `levels` - GPU-native level computation and structural analysis (eliminates GPU↔CPU transfers)
 //! - `primitives` - Sparse primitive operations (scatter, axpy, gather, etc.)
 //! - `utils` - Utility launchers (find_diag, copy, split_lu, etc.)
 
 mod ilu_ic;
+mod levels;
 mod primitives;
 mod trsv;
 mod utils;
 
 pub use ilu_ic::*;
+pub use levels::*;
 pub use primitives::*;
 pub use trsv::*;
 pub use utils::*;
