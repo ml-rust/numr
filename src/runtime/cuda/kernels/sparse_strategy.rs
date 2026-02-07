@@ -72,7 +72,9 @@ pub trait MergeStrategy: Copy {
             match format {
                 SparseFormat::Csr => "csr_merge_count",
                 SparseFormat::Csc => "csc_merge_count",
-                SparseFormat::Coo => panic!("COO uses different algorithm"),
+                SparseFormat::Coo => {
+                    unreachable!("COO uses different algorithm and is never passed here")
+                }
             }
         } else {
             // Intersection semantics: operation-specific kernel
@@ -87,7 +89,9 @@ pub trait MergeStrategy: Copy {
                     SparseMergeOp::Div => "csc_mul_count",
                     _ => unreachable!(),
                 },
-                SparseFormat::Coo => panic!("COO uses different algorithm"),
+                SparseFormat::Coo => {
+                    unreachable!("COO uses different algorithm and is never passed here")
+                }
             }
         }
     }
