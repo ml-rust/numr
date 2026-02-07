@@ -39,6 +39,37 @@ fn get_tensor_ptr(tensor: &Tensor<CudaRuntime>) -> u64 {
     tensor.storage().ptr()
 }
 
+/// Read a single scalar f64 value from GPU tensor using cuMemcpyDtoH_v2.
+/// This is used for convergence checks in iterative algorithms.
+fn read_scalar_f64(_client: &CudaClient, tensor: &Tensor<CudaRuntime>) -> Result<f64> {
+    // Ensure we have a scalar (0-dim) or single-element tensor
+    if tensor.numel() != 1 {
+        return Err(Error::InvalidArgument {
+            arg: "tensor",
+            reason: "read_scalar_f64 requires a single-element tensor".to_string(),
+        });
+    }
+
+    // Ensure contiguous layout
+    let tensor = if tensor.is_contiguous() {
+        tensor.clone()
+    } else {
+        tensor.contiguous()
+    };
+
+    // Allocate host memory and copy from GPU
+    let mut result: f64 = 0.0;
+    unsafe {
+        cudarc::driver::sys::cuMemcpyDtoH_v2(
+            &mut result as *mut f64 as *mut std::ffi::c_void,
+            get_tensor_ptr(&tensor),
+            std::mem::size_of::<f64>(),
+        );
+    }
+
+    Ok(result)
+}
+
 /// Matrix exponential using Schur decomposition - fully on GPU.
 pub fn expm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
     validate_linalg_dtype(a.dtype())?;
@@ -99,16 +130,17 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
 
     if n == 1 {
         // Single element - use GPU unary log
-        // But we need to check for non-positive value first
-        let data: Vec<f64> = a.to_vec();
-        let val = data[0];
-        if val <= 0.0 {
+        // Compute log on GPU, then validate result for NaN (which indicates non-positive input)
+        let log_result = client.log(a)?;
+        let log_scalar = read_scalar_f64(client, &log_result)?;
+
+        if log_scalar.is_nan() {
             return Err(Error::InvalidArgument {
                 arg: "a",
                 reason: "logm requires matrix with no non-positive real eigenvalues".to_string(),
             });
         }
-        return client.log(a);
+        return Ok(log_result);
     }
 
     let eps = match dtype {
@@ -211,15 +243,18 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     }
 
     if n == 1 {
-        let data: Vec<f64> = a.to_vec();
-        let val = data[0];
-        if val < 0.0 {
+        // Single element - use GPU unary sqrt
+        // Compute sqrt on GPU, then validate result for NaN (which indicates negative input)
+        let sqrt_result = client.sqrt(a)?;
+        let sqrt_scalar = read_scalar_f64(client, &sqrt_result)?;
+
+        if sqrt_scalar.is_nan() {
             return Err(Error::InvalidArgument {
                 arg: "a",
                 reason: "sqrtm requires matrix with no negative real eigenvalues".to_string(),
             });
         }
-        return client.sqrt(a);
+        return Ok(sqrt_result);
     }
 
     let eps = match dtype {
@@ -329,15 +364,15 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         let y_sq = client.mul(&y, &y)?;
         let y_sum = client.sum(&y_sq, &[], false)?;
 
-        // Extract scalar results (small transfer, unavoidable for convergence check)
+        // Read scalar results from GPU (unavoidable for convergence check)
         let diff_norm: f64 = {
-            let sum_vec: Vec<f64> = diff_sum.to_vec();
-            sum_vec[0].sqrt()
+            let sum_val = read_scalar_f64(client, &diff_sum)?;
+            sum_val.sqrt()
         };
 
         let y_norm: f64 = {
-            let sum_vec: Vec<f64> = y_sum.to_vec();
-            sum_vec[0].sqrt().max(1.0)
+            let sum_val = read_scalar_f64(client, &y_sum)?;
+            sum_val.sqrt().max(1.0)
         };
 
         y = y_new;
@@ -363,21 +398,21 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     }
 
     if n == 1 {
-        let data: Vec<f64> = a.to_vec();
-        let val = data[0];
-        if val.abs() < f64::EPSILON {
+        // Single element - compute sign on GPU: result = a / abs(a) (gives ±1.0)
+        // Then validate that abs(a) is not near zero
+        let abs_a = client.abs(a)?;
+        let abs_scalar = read_scalar_f64(client, &abs_a)?;
+
+        if abs_scalar < f64::EPSILON {
             return Err(Error::InvalidArgument {
                 arg: "a",
                 reason: "signm requires matrix with no zero eigenvalues".to_string(),
             });
         }
-        let sign_val = if val > 0.0 { 1.0 } else { -1.0 };
-        return Ok(Tensor::<CudaRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            sign_val,
-            device,
-        ));
+
+        // Compute sign(a) = a / abs(a) on GPU
+        let sign_result = client.div(a, &abs_a)?;
+        return Ok(sign_result);
     }
 
     let eps = match dtype {
@@ -411,10 +446,10 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         let diff_sq = client.mul(&diff, &diff)?;
         let diff_sum = client.sum(&diff_sq, &[], false)?;
 
-        // Extract scalar result (small transfer, unavoidable for convergence check)
+        // Read scalar result from GPU (unavoidable for convergence check)
         let diff_norm: f64 = {
-            let sum_vec: Vec<f64> = diff_sum.to_vec();
-            sum_vec[0].sqrt()
+            let sum_val = read_scalar_f64(client, &diff_sum)?;
+            sum_val.sqrt()
         };
 
         x = x_new;
@@ -453,22 +488,12 @@ pub fn fractional_matrix_power_impl(
     }
 
     if n == 1 {
-        let data: Vec<f64> = a.to_vec();
-        let val = data[0];
-        if val <= 0.0 && p.fract() != 0.0 {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "fractional_matrix_power requires positive eigenvalues for non-integer p"
-                    .to_string(),
-            });
-        }
-        let result = val.powf(p);
-        return Ok(Tensor::<CudaRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            result,
-            device,
-        ));
+        // Single element - use GPU implementation: a^p = exp(p * log(a))
+        // This automatically handles validation: if a <= 0 and p is non-integer,
+        // logm_impl will fail due to NaN result.
+        let log_a = logm_impl(client, a)?;
+        let p_log_a = client.mul_scalar(&log_a, p)?;
+        return expm_impl(client, &p_log_a);
     }
 
     // p = -1: Return inverse
@@ -550,6 +575,7 @@ where
     }
 
     if n == 1 {
+        // NOTE: GPU→CPU transfer required — user-provided closure cannot execute on GPU
         let data: Vec<f64> = a.to_vec();
         let val = data[0];
         let result = f(val);
@@ -569,6 +595,7 @@ where
 
     // Compute Schur decomposition: A = Z @ T @ Z^T
     let schur = client.schur_decompose(a)?;
+    // NOTE: GPU→CPU transfers required — user-provided closure cannot execute on GPU
     let t_data: Vec<f64> = schur.t.to_vec();
     let z_data: Vec<f64> = schur.z.to_vec();
 

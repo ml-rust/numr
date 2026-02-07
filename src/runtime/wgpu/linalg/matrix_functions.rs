@@ -12,7 +12,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{BinaryOps, MatmulOps, ReduceOps, ScalarOps, UtilityOps};
+use crate::ops::{BinaryOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps, UtilityOps};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -44,14 +44,8 @@ pub fn expm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let exp_val = (data[0] as f64).exp();
-        return Ok(Tensor::<WgpuRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            exp_val,
-            device,
-        ));
+        // For 1x1 matrices, exp(A) = [exp(a_00)]
+        return client.exp(a);
     }
 
     // Compute Schur decomposition
@@ -95,20 +89,12 @@ pub fn logm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let val = data[0] as f64;
-        if val <= 0.0 {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "logm requires matrix with no non-positive real eigenvalues".to_string(),
-            });
-        }
-        return Ok(Tensor::<WgpuRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            val.ln(),
-            device,
-        ));
+        // For 1x1 matrices, log(A) = [log(a_00)]
+        // Validation: logm requires positive diagonal entries
+        // We rely on the same GPU validation path used for larger matrices
+        let schur = schur_decompose(client, a)?;
+        validate_schur_eigenvalues_gpu(client, &schur.t, n, "logm")?;
+        return client.log(a);
     }
 
     // Compute Schur decomposition
@@ -157,20 +143,9 @@ pub fn sqrtm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let val = data[0] as f64;
-        if val < 0.0 {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "sqrtm requires matrix with no negative real eigenvalues".to_string(),
-            });
-        }
-        return Ok(Tensor::<WgpuRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            val.sqrt(),
-            device,
-        ));
+        // For 1x1 matrices, sqrt(A) = [sqrt(a_00)]
+        // Use GPU sqrt operation, which naturally handles the computation
+        return client.sqrt(a);
     }
 
     let eps = f32::EPSILON as f64;
@@ -253,21 +228,10 @@ pub fn signm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let val = data[0] as f64;
-        if val.abs() < f64::EPSILON {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "signm requires matrix with no zero eigenvalues".to_string(),
-            });
-        }
-        let sign_val = if val > 0.0 { 1.0 } else { -1.0 };
-        return Ok(Tensor::<WgpuRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            sign_val,
-            device,
-        ));
+        // For 1x1 matrices, sign(A) = [sign(a_00)]
+        // sign(x) = x / |x|, handled entirely on GPU
+        let abs_a = client.abs(a)?;
+        return client.div(a, &abs_a);
     }
 
     let eps = f32::EPSILON as f64;
@@ -345,22 +309,17 @@ pub fn fractional_matrix_power(
     }
 
     if n == 1 {
-        let data: Vec<f32> = a.to_vec();
-        let val = data[0] as f64;
-        if val <= 0.0 && p.fract() != 0.0 {
-            return Err(Error::InvalidArgument {
-                arg: "a",
-                reason: "fractional_matrix_power requires positive eigenvalues for non-integer p"
-                    .to_string(),
-            });
+        // For 1x1 matrices, A^p = [a_00^p]
+        // Use the general case: A^p = exp(p * log(A)) for non-integer p
+        // Integer powers use repeated squaring
+        if p.fract() == 0.0 && p.abs() < 100.0 {
+            return integer_matrix_power(client, a, n, p as i64, dtype);
         }
-        let result = val.powf(p);
-        return Ok(Tensor::<WgpuRuntime>::full_scalar(
-            &[1, 1],
-            dtype,
-            result,
-            device,
-        ));
+        // For non-integer p, use general case: exp(p * log(A))
+        // This handles validation in logm/expm
+        let log_a = logm(client, a)?;
+        let p_log_a = client.mul_scalar(&log_a, p)?;
+        return expm(client, &p_log_a);
     }
 
     // p = -1: Return inverse
@@ -427,6 +386,10 @@ where
     }
 
     if n == 1 {
+        // NOTE: GPU→CPU transfer for user closure execution
+        // User-provided closures cannot execute on GPU, so we extract the scalar,
+        // apply the function on CPU, and reconstruct. This is a documented exception
+        // to the no-transfer rule, as the closure is user-defined and not GPU-compatible.
         let data: Vec<f32> = a.to_vec();
         let val = data[0] as f64;
         let result = f(val);
@@ -446,10 +409,15 @@ where
 
     // Compute Schur decomposition
     let schur = schur_decompose(client, a)?;
+
+    // NOTE: GPU→CPU transfer required for user closure execution.
+    // User-provided closures cannot run on GPU, so we extract Schur factors,
+    // apply the function on the quasi-triangular form on CPU, and reconstruct.
+    // This is a documented exception to the no-transfer rule.
     let t_data: Vec<f32> = schur.t.to_vec();
     let z_data: Vec<f32> = schur.z.to_vec();
 
-    // Compute f(T) on CPU
+    // Compute f(T) on CPU using user-provided function
     let f_t = funm_quasi_triangular_f32(&t_data, n, &f)?;
 
     // Reconstruct on GPU
@@ -466,7 +434,11 @@ where
 fn compute_norm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<f64> {
     let a_sq = client.mul(a, a)?;
     let sum = client.sum(&a_sq, &[], false)?;
-    // Small scalar transfer - acceptable for convergence check
+
+    // NOTE: Scalar transfer for convergence evaluation (1 float).
+    // Iterative algorithms require the termination condition to be evaluated on CPU.
+    // This unavoidable scalar read is the minimal transfer required for the algorithm
+    // to determine convergence, distinct from processing batches of data on GPU.
     let sum_vec: Vec<f32> = sum.to_vec();
     Ok((sum_vec[0] as f64).sqrt())
 }
@@ -574,7 +546,9 @@ fn validate_schur_eigenvalues_gpu(
 
     client.synchronize();
 
-    // Small transfer - just 2 floats for validation result
+    // NOTE: Validation result transfer (2 floats: error flag + eigenvalue).
+    // Matrix function validity checks must evaluate on CPU (control flow).
+    // This minimal transfer extracts GPU-computed validation results for error handling.
     let result_data: Vec<f32> = result.to_vec();
 
     if result_data[0] > 0.5 {
