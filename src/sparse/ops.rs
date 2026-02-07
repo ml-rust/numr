@@ -675,6 +675,54 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// For CSR, this produces CSC (and vice versa) efficiently.
     fn sparse_transpose(&self, a: &SparseTensor<R>) -> Result<SparseTensor<R>>;
+
+    // =========================================================================
+    // Diagonal Extraction
+    // =========================================================================
+
+    /// Extract diagonal elements from a CSR matrix as a dense vector.
+    ///
+    /// Returns a tensor of length `min(nrows, ncols)` containing the diagonal
+    /// entries. Missing diagonal entries are returned as zeros.
+    ///
+    /// Thread-per-row: each thread scans its row for col_index == row_index.
+    ///
+    /// # Arguments
+    ///
+    /// * `row_ptrs` - CSR row pointers [nrows + 1] (dtype I64)
+    /// * `col_indices` - CSR column indices [nnz] (dtype I64)
+    /// * `values` - CSR values [nnz] (dtype T)
+    /// * `shape` - Matrix shape [nrows, ncols]
+    fn extract_diagonal_csr<T: crate::dtype::Element>(
+        &self,
+        row_ptrs: &Tensor<R>,
+        col_indices: &Tensor<R>,
+        values: &Tensor<R>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<R>>;
+
+    /// Extract diagonal from a sparse matrix (format-agnostic).
+    ///
+    /// Converts to CSR if needed, then delegates to `extract_diagonal_csr`.
+    fn sparse_extract_diagonal(&self, a: &SparseTensor<R>) -> Result<Tensor<R>> {
+        let csr = match a {
+            SparseTensor::Csr(data) => data.clone(),
+            SparseTensor::Coo(data) => data.to_csr()?,
+            SparseTensor::Csc(data) => data.to_csr()?,
+        };
+
+        let shape = csr.shape;
+        let dtype = csr.values.dtype();
+
+        crate::dispatch_dtype!(dtype, T => {
+            self.extract_diagonal_csr::<T>(
+                &csr.row_ptrs,
+                &csr.col_indices,
+                &csr.values,
+                shape,
+            )
+        }, "sparse_extract_diagonal")
+    }
 }
 
 // ============================================================================

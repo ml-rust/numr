@@ -7,7 +7,9 @@
 use wgpu::{Buffer, Queue};
 
 use super::generator::dtype_suffix;
-use super::generator::spmv::{generate_csr_spmm_shader, generate_csr_spmv_shader};
+use super::generator::spmv::{
+    generate_csr_extract_diagonal_shader, generate_csr_spmm_shader, generate_csr_spmv_shader,
+};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::Result;
@@ -135,6 +137,70 @@ pub fn launch_csr_spmm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch CSR extract diagonal kernel: diag[i] = A[i,i]
+///
+/// # Buffers
+///
+/// - `row_ptrs`: CSR row pointers [n + 1] (I32)
+/// - `col_indices`: CSR column indices [nnz] (I32)
+/// - `values`: CSR values [nnz] (dtype)
+/// - `diag`: Output diagonal [n] (dtype)
+/// - `params`: Uniform buffer with DiagParams { n }
+pub fn launch_csr_extract_diagonal(
+    cache: &PipelineCache,
+    queue: &Queue,
+    row_ptrs: &Buffer,
+    col_indices: &Buffer,
+    values: &Buffer,
+    diag: &Buffer,
+    params_buffer: &Buffer,
+    n: usize,
+    dtype: DType,
+) -> Result<()> {
+    let suffix = dtype_suffix(dtype)?;
+    let entry_point = format!("csr_extract_diagonal_{}", suffix);
+
+    let shader_source = generate_csr_extract_diagonal_shader(dtype)?;
+    let module_name = format!("csr_extract_diagonal_{}", suffix);
+    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 4, // row_ptrs, col_indices, values, diag
+        num_uniform_buffers: 1, // params
+    });
+
+    let pipeline = cache.get_or_create_dynamic_pipeline(
+        "csr_extract_diagonal",
+        &entry_point,
+        &module,
+        &layout,
+    );
+
+    let bind_group = cache.create_bind_group(
+        &layout,
+        &[row_ptrs, col_indices, values, diag, params_buffer],
+    );
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("csr_extract_diagonal"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("csr_extract_diagonal"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

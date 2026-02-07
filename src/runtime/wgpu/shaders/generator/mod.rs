@@ -150,7 +150,9 @@ pub use special::{
     generate_special_binary_shader, generate_special_ternary_shader, generate_special_unary_shader,
 };
 #[cfg(feature = "sparse")]
-pub use spmv::{generate_csr_spmm_shader, generate_csr_spmv_shader};
+pub use spmv::{
+    generate_csr_extract_diagonal_shader, generate_csr_spmm_shader, generate_csr_spmv_shader,
+};
 pub use unary::generate_unary_shader;
 pub use utility::{
     generate_arange_shader, generate_eye_shader, generate_linspace_shader,

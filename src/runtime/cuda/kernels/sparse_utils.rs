@@ -632,3 +632,47 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
 
     Ok((row_indices, col_indices, values))
 }
+
+// ============================================================================
+// CSR Diagonal Extraction
+// ============================================================================
+
+/// Extract diagonal elements from CSR matrix (GPU kernel)
+pub unsafe fn launch_csr_extract_diagonal<T: CudaTypeName>(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    row_ptrs: u64,
+    col_indices: u64,
+    values: u64,
+    diag: u64,
+    n: usize,
+) -> Result<()> {
+    let suffix = dtype_suffix::<T>()?;
+    let kernel_name = format!("csr_extract_diagonal_{}", suffix);
+
+    let module = get_or_load_module(context, device_index, SPARSE_UTILS_MODULE)?;
+    let func = get_kernel_function(&module, &kernel_name)?;
+
+    let block_size = BLOCK_SIZE;
+    let grid_size = (n as u32 + block_size - 1) / block_size;
+    let n_u32 = n as u32;
+
+    let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
+
+    let mut builder = stream.launch_builder(&func);
+    builder.arg(&row_ptrs);
+    builder.arg(&col_indices);
+    builder.arg(&values);
+    builder.arg(&diag);
+    builder.arg(&n_u32);
+
+    builder.launch(cfg).map_err(|e| {
+        Error::Internal(format!(
+            "CUDA csr_extract_diagonal kernel launch failed: {:?}",
+            e
+        ))
+    })?;
+
+    Ok(())
+}

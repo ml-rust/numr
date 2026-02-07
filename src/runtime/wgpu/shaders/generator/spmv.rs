@@ -128,6 +128,59 @@ fn csr_spmm_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     ))
 }
 
+/// Generate WGSL shader for CSR diagonal extraction: diag[i] = A[i,i]
+///
+/// Thread-per-row: each thread scans its row for the diagonal entry.
+pub fn generate_csr_extract_diagonal_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// CSR Extract Diagonal: diag[i] = A[i,i]
+// Thread-per-row: each thread scans one row for col_index == row_index
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct DiagParams {{
+    n: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> row_ptrs: array<i32>;
+@group(0) @binding(1) var<storage, read> col_indices: array<i32>;
+@group(0) @binding(2) var<storage, read> values: array<{t}>;
+@group(0) @binding(3) var<storage, read_write> diag: array<{t}>;
+@group(0) @binding(4) var<uniform> params: DiagParams;
+
+@compute @workgroup_size(256)
+fn csr_extract_diagonal_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let row = gid.x;
+    if (row >= params.n) {{
+        return;
+    }}
+
+    let row_start = row_ptrs[row];
+    let row_end = row_ptrs[row + 1u];
+
+    var val: {t} = {zero};
+    for (var j: i32 = row_start; j < row_end; j = j + 1) {{
+        if (col_indices[j] == i32(row)) {{
+            val = values[j];
+            break;
+        }}
+    }}
+
+    diag[row] = val;
+}}
+"#,
+        t = t,
+        suffix = suffix,
+        zero = zero_literal(dtype),
+    ))
+}
+
 /// Get zero literal for dtype
 fn zero_literal(dtype: DType) -> &'static str {
     match dtype {

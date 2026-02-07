@@ -1270,6 +1270,40 @@ impl SparseOps<CpuRuntime> for CpuClient {
         Ok((row_ptrs_tensor, col_indices_tensor, values_tensor))
     }
 
+    fn extract_diagonal_csr<T: Element>(
+        &self,
+        row_ptrs: &Tensor<CpuRuntime>,
+        col_indices: &Tensor<CpuRuntime>,
+        values: &Tensor<CpuRuntime>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<CpuRuntime>> {
+        let [nrows, ncols] = shape;
+        let n = nrows.min(ncols);
+        let device = values.device();
+
+        if n == 0 {
+            return Ok(Tensor::empty(&[0], values.dtype(), device));
+        }
+
+        let row_ptrs_data: Vec<i64> = row_ptrs.to_vec();
+        let col_indices_data: Vec<i64> = col_indices.to_vec();
+        let values_data: Vec<T> = values.to_vec();
+
+        let mut diag = vec![T::zero(); n];
+        for row in 0..n {
+            let start = row_ptrs_data[row] as usize;
+            let end = row_ptrs_data[row + 1] as usize;
+            for pos in start..end {
+                if col_indices_data[pos] as usize == row {
+                    diag[row] = values_data[pos];
+                    break;
+                }
+            }
+        }
+
+        Ok(Tensor::from_slice(&diag, &[n], device))
+    }
+
     fn sparse_transpose(
         &self,
         a: &crate::sparse::SparseTensor<CpuRuntime>,

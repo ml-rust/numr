@@ -236,6 +236,26 @@ impl<R: Runtime> CsrData<R> {
         Ok(Tensor::from_slice(&diag_values, &[n], device))
     }
 
+    /// Extract diagonal elements using a `SparseOps` client (on-device).
+    ///
+    /// This method delegates to the client's `extract_diagonal_csr` kernel,
+    /// keeping all computation on the compute device. Preferred over
+    /// `diagonal()` for GPU tensors.
+    pub fn diagonal_with_client<C: super::super::SparseOps<R>>(
+        &self,
+        client: &C,
+    ) -> Result<Tensor<R>> {
+        let dtype = self.dtype();
+        crate::dispatch_dtype!(dtype, T => {
+            client.extract_diagonal_csr::<T>(
+                &self.row_ptrs,
+                &self.col_indices,
+                &self.values,
+                self.shape,
+            )
+        }, "diagonal_with_client")
+    }
+
     /// Check if the matrix has a structural nonzero on every diagonal position.
     ///
     /// For rectangular matrices, checks positions `0..min(nrows, ncols)`.

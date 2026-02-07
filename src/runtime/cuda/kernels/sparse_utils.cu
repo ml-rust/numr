@@ -214,6 +214,33 @@ __device__ __inline__ void dense_to_coo_extract_impl(
 }
 
 // ============================================================================
+// CSR Diagonal Extraction
+// ============================================================================
+
+template<typename T>
+__device__ __inline__ void csr_extract_diagonal_impl(
+    const long long* row_ptrs,
+    const long long* col_indices,
+    const T* values,
+    T* diag,
+    unsigned int n
+) {
+    unsigned int row = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row < n) {
+        long long start = row_ptrs[row];
+        long long end = row_ptrs[row + 1];
+        T val = T(0);
+        for (long long j = start; j < end; j++) {
+            if (col_indices[j] == (long long)row) {
+                val = values[j];
+                break;
+            }
+        }
+        diag[row] = val;
+    }
+}
+
+// ============================================================================
 // extern "C" wrappers for Rust FFI
 // ============================================================================
 
@@ -359,6 +386,23 @@ __global__ void dense_to_coo_extract_f16(const __half* input, const long long* o
 
 __global__ void dense_to_coo_extract_bf16(const __nv_bfloat16* input, const long long* offsets, long long* row_indices, long long* col_indices, __nv_bfloat16* values, unsigned int nrows, unsigned int ncols, __nv_bfloat16 threshold) {
     dense_to_coo_extract_impl<__nv_bfloat16>(input, offsets, row_indices, col_indices, values, nrows, ncols, threshold);
+}
+
+// CSR extract diagonal wrappers
+__global__ void csr_extract_diagonal_f32(const long long* row_ptrs, const long long* col_indices, const float* values, float* diag, unsigned int n) {
+    csr_extract_diagonal_impl<float>(row_ptrs, col_indices, values, diag, n);
+}
+
+__global__ void csr_extract_diagonal_f64(const long long* row_ptrs, const long long* col_indices, const double* values, double* diag, unsigned int n) {
+    csr_extract_diagonal_impl<double>(row_ptrs, col_indices, values, diag, n);
+}
+
+__global__ void csr_extract_diagonal_f16(const long long* row_ptrs, const long long* col_indices, const __half* values, __half* diag, unsigned int n) {
+    csr_extract_diagonal_impl<__half>(row_ptrs, col_indices, values, diag, n);
+}
+
+__global__ void csr_extract_diagonal_bf16(const long long* row_ptrs, const long long* col_indices, const __nv_bfloat16* values, __nv_bfloat16* diag, unsigned int n) {
+    csr_extract_diagonal_impl<__nv_bfloat16>(row_ptrs, col_indices, values, diag, n);
 }
 
 } // extern "C"

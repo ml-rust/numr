@@ -432,6 +432,93 @@ impl SparseOps<CudaRuntime> for CudaClient {
         self.csc_to_csr_impl::<T>(col_ptrs, row_indices, values, shape)
     }
 
+    fn extract_diagonal_csr<T: Element>(
+        &self,
+        row_ptrs: &Tensor<CudaRuntime>,
+        col_indices: &Tensor<CudaRuntime>,
+        values: &Tensor<CudaRuntime>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<CudaRuntime>> {
+        use crate::dtype::DType;
+
+        let [nrows, ncols] = shape;
+        let n = nrows.min(ncols);
+        let device = values.device();
+        let dtype = values.dtype();
+
+        if n == 0 {
+            return Ok(Tensor::empty(&[0], dtype, device));
+        }
+
+        let out = Tensor::<CudaRuntime>::zeros(&[n], dtype, device);
+
+        let row_ptrs_ptr = row_ptrs.storage().ptr();
+        let col_indices_ptr = col_indices.storage().ptr();
+        let values_ptr = values.storage().ptr();
+        let out_ptr = out.storage().ptr();
+
+        match dtype {
+            DType::F32 => unsafe {
+                super::super::kernels::launch_csr_extract_diagonal::<f32>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    row_ptrs_ptr,
+                    col_indices_ptr,
+                    values_ptr,
+                    out_ptr,
+                    n,
+                )?;
+            },
+            DType::F64 => unsafe {
+                super::super::kernels::launch_csr_extract_diagonal::<f64>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    row_ptrs_ptr,
+                    col_indices_ptr,
+                    values_ptr,
+                    out_ptr,
+                    n,
+                )?;
+            },
+            #[cfg(feature = "f16")]
+            DType::F16 => unsafe {
+                super::super::kernels::launch_csr_extract_diagonal::<half::f16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    row_ptrs_ptr,
+                    col_indices_ptr,
+                    values_ptr,
+                    out_ptr,
+                    n,
+                )?;
+            },
+            #[cfg(feature = "f16")]
+            DType::BF16 => unsafe {
+                super::super::kernels::launch_csr_extract_diagonal::<half::bf16>(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    row_ptrs_ptr,
+                    col_indices_ptr,
+                    values_ptr,
+                    out_ptr,
+                    n,
+                )?;
+            },
+            dt => {
+                return Err(Error::UnsupportedDType {
+                    dtype: dt,
+                    op: "extract_diagonal_csr",
+                });
+            }
+        }
+
+        Ok(out)
+    }
+
     fn sparse_transpose(
         &self,
         a: &crate::sparse::SparseTensor<CudaRuntime>,

@@ -846,6 +846,53 @@ impl SparseOps<WgpuRuntime> for WgpuClient {
         self.csc_to_csr_impl::<T>(col_ptrs, row_indices, values, shape)
     }
 
+    fn extract_diagonal_csr<T: Element>(
+        &self,
+        row_ptrs: &Tensor<WgpuRuntime>,
+        col_indices: &Tensor<WgpuRuntime>,
+        values: &Tensor<WgpuRuntime>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<WgpuRuntime>> {
+        use super::super::ops::helpers::get_tensor_buffer;
+        use super::super::shaders::launch_csr_extract_diagonal;
+        use super::common::validate_wgpu_dtype;
+
+        let [nrows, ncols] = shape;
+        let n = nrows.min(ncols);
+        let dtype = values.dtype();
+
+        validate_wgpu_dtype(dtype, "extract_diagonal_csr")?;
+
+        if n == 0 {
+            return Ok(Tensor::empty(&[0], dtype, &self.device_id));
+        }
+
+        let diag = Tensor::<WgpuRuntime>::zeros(&[n], dtype, &self.device_id);
+
+        // Create params buffer
+        let params_buffer = self.create_uniform_buffer("diag_params", 16);
+        self.write_buffer(&params_buffer, &[n as u32, 0u32, 0u32, 0u32]);
+
+        let row_ptrs_buffer = get_tensor_buffer(row_ptrs)?;
+        let col_indices_buffer = get_tensor_buffer(col_indices)?;
+        let values_buffer = get_tensor_buffer(values)?;
+        let diag_buffer = get_tensor_buffer(&diag)?;
+
+        launch_csr_extract_diagonal(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &row_ptrs_buffer,
+            &col_indices_buffer,
+            &values_buffer,
+            &diag_buffer,
+            &params_buffer,
+            n,
+            dtype,
+        )?;
+
+        Ok(diag)
+    }
+
     // =========================================================================
     // Transpose
     // =========================================================================

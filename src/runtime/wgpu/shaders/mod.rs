@@ -154,7 +154,7 @@ pub use sparse_merge_launcher::{
     launch_exclusive_scan_i32,
 };
 #[cfg(feature = "sparse")]
-pub use sparse_spmv_launcher::{launch_csr_spmm, launch_csr_spmv};
+pub use sparse_spmv_launcher::{launch_csr_extract_diagonal, launch_csr_spmm, launch_csr_spmv};
 pub use special::{
     launch_special_binary, launch_special_binary_with_two_ints, launch_special_ternary,
     launch_special_unary, launch_special_unary_with_2f32, launch_special_unary_with_3f32,
