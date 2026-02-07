@@ -226,54 +226,6 @@ pub unsafe fn launch_sparse_divide_pivot_f64(
 }
 
 // ============================================================================
-// Clear Operations
-// ============================================================================
-
-/// Clears: work[row_indices[i]] = 0 - f32
-pub unsafe fn launch_sparse_clear_f32(
-    context: &Arc<CudaContext>,
-    stream: &CudaStream,
-    device_index: usize,
-    work: u64,
-    row_indices: u64,
-    nnz: i32,
-) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_clear_f32")?;
-    let cfg = launch_config((grid_size(nnz as u32), 1, 1), (BLOCK_SIZE, 1, 1), 0);
-
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&work);
-    builder.arg(&row_indices);
-    builder.arg(&nnz);
-    // SAFETY: All pointers are valid device pointers with correct sizes (ensured by caller)
-    unsafe { builder.launch(cfg) }.map_err(|e| launch_error("sparse_clear_f32", e))?;
-    Ok(())
-}
-
-/// Clears - f64
-pub unsafe fn launch_sparse_clear_f64(
-    context: &Arc<CudaContext>,
-    stream: &CudaStream,
-    device_index: usize,
-    work: u64,
-    row_indices: u64,
-    nnz: i32,
-) -> Result<()> {
-    let module = get_or_load_module(context, device_index, SPARSE_LINALG_MODULE)?;
-    let func = get_kernel_function(&module, "sparse_clear_f64")?;
-    let cfg = launch_config((grid_size(nnz as u32), 1, 1), (BLOCK_SIZE, 1, 1), 0);
-
-    let mut builder = stream.launch_builder(&func);
-    builder.arg(&work);
-    builder.arg(&row_indices);
-    builder.arg(&nnz);
-    // SAFETY: All pointers are valid device pointers with correct sizes (ensured by caller)
-    unsafe { builder.launch(cfg) }.map_err(|e| launch_error("sparse_clear_f64", e))?;
-    Ok(())
-}
-
-// ============================================================================
 // Row Permutation Operations
 // ============================================================================
 
