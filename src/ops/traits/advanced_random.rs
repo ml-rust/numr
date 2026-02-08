@@ -23,10 +23,16 @@ use crate::tensor::Tensor;
 /// Different counter/stream → independent sequences.
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// # use numr::prelude::*;
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
+/// use numr::ops::AdvancedRandomOps;
+///
 /// let samples = client.philox_randn(&[1000], 42, 0, DType::F32)?;
 /// let same = client.philox_randn(&[1000], 42, 0, DType::F32)?;  // identical
 /// let diff = client.philox_randn(&[1000], 42, 1, DType::F32)?;  // different
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub trait AdvancedRandomOps<R: Runtime> {
     /// Generate N(0,1) samples using Philox4x32-10.

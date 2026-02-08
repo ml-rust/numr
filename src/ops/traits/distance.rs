@@ -91,14 +91,21 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::DistanceMetric;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::DistanceOps;
+    ///
     /// // Points in 3D space
-    /// let x = Tensor::from_slice(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], &[2, 3], &device)?;
-    /// let y = Tensor::from_slice(&[1.0, 0.0, 0.0, 2.0, 2.0, 2.0], &[2, 3], &device)?;
+    /// let x = Tensor::<CpuRuntime>::from_slice(&[0.0, 0.0, 0.0, 1.0, 1.0, 1.0], &[2, 3], &device);
+    /// let y = Tensor::<CpuRuntime>::from_slice(&[1.0, 0.0, 0.0, 2.0, 2.0, 2.0], &[2, 3], &device);
     ///
     /// // Euclidean distances
     /// let d = client.cdist(&x, &y, DistanceMetric::Euclidean)?;
     /// // d has shape (2, 2), d[i,j] = ||x[i] - y[j]||
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn cdist(&self, x: &Tensor<R>, y: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>>;
 
@@ -141,12 +148,19 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let x = Tensor::from_slice(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0], &[3, 2], &device)?;
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::DistanceMetric;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::DistanceOps;
+    ///
+    /// let x = Tensor::<CpuRuntime>::from_slice(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0], &[3, 2], &device);
     ///
     /// // Condensed distances: [d(0,1), d(0,2), d(1,2)]
     /// let d = client.pdist(&x, DistanceMetric::Euclidean)?;
     /// // d has shape (3,) = n*(n-1)/2 for n=3
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn pdist(&self, x: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>>;
 
@@ -174,10 +188,18 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::DistanceMetric;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::DistanceOps;
+    ///
+    /// # let x = Tensor::<CpuRuntime>::from_slice(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0], &[3, 2], &device);
     /// let condensed = client.pdist(&x, DistanceMetric::Euclidean)?;
     /// let square = client.squareform(&condensed, 3)?;
     /// // square has shape (3, 3), symmetric with zero diagonal
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn squareform(&self, condensed: &Tensor<R>, n: usize) -> Result<Tensor<R>>;
 
@@ -202,9 +224,17 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::DistanceMetric;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::DistanceOps;
+    ///
+    /// # let x = Tensor::<CpuRuntime>::from_slice(&[0.0, 0.0, 1.0, 0.0, 0.0, 1.0], &[3, 2], &device);
     /// let square = client.cdist(&x, &x, DistanceMetric::Euclidean)?;
     /// let condensed = client.squareform_inverse(&square)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn squareform_inverse(&self, square: &Tensor<R>) -> Result<Tensor<R>>;
 }

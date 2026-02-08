@@ -57,11 +57,17 @@ pub trait MatmulOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::MatmulOps;
+    ///
     /// // Linear layer: output = input @ weight.T + bias
-    /// let input = Tensor::randn(&[batch, seq_len, hidden], DType::F32, &device);
-    /// let weight = Tensor::randn(&[out_features, hidden], DType::F32, &device);
-    /// let bias = Tensor::randn(&[out_features], DType::F32, &device);
+    /// let batch = 2; let seq_len = 5; let hidden = 3; let out_features = 4;
+    /// let input = client.randn(&[batch, seq_len, hidden], DType::F32)?;
+    /// let weight = client.randn(&[out_features, hidden], DType::F32)?;
+    /// let bias = client.randn(&[out_features], DType::F32)?;
     ///
     /// // Using fused operation (faster):
     /// let output = client.matmul_bias(&input, &weight.transpose(-1, -2)?, &bias)?;
@@ -69,6 +75,7 @@ pub trait MatmulOps<R: Runtime> {
     /// // Equivalent to (slower - extra memory round-trip):
     /// let temp = client.matmul(&input, &weight.transpose(-1, -2)?)?;
     /// let output = client.add(&temp, &bias.unsqueeze(0)?.unsqueeze(0)?)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Performance

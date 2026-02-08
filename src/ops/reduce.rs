@@ -121,7 +121,9 @@ pub fn all_dims(ndim: usize) -> Vec<usize> {
 /// * `dim` - The dimension to reduce over
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use numr::ops::reduce::compute_reduce_strides;
+///
 /// let shape = &[2, 3, 4];
 /// let (outer, reduce, inner) = compute_reduce_strides(shape, 1);
 /// assert_eq!((outer, reduce, inner), (2, 3, 4));

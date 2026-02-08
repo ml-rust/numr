@@ -28,7 +28,13 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let z = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, -4.0)],
     ///     &[2],
@@ -36,6 +42,7 @@ pub trait ComplexOps<R: Runtime> {
     /// );
     /// let conj_z = client.conj(&z)?;
     /// // Result: [1.0 - 2.0i, 3.0 + 4.0i]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn conj(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -62,13 +69,20 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let z = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
     ///     &[2],
     ///     &device
     /// );
     /// let re = client.real(&z)?;  // F32 tensor: [1.0, 3.0]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn real(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -95,13 +109,20 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let z = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
     ///     &[2],
     ///     &device
     /// );
     /// let im = client.imag(&z)?;  // F32 tensor: [2.0, 4.0]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn imag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -128,13 +149,20 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let z = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 1.0), Complex64::new(-1.0, 0.0)],
     ///     &[2],
     ///     &device
     /// );
     /// let angles = client.angle(&z)?;  // F32 tensor: [π/4, π]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Mathematical Notes
@@ -171,11 +199,17 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    ///
     /// let real = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
     /// let imag = Tensor::<CpuRuntime>::from_slice(&[4.0f32, 5.0, 6.0], &[3], &device);
     /// let complex = client.make_complex(&real, &imag)?;
     /// // Result: [1.0+4.0i, 2.0+5.0i, 3.0+6.0i]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn make_complex(&self, real: &Tensor<R>, imag: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -205,7 +239,13 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let complex = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
     ///     &[2],
@@ -214,6 +254,7 @@ pub trait ComplexOps<R: Runtime> {
     /// let scale = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.5], &[2], &device);
     /// let result = client.complex_mul_real(&complex, &scale)?;
     /// // Result: [2.0+4.0i, 1.5+2.0i]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn complex_mul_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -247,7 +288,13 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let complex = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(4.0, 6.0), Complex64::new(2.0, 4.0)],
     ///     &[2],
@@ -256,6 +303,7 @@ pub trait ComplexOps<R: Runtime> {
     /// let divisor = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 2.0], &[2], &device);
     /// let result = client.complex_div_real(&complex, &divisor)?;
     /// // Result: [2.0+3.0i, 1.0+2.0i]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn complex_div_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -275,7 +323,13 @@ pub trait ComplexOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ComplexOps;
+    /// use numr::dtype::Complex64;
+    ///
     /// let scale = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 0.5], &[2], &device);
     /// let complex = Tensor::<CpuRuntime>::from_slice(
     ///     &[Complex64::new(1.0, 2.0), Complex64::new(3.0, 4.0)],
@@ -284,6 +338,7 @@ pub trait ComplexOps<R: Runtime> {
     /// );
     /// let result = client.real_mul_complex(&scale, &complex)?;
     /// // Result: [2.0+4.0i, 1.5+2.0i]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn real_mul_complex(&self, real: &Tensor<R>, complex: &Tensor<R>) -> Result<Tensor<R>> {
         // Multiplication is commutative

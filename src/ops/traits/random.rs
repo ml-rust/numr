@@ -67,7 +67,12 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::RandomOps;
+    /// # use numr::dtype::DType;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // Random integers in [0, 10)
     /// let a = client.randint(0, 10, &[3, 4], DType::I32)?;
     ///
@@ -76,6 +81,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// // Random signed integers in [-100, 100)
     /// let c = client.randint(-100, 100, &[10], DType::I32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Notes
@@ -145,20 +151,25 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::RandomOps;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // Sample one index from a 4-category distribution
-    /// let probs = Tensor::from_slice(&[0.1, 0.2, 0.3, 0.4], &[4], &device);
+    /// let probs = Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3, 0.4], &[4], &device);
     /// let sample = client.multinomial(&probs, 1, true)?;  // Shape: [1]
     ///
     /// // Sample 3 indices without replacement
     /// let samples = client.multinomial(&probs, 3, false)?;  // Shape: [3]
     ///
     /// // Batch sampling: 2 distributions, 5 samples each
-    /// let batch_probs = Tensor::from_slice(
-    ///     &[0.1, 0.9, 0.5, 0.5],  // 2 rows of 2 categories
+    /// let batch_probs = Tensor::<CpuRuntime>::from_slice(
+    ///     &[0.1f32, 0.9, 0.5, 0.5],  // 2 rows of 2 categories
     ///     &[2, 2], &device
     /// );
     /// let batch_samples = client.multinomial(&batch_probs, 5, true)?;  // Shape: [2, 5]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Notes
@@ -206,12 +217,18 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::RandomOps;
+    /// # use numr::dtype::DType;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // Fair coin flips
     /// let flips = client.bernoulli(0.5, &[100], DType::F32)?;
     ///
     /// // Biased coin (70% heads)
     /// let biased = client.bernoulli(0.7, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn bernoulli(&self, p: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
 
@@ -252,12 +269,18 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::RandomOps;
+    /// # use numr::dtype::DType;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // Average of 5 events per interval
     /// let counts = client.poisson(5.0, &[1000], DType::F32)?;
     ///
     /// // Rare events (average 0.1 per interval)
     /// let rare = client.poisson(0.1, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Notes
@@ -309,12 +332,18 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::ops::RandomOps;
+    /// # use numr::dtype::DType;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // 10 coin flips with fair coin
     /// let flips = client.binomial(10, 0.5, &[1000], DType::F32)?;
     ///
     /// // 100 trials with 20% success rate
     /// let trials = client.binomial(100, 0.2, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn binomial(
         &self,
@@ -366,6 +395,9 @@ pub trait RandomOps<R: Runtime> {
     /// # Examples
     ///
     /// ```ignore
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // Symmetric beta (same as uniform for α=β=1)
     /// let uniform_like = client.beta(1.0, 1.0, &[1000], DType::F32)?;
     ///
@@ -425,6 +457,9 @@ pub trait RandomOps<R: Runtime> {
     /// # Examples
     ///
     /// ```ignore
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // Exponential distribution is Gamma(1, θ)
     /// let exponential_like = client.gamma(1.0, 2.0, &[1000], DType::F32)?;
     ///
@@ -475,12 +510,19 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // Average wait time of 2 seconds (rate = 0.5)
     /// let wait_times = client.exponential(0.5, &[1000], DType::F32)?;
     ///
     /// // High rate = short wait times
     /// let fast_events = client.exponential(10.0, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn exponential(
         &self,
@@ -527,12 +569,19 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // Standard Laplace (loc=0, scale=1)
     /// let standard = client.laplace(0.0, 1.0, &[1000], DType::F32)?;
     ///
     /// // Shifted and scaled
     /// let shifted = client.laplace(5.0, 2.0, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn laplace(
         &self,
@@ -578,12 +627,19 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // Chi-squared with 5 degrees of freedom
     /// let chi2 = client.chi_squared(5.0, &[1000], DType::F32)?;
     ///
     /// // Chi-squared test statistic distribution
     /// let test_stats = client.chi_squared(10.0, &[10000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn chi_squared(
         &self,
@@ -629,7 +685,13 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // t distribution with 10 degrees of freedom
     /// let t10 = client.student_t(10.0, &[1000], DType::F32)?;
     ///
@@ -638,6 +700,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// // Approaches normal as df → ∞
     /// let approx_normal = client.student_t(100.0, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn student_t(&self, df: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
 
@@ -677,12 +740,19 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    /// use numr::dtype::DType;
+    ///
     /// // F distribution for ANOVA with 5 and 20 df
     /// let f_stat = client.f_distribution(5.0, 20.0, &[1000], DType::F32)?;
     ///
     /// // Equal degrees of freedom
     /// let f_equal = client.f_distribution(10.0, 10.0, &[1000], DType::F32)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn f_distribution(
         &self,
@@ -717,9 +787,15 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::RandomOps;
+    ///
     /// let perm = client.randperm(5)?;
     /// // perm might be [3, 0, 4, 1, 2] (random ordering of 0..5)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn randperm(&self, n: usize) -> Result<Tensor<R>>;
 }

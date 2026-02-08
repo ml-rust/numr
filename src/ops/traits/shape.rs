@@ -22,10 +22,16 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0], &[2], &device);
-    /// let b = Tensor::from_slice(&[3.0, 4.0, 5.0], &[3], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+    /// let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0, 5.0], &[3], &device);
     /// let c = client.cat(&[&a, &b], 0)?; // Shape: [5]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn cat(&self, tensors: &[&Tensor<R>], dim: isize) -> Result<Tensor<R>>;
 
@@ -45,10 +51,16 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0], &[2], &device);
-    /// let b = Tensor::from_slice(&[3.0, 4.0], &[2], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+    /// let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0], &[2], &device);
     /// let c = client.stack(&[&a, &b], 0)?; // Shape: [2, 2]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn stack(&self, tensors: &[&Tensor<R>], dim: isize) -> Result<Tensor<R>>;
 
@@ -69,9 +81,15 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
     /// let chunks = client.split(&a, 2, 0)?; // [2], [2], [1]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn split(&self, tensor: &Tensor<R>, split_size: usize, dim: isize) -> Result<Vec<Tensor<R>>>;
 
@@ -92,9 +110,15 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
     /// let chunks = client.chunk(&a, 2, 0)?; // [3], [2]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn chunk(&self, tensor: &Tensor<R>, chunks: usize, dim: isize) -> Result<Vec<Tensor<R>>>;
 
@@ -114,10 +138,16 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
     /// let repeated = client.repeat(&a, &[2, 3])?; // Shape: [4, 6]
     /// // Result: [[1,2,1,2,1,2], [3,4,3,4,3,4], [1,2,1,2,1,2], [3,4,3,4,3,4]]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn repeat(&self, tensor: &Tensor<R>, repeats: &[usize]) -> Result<Tensor<R>>;
 
@@ -138,11 +168,17 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
     /// // Pad last dim by 1 on each side
     /// let padded = client.pad(&a, &[1, 1], 0.0)?; // Shape: [2, 4]
     /// // Result: [[0,1,2,0], [0,3,4,0]]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn pad(&self, tensor: &Tensor<R>, padding: &[usize], value: f64) -> Result<Tensor<R>>;
 
@@ -163,10 +199,16 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
     /// let rolled = client.roll(&a, 1, 0)?; // [4, 1, 2, 3]
     /// let rolled = client.roll(&a, -1, 0)?; // [2, 3, 4, 1]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn roll(&self, tensor: &Tensor<R>, shift: isize, dim: isize) -> Result<Tensor<R>>;
 }

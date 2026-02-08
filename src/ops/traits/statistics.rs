@@ -89,11 +89,17 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
     /// let median = client.quantile(&a, 0.5, Some(0), false, "linear")?;  // 3.0
     /// let q25 = client.quantile(&a, 0.25, Some(0), false, "linear")?;    // 2.0
     /// let q75 = client.quantile(&a, 0.75, Some(0), false, "linear")?;    // 4.0
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Errors
@@ -123,10 +129,16 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
     /// let p50 = client.percentile(&a, 50.0, Some(0), false)?;  // 3.0 (median)
     /// let p25 = client.percentile(&a, 25.0, Some(0), false)?;  // 2.0
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn percentile(
         &self,
@@ -149,12 +161,18 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 3.0, 2.0, 5.0, 4.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 3.0, 2.0, 5.0, 4.0], &[5], &device);
     /// let med = client.median(&a, Some(0), false)?;  // 3.0
     ///
-    /// let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
     /// let med = client.median(&b, Some(0), false)?;  // 2.5 (interpolated)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn median(&self, a: &Tensor<R>, dim: Option<isize>, keepdim: bool) -> Result<Tensor<R>>;
 
@@ -188,11 +206,17 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[0.5, 1.5, 2.5, 1.0, 2.0], &[5], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.5f32, 1.5, 2.5, 1.0, 2.0], &[5], &device);
     /// let (hist, edges) = client.histogram(&a, 3, None)?;
     /// // hist = [1, 2, 2] for bins [0.5-1.17), [1.17-1.83), [1.83-2.5]
     /// // edges = [0.5, 1.17, 1.83, 2.5]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn histogram(
         &self,
@@ -222,10 +246,16 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
     /// // 3 samples, 2 features
-    /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
+    /// let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
     /// let c = client.cov(&x, None)?;  // [2, 2] covariance matrix
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>>;
 
@@ -249,9 +279,15 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
-    /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
+    /// let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device);
     /// let corr = client.corrcoef(&x)?;  // [2, 2] correlation matrix
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
@@ -286,10 +322,16 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
     /// // Symmetric distribution
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
     /// let s = client.skew(&a, &[], false, 0)?;  // ≈ 0.0
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn skew(
         &self,
@@ -332,10 +374,17 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::{StatisticalOps, RandomOps};
+    /// use numr::dtype::DType;
+    ///
     /// // Normal distribution has excess kurtosis ≈ 0
     /// let normal_data = client.randn(&[10000], DType::F32)?;
     /// let k = client.kurtosis(&normal_data, &[], false, 0)?;  // ≈ 0.0
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn kurtosis(
         &self,
@@ -374,16 +423,22 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::StatisticalOps;
+    ///
     /// // Simple 1D mode
-    /// let a = Tensor::from_slice(&[1.0f32, 2.0, 2.0, 3.0, 2.0], &[5], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 3.0, 2.0], &[5], &device);
     /// let (values, counts) = client.mode(&a, Some(0), false)?;
     /// // values = [2.0], counts = [3]
     ///
     /// // 2D mode along axis 1
-    /// let b = Tensor::from_slice(&[1.0f32, 1.0, 2.0, 3.0, 3.0, 3.0], &[2, 3], &device);
+    /// let b = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 2.0, 3.0, 3.0, 3.0], &[2, 3], &device);
     /// let (values, counts) = client.mode(&b, Some(1), false)?;
     /// // values = [1.0, 3.0], counts = [2, 3]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Notes

@@ -64,10 +64,16 @@ pub trait UtilityOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::UtilityOps;
+    ///
     /// let t = client.arange(0.0, 5.0, 1.0, DType::F32)?; // [0, 1, 2, 3, 4]
     /// let t = client.arange(0.0, 5.0, 2.0, DType::F32)?; // [0, 2, 4]
     /// let t = client.arange(5.0, 0.0, -1.0, DType::F32)?; // [5, 4, 3, 2, 1]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn arange(&self, start: f64, stop: f64, step: f64, dtype: DType) -> Result<Tensor<R>>;
 
@@ -89,9 +95,15 @@ pub trait UtilityOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::UtilityOps;
+    ///
     /// let t = client.linspace(0.0, 10.0, 5, DType::F32)?; // [0, 2.5, 5, 7.5, 10]
     /// let t = client.linspace(0.0, 1.0, 3, DType::F64)?; // [0, 0.5, 1]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn linspace(&self, start: f64, stop: f64, steps: usize, dtype: DType) -> Result<Tensor<R>>;
 
@@ -112,9 +124,15 @@ pub trait UtilityOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::UtilityOps;
+    ///
     /// let eye = client.eye(3, None, DType::F32)?;    // 3x3 identity matrix
     /// let rect = client.eye(2, Some(4), DType::F32)?; // 2x4 matrix with diagonal ones
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<R>>;
 
@@ -140,12 +158,18 @@ pub trait UtilityOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let indices = Tensor::from_slice(&[0i64, 2, 1], &[3], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::UtilityOps;
+    ///
+    /// let indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 2, 1], &[3], &device);
     /// let oh = client.one_hot(&indices, 4)?;
     /// // oh = [[1, 0, 0, 0],
     /// //       [0, 0, 1, 0],
     /// //       [0, 1, 0, 0]]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn one_hot(&self, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>;
 

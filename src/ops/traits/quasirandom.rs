@@ -85,10 +85,16 @@ pub trait QuasiRandomOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::QuasiRandomOps;
+    ///
     /// // Generate 1000 points in 10 dimensions for QMC integration
     /// let points = client.sobol(1000, 10, 0, DType::F64)?;
     /// assert_eq!(points.shape(), &[1000, 10]);
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn sobol(
         &self,
@@ -133,10 +139,16 @@ pub trait QuasiRandomOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::QuasiRandomOps;
+    ///
     /// // Generate 500 points in 5 dimensions
     /// let points = client.halton(500, 5, 0, DType::F64)?;
     /// assert_eq!(points.shape(), &[500, 5]);
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn halton(
         &self,
@@ -179,10 +191,16 @@ pub trait QuasiRandomOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::QuasiRandomOps;
+    ///
     /// // Generate 100 LHS samples in 8 dimensions
     /// let samples = client.latin_hypercube(100, 8, DType::F64)?;
     /// assert_eq!(samples.shape(), &[100, 8]);
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn latin_hypercube(
         &self,

@@ -107,15 +107,23 @@ pub trait ConvOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::dtype::DType;
+    /// # use numr::ops::PaddingMode;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ConvOps;
+    ///
     /// // Input: batch=2, channels=3, length=10
-    /// let input = Tensor::randn(&[2, 3, 10], DType::F32, &device)?;
+    /// let input = client.randn(&[2, 3, 10], DType::F32)?;
     /// // Kernel: 16 output channels, 3 input channels, kernel size 3
-    /// let weight = Tensor::randn(&[16, 3, 3], DType::F32, &device)?;
-    /// let bias = Tensor::zeros(&[16], DType::F32, &device)?;
+    /// let weight = client.randn(&[16, 3, 3], DType::F32)?;
+    /// let bias = client.fill(&[16], 0.0, DType::F32)?;
     ///
     /// let output = client.conv1d(&input, &weight, Some(&bias), 1, PaddingMode::Same, 1, 1)?;
     /// // output has shape (2, 16, 10)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn conv1d(
         &self,
@@ -163,15 +171,23 @@ pub trait ConvOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::dtype::DType;
+    /// # use numr::ops::PaddingMode;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ConvOps;
+    ///
     /// // Input: batch=2, channels=3, height=32, width=32
-    /// let input = Tensor::randn(&[2, 3, 32, 32], DType::F32, &device)?;
+    /// let input = client.randn(&[2, 3, 32, 32], DType::F32)?;
     /// // Kernel: 64 output channels, 3 input channels, 3x3 kernel
-    /// let weight = Tensor::randn(&[64, 3, 3, 3], DType::F32, &device)?;
-    /// let bias = Tensor::zeros(&[64], DType::F32, &device)?;
+    /// let weight = client.randn(&[64, 3, 3, 3], DType::F32)?;
+    /// let bias = client.fill(&[64], 0.0, DType::F32)?;
     ///
     /// let output = client.conv2d(&input, &weight, Some(&bias), (1, 1), PaddingMode::Same, (1, 1), 1)?;
     /// // output has shape (2, 64, 32, 32)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn conv2d(
         &self,
@@ -216,14 +232,22 @@ pub trait ConvOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # use numr::dtype::DType;
+    /// # use numr::ops::PaddingMode;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ConvOps;
+    ///
     /// // Input: batch=2, channels=32, height=28, width=28
-    /// let input = Tensor::randn(&[2, 32, 28, 28], DType::F32, &device)?;
+    /// let input = client.randn(&[2, 32, 28, 28], DType::F32)?;
     /// // Depthwise kernel: 32 channels, 1 input per group, 3x3 kernel
-    /// let weight = Tensor::randn(&[32, 1, 3, 3], DType::F32, &device)?;
+    /// let weight = client.randn(&[32, 1, 3, 3], DType::F32)?;
     ///
     /// let output = client.depthwise_conv2d(&input, &weight, None, (1, 1), PaddingMode::Same, (1, 1))?;
     /// // output has shape (2, 32, 28, 28)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn depthwise_conv2d(
         &self,

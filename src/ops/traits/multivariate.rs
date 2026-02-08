@@ -74,9 +74,11 @@ pub trait MultivariateRandomOps<R: Runtime> {
     /// # Examples
     ///
     /// ```ignore
+    /// use numr::ops::MultivariateRandomOps;
+    ///
     /// // 2D multivariate normal
-    /// let mean = Tensor::from_slice(&[1.0f32, 2.0], &[2], &device);
-    /// let cov = Tensor::from_slice(&[1.0, 0.5, 0.5, 1.0], &[2, 2], &device);
+    /// let mean = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device);
+    /// let cov = Tensor::<CpuRuntime>::from_slice(&[1.0, 0.5, 0.5, 1.0], &[2, 2], &device);
     /// let samples = client.multivariate_normal(&mean, &cov, 1000)?;
     /// // samples has shape [1000, 2]
     /// ```
@@ -134,11 +136,17 @@ pub trait MultivariateRandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::MultivariateRandomOps;
+    ///
     /// // 2x2 Wishart with identity scale
-    /// let scale = Tensor::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[2, 2], &device);
+    /// let scale = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[2, 2], &device);
     /// let samples = client.wishart(&scale, 5, 100)?;
     /// // samples has shape [100, 2, 2]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn wishart(&self, scale: &Tensor<R>, df: usize, n_samples: usize) -> Result<Tensor<R>>;
 
@@ -184,15 +192,21 @@ pub trait MultivariateRandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::MultivariateRandomOps;
+    ///
     /// // Symmetric Dirichlet with 3 categories
-    /// let alpha = Tensor::from_slice(&[1.0f32, 1.0, 1.0], &[3], &device);
+    /// let alpha = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[3], &device);
     /// let samples = client.dirichlet(&alpha, 1000)?;
     /// // samples has shape [1000, 3], each row sums to 1
     ///
     /// // Concentrated Dirichlet (favors first category)
-    /// let alpha = Tensor::from_slice(&[10.0f32, 1.0, 1.0], &[3], &device);
+    /// let alpha = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 1.0, 1.0], &[3], &device);
     /// let samples = client.dirichlet(&alpha, 1000)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn dirichlet(&self, alpha: &Tensor<R>, n_samples: usize) -> Result<Tensor<R>>;
 
@@ -244,16 +258,22 @@ pub trait MultivariateRandomOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::MultivariateRandomOps;
+    ///
     /// // Fair die: 6 categories, 100 rolls, 50 samples
-    /// let probs = Tensor::from_slice(&[1.0f32; 6], &[6], &device);
+    /// let probs = Tensor::<CpuRuntime>::from_slice(&[1.0f32; 6], &[6], &device);
     /// let samples = client.multinomial_samples(&probs, 100, 50)?;
     /// // samples has shape [50, 6], each row sums to 100
     ///
     /// // Biased coin: 2 categories, 10 flips
-    /// let probs = Tensor::from_slice(&[0.7f32, 0.3], &[2], &device);
+    /// let probs = Tensor::<CpuRuntime>::from_slice(&[0.7f32, 0.3], &[2], &device);
     /// let samples = client.multinomial_samples(&probs, 10, 1000)?;
     /// // samples has shape [1000, 2], each row sums to 10
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn multinomial_samples(
         &self,

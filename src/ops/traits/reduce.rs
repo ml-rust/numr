@@ -68,9 +68,13 @@ pub trait ReduceOps<R: Runtime> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
     /// let result = client.prod(&a, &[0], false)?; // 24.0
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn prod(&self, a: &Tensor<R>, dims: &[usize], keepdim: bool) -> Result<Tensor<R>>;
 
@@ -112,10 +116,14 @@ pub trait ReduceOps<R: Runtime> {
     /// If you need to exclude NaN values, filter them first with `nan_to_num` or
     /// check with `isnan`.
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // NaN is truthy
-    /// let a = Tensor::from_slice(&[0.0, f32::NAN, 0.0], &[3], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.0, f32::NAN, 0.0], &[3], &device);
     /// let result = client.any(&a, &[0], false)?; // 1.0 (true, because NaN ≠ 0)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Arguments
@@ -132,26 +140,32 @@ pub trait ReduceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ReduceOps;
+    ///
     /// // Float tensor - standard case
-    /// let a = Tensor::from_slice(&[0.0, 0.0, 1.0, 0.0], &[4], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 1.0, 0.0], &[4], &device);
     /// let result = client.any(&a, &[0], false)?; // 1.0 (true)
     ///
     /// // Integer tensor
-    /// let a = Tensor::from_slice(&[0i32, 0, -5, 0], &[4], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0i32, 0, -5, 0], &[4], &device);
     /// let result = client.any(&a, &[0], false)?; // 1 (true, -5 ≠ 0)
     ///
     /// // All zeros
-    /// let a = Tensor::from_slice(&[0.0, 0.0, 0.0], &[3], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0], &[3], &device);
     /// let result = client.any(&a, &[0], false)?; // 0.0 (false)
     ///
     /// // With infinity
-    /// let a = Tensor::from_slice(&[0.0, f32::INFINITY], &[2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32, f32::INFINITY], &[2], &device);
     /// let result = client.any(&a, &[0], false)?; // 1.0 (true)
     ///
     /// // 2D tensor - reduce along rows
-    /// let a = Tensor::from_slice(&[0.0, 1.0, 0.0, 0.0], &[2, 2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 1.0, 0.0, 0.0], &[2, 2], &device);
     /// let result = client.any(&a, &[1], false)?; // [1.0, 0.0]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # See Also
@@ -184,14 +198,18 @@ pub trait ReduceOps<R: Runtime> {
     /// A tensor of all NaN values will return true. If you need to check for
     /// valid (non-NaN) values, use `isnan` first.
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// // All NaN values → true (all are non-zero)
-    /// let a = Tensor::from_slice(&[f32::NAN, f32::NAN], &[2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[f32::NAN, f32::NAN], &[2], &device);
     /// let result = client.all(&a, &[0], false)?; // 1.0 (true, because NaN ≠ 0)
     ///
     /// // NaN mixed with zero → false
-    /// let a = Tensor::from_slice(&[f32::NAN, 0.0], &[2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[f32::NAN, 0.0], &[2], &device);
     /// let result = client.all(&a, &[0], false)?; // 0.0 (false, because 0.0 == 0)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # Arguments
@@ -208,30 +226,36 @@ pub trait ReduceOps<R: Runtime> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ReduceOps;
+    ///
     /// // Float tensor - all non-zero
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0], &[4], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
     /// let result = client.all(&a, &[0], false)?; // 1.0 (true)
     ///
     /// // Float tensor - contains zero
-    /// let a = Tensor::from_slice(&[1.0, 0.0, 3.0, 4.0], &[4], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 3.0, 4.0], &[4], &device);
     /// let result = client.all(&a, &[0], false)?; // 0.0 (false)
     ///
     /// // Integer tensor - negative values are truthy
-    /// let a = Tensor::from_slice(&[-1i32, -2, -3], &[3], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[-1i32, -2, -3], &[3], &device);
     /// let result = client.all(&a, &[0], false)?; // 1 (true)
     ///
     /// // With infinity - Inf is truthy
-    /// let a = Tensor::from_slice(&[f32::INFINITY, f32::NEG_INFINITY], &[2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[f32::INFINITY, f32::NEG_INFINITY], &[2], &device);
     /// let result = client.all(&a, &[0], false)?; // 1.0 (true)
     ///
     /// // 2D tensor - reduce along rows
-    /// let a = Tensor::from_slice(&[1.0, 2.0, 3.0, 0.0], &[2, 2], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 0.0], &[2, 2], &device);
     /// let result = client.all(&a, &[1], false)?; // [1.0, 0.0]
     ///
     /// // Empty dimension reduction - edge case
-    /// let a = Tensor::from_slice(&[1.0, 2.0], &[2, 1], &device);
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2, 1], &device);
     /// let result = client.all(&a, &[1], false)?; // [1.0, 1.0] (single element is truthy)
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # See Also

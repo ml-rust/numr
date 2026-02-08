@@ -7,12 +7,10 @@
 //! # Usage
 //!
 //! ```ignore
-//! use numr::ops::dispatch_dtype;
-//!
 //! fn my_operation(dtype: DType) -> Result<()> {
 //!     dispatch_dtype!(dtype, T => {
 //!         // T is now a concrete type (f32, f64, i32, etc.)
-//!         let value: T = T::zero();
+//!         let size = std::mem::size_of::<T>();
 //!         Ok(())
 //!     }, "my_operation");
 //!

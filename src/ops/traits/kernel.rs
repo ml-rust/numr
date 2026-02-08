@@ -39,9 +39,15 @@ use crate::runtime::Runtime;
 ///                 BinaryOp::Add => av + bv,
 ///                 BinaryOp::Sub => av - bv,
 ///                 // ...
+///                 _ => av + bv, // fallback
 ///             }
 ///         }
 ///     }
+///     unsafe fn unary_op<T: Element>(&self, _op: numr::ops::UnaryOp, _a: *const T, _out: *mut T, _len: usize) {}
+///     unsafe fn matmul<T: Element>(&self, _a: *const T, _b: *const T, _out: *mut T, _m: usize, _n: usize, _k: usize, _lda: usize, _ldb: usize, _ldc: usize) {}
+///     unsafe fn reduce<T: Element>(&self, _op: numr::ops::ReduceOp, _a: *const T, _out: *mut T, _reduce_size: usize, _outer_size: usize) {}
+///     unsafe fn fill<T: Element>(&self, _out: *mut T, _value: T, _len: usize) {}
+///     unsafe fn copy<T: Element>(&self, _src: *const T, _dst: *mut T, _len: usize) {}
 /// }
 /// ```
 pub trait Kernel<R: Runtime>: Send + Sync {

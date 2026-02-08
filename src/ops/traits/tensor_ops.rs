@@ -19,8 +19,6 @@ use super::{
 /// # Example
 ///
 /// ```ignore
-/// use numr::prelude::*;
-///
 /// let device = CpuDevice::new();
 /// let client = CpuRuntime::default_client(&device);
 ///
