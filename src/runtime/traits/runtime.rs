@@ -17,10 +17,11 @@
 /// ```ignore
 /// use numr::runtime::{Runtime, CpuRuntime};
 ///
-/// fn compute<R: Runtime>(device: &R::Device) {
-///     let ptr = R::allocate(1024, DType::F32, device);
+/// fn compute<R: Runtime>(device: &R::Device) -> numr::error::Result<()> {
+///     let ptr = R::allocate(1024, device)?;
 ///     // ... use memory ...
-///     R::deallocate(ptr, 1024, DType::F32, device);
+///     R::deallocate(ptr, 1024, device);
+///     Ok(())
 /// }
 /// ```
 pub trait Runtime: Clone + Send + Sync + 'static {
@@ -51,19 +52,35 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// Allocate device memory
     ///
     /// Returns a device pointer (u64) that can be used for operations.
-    fn allocate(size_bytes: usize, device: &Self::Device) -> u64;
+    /// Returns `Err(OutOfMemory)` if allocation fails.
+    fn allocate(size_bytes: usize, device: &Self::Device) -> crate::error::Result<u64>;
 
     /// Deallocate device memory
     fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device);
 
     /// Copy data from host to device
-    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device);
+    ///
+    /// Returns an error if the transfer fails.
+    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) -> crate::error::Result<()>;
 
     /// Copy data from device to host
-    fn copy_from_device(src: u64, dst: &mut [u8], device: &Self::Device);
+    ///
+    /// Returns an error if the transfer fails.
+    fn copy_from_device(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+    ) -> crate::error::Result<()>;
 
     /// Copy data within device (device to device)
-    fn copy_within_device(src: u64, dst: u64, size_bytes: usize, device: &Self::Device);
+    ///
+    /// Returns an error if the transfer fails.
+    fn copy_within_device(
+        src: u64,
+        dst: u64,
+        size_bytes: usize,
+        device: &Self::Device,
+    ) -> crate::error::Result<()>;
 
     /// Copy strided data to a contiguous buffer
     ///
@@ -87,7 +104,7 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         strides: &[isize],
         elem_size: usize,
         device: &Self::Device,
-    );
+    ) -> crate::error::Result<()>;
 
     /// Get the default device
     fn default_device() -> Self::Device;

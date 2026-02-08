@@ -50,7 +50,9 @@ fn create_cpu_allocator(device: CpuDevice) -> CpuAllocator {
                 AllocLayout::from_size_align(size, align).expect("Invalid allocation layout");
             let ptr = unsafe { alloc_zeroed(layout) };
             if ptr.is_null() {
-                panic!("Failed to allocate {} bytes", size);
+                // Note: This closure returns u64, not Result, so we must panic here.
+                // The proper error path is through Runtime::allocate which returns Result.
+                panic!("Out of memory: failed to allocate {} bytes", size);
             }
             ptr as u64
         },

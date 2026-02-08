@@ -22,23 +22,23 @@ impl Runtime for CpuRuntime {
         "cpu"
     }
 
-    fn allocate(size_bytes: usize, _device: &Self::Device) -> u64 {
+    fn allocate(size_bytes: usize, _device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
-            return 0;
+            return Ok(0);
         }
 
         // Use aligned allocation for SIMD compatibility
         let align = 64; // AVX-512 alignment
-        let layout =
-            AllocLayout::from_size_align(size_bytes, align).expect("Invalid allocation layout");
+        let layout = AllocLayout::from_size_align(size_bytes, align)
+            .map_err(|_| crate::error::Error::OutOfMemory { size: size_bytes })?;
 
         let ptr = unsafe { alloc_zeroed(layout) };
 
         if ptr.is_null() {
-            panic!("Failed to allocate {} bytes", size_bytes);
+            return Err(crate::error::Error::OutOfMemory { size: size_bytes });
         }
 
-        ptr as u64
+        Ok(ptr as u64)
     }
 
     fn deallocate(ptr: u64, size_bytes: usize, _device: &Self::Device) {
@@ -55,35 +55,47 @@ impl Runtime for CpuRuntime {
         }
     }
 
-    fn copy_to_device(src: &[u8], dst: u64, _device: &Self::Device) {
+    fn copy_to_device(src: &[u8], dst: u64, _device: &Self::Device) -> crate::error::Result<()> {
         if src.is_empty() || dst == 0 {
-            return;
+            return Ok(());
         }
 
         unsafe {
             std::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut u8, src.len());
         }
+        Ok(())
     }
 
-    fn copy_from_device(src: u64, dst: &mut [u8], _device: &Self::Device) {
+    fn copy_from_device(
+        src: u64,
+        dst: &mut [u8],
+        _device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if dst.is_empty() || src == 0 {
-            return;
+            return Ok(());
         }
 
         unsafe {
             std::ptr::copy_nonoverlapping(src as *const u8, dst.as_mut_ptr(), dst.len());
         }
+        Ok(())
     }
 
-    fn copy_within_device(src: u64, dst: u64, size_bytes: usize, _device: &Self::Device) {
+    fn copy_within_device(
+        src: u64,
+        dst: u64,
+        size_bytes: usize,
+        _device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if size_bytes == 0 || src == 0 || dst == 0 {
-            return;
+            return Ok(());
         }
 
         unsafe {
             // Use copy (not copy_nonoverlapping) in case src and dst overlap
             std::ptr::copy(src as *const u8, dst as *mut u8, size_bytes);
         }
+        Ok(())
     }
 
     fn copy_strided(
@@ -94,14 +106,14 @@ impl Runtime for CpuRuntime {
         strides: &[isize],
         elem_size: usize,
         _device: &Self::Device,
-    ) {
+    ) -> crate::error::Result<()> {
         if src_handle == 0 || dst_handle == 0 || shape.is_empty() {
-            return;
+            return Ok(());
         }
 
         let numel: usize = shape.iter().product();
         if numel == 0 {
-            return;
+            return Ok(());
         }
 
         // For CPU, we can use pointer arithmetic directly
@@ -136,6 +148,7 @@ impl Runtime for CpuRuntime {
                 indices[dim] = 0;
             }
         }
+        Ok(())
     }
 
     fn default_device() -> Self::Device {
