@@ -11,7 +11,8 @@ pub trait Allocator: Clone + Send + Sync {
     /// Allocate memory of given size
     ///
     /// Returns a device pointer (u64) that can be used for operations.
-    fn allocate(&self, size_bytes: usize) -> u64;
+    /// Returns `Err(OutOfMemory)` if allocation fails.
+    fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64>;
 
     /// Deallocate memory
     fn deallocate(&self, ptr: u64, size_bytes: usize);
@@ -47,7 +48,7 @@ pub trait Allocator: Clone + Send + Sync {
 #[derive(Clone, Debug)]
 pub struct DefaultAllocator<D> {
     device: D,
-    allocate_fn: fn(usize, &D) -> u64,
+    allocate_fn: fn(usize, &D) -> crate::error::Result<u64>,
     deallocate_fn: fn(u64, usize, &D),
 }
 
@@ -55,7 +56,7 @@ impl<D: Clone + Send + Sync> DefaultAllocator<D> {
     /// Create a new default allocator
     pub fn new(
         device: D,
-        allocate_fn: fn(usize, &D) -> u64,
+        allocate_fn: fn(usize, &D) -> crate::error::Result<u64>,
         deallocate_fn: fn(u64, usize, &D),
     ) -> Self {
         Self {
@@ -72,12 +73,60 @@ impl<D: Clone + Send + Sync> DefaultAllocator<D> {
 }
 
 impl<D: Clone + Send + Sync> Allocator for DefaultAllocator<D> {
-    fn allocate(&self, size_bytes: usize) -> u64 {
+    fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
         (self.allocate_fn)(size_bytes, &self.device)
     }
 
     fn deallocate(&self, ptr: u64, size_bytes: usize) {
         (self.deallocate_fn)(ptr, size_bytes, &self.device)
+    }
+}
+
+/// RAII guard for GPU memory allocations.
+///
+/// Ensures memory is deallocated when the guard is dropped, preventing leaks
+/// on error paths. Call [`release`](AllocGuard::release) to take ownership of the
+/// pointer (e.g., when transferring it into a `Tensor`).
+pub struct AllocGuard<'a, A: Allocator> {
+    allocator: &'a A,
+    ptr: u64,
+    size: usize,
+    released: bool,
+}
+
+impl<'a, A: Allocator> AllocGuard<'a, A> {
+    /// Allocate memory and wrap it in a guard.
+    pub fn new(allocator: &'a A, size_bytes: usize) -> crate::error::Result<Self> {
+        let ptr = allocator.allocate(size_bytes)?;
+        Ok(Self {
+            allocator,
+            ptr,
+            size: size_bytes,
+            released: false,
+        })
+    }
+
+    /// Get the raw pointer.
+    #[inline]
+    pub fn ptr(&self) -> u64 {
+        self.ptr
+    }
+
+    /// Release ownership of the pointer, preventing deallocation on drop.
+    ///
+    /// Returns the raw pointer for use in tensor construction.
+    #[inline]
+    pub fn release(mut self) -> u64 {
+        self.released = true;
+        self.ptr
+    }
+}
+
+impl<A: Allocator> Drop for AllocGuard<'_, A> {
+    fn drop(&mut self) {
+        if !self.released && self.ptr != 0 {
+            self.allocator.deallocate(self.ptr, self.size);
+        }
     }
 }
 
