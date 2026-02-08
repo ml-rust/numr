@@ -47,6 +47,11 @@ pub struct LayoutKey {
     pub num_storage_buffers: u32,
     /// Number of uniform buffers in the layout
     pub num_uniform_buffers: u32,
+    /// Number of leading storage buffers that are read-only.
+    /// Bindings 0..num_readonly_storage are read-only,
+    /// bindings num_readonly_storage..num_storage_buffers are read-write.
+    /// Default: 0 (all read-write, backwards compatible).
+    pub num_readonly_storage: u32,
 }
 
 impl PipelineCache {
@@ -191,13 +196,14 @@ impl PipelineCache {
 
         let mut entries = Vec::new();
 
-        // Storage buffers (read-write)
+        // Storage buffers: first num_readonly_storage are read-only, rest are read-write
         for i in 0..key.num_storage_buffers {
+            let read_only = i < key.num_readonly_storage;
             entries.push(BindGroupLayoutEntry {
                 binding: i,
                 visibility: ShaderStages::COMPUTE,
                 ty: BindingType::Buffer {
-                    ty: BufferBindingType::Storage { read_only: false },
+                    ty: BufferBindingType::Storage { read_only },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
