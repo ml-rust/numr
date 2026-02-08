@@ -22,4 +22,7 @@ pub trait ScalarOps<R: Runtime>: TensorOps<R> {
 
     /// Raise tensor to scalar power: a^scalar
     fn pow_scalar(&self, a: &Tensor<R>, scalar: f64) -> Result<Tensor<R>>;
+
+    /// Reverse subtract: scalar - a
+    fn rsub_scalar(&self, a: &Tensor<R>, scalar: f64) -> Result<Tensor<R>>;
 }
