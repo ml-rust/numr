@@ -335,3 +335,11 @@ pub fn cuda_device() -> CudaDevice {
 pub fn cuda_device_id(device_id: usize) -> CudaDevice {
     CudaDevice::new(device_id)
 }
+
+/// Check if CUDA is available on this system
+pub fn is_cuda_available() -> bool {
+    std::panic::catch_unwind(|| {
+        CudaDevice::new(0);
+    })
+    .is_ok()
+}

@@ -38,4 +38,4 @@ mod special;
 pub use crate::tensor::Tensor;
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
 pub use device::{CudaDevice, CudaError};
-pub use runtime::{CudaRuntime, cuda_device, cuda_device_id};
+pub use runtime::{CudaRuntime, cuda_device, cuda_device_id, is_cuda_available};
