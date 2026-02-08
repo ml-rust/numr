@@ -453,11 +453,9 @@ pub unsafe fn sin_f32(x: float32x4_t) -> float32x4_t {
 
     // Use cos when j mod 4 is 1 or 3
     let use_cos_mask = vceqq_s32(vandq_s32(j_mod_4, vdupq_n_s32(1)), vdupq_n_s32(1));
-    let use_cos_mask = vreinterpretq_u32_s32(use_cos_mask);
 
     // Negate when j mod 4 is 2 or 3
     let negate_mask = vceqq_s32(vandq_s32(j_mod_4, vdupq_n_s32(2)), vdupq_n_s32(2));
-    let negate_mask = vreinterpretq_u32_s32(negate_mask);
 
     let result = vbslq_f32(use_cos_mask, cos_y, sin_y);
     let negated = vnegq_f32(result);
@@ -595,7 +593,6 @@ pub unsafe fn tan_f32(x: float32x4_t) -> float32x4_t {
     // For quadrants 1 and 3, tan(y + π/2) = -1/tan(y) = -cot(y)
     let j_int = vcvtq_s32_f32(j);
     let use_cot_mask = vceqq_s32(vandq_s32(j_int, vdupq_n_s32(1)), vdupq_n_s32(1));
-    let use_cot_mask = vreinterpretq_u32_s32(use_cot_mask);
 
     let neg_one = vdupq_n_f32(-1.0);
     let cot_y = vdivq_f32(neg_one, tan_y);
