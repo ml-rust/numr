@@ -35,13 +35,11 @@
 //!
 //! # First-Order Example (Reverse-Mode)
 //!
-//! ```ignore
-//! use numr::prelude::*;
-//! use numr::autograd::{Var, backward};
-//!
-//! let device = CpuDevice::new();
-//! let client = CpuRuntime::default_client(&device);
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # use numr::autograd::{Var, backward, var_mul};
+//! # let device = CpuDevice::new();
+//! # let client = CpuRuntime::default_client(&device);
 //! // Create leaf variables
 //! let x = Var::new(Tensor::from_slice(&[2.0f32], &[1], &device), true);
 //! let y = Var::new(Tensor::from_slice(&[3.0f32], &[1], &device), true);
@@ -55,17 +53,16 @@
 //! // dx = y = 3.0, dy = x = 2.0
 //! let grad_x = grads.get(x.id()).unwrap();
 //! let grad_y = grads.get(y.id()).unwrap();
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 //!
 //! # Forward-Mode Example (JVP)
 //!
-//! ```ignore
-//! use numr::prelude::*;
-//! use numr::autograd::{DualTensor, jvp, dual_ops::*};
-//!
-//! let device = CpuDevice::new();
-//! let client = CpuRuntime::default_client(&device);
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # use numr::autograd::{DualTensor, jvp, dual_ops::*};
+//! # let device = CpuDevice::new();
+//! # let client = CpuRuntime::default_client(&device);
 //! // f(x) = x² at x=3, tangent v=1 → df/dx in direction v
 //! let x = Tensor::from_slice(&[3.0f32], &[1], &device);
 //! let v = Tensor::from_slice(&[1.0f32], &[1], &device);
@@ -80,17 +77,16 @@
 //!     &client,
 //! )?;
 //! // y = 9.0, dy = 2*3*1 = 6.0
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 //!
 //! # Second-Order Example (Hessian-Vector Product)
 //!
-//! ```ignore
-//! use numr::prelude::*;
-//! use numr::autograd::{Var, backward, backward_with_graph, var_mul, var_sum};
-//!
-//! let device = CpuDevice::new();
-//! let client = CpuRuntime::default_client(&device);
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # use numr::autograd::{Var, backward, backward_with_graph, var_mul, var_sum};
+//! # let device = CpuDevice::new();
+//! # let client = CpuRuntime::default_client(&device);
 //! // f(x) = x²
 //! let x = Var::new(Tensor::from_slice(&[3.0f32], &[1], &device), true);
 //! let y = var_mul(&x, &x, &client)?;
@@ -106,6 +102,7 @@
 //!
 //! // Second backward gives d²y/dx² * v = 2 * 1 = 2
 //! let second_grads = backward(&scalar, &client)?;
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 
 // Reverse-mode AD

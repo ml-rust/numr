@@ -26,22 +26,24 @@ use super::Var;
 /// # Example
 ///
 /// ```ignore
+/// # use numr::prelude::*;
+/// # use numr::autograd::{GradFn, Var};
+/// # use numr::error::Result;
+/// # use std::sync::Arc;
+/// struct MyOpBackward<R: Runtime> {
+///     saved_tensor: Tensor<R>,
+/// }
+///
 /// impl<R: Runtime> GradFn<R> for MyOpBackward<R> {
 ///     fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
 ///         // Compute gradients using tensor ops
-///         let grad = client.mul(grad_output, &self.saved_tensor)?;
-///         Ok(vec![Some(grad)])
+///         // let grad = client.mul(grad_output, &self.saved_tensor)?;
+///         Ok(vec![Some(grad_output.clone())])
 ///     }
 ///
 ///     fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
 ///         // Compute gradients using var_ops to maintain computation graph
-///         let saved_var = Var::with_id_and_grad_fn(
-///             self.saved_tensor.clone(),
-///             self.input_id,
-///             self.input_grad_fn.clone(),
-///         );
-///         let grad = var_mul(grad_output, &saved_var, &client)?;
-///         Ok(vec![Some(grad)])
+///         Ok(vec![Some(grad_output.clone())])
 ///     }
 /// }
 /// ```

@@ -31,14 +31,18 @@ use crate::tensor::Tensor;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::autograd::DualTensor;
-///
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::autograd::DualTensor;
+/// # let device = CpuDevice::new();
 /// // Create a dual tensor with primal x=3.0 and tangent v=1.0
-/// let x = DualTensor::new(primal_tensor, Some(tangent_tensor));
+/// let primal = Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[], &device);
+/// let tangent = Tensor::<CpuRuntime>::from_slice(&[1.0f32], &[], &device);
+/// let x = DualTensor::new(primal, Some(tangent));
 ///
-/// // For f(x) = x², computing f and df/dx in direction v:
-/// // primal: 9.0, tangent: 2*3*1 = 6.0
+/// // Access primal and tangent components
+/// assert_eq!(x.primal().shape(), &[]);  // scalar
+/// assert!(x.tangent().is_some());
 /// ```
 #[derive(Debug, Clone)]
 pub struct DualTensor<R: Runtime> {

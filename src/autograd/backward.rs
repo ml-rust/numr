@@ -72,25 +72,24 @@ fn create_loss_gradient<R: Runtime>(loss: &Var<R>) -> Tensor<R> {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::prelude::*;
-/// use numr::autograd::{Var, backward};
-///
-/// let device = CpuDevice::new();
-/// let client = CpuRuntime::default_client(&device);
-///
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::autograd::{Var, backward, var_mul};
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
 /// // Create variables
 /// let x = Var::new(Tensor::from_slice(&[2.0f32], &[1], &device), true);
 /// let y = Var::new(Tensor::from_slice(&[3.0f32], &[1], &device), true);
 ///
 /// // Forward: z = x * y
-/// let z = x.mul(&y, &client)?;
+/// let z = var_mul(&x, &y, &client)?;
 ///
 /// // Backward
 /// let grads = backward(&z, &client)?;
 ///
 /// // dx = y = 3.0
 /// let grad_x = grads.get(x.id()).unwrap();
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub fn backward<R, C>(loss: &Var<R>, client: &C) -> Result<GradStore<R>>
 where
@@ -155,13 +154,11 @@ where
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::prelude::*;
-/// use numr::autograd::{Var, backward, backward_with_graph, var_mul, var_sum};
-///
-/// let device = CpuDevice::new();
-/// let client = CpuRuntime::default_client(&device);
-///
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::autograd::{Var, backward, backward_with_graph, var_mul, var_sum};
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
 /// // Forward pass
 /// let x = Var::new(Tensor::from_slice(&[2.0f32], &[1], &device), true);
 /// let y = var_mul(&x, &x, &client)?;  // y = x²
@@ -176,6 +173,7 @@ where
 /// let grad_v = var_mul(grad_x, &v, &client)?;
 /// let hvp = backward(&var_sum(&grad_v, &[], false, &client)?, &client)?;
 /// // hvp[x] = d²y/dx² * v = 2 * 1 = 2
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 ///
 /// # Performance Note

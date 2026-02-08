@@ -5,13 +5,11 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use numr::prelude::*;
-//! use numr::autograd::{Var, var_ops::*, backward};
-//!
-//! let device = CpuDevice::new();
-//! let client = CpuRuntime::default_client(&device);
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # use numr::autograd::{Var, var_mul, backward};
+//! # let device = CpuDevice::new();
+//! # let client = CpuRuntime::default_client(&device);
 //! // Create leaf variables
 //! let x = Var::new(Tensor::from_slice(&[2.0f32], &[1], &device), true);
 //! let y = Var::new(Tensor::from_slice(&[3.0f32], &[1], &device), true);
@@ -21,6 +19,7 @@
 //!
 //! // Compute gradients
 //! let grads = backward(&z, &client)?;
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 
 use super::Var;

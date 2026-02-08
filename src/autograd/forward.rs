@@ -27,18 +27,21 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use numr::autograd::{DualTensor, jvp, dual_mul, dual_sum};
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # use numr::autograd::{DualTensor, jvp};
+//! # use numr::autograd::dual_ops::*;
+//! # let device = CpuDevice::new();
+//! # let client = CpuRuntime::default_client(&device);
 //! // f(x) = sum(x²), compute directional derivative in direction v
 //! let x = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3], &device);
 //! let v = Tensor::from_slice(&[1.0, 1.0, 1.0], &[3], &device);
 //!
 //! let (y, dy) = jvp(
-//!     |inputs| {
+//!     |inputs, c| {
 //!         let x = &inputs[0];
-//!         let x_sq = dual_mul(x, x, &client)?;
-//!         dual_sum(&x_sq, &[], false, &client)
+//!         let x_sq = dual_mul(x, x, c)?;
+//!         dual_sum(&x_sq, &[], false, c)
 //!     },
 //!     &[&x],
 //!     &[&v],
@@ -46,6 +49,7 @@
 //! )?;
 //! // y = 14.0 (1 + 4 + 9)
 //! // dy = 2*1*1 + 2*2*1 + 2*3*1 = 12.0
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 
 use super::DualTensor;
@@ -83,22 +87,27 @@ use crate::tensor::Tensor;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::autograd::{DualTensor, jvp};
+/// # use numr::autograd::dual_ops::dual_mul;
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
 /// // Compute directional derivative of f(x) = x² at x=3 in direction v=1
 /// let x = Tensor::from_slice(&[3.0f32], &[1], &device);
 /// let v = Tensor::from_slice(&[1.0f32], &[1], &device);
 ///
 /// let (y, dy) = jvp(
-///     |inputs, client| {
-///         use numr::autograd::dual_ops::dual_mul;
+///     |inputs, c| {
 ///         let x = &inputs[0];
-///         Ok(dual_mul(x, x, client)?)
+///         Ok(dual_mul(x, x, c)?)
 ///     },
 ///     &[&x],
 ///     &[&v],
 ///     &client,
 /// )?;
 /// // y = 9.0, dy = 2*3*1 = 6.0
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub fn jvp<R, C, F>(
     f: F,
@@ -226,6 +235,12 @@ where
 /// // f(x) = [x[0]², x[0]*x[1], x[1]²]
 /// // J = [[2*x[0], 0], [x[1], x[0]], [0, 2*x[1]]]
 /// let x = Tensor::from_slice(&[3.0f32, 2.0], &[2], &device);
+/// let f = |x: &DualTensor<_>, c: &_| -> Result<DualTensor<_>> {
+///     let x0_sq = dual_mul(&x.index(&[0..1]), &x.index(&[0..1]), c)?;
+///     let x01 = dual_mul(&x.index(&[0..1]), &x.index(&[1..2]), c)?;
+///     let x1_sq = dual_mul(&x.index(&[1..2]), &x.index(&[1..2]), c)?;
+///     dual_cat(&[&x0_sq, &x01, &x1_sq], 0, c)
+/// };
 /// let jacobian = jacobian_forward(&f, &x, &client)?;
 /// // jacobian.shape() = [3, 2]
 /// ```

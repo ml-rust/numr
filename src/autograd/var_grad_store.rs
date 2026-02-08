@@ -17,16 +17,21 @@ use std::collections::HashMap;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::autograd::{backward_with_graph, backward, Var};
-///
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::autograd::{backward_with_graph, backward, Var, var_mul, var_sum};
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
+/// # let loss = Var::new(Tensor::from_slice(&[1.0f32], &[], &device), true);
 /// // First backward pass - gradients are Vars with history
 /// let var_grads = backward_with_graph(&loss, &client)?;
-/// let grad_x = var_grads.get_var(x.id()).unwrap();
+/// let grad_x = var_grads.get_var(loss.id()).unwrap();
 ///
 /// // grad_x is a Var, so we can differentiate it again
-/// let hvp = var_mul(&grad_x, &v, &client)?;
-/// let second_grads = backward(&hvp.sum(), &client)?;
+/// let v = Var::new(Tensor::from_slice(&[1.0f32], &[], &device), true);
+/// let hvp = var_mul(grad_x, &v, &client)?;
+/// let second_grads = backward(&var_sum(&hvp, &[], false, &client)?, &client)?;
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub struct VarGradStore<R: Runtime> {
     grads: HashMap<TensorId, Var<R>>,
