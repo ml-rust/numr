@@ -84,13 +84,19 @@ fn validate_logical_inputs(a: &Tensor<WgpuRuntime>, b: &Tensor<WgpuRuntime>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::RuntimeClient;
+    use crate::runtime::wgpu::device::WgpuDevice;
+    use crate::runtime::wgpu::runtime::WgpuRuntime as WgpuRt;
+    use crate::runtime::{Runtime, RuntimeClient};
+
+    fn create_client() -> WgpuClient {
+        let device = WgpuDevice::new(0);
+        WgpuRt::default_client(&device)
+    }
 
     #[test]
     fn test_logical_and() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
-        // Create U32 boolean tensors
         let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 0, 1, 0], &[4], client.device());
         let b = Tensor::<WgpuRuntime>::from_slice(&[1u32, 1, 0, 0], &[4], client.device());
 
@@ -102,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_logical_or() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 0, 1, 0], &[4], client.device());
         let b = Tensor::<WgpuRuntime>::from_slice(&[1u32, 1, 0, 0], &[4], client.device());
@@ -115,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_logical_xor() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 0, 1, 0], &[4], client.device());
         let b = Tensor::<WgpuRuntime>::from_slice(&[1u32, 1, 0, 0], &[4], client.device());
@@ -128,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_logical_not() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 0, 5, 0], &[4], client.device());
 
@@ -140,9 +146,8 @@ mod tests {
 
     #[test]
     fn test_logical_rejects_non_u32() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
-        // F32 tensors should be rejected
         let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 0.0], &[2], client.device());
         let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 1.0], &[2], client.device());
 
@@ -152,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_logical_shape_mismatch() {
-        let client = WgpuClient::new(Default::default()).unwrap();
+        let client = create_client();
 
         let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 0, 1], &[3], client.device());
         let b = Tensor::<WgpuRuntime>::from_slice(&[1u32, 1], &[2], client.device());
