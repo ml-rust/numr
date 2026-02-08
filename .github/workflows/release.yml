@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-version:
+    name: Validate Version Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate tag against Cargo.toml
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+
+          # Extract base version from Cargo.toml (X.Y.Z part only)
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version=1 \
+            | jq -r '.packages[] | select(.name == "numr") | .version')
+          CARGO_BASE=$(echo "$CARGO_VERSION" | grep -oP '^\d+\.\d+\.\d+')
+
+          echo "Tag version: $TAG_VERSION"
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Cargo.toml base: $CARGO_BASE"
+
+          # Validate tag format: vX.Y.Z or vX.Y.Z-prerelease.N
+          if [[ ! "$TAG_VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)(-[a-zA-Z]+\.[0-9]+)?$ ]]; then
+            echo "::error::Invalid tag format '$TAG'. Expected: vX.Y.Z or vX.Y.Z-label.N"
+            exit 1
+          fi
+
+          TAG_BASE="${BASH_REMATCH[1]}"
+
+          # Base version (X.Y.Z) must match between tag and Cargo.toml
+          if [[ "$TAG_BASE" != "$CARGO_BASE" ]]; then
+            echo "::error::Base version mismatch! Tag '$TAG_BASE' != Cargo.toml '$CARGO_BASE'"
+            exit 1
+          fi
+
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+  test:
+    name: Test before publish
+    needs: validate-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Run tests (f16 + sparse)
+        run: cargo test --features f16,sparse
+
+  publish:
+    name: Publish to crates.io
+    needs: [validate-version, test]
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set version from tag (if needed)
+        run: |
+          VERSION="${{ needs.validate-version.outputs.version }}"
+          CURRENT=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[] | select(.name == "numr") | .version')
+          if [[ "$VERSION" != "$CURRENT" ]]; then
+            sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+            echo "Updated Cargo.toml: $CURRENT -> $VERSION"
+          else
+            echo "Version already matches, no change needed"
+          fi
+
+      - name: Dry run
+        run: cargo publish --dry-run --allow-dirty
+
+      - name: Publish to crates.io
+        run: cargo publish --allow-dirty --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
