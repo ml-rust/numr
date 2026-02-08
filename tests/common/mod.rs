@@ -1,7 +1,12 @@
-//! Common test utilities for matrix function tests
+//! Common test utilities
+#![allow(dead_code)]
 
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
+#[cfg(feature = "cuda")]
+use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
+#[cfg(feature = "wgpu")]
+use numr::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime};
 
 /// Create a CPU client and device for testing
 pub fn create_cpu_client() -> (CpuClient, CpuDevice) {
@@ -29,6 +34,28 @@ pub fn assert_allclose_f64(a: &[f64], b: &[f64], rtol: f64, atol: f64, msg: &str
             tol
         );
     }
+}
+
+/// Create a CUDA client and device, returning None if CUDA is unavailable
+#[cfg(feature = "cuda")]
+pub fn create_cuda_client() -> Option<(CudaClient, CudaDevice)> {
+    if !numr::runtime::cuda::is_cuda_available() {
+        return None;
+    }
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    Some((client, device))
+}
+
+/// Create a WebGPU client and device, returning None if WebGPU is unavailable
+#[cfg(feature = "wgpu")]
+pub fn create_wgpu_client() -> Option<(WgpuClient, WgpuDevice)> {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        return None;
+    }
+    let device = WgpuDevice::new(0);
+    let client = WgpuRuntime::default_client(&device);
+    Some((client, device))
 }
 
 /// Assert two f32 slices are close within tolerance
