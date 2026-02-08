@@ -501,7 +501,7 @@ pub fn masked_select_impl(
     #[cfg(not(target_arch = "x86_64"))]
     {
         // Count true elements first
-        let count = unsafe { kernels::masked_count_kernel(mask_ptr as *const u8, numel) };
+        let count = unsafe { kernels::index::masked_count_kernel(mask_ptr as *const u8, numel) };
 
         // Allocate output with correct size
         let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
