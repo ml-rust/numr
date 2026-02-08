@@ -35,14 +35,27 @@ use super::{CscData, CsrData, SparseTensor};
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::sparse::SparseOps;
-///
+/// ```
+/// # use numr::prelude::*;
+/// # #[cfg(feature = "sparse")]
+/// # {
+/// # use numr::sparse::{SparseOps, SparseTensor};
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
 /// // High-level API
+/// # let sparse_a = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[1, 0], &[1.0f32, 2.0], &[2, 2], &device)?;
+/// # let dense_x = Tensor::from_slice(&[1.0, 2.0], &[2], &device);
 /// let y = client.spmv(&sparse_a, &dense_x)?;  // y = A * x
 ///
 /// // Low-level API (format-specific)
-/// let y = client.spmv_csr::<f32>(&row_ptrs, &col_indices, &values, &x, shape)?;
+/// # let csr = sparse_a.to_csr()?;
+/// # let shape = [2, 2];
+/// # let row_ptrs = Tensor::from_slice(&csr.row_ptrs(), &[csr.nrows() + 1], &device);
+/// # let col_indices = Tensor::from_slice(&csr.col_indices(), &[csr.nnz()], &device);
+/// # let values = Tensor::from_slice(csr.values(), &[csr.nnz()], &device);
+/// let y = client.spmv_csr::<f32>(&row_ptrs, &col_indices, &values, &dense_x, shape)?;
+/// # }
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub trait SparseOps<R: Runtime>: Sized {
     // =========================================================================
@@ -493,12 +506,22 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseOps;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// # let dense_matrix = Tensor::from_slice(&[1.0, 0.0, 2.0f32], &[1, 3], &device);
+    /// # let vector = Tensor::from_slice(&[1.0, 2.0, 3.0f32], &[3], &device);
     /// let csr = client.dense_to_csr(&dense_matrix, 1e-15)?;
     /// let result = client.spmv_csr::<f32>(
     ///     csr.row_ptrs(), csr.col_indices(), csr.values(),
     ///     &vector, csr.shape()
     /// )?;
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn dense_to_csr(&self, a: &Tensor<R>, threshold: f64) -> Result<CsrData<R>> {
         let sparse = self.dense_to_sparse(a, threshold)?;
@@ -747,17 +770,24 @@ pub enum NormType {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::sparse::{CscData, SparseScaling, NormType};
-///
+/// ```
+/// # use numr::prelude::*;
+/// # #[cfg(feature = "sparse")]
+/// # {
+/// # use numr::sparse::{CscData, SparseScaling, NormType};
+/// # let device = CpuDevice::new();
+/// // Create a sample CSC matrix
+/// # let rows = vec![0, 1];
+/// # let cols = vec![0, 1];
+/// # let values = vec![1.0f64, 2.0];
+/// # let csc = CscData::new(&rows, &cols, &values, [2, 2], 1e-15)?;
 /// // Equilibrate a badly-scaled matrix
 /// let (scaled, row_scales, col_scales) = csc.equilibrate::<f64>()?;
 ///
-/// // Solve with scaled matrix: Ax = b becomes (R A C)(C⁻¹x) = Rb
-/// let factors = sparse_lu_cpu(&scaled, &symbolic, &options)?;
-/// let scaled_b = apply_row_scaling(&b, &row_scales);
-/// let scaled_x = sparse_lu_solve_cpu(&factors, &scaled_b)?;
-/// let x = apply_col_scaling(&scaled_x, &col_scales); // x = C * scaled_x
+/// // Scaling factors can be applied to solve Ax = b
+/// // becomes (R A C)(C⁻¹x) = Rb
+/// # }
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub trait SparseScaling<R: Runtime> {
     /// Compute row-wise norms of a sparse matrix.

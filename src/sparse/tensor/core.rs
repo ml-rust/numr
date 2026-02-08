@@ -24,21 +24,25 @@ use super::super::format::{SparseFormat, SparseStorage};
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::sparse::SparseTensor;
-/// use numr::runtime::CpuRuntime;
-///
+/// ```
+/// # use numr::prelude::*;
+/// # #[cfg(feature = "sparse")]
+/// # {
+/// # use numr::sparse::SparseTensor;
+/// # let device = CpuDevice::new();
 /// // Create from COO triplets
-/// let sparse = SparseTensor::<CpuRuntime>::from_coo_slices(
+/// let sparse = SparseTensor::<CpuRuntime>::from_coo(
 ///     &[0, 1, 2],      // rows
 ///     &[1, 0, 2],      // cols
 ///     &[1.0f32, 2.0, 3.0],  // values
-///     [3, 3],          // shape
+///     &[3, 3],          // shape
 ///     &device,
 /// )?;
 ///
 /// // Convert to CSR for efficient SpMV
 /// let csr = sparse.to_csr()?;
+/// # }
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 #[derive(Debug, Clone)]
 pub enum SparseTensor<R: Runtime> {
@@ -152,10 +156,18 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
     /// let dense = Tensor::<CpuRuntime>::from_slice(&[1.0, 0.0, 2.0, 0.0], &[2, 2], &device);
     /// let sparse = SparseTensor::from_dense(&client, &dense, 1e-10)?;
     /// assert_eq!(sparse.nnz(), 2);  // Only non-zero elements
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn from_dense<C>(client: &C, tensor: &Tensor<R>, threshold: f64) -> Result<Self>
     where

@@ -42,11 +42,22 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A + B:
     /// // [1, 0]      [0, 2]      [1, 2]
     /// // [0, 3]  +   [4, 0]  =   [4, 3]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[1.0f32, 3.0], &[2, 2], &device)?.to_csc()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[1, 0], &[2.0f32, 4.0], &[2, 2], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(a) = a_sp { if let numr::sparse::SparseTensor::Csc(b) = b_sp {
     /// let c = a.add(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn add(&self, other: &Self) -> Result<Self>
     where
@@ -125,11 +136,22 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A - B:
     /// // [5, 0]      [2, 3]      [3, -3]
     /// // [0, 8]  -   [4, 0]  =   [-4, 8]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[5.0f32, 8.0], &[2, 2], &device)?.to_csc()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 0], &[2.0f32, 3.0, 4.0], &[2, 2], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(a) = a_sp { if let numr::sparse::SparseTensor::Csc(b) = b_sp {
     /// let c = a.sub(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn sub(&self, other: &Self) -> Result<Self>
     where
@@ -211,11 +233,22 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A .* B:
     /// // [2, 3]      [4, 0]      [8, 0]
     /// // [0, 5]  .*  [6, 7]  =   [0, 35]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 3.0, 5.0], &[2, 2], &device)?.to_csc()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[4.0f32, 7.0], &[2, 2], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(a) = a_sp { if let numr::sparse::SparseTensor::Csc(b) = b_sp {
     /// let c = a.mul(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn mul(&self, other: &Self) -> Result<Self>
     where
@@ -296,11 +329,22 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A ./ B:
     /// // [8, 3]      [4, 0]      [2, 0]
     /// // [0, 10]  ./ [6, 2]  =   [0, 5]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[8.0f32, 3.0, 10.0], &[2, 2], &device)?.to_csc()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1, 1], &[0, 0, 1], &[4.0f32, 6.0, 2.0], &[2, 2], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(a) = a_sp { if let numr::sparse::SparseTensor::Csc(b) = b_sp {
     /// let c = a.div(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn div(&self, other: &Self) -> Result<Self> {
         // Validate shapes match
@@ -402,8 +446,18 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0], &[0], &[1.0f32], &[1, 1], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(csc) = sp {
     /// let result = csc.scalar_mul(2.0)?;  // Multiply all values by 2
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn scalar_mul(&self, scalar: f64) -> Result<Self>
     where
@@ -444,13 +498,23 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // Sparse matrix:        After scalar_add(10):
     /// // [1, 0, 2]             [11,  0, 12]
     /// // [0, 3, 0]             [ 0, 13,  0]
     /// //
     /// // Note: Zeros stay 0, not 10!
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(csc) = sp {
     /// let result = csc.scalar_add(10.0)?;
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     ///
     /// # See Also
@@ -490,9 +554,19 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // Clearer intent than scalar_add
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0], &[0], &[1.0f32], &[1, 1], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(csc) = sp {
     /// let result = csc.add_to_nonzeros(5.0)?;
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     #[inline]
     pub fn add_to_nonzeros(&self, scalar: f64) -> Result<Self>

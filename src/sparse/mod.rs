@@ -18,10 +18,12 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use numr::sparse::{SparseTensor, SparseFormat};
-//! use numr::runtime::CpuRuntime;
-//!
+//! ```
+//! # use numr::prelude::*;
+//! # #[cfg(feature = "sparse")]
+//! # {
+//! # use numr::sparse::{SparseTensor, SparseFormat};
+//! # let device = CpuDevice::new();
 //! // Create COO tensor from triplets
 //! let rows = vec![0, 1, 2];
 //! let cols = vec![1, 0, 2];
@@ -36,8 +38,11 @@
 //! let csr = coo.to_csr()?;
 //!
 //! // Sparse matrix-vector multiplication
-//! let x = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3]);
-//! let y = sparse_ops.spmv(&csr, &x)?;  // y = A * x
+//! let x = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3], &device);
+//! // let sparse_ops = CpuRuntime::default_client(&device);
+//! // let y = sparse_ops.spmv(&csr, &x)?;  // y = A * x
+//! # }
+//! # Ok::<(), numr::error::Error>(())
 //! ```
 //!
 //! # When to Use Sparse

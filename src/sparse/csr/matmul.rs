@@ -41,10 +41,19 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let csr = CsrData::from_slices(&[0, 2, 3], &[0, 1, 0], &[1.0, 2.0, 3.0], [2, 2], &device)?;
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 0], &[1.0f32, 2.0, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(csr) = sp {
     /// let x = Tensor::from_slice(&[1.0, 2.0], &[2], &device);
     /// let y = csr.spmv(&x)?;  // y = [1*1 + 2*2, 3*1] = [5, 3]
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn spmv(&self, x: &Tensor<R>) -> Result<Tensor<R>>
     where
@@ -130,9 +139,20 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A: [2, 3] sparse, B: [3, 2] dense -> C: [2, 2] dense
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 2], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(csr) = sp {
+    /// # let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0f32], &[3, 2], &device);
     /// let c = csr.spmm(&b)?;
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn spmm(&self, b: &Tensor<R>) -> Result<Tensor<R>>
     where
@@ -214,12 +234,22 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A [2, 3] in CSR:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(a) = sp {
     /// let a_t = a.transpose();
     /// // A^T [3, 2] in CSC (same underlying data)
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn transpose(&self) -> CscData<R> {
         let [nrows, ncols] = self.shape;

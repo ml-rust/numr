@@ -70,15 +70,25 @@ impl<R: Runtime> CooData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A [2, 3]:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?;
+    /// # if let numr::sparse::SparseTensor::Coo(a) = sp {
     /// let a_t = a.transpose();
     /// // A^T [3, 2]:
     /// // [1, 0]
     /// // [0, 3]
     /// // [2, 0]
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn transpose(&self) -> Self {
         let [nrows, ncols] = self.shape;

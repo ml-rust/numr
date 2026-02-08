@@ -65,12 +65,19 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let sparse = SparseTensor::<CpuRuntime>::from_coo_slices(
-    ///     &[0, 1], &[1, 0], &[5.0f32, 3.0], [2, 2], &device
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
+    /// let sparse = SparseTensor::<CpuRuntime>::from_coo(
+    ///     &[0, 1], &[1, 0], &[5.0f32, 3.0], &[2, 2], &device
     /// )?;
     /// let dense = sparse.to_dense(&device)?;
     /// // dense is [[0, 5], [3, 0]]
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn to_dense(&self, device: &R::Device) -> Result<Tensor<R>> {
         let [nrows, ncols] = self.shape();

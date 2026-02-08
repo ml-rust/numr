@@ -31,10 +31,17 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let sparse = SparseTensor::from_csr_slices(...)?;
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
+    /// # let sparse = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[1.0f32, 2.0], &[2, 3], &device)?;
     /// let x = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3], &device);
     /// let y = sparse.spmv(&x)?;  // y = A * x
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn spmv(&self, x: &Tensor<R>) -> Result<Tensor<R>>
     where
@@ -73,9 +80,18 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A: [3, 4] sparse, B: [4, 2] dense -> C: [3, 2] dense
+    /// # let sparse = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[1.0f32, 2.0], &[3, 4], &device)?;
+    /// # let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0f32], &[4, 2], &device);
     /// let c = sparse.spmm(&b)?;
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn spmm(&self, b: &Tensor<R>) -> Result<Tensor<R>>
     where
@@ -105,16 +121,24 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A [2, 3]:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
+    /// # let a = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?;
     /// let a_t = a.transpose();
     /// // A^T [3, 2]:
     /// // [1, 0]
     /// // [0, 3]
     /// // [2, 0]
-    /// assert_eq!(a_t.shape(), [3, 2]);
+    /// assert_eq!(a_t.shape(), &[3, 2]);
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn transpose(&self) -> SparseTensor<R> {
         match self {

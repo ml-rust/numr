@@ -41,11 +41,22 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A + B:
     /// // [1, 0]      [0, 2]      [1, 2]
     /// // [0, 3]  +   [4, 0]  =   [4, 3]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[1.0f32, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[1, 0], &[2.0f32, 4.0], &[2, 2], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.add(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn add(&self, other: &Self) -> Result<Self>
     where
@@ -124,11 +135,22 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A - B:
     /// // [5, 0]      [2, 1]      [3, -1]
     /// // [0, 4]  -   [0, 3]  =   [0,  1]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[5.0f32, 4.0], &[2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 1.0, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.sub(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn sub(&self, other: &Self) -> Result<Self>
     where
@@ -210,11 +232,22 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          B:          C = A .* B:
     /// // [2, 3]      [4, 0]      [8, 0]
     /// // [0, 5]  .*  [6, 7]  =   [0, 35]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 3.0, 5.0], &[2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[4.0f32, 7.0], &[2, 2], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.mul(&b)?;
+    /// # } }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn mul(&self, other: &Self) -> Result<Self>
     where
@@ -353,11 +386,21 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // A:          C = A * 2:
     /// // [1, 2]      [2, 4]
     /// // [3, 0]      [6, 0]
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 0], &[1.0f32, 2.0, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp {
     /// let c = a.scalar_mul(2.0)?;
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn scalar_mul<T: Element>(&self, scalar: T) -> Result<Self>
     where

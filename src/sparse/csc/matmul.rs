@@ -100,11 +100,17 @@ impl<R: Runtime> CscData<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # #[cfg(feature = "sparse")]
+    /// # {
+    /// # use numr::sparse::SparseTensor;
+    /// # let device = CpuDevice::new();
     /// // CSC matrix [2, 3]:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
-    /// let csc = CscData::from_slices(...);
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?.to_csc()?;
+    /// # if let numr::sparse::SparseTensor::Csc(csc) = sp {
     ///
     /// // Transpose returns CSR [3, 2]:
     /// // [1, 0]
@@ -112,6 +118,9 @@ impl<R: Runtime> CscData<R> {
     /// // [2, 0]
     /// let csr = csc.transpose();
     /// assert_eq!(csr.shape(), [3, 2]);
+    /// # }
+    /// # }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn transpose(&self) -> CsrData<R> {
         let [nrows, ncols] = self.shape;
