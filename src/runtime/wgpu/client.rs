@@ -196,13 +196,36 @@ impl WgpuClient {
     }
 
     /// Read buffer data back to CPU (blocking).
-    pub fn read_buffer<T: bytemuck::Pod>(&self, staging: &Buffer, output: &mut [T]) {
+    pub fn read_buffer<T: bytemuck::Pod>(
+        &self,
+        staging: &Buffer,
+        output: &mut [T],
+    ) -> crate::error::Result<()> {
         let slice = staging.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.wgpu_device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(Duration::from_secs(60)),
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
         });
+
+        self.wgpu_device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(60)),
+            })
+            .map_err(|e| {
+                crate::error::Error::Backend(format!("GPU poll failed during buffer read: {e}"))
+            })?;
+
+        // Check map_async result
+        let map_result = receiver.recv().map_err(|_| {
+            crate::error::Error::Backend(
+                "map_async callback was not invoked during buffer read".into(),
+            )
+        })?;
+        map_result.map_err(|e| {
+            crate::error::Error::Backend(format!("map_async failed during buffer read: {e}"))
+        })?;
 
         {
             let data = slice.get_mapped_range();
@@ -211,6 +234,7 @@ impl WgpuClient {
         }
 
         staging.unmap();
+        Ok(())
     }
 }
 
@@ -281,9 +305,9 @@ impl Allocator for WgpuAllocator {
     ///
     /// The returned ID can be used with `get_buffer()` to retrieve the
     /// actual wgpu::Buffer for operations.
-    fn allocate(&self, size_bytes: usize) -> u64 {
+    fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
         if size_bytes == 0 {
-            return 0;
+            return Ok(0);
         }
 
         // WebGPU requires buffer sizes to be aligned to 4 bytes
@@ -302,7 +326,7 @@ impl Allocator for WgpuAllocator {
         let mut guard = registry.lock();
         guard.insert(id, Arc::new(buffer));
 
-        id
+        Ok(id)
     }
 
     fn deallocate(&self, ptr: u64, _size_bytes: usize) {
@@ -386,7 +410,7 @@ mod tests {
                 let allocator = client.allocator();
 
                 // Allocate buffer
-                let id = allocator.allocate(1024);
+                let id = allocator.allocate(1024).expect("allocation should succeed");
                 assert_ne!(id, 0);
 
                 // Verify buffer exists
@@ -436,7 +460,9 @@ mod tests {
 
                 // Read back
                 let mut result = vec![0.0f32; data.len()];
-                client.read_buffer(&staging, &mut result);
+                client
+                    .read_buffer(&staging, &mut result)
+                    .expect("readback should succeed");
 
                 assert_eq!(data, result);
                 println!("Buffer roundtrip successful: {:?}", result);

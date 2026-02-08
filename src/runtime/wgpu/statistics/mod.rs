@@ -111,17 +111,17 @@ pub(crate) fn tensor_to_f64(client: &WgpuClient, t: &Tensor<WgpuRuntime>) -> Res
     let val = match dtype {
         DType::F32 => {
             let mut data = [0f32; 1];
-            client.read_buffer(&staging, &mut data);
+            client.read_buffer(&staging, &mut data)?;
             data[0] as f64
         }
         DType::I32 => {
             let mut data = [0i32; 1];
-            client.read_buffer(&staging, &mut data);
+            client.read_buffer(&staging, &mut data)?;
             data[0] as f64
         }
         DType::U32 => {
             let mut data = [0u32; 1];
-            client.read_buffer(&staging, &mut data);
+            client.read_buffer(&staging, &mut data)?;
             data[0] as f64
         }
         _ => {

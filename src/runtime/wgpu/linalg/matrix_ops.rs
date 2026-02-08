@@ -9,7 +9,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{CompareOps, LinalgOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -31,14 +31,16 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
 
     // Allocate output and temporary buffers
     let inv_size = n * n * dtype.size_in_bytes();
-    let inv_ptr = client.allocator().allocate(inv_size);
+    let inv_guard = AllocGuard::new(client.allocator(), inv_size)?;
+    let inv_ptr = inv_guard.ptr();
     let inv_buffer = get_buffer(inv_ptr)
         .ok_or_else(|| Error::Internal("Failed to get inv buffer".to_string()))?;
 
     let col_size = n * dtype.size_in_bytes();
 
     // Create identity matrix on GPU
-    let identity_ptr = client.allocator().allocate(inv_size);
+    let identity_guard = AllocGuard::new(client.allocator(), inv_size)?;
+    let identity_ptr = identity_guard.ptr();
     let identity_buffer = get_buffer(identity_ptr)
         .ok_or_else(|| Error::Internal("Failed to get identity buffer".to_string()))?;
 
@@ -62,10 +64,14 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     // Allocate temporary buffers
-    let e_ptr = client.allocator().allocate(col_size);
-    let pb_ptr = client.allocator().allocate(col_size);
-    let y_ptr = client.allocator().allocate(col_size);
-    let x_ptr = client.allocator().allocate(col_size);
+    let e_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let e_ptr = e_guard.ptr();
+    let pb_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let pb_ptr = pb_guard.ptr();
+    let y_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let y_ptr = y_guard.ptr();
+    let x_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let x_ptr = x_guard.ptr();
 
     let e_buffer =
         get_buffer(e_ptr).ok_or_else(|| Error::Internal("Failed to get e buffer".to_string()))?;
@@ -156,14 +162,14 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
 
     client.synchronize();
 
-    // Clean up
-    client.allocator().deallocate(identity_ptr, inv_size);
-    client.allocator().deallocate(e_ptr, col_size);
-    client.allocator().deallocate(pb_ptr, col_size);
-    client.allocator().deallocate(y_ptr, col_size);
-    client.allocator().deallocate(x_ptr, col_size);
+    // Guards will automatically deallocate temporary buffers on drop
+    drop(identity_guard);
+    drop(e_guard);
+    drop(pb_guard);
+    drop(y_guard);
+    drop(x_guard);
 
-    let inv = unsafe { WgpuClient::tensor_from_raw(inv_ptr, &[n, n], dtype, device) };
+    let inv = unsafe { WgpuClient::tensor_from_raw(inv_guard.release(), &[n, n], dtype, device) };
 
     Ok(inv)
 }
@@ -187,7 +193,8 @@ pub fn det(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRu
 
     // Allocate output
     let det_size = dtype.size_in_bytes();
-    let det_ptr = client.allocator().allocate(det_size);
+    let det_guard = AllocGuard::new(client.allocator(), det_size)?;
+    let det_ptr = det_guard.ptr();
     let det_buffer = get_buffer(det_ptr)
         .ok_or_else(|| Error::Internal("Failed to get det buffer".to_string()))?;
 
@@ -210,7 +217,7 @@ pub fn det(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRu
 
     client.synchronize();
 
-    let det = unsafe { WgpuClient::tensor_from_raw(det_ptr, &[], dtype, device) };
+    let det = unsafe { WgpuClient::tensor_from_raw(det_guard.release(), &[], dtype, device) };
 
     Ok(det)
 }
@@ -231,7 +238,8 @@ pub fn trace(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
 
     // Allocate output (zero-initialized for reduction)
     let trace_size = dtype.size_in_bytes();
-    let trace_ptr = client.allocator().allocate(trace_size);
+    let trace_guard = AllocGuard::new(client.allocator(), trace_size)?;
+    let trace_ptr = trace_guard.ptr();
     let trace_buffer = get_buffer(trace_ptr)
         .ok_or_else(|| Error::Internal("Failed to get trace buffer".to_string()))?;
 
@@ -257,7 +265,7 @@ pub fn trace(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
 
     client.synchronize();
 
-    let trace = unsafe { WgpuClient::tensor_from_raw(trace_ptr, &[], dtype, device) };
+    let trace = unsafe { WgpuClient::tensor_from_raw(trace_guard.release(), &[], dtype, device) };
 
     Ok(trace)
 }
@@ -277,7 +285,8 @@ pub fn diag(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     }
 
     let diag_size = min_dim * dtype.size_in_bytes();
-    let diag_ptr = client.allocator().allocate(diag_size);
+    let diag_guard = AllocGuard::new(client.allocator(), diag_size)?;
+    let diag_ptr = diag_guard.ptr();
     let diag_buffer = get_buffer(diag_ptr)
         .ok_or_else(|| Error::Internal("Failed to get diag buffer".to_string()))?;
 
@@ -300,7 +309,8 @@ pub fn diag(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
 
     client.synchronize();
 
-    let diag = unsafe { WgpuClient::tensor_from_raw(diag_ptr, &[min_dim], dtype, device) };
+    let diag =
+        unsafe { WgpuClient::tensor_from_raw(diag_guard.release(), &[min_dim], dtype, device) };
 
     Ok(diag)
 }
@@ -328,7 +338,8 @@ pub fn diagflat(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<W
     }
 
     let out_size = n * n * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
@@ -351,7 +362,7 @@ pub fn diagflat(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<W
 
     client.synchronize();
 
-    let out = unsafe { WgpuClient::tensor_from_raw(out_ptr, &[n, n], dtype, device) };
+    let out = unsafe { WgpuClient::tensor_from_raw(out_guard.release(), &[n, n], dtype, device) };
 
     Ok(out)
 }
@@ -487,7 +498,8 @@ pub fn kron(
     let m_out = m_a * m_b;
     let n_out = n_a * n_b;
     let out_size = m_out * n_out * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
@@ -514,7 +526,8 @@ pub fn kron(
 
     client.synchronize();
 
-    let out = unsafe { WgpuClient::tensor_from_raw(out_ptr, &[m_out, n_out], dtype, device) };
+    let out =
+        unsafe { WgpuClient::tensor_from_raw(out_guard.release(), &[m_out, n_out], dtype, device) };
 
     Ok(out)
 }
@@ -562,7 +575,8 @@ pub fn khatri_rao(
 
     let m_out = m * n;
     let out_size = m_out * k * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
@@ -590,7 +604,8 @@ pub fn khatri_rao(
 
     client.synchronize();
 
-    let out = unsafe { WgpuClient::tensor_from_raw(out_ptr, &[m_out, k], dtype, device) };
+    let out =
+        unsafe { WgpuClient::tensor_from_raw(out_guard.release(), &[m_out, k], dtype, device) };
 
     Ok(out)
 }

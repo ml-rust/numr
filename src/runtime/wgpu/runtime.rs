@@ -37,7 +37,7 @@ impl Runtime for WgpuRuntime {
         }
 
         let client = get_or_create_client(device);
-        Ok(client.allocator.allocate(size_bytes))
+        client.allocator.allocate(size_bytes)
     }
 
     fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
@@ -106,11 +106,33 @@ impl Runtime for WgpuRuntime {
 
         // Read from staging buffer
         let slice = staging.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = client.wgpu_device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(Duration::from_secs(60)),
+
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
         });
+
+        client
+            .wgpu_device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(Duration::from_secs(60)),
+            })
+            .map_err(|e| {
+                crate::error::Error::Backend(format!(
+                    "GPU poll failed during copy_from_device: {e}"
+                ))
+            })?;
+
+        // Check map_async result
+        let map_result = receiver.recv().map_err(|_| {
+            crate::error::Error::Backend(
+                "map_async callback was not invoked during copy_from_device".into(),
+            )
+        })?;
+        map_result.map_err(|e| {
+            crate::error::Error::Backend(format!("map_async failed during copy_from_device: {e}"))
+        })?;
 
         {
             let data = slice.get_mapped_range();
@@ -175,6 +197,39 @@ impl Runtime for WgpuRuntime {
         let numel: usize = shape.iter().product();
         if numel == 0 {
             return Ok(());
+        }
+
+        // Validate rank <= 8 (shader uses fixed-size arrays)
+        if shape.len() > 8 {
+            return Err(crate::error::Error::BackendLimitation {
+                backend: "wgpu",
+                operation: "copy_strided",
+                reason: format!("rank {} exceeds maximum of 8 dimensions", shape.len()),
+            });
+        }
+
+        // Validate elem_size is a multiple of 4 bytes (shader uses array<u32>)
+        if !elem_size.is_multiple_of(4) {
+            return Err(crate::error::Error::BackendLimitation {
+                backend: "wgpu",
+                operation: "copy_strided",
+                reason: format!(
+                    "element size {} is not a multiple of 4 bytes; sub-4-byte dtypes (F16, Bool) require byte-level addressing not supported by the u32-based copy shader",
+                    elem_size
+                ),
+            });
+        }
+
+        // Validate byte offset is 4-byte aligned
+        if !src_byte_offset.is_multiple_of(4) {
+            return Err(crate::error::Error::BackendLimitation {
+                backend: "wgpu",
+                operation: "copy_strided",
+                reason: format!(
+                    "source byte offset {} is not 4-byte aligned",
+                    src_byte_offset
+                ),
+            });
         }
 
         let client = get_or_create_client(device);
@@ -260,9 +315,11 @@ impl Runtime for WgpuRuntime {
 
         // Prepare parameters
         // Element size in 4-byte units (WGSL array<u32>)
-        let elem_size_units = elem_size.div_ceil(4) as u32;
+        // Safe: validated elem_size % 4 == 0 above
+        let elem_size_units = (elem_size / 4) as u32;
         // Source offset in 4-byte units
-        let src_offset_units = src_byte_offset.div_ceil(4) as u32;
+        // Safe: validated src_byte_offset % 4 == 0 above
+        let src_offset_units = (src_byte_offset / 4) as u32;
 
         // Pad shape and strides to 8 elements
         let mut shape_arr = [0u32; 8];

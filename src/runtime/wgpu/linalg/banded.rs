@@ -11,7 +11,7 @@ use super::super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Validate banded system inputs and return (n, nrhs).
@@ -103,7 +103,8 @@ pub fn solve_banded_impl(
 
     // Allocate output buffer for all RHS columns stored contiguously
     let x_total_size = n * nrhs * elem_size;
-    let x_out_ptr = client.allocator().allocate(x_total_size);
+    let x_out_guard = AllocGuard::new(client.allocator(), x_total_size)?;
+    let x_out_ptr = x_out_guard.ptr();
     let x_out_buffer = get_buffer(x_out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get x_out buffer".to_string()))?;
 
@@ -114,7 +115,8 @@ pub fn solve_banded_impl(
         if is_tridiagonal {
             // Thomas algorithm - needs: ab, b (copy to x as working rhs), x (output)
             // We need a copy of b as the shader modifies it in-place
-            let b_copy_ptr = client.allocator().allocate(col_size);
+            let b_copy_guard = AllocGuard::new(client.allocator(), col_size)?;
+            let b_copy_ptr = b_copy_guard.ptr();
             let b_copy_buffer = get_buffer(b_copy_ptr)
                 .ok_or_else(|| Error::Internal("Failed to get b_copy buffer".to_string()))?;
 
@@ -144,13 +146,15 @@ pub fn solve_banded_impl(
                 dtype,
             )?;
 
-            client.allocator().deallocate(b_copy_ptr, col_size);
+            // Guard will automatically deallocate b_copy on drop
+            drop(b_copy_guard);
         } else {
             // General banded LU
             let band_rows = kl + ku + 1;
             let work_rows = 2 * kl + ku + 1;
             let work_size = work_rows * n * elem_size;
-            let work_ptr = client.allocator().allocate(work_size);
+            let work_guard = AllocGuard::new(client.allocator(), work_size)?;
+            let work_ptr = work_guard.ptr();
             let work_buffer = get_buffer(work_ptr)
                 .ok_or_else(|| Error::Internal("Failed to get work buffer".to_string()))?;
 
@@ -181,24 +185,26 @@ pub fn solve_banded_impl(
                 dtype,
             )?;
 
-            client.allocator().deallocate(work_ptr, work_size);
+            // Guard will automatically deallocate work on drop
+            drop(work_guard);
         }
     } else {
         // Multi-RHS: solve for each column
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_ptr = x_col_guard.ptr();
         let x_col_buffer = get_buffer(x_col_ptr)
             .ok_or_else(|| Error::Internal("Failed to get x_col buffer".to_string()))?;
 
-        let b_col_ptr = client.allocator().allocate(col_size);
+        let b_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let b_col_ptr = b_col_guard.ptr();
         let b_col_buffer = get_buffer(b_col_ptr)
             .ok_or_else(|| Error::Internal("Failed to get b_col buffer".to_string()))?;
 
         // Allocate work buffer once for general banded (reused across RHS)
         let work_rows = 2 * kl + ku + 1;
         let work_size = work_rows * n * elem_size;
-        let work_ptr = if !is_tridiagonal {
-            let ptr = client.allocator().allocate(work_size);
-            Some(ptr)
+        let work_guard_opt = if !is_tridiagonal {
+            Some(AllocGuard::new(client.allocator(), work_size)?)
         } else {
             None
         };
@@ -233,7 +239,8 @@ pub fn solve_banded_impl(
                     dtype,
                 )?;
             } else {
-                let work_buffer = get_buffer(work_ptr.unwrap())
+                let work_ptr = work_guard_opt.as_ref().unwrap().ptr();
+                let work_buffer = get_buffer(work_ptr)
                     .ok_or_else(|| Error::Internal("Failed to get work buffer".to_string()))?;
 
                 let band_rows = kl + ku + 1;
@@ -273,23 +280,23 @@ pub fn solve_banded_impl(
             }
         }
 
-        client.allocator().deallocate(x_col_ptr, col_size);
-        client.allocator().deallocate(b_col_ptr, col_size);
-        if let Some(ptr) = work_ptr {
-            client.allocator().deallocate(ptr, work_size);
-        }
+        // Guards will automatically deallocate on drop
+        drop(x_col_guard);
+        drop(b_col_guard);
+        drop(work_guard_opt);
     }
 
     client.synchronize();
 
     // Create output tensor
     if b_is_1d {
-        let x = unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[n], dtype, device) };
+        let x = unsafe { WgpuClient::tensor_from_raw(x_out_guard.release(), &[n], dtype, device) };
         Ok(x)
     } else {
         // Results stored as [nrhs, n] in memory (each column contiguous)
-        let x_col_major =
-            unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[nrhs, n], dtype, device) };
+        let x_col_major = unsafe {
+            WgpuClient::tensor_from_raw(x_out_guard.release(), &[nrhs, n], dtype, device)
+        };
         let x = x_col_major.transpose(0, 1)?;
         Ok(x.contiguous())
     }

@@ -14,7 +14,7 @@ use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::MatmulOps;
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Least squares solution
@@ -96,7 +96,8 @@ pub fn lstsq(
 
     // Allocate output X [n, num_rhs] or [n] for vector
     let x_total_size = n * num_rhs * dtype.size_in_bytes();
-    let x_out_ptr = client.allocator().allocate(x_total_size);
+    let x_out_guard = AllocGuard::new(client.allocator(), x_total_size)?;
+    let x_out_ptr = x_out_guard.ptr();
     let x_out_buffer = get_buffer(x_out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get x_out buffer".to_string()))?;
 
@@ -128,10 +129,12 @@ pub fn lstsq(
             .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
 
         let col_size = n * dtype.size_in_bytes();
-        let col_ptr = client.allocator().allocate(col_size);
+        let col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let col_ptr = col_guard.ptr();
         let col_buffer = get_buffer(col_ptr)
             .ok_or_else(|| Error::Internal("Failed to get col buffer".to_string()))?;
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_ptr = x_col_guard.ptr();
         let x_col_buffer = get_buffer(x_col_ptr)
             .ok_or_else(|| Error::Internal("Failed to get x_col buffer".to_string()))?;
 
@@ -185,19 +188,21 @@ pub fn lstsq(
             }
         }
 
-        client.allocator().deallocate(col_ptr, col_size);
-        client.allocator().deallocate(x_col_ptr, col_size);
+        // Guards will automatically deallocate on drop
+        drop(col_guard);
+        drop(x_col_guard);
     }
 
     client.synchronize();
 
     if b_is_vector {
-        let x = unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[n], dtype, device) };
+        let x = unsafe { WgpuClient::tensor_from_raw(x_out_guard.release(), &[n], dtype, device) };
         Ok(x)
     } else {
         // Results stored in column-major order
-        let x_col_major =
-            unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[num_rhs, n], dtype, device) };
+        let x_col_major = unsafe {
+            WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
+        };
         let x = x_col_major.transpose(0, 1)?;
         Ok(x.contiguous())
     }

@@ -16,7 +16,7 @@ use super::super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_square_matrix};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 // Re-export from sub-modules
@@ -80,13 +80,16 @@ pub fn solve(
 
     // Allocate temporary buffers for single column operations
     let col_size = n * dtype.size_in_bytes();
-    let pb_ptr = client.allocator().allocate(col_size);
+    let pb_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let pb_ptr = pb_guard.ptr();
     let pb_buffer =
         get_buffer(pb_ptr).ok_or_else(|| Error::Internal("Failed to get pb buffer".to_string()))?;
-    let y_ptr = client.allocator().allocate(col_size);
+    let y_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let y_ptr = y_guard.ptr();
     let y_buffer =
         get_buffer(y_ptr).ok_or_else(|| Error::Internal("Failed to get y buffer".to_string()))?;
-    let col_ptr = client.allocator().allocate(col_size);
+    let col_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let col_ptr = col_guard.ptr();
     let col_buffer = get_buffer(col_ptr)
         .ok_or_else(|| Error::Internal("Failed to get col buffer".to_string()))?;
 
@@ -97,7 +100,8 @@ pub fn solve(
 
     // Allocate output buffer for all RHS (column-major: each solved column stored contiguously)
     let x_total_size = n * num_rhs * dtype.size_in_bytes();
-    let x_out_ptr = client.allocator().allocate(x_total_size);
+    let x_out_guard = AllocGuard::new(client.allocator(), x_total_size)?;
+    let x_out_ptr = x_out_guard.ptr();
     let x_out_buffer = get_buffer(x_out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get x_out buffer".to_string()))?;
 
@@ -175,7 +179,8 @@ pub fn solve(
         let x_col_offset = rhs * n * dtype.size_in_bytes();
 
         // Use a temp buffer for backward substitution then copy to output
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_ptr = x_col_guard.ptr();
         let x_col_buffer = get_buffer(x_col_ptr)
             .ok_or_else(|| Error::Internal("Failed to get x_col buffer".to_string()))?;
 
@@ -207,27 +212,29 @@ pub fn solve(
             client.queue.submit(std::iter::once(encoder.finish()));
         }
 
-        client.allocator().deallocate(x_col_ptr, col_size);
+        // Guard will automatically deallocate x_col on drop (loop scope)
+        drop(x_col_guard);
     }
 
     client.synchronize();
 
-    // Clean up temporary buffers
-    client.allocator().deallocate(pb_ptr, col_size);
-    client.allocator().deallocate(y_ptr, col_size);
-    client.allocator().deallocate(col_ptr, col_size);
+    // Guards will automatically deallocate temporary buffers on drop
+    drop(pb_guard);
+    drop(y_guard);
+    drop(col_guard);
 
     // Create output tensor
     // Results are stored in column-major order (each solved column is contiguous)
     if b_shape.len() == 1 {
         // 1D case: just return as [n]
-        let x = unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[n], dtype, device) };
+        let x = unsafe { WgpuClient::tensor_from_raw(x_out_guard.release(), &[n], dtype, device) };
         Ok(x)
     } else {
         // 2D case: stored as [num_rhs, n] in memory (column-major for the [n, num_rhs] result)
         // Create tensor as [num_rhs, n] then transpose to get [n, num_rhs] view
-        let x_col_major =
-            unsafe { WgpuClient::tensor_from_raw(x_out_ptr, &[num_rhs, n], dtype, device) };
+        let x_col_major = unsafe {
+            WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
+        };
         // Transpose to get [n, num_rhs] - this is a zero-copy view
         let x = x_col_major.transpose(0, 1)?;
         // Make contiguous to get proper row-major layout

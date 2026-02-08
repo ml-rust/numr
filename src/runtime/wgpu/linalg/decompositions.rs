@@ -9,7 +9,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 pub fn lu_decompose(
@@ -32,22 +32,26 @@ pub fn lu_decompose(
 
     // Allocate buffers
     let lu_size = m * n * dtype.size_in_bytes();
-    let lu_ptr = client.allocator().allocate(lu_size);
+    let lu_guard = AllocGuard::new(client.allocator(), lu_size)?;
+    let lu_ptr = lu_guard.ptr();
     let lu_buffer =
         get_buffer(lu_ptr).ok_or_else(|| Error::Internal("Failed to get LU buffer".to_string()))?;
 
     let pivots_size = k * std::mem::size_of::<i32>();
-    let pivots_ptr = client.allocator().allocate(pivots_size);
+    let pivots_guard = AllocGuard::new(client.allocator(), pivots_size)?;
+    let pivots_ptr = pivots_guard.ptr();
     let pivots_buffer = get_buffer(pivots_ptr)
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     let num_swaps_size = std::mem::size_of::<i32>();
-    let num_swaps_ptr = client.allocator().allocate(num_swaps_size);
+    let num_swaps_guard = AllocGuard::new(client.allocator(), num_swaps_size)?;
+    let num_swaps_ptr = num_swaps_guard.ptr();
     let num_swaps_buffer = get_buffer(num_swaps_ptr)
         .ok_or_else(|| Error::Internal("Failed to get num_swaps buffer".to_string()))?;
 
     let singular_flag_size = std::mem::size_of::<i32>();
-    let singular_flag_ptr = client.allocator().allocate(singular_flag_size);
+    let singular_flag_guard = AllocGuard::new(client.allocator(), singular_flag_size)?;
+    let singular_flag_ptr = singular_flag_guard.ptr();
     let singular_flag_buffer = get_buffer(singular_flag_ptr)
         .ok_or_else(|| Error::Internal("Failed to get singular_flag buffer".to_string()))?;
 
@@ -90,20 +94,19 @@ pub fn lu_decompose(
     client.submit_and_wait(encoder);
 
     let mut flags = [0i32; 2];
-    client.read_buffer(&staging, &mut flags);
+    client.read_buffer(&staging, &mut flags)?;
 
     let num_swaps = flags[0] as usize;
     let singular = flags[1] != 0;
 
-    // Clean up flag allocations
-    client.allocator().deallocate(num_swaps_ptr, num_swaps_size);
-    client
-        .allocator()
-        .deallocate(singular_flag_ptr, singular_flag_size);
+    // Guards will automatically deallocate flag buffers on drop
+    drop(num_swaps_guard);
+    drop(singular_flag_guard);
 
     if singular {
-        client.allocator().deallocate(lu_ptr, lu_size);
-        client.allocator().deallocate(pivots_ptr, pivots_size);
+        // Guards will deallocate lu and pivots on drop
+        drop(lu_guard);
+        drop(pivots_guard);
         return Err(Error::Internal(format!(
             "LU decomposition failed: {}x{} matrix is singular (zero pivot encountered)",
             m, n
@@ -112,8 +115,9 @@ pub fn lu_decompose(
 
     // Keep pivots as I32 tensor directly (WGSL has no i64 support)
     // Create tensors from GPU memory
-    let lu = unsafe { WgpuClient::tensor_from_raw(lu_ptr, &[m, n], dtype, device) };
-    let pivots = unsafe { WgpuClient::tensor_from_raw(pivots_ptr, &[k], DType::I32, device) };
+    let lu = unsafe { WgpuClient::tensor_from_raw(lu_guard.release(), &[m, n], dtype, device) };
+    let pivots =
+        unsafe { WgpuClient::tensor_from_raw(pivots_guard.release(), &[k], DType::I32, device) };
 
     Ok(LuDecomposition {
         lu,
@@ -140,12 +144,14 @@ pub fn cholesky_decompose(
 
     // Allocate output on GPU
     let l_size = n * n * dtype.size_in_bytes();
-    let l_ptr = client.allocator().allocate(l_size);
+    let l_guard = AllocGuard::new(client.allocator(), l_size)?;
+    let l_ptr = l_guard.ptr();
     let l_buffer =
         get_buffer(l_ptr).ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
 
     let not_pd_flag_size = std::mem::size_of::<i32>();
-    let not_pd_flag_ptr = client.allocator().allocate(not_pd_flag_size);
+    let not_pd_flag_guard = AllocGuard::new(client.allocator(), not_pd_flag_size)?;
+    let not_pd_flag_ptr = not_pd_flag_guard.ptr();
     let not_pd_flag_buffer = get_buffer(not_pd_flag_ptr)
         .ok_or_else(|| Error::Internal("Failed to get not_pd_flag buffer".to_string()))?;
 
@@ -184,21 +190,21 @@ pub fn cholesky_decompose(
     client.submit_and_wait(encoder);
 
     let mut not_pd = [0i32; 1];
-    client.read_buffer(&staging, &mut not_pd);
+    client.read_buffer(&staging, &mut not_pd)?;
 
-    client
-        .allocator()
-        .deallocate(not_pd_flag_ptr, not_pd_flag_size);
+    // Guard will automatically deallocate flag buffer on drop
+    drop(not_pd_flag_guard);
 
     if not_pd[0] != 0 {
-        client.allocator().deallocate(l_ptr, l_size);
+        // Guard will deallocate l on drop
+        drop(l_guard);
         return Err(Error::Internal(format!(
             "Cholesky decomposition failed: {}x{} matrix is not positive definite",
             n, n
         )));
     }
 
-    let l = unsafe { WgpuClient::tensor_from_raw(l_ptr, &[n, n], dtype, device) };
+    let l = unsafe { WgpuClient::tensor_from_raw(l_guard.release(), &[n, n], dtype, device) };
 
     Ok(CholeskyDecomposition { l })
 }
@@ -224,19 +230,22 @@ pub fn qr_decompose_internal(
     // Q dimensions: [m, m] for full, [m, k] for thin
     let q_cols = if thin { k } else { m };
     let q_size = m * q_cols * dtype.size_in_bytes();
-    let q_ptr = client.allocator().allocate(q_size);
+    let q_guard = AllocGuard::new(client.allocator(), q_size)?;
+    let q_ptr = q_guard.ptr();
     let q_buffer =
         get_buffer(q_ptr).ok_or_else(|| Error::Internal("Failed to get Q buffer".to_string()))?;
 
     // R is [m, n] but only upper triangular part is meaningful
     let r_size = m * n * dtype.size_in_bytes();
-    let r_ptr = client.allocator().allocate(r_size);
+    let r_guard = AllocGuard::new(client.allocator(), r_size)?;
+    let r_ptr = r_guard.ptr();
     let r_buffer =
         get_buffer(r_ptr).ok_or_else(|| Error::Internal("Failed to get R buffer".to_string()))?;
 
     // Workspace for Householder vector (size m elements)
     let workspace_size = m * dtype.size_in_bytes();
-    let workspace_ptr = client.allocator().allocate(workspace_size);
+    let workspace_guard = AllocGuard::new(client.allocator(), workspace_size)?;
+    let workspace_ptr = workspace_guard.ptr();
     let workspace_buffer = get_buffer(workspace_ptr)
         .ok_or_else(|| Error::Internal("Failed to get workspace buffer".to_string()))?;
 
@@ -258,20 +267,20 @@ pub fn qr_decompose_internal(
         dtype,
     )?;
 
-    // Clean up workspace
-    client.allocator().deallocate(workspace_ptr, workspace_size);
+    // Guard will automatically deallocate workspace on drop
+    drop(workspace_guard);
 
     client.synchronize();
 
-    let q = unsafe { WgpuClient::tensor_from_raw(q_ptr, &[m, q_cols], dtype, device) };
+    let q = unsafe { WgpuClient::tensor_from_raw(q_guard.release(), &[m, q_cols], dtype, device) };
 
     // For thin QR, R should be [k, n]
     let r = if thin && m > n {
-        unsafe { WgpuClient::tensor_from_raw(r_ptr, &[k, n], dtype, device) }
+        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[k, n], dtype, device) }
     } else if thin {
-        unsafe { WgpuClient::tensor_from_raw(r_ptr, &[m, n], dtype, device) }
+        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
     } else {
-        unsafe { WgpuClient::tensor_from_raw(r_ptr, &[m, n], dtype, device) }
+        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
     };
 
     Ok(QrDecomposition { q, r })

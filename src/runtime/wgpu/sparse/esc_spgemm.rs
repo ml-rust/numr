@@ -204,7 +204,7 @@ pub(super) fn esc_spgemm_csr(
     client.submit_and_wait(encoder);
 
     let mut total_nnz_arr = [0i32; 1];
-    client.read_buffer(&staging, &mut total_nnz_arr);
+    client.read_buffer(&staging, &mut total_nnz_arr)?;
     let total_nnz = total_nnz_arr[0];
 
     // Handle empty result

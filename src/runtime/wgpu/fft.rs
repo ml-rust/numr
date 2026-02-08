@@ -22,7 +22,7 @@ use crate::algorithm::fft::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
 
 /// Helper macro to get a GPU buffer from a pointer with proper error context.
@@ -113,7 +113,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Allocate output buffer
         let output_size = total_elements * element_size;
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "FFT output");
 
         let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "FFT input");
@@ -149,7 +150,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
             } else {
                 // Large FFT - use multi-stage approach
                 // Need temp buffer for ping-pong
-                let temp_ptr = self.allocator().allocate(output_size);
+                let temp_guard = AllocGuard::new(self.allocator(), output_size)?;
+                let temp_ptr = temp_guard.ptr();
                 let temp_buffer = get_buffer_or_err!(temp_ptr, "FFT temp");
 
                 // Copy input to temp buffer initially
@@ -230,15 +232,9 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                     // Result is in temp, copy to output
                     WgpuRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device)?;
                 }
-
-                // Free temp buffer
-                self.allocator().deallocate(temp_ptr, output_size);
             }
         } else {
             // FFT on non-last dimension - permute, FFT on last dim, permute back
-            // Free the pre-allocated output buffer since we'll create a new one
-            self.allocator().deallocate(output_ptr, output_size);
-
             // Create permutation to move target dim to last position
             let mut perm: Vec<usize> = (0..ndim).collect();
             perm.swap(dim_usize, ndim - 1);
@@ -255,8 +251,9 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         }
 
         // Create output tensor
-        let storage =
-            unsafe { Storage::<WgpuRuntime>::from_ptr(output_ptr, total_elements, dtype, device) };
+        let storage = unsafe {
+            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+        };
         let layout = Layout::contiguous(input_contig.shape());
         Ok(Tensor::from_parts(storage, layout))
     }
@@ -305,7 +302,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 1: Pack real input to complex
         let complex_size = total_input * complex_dtype.size_in_bytes();
-        let complex_ptr = self.allocator().allocate(complex_size);
+        let complex_guard = AllocGuard::new(self.allocator(), complex_size)?;
+        let complex_ptr = complex_guard.ptr();
         let complex_buffer = get_buffer_or_err!(complex_ptr, "rfft complex");
 
         let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "rfft input");
@@ -326,7 +324,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 2: Full complex FFT
         let complex_storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(complex_ptr, total_input, complex_dtype, device)
+            Storage::<WgpuRuntime>::from_ptr(
+                complex_guard.release(),
+                total_input,
+                complex_dtype,
+                device,
+            )
         };
         let complex_layout = Layout::contiguous(&shape);
         let complex_tensor = Tensor::from_parts(complex_storage, complex_layout);
@@ -335,7 +338,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 3: Truncate to N/2 + 1
         let output_size = total_output * complex_dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "rfft output");
 
         let fft_buffer = get_buffer_or_err!(fft_result.storage().ptr(), "rfft fft result");
@@ -355,7 +359,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Create output tensor
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(output_ptr, total_output, complex_dtype, device)
+            Storage::<WgpuRuntime>::from_ptr(
+                output_guard.release(),
+                total_output,
+                complex_dtype,
+                device,
+            )
         };
         let layout = Layout::contiguous(&out_shape);
         Ok(Tensor::from_parts(storage, layout))
@@ -407,7 +416,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 1: Extend Hermitian symmetric to full complex
         let extended_size = batch_size * full_n * dtype.size_in_bytes();
-        let extended_ptr = self.allocator().allocate(extended_size);
+        let extended_guard = AllocGuard::new(self.allocator(), extended_size)?;
+        let extended_ptr = extended_guard.ptr();
         let extended_buffer = get_buffer_or_err!(extended_ptr, "irfft extended");
 
         let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "irfft input");
@@ -428,7 +438,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 2: Full inverse FFT
         let extended_storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(extended_ptr, batch_size * full_n, dtype, device)
+            Storage::<WgpuRuntime>::from_ptr(
+                extended_guard.release(),
+                batch_size * full_n,
+                dtype,
+                device,
+            )
         };
         let mut extended_shape = shape.clone();
         *extended_shape.last_mut().unwrap() = full_n;
@@ -439,7 +454,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 3: Extract real part
         let output_size = total_output * real_dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "irfft output");
 
         let ifft_buffer = get_buffer_or_err!(ifft_result.storage().ptr(), "irfft ifft result");
@@ -459,7 +475,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Create output tensor
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(output_ptr, total_output, real_dtype, device)
+            Storage::<WgpuRuntime>::from_ptr(
+                output_guard.release(),
+                total_output,
+                real_dtype,
+                device,
+            )
         };
         let layout = Layout::contiguous(&out_shape);
         Ok(Tensor::from_parts(storage, layout))
@@ -526,7 +547,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let total_elements = input_contig.numel();
 
         let output_size = total_elements * dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "fftshift output");
 
         let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "fftshift input");
@@ -545,8 +567,9 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
             batch_size,
         )?;
 
-        let storage =
-            unsafe { Storage::<WgpuRuntime>::from_ptr(output_ptr, total_elements, dtype, device) };
+        let storage = unsafe {
+            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+        };
         let layout = Layout::contiguous(&shape);
         Ok(Tensor::from_parts(storage, layout))
     }
@@ -577,7 +600,8 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let total_elements = input_contig.numel();
 
         let output_size = total_elements * dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "ifftshift output");
 
         let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "ifftshift input");
@@ -596,8 +620,9 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
             batch_size,
         )?;
 
-        let storage =
-            unsafe { Storage::<WgpuRuntime>::from_ptr(output_ptr, total_elements, dtype, device) };
+        let storage = unsafe {
+            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+        };
         let layout = Layout::contiguous(&shape);
         Ok(Tensor::from_parts(storage, layout))
     }

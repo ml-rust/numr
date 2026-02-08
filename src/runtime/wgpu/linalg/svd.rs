@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 use crate::ops::{
     BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps,
 };
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Helper to get buffer from tensor, with proper error handling.
@@ -58,20 +58,24 @@ pub fn svd_decompose(
 
     // Allocate buffers for SVD computation
     let b_size = work_m * work_n * dtype.size_in_bytes();
-    let b_ptr = client.allocator().allocate(b_size);
+    let b_guard = AllocGuard::new(client.allocator(), b_size)?;
+    let b_ptr = b_guard.ptr();
     let b_buffer = get_buffer_or_err!(b_ptr, "B (working matrix)");
 
     let v_size = work_n * work_n * dtype.size_in_bytes();
-    let v_ptr = client.allocator().allocate(v_size);
+    let v_guard = AllocGuard::new(client.allocator(), v_size)?;
+    let v_ptr = v_guard.ptr();
     let v_buffer = get_buffer_or_err!(v_ptr, "V (right singular vectors)");
 
     let s_size = work_n * dtype.size_in_bytes();
-    let s_ptr = client.allocator().allocate(s_size);
+    let s_guard = AllocGuard::new(client.allocator(), s_size)?;
+    let s_ptr = s_guard.ptr();
     let s_buffer = get_buffer_or_err!(s_ptr, "S (singular values)");
 
     // Convergence flag buffer (required by kernel)
     let converged_flag_size = std::mem::size_of::<i32>();
-    let converged_flag_ptr = client.allocator().allocate(converged_flag_size);
+    let converged_flag_guard = AllocGuard::new(client.allocator(), converged_flag_size)?;
+    let converged_flag_ptr = converged_flag_guard.ptr();
     let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "SVD convergence flag");
 
     // Copy working matrix to B buffer on GPU (no CPU transfer)
@@ -103,18 +107,19 @@ pub fn svd_decompose(
 
     client.synchronize();
 
-    // Deallocate convergence flag (we don't check it - Jacobi with sufficient iterations converges)
-    client
-        .allocator()
-        .deallocate(converged_flag_ptr, converged_flag_size);
+    // Guard will automatically deallocate convergence flag on drop
+    drop(converged_flag_guard);
 
     // Wrap GPU buffers as tensors (no CPU transfer)
     // B contains U columns in [work_m, work_n] layout
     // V contains V (not transposed) in [work_n, work_n] layout
     // S contains singular values in [work_n] layout
-    let b_tensor = unsafe { WgpuClient::tensor_from_raw(b_ptr, &[work_m, work_n], dtype, device) };
-    let v_tensor = unsafe { WgpuClient::tensor_from_raw(v_ptr, &[work_n, work_n], dtype, device) };
-    let s_tensor = unsafe { WgpuClient::tensor_from_raw(s_ptr, &[work_n], dtype, device) };
+    let b_tensor =
+        unsafe { WgpuClient::tensor_from_raw(b_guard.release(), &[work_m, work_n], dtype, device) };
+    let v_tensor =
+        unsafe { WgpuClient::tensor_from_raw(v_guard.release(), &[work_n, work_n], dtype, device) };
+    let s_tensor =
+        unsafe { WgpuClient::tensor_from_raw(s_guard.release(), &[work_n], dtype, device) };
 
     // Extract U and VT from the results (all GPU operations)
     let (u, vt) = if transposed {
@@ -174,8 +179,10 @@ pub fn pinverse(
 
     // Handle empty matrix
     if m == 0 || n == 0 {
-        let out_ptr = client.allocator().allocate(0);
-        return Ok(unsafe { WgpuClient::tensor_from_raw(out_ptr, &[n, m], dtype, device) });
+        let out_guard = AllocGuard::new(client.allocator(), 0)?;
+        return Ok(unsafe {
+            WgpuClient::tensor_from_raw(out_guard.release(), &[n, m], dtype, device)
+        });
     }
 
     // Compute SVD

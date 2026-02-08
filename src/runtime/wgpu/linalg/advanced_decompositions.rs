@@ -13,7 +13,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{LinalgOps, MatmulOps};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Convert real Schur form to complex Schur form (rsf2csf)
@@ -48,14 +48,20 @@ pub fn rsf2csf(
     if n == 1 {
         // GPU-only: copy scalars on device, no CPU transfer
         let elem = dtype.size_in_bytes();
-        let t_real_ptr = client.allocator().allocate(elem);
+        let t_real_guard = AllocGuard::new(client.allocator(), elem)?;
+        let t_real_ptr = t_real_guard.ptr();
         WgpuRuntime::copy_within_device(schur.t.storage().ptr(), t_real_ptr, elem, device)?;
-        let z_real_ptr = client.allocator().allocate(elem);
+        let z_real_guard = AllocGuard::new(client.allocator(), elem)?;
+        let z_real_ptr = z_real_guard.ptr();
         WgpuRuntime::copy_within_device(schur.z.storage().ptr(), z_real_ptr, elem, device)?;
         return Ok(ComplexSchurDecomposition {
-            z_real: unsafe { WgpuClient::tensor_from_raw(z_real_ptr, &[1, 1], dtype, device) },
+            z_real: unsafe {
+                WgpuClient::tensor_from_raw(z_real_guard.release(), &[1, 1], dtype, device)
+            },
             z_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),
-            t_real: unsafe { WgpuClient::tensor_from_raw(t_real_ptr, &[1, 1], dtype, device) },
+            t_real: unsafe {
+                WgpuClient::tensor_from_raw(t_real_guard.release(), &[1, 1], dtype, device)
+            },
             t_imag: Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[1, 1], device),
         });
     }
@@ -63,17 +69,21 @@ pub fn rsf2csf(
     let matrix_size = n * n * dtype.size_in_bytes();
 
     // Allocate buffers for T (real and imag)
-    let t_real_ptr = client.allocator().allocate(matrix_size);
+    let t_real_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_real_ptr = t_real_guard.ptr();
     let t_real_buffer = get_buffer_or_err!(t_real_ptr, "T_real");
 
-    let t_imag_ptr = client.allocator().allocate(matrix_size);
+    let t_imag_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_imag_ptr = t_imag_guard.ptr();
     let t_imag_buffer = get_buffer_or_err!(t_imag_ptr, "T_imag");
 
     // Allocate buffers for Z (real and imag)
-    let z_real_ptr = client.allocator().allocate(matrix_size);
+    let z_real_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_real_ptr = z_real_guard.ptr();
     let z_real_buffer = get_buffer_or_err!(z_real_ptr, "Z_real");
 
-    let z_imag_ptr = client.allocator().allocate(matrix_size);
+    let z_imag_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_imag_ptr = z_imag_guard.ptr();
     let z_imag_buffer = get_buffer_or_err!(z_imag_ptr, "Z_imag");
 
     // Copy input T and Z to real buffers
@@ -105,10 +115,14 @@ pub fn rsf2csf(
     client.synchronize();
 
     // Create output tensors
-    let z_real = unsafe { WgpuClient::tensor_from_raw(z_real_ptr, &[n, n], dtype, device) };
-    let z_imag = unsafe { WgpuClient::tensor_from_raw(z_imag_ptr, &[n, n], dtype, device) };
-    let t_real = unsafe { WgpuClient::tensor_from_raw(t_real_ptr, &[n, n], dtype, device) };
-    let t_imag = unsafe { WgpuClient::tensor_from_raw(t_imag_ptr, &[n, n], dtype, device) };
+    let z_real =
+        unsafe { WgpuClient::tensor_from_raw(z_real_guard.release(), &[n, n], dtype, device) };
+    let z_imag =
+        unsafe { WgpuClient::tensor_from_raw(z_imag_guard.release(), &[n, n], dtype, device) };
+    let t_real =
+        unsafe { WgpuClient::tensor_from_raw(t_real_guard.release(), &[n, n], dtype, device) };
+    let t_imag =
+        unsafe { WgpuClient::tensor_from_raw(t_imag_guard.release(), &[n, n], dtype, device) };
 
     Ok(ComplexSchurDecomposition {
         z_real,
@@ -163,12 +177,16 @@ pub fn qz_decompose(
     if n == 1 {
         // GPU-only: copy scalars on device, compute eigenvalue with GPU div
         let elem = dtype.size_in_bytes();
-        let s_ptr = client.allocator().allocate(elem);
+        let s_guard = AllocGuard::new(client.allocator(), elem)?;
+        let s_ptr = s_guard.ptr();
         WgpuRuntime::copy_within_device(a.storage().ptr(), s_ptr, elem, device)?;
-        let t_ptr = client.allocator().allocate(elem);
+        let t_guard = AllocGuard::new(client.allocator(), elem)?;
+        let t_ptr = t_guard.ptr();
         WgpuRuntime::copy_within_device(b.storage().ptr(), t_ptr, elem, device)?;
-        let s_tensor = unsafe { WgpuClient::tensor_from_raw(s_ptr, &[1], dtype, device) };
-        let t_tensor = unsafe { WgpuClient::tensor_from_raw(t_ptr, &[1], dtype, device) };
+        let s_tensor =
+            unsafe { WgpuClient::tensor_from_raw(s_guard.release(), &[1], dtype, device) };
+        let t_tensor =
+            unsafe { WgpuClient::tensor_from_raw(t_guard.release(), &[1], dtype, device) };
 
         // eigenvalue = a / b (GPU division handles inf for b≈0)
         use crate::ops::BinaryOps;
@@ -192,26 +210,33 @@ pub fn qz_decompose(
     let vector_size = n * dtype.size_in_bytes();
 
     // Allocate buffers
-    let s_ptr = client.allocator().allocate(matrix_size);
+    let s_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let s_ptr = s_guard.ptr();
     let s_buffer = get_buffer_or_err!(s_ptr, "S");
 
-    let t_ptr = client.allocator().allocate(matrix_size);
+    let t_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_ptr = t_guard.ptr();
     let t_buffer = get_buffer_or_err!(t_ptr, "T");
 
-    let q_ptr = client.allocator().allocate(matrix_size);
+    let q_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let q_ptr = q_guard.ptr();
     let q_buffer = get_buffer_or_err!(q_ptr, "Q");
 
-    let z_ptr = client.allocator().allocate(matrix_size);
+    let z_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_ptr = z_guard.ptr();
     let z_buffer = get_buffer_or_err!(z_ptr, "Z");
 
-    let eval_real_ptr = client.allocator().allocate(vector_size);
+    let eval_real_guard = AllocGuard::new(client.allocator(), vector_size)?;
+    let eval_real_ptr = eval_real_guard.ptr();
     let eval_real_buffer = get_buffer_or_err!(eval_real_ptr, "eigenvalues_real");
 
-    let eval_imag_ptr = client.allocator().allocate(vector_size);
+    let eval_imag_guard = AllocGuard::new(client.allocator(), vector_size)?;
+    let eval_imag_ptr = eval_imag_guard.ptr();
     let eval_imag_buffer = get_buffer_or_err!(eval_imag_ptr, "eigenvalues_imag");
 
     let converged_flag_size = std::mem::size_of::<i32>();
-    let converged_flag_ptr = client.allocator().allocate(converged_flag_size);
+    let converged_flag_guard = AllocGuard::new(client.allocator(), converged_flag_size)?;
+    let converged_flag_ptr = converged_flag_guard.ptr();
     let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "QZ convergence flag");
 
     // Copy input matrices
@@ -244,20 +269,18 @@ pub fn qz_decompose(
 
     client.synchronize();
 
-    // Clean up converged flag buffer
-    client
-        .allocator()
-        .deallocate(converged_flag_ptr, converged_flag_size);
+    // Guard will automatically deallocate converged flag buffer on drop
+    drop(converged_flag_guard);
 
     // Create output tensors
-    let q = unsafe { WgpuClient::tensor_from_raw(q_ptr, &[n, n], dtype, device) };
-    let z = unsafe { WgpuClient::tensor_from_raw(z_ptr, &[n, n], dtype, device) };
-    let s = unsafe { WgpuClient::tensor_from_raw(s_ptr, &[n, n], dtype, device) };
-    let t = unsafe { WgpuClient::tensor_from_raw(t_ptr, &[n, n], dtype, device) };
+    let q = unsafe { WgpuClient::tensor_from_raw(q_guard.release(), &[n, n], dtype, device) };
+    let z = unsafe { WgpuClient::tensor_from_raw(z_guard.release(), &[n, n], dtype, device) };
+    let s = unsafe { WgpuClient::tensor_from_raw(s_guard.release(), &[n, n], dtype, device) };
+    let t = unsafe { WgpuClient::tensor_from_raw(t_guard.release(), &[n, n], dtype, device) };
     let eigenvalues_real =
-        unsafe { WgpuClient::tensor_from_raw(eval_real_ptr, &[n], dtype, device) };
+        unsafe { WgpuClient::tensor_from_raw(eval_real_guard.release(), &[n], dtype, device) };
     let eigenvalues_imag =
-        unsafe { WgpuClient::tensor_from_raw(eval_imag_ptr, &[n], dtype, device) };
+        unsafe { WgpuClient::tensor_from_raw(eval_imag_guard.release(), &[n], dtype, device) };
 
     Ok(GeneralizedSchurDecomposition {
         q,
