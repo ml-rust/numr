@@ -30,16 +30,14 @@ impl Runtime for WgpuRuntime {
 
     /// Allocate GPU memory (storage buffer).
     ///
-    /// # Panics
-    ///
-    /// Panics if buffer creation fails.
-    fn allocate(size_bytes: usize, device: &Self::Device) -> u64 {
+    /// Returns `Err(OutOfMemory)` if buffer creation fails.
+    fn allocate(size_bytes: usize, device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let client = get_or_create_client(device);
-        client.allocator.allocate(size_bytes)
+        Ok(client.allocator.allocate(size_bytes))
     }
 
     fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
@@ -53,40 +51,45 @@ impl Runtime for WgpuRuntime {
 
     /// Copy data from host to device.
     ///
-    /// # Panics
-    ///
-    /// Panics if the buffer doesn't exist or write fails.
-    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) {
+    /// Returns an error if the buffer doesn't exist.
+    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) -> crate::error::Result<()> {
         if src.is_empty() || dst == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
 
         // Get the buffer from registry
-        let buffer = super::client::get_buffer(dst).expect("Buffer not found for copy_to_device");
+        let buffer = super::client::get_buffer(dst).ok_or_else(|| {
+            crate::error::Error::Backend("Buffer not found for copy_to_device".into())
+        })?;
 
         // Write data to buffer
         client.queue.write_buffer(&buffer, 0, src);
 
         // Ensure write is complete
         client.synchronize();
+        Ok(())
     }
 
     /// Copy data from device to host.
     ///
-    /// # Panics
-    ///
-    /// Panics if the buffer doesn't exist or read fails.
-    fn copy_from_device(src: u64, dst: &mut [u8], device: &Self::Device) {
+    /// Returns an error if the buffer doesn't exist or read fails.
+    fn copy_from_device(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if dst.is_empty() || src == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
 
         // Get the source buffer from registry
-        let buffer = super::client::get_buffer(src).expect("Buffer not found for copy_from_device");
+        let buffer = super::client::get_buffer(src).ok_or_else(|| {
+            crate::error::Error::Backend("Buffer not found for copy_from_device".into())
+        })?;
 
         // Create a staging buffer for readback
         let staging = client.create_staging_buffer("copy_staging", dst.len() as u64);
@@ -115,22 +118,28 @@ impl Runtime for WgpuRuntime {
         }
 
         staging.unmap();
+        Ok(())
     }
 
     /// Copy data within device memory.
     ///
-    /// # Panics
-    ///
-    /// Panics if either buffer doesn't exist.
-    fn copy_within_device(src: u64, dst: u64, size_bytes: usize, device: &Self::Device) {
+    /// Returns an error if either buffer doesn't exist.
+    fn copy_within_device(
+        src: u64,
+        dst: u64,
+        size_bytes: usize,
+        device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if size_bytes == 0 || src == 0 || dst == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
 
-        let src_buffer = super::client::get_buffer(src).expect("Source buffer not found");
-        let dst_buffer = super::client::get_buffer(dst).expect("Destination buffer not found");
+        let src_buffer = super::client::get_buffer(src)
+            .ok_or_else(|| crate::error::Error::Backend("Source buffer not found".into()))?;
+        let dst_buffer = super::client::get_buffer(dst)
+            .ok_or_else(|| crate::error::Error::Backend("Destination buffer not found".into()))?;
 
         let mut encoder =
             client
@@ -140,6 +149,7 @@ impl Runtime for WgpuRuntime {
                 });
         encoder.copy_buffer_to_buffer(&src_buffer, 0, &dst_buffer, 0, size_bytes as u64);
         client.submit_and_wait(encoder);
+        Ok(())
     }
 
     /// Copy strided data to a contiguous buffer using a compute shader.
@@ -148,9 +158,7 @@ impl Runtime for WgpuRuntime {
     /// handles that don't support arithmetic. This method uses a compute shader
     /// to read elements at strided offsets and write them contiguously.
     ///
-    /// # Panics
-    ///
-    /// Panics if buffers don't exist or shader execution fails.
+    /// Returns an error if buffers don't exist or shader execution fails.
     fn copy_strided(
         src_handle: u64,
         src_byte_offset: usize,
@@ -159,20 +167,23 @@ impl Runtime for WgpuRuntime {
         strides: &[isize],
         elem_size: usize,
         device: &Self::Device,
-    ) {
+    ) -> crate::error::Result<()> {
         if src_handle == 0 || dst_handle == 0 || shape.is_empty() {
-            return;
+            return Ok(());
         }
 
         let numel: usize = shape.iter().product();
         if numel == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
-        let src_buffer = super::client::get_buffer(src_handle).expect("Source buffer not found");
-        let dst_buffer =
-            super::client::get_buffer(dst_handle).expect("Destination buffer not found");
+        let src_buffer = super::client::get_buffer(src_handle).ok_or_else(|| {
+            crate::error::Error::Backend("Source buffer not found for copy_strided".into())
+        })?;
+        let dst_buffer = super::client::get_buffer(dst_handle).ok_or_else(|| {
+            crate::error::Error::Backend("Destination buffer not found for copy_strided".into())
+        })?;
 
         // Create shader module
         let module = client
@@ -325,6 +336,7 @@ impl Runtime for WgpuRuntime {
             pass.dispatch_workgroups(workgroups, 1, 1);
         }
         client.submit_and_wait(encoder);
+        Ok(())
     }
 
     fn default_device() -> Self::Device {

@@ -77,7 +77,7 @@ pub fn sparse_solve_triangular_wgpu(
         x.storage().ptr(),
         copy_size,
         &client.device_id,
-    );
+    )?;
 
     // Process each level
     for level in 0..schedule.num_levels {

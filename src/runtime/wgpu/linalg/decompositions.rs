@@ -52,7 +52,7 @@ pub fn lu_decompose(
         .ok_or_else(|| Error::Internal("Failed to get singular_flag buffer".to_string()))?;
 
     // Copy input to LU buffer
-    WgpuRuntime::copy_within_device(a.storage().ptr(), lu_ptr, lu_size, device);
+    WgpuRuntime::copy_within_device(a.storage().ptr(), lu_ptr, lu_size, device)?;
 
     // Create params buffer
     let params: [u32; 2] = [m as u32, n as u32];
@@ -150,7 +150,7 @@ pub fn cholesky_decompose(
         .ok_or_else(|| Error::Internal("Failed to get not_pd_flag buffer".to_string()))?;
 
     // Copy input to L buffer
-    WgpuRuntime::copy_within_device(a.storage().ptr(), l_ptr, l_size, device);
+    WgpuRuntime::copy_within_device(a.storage().ptr(), l_ptr, l_size, device)?;
 
     // Create params buffer
     let params: [u32; 1] = [n as u32];
@@ -241,7 +241,7 @@ pub fn qr_decompose_internal(
         .ok_or_else(|| Error::Internal("Failed to get workspace buffer".to_string()))?;
 
     // Copy A to R (will be modified in place)
-    WgpuRuntime::copy_within_device(a.storage().ptr(), r_ptr, r_size, device);
+    WgpuRuntime::copy_within_device(a.storage().ptr(), r_ptr, r_size, device)?;
 
     // Create params buffer
     let params: [u32; 3] = [m as u32, n as u32, if thin { 1 } else { 0 }];

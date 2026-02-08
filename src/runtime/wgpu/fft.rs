@@ -158,7 +158,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                     temp_ptr,
                     output_size,
                     device,
-                );
+                )?;
 
                 // Run stages
                 let mut use_temp_as_input = true;
@@ -228,7 +228,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                     }
                 } else if use_temp_as_input {
                     // Result is in temp, copy to output
-                    WgpuRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device);
+                    WgpuRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device)?;
                 }
 
                 // Free temp buffer

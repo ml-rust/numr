@@ -65,7 +65,7 @@ pub(crate) struct AdapterInfo {
 /// let device = WgpuDevice::new(0);  // First GPU
 /// println!("Device: {}", device.name());
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WgpuDevice {
     /// Device index (adapter order)
     pub(crate) index: usize,

@@ -40,7 +40,7 @@ pub fn eig_decompose_symmetric(
         // GPU-only: copy scalar on device, no CPU transfer
         let elem = dtype.size_in_bytes();
         let eval_ptr = client.allocator().allocate(elem);
-        WgpuRuntime::copy_within_device(a.storage().ptr(), eval_ptr, elem, device);
+        WgpuRuntime::copy_within_device(a.storage().ptr(), eval_ptr, elem, device)?;
         let eigenvalues = unsafe { WgpuClient::tensor_from_raw(eval_ptr, &[1], dtype, device) };
         let eigenvectors = Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device);
         return Ok(EigenDecomposition {
@@ -68,7 +68,7 @@ pub fn eig_decompose_symmetric(
         get_buffer_or_err!(converged_flag_ptr, "eigendecomposition convergence flag");
 
     // Copy input to work buffer
-    WgpuRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device);
+    WgpuRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device)?;
 
     // Zero-initialize converged flag
     let zero_i32: [i32; 1] = [0];
