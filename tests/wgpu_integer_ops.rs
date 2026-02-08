@@ -17,6 +17,11 @@ use numr::tensor::Tensor;
 
 #[test]
 fn test_i32_add() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -31,6 +36,11 @@ fn test_i32_add() {
 
 #[test]
 fn test_i32_sub() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -45,6 +55,11 @@ fn test_i32_sub() {
 
 #[test]
 fn test_i32_mul() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -63,6 +78,11 @@ fn test_i32_mul() {
 
 #[test]
 fn test_u32_add() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -77,6 +97,11 @@ fn test_u32_add() {
 
 #[test]
 fn test_u32_mul() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -95,6 +120,11 @@ fn test_u32_mul() {
 
 #[test]
 fn test_i32_neg() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -108,6 +138,11 @@ fn test_i32_neg() {
 
 #[test]
 fn test_i32_abs() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -125,6 +160,11 @@ fn test_i32_abs() {
 
 #[test]
 fn test_u32_abs() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -142,6 +182,11 @@ fn test_u32_abs() {
 
 #[test]
 fn test_i32_sqrt_should_fail() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -163,6 +208,11 @@ fn test_i32_sqrt_should_fail() {
 
 #[test]
 fn test_i32_exp_should_fail() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -188,6 +238,11 @@ fn test_i32_exp_should_fail() {
 
 #[test]
 fn test_i32_eq() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -208,6 +263,11 @@ fn test_i32_eq() {
 
 #[test]
 fn test_i32_sum() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -221,6 +281,11 @@ fn test_i32_sum() {
 
 #[test]
 fn test_i32_max() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -234,6 +299,11 @@ fn test_i32_max() {
 
 #[test]
 fn test_i32_min() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -251,6 +321,11 @@ fn test_i32_min() {
 
 #[test]
 fn test_broadcast_scalar_to_vector() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -267,6 +342,11 @@ fn test_broadcast_scalar_to_vector() {
 
 #[test]
 fn test_broadcast_vector_to_matrix_row() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -283,6 +363,11 @@ fn test_broadcast_vector_to_matrix_row() {
 
 #[test]
 fn test_broadcast_vector_to_matrix_col() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -299,6 +384,11 @@ fn test_broadcast_vector_to_matrix_col() {
 
 #[test]
 fn test_broadcast_both_directions() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -323,6 +413,11 @@ fn test_broadcast_both_directions() {
 
 #[test]
 fn test_broadcast_3d() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -350,6 +445,11 @@ fn test_broadcast_3d() {
 
 #[test]
 fn test_broadcast_mul() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -366,6 +466,11 @@ fn test_broadcast_mul() {
 
 #[test]
 fn test_broadcast_sub() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -386,6 +491,11 @@ fn test_broadcast_sub() {
 
 #[test]
 fn test_broadcast_div() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -406,6 +516,11 @@ fn test_broadcast_div() {
 
 #[test]
 fn test_broadcast_max() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -422,6 +537,11 @@ fn test_broadcast_max() {
 
 #[test]
 fn test_broadcast_min() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -442,6 +562,11 @@ fn test_broadcast_min() {
 
 #[test]
 fn test_broadcast_i32_add() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
@@ -458,6 +583,11 @@ fn test_broadcast_i32_add() {
 
 #[test]
 fn test_broadcast_i32_mul() {
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
+
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 

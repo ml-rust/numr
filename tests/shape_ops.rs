@@ -991,6 +991,10 @@ mod cuda_parity {
 
     #[test]
     fn test_repeat_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -1011,6 +1015,10 @@ mod cuda_parity {
 
     #[test]
     fn test_pad_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -1032,6 +1040,10 @@ mod cuda_parity {
 
     #[test]
     fn test_roll_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -1052,6 +1064,10 @@ mod cuda_parity {
 
     #[test]
     fn test_flip_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -1101,6 +1117,10 @@ mod wgpu_parity {
 
     #[test]
     fn test_repeat_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuDevice::new(0);
@@ -1121,6 +1141,10 @@ mod wgpu_parity {
 
     #[test]
     fn test_pad_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuDevice::new(0);
@@ -1142,6 +1166,10 @@ mod wgpu_parity {
 
     #[test]
     fn test_roll_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuDevice::new(0);
@@ -1162,6 +1190,10 @@ mod wgpu_parity {
 
     #[test]
     fn test_flip_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
         let cpu_device = CpuDevice::new();
         let wgpu_device = WgpuDevice::new(0);
 

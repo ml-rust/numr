@@ -608,6 +608,11 @@ mod cuda_parity {
 
     #[test]
     fn test_sort_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -627,6 +632,11 @@ mod cuda_parity {
 
     #[test]
     fn test_argsort_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -646,6 +656,11 @@ mod cuda_parity {
 
     #[test]
     fn test_topk_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -669,6 +684,11 @@ mod cuda_parity {
 
     #[test]
     fn test_unique_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -688,6 +708,11 @@ mod cuda_parity {
 
     #[test]
     fn test_nonzero_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -708,6 +733,11 @@ mod cuda_parity {
 
     #[test]
     fn test_searchsorted_parity() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let cuda_device = CudaDevice::new(0);
@@ -763,6 +793,11 @@ mod wgpu_parity {
 
     #[test]
     fn test_sort_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuRuntime::default_device();
@@ -783,6 +818,11 @@ mod wgpu_parity {
 
     #[test]
     fn test_argsort_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuRuntime::default_device();
@@ -804,6 +844,11 @@ mod wgpu_parity {
 
     #[test]
     fn test_topk_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuRuntime::default_device();
@@ -829,6 +874,11 @@ mod wgpu_parity {
 
     #[test]
     fn test_searchsorted_parity() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let cpu_device = CpuDevice::new();
         let cpu_client = CpuRuntime::default_client(&cpu_device);
         let wgpu_device = WgpuRuntime::default_device();

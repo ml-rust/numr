@@ -390,6 +390,10 @@ fn test_large_tensor_angle() {
 fn test_cuda_cpu_parity_conj() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -422,6 +426,10 @@ fn test_cuda_cpu_parity_conj() {
 fn test_cuda_cpu_parity_angle() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -458,6 +466,10 @@ fn test_cuda_cpu_parity_angle() {
 fn test_cuda_cpu_parity_angle_real() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -499,6 +511,10 @@ fn test_cuda_cpu_parity_angle_real() {
 fn test_wgpu_cpu_parity_angle() {
     use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -535,6 +551,10 @@ fn test_wgpu_cpu_parity_angle() {
 fn test_wgpu_cpu_parity_angle_real() {
     use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -580,6 +600,10 @@ fn test_wgpu_cpu_parity_angle_real() {
 fn test_cuda_complex64_add() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -626,6 +650,10 @@ fn test_cuda_complex64_add() {
 fn test_cuda_complex64_mul() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -671,6 +699,10 @@ fn test_cuda_complex64_mul() {
 fn test_cuda_complex64_div() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -716,6 +748,10 @@ fn test_cuda_complex64_div() {
 fn test_cuda_complex64_neg() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cuda_device = CudaDevice::new(0);
     let cuda_client = CudaRuntime::default_client(&cuda_device);
 
@@ -755,6 +791,10 @@ fn test_cuda_complex64_neg() {
 fn test_cuda_complex64_sqrt() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cuda_device = CudaDevice::new(0);
     let cuda_client = CudaRuntime::default_client(&cuda_device);
 
@@ -795,6 +835,10 @@ fn test_cuda_complex64_sqrt() {
 fn test_cuda_complex64_exp() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cuda_device = CudaDevice::new(0);
     let cuda_client = CudaRuntime::default_client(&cuda_device);
 
@@ -1124,6 +1168,10 @@ fn test_complex_div_real_zero() {
 fn test_cuda_cpu_parity_make_complex() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -1165,6 +1213,10 @@ fn test_cuda_cpu_parity_make_complex() {
 fn test_cuda_cpu_parity_complex_mul_real() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -1214,6 +1266,10 @@ fn test_cuda_cpu_parity_complex_mul_real() {
 fn test_cuda_cpu_parity_complex_div_real() {
     use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
+    if !numr::runtime::cuda::is_cuda_available() {
+        println!("CUDA not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -1263,6 +1319,10 @@ fn test_cuda_cpu_parity_complex_div_real() {
 fn test_wgpu_cpu_parity_make_complex() {
     use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -1304,6 +1364,10 @@ fn test_wgpu_cpu_parity_make_complex() {
 fn test_wgpu_cpu_parity_complex_mul_real() {
     use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 
@@ -1353,6 +1417,10 @@ fn test_wgpu_cpu_parity_complex_mul_real() {
 fn test_wgpu_cpu_parity_complex_div_real() {
     use numr::runtime::wgpu::{WgpuDevice, WgpuRuntime};
 
+    if !numr::runtime::wgpu::is_wgpu_available() {
+        println!("WebGPU not available, skipping");
+        return;
+    }
     let cpu_device = CpuDevice::new();
     let cpu_client = CpuRuntime::default_client(&cpu_device);
 

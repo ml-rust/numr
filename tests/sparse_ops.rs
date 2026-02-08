@@ -97,6 +97,11 @@ mod backend_parity {
 
     #[test]
     fn test_sparse_matmul_small_f32() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -139,6 +144,11 @@ mod backend_parity {
 
     #[test]
     fn test_sparse_matmul_100x100_f32() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -224,6 +234,11 @@ mod backend_parity {
 
     #[test]
     fn test_sparse_matmul_f64() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -273,6 +288,11 @@ mod backend_parity {
 
     #[test]
     fn test_dsmm_small_f32() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -334,6 +354,11 @@ mod backend_parity {
 
     #[test]
     fn test_dsmm_100x200_f32() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let cpu_device = CpuDevice::new();
         let cuda_device = CudaDevice::new(0);
 
@@ -409,6 +434,11 @@ mod edge_cases {
 
     #[test]
     fn test_empty_matrix() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -449,6 +479,11 @@ mod edge_cases {
 
     #[test]
     fn test_single_element() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -489,6 +524,11 @@ mod edge_cases {
 
     #[test]
     fn test_dimension_mismatch() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -518,6 +558,11 @@ mod edge_cases {
 
     #[test]
     fn test_dtype_mismatch() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -553,6 +598,11 @@ mod edge_cases {
 
     #[test]
     fn test_very_sparse_1000x1000() -> Result<()> {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return Ok(());
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 

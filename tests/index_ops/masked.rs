@@ -183,6 +183,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_select_broadcast_row() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -199,6 +204,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_select_broadcast_col() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -215,6 +225,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_fill_broadcast_row() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -231,6 +246,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_fill_broadcast_col() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -247,6 +267,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_select_3d_broadcast() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -269,6 +294,11 @@ mod cuda_masked_tests {
 
     #[test]
     fn test_cuda_masked_fill_f64() {
+        if !numr::runtime::cuda::is_cuda_available() {
+            println!("CUDA not available, skipping");
+            return;
+        }
+
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -298,6 +328,11 @@ mod wgpu_masked_tests {
 
     #[test]
     fn test_wgpu_masked_select_basic() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let device = WgpuDevice::new(0);
         let client = WgpuRuntime::default_client(&device);
 
@@ -320,6 +355,11 @@ mod wgpu_masked_tests {
 
     #[test]
     fn test_wgpu_masked_fill_basic() {
+        if !numr::runtime::wgpu::is_wgpu_available() {
+            println!("WebGPU not available, skipping");
+            return;
+        }
+
         let device = WgpuDevice::new(0);
         let client = WgpuRuntime::default_client(&device);
 
