@@ -18,6 +18,8 @@ use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
 
+mod common;
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -752,16 +754,9 @@ mod cuda_parity {
     use super::*;
     use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 
-    fn create_cuda_client() -> Option<(CudaClient, CudaDevice)> {
-        // Try to create CUDA device 0, return None if CUDA is unavailable
-        let device = CudaDevice::new(0);
-        let client = CudaRuntime::default_client(&device);
-        Some((client, device))
-    }
-
     #[test]
     fn test_pinverse_cpu_cuda_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
             println!("Skipping CUDA parity test: no CUDA device available");
             return;
         };
@@ -789,7 +784,7 @@ mod cuda_parity {
 
     #[test]
     fn test_cond_cpu_cuda_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -807,7 +802,7 @@ mod cuda_parity {
 
     #[test]
     fn test_cov_cpu_cuda_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -825,7 +820,7 @@ mod cuda_parity {
 
     #[test]
     fn test_corrcoef_cpu_cuda_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -849,7 +844,7 @@ mod cuda_parity {
 
     #[test]
     fn test_corrcoef_zero_variance_cpu_cuda_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -881,20 +876,11 @@ mod cuda_parity {
 #[cfg(feature = "wgpu")]
 mod wgpu_parity {
     use super::*;
-    use numr::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime, is_wgpu_available};
-
-    fn create_wgpu_client() -> Option<(WgpuClient, WgpuDevice)> {
-        if !is_wgpu_available() {
-            return None;
-        }
-        let device = WgpuDevice::new(0);
-        let client = WgpuRuntime::default_client(&device);
-        Some((client, device))
-    }
+    use numr::runtime::wgpu::WgpuRuntime;
 
     #[test]
     fn test_pinverse_cpu_wgpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
             println!("Skipping WGPU parity test: no WGPU device available");
             return;
         };
@@ -923,7 +909,7 @@ mod wgpu_parity {
 
     #[test]
     fn test_cond_cpu_wgpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -941,7 +927,7 @@ mod wgpu_parity {
 
     #[test]
     fn test_cov_cpu_wgpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -959,7 +945,7 @@ mod wgpu_parity {
 
     #[test]
     fn test_corrcoef_cpu_wgpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();
@@ -983,7 +969,7 @@ mod wgpu_parity {
 
     #[test]
     fn test_corrcoef_zero_variance_cpu_wgpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
             return;
         };
         let (cpu_client, cpu_device) = create_client();

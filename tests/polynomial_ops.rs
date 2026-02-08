@@ -13,6 +13,8 @@ use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
 
+mod common;
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -498,22 +500,12 @@ fn test_polyval_f64() {
 #[cfg(feature = "cuda")]
 mod cuda_tests {
     use super::*;
-    use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
-    use std::panic;
-
-    fn create_cuda_client() -> Option<(CudaClient, CudaDevice)> {
-        let result = panic::catch_unwind(|| {
-            let device = CudaDevice::new(0);
-            let client = CudaRuntime::default_client(&device);
-            (client, device)
-        });
-        result.ok()
-    }
+    use numr::runtime::cuda::{CudaDevice, CudaRuntime};
 
     #[test]
     fn test_cuda_polyroots() {
-        let Some((client, device)) = create_cuda_client() else {
-            println!("CUDA not available, skipping test");
+        let Some((client, device)) = common::create_cuda_client() else {
+            println!("CUDA not available, skipping");
             return;
         };
 
@@ -530,8 +522,8 @@ mod cuda_tests {
 
     #[test]
     fn test_cuda_cpu_parity() {
-        let Some((cuda_client, cuda_device)) = create_cuda_client() else {
-            println!("CUDA not available, skipping test");
+        let Some((cuda_client, cuda_device)) = common::create_cuda_client() else {
+            println!("CUDA not available, skipping");
             return;
         };
 
@@ -557,21 +549,12 @@ mod cuda_tests {
 #[cfg(feature = "wgpu")]
 mod wgpu_tests {
     use super::*;
-    use numr::runtime::wgpu::{WgpuClient, WgpuDevice, WgpuRuntime, is_wgpu_available};
-
-    fn create_wgpu_client() -> Option<(WgpuClient, WgpuDevice)> {
-        if !is_wgpu_available() {
-            return None;
-        }
-        let device = WgpuDevice::new(0);
-        let client = WgpuRuntime::default_client(&device);
-        Some((client, device))
-    }
+    use numr::runtime::wgpu::WgpuRuntime;
 
     #[test]
     fn test_wgpu_polyroots() {
-        let Some((client, device)) = create_wgpu_client() else {
-            println!("WebGPU not available, skipping test");
+        let Some((client, device)) = common::create_wgpu_client() else {
+            println!("WGPU not available, skipping");
             return;
         };
 
@@ -588,8 +571,8 @@ mod wgpu_tests {
 
     #[test]
     fn test_wgpu_cpu_parity() {
-        let Some((wgpu_client, wgpu_device)) = create_wgpu_client() else {
-            println!("WebGPU not available, skipping test");
+        let Some((wgpu_client, wgpu_device)) = common::create_wgpu_client() else {
+            println!("WGPU not available, skipping");
             return;
         };
 
@@ -610,8 +593,8 @@ mod wgpu_tests {
 
     #[test]
     fn test_wgpu_f64_unsupported() {
-        let Some((client, device)) = create_wgpu_client() else {
-            println!("WebGPU not available, skipping test");
+        let Some((client, device)) = common::create_wgpu_client() else {
+            println!("WGPU not available, skipping");
             return;
         };
 
