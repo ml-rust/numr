@@ -68,7 +68,7 @@ fn test_client_allocator() {
     let device = CpuDevice::new();
     let client = CpuRuntime::default_client(&device);
 
-    let ptr = client.allocator().allocate(256);
+    let ptr = client.allocator().allocate(256).unwrap();
     assert_ne!(ptr, 0);
     client.allocator().deallocate(ptr, 256);
 }

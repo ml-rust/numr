@@ -17,7 +17,9 @@ pub(crate) mod merge;
 #[cfg(test)]
 mod tests;
 
-// Re-export merge types and functions for use in fallback
+// Re-export merge types for use via path in fallback.rs (e.g. cpu::sparse::MergeStrategy)
+// Lint false positive: accessed via path resolution, not `use` imports
+#[allow(unused_imports)]
 pub(crate) use merge::{MergeStrategy, OperationSemantics, merge_coo_impl, merge_csc_impl};
 
 // ============================================================================

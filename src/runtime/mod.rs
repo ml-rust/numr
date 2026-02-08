@@ -33,7 +33,7 @@ pub mod wgpu;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub mod fallback;
 
-pub use allocator::{Allocator, DefaultAllocator};
+pub use allocator::{AllocGuard, Allocator, DefaultAllocator};
 pub use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
     validate_binary_dtypes, validate_eye, validate_linspace,

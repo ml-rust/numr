@@ -43,18 +43,16 @@ fn create_cpu_allocator(device: CpuDevice) -> CpuAllocator {
         device,
         |size, _dev| {
             if size == 0 {
-                return 0;
+                return Ok(0);
             }
             let align = 64; // AVX-512 alignment
             let layout =
                 AllocLayout::from_size_align(size, align).expect("Invalid allocation layout");
             let ptr = unsafe { alloc_zeroed(layout) };
             if ptr.is_null() {
-                // Note: This closure returns u64, not Result, so we must panic here.
-                // The proper error path is through Runtime::allocate which returns Result.
-                panic!("Out of memory: failed to allocate {} bytes", size);
+                return Err(crate::error::Error::OutOfMemory { size });
             }
-            ptr as u64
+            Ok(ptr as u64)
         },
         |ptr, size, _dev| {
             if ptr == 0 || size == 0 {
