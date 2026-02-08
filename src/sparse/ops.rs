@@ -43,16 +43,17 @@ use super::{CscData, CsrData, SparseTensor};
 /// # let device = CpuDevice::new();
 /// # let client = CpuRuntime::default_client(&device);
 /// // High-level API
-/// # let sparse_a = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[1, 0], &[1.0f32, 2.0], &[2, 2], &device)?;
+/// # let sparse_a = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[1, 0], &[1.0f32, 2.0], [2, 2], &device)?;
 /// # let dense_x = Tensor::from_slice(&[1.0, 2.0], &[2], &device);
 /// let y = client.spmv(&sparse_a, &dense_x)?;  // y = A * x
 ///
 /// // Low-level API (format-specific)
 /// # let csr = sparse_a.to_csr()?;
+/// # let csr_data = csr.as_csr().unwrap();
 /// # let shape = [2, 2];
-/// # let row_ptrs = Tensor::from_slice(&csr.row_ptrs(), &[csr.nrows() + 1], &device);
-/// # let col_indices = Tensor::from_slice(&csr.col_indices(), &[csr.nnz()], &device);
-/// # let values = Tensor::from_slice(csr.values(), &[csr.nnz()], &device);
+/// # let row_ptrs = csr_data.row_ptrs();
+/// # let col_indices = csr_data.col_indices();
+/// # let values = csr_data.values();
 /// let y = client.spmv_csr::<f32>(&row_ptrs, &col_indices, &values, &dense_x, shape)?;
 /// # }
 /// # Ok::<(), numr::error::Error>(())
@@ -510,7 +511,7 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// # use numr::prelude::*;
     /// # #[cfg(feature = "sparse")]
     /// # {
-    /// # use numr::sparse::SparseOps;
+    /// # use numr::sparse::{SparseOps, SparseStorage};
     /// # let device = CpuDevice::new();
     /// # let client = CpuRuntime::default_client(&device);
     /// # let dense_matrix = Tensor::from_slice(&[1.0, 0.0, 2.0f32], &[1, 3], &device);
@@ -518,7 +519,7 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// let csr = client.dense_to_csr(&dense_matrix, 1e-15)?;
     /// let result = client.spmv_csr::<f32>(
     ///     csr.row_ptrs(), csr.col_indices(), csr.values(),
-    ///     &vector, csr.shape()
+    ///     &vector, SparseStorage::shape(&csr)
     /// )?;
     /// # }
     /// # Ok::<(), numr::error::Error>(())
@@ -777,10 +778,10 @@ pub enum NormType {
 /// # use numr::sparse::{CscData, SparseScaling, NormType};
 /// # let device = CpuDevice::new();
 /// // Create a sample CSC matrix
-/// # let rows = vec![0, 1];
-/// # let cols = vec![0, 1];
+/// # let col_ptrs = vec![0i64, 1, 2];  // CSC column pointers
+/// # let row_indices = vec![0i64, 1];  // CSC row indices
 /// # let values = vec![1.0f64, 2.0];
-/// # let csc = CscData::new(&rows, &cols, &values, [2, 2], 1e-15)?;
+/// # let csc = CscData::<CpuRuntime>::from_slices(&col_ptrs, &row_indices, &values, [2, 2], &device)?;
 /// // Equilibrate a badly-scaled matrix
 /// let (scaled, row_scales, col_scales) = csc.equilibrate::<f64>()?;
 ///

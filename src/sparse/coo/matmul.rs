@@ -79,7 +79,7 @@ impl<R: Runtime> CooData<R> {
     /// // A [2, 3]:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
-    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?;
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], [2, 3], &device)?;
     /// # if let numr::sparse::SparseTensor::Coo(a) = sp {
     /// let a_t = a.transpose();
     /// // A^T [3, 2]:

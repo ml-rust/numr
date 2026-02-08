@@ -104,12 +104,12 @@ impl<R: Runtime> CscData<R> {
     /// # use numr::prelude::*;
     /// # #[cfg(feature = "sparse")]
     /// # {
-    /// # use numr::sparse::SparseTensor;
+    /// # use numr::sparse::{SparseTensor, SparseStorage};
     /// # let device = CpuDevice::new();
     /// // CSC matrix [2, 3]:
     /// // [1, 0, 2]
     /// // [0, 3, 0]
-    /// # let sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], &[2, 3], &device)?.to_csc()?;
+    /// # let sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], [2, 3], &device)?.to_csc()?;
     /// # if let numr::sparse::SparseTensor::Csc(csc) = sp {
     ///
     /// // Transpose returns CSR [3, 2]:
@@ -117,7 +117,7 @@ impl<R: Runtime> CscData<R> {
     /// // [0, 3]
     /// // [2, 0]
     /// let csr = csc.transpose();
-    /// assert_eq!(csr.shape(), [3, 2]);
+    /// assert_eq!(SparseStorage::shape(&csr), [3, 2]);
     /// # }
     /// # }
     /// # Ok::<(), numr::error::Error>(())

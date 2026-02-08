@@ -50,8 +50,8 @@ impl<R: Runtime> CsrData<R> {
     /// // A:          B:          C = A + B:
     /// // [1, 0]      [0, 2]      [1, 2]
     /// // [0, 3]  +   [4, 0]  =   [4, 3]
-    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[1.0f32, 3.0], &[2, 2], &device)?.to_csr()?;
-    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[1, 0], &[2.0f32, 4.0], &[2, 2], &device)?.to_csr()?;
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[0, 1], &[1.0f32, 3.0], [2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[1, 0], &[2.0f32, 4.0], [2, 2], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.add(&b)?;
     /// # } }
@@ -144,8 +144,8 @@ impl<R: Runtime> CsrData<R> {
     /// // A:          B:          C = A - B:
     /// // [5, 0]      [2, 1]      [3, -1]
     /// // [0, 4]  -   [0, 3]  =   [0,  1]
-    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[5.0f32, 4.0], &[2, 2], &device)?.to_csr()?;
-    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 1.0, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[0, 1], &[5.0f32, 4.0], [2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 1.0, 3.0], [2, 2], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.sub(&b)?;
     /// # } }
@@ -241,8 +241,8 @@ impl<R: Runtime> CsrData<R> {
     /// // A:          B:          C = A .* B:
     /// // [2, 3]      [4, 0]      [8, 0]
     /// // [0, 5]  .*  [6, 7]  =   [0, 35]
-    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 3.0, 5.0], &[2, 2], &device)?.to_csr()?;
-    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 1], &[0, 1], &[4.0f32, 7.0], &[2, 2], &device)?.to_csr()?;
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 1, 1], &[2.0f32, 3.0, 5.0], [2, 2], &device)?.to_csr()?;
+    /// # let b_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[0, 1], &[4.0f32, 7.0], [2, 2], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp { if let numr::sparse::SparseTensor::Csr(b) = b_sp {
     /// let c = a.mul(&b)?;
     /// # } }
@@ -395,7 +395,7 @@ impl<R: Runtime> CsrData<R> {
     /// // A:          C = A * 2:
     /// // [1, 2]      [2, 4]
     /// // [3, 0]      [6, 0]
-    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo(&[0, 0, 1], &[0, 1, 0], &[1.0f32, 2.0, 3.0], &[2, 2], &device)?.to_csr()?;
+    /// # let a_sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 1, 0], &[1.0f32, 2.0, 3.0], [2, 2], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(a) = a_sp {
     /// let c = a.scalar_mul(2.0)?;
     /// # }

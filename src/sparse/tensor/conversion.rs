@@ -71,8 +71,8 @@ impl<R: Runtime> SparseTensor<R> {
     /// # {
     /// # use numr::sparse::SparseTensor;
     /// # let device = CpuDevice::new();
-    /// let sparse = SparseTensor::<CpuRuntime>::from_coo(
-    ///     &[0, 1], &[1, 0], &[5.0f32, 3.0], &[2, 2], &device
+    /// let sparse = SparseTensor::<CpuRuntime>::from_coo_slices(
+    ///     &[0, 1], &[1, 0], &[5.0f32, 3.0], [2, 2], &device
     /// )?;
     /// let dense = sparse.to_dense(&device)?;
     /// // dense is [[0, 5], [3, 0]]

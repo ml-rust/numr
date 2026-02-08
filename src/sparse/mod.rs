@@ -30,15 +30,15 @@
 //! let values = vec![1.0f32, 2.0, 3.0];
 //! let shape = [3, 3];
 //!
-//! let coo = SparseTensor::<CpuRuntime>::from_coo(
-//!     &rows, &cols, &values, &shape, &device
+//! let coo = SparseTensor::<CpuRuntime>::from_coo_slices(
+//!     &rows, &cols, &values, shape, &device
 //! )?;
 //!
 //! // Convert to CSR for efficient SpMV
 //! let csr = coo.to_csr()?;
 //!
 //! // Sparse matrix-vector multiplication
-//! let x = Tensor::from_slice(&[1.0, 2.0, 3.0], &[3], &device);
+//! let x = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
 //! // let sparse_ops = CpuRuntime::default_client(&device);
 //! // let y = sparse_ops.spmv(&csr, &x)?;  // y = A * x
 //! # }

@@ -31,11 +31,11 @@ use super::super::format::{SparseFormat, SparseStorage};
 /// # use numr::sparse::SparseTensor;
 /// # let device = CpuDevice::new();
 /// // Create from COO triplets
-/// let sparse = SparseTensor::<CpuRuntime>::from_coo(
+/// let sparse = SparseTensor::<CpuRuntime>::from_coo_slices(
 ///     &[0, 1, 2],      // rows
 ///     &[1, 0, 2],      // cols
 ///     &[1.0f32, 2.0, 3.0],  // values
-///     &[3, 3],          // shape
+///     [3, 3],           // shape
 ///     &device,
 /// )?;
 ///
