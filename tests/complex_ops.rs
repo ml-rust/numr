@@ -3,7 +3,9 @@
 //! Tests high-level complex operations: conj, real, imag, angle
 
 use numr::dtype::{Complex64, Complex128, DType};
-use numr::ops::{BinaryOps, ComplexOps, UnaryOps};
+use numr::ops::ComplexOps;
+#[cfg(feature = "cuda")]
+use numr::ops::{BinaryOps, UnaryOps};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;

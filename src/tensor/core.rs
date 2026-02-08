@@ -60,29 +60,13 @@ impl<R: Runtime> Tensor<R> {
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
     /// ```
     pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
-        let expected_len: usize = shape.iter().product();
-        assert_eq!(
-            data.len(),
-            expected_len,
-            "Data length {} doesn't match shape {:?} (expected {})",
-            data.len(),
-            shape,
-            expected_len
-        );
-
-        let storage = Storage::from_slice(data, device);
-        let layout = Layout::contiguous(shape);
-
-        Self {
-            id: TensorId::new(),
-            storage,
-            layout,
-        }
+        Self::try_from_slice(data, shape, device).expect("Tensor::from_slice failed")
     }
 
     /// Create a tensor from a slice of data (fallible version)
     ///
-    /// Returns an error if `data.len()` does not equal the product of the `shape` dimensions.
+    /// Returns an error if `data.len()` does not equal the product of the `shape` dimensions,
+    /// or if memory allocation fails.
     ///
     /// # Example
     ///
@@ -102,7 +86,7 @@ impl<R: Runtime> Tensor<R> {
             });
         }
 
-        let storage = Storage::from_slice(data, device);
+        let storage = Storage::from_slice(data, device)?;
         let layout = Layout::contiguous(shape);
 
         Ok(Self {
@@ -117,33 +101,58 @@ impl<R: Runtime> Tensor<R> {
     /// # Safety
     /// The contents are uninitialized. Reading before writing is undefined behavior.
     pub fn empty(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
+        Self::try_empty(shape, dtype, device).expect("Tensor::empty failed")
+    }
+
+    /// Create an uninitialized tensor (fallible version)
+    pub fn try_empty(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
         let len: usize = shape.iter().product();
-        let storage = Storage::new(len, dtype, device);
+        let storage = Storage::new(len, dtype, device)?;
         let layout = Layout::contiguous(shape);
 
-        Self {
+        Ok(Self {
             id: TensorId::new(),
             storage,
             layout,
-        }
+        })
     }
 
     /// Create a tensor filled with zeros
     ///
     /// This properly initializes memory to zero on all backends (CPU and GPU).
     pub fn zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::full_scalar(shape, dtype, 0.0, device)
+        Self::try_zeros(shape, dtype, device).expect("Tensor::zeros failed")
+    }
+
+    /// Create a tensor filled with zeros (fallible version)
+    pub fn try_zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar(shape, dtype, 0.0, device)
     }
 
     /// Create a tensor filled with ones
     pub fn ones(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::full_scalar(shape, dtype, 1.0, device)
+        Self::try_ones(shape, dtype, device).expect("Tensor::ones failed")
+    }
+
+    /// Create a tensor filled with ones (fallible version)
+    pub fn try_ones(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar(shape, dtype, 1.0, device)
     }
 
     /// Create a tensor filled with a scalar value
     ///
     /// The scalar is converted to the target dtype.
     pub fn full_scalar(shape: &[usize], dtype: DType, value: f64, device: &R::Device) -> Self {
+        Self::try_full_scalar(shape, dtype, value, device).expect("Tensor::full_scalar failed")
+    }
+
+    /// Create a tensor filled with a scalar value (fallible version)
+    pub fn try_full_scalar(
+        shape: &[usize],
+        dtype: DType,
+        value: f64,
+        device: &R::Device,
+    ) -> Result<Self> {
         // Helper to convert a typed Vec to bytes safely.
         // Allocates with correct alignment for T, then copies to u8 vec.
         #[inline]
@@ -153,7 +162,7 @@ impl<R: Runtime> Tensor<R> {
 
         let len: usize = shape.iter().product();
         if len == 0 {
-            return Self::empty(shape, dtype, device);
+            return Self::try_empty(shape, dtype, device);
         }
 
         // Allocate with correct type alignment, then convert to bytes.
@@ -187,30 +196,10 @@ impl<R: Runtime> Tensor<R> {
                 }
             }
             DType::FP8E4M3 => {
-                #[cfg(feature = "fp8")]
-                {
-                    vec![crate::dtype::FP8E4M3::from_f32(value as f32).to_bits(); len]
-                }
-                #[cfg(not(feature = "fp8"))]
-                {
-                    panic!(
-                        "FP8E4M3 dtype requires the 'fp8' feature. \
-                         Enable it with: cargo build --features fp8"
-                    );
-                }
+                vec![crate::dtype::FP8E4M3::from_f32(value as f32).to_bits(); len]
             }
             DType::FP8E5M2 => {
-                #[cfg(feature = "fp8")]
-                {
-                    vec![crate::dtype::FP8E5M2::from_f32(value as f32).to_bits(); len]
-                }
-                #[cfg(not(feature = "fp8"))]
-                {
-                    panic!(
-                        "FP8E5M2 dtype requires the 'fp8' feature. \
-                         Enable it with: cargo build --features fp8"
-                    );
-                }
+                vec![crate::dtype::FP8E5M2::from_f32(value as f32).to_bits(); len]
             }
             DType::I64 => typed_to_bytes(vec![value as i64; len]),
             DType::I32 => typed_to_bytes(vec![value as i32; len]),
@@ -230,14 +219,14 @@ impl<R: Runtime> Tensor<R> {
         };
 
         // Allocate and copy to device
-        let storage = Storage::from_bytes(&bytes, dtype, device);
+        let storage = Storage::from_bytes(&bytes, dtype, device)?;
         let layout = Layout::contiguous(shape);
 
-        Self {
+        Ok(Self {
             id: TensorId::new(),
             storage,
             layout,
-        }
+        })
     }
 
     // ===== Accessors =====
@@ -547,7 +536,8 @@ impl<R: Runtime> Tensor<R> {
             let numel = self.numel();
 
             // Allocate new contiguous storage
-            let new_storage = Storage::new(numel, dtype, device);
+            let new_storage =
+                Storage::new(numel, dtype, device).expect("Tensor::contiguous allocation failed");
             let new_layout = Layout::contiguous(self.shape());
 
             // Use Runtime::copy_strided which handles buffer ID vs pointer correctly
@@ -564,7 +554,8 @@ impl<R: Runtime> Tensor<R> {
                 self.strides(),
                 elem_size,
                 device,
-            );
+            )
+            .expect("copy_strided failed in contiguous()");
 
             Self {
                 id: TensorId::new(),
@@ -606,7 +597,8 @@ impl<R: Runtime> Tensor<R> {
         let mut result = vec![T::zeroed(); numel];
         let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
         let src_ptr = self.storage.ptr() as usize + byte_offset;
-        R::copy_from_device(src_ptr as u64, bytes, self.storage.device());
+        R::copy_from_device(src_ptr as u64, bytes, self.storage.device())
+            .expect("copy_from_device failed in to_vec()");
         result
     }
 
@@ -653,7 +645,7 @@ impl<R: Runtime> Tensor<R> {
 
         let mut result = T::zeroed();
         let bytes: &mut [u8] = bytemuck::bytes_of_mut(&mut result);
-        R::copy_from_device(src_ptr, bytes, tensor.storage.device());
+        R::copy_from_device(src_ptr, bytes, tensor.storage.device())?;
         Ok(result)
     }
 }

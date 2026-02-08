@@ -1,6 +1,7 @@
 //! Storage: device memory management with Arc-based sharing
 
 use crate::dtype::{DType, Element};
+use crate::error::Result;
 use crate::runtime::Runtime;
 use std::sync::Arc;
 
@@ -31,11 +32,11 @@ impl<R: Runtime> Storage<R> {
     /// Create new storage with allocated memory
     ///
     /// Allocates `len` elements of type `dtype` on the specified device.
-    pub fn new(len: usize, dtype: DType, device: &R::Device) -> Self {
+    pub fn new(len: usize, dtype: DType, device: &R::Device) -> Result<Self> {
         let size_bytes = len * dtype.size_in_bytes();
-        let ptr = R::allocate(size_bytes, device);
+        let ptr = R::allocate(size_bytes, device)?;
 
-        Self {
+        Ok(Self {
             inner: Arc::new(StorageInner {
                 ptr,
                 len,
@@ -43,24 +44,24 @@ impl<R: Runtime> Storage<R> {
                 device: device.clone(),
                 owned: true,
             }),
-        }
+        })
     }
 
     /// Create storage from existing data with inferred dtype
     ///
     /// Copies `data` to the device. The dtype is inferred from the Element type.
-    pub fn from_slice<T: Element>(data: &[T], device: &R::Device) -> Self {
+    pub fn from_slice<T: Element>(data: &[T], device: &R::Device) -> Result<Self> {
         let dtype = T::DTYPE;
         let len = data.len();
 
         // Copy data to device
         let bytes = bytemuck::cast_slice(data);
         let size_bytes = bytes.len();
-        let ptr = R::allocate(size_bytes, device);
+        let ptr = R::allocate(size_bytes, device)?;
 
-        R::copy_to_device(bytes, ptr, device);
+        R::copy_to_device(bytes, ptr, device)?;
 
-        Self {
+        Ok(Self {
             inner: Arc::new(StorageInner {
                 ptr,
                 len,
@@ -68,19 +69,19 @@ impl<R: Runtime> Storage<R> {
                 device: device.clone(),
                 owned: true,
             }),
-        }
+        })
     }
 
     /// Create storage from raw bytes with explicit dtype
     ///
     /// Use this when you have raw bytes and know the dtype.
-    pub fn from_bytes(data: &[u8], dtype: DType, device: &R::Device) -> Self {
+    pub fn from_bytes(data: &[u8], dtype: DType, device: &R::Device) -> Result<Self> {
         let len = data.len() / dtype.size_in_bytes();
-        let ptr = R::allocate(data.len(), device);
+        let ptr = R::allocate(data.len(), device)?;
 
-        R::copy_to_device(data, ptr, device);
+        R::copy_to_device(data, ptr, device)?;
 
-        Self {
+        Ok(Self {
             inner: Arc::new(StorageInner {
                 ptr,
                 len,
@@ -88,7 +89,7 @@ impl<R: Runtime> Storage<R> {
                 device: device.clone(),
                 owned: true,
             }),
-        }
+        })
     }
 
     /// Wrap existing device memory without taking ownership
@@ -174,7 +175,8 @@ impl<R: Runtime> Storage<R> {
         // a Vec<u8> and cast to stricter-aligned types like f64/i64.
         let mut result = vec![T::zeroed(); self.inner.len];
         let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
-        R::copy_from_device(self.inner.ptr, bytes, &self.inner.device);
+        R::copy_from_device(self.inner.ptr, bytes, &self.inner.device)
+            .expect("copy_from_device failed in to_vec()");
         result
     }
 }

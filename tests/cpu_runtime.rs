@@ -14,7 +14,7 @@ use numr::tensor::Tensor;
 #[test]
 fn test_allocate_deallocate() {
     let device = CpuDevice::new();
-    let ptr = CpuRuntime::allocate(1024, &device);
+    let ptr = CpuRuntime::allocate(1024, &device).unwrap();
     assert_ne!(ptr, 0);
     CpuRuntime::deallocate(ptr, 1024, &device);
 }
@@ -24,11 +24,11 @@ fn test_copy_roundtrip() {
     let device = CpuDevice::new();
     let data: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
 
-    let ptr = CpuRuntime::allocate(data.len(), &device);
-    CpuRuntime::copy_to_device(&data, ptr, &device);
+    let ptr = CpuRuntime::allocate(data.len(), &device).unwrap();
+    CpuRuntime::copy_to_device(&data, ptr, &device).unwrap();
 
     let mut result = vec![0u8; data.len()];
-    CpuRuntime::copy_from_device(ptr, &mut result, &device);
+    CpuRuntime::copy_from_device(ptr, &mut result, &device).unwrap();
 
     assert_eq!(data, result);
 
@@ -40,14 +40,14 @@ fn test_copy_within_device() {
     let device = CpuDevice::new();
     let data: Vec<u8> = vec![1, 2, 3, 4, 5, 6, 7, 8];
 
-    let src = CpuRuntime::allocate(data.len(), &device);
-    let dst = CpuRuntime::allocate(data.len(), &device);
+    let src = CpuRuntime::allocate(data.len(), &device).unwrap();
+    let dst = CpuRuntime::allocate(data.len(), &device).unwrap();
 
-    CpuRuntime::copy_to_device(&data, src, &device);
-    CpuRuntime::copy_within_device(src, dst, data.len(), &device);
+    CpuRuntime::copy_to_device(&data, src, &device).unwrap();
+    CpuRuntime::copy_within_device(src, dst, data.len(), &device).unwrap();
 
     let mut result = vec![0u8; data.len()];
-    CpuRuntime::copy_from_device(dst, &mut result, &device);
+    CpuRuntime::copy_from_device(dst, &mut result, &device).unwrap();
 
     assert_eq!(data, result);
 
@@ -58,7 +58,7 @@ fn test_copy_within_device() {
 #[test]
 fn test_zero_allocation() {
     let device = CpuDevice::new();
-    let ptr = CpuRuntime::allocate(0, &device);
+    let ptr = CpuRuntime::allocate(0, &device).unwrap();
     assert_eq!(ptr, 0);
     CpuRuntime::deallocate(ptr, 0, &device); // Should not panic
 }
@@ -1213,7 +1213,6 @@ fn test_f16_broadcast() {
 
 // ===== FP8 Integration Tests =====
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_tensor_creation() {
     use numr::dtype::FP8E4M3;
@@ -1239,7 +1238,6 @@ fn test_fp8e4m3_tensor_creation() {
     }
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e5m2_tensor_creation() {
     use numr::dtype::FP8E5M2;
@@ -1264,7 +1262,6 @@ fn test_fp8e5m2_tensor_creation() {
     }
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_add() {
     use numr::dtype::FP8E4M3;
@@ -1297,7 +1294,6 @@ fn test_fp8e4m3_add() {
     }
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_mul() {
     use numr::dtype::FP8E4M3;
@@ -1326,7 +1322,6 @@ fn test_fp8e4m3_mul() {
     }
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e5m2_large_values() {
     use numr::dtype::FP8E5M2;
@@ -1357,7 +1352,6 @@ fn test_fp8e5m2_large_values() {
     }
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8_full_scalar_tensor() {
     use numr::dtype::FP8E4M3;
@@ -1432,7 +1426,6 @@ fn test_cast_same_dtype_noop() {
     assert_eq!(result, [1.0, 2.0, 3.0]);
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_cast_f32_to_fp8e4m3() {
     use numr::dtype::FP8E4M3;
@@ -1453,7 +1446,6 @@ fn test_cast_f32_to_fp8e4m3() {
     assert!((result[3].to_f32() - 8.0).abs() < 1.0);
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_cast_fp8e4m3_to_f32() {
     use numr::dtype::FP8E4M3;
@@ -1481,7 +1473,6 @@ fn test_cast_fp8e4m3_to_f32() {
     assert!((result[3] - 8.0).abs() < 1.0);
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_cast_f32_to_fp8e5m2() {
     use numr::dtype::FP8E5M2;
@@ -1503,7 +1494,6 @@ fn test_cast_f32_to_fp8e5m2() {
     assert!((result[3].to_f32() - 10000.0).abs() < 5000.0);
 }
 
-#[cfg(feature = "fp8")]
 #[test]
 fn test_cast_fp8e4m3_to_fp8e5m2() {
     use numr::dtype::{FP8E4M3, FP8E5M2};
