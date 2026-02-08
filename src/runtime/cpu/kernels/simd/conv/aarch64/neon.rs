@@ -41,7 +41,7 @@ pub unsafe fn conv1d_f32(
     let c_out_per_group = params.c_out / params.groups;
     let chunks = c_in_per_group / lanes;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for g in 0..params.groups {
             let c_in_start = g * c_in_per_group;
             let c_out_start = g * c_out_per_group;
@@ -61,28 +61,34 @@ pub unsafe fn conv1d_f32(
                     let mut scalar_acc = 0.0f32;
 
                     for k in 0..params.kernel_size {
-                        let il = ol * params.stride + k * params.dilation;
+                        let il_signed = (ol * params.stride) as isize
+                            + (k * params.dilation) as isize
+                            - params.pad_left as isize;
+                        if il_signed < 0 || (il_signed as usize) >= params.length {
+                            continue;
+                        }
+                        let il = il_signed as usize;
 
                         // Vectorized over input channels
                         for chunk in 0..chunks {
                             let ic_base = chunk * lanes;
 
                             // Load 4 input values
-                            let in_idx = b * params.c_in * params.input_length
-                                + (c_in_start + ic_base) * params.input_length
+                            let in_idx = b * params.c_in * params.length
+                                + (c_in_start + ic_base) * params.length
                                 + il;
 
                             // Input is [batch, channels, length], need to gather
                             let in_arr = [
                                 *input.add(in_idx),
-                                *input.add(in_idx + params.input_length),
-                                *input.add(in_idx + 2 * params.input_length),
-                                *input.add(in_idx + 3 * params.input_length),
+                                *input.add(in_idx + params.length),
+                                *input.add(in_idx + 2 * params.length),
+                                *input.add(in_idx + 3 * params.length),
                             ];
                             let v_in = vld1q_f32(in_arr.as_ptr());
 
                             // Load 4 weight values
-                            let w_idx = oc * c_in_per_group * params.kernel_size
+                            let w_idx = out_c * c_in_per_group * params.kernel_size
                                 + ic_base * params.kernel_size
                                 + k;
                             let w_arr = [
@@ -99,10 +105,10 @@ pub unsafe fn conv1d_f32(
 
                         // Scalar tail for remaining channels
                         for ic in (chunks * lanes)..c_in_per_group {
-                            let in_idx = b * params.c_in * params.input_length
-                                + (c_in_start + ic) * params.input_length
+                            let in_idx = b * params.c_in * params.length
+                                + (c_in_start + ic) * params.length
                                 + il;
-                            let w_idx = oc * c_in_per_group * params.kernel_size
+                            let w_idx = out_c * c_in_per_group * params.kernel_size
                                 + ic * params.kernel_size
                                 + k;
                             scalar_acc += *input.add(in_idx) * *weight.add(w_idx);
@@ -135,7 +141,7 @@ pub unsafe fn conv1d_f64(
     let c_out_per_group = params.c_out / params.groups;
     let chunks = c_in_per_group / lanes;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for g in 0..params.groups {
             let c_in_start = g * c_in_per_group;
             let c_out_start = g * c_out_per_group;
@@ -154,20 +160,25 @@ pub unsafe fn conv1d_f64(
                     let mut scalar_acc = 0.0f64;
 
                     for k in 0..params.kernel_size {
-                        let il = ol * params.stride + k * params.dilation;
+                        let il_signed = (ol * params.stride) as isize
+                            + (k * params.dilation) as isize
+                            - params.pad_left as isize;
+                        if il_signed < 0 || (il_signed as usize) >= params.length {
+                            continue;
+                        }
+                        let il = il_signed as usize;
 
                         for chunk in 0..chunks {
                             let ic_base = chunk * lanes;
 
-                            let in_idx = b * params.c_in * params.input_length
-                                + (c_in_start + ic_base) * params.input_length
+                            let in_idx = b * params.c_in * params.length
+                                + (c_in_start + ic_base) * params.length
                                 + il;
 
-                            let in_arr =
-                                [*input.add(in_idx), *input.add(in_idx + params.input_length)];
+                            let in_arr = [*input.add(in_idx), *input.add(in_idx + params.length)];
                             let v_in = vld1q_f64(in_arr.as_ptr());
 
-                            let w_idx = oc * c_in_per_group * params.kernel_size
+                            let w_idx = out_c * c_in_per_group * params.kernel_size
                                 + ic_base * params.kernel_size
                                 + k;
                             let w_arr =
@@ -178,10 +189,10 @@ pub unsafe fn conv1d_f64(
                         }
 
                         for ic in (chunks * lanes)..c_in_per_group {
-                            let in_idx = b * params.c_in * params.input_length
-                                + (c_in_start + ic) * params.input_length
+                            let in_idx = b * params.c_in * params.length
+                                + (c_in_start + ic) * params.length
                                 + il;
-                            let w_idx = oc * c_in_per_group * params.kernel_size
+                            let w_idx = out_c * c_in_per_group * params.kernel_size
                                 + ic * params.kernel_size
                                 + k;
                             scalar_acc += *input.add(in_idx) * *weight.add(w_idx);
@@ -221,11 +232,11 @@ pub unsafe fn conv2d_f32(
     let c_out_per_group = params.c_out / params.groups;
     let chunks = c_in_per_group / lanes;
 
-    let in_spatial = params.input_h * params.input_w;
+    let in_spatial = params.height * params.width;
     let out_spatial = params.output_h * params.output_w;
     let kernel_spatial = params.kernel_h * params.kernel_w;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for g in 0..params.groups {
             let c_in_start = g * c_in_per_group;
             let c_out_start = g * c_out_per_group;
@@ -246,8 +257,21 @@ pub unsafe fn conv2d_f32(
 
                         for kh in 0..params.kernel_h {
                             for kw in 0..params.kernel_w {
-                                let ih = oh * params.stride_h + kh * params.dilation_h;
-                                let iw = ow * params.stride_w + kw * params.dilation_w;
+                                let ih_signed = (oh * params.stride_h) as isize
+                                    + (kh * params.dilation_h) as isize
+                                    - params.pad_top as isize;
+                                let iw_signed = (ow * params.stride_w) as isize
+                                    + (kw * params.dilation_w) as isize
+                                    - params.pad_left as isize;
+                                if ih_signed < 0
+                                    || (ih_signed as usize) >= params.height
+                                    || iw_signed < 0
+                                    || (iw_signed as usize) >= params.width
+                                {
+                                    continue;
+                                }
+                                let ih = ih_signed as usize;
+                                let iw = iw_signed as usize;
 
                                 // Vectorize over input channels
                                 for chunk in 0..chunks {
@@ -259,7 +283,7 @@ pub unsafe fn conv2d_f32(
                                         let ic = ic_base + lane;
                                         let in_idx = b * params.c_in * in_spatial
                                             + (c_in_start + ic) * in_spatial
-                                            + ih * params.input_w
+                                            + ih * params.width
                                             + iw;
                                         in_arr[lane] = *input.add(in_idx);
                                     }
@@ -269,7 +293,7 @@ pub unsafe fn conv2d_f32(
                                     let mut w_arr = [0.0f32; 4];
                                     for lane in 0..lanes {
                                         let ic = ic_base + lane;
-                                        let w_idx = oc * c_in_per_group * kernel_spatial
+                                        let w_idx = out_c * c_in_per_group * kernel_spatial
                                             + ic * kernel_spatial
                                             + kh * params.kernel_w
                                             + kw;
@@ -284,9 +308,9 @@ pub unsafe fn conv2d_f32(
                                 for ic in (chunks * lanes)..c_in_per_group {
                                     let in_idx = b * params.c_in * in_spatial
                                         + (c_in_start + ic) * in_spatial
-                                        + ih * params.input_w
+                                        + ih * params.width
                                         + iw;
-                                    let w_idx = oc * c_in_per_group * kernel_spatial
+                                    let w_idx = out_c * c_in_per_group * kernel_spatial
                                         + ic * kernel_spatial
                                         + kh * params.kernel_w
                                         + kw;
@@ -323,11 +347,11 @@ pub unsafe fn conv2d_f64(
     let c_out_per_group = params.c_out / params.groups;
     let chunks = c_in_per_group / lanes;
 
-    let in_spatial = params.input_h * params.input_w;
+    let in_spatial = params.height * params.width;
     let out_spatial = params.output_h * params.output_w;
     let kernel_spatial = params.kernel_h * params.kernel_w;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for g in 0..params.groups {
             let c_in_start = g * c_in_per_group;
             let c_out_start = g * c_out_per_group;
@@ -348,8 +372,21 @@ pub unsafe fn conv2d_f64(
 
                         for kh in 0..params.kernel_h {
                             for kw in 0..params.kernel_w {
-                                let ih = oh * params.stride_h + kh * params.dilation_h;
-                                let iw = ow * params.stride_w + kw * params.dilation_w;
+                                let ih_signed = (oh * params.stride_h) as isize
+                                    + (kh * params.dilation_h) as isize
+                                    - params.pad_top as isize;
+                                let iw_signed = (ow * params.stride_w) as isize
+                                    + (kw * params.dilation_w) as isize
+                                    - params.pad_left as isize;
+                                if ih_signed < 0
+                                    || (ih_signed as usize) >= params.height
+                                    || iw_signed < 0
+                                    || (iw_signed as usize) >= params.width
+                                {
+                                    continue;
+                                }
+                                let ih = ih_signed as usize;
+                                let iw = iw_signed as usize;
 
                                 for chunk in 0..chunks {
                                     let ic_base = chunk * lanes;
@@ -359,7 +396,7 @@ pub unsafe fn conv2d_f64(
                                         let ic = ic_base + lane;
                                         let in_idx = b * params.c_in * in_spatial
                                             + (c_in_start + ic) * in_spatial
-                                            + ih * params.input_w
+                                            + ih * params.width
                                             + iw;
                                         in_arr[lane] = *input.add(in_idx);
                                     }
@@ -368,7 +405,7 @@ pub unsafe fn conv2d_f64(
                                     let mut w_arr = [0.0f64; 2];
                                     for lane in 0..lanes {
                                         let ic = ic_base + lane;
-                                        let w_idx = oc * c_in_per_group * kernel_spatial
+                                        let w_idx = out_c * c_in_per_group * kernel_spatial
                                             + ic * kernel_spatial
                                             + kh * params.kernel_w
                                             + kw;
@@ -382,9 +419,9 @@ pub unsafe fn conv2d_f64(
                                 for ic in (chunks * lanes)..c_in_per_group {
                                     let in_idx = b * params.c_in * in_spatial
                                         + (c_in_start + ic) * in_spatial
-                                        + ih * params.input_w
+                                        + ih * params.width
                                         + iw;
-                                    let w_idx = oc * c_in_per_group * kernel_spatial
+                                    let w_idx = out_c * c_in_per_group * kernel_spatial
                                         + ic * kernel_spatial
                                         + kh * params.kernel_w
                                         + kw;
@@ -428,11 +465,11 @@ pub unsafe fn depthwise_conv2d_f32(
     let lanes = 4;
     let out_w_chunks = params.output_w / lanes;
 
-    let in_spatial = params.input_h * params.input_w;
+    let in_spatial = params.height * params.width;
     let out_spatial = params.output_h * params.output_w;
     let kernel_spatial = params.kernel_h * params.kernel_w;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for c in 0..params.c_out {
             let bias_val = if let Some(bias_ptr) = bias {
                 *bias_ptr.add(c)
@@ -452,18 +489,29 @@ pub unsafe fn depthwise_conv2d_f32(
                             let w_val = *weight.add(c * kernel_spatial + kh * params.kernel_w + kw);
                             let v_w = vdupq_n_f32(w_val);
 
-                            let ih = oh * params.stride_h + kh * params.dilation_h;
+                            let ih_signed = (oh * params.stride_h) as isize
+                                + (kh * params.dilation_h) as isize
+                                - params.pad_top as isize;
+                            if ih_signed < 0 || (ih_signed as usize) >= params.height {
+                                continue;
+                            }
+                            let ih = ih_signed as usize;
 
                             // Gather 4 input values at different output width positions
                             let mut in_arr = [0.0f32; 4];
                             for lane in 0..lanes {
                                 let ow = ow_base + lane;
-                                let iw = ow * params.stride_w + kw * params.dilation_w;
-                                let in_idx = b * params.c_in * in_spatial
-                                    + c * in_spatial
-                                    + ih * params.input_w
-                                    + iw;
-                                in_arr[lane] = *input.add(in_idx);
+                                let iw_signed = (ow * params.stride_w) as isize
+                                    + (kw * params.dilation_w) as isize
+                                    - params.pad_left as isize;
+                                if iw_signed >= 0 && (iw_signed as usize) < params.width {
+                                    let iw = iw_signed as usize;
+                                    let in_idx = b * params.c_in * in_spatial
+                                        + c * in_spatial
+                                        + ih * params.width
+                                        + iw;
+                                    in_arr[lane] = *input.add(in_idx);
+                                }
                             }
                             let v_in = vld1q_f32(in_arr.as_ptr());
 
@@ -485,12 +533,25 @@ pub unsafe fn depthwise_conv2d_f32(
 
                     for kh in 0..params.kernel_h {
                         for kw in 0..params.kernel_w {
-                            let ih = oh * params.stride_h + kh * params.dilation_h;
-                            let iw = ow * params.stride_w + kw * params.dilation_w;
+                            let ih_signed = (oh * params.stride_h) as isize
+                                + (kh * params.dilation_h) as isize
+                                - params.pad_top as isize;
+                            let iw_signed = (ow * params.stride_w) as isize
+                                + (kw * params.dilation_w) as isize
+                                - params.pad_left as isize;
+                            if ih_signed < 0
+                                || (ih_signed as usize) >= params.height
+                                || iw_signed < 0
+                                || (iw_signed as usize) >= params.width
+                            {
+                                continue;
+                            }
+                            let ih = ih_signed as usize;
+                            let iw = iw_signed as usize;
 
                             let in_idx = b * params.c_in * in_spatial
                                 + c * in_spatial
-                                + ih * params.input_w
+                                + ih * params.width
                                 + iw;
                             let w_idx = c * kernel_spatial + kh * params.kernel_w + kw;
 
@@ -522,11 +583,11 @@ pub unsafe fn depthwise_conv2d_f64(
     let lanes = 2;
     let out_w_chunks = params.output_w / lanes;
 
-    let in_spatial = params.input_h * params.input_w;
+    let in_spatial = params.height * params.width;
     let out_spatial = params.output_h * params.output_w;
     let kernel_spatial = params.kernel_h * params.kernel_w;
 
-    for b in 0..params.batch_size {
+    for b in 0..params.batch {
         for c in 0..params.c_out {
             let bias_val = if let Some(bias_ptr) = bias {
                 *bias_ptr.add(c)
@@ -545,17 +606,28 @@ pub unsafe fn depthwise_conv2d_f64(
                             let w_val = *weight.add(c * kernel_spatial + kh * params.kernel_w + kw);
                             let v_w = vdupq_n_f64(w_val);
 
-                            let ih = oh * params.stride_h + kh * params.dilation_h;
+                            let ih_signed = (oh * params.stride_h) as isize
+                                + (kh * params.dilation_h) as isize
+                                - params.pad_top as isize;
+                            if ih_signed < 0 || (ih_signed as usize) >= params.height {
+                                continue;
+                            }
+                            let ih = ih_signed as usize;
 
                             let mut in_arr = [0.0f64; 2];
                             for lane in 0..lanes {
                                 let ow = ow_base + lane;
-                                let iw = ow * params.stride_w + kw * params.dilation_w;
-                                let in_idx = b * params.c_in * in_spatial
-                                    + c * in_spatial
-                                    + ih * params.input_w
-                                    + iw;
-                                in_arr[lane] = *input.add(in_idx);
+                                let iw_signed = (ow * params.stride_w) as isize
+                                    + (kw * params.dilation_w) as isize
+                                    - params.pad_left as isize;
+                                if iw_signed >= 0 && (iw_signed as usize) < params.width {
+                                    let iw = iw_signed as usize;
+                                    let in_idx = b * params.c_in * in_spatial
+                                        + c * in_spatial
+                                        + ih * params.width
+                                        + iw;
+                                    in_arr[lane] = *input.add(in_idx);
+                                }
                             }
                             let v_in = vld1q_f64(in_arr.as_ptr());
 
@@ -575,12 +647,25 @@ pub unsafe fn depthwise_conv2d_f64(
 
                     for kh in 0..params.kernel_h {
                         for kw in 0..params.kernel_w {
-                            let ih = oh * params.stride_h + kh * params.dilation_h;
-                            let iw = ow * params.stride_w + kw * params.dilation_w;
+                            let ih_signed = (oh * params.stride_h) as isize
+                                + (kh * params.dilation_h) as isize
+                                - params.pad_top as isize;
+                            let iw_signed = (ow * params.stride_w) as isize
+                                + (kw * params.dilation_w) as isize
+                                - params.pad_left as isize;
+                            if ih_signed < 0
+                                || (ih_signed as usize) >= params.height
+                                || iw_signed < 0
+                                || (iw_signed as usize) >= params.width
+                            {
+                                continue;
+                            }
+                            let ih = ih_signed as usize;
+                            let iw = iw_signed as usize;
 
                             let in_idx = b * params.c_in * in_spatial
                                 + c * in_spatial
-                                + ih * params.input_w
+                                + ih * params.width
                                 + iw;
                             let w_idx = c * kernel_spatial + kh * params.kernel_w + kw;
 
