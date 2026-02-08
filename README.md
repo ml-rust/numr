@@ -17,7 +17,7 @@ A **foundation library** - Mathematical building blocks for higher-level librari
 | FFT, statistics, random distributions    | Domain-specific           |
 | Native GPU (CUDA + WebGPU) + autograd    |                           |
 
-**For SciPy-equivalent functionality** (optimization, ODE, interpolation, signal), see [**solvr**](https://github.com/farhan-syah/solvr).
+**For SciPy-equivalent functionality** (optimization, ODE, interpolation, signal), see [**solvr**](https://github.com/ml-rust/solvr).
 
 ## Why numr?
 
@@ -525,7 +525,7 @@ numr is the **foundation** that everything else builds on:
 ┌─────────────────────────▼────────────────────────┐
 │  solvr - Scientific Computing (like SciPy)       │
 │  Optimization, ODE/PDE, interpolation, signal    │
-│  https://github.com/farhan-syah/solvr            │
+│  https://github.com/ml-rust/solvr                │
 └─────────────────────────┬────────────────────────┘
                           │
 ┌─────────────────────────▼────────────────────────┐
