@@ -41,7 +41,10 @@ use crate::tensor::Tensor;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
+/// use numr::algorithm::polynomial::core::DTypeSupport;
+/// use numr::dtype::DType;
+///
 /// // CPU and CUDA support both F32 and F64, use I64 indices
 /// let support = DTypeSupport::FULL;
 /// assert!(support.check(DType::F64, "polyroots").is_ok());

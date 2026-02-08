@@ -19,15 +19,15 @@
 //!
 //! # Examples
 //!
-//! ```ignore
-//! use numr::dtype::complex::Complex64;
-//!
+//! ```
+//! # use numr::dtype::complex::Complex64;
 //! let z = Complex64::new(3.0, 4.0);
 //! assert_eq!(z.magnitude(), 5.0);  // |z| = sqrt(3² + 4²) = 5
 //!
 //! let w = Complex64::new(1.0, 2.0);
 //! let product = z * w;  // Complex multiplication
 //! let conjugate = z.conj();  // 3 - 4i
+//! assert_eq!(conjugate.im, -4.0);
 //! ```
 
 use bytemuck::{Pod, Zeroable};

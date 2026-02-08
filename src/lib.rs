@@ -103,11 +103,17 @@ pub mod prelude {
     pub use crate::runtime::{Device, Runtime, RuntimeClient};
 
     // Operation traits (same API across all backends)
-    pub use crate::ops::{BinaryOps, CompareOps, CumulativeOps, ScalarOps, TensorOps};
+    pub use crate::ops::{
+        ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps,
+        ConvOps, CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, LinalgOps, LogicalOps,
+        MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
+        QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
+        TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    };
 
-    // Algorithm traits (same API across all backends)
+    // Algorithm traits
+    pub use crate::algorithm::SpecialFunctions;
     pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
-    pub use crate::algorithm::{LinearAlgebraAlgorithms, SpecialFunctions};
 
     // Backend runtimes
     #[cfg(feature = "cpu")]

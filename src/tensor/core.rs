@@ -22,11 +22,12 @@ use std::fmt;
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::prelude::*;
-///
-/// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2]);
+/// ```
+/// # use numr::prelude::*;
+/// # let device = CpuDevice::new();
+/// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
 /// let b = a.transpose(-1, -2); // Zero-copy, shares storage with a
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 pub struct Tensor<R: Runtime> {
     /// Unique ID for autograd tracking
@@ -56,8 +57,11 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
         Self::try_from_slice(data, shape, device).expect("Tensor::from_slice failed")
@@ -70,8 +74,11 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
     /// let tensor = Tensor::<CpuRuntime>::try_from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device)?;
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn try_from_slice<T: Element>(
         data: &[T],
@@ -383,9 +390,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let data = vec![0.0f32; 24];
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3, 4], &device);
     /// let permuted = tensor.permute(&[2, 0, 1])?; // Shape becomes [4, 2, 3]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn permute(&self, dims: &[usize]) -> Result<Self> {
         let new_layout = self
@@ -415,9 +426,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let data = vec![0.0f32; 120];
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[4, 5, 6], &device);
     /// let narrowed = tensor.narrow(1, 1, 3)?; // Shape becomes [4, 3, 6]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn narrow(&self, dim: isize, start: usize, length: usize) -> Result<Self> {
         let dim_idx = self
@@ -470,10 +485,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
     /// let flipped = tensor.flip(0)?; // Reverse rows: [[3, 4], [1, 2]]
     /// let flipped = tensor.flip(-1)?; // Reverse columns: [[2, 1], [4, 3]]
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn flip(&self, dim: isize) -> Result<Self> {
         let new_layout = self.layout.flip(dim).ok_or(Error::InvalidDimension {
@@ -495,9 +513,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let data = vec![0.0f32; 24];
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3, 4], &device);
     /// let flipped = tensor.flip_dims(&[0, 2])?; // Flip first and last dimensions
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn flip_dims(&self, dims: &[isize]) -> Result<Self> {
         let new_layout = self
@@ -614,12 +636,15 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let loss = compute_loss(&predictions, &targets)?;
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let loss = Tensor::<CpuRuntime>::from_slice(&[0.5f32], &[], &device);
     /// let loss_val: f32 = loss.item()?;
-    /// if loss_val < tolerance {
-    ///     break;
+    /// if loss_val < 1.0 {
+    ///     // training converged
     /// }
+    /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn item<T: bytemuck::Pod + Copy>(&self) -> Result<T> {
         if self.numel() != 1 {

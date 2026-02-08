@@ -15,14 +15,10 @@
 /// # Example
 ///
 /// ```ignore
-/// use numr::runtime::{Runtime, CpuRuntime};
-///
-/// fn compute<R: Runtime>(device: &R::Device) -> numr::error::Result<()> {
-///     let ptr = R::allocate(1024, device)?;
-///     // ... use memory ...
-///     R::deallocate(ptr, 1024, device);
-///     Ok(())
-/// }
+/// let device = CpuRuntime::default_device();
+/// let ptr = CpuRuntime::allocate(1024, &device)?;
+/// // ... use memory ...
+/// CpuRuntime::deallocate(ptr, 1024, &device);
 /// ```
 pub trait Runtime: Clone + Send + Sync + 'static {
     /// Device identifier type

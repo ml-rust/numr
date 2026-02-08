@@ -54,20 +54,17 @@ pub use traits::*;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```
+/// # use numr::prelude::*;
+/// # let device = CpuDevice::new();
+/// # let client = CpuRuntime::default_client(&device);
 /// use numr::algorithm::linalg::MatrixNormOrder;
+/// use numr::ops::LinalgOps;
 ///
-/// // Frobenius norm: measures overall magnitude
-/// // ||A||_F = sqrt(sum(A[i,j]²))
-/// let fro_norm = client.matrix_norm(&matrix, MatrixNormOrder::Frobenius)?;
-///
-/// // Spectral norm: largest singular value (operator norm)
-/// // ||A||_2 = sigma_max(A)
-/// let spec_norm = client.matrix_norm(&matrix, MatrixNormOrder::Spectral)?;
-///
-/// // Nuclear norm: sum of singular values
-/// // ||A||_* = sum(sigma_i)
-/// let nuc_norm = client.matrix_norm(&matrix, MatrixNormOrder::Nuclear)?;
+/// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+/// let fro = client.matrix_norm(&a, MatrixNormOrder::Frobenius)?;
+/// let spec = client.matrix_norm(&a, MatrixNormOrder::Spectral)?;
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatrixNormOrder {

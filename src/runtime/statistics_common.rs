@@ -154,9 +154,10 @@ impl Interpolation {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// # use numr::runtime::statistics_common::compute_bin_edges_f64;
 /// let edges = compute_bin_edges_f64(0.0, 10.0, 5);
-/// // edges = [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+/// assert_eq!(edges, vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
 /// ```
 #[inline]
 pub fn compute_bin_edges_f64(min_val: f64, max_val: f64, bins: usize) -> Vec<f64> {

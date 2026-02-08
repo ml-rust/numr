@@ -14,14 +14,14 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use numr::dtype::FP8E4M3;
-//!
+//! ```
+//! # use numr::dtype::FP8E4M3;
 //! // Convert from f32
 //! let fp8_val = FP8E4M3::from_f32(1.5);
 //!
 //! // Convert back to f32
 //! let f32_val = fp8_val.to_f32();
+//! assert!(fp8_val.to_f32() > 0.0);
 //! ```
 
 use bytemuck::{Pod, Zeroable};

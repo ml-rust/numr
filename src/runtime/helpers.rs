@@ -34,9 +34,8 @@ use crate::tensor::Tensor;
 ///
 /// # Examples
 ///
-/// ```ignore
-/// use numr::runtime::helpers::normalize_dim;
-///
+/// ```
+/// # use numr::runtime::helpers::normalize_dim;
 /// // Positive indexing
 /// assert_eq!(normalize_dim(0, 3)?, 0);
 /// assert_eq!(normalize_dim(2, 3)?, 2);
@@ -48,6 +47,7 @@ use crate::tensor::Tensor;
 /// // Out of bounds
 /// assert!(normalize_dim(3, 3).is_err());
 /// assert!(normalize_dim(-4, 3).is_err());
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 #[inline]
 pub fn normalize_dim(dim: isize, ndim: usize) -> Result<usize> {
@@ -170,15 +170,15 @@ pub fn validate_eye(n: usize, m: Option<usize>) -> (usize, usize) {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use numr::runtime::helpers::ensure_contiguous;
-/// use numr::tensor::Tensor;
-/// use numr::runtime::cpu::CpuRuntime;
-///
+/// ```
+/// # use numr::prelude::*;
+/// # use numr::runtime::helpers::ensure_contiguous;
+/// # let device = CpuDevice::new();
 /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
-/// let b = a.transpose()?;  // Not contiguous after transpose
+/// let b = a.transpose(0, 1)?;  // Not contiguous after transpose
 /// let c = ensure_contiguous(&b);  // Makes a contiguous copy
 /// assert!(c.is_contiguous());
+/// # Ok::<(), numr::error::Error>(())
 /// ```
 #[inline]
 pub fn ensure_contiguous<R: Runtime>(tensor: &Tensor<R>) -> Tensor<R> {
