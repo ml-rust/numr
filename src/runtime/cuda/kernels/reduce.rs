@@ -38,7 +38,6 @@ fn reduce_kernel_name(base_op: &str, dtype: DType, acc_precision: AccumulationPr
             AccumulationPrecision::Native | AccumulationPrecision::BF16 => None,
         },
         // FP8: FP32 by default (no suffix), _bf16acc for BF16, _fp64acc for FP64
-        #[cfg(feature = "fp8")]
         DType::FP8E4M3 | DType::FP8E5M2 => match acc_precision {
             AccumulationPrecision::BF16 => Some("_bf16acc"),
             AccumulationPrecision::FP64 => Some("_fp64acc"),

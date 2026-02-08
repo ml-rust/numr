@@ -28,10 +28,10 @@ pub fn masked_select(
 
     // Phase 1: Count true elements in mask
     let count_bytes = std::mem::size_of::<u32>();
-    let count_ptr = CudaRuntime::allocate(count_bytes, &client.device);
+    let count_ptr = CudaRuntime::allocate(count_bytes, &client.device)?;
 
     let zero: u32 = 0;
-    CudaRuntime::copy_to_device(bytemuck::bytes_of(&zero), count_ptr, &client.device);
+    CudaRuntime::copy_to_device(bytemuck::bytes_of(&zero), count_ptr, &client.device)?;
 
     if bcast.needs_broadcast {
         unsafe {
@@ -65,7 +65,7 @@ pub fn masked_select(
         count_ptr,
         bytemuck::bytes_of_mut(&mut count_buf),
         &client.device,
-    );
+    )?;
     let count = count_buf[0] as usize;
     CudaRuntime::deallocate(count_ptr, count_bytes, &client.device);
 
@@ -76,7 +76,7 @@ pub fn masked_select(
 
     // Phase 2: Compute prefix sum
     let prefix_sum_bytes = numel * std::mem::size_of::<u32>();
-    let prefix_sum_ptr = CudaRuntime::allocate(prefix_sum_bytes, &client.device);
+    let prefix_sum_ptr = CudaRuntime::allocate(prefix_sum_bytes, &client.device)?;
 
     if bcast.needs_broadcast {
         unsafe {

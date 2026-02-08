@@ -40,9 +40,8 @@ impl FillValue {
             DType::U8 | DType::Bool => FillValue::U8(value as u8),
             #[cfg(feature = "f16")]
             DType::F16 | DType::BF16 => FillValue::F32(value as f32), // F16/BF16 kernels use f32 value
-            #[cfg(feature = "fp8")]
             DType::FP8E4M3 | DType::FP8E5M2 => FillValue::F32(value as f32), // FP8 kernels use f32 value
-            _ => FillValue::F64(value), // Default fallback
+            _ => FillValue::F64(value),                                      // Default fallback
         }
     }
 

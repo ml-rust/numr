@@ -1,6 +1,5 @@
 //! CUDA-specific helper functions for kernel launching and tensor operations
 
-#[cfg(any(feature = "f16", feature = "fp8"))]
 use super::super::kernels::launch_scalar_op_half;
 use super::super::kernels::{
     AccumulationPrecision, launch_binary_op, launch_broadcast_binary_op,
@@ -382,7 +381,6 @@ pub(super) fn native_scalar_op(
                 out.storage().ptr(),
                 out.numel(),
             )?,
-            #[cfg(feature = "fp8")]
             DType::FP8E4M3 | DType::FP8E5M2 => launch_scalar_op_half(
                 &client.context,
                 &client.stream,

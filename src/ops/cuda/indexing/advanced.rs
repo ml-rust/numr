@@ -275,20 +275,20 @@ pub fn gather_nd(
     let shape_bytes = ndim * std::mem::size_of::<u32>();
 
     // Allocate GPU buffers for shape and strides
-    let shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device);
-    let strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device);
+    let shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
+    let strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
 
     // Copy shape and strides to GPU
     CudaRuntime::copy_to_device(
         bytemuck::cast_slice(&input_shape_u32),
         shape_ptr,
         &client.device,
-    );
+    )?;
     CudaRuntime::copy_to_device(
         bytemuck::cast_slice(&input_strides_u32),
         strides_ptr,
         &client.device,
-    );
+    )?;
 
     let result = unsafe {
         launch_gather_nd(

@@ -141,9 +141,9 @@ pub unsafe fn launch_repeat(
 
     // Allocate device memory for shapes
     let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device);
-    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device);
-    let out_strides_ptr = CudaRuntime::allocate(shape_bytes, device);
+    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
+    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
+    let out_strides_ptr = CudaRuntime::allocate(shape_bytes, device)?;
 
     // Convert shapes to u32 and copy to device
     let src_shape_u32: Vec<u32> = src_shape.iter().map(|&s| s as u32).collect();
@@ -157,13 +157,13 @@ pub unsafe fn launch_repeat(
         stride *= out_shape_u32[i];
     }
 
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device);
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device);
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device)?;
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device)?;
     CudaRuntime::copy_to_device(
         bytemuck::cast_slice(&out_strides_u32),
         out_strides_ptr,
         device,
-    );
+    )?;
 
     // Use closure to capture result, ensuring cleanup always runs even if kernel launch fails
     let result: Result<()> = (|| unsafe {
@@ -248,22 +248,22 @@ pub unsafe fn launch_pad(
 
     // Allocate device memory for shapes and padding
     let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device);
-    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device);
-    let pad_before_ptr = CudaRuntime::allocate(shape_bytes, device);
+    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
+    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
+    let pad_before_ptr = CudaRuntime::allocate(shape_bytes, device)?;
 
     // Convert to u32 and copy to device
     let src_shape_u32: Vec<u32> = src_shape.iter().map(|&s| s as u32).collect();
     let out_shape_u32: Vec<u32> = out_shape.iter().map(|&s| s as u32).collect();
     let pad_before_u32: Vec<u32> = pad_before.iter().map(|&s| s as u32).collect();
 
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device);
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device);
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device)?;
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device)?;
     CudaRuntime::copy_to_device(
         bytemuck::cast_slice(&pad_before_u32),
         pad_before_ptr,
         device,
-    );
+    )?;
 
     // Prepare fill values before the closure (all variants needed for borrow lifetime)
     let fill_f32 = fill_value as f32;

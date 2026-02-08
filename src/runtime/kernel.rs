@@ -427,22 +427,13 @@ macro_rules! dispatch_typed_kernel {
                     op: $op,
                 })
             }
-            #[cfg(feature = "fp8")]
             $crate::dtype::DType::FP8E4M3 => {
                 type $T = $crate::dtype::FP8E4M3;
                 $body
             }
-            #[cfg(feature = "fp8")]
             $crate::dtype::DType::FP8E5M2 => {
                 type $T = $crate::dtype::FP8E5M2;
                 $body
-            }
-            #[cfg(not(feature = "fp8"))]
-            $crate::dtype::DType::FP8E4M3 | $crate::dtype::DType::FP8E5M2 => {
-                return Err($crate::error::Error::UnsupportedDType {
-                    dtype: $dtype,
-                    op: $op,
-                })
             }
             $crate::dtype::DType::Bool => {
                 return Err($crate::error::Error::UnsupportedDType {

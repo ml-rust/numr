@@ -63,7 +63,7 @@ impl CudaClient {
                 sorted_rows.storage().ptr(),
                 row_indices.storage().size_in_bytes(),
                 device,
-            );
+            )?;
 
             kernels::launch_thrust_sort_pairs_i64_i32(
                 &self.context,
@@ -208,7 +208,7 @@ impl CudaClient {
                 sorted_cols.storage().ptr(),
                 col_indices.storage().size_in_bytes(),
                 device,
-            );
+            )?;
 
             kernels::launch_thrust_sort_pairs_i64_i32(
                 &self.context,

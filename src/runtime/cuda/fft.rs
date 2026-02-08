@@ -87,7 +87,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
             let temp_ptr = self.allocator().allocate(output_size);
 
             // Copy input to one buffer
-            CudaRuntime::copy_within_device(input_ptr, output_ptr, output_size, device);
+            CudaRuntime::copy_within_device(input_ptr, output_ptr, output_size, device)?;
 
             let mut src_ptr = output_ptr;
             let mut dst_ptr = temp_ptr;
@@ -128,7 +128,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
             // If result is in temp buffer, copy to output
             if src_ptr == temp_ptr {
-                CudaRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device);
+                CudaRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device)?;
             }
 
             self.allocator().deallocate(temp_ptr, output_size);
@@ -263,7 +263,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                     scale,
                 )?;
             }
-            CudaRuntime::copy_within_device(temp_ptr, complex_ptr, complex_size, device);
+            CudaRuntime::copy_within_device(temp_ptr, complex_ptr, complex_size, device)?;
             self.allocator().deallocate(temp_ptr, complex_size);
         } else {
             // Multi-stage for large FFTs
@@ -306,7 +306,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
             }
 
             if src_ptr != complex_ptr {
-                CudaRuntime::copy_within_device(src_ptr, complex_ptr, complex_size, device);
+                CudaRuntime::copy_within_device(src_ptr, complex_ptr, complex_size, device)?;
             }
 
             self.allocator().deallocate(temp_ptr, complex_size);
@@ -412,7 +412,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                     1.0, // Scale applied in unpack
                 )?;
             }
-            CudaRuntime::copy_within_device(temp_ptr, full_complex_ptr, full_complex_size, device);
+            CudaRuntime::copy_within_device(temp_ptr, full_complex_ptr, full_complex_size, device)?;
             self.allocator().deallocate(temp_ptr, full_complex_size);
         } else {
             let log_n = (output_n as f64).log2() as usize;
@@ -445,7 +445,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                     full_complex_ptr,
                     full_complex_size,
                     device,
-                );
+                )?;
             }
 
             self.allocator().deallocate(temp_ptr, full_complex_size);

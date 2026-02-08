@@ -32,8 +32,8 @@ pub unsafe fn launch_sobol_f32(
     // Compute direction vectors on host and upload to GPU
     let direction_vectors = compute_all_direction_vectors(dimension);
     let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
-    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device);
-    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device);
+    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device)?;
+    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device)?;
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
@@ -86,8 +86,8 @@ pub unsafe fn launch_sobol_f64(
     // Compute direction vectors on host and upload to GPU
     let direction_vectors = compute_all_direction_vectors(dimension);
     let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
-    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device);
-    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device);
+    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device)?;
+    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device)?;
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);

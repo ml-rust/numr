@@ -43,11 +43,11 @@ pub fn eig_decompose_impl(
     let flag_ptr = client.allocator().allocate(std::mem::size_of::<i32>());
 
     // Copy A to T (working buffer)
-    CudaRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device)?;
 
     // Initialize converged flag to 0
     let zero_flag = [0i32];
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&zero_flag), flag_ptr, device);
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&zero_flag), flag_ptr, device)?;
 
     // Launch native CUDA general eigenvalue decomposition kernel
     let result = unsafe {

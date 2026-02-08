@@ -32,13 +32,10 @@ impl Runtime for CudaRuntime {
 
     /// Allocate GPU memory.
     ///
-    /// # Panics
-    ///
-    /// Panics if CUDA memory allocation fails. This follows CUDA best practices
-    /// where allocation failures typically indicate an unrecoverable OOM condition.
-    fn allocate(size_bytes: usize, device: &Self::Device) -> u64 {
+    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails.
+    fn allocate(size_bytes: usize, device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
-            return 0;
+            return Ok(0);
         }
 
         let client = get_or_create_client(device);
@@ -52,13 +49,10 @@ impl Runtime for CudaRuntime {
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!(
-                    "[numr::cuda] Allocation failed: {} bytes on device {} ({:?})",
-                    size_bytes, device.index, result
-                );
+                return Err(crate::error::Error::OutOfMemory { size: size_bytes });
             }
 
-            ptr
+            Ok(ptr)
         }
     }
 
@@ -94,12 +88,10 @@ impl Runtime for CudaRuntime {
 
     /// Copy data from host to device.
     ///
-    /// # Panics
-    ///
-    /// Panics if the CUDA copy operation fails.
-    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) {
+    /// Returns an error if the CUDA copy operation fails.
+    fn copy_to_device(src: &[u8], dst: u64, device: &Self::Device) -> crate::error::Result<()> {
         if src.is_empty() || dst == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
@@ -113,26 +105,29 @@ impl Runtime for CudaRuntime {
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!(
-                    "[numr::cuda] Host-to-device copy failed: {} bytes ({:?})",
+                return Err(crate::error::Error::Backend(format!(
+                    "CUDA host-to-device copy failed: {} bytes ({:?})",
                     src.len(),
                     result
-                );
+                )));
             }
 
             // Synchronize to ensure data is available
             let _ = client.stream.synchronize();
         }
+        Ok(())
     }
 
     /// Copy data from device to host.
     ///
-    /// # Panics
-    ///
-    /// Panics if the CUDA copy operation fails.
-    fn copy_from_device(src: u64, dst: &mut [u8], device: &Self::Device) {
+    /// Returns an error if the CUDA copy operation fails.
+    fn copy_from_device(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if dst.is_empty() || src == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
@@ -146,26 +141,30 @@ impl Runtime for CudaRuntime {
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Device-to-host copy failed: {} bytes ({:?})",
                     dst.len(),
                     result
-                );
+                )));
             }
 
             // Synchronize to ensure data is available on host
             let _ = client.stream.synchronize();
         }
+        Ok(())
     }
 
     /// Copy data within device memory.
     ///
-    /// # Panics
-    ///
-    /// Panics if the CUDA copy operation fails.
-    fn copy_within_device(src: u64, dst: u64, size_bytes: usize, device: &Self::Device) {
+    /// Returns an error if the CUDA copy operation fails.
+    fn copy_within_device(
+        src: u64,
+        dst: u64,
+        size_bytes: usize,
+        device: &Self::Device,
+    ) -> crate::error::Result<()> {
         if size_bytes == 0 || src == 0 || dst == 0 {
-            return;
+            return Ok(());
         }
 
         let client = get_or_create_client(device);
@@ -179,12 +178,13 @@ impl Runtime for CudaRuntime {
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Device-to-device copy failed: {} bytes ({:?})",
                     size_bytes, result
-                );
+                )));
             }
         }
+        Ok(())
     }
 
     fn copy_strided(
@@ -195,14 +195,14 @@ impl Runtime for CudaRuntime {
         strides: &[isize],
         elem_size: usize,
         device: &Self::Device,
-    ) {
+    ) -> crate::error::Result<()> {
         if src_handle == 0 || dst_handle == 0 || shape.is_empty() {
-            return;
+            return Ok(());
         }
 
         let numel: usize = shape.iter().product();
         if numel == 0 {
-            return;
+            return Ok(());
         }
 
         let ndim = shape.len();
@@ -223,10 +223,10 @@ impl Runtime for CudaRuntime {
             let result =
                 cudarc::driver::sys::cuMemAllocAsync(&mut shape_ptr, shape_bytes, cu_stream);
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Failed to allocate shape array for strided copy ({:?})",
                     result
-                );
+                )));
             }
 
             // Allocate device memory for strides array
@@ -234,12 +234,12 @@ impl Runtime for CudaRuntime {
             let result =
                 cudarc::driver::sys::cuMemAllocAsync(&mut strides_ptr, strides_bytes, cu_stream);
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                // Free shape_ptr before panicking
+                // Free shape_ptr before returning error
                 let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Failed to allocate strides array for strided copy ({:?})",
                     result
-                );
+                )));
             }
 
             // Copy shape to device
@@ -252,10 +252,10 @@ impl Runtime for CudaRuntime {
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
                 let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
                 let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Failed to copy shape to device for strided copy ({:?})",
                     result
-                );
+                )));
             }
 
             // Copy strides to device
@@ -268,10 +268,10 @@ impl Runtime for CudaRuntime {
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
                 let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
                 let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Failed to copy strides to device for strided copy ({:?})",
                     result
-                );
+                )));
             }
 
             // Launch the strided copy kernel
@@ -295,7 +295,7 @@ impl Runtime for CudaRuntime {
 
             // Check kernel launch result
             if let Err(e) = kernel_result {
-                panic!(
+                return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Strided copy kernel failed: {} bytes ({} elements × {} bytes/elem) from {} to {} on device {}: {:?}",
                     numel * elem_size,
                     numel,
@@ -304,12 +304,13 @@ impl Runtime for CudaRuntime {
                     dst_handle,
                     device.index,
                     e
-                );
+                )));
             }
 
             // Synchronize to ensure copy is complete
             let _ = client.stream.synchronize();
         }
+        Ok(())
     }
 
     fn default_device() -> Self::Device {

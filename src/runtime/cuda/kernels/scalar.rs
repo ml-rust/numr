@@ -119,14 +119,13 @@ define_scalar_launcher!(
 /// Launch a scalar operation kernel for f16/bf16/fp8 (uses f32 scalar value).
 ///
 /// This launcher handles multiple half-precision types that all use f32 scalars:
-/// - F16 (IEEE 754 half precision)
-/// - BF16 (bfloat16)
-/// - FP8E4M3 / FP8E5M2 (8-bit floating point)
+/// - F16 (IEEE 754 half precision, requires "f16" feature)
+/// - BF16 (bfloat16, requires "f16" feature)
+/// - FP8E4M3 / FP8E5M2 (8-bit floating point, always available)
 ///
 /// # Safety
 ///
 /// Same requirements as `launch_scalar_op_f32`.
-#[cfg(any(feature = "f16", feature = "fp8"))]
 pub unsafe fn launch_scalar_op_half(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

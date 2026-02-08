@@ -123,12 +123,12 @@ pub fn qz_decompose_impl(
     let flag_ptr = client.allocator().allocate(std::mem::size_of::<i32>());
 
     // Copy input matrices to S and T (will be modified in-place)
-    CudaRuntime::copy_within_device(a.storage().ptr(), s_ptr, matrix_size, device);
-    CudaRuntime::copy_within_device(b.storage().ptr(), t_ptr, matrix_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), s_ptr, matrix_size, device)?;
+    CudaRuntime::copy_within_device(b.storage().ptr(), t_ptr, matrix_size, device)?;
 
     // Initialize converged flag to 0
     let zero_flag = [0i32];
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&zero_flag), flag_ptr, device);
+    CudaRuntime::copy_to_device(bytemuck::cast_slice(&zero_flag), flag_ptr, device)?;
 
     // Launch native QZ decomposition kernel
     let result = unsafe {

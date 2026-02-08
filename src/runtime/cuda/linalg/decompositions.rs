@@ -37,12 +37,12 @@ pub fn lu_decompose_impl(
     let singular_flag_ptr = client.allocator().allocate(singular_flag_size);
 
     // Copy input to LU buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), lu_ptr, lu_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), lu_ptr, lu_size, device)?;
 
     // Zero-initialize flags
     let zero_i32: [u8; 4] = [0; 4];
-    CudaRuntime::copy_to_device(&zero_i32, num_swaps_ptr, device);
-    CudaRuntime::copy_to_device(&zero_i32, singular_flag_ptr, device);
+    CudaRuntime::copy_to_device(&zero_i32, num_swaps_ptr, device)?;
+    CudaRuntime::copy_to_device(&zero_i32, singular_flag_ptr, device)?;
 
     // Launch kernel
     unsafe {
@@ -65,8 +65,8 @@ pub fn lu_decompose_impl(
     // Read back flags
     let mut num_swaps_bytes = [0u8; 4];
     let mut singular_flag_bytes = [0u8; 4];
-    CudaRuntime::copy_from_device(num_swaps_ptr, &mut num_swaps_bytes, device);
-    CudaRuntime::copy_from_device(singular_flag_ptr, &mut singular_flag_bytes, device);
+    CudaRuntime::copy_from_device(num_swaps_ptr, &mut num_swaps_bytes, device)?;
+    CudaRuntime::copy_from_device(singular_flag_ptr, &mut singular_flag_bytes, device)?;
 
     let num_swaps = i32::from_ne_bytes(num_swaps_bytes) as usize;
     let singular = i32::from_ne_bytes(singular_flag_bytes) != 0;
@@ -115,11 +115,11 @@ pub fn cholesky_decompose_impl(
     let not_pd_flag_ptr = client.allocator().allocate(not_pd_flag_size);
 
     // Copy input to L buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), l_ptr, l_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), l_ptr, l_size, device)?;
 
     // Zero-initialize flag
     let zero_i32: [u8; 4] = [0; 4];
-    CudaRuntime::copy_to_device(&zero_i32, not_pd_flag_ptr, device);
+    CudaRuntime::copy_to_device(&zero_i32, not_pd_flag_ptr, device)?;
 
     // Launch kernel
     unsafe {
@@ -138,7 +138,7 @@ pub fn cholesky_decompose_impl(
 
     // Read back flag
     let mut not_pd_bytes = [0u8; 4];
-    CudaRuntime::copy_from_device(not_pd_flag_ptr, &mut not_pd_bytes, device);
+    CudaRuntime::copy_from_device(not_pd_flag_ptr, &mut not_pd_bytes, device)?;
     let not_pd = i32::from_ne_bytes(not_pd_bytes) != 0;
 
     client
@@ -184,7 +184,7 @@ pub fn qr_decompose_internal(
     let workspace_ptr = client.allocator().allocate(workspace_size);
 
     // Copy A to R (will be modified in place)
-    CudaRuntime::copy_within_device(a.storage().ptr(), r_ptr, r_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), r_ptr, r_size, device)?;
 
     let result = unsafe {
         kernels::launch_qr_decompose(

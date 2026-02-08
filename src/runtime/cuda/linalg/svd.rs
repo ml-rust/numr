@@ -79,12 +79,12 @@ pub fn svd_decompose_impl(
             return Err(e);
         }
     } else {
-        CudaRuntime::copy_within_device(a.storage().ptr(), b_ptr, b_size, device);
+        CudaRuntime::copy_within_device(a.storage().ptr(), b_ptr, b_size, device)?;
     }
 
     // Zero-initialize converged flag
     let zero_i32: [u8; 4] = [0; 4];
-    CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device);
+    CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device)?;
 
     // Launch SVD Jacobi kernel
     let result = unsafe {

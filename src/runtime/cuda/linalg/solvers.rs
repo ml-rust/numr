@@ -161,7 +161,7 @@ pub fn solve_impl(
         // Scatter solution into X
         if b_is_vector {
             // Single RHS: copy directly to x_ptr
-            CudaRuntime::copy_within_device(x_col_ptr, x_ptr, col_size, device);
+            CudaRuntime::copy_within_device(x_col_ptr, x_ptr, col_size, device)?;
         } else {
             // Multi-RHS: scatter into column rhs of X [n, num_rhs]
             let result = unsafe {
@@ -520,7 +520,7 @@ pub fn lstsq_impl(
 
     // Zero initialize X
     let zero_bytes = vec![0u8; x_size];
-    CudaRuntime::copy_to_device(&zero_bytes, x_ptr, device);
+    CudaRuntime::copy_to_device(&zero_bytes, x_ptr, device)?;
 
     // Temporary buffers for column-wise solve
     let col_size = n * dtype.size_in_bytes();
@@ -542,7 +542,7 @@ pub fn lstsq_impl(
         if num_rhs == 1 {
             // Single RHS: qtb is already [m, 1], just use first n elements
             // Copy first n elements to qtb_col_ptr
-            CudaRuntime::copy_within_device(qtb.storage().ptr(), qtb_col_ptr, col_size, device);
+            CudaRuntime::copy_within_device(qtb.storage().ptr(), qtb_col_ptr, col_size, device)?;
         } else {
             // Multi-RHS: extract column rhs from qtb [m, num_rhs]
             // But we only need first n elements
@@ -587,7 +587,7 @@ pub fn lstsq_impl(
         // Scatter solution into X
         if num_rhs == 1 {
             // Single RHS: copy directly
-            CudaRuntime::copy_within_device(x_col_ptr, x_ptr, col_size, device);
+            CudaRuntime::copy_within_device(x_col_ptr, x_ptr, col_size, device)?;
         } else {
             // Multi-RHS: scatter into column rhs of X [n, num_rhs]
             let result = unsafe {

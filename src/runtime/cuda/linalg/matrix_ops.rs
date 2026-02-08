@@ -218,7 +218,7 @@ pub fn trace_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     let trace_ptr = client.allocator().allocate(trace_size);
 
     let zero_bytes = vec![0u8; trace_size];
-    CudaRuntime::copy_to_device(&zero_bytes, trace_ptr, device);
+    CudaRuntime::copy_to_device(&zero_bytes, trace_ptr, device)?;
 
     unsafe {
         kernels::launch_trace(

@@ -48,17 +48,17 @@ pub fn eig_decompose_symmetric_impl(
             eigenvalues_ptr,
             eigenvalues_size,
             device,
-        );
+        )?;
 
         // Eigenvector is [1.0]
         match dtype {
             DType::F32 => {
                 let one: [u8; 4] = 1.0f32.to_ne_bytes();
-                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device);
+                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device)?;
             }
             DType::F64 => {
                 let one: [u8; 8] = 1.0f64.to_ne_bytes();
-                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device);
+                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device)?;
             }
             _ => unreachable!(),
         }
@@ -97,11 +97,11 @@ pub fn eig_decompose_symmetric_impl(
     };
 
     // Copy input to working buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device);
+    CudaRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device)?;
 
     // Zero-initialize converged flag
     let zero_i32: [u8; 4] = [0; 4];
-    CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device);
+    CudaRuntime::copy_to_device(&zero_i32, converged_flag_ptr, device)?;
 
     // Launch eigendecomposition kernel
     let result = unsafe {
