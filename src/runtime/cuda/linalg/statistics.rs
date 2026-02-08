@@ -24,7 +24,7 @@ pub fn pinverse_impl(
 
     // Handle empty matrix
     if m == 0 || n == 0 {
-        let out_ptr = client.allocator().allocate(0);
+        let out_ptr = client.allocator().allocate(0)?;
         return Ok(unsafe { CudaClient::tensor_from_raw(out_ptr, &[n, m], dtype, device) });
     }
 

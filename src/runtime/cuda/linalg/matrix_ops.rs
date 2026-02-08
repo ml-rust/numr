@@ -11,7 +11,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Matrix inverse via LU decomposition
@@ -26,24 +26,21 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
 
     // Allocate output and temporary buffers
     let inv_size = n * n * dtype.size_in_bytes();
-    let inv_ptr = client.allocator().allocate(inv_size);
-
     let col_size = n * dtype.size_in_bytes();
-    let identity_ptr = client.allocator().allocate(inv_size); // Full identity matrix
-    let pb_ptr = client.allocator().allocate(col_size);
-    let y_ptr = client.allocator().allocate(col_size);
-    let x_ptr = client.allocator().allocate(col_size);
-    let e_ptr = client.allocator().allocate(col_size);
 
-    // Helper closure for cleanup on error
-    let cleanup = |allocator: &super::super::CudaAllocator| {
-        allocator.deallocate(inv_ptr, inv_size);
-        allocator.deallocate(identity_ptr, inv_size);
-        allocator.deallocate(pb_ptr, col_size);
-        allocator.deallocate(y_ptr, col_size);
-        allocator.deallocate(x_ptr, col_size);
-        allocator.deallocate(e_ptr, col_size);
-    };
+    let inv_guard = AllocGuard::new(client.allocator(), inv_size)?;
+    let identity_guard = AllocGuard::new(client.allocator(), inv_size)?;
+    let pb_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let y_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let x_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let e_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+    let inv_ptr = inv_guard.ptr();
+    let identity_ptr = identity_guard.ptr();
+    let pb_ptr = pb_guard.ptr();
+    let y_ptr = y_guard.ptr();
+    let x_ptr = x_guard.ptr();
+    let e_ptr = e_guard.ptr();
 
     // Create identity matrix on GPU (no CPU transfer)
     let result = unsafe {
@@ -56,10 +53,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
             n,
         )
     };
-    if let Err(e) = result {
-        cleanup(client.allocator());
-        return Err(e);
-    }
+    result?;
 
     // Solve for each column of the identity matrix
     for col in 0..n {
@@ -77,10 +71,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
                 col,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Apply permutation: pb = P @ e
         let result = unsafe {
@@ -95,10 +86,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
                 n,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Forward substitution: Ly = pb (L has unit diagonal)
         let result = unsafe {
@@ -114,10 +102,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
                 true, // unit diagonal
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Backward substitution: Ux = y
         let result = unsafe {
@@ -132,10 +117,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
                 n,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Scatter x into column of inverse matrix (GPU-only, no CPU transfer)
         let result = unsafe {
@@ -150,18 +132,8 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
                 col,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?
     }
-
-    // Clean up temporary buffers (keep inv_ptr for result)
-    client.allocator().deallocate(identity_ptr, inv_size);
-    client.allocator().deallocate(pb_ptr, col_size);
-    client.allocator().deallocate(y_ptr, col_size);
-    client.allocator().deallocate(x_ptr, col_size);
-    client.allocator().deallocate(e_ptr, col_size);
 
     client.synchronize();
 
@@ -182,7 +154,8 @@ pub fn det_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<C
 
     // Allocate output
     let det_size = dtype.size_in_bytes();
-    let det_ptr = client.allocator().allocate(det_size);
+    let det_guard = AllocGuard::new(client.allocator(), det_size)?;
+    let det_ptr = det_guard.ptr();
 
     // Compute determinant from LU diagonal
     unsafe {
@@ -200,7 +173,7 @@ pub fn det_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<C
 
     client.synchronize();
 
-    let det = unsafe { CudaClient::tensor_from_raw(det_ptr, &[], dtype, device) };
+    let det = unsafe { CudaClient::tensor_from_raw(det_guard.release(), &[], dtype, device) };
 
     Ok(det)
 }
@@ -215,7 +188,8 @@ pub fn trace_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
 
     // Allocate output (zero-initialized for atomic add)
     let trace_size = dtype.size_in_bytes();
-    let trace_ptr = client.allocator().allocate(trace_size);
+    let trace_guard = AllocGuard::new(client.allocator(), trace_size)?;
+    let trace_ptr = trace_guard.ptr();
 
     let zero_bytes = vec![0u8; trace_size];
     CudaRuntime::copy_to_device(&zero_bytes, trace_ptr, device)?;
@@ -235,7 +209,7 @@ pub fn trace_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
 
     client.synchronize();
 
-    let trace = unsafe { CudaClient::tensor_from_raw(trace_ptr, &[], dtype, device) };
+    let trace = unsafe { CudaClient::tensor_from_raw(trace_guard.release(), &[], dtype, device) };
 
     Ok(trace)
 }
@@ -249,7 +223,8 @@ pub fn diag_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     let device = client.device();
 
     let diag_size = min_dim * dtype.size_in_bytes();
-    let diag_ptr = client.allocator().allocate(diag_size);
+    let diag_guard = AllocGuard::new(client.allocator(), diag_size)?;
+    let diag_ptr = diag_guard.ptr();
 
     unsafe {
         kernels::launch_diag(
@@ -266,7 +241,8 @@ pub fn diag_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
 
     client.synchronize();
 
-    let diag = unsafe { CudaClient::tensor_from_raw(diag_ptr, &[min_dim], dtype, device) };
+    let diag =
+        unsafe { CudaClient::tensor_from_raw(diag_guard.release(), &[min_dim], dtype, device) };
 
     Ok(diag)
 }
@@ -289,7 +265,8 @@ pub fn diagflat_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Ten
     let device = client.device();
 
     let out_size = n * n * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
 
     unsafe {
         kernels::launch_diagflat(
@@ -305,7 +282,7 @@ pub fn diagflat_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Ten
 
     client.synchronize();
 
-    let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[n, n], dtype, device) };
+    let out = unsafe { CudaClient::tensor_from_raw(out_guard.release(), &[n, n], dtype, device) };
 
     Ok(out)
 }
@@ -417,7 +394,8 @@ pub fn kron_impl(
     let m_out = m_a * m_b;
     let n_out = n_a * n_b;
     let out_size = m_out * n_out * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
 
     unsafe {
         kernels::launch_kron(
@@ -437,7 +415,8 @@ pub fn kron_impl(
 
     client.synchronize();
 
-    let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[m_out, n_out], dtype, device) };
+    let out =
+        unsafe { CudaClient::tensor_from_raw(out_guard.release(), &[m_out, n_out], dtype, device) };
 
     Ok(out)
 }
@@ -478,7 +457,8 @@ pub fn khatri_rao_impl(
 
     let m_out = m * n;
     let out_size = m_out * k * dtype.size_in_bytes();
-    let out_ptr = client.allocator().allocate(out_size);
+    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
+    let out_ptr = out_guard.ptr();
 
     unsafe {
         kernels::launch_khatri_rao(
@@ -497,7 +477,8 @@ pub fn khatri_rao_impl(
 
     client.synchronize();
 
-    let out = unsafe { CudaClient::tensor_from_raw(out_ptr, &[m_out, k], dtype, device) };
+    let out =
+        unsafe { CudaClient::tensor_from_raw(out_guard.release(), &[m_out, k], dtype, device) };
 
     Ok(out)
 }

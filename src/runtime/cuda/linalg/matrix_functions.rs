@@ -31,7 +31,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{BinaryOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps, UtilityOps};
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Get the GPU buffer pointer from a tensor.
@@ -153,7 +153,8 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     let schur = client.schur_decompose(a)?;
 
     // Validate eigenvalues on GPU
-    let result_buffer = client.allocator.allocate(2 * dtype.size_in_bytes());
+    let result_guard = AllocGuard::new(&client.allocator, 2 * dtype.size_in_bytes())?;
+    let result_buffer = result_guard.ptr();
     // Zero-initialize the result buffer
     let zero_data: [f64; 2] = [0.0, 0.0];
     unsafe {
@@ -193,10 +194,6 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
             2 * std::mem::size_of::<f64>(),
         );
     }
-    client
-        .allocator
-        .deallocate(result_buffer, 2 * dtype.size_in_bytes());
-
     if result_data[0] > 0.5 {
         return Err(Error::InvalidArgument {
             arg: "a",
@@ -267,7 +264,8 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     let schur = client.schur_decompose(a)?;
 
     // Validate eigenvalues on GPU
-    let result_buffer = client.allocator.allocate(2 * dtype.size_in_bytes());
+    let result_guard = AllocGuard::new(&client.allocator, 2 * dtype.size_in_bytes())?;
+    let result_buffer = result_guard.ptr();
     // Zero-initialize the result buffer
     let zero_data: [f64; 2] = [0.0, 0.0];
     unsafe {
@@ -307,10 +305,6 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
             2 * std::mem::size_of::<f64>(),
         );
     }
-    client
-        .allocator
-        .deallocate(result_buffer, 2 * dtype.size_in_bytes());
-
     if result_data[0] > 0.5 {
         return Err(Error::InvalidArgument {
             arg: "a",

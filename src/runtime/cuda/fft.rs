@@ -15,7 +15,7 @@ use crate::algorithm::fft::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::{Layout, Storage, Tensor};
 
 impl FftAlgorithms<CudaRuntime> for CudaClient {
@@ -58,7 +58,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         // Allocate output
         let output_size = total_elements * dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
 
         let input_ptr = input_contig.storage().ptr();
 
@@ -84,7 +85,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
             let log_n = (n as f64).log2() as usize;
 
             // Allocate temp buffer for ping-pong
-            let temp_ptr = self.allocator().allocate(output_size);
+            let temp_guard = AllocGuard::new(self.allocator(), output_size)?;
+            let temp_ptr = temp_guard.ptr();
 
             // Copy input to one buffer
             CudaRuntime::copy_within_device(input_ptr, output_ptr, output_size, device)?;
@@ -130,15 +132,14 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
             if src_ptr == temp_ptr {
                 CudaRuntime::copy_within_device(temp_ptr, output_ptr, output_size, device)?;
             }
-
-            self.allocator().deallocate(temp_ptr, output_size);
         }
 
         self.synchronize();
 
         // Create output tensor
-        let output =
-            unsafe { Self::tensor_from_raw(output_ptr, input_contig.shape(), dtype, device) };
+        let output = unsafe {
+            Self::tensor_from_raw(output_guard.release(), input_contig.shape(), dtype, device)
+        };
 
         Ok(output)
     }
@@ -227,7 +228,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         // Allocate complex buffer for full FFT
         let complex_size = batch_size * n * complex_dtype.size_in_bytes();
-        let complex_ptr = self.allocator().allocate(complex_size);
+        let complex_guard = AllocGuard::new(self.allocator(), complex_size)?;
+        let complex_ptr = complex_guard.ptr();
 
         // Pack real to complex (zero imaginary parts)
         unsafe {
@@ -248,7 +250,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         if n <= kernels::MAX_SHARED_MEM_FFT_SIZE {
             // In-place for small FFTs
-            let temp_ptr = self.allocator().allocate(complex_size);
+            let temp_guard = AllocGuard::new(self.allocator(), complex_size)?;
+            let temp_ptr = temp_guard.ptr();
             unsafe {
                 kernels::launch_stockham_fft_batched(
                     self.context(),
@@ -264,11 +267,11 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 )?;
             }
             CudaRuntime::copy_within_device(temp_ptr, complex_ptr, complex_size, device)?;
-            self.allocator().deallocate(temp_ptr, complex_size);
         } else {
             // Multi-stage for large FFTs
             let log_n = (n as f64).log2() as usize;
-            let temp_ptr = self.allocator().allocate(complex_size);
+            let temp_guard = AllocGuard::new(self.allocator(), complex_size)?;
+            let temp_ptr = temp_guard.ptr();
 
             let mut src_ptr = complex_ptr;
             let mut dst_ptr = temp_ptr;
@@ -308,14 +311,13 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
             if src_ptr != complex_ptr {
                 CudaRuntime::copy_within_device(src_ptr, complex_ptr, complex_size, device)?;
             }
-
-            self.allocator().deallocate(temp_ptr, complex_size);
         }
 
         // Truncate to N/2 + 1 elements (Hermitian symmetry)
         let output_n = n / 2 + 1;
         let output_size = batch_size * output_n * complex_dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
 
         unsafe {
             kernels::launch_rfft_truncate(
@@ -330,16 +332,15 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 batch_size,
             )?;
         }
-
-        self.allocator().deallocate(complex_ptr, complex_size);
         self.synchronize();
 
         // Build output shape
         let mut out_shape = input_contig.shape().to_vec();
         out_shape[ndim - 1] = output_n;
 
-        let output =
-            unsafe { Self::tensor_from_raw(output_ptr, &out_shape, complex_dtype, device) };
+        let output = unsafe {
+            Self::tensor_from_raw(output_guard.release(), &out_shape, complex_dtype, device)
+        };
 
         Ok(output)
     }
@@ -379,7 +380,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         // Extend Hermitian spectrum to full spectrum
         let full_complex_size = batch_size * output_n * dtype.size_in_bytes();
-        let full_complex_ptr = self.allocator().allocate(full_complex_size);
+        let full_complex_guard = AllocGuard::new(self.allocator(), full_complex_size)?;
+        let full_complex_ptr = full_complex_guard.ptr();
 
         unsafe {
             kernels::launch_hermitian_extend(
@@ -397,7 +399,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         // Compute inverse FFT (scale handled separately)
         if output_n <= kernels::MAX_SHARED_MEM_FFT_SIZE {
-            let temp_ptr = self.allocator().allocate(full_complex_size);
+            let temp_guard = AllocGuard::new(self.allocator(), full_complex_size)?;
+            let temp_ptr = temp_guard.ptr();
             unsafe {
                 kernels::launch_stockham_fft_batched(
                     self.context(),
@@ -413,10 +416,10 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 )?;
             }
             CudaRuntime::copy_within_device(temp_ptr, full_complex_ptr, full_complex_size, device)?;
-            self.allocator().deallocate(temp_ptr, full_complex_size);
         } else {
             let log_n = (output_n as f64).log2() as usize;
-            let temp_ptr = self.allocator().allocate(full_complex_size);
+            let temp_guard = AllocGuard::new(self.allocator(), full_complex_size)?;
+            let temp_ptr = temp_guard.ptr();
 
             let mut src_ptr = full_complex_ptr;
             let mut dst_ptr = temp_ptr;
@@ -447,14 +450,13 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                     device,
                 )?;
             }
-
-            self.allocator().deallocate(temp_ptr, full_complex_size);
         }
 
         // Unpack to real with scaling
         let scale = norm.factor(FftDirection::Inverse, output_n);
         let output_size = batch_size * output_n * real_dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
 
         unsafe {
             kernels::launch_irfft_unpack(
@@ -469,16 +471,15 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 batch_size,
             )?;
         }
-
-        self.allocator()
-            .deallocate(full_complex_ptr, full_complex_size);
         self.synchronize();
 
         // Build output shape
         let mut out_shape = input_contig.shape().to_vec();
         out_shape[ndim - 1] = output_n;
 
-        let output = unsafe { Self::tensor_from_raw(output_ptr, &out_shape, real_dtype, device) };
+        let output = unsafe {
+            Self::tensor_from_raw(output_guard.release(), &out_shape, real_dtype, device)
+        };
 
         Ok(output)
     }
@@ -565,7 +566,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         let total_elements = batch_size * n;
         let output_size = total_elements * dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
 
         unsafe {
             kernels::launch_fftshift(
@@ -582,8 +584,9 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         self.synchronize();
 
-        let output =
-            unsafe { Self::tensor_from_raw(output_ptr, input_contig.shape(), dtype, device) };
+        let output = unsafe {
+            Self::tensor_from_raw(output_guard.release(), input_contig.shape(), dtype, device)
+        };
 
         Ok(output)
     }
@@ -610,7 +613,8 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         let total_elements = batch_size * n;
         let output_size = total_elements * dtype.size_in_bytes();
-        let output_ptr = self.allocator().allocate(output_size);
+        let output_guard = AllocGuard::new(self.allocator(), output_size)?;
+        let output_ptr = output_guard.ptr();
 
         unsafe {
             kernels::launch_ifftshift(
@@ -627,8 +631,9 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
 
         self.synchronize();
 
-        let output =
-            unsafe { Self::tensor_from_raw(output_ptr, input_contig.shape(), dtype, device) };
+        let output = unsafe {
+            Self::tensor_from_raw(output_guard.release(), input_contig.shape(), dtype, device)
+        };
 
         Ok(output)
     }

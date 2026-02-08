@@ -11,7 +11,7 @@ use crate::algorithm::linalg::{
 };
 use crate::error::Result;
 use crate::ops::{LinalgOps, MatmulOps};
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Convert real Schur form to complex Schur form (rsf2csf)
@@ -39,10 +39,15 @@ pub fn rsf2csf_impl(
 
     // Allocate output buffers
     let matrix_size = n * n * dtype.size_in_bytes();
-    let z_real_ptr = client.allocator().allocate(matrix_size);
-    let z_imag_ptr = client.allocator().allocate(matrix_size);
-    let t_real_ptr = client.allocator().allocate(matrix_size);
-    let t_imag_ptr = client.allocator().allocate(matrix_size);
+    let z_real_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_imag_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_real_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_imag_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+
+    let z_real_ptr = z_real_guard.ptr();
+    let z_imag_ptr = z_imag_guard.ptr();
+    let t_real_ptr = t_real_guard.ptr();
+    let t_imag_ptr = t_imag_guard.ptr();
 
     // Launch native rsf2csf kernel
     let result = unsafe {
@@ -61,20 +66,18 @@ pub fn rsf2csf_impl(
         )
     };
 
-    if let Err(e) = result {
-        client.allocator().deallocate(z_real_ptr, matrix_size);
-        client.allocator().deallocate(z_imag_ptr, matrix_size);
-        client.allocator().deallocate(t_real_ptr, matrix_size);
-        client.allocator().deallocate(t_imag_ptr, matrix_size);
-        return Err(e);
-    }
+    result?;
 
     client.synchronize();
 
-    let z_real = unsafe { CudaClient::tensor_from_raw(z_real_ptr, &[n, n], dtype, device) };
-    let z_imag = unsafe { CudaClient::tensor_from_raw(z_imag_ptr, &[n, n], dtype, device) };
-    let t_real = unsafe { CudaClient::tensor_from_raw(t_real_ptr, &[n, n], dtype, device) };
-    let t_imag = unsafe { CudaClient::tensor_from_raw(t_imag_ptr, &[n, n], dtype, device) };
+    let z_real =
+        unsafe { CudaClient::tensor_from_raw(z_real_guard.release(), &[n, n], dtype, device) };
+    let z_imag =
+        unsafe { CudaClient::tensor_from_raw(z_imag_guard.release(), &[n, n], dtype, device) };
+    let t_real =
+        unsafe { CudaClient::tensor_from_raw(t_real_guard.release(), &[n, n], dtype, device) };
+    let t_imag =
+        unsafe { CudaClient::tensor_from_raw(t_imag_guard.release(), &[n, n], dtype, device) };
 
     Ok(ComplexSchurDecomposition {
         z_real,
@@ -113,14 +116,23 @@ pub fn qz_decompose_impl(
     // Allocate output buffers
     let matrix_size = n * n * dtype.size_in_bytes();
     let vector_size = n * dtype.size_in_bytes();
+    let flag_size = std::mem::size_of::<i32>();
 
-    let q_ptr = client.allocator().allocate(matrix_size);
-    let z_ptr = client.allocator().allocate(matrix_size);
-    let s_ptr = client.allocator().allocate(matrix_size);
-    let t_ptr = client.allocator().allocate(matrix_size);
-    let eig_real_ptr = client.allocator().allocate(vector_size);
-    let eig_imag_ptr = client.allocator().allocate(vector_size);
-    let flag_ptr = client.allocator().allocate(std::mem::size_of::<i32>());
+    let q_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let s_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let t_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let eig_real_guard = AllocGuard::new(client.allocator(), vector_size)?;
+    let eig_imag_guard = AllocGuard::new(client.allocator(), vector_size)?;
+    let flag_guard = AllocGuard::new(client.allocator(), flag_size)?;
+
+    let q_ptr = q_guard.ptr();
+    let z_ptr = z_guard.ptr();
+    let s_ptr = s_guard.ptr();
+    let t_ptr = t_guard.ptr();
+    let eig_real_ptr = eig_real_guard.ptr();
+    let eig_imag_ptr = eig_imag_guard.ptr();
+    let flag_ptr = flag_guard.ptr();
 
     // Copy input matrices to S and T (will be modified in-place)
     CudaRuntime::copy_within_device(a.storage().ptr(), s_ptr, matrix_size, device)?;
@@ -148,34 +160,18 @@ pub fn qz_decompose_impl(
         )
     };
 
-    if let Err(e) = result {
-        client.allocator().deallocate(q_ptr, matrix_size);
-        client.allocator().deallocate(z_ptr, matrix_size);
-        client.allocator().deallocate(s_ptr, matrix_size);
-        client.allocator().deallocate(t_ptr, matrix_size);
-        client.allocator().deallocate(eig_real_ptr, vector_size);
-        client.allocator().deallocate(eig_imag_ptr, vector_size);
-        client
-            .allocator()
-            .deallocate(flag_ptr, std::mem::size_of::<i32>());
-        return Err(e);
-    }
+    result?;
 
     client.synchronize();
 
-    // Clean up flag buffer
-    client
-        .allocator()
-        .deallocate(flag_ptr, std::mem::size_of::<i32>());
-
-    let q = unsafe { CudaClient::tensor_from_raw(q_ptr, &[n, n], dtype, device) };
-    let z = unsafe { CudaClient::tensor_from_raw(z_ptr, &[n, n], dtype, device) };
-    let s = unsafe { CudaClient::tensor_from_raw(s_ptr, &[n, n], dtype, device) };
-    let t = unsafe { CudaClient::tensor_from_raw(t_ptr, &[n, n], dtype, device) };
+    let q = unsafe { CudaClient::tensor_from_raw(q_guard.release(), &[n, n], dtype, device) };
+    let z = unsafe { CudaClient::tensor_from_raw(z_guard.release(), &[n, n], dtype, device) };
+    let s = unsafe { CudaClient::tensor_from_raw(s_guard.release(), &[n, n], dtype, device) };
+    let t = unsafe { CudaClient::tensor_from_raw(t_guard.release(), &[n, n], dtype, device) };
     let eigenvalues_real =
-        unsafe { CudaClient::tensor_from_raw(eig_real_ptr, &[n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(eig_real_guard.release(), &[n], dtype, device) };
     let eigenvalues_imag =
-        unsafe { CudaClient::tensor_from_raw(eig_imag_ptr, &[n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(eig_imag_guard.release(), &[n], dtype, device) };
 
     Ok(GeneralizedSchurDecomposition {
         q,

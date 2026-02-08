@@ -8,7 +8,7 @@ use crate::algorithm::linalg::{
 };
 use crate::error::{Error, Result};
 use crate::ops::MatmulOps;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Solve linear system Ax = b
@@ -59,22 +59,19 @@ pub fn solve_impl(
 
     // Allocate output and temporary buffers
     let x_size = n * num_rhs * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
-
     let col_size = n * dtype.size_in_bytes();
-    let b_col_ptr = client.allocator().allocate(col_size);
-    let pb_ptr = client.allocator().allocate(col_size);
-    let y_ptr = client.allocator().allocate(col_size);
-    let x_col_ptr = client.allocator().allocate(col_size);
 
-    // Helper for cleanup on error
-    let cleanup = |allocator: &super::super::CudaAllocator| {
-        allocator.deallocate(x_ptr, x_size);
-        allocator.deallocate(b_col_ptr, col_size);
-        allocator.deallocate(pb_ptr, col_size);
-        allocator.deallocate(y_ptr, col_size);
-        allocator.deallocate(x_col_ptr, col_size);
-    };
+    let x_guard = AllocGuard::new(client.allocator(), x_size)?;
+    let b_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let pb_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let y_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+    let x_ptr = x_guard.ptr();
+    let b_col_ptr = b_col_guard.ptr();
+    let pb_ptr = pb_guard.ptr();
+    let y_ptr = y_guard.ptr();
+    let x_col_ptr = x_col_guard.ptr();
 
     // Solve for each right-hand side
     for rhs in 0..num_rhs {
@@ -96,10 +93,7 @@ pub fn solve_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                cleanup(client.allocator());
-                return Err(e);
-            }
+            result?;
             b_col_ptr
         };
 
@@ -116,10 +110,7 @@ pub fn solve_impl(
                 n,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Forward substitution: Ly = pb (L has unit diagonal)
         let result = unsafe {
@@ -135,10 +126,7 @@ pub fn solve_impl(
                 true, // unit diagonal
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Backward substitution: Ux = y
         let result = unsafe {
@@ -153,10 +141,7 @@ pub fn solve_impl(
                 n,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Scatter solution into X
         if b_is_vector {
@@ -176,18 +161,9 @@ pub fn solve_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                cleanup(client.allocator());
-                return Err(e);
-            }
+            result?
         }
     }
-
-    // Clean up temporary buffers (keep x_ptr for result)
-    client.allocator().deallocate(b_col_ptr, col_size);
-    client.allocator().deallocate(pb_ptr, col_size);
-    client.allocator().deallocate(y_ptr, col_size);
-    client.allocator().deallocate(x_col_ptr, col_size);
 
     client.synchronize();
 
@@ -247,7 +223,8 @@ pub fn solve_triangular_lower_impl(
 
     // Allocate output
     let x_size = n * num_rhs * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
+    let x_guard = AllocGuard::new(client.allocator(), x_size)?;
+    let x_ptr = x_guard.ptr();
 
     if b_is_vector {
         // Single RHS: direct solve
@@ -267,8 +244,11 @@ pub fn solve_triangular_lower_impl(
     } else {
         // Multi-RHS: solve for each column
         let col_size = n * dtype.size_in_bytes();
-        let b_col_ptr = client.allocator().allocate(col_size);
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let b_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+        let b_col_ptr = b_col_guard.ptr();
+        let x_col_ptr = x_col_guard.ptr();
 
         for rhs in 0..num_rhs {
             // Extract column from B
@@ -315,9 +295,6 @@ pub fn solve_triangular_lower_impl(
                 )?;
             }
         }
-
-        client.allocator().deallocate(b_col_ptr, col_size);
-        client.allocator().deallocate(x_col_ptr, col_size);
     }
 
     client.synchronize();
@@ -377,7 +354,8 @@ pub fn solve_triangular_upper_impl(
 
     // Allocate output
     let x_size = n * num_rhs * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
+    let x_guard = AllocGuard::new(client.allocator(), x_size)?;
+    let x_ptr = x_guard.ptr();
 
     if b_is_vector {
         // Single RHS: direct solve
@@ -396,8 +374,11 @@ pub fn solve_triangular_upper_impl(
     } else {
         // Multi-RHS: solve for each column
         let col_size = n * dtype.size_in_bytes();
-        let b_col_ptr = client.allocator().allocate(col_size);
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let b_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+        let b_col_ptr = b_col_guard.ptr();
+        let x_col_ptr = x_col_guard.ptr();
 
         for rhs in 0..num_rhs {
             // Extract column from B
@@ -443,9 +424,6 @@ pub fn solve_triangular_upper_impl(
                 )?;
             }
         }
-
-        client.allocator().deallocate(b_col_ptr, col_size);
-        client.allocator().deallocate(x_col_ptr, col_size);
     }
 
     client.synchronize();
@@ -516,23 +494,19 @@ pub fn lstsq_impl(
 
     // Allocate output X [n, num_rhs] or [n] for vector
     let x_size = n * num_rhs * dtype.size_in_bytes();
-    let x_ptr = client.allocator().allocate(x_size);
+    let col_size = n * dtype.size_in_bytes();
+
+    let x_guard = AllocGuard::new(client.allocator(), x_size)?;
+    let qtb_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+    let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+    let x_ptr = x_guard.ptr();
+    let qtb_col_ptr = qtb_col_guard.ptr();
+    let x_col_ptr = x_col_guard.ptr();
 
     // Zero initialize X
     let zero_bytes = vec![0u8; x_size];
     CudaRuntime::copy_to_device(&zero_bytes, x_ptr, device)?;
-
-    // Temporary buffers for column-wise solve
-    let col_size = n * dtype.size_in_bytes();
-    let qtb_col_ptr = client.allocator().allocate(col_size);
-    let x_col_ptr = client.allocator().allocate(col_size);
-
-    // Helper for cleanup on error
-    let cleanup = |allocator: &super::super::CudaAllocator| {
-        allocator.deallocate(x_ptr, x_size);
-        allocator.deallocate(qtb_col_ptr, col_size);
-        allocator.deallocate(x_col_ptr, col_size);
-    };
 
     // Solve R @ X[:, col] = (Q^T @ B)[:n, col] for each column
     // R is [m, n], upper triangular - we use top n×n block
@@ -559,10 +533,7 @@ pub fn lstsq_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                cleanup(client.allocator());
-                return Err(e);
-            }
+            result?
         }
 
         // Backward substitution: R @ x = qtb_col
@@ -579,10 +550,7 @@ pub fn lstsq_impl(
                 n,
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?;
 
         // Scatter solution into X
         if num_rhs == 1 {
@@ -602,16 +570,9 @@ pub fn lstsq_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                cleanup(client.allocator());
-                return Err(e);
-            }
+            result?
         }
     }
-
-    // Clean up temporary buffers
-    client.allocator().deallocate(qtb_col_ptr, col_size);
-    client.allocator().deallocate(x_col_ptr, col_size);
 
     client.synchronize();
 

@@ -7,7 +7,7 @@ use super::super::client::CudaClient;
 use super::super::kernels;
 use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
 use crate::error::Result;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// SVD decomposition via Jacobi method - runs entirely on GPU.
@@ -23,9 +23,9 @@ pub fn svd_decompose_impl(
 
     // Handle empty matrix
     if m == 0 || n == 0 {
-        let u_ptr = client.allocator().allocate(0);
-        let s_ptr = client.allocator().allocate(0);
-        let vt_ptr = client.allocator().allocate(0);
+        let u_ptr = client.allocator().allocate(0)?;
+        let s_ptr = client.allocator().allocate(0)?;
+        let vt_ptr = client.allocator().allocate(0)?;
         let u = unsafe { CudaClient::tensor_from_raw(u_ptr, &[m, k], dtype, device) };
         let s = unsafe { CudaClient::tensor_from_raw(s_ptr, &[k], dtype, device) };
         let vt = unsafe { CudaClient::tensor_from_raw(vt_ptr, &[k, n], dtype, device) };
@@ -40,24 +40,19 @@ pub fn svd_decompose_impl(
     // Allocate working buffers on GPU
     let elem_size = dtype.size_in_bytes();
     let b_size = work_m * work_n * elem_size;
-    let b_ptr = client.allocator().allocate(b_size);
-
     let v_size = work_n * work_n * elem_size;
-    let v_ptr = client.allocator().allocate(v_size);
-
     let s_size = work_n * elem_size;
-    let s_ptr = client.allocator().allocate(s_size);
-
     let flag_size = std::mem::size_of::<i32>();
-    let converged_flag_ptr = client.allocator().allocate(flag_size);
 
-    // Helper for cleanup on error
-    let cleanup = |allocator: &super::super::CudaAllocator| {
-        allocator.deallocate(b_ptr, b_size);
-        allocator.deallocate(v_ptr, v_size);
-        allocator.deallocate(s_ptr, s_size);
-        allocator.deallocate(converged_flag_ptr, flag_size);
-    };
+    let b_guard = AllocGuard::new(client.allocator(), b_size)?;
+    let v_guard = AllocGuard::new(client.allocator(), v_size)?;
+    let s_guard = AllocGuard::new(client.allocator(), s_size)?;
+    let converged_flag_guard = AllocGuard::new(client.allocator(), flag_size)?;
+
+    let b_ptr = b_guard.ptr();
+    let v_ptr = v_guard.ptr();
+    let s_ptr = s_guard.ptr();
+    let converged_flag_ptr = converged_flag_guard.ptr();
 
     // Copy input to B, transposing if needed using GPU transpose kernel
     if transpose {
@@ -74,10 +69,7 @@ pub fn svd_decompose_impl(
                 n, // cols of input
             )
         };
-        if let Err(e) = result {
-            cleanup(client.allocator());
-            return Err(e);
-        }
+        result?
     } else {
         CudaRuntime::copy_within_device(a.storage().ptr(), b_ptr, b_size, device)?;
     }
@@ -102,19 +94,14 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = result {
-        cleanup(client.allocator());
-        return Err(e);
-    }
+    result?;
 
     client.synchronize();
 
-    // Clean up converged flag buffer
-    client.allocator().deallocate(converged_flag_ptr, flag_size);
-
     // GPU argsort to get sorted indices (descending order)
     let indices_size = work_n * std::mem::size_of::<i64>();
-    let indices_ptr = client.allocator().allocate(indices_size);
+    let indices_guard = AllocGuard::new(client.allocator(), indices_size)?;
+    let indices_ptr = indices_guard.ptr();
 
     let argsort_result = unsafe {
         kernels::launch_argsort(
@@ -131,18 +118,13 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = argsort_result {
-        client.allocator().deallocate(indices_ptr, indices_size);
-        client.allocator().deallocate(b_ptr, b_size);
-        client.allocator().deallocate(v_ptr, v_size);
-        client.allocator().deallocate(s_ptr, s_size);
-        return Err(e);
-    }
+    argsort_result?;
 
     // Now reorder S, U, V using GPU index_select
     // S_sorted: select first work_k elements using indices
     let s_sorted_size = work_k * elem_size;
-    let s_sorted_ptr = client.allocator().allocate(s_sorted_size);
+    let s_sorted_guard = AllocGuard::new(client.allocator(), s_sorted_size)?;
+    let s_sorted_ptr = s_sorted_guard.ptr();
 
     let s_select_result = unsafe {
         kernels::launch_index_select(
@@ -160,18 +142,12 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = s_select_result {
-        client.allocator().deallocate(indices_ptr, indices_size);
-        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-        client.allocator().deallocate(b_ptr, b_size);
-        client.allocator().deallocate(v_ptr, v_size);
-        client.allocator().deallocate(s_ptr, s_size);
-        return Err(e);
-    }
+    s_select_result?;
 
     // U_sorted: B is [work_m, work_n], select work_k columns -> [work_m, work_k]
     let u_sorted_size = work_m * work_k * elem_size;
-    let u_sorted_ptr = client.allocator().allocate(u_sorted_size);
+    let u_sorted_guard = AllocGuard::new(client.allocator(), u_sorted_size)?;
+    let u_sorted_ptr = u_sorted_guard.ptr();
 
     let u_select_result = unsafe {
         kernels::launch_index_select(
@@ -189,19 +165,12 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = u_select_result {
-        client.allocator().deallocate(indices_ptr, indices_size);
-        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-        client.allocator().deallocate(b_ptr, b_size);
-        client.allocator().deallocate(v_ptr, v_size);
-        client.allocator().deallocate(s_ptr, s_size);
-        return Err(e);
-    }
+    u_select_result?;
 
     // V_sorted: V is [work_n, work_n], select work_k columns -> [work_n, work_k]
     let v_sorted_size = work_n * work_k * elem_size;
-    let v_sorted_ptr = client.allocator().allocate(v_sorted_size);
+    let v_sorted_guard = AllocGuard::new(client.allocator(), v_sorted_size)?;
+    let v_sorted_ptr = v_sorted_guard.ptr();
 
     let v_select_result = unsafe {
         kernels::launch_index_select(
@@ -219,20 +188,12 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = v_select_result {
-        client.allocator().deallocate(indices_ptr, indices_size);
-        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-        client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
-        client.allocator().deallocate(b_ptr, b_size);
-        client.allocator().deallocate(v_ptr, v_size);
-        client.allocator().deallocate(s_ptr, s_size);
-        return Err(e);
-    }
+    v_select_result?;
 
     // VT = transpose(V_sorted): [work_n, work_k] -> [work_k, work_n]
     let vt_size = work_k * work_n * elem_size;
-    let vt_ptr = client.allocator().allocate(vt_size);
+    let vt_guard = AllocGuard::new(client.allocator(), vt_size)?;
+    let vt_ptr = vt_guard.ptr();
 
     let vt_transpose_result = unsafe {
         kernels::launch_transpose(
@@ -247,24 +208,7 @@ pub fn svd_decompose_impl(
         )
     };
 
-    if let Err(e) = vt_transpose_result {
-        client.allocator().deallocate(indices_ptr, indices_size);
-        client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-        client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
-        client.allocator().deallocate(vt_ptr, vt_size);
-        client.allocator().deallocate(b_ptr, b_size);
-        client.allocator().deallocate(v_ptr, v_size);
-        client.allocator().deallocate(s_ptr, s_size);
-        return Err(e);
-    }
-
-    // Clean up intermediate buffers
-    client.allocator().deallocate(indices_ptr, indices_size);
-    client.allocator().deallocate(v_sorted_ptr, v_sorted_size);
-    client.allocator().deallocate(b_ptr, b_size);
-    client.allocator().deallocate(v_ptr, v_size);
-    client.allocator().deallocate(s_ptr, s_size);
+    vt_transpose_result?;
 
     // Create final tensors based on transpose flag
     let (u_final, s_final, vt_final) = if transpose {
@@ -281,7 +225,8 @@ pub fn svd_decompose_impl(
         // So VT is [work_k, work_n] = [k, m]
         // We need U_out [m, k] which is transpose of VT: [k, m]^T = [m, k]
         let u_out_size = m * k * elem_size;
-        let u_out_ptr = client.allocator().allocate(u_out_size);
+        let u_out_guard = AllocGuard::new(client.allocator(), u_out_size)?;
+        let u_out_ptr = u_out_guard.ptr();
 
         let u_out_transpose_result = unsafe {
             kernels::launch_transpose(
@@ -296,18 +241,13 @@ pub fn svd_decompose_impl(
             )
         };
 
-        if let Err(e) = u_out_transpose_result {
-            client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-            client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-            client.allocator().deallocate(vt_ptr, vt_size);
-            client.allocator().deallocate(u_out_ptr, u_out_size);
-            return Err(e);
-        }
+        u_out_transpose_result?;
 
         // VT_out = U^T: U_sorted is [work_m, work_k] = [n, k]
         // We need VT_out [k, n] which is transpose of U_sorted
         let vt_out_size = k * n * elem_size;
-        let vt_out_ptr = client.allocator().allocate(vt_out_size);
+        let vt_out_guard = AllocGuard::new(client.allocator(), vt_out_size)?;
+        let vt_out_ptr = vt_out_guard.ptr();
 
         let vt_out_transpose_result = unsafe {
             kernels::launch_transpose(
@@ -322,22 +262,14 @@ pub fn svd_decompose_impl(
             )
         };
 
-        if let Err(e) = vt_out_transpose_result {
-            client.allocator().deallocate(s_sorted_ptr, s_sorted_size);
-            client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-            client.allocator().deallocate(vt_ptr, vt_size);
-            client.allocator().deallocate(u_out_ptr, u_out_size);
-            client.allocator().deallocate(vt_out_ptr, vt_out_size);
-            return Err(e);
-        }
+        vt_out_transpose_result?;
 
-        // Clean up intermediate
-        client.allocator().deallocate(u_sorted_ptr, u_sorted_size);
-        client.allocator().deallocate(vt_ptr, vt_size);
-
-        let u = unsafe { CudaClient::tensor_from_raw(u_out_ptr, &[m, k], dtype, device) };
-        let s = unsafe { CudaClient::tensor_from_raw(s_sorted_ptr, &[k], dtype, device) };
-        let vt = unsafe { CudaClient::tensor_from_raw(vt_out_ptr, &[k, n], dtype, device) };
+        let u =
+            unsafe { CudaClient::tensor_from_raw(u_out_guard.release(), &[m, k], dtype, device) };
+        let s =
+            unsafe { CudaClient::tensor_from_raw(s_sorted_guard.release(), &[k], dtype, device) };
+        let vt =
+            unsafe { CudaClient::tensor_from_raw(vt_out_guard.release(), &[k, n], dtype, device) };
 
         (u, s, vt)
     } else {
@@ -346,9 +278,12 @@ pub fn svd_decompose_impl(
         // - s_sorted_ptr [k] is the final S
         // - vt_ptr [k, n] is the final VT (already transposed from v_sorted)
 
-        let u = unsafe { CudaClient::tensor_from_raw(u_sorted_ptr, &[m, k], dtype, device) };
-        let s = unsafe { CudaClient::tensor_from_raw(s_sorted_ptr, &[k], dtype, device) };
-        let vt = unsafe { CudaClient::tensor_from_raw(vt_ptr, &[k, n], dtype, device) };
+        let u = unsafe {
+            CudaClient::tensor_from_raw(u_sorted_guard.release(), &[m, k], dtype, device)
+        };
+        let s =
+            unsafe { CudaClient::tensor_from_raw(s_sorted_guard.release(), &[k], dtype, device) };
+        let vt = unsafe { CudaClient::tensor_from_raw(vt_guard.release(), &[k, n], dtype, device) };
 
         (u, s, vt)
     };

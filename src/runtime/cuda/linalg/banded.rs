@@ -8,7 +8,7 @@ use super::super::kernels;
 use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{Allocator, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Validate banded system inputs and return (n, nrhs).
@@ -93,13 +93,14 @@ pub fn solve_banded_impl(
     // Allocate workspace for banded LU (needed even for Thomas - kernel ignores it)
     let work_rows = 2 * kl + ku + 1;
     let work_size = work_rows * n * elem_size;
-    let work_ptr = client.allocator().allocate(work_size);
-
-    // Allocate output buffer
     let x_total_size = n * nrhs * elem_size;
-    let x_ptr = client.allocator().allocate(x_total_size);
-
     let col_size = n * elem_size;
+
+    let work_guard = AllocGuard::new(client.allocator(), work_size)?;
+    let x_guard = AllocGuard::new(client.allocator(), x_total_size)?;
+
+    let work_ptr = work_guard.ptr();
+    let x_ptr = x_guard.ptr();
 
     // Make inputs contiguous
     let ab_contig = ab.contiguous();
@@ -124,15 +125,14 @@ pub fn solve_banded_impl(
                 ku,
             )
         };
-        if let Err(e) = result {
-            client.allocator().deallocate(work_ptr, work_size);
-            client.allocator().deallocate(x_ptr, x_total_size);
-            return Err(e);
-        }
+        result?
     } else {
         // Multi-RHS: extract each column, solve, scatter back
-        let b_col_ptr = client.allocator().allocate(col_size);
-        let x_col_ptr = client.allocator().allocate(col_size);
+        let b_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
+
+        let b_col_ptr = b_col_guard.ptr();
+        let x_col_ptr = x_col_guard.ptr();
 
         for rhs in 0..nrhs {
             // Extract column rhs from B [n, nrhs]
@@ -149,13 +149,7 @@ pub fn solve_banded_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                client.allocator().deallocate(b_col_ptr, col_size);
-                client.allocator().deallocate(x_col_ptr, col_size);
-                client.allocator().deallocate(work_ptr, work_size);
-                client.allocator().deallocate(x_ptr, x_total_size);
-                return Err(e);
-            }
+            result?;
 
             // Solve for this column
             let result = unsafe {
@@ -173,13 +167,7 @@ pub fn solve_banded_impl(
                     ku,
                 )
             };
-            if let Err(e) = result {
-                client.allocator().deallocate(b_col_ptr, col_size);
-                client.allocator().deallocate(x_col_ptr, col_size);
-                client.allocator().deallocate(work_ptr, work_size);
-                client.allocator().deallocate(x_ptr, x_total_size);
-                return Err(e);
-            }
+            result?;
 
             // Scatter solution into X [n, nrhs]
             let result = unsafe {
@@ -194,20 +182,9 @@ pub fn solve_banded_impl(
                     rhs,
                 )
             };
-            if let Err(e) = result {
-                client.allocator().deallocate(b_col_ptr, col_size);
-                client.allocator().deallocate(x_col_ptr, col_size);
-                client.allocator().deallocate(work_ptr, work_size);
-                client.allocator().deallocate(x_ptr, x_total_size);
-                return Err(e);
-            }
+            result?
         }
-
-        client.allocator().deallocate(b_col_ptr, col_size);
-        client.allocator().deallocate(x_col_ptr, col_size);
     }
-
-    client.allocator().deallocate(work_ptr, work_size);
     client.synchronize();
 
     let x = if b_is_1d {

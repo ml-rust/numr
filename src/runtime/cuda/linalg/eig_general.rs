@@ -7,7 +7,7 @@ use crate::algorithm::linalg::{
     GeneralEigenDecomposition, validate_linalg_dtype, validate_square_matrix,
 };
 use crate::error::Result;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// General eigendecomposition for non-symmetric matrices
@@ -33,14 +33,23 @@ pub fn eig_decompose_impl(
     // Allocate GPU buffers
     let matrix_size = n * n * dtype.size_in_bytes();
     let vector_size = n * dtype.size_in_bytes();
+    let flag_size = std::mem::size_of::<i32>();
 
-    let t_ptr = client.allocator().allocate(matrix_size); // Working buffer (Schur form)
-    let z_ptr = client.allocator().allocate(matrix_size); // Schur vectors
-    let eval_real_ptr = client.allocator().allocate(vector_size); // Real part of eigenvalues
-    let eval_imag_ptr = client.allocator().allocate(vector_size); // Imag part of eigenvalues
-    let evec_real_ptr = client.allocator().allocate(matrix_size); // Real part of eigenvectors
-    let evec_imag_ptr = client.allocator().allocate(matrix_size); // Imag part of eigenvectors
-    let flag_ptr = client.allocator().allocate(std::mem::size_of::<i32>());
+    let t_guard = AllocGuard::new(client.allocator(), matrix_size)?; // Working buffer (Schur form)
+    let z_guard = AllocGuard::new(client.allocator(), matrix_size)?; // Schur vectors
+    let eval_real_guard = AllocGuard::new(client.allocator(), vector_size)?; // Real part of eigenvalues
+    let eval_imag_guard = AllocGuard::new(client.allocator(), vector_size)?; // Imag part of eigenvalues
+    let evec_real_guard = AllocGuard::new(client.allocator(), matrix_size)?; // Real part of eigenvectors
+    let evec_imag_guard = AllocGuard::new(client.allocator(), matrix_size)?; // Imag part of eigenvectors
+    let flag_guard = AllocGuard::new(client.allocator(), flag_size)?;
+
+    let t_ptr = t_guard.ptr();
+    let z_ptr = z_guard.ptr();
+    let eval_real_ptr = eval_real_guard.ptr();
+    let eval_imag_ptr = eval_imag_guard.ptr();
+    let evec_real_ptr = evec_real_guard.ptr();
+    let evec_imag_ptr = evec_imag_guard.ptr();
+    let flag_ptr = flag_guard.ptr();
 
     // Copy A to T (working buffer)
     CudaRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device)?;
@@ -67,38 +76,20 @@ pub fn eig_decompose_impl(
         )
     };
 
-    // Handle kernel error - clean up all buffers
-    if let Err(e) = result {
-        client.allocator().deallocate(t_ptr, matrix_size);
-        client.allocator().deallocate(z_ptr, matrix_size);
-        client.allocator().deallocate(eval_real_ptr, vector_size);
-        client.allocator().deallocate(eval_imag_ptr, vector_size);
-        client.allocator().deallocate(evec_real_ptr, matrix_size);
-        client.allocator().deallocate(evec_imag_ptr, matrix_size);
-        client
-            .allocator()
-            .deallocate(flag_ptr, std::mem::size_of::<i32>());
-        return Err(e);
-    }
+    // Handle kernel error
+    result?;
 
     client.synchronize();
 
-    // Clean up working buffers (keep result buffers)
-    client.allocator().deallocate(t_ptr, matrix_size);
-    client.allocator().deallocate(z_ptr, matrix_size);
-    client
-        .allocator()
-        .deallocate(flag_ptr, std::mem::size_of::<i32>());
-
     // Create result tensors from GPU pointers
     let eigenvalues_real =
-        unsafe { CudaClient::tensor_from_raw(eval_real_ptr, &[n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(eval_real_guard.release(), &[n], dtype, device) };
     let eigenvalues_imag =
-        unsafe { CudaClient::tensor_from_raw(eval_imag_ptr, &[n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(eval_imag_guard.release(), &[n], dtype, device) };
     let eigenvectors_real =
-        unsafe { CudaClient::tensor_from_raw(evec_real_ptr, &[n, n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(evec_real_guard.release(), &[n, n], dtype, device) };
     let eigenvectors_imag =
-        unsafe { CudaClient::tensor_from_raw(evec_imag_ptr, &[n, n], dtype, device) };
+        unsafe { CudaClient::tensor_from_raw(evec_imag_guard.release(), &[n, n], dtype, device) };
 
     Ok(GeneralEigenDecomposition {
         eigenvalues_real,

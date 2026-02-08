@@ -5,7 +5,7 @@ use super::super::client::CudaClient;
 use super::super::kernels;
 use crate::algorithm::linalg::{SchurDecomposition, validate_linalg_dtype, validate_square_matrix};
 use crate::error::Result;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{AllocGuard, Allocator, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
 /// Schur decomposition: A = Z @ T @ Z^T
@@ -20,8 +20,8 @@ pub fn schur_decompose_impl(
 
     // Handle trivial cases that don't require iteration
     if n == 0 {
-        let z_ptr = client.allocator().allocate(0);
-        let t_ptr = client.allocator().allocate(0);
+        let z_ptr = client.allocator().allocate(0)?;
+        let t_ptr = client.allocator().allocate(0)?;
         let z = unsafe { CudaClient::tensor_from_raw(z_ptr, &[0, 0], dtype, device) };
         let t = unsafe { CudaClient::tensor_from_raw(t_ptr, &[0, 0], dtype, device) };
         return Ok(SchurDecomposition { z, t });
@@ -29,9 +29,15 @@ pub fn schur_decompose_impl(
 
     // Allocate GPU buffers for T (working copy of A) and Z (orthogonal matrix)
     let matrix_size = n * n * dtype.size_in_bytes();
-    let t_ptr = client.allocator().allocate(matrix_size);
-    let z_ptr = client.allocator().allocate(matrix_size);
-    let flag_ptr = client.allocator().allocate(std::mem::size_of::<i32>());
+    let flag_size = std::mem::size_of::<i32>();
+
+    let t_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let z_guard = AllocGuard::new(client.allocator(), matrix_size)?;
+    let flag_guard = AllocGuard::new(client.allocator(), flag_size)?;
+
+    let t_ptr = t_guard.ptr();
+    let z_ptr = z_guard.ptr();
+    let flag_ptr = flag_guard.ptr();
 
     // Copy A to T (will be modified in-place)
     CudaRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device)?;
@@ -55,23 +61,11 @@ pub fn schur_decompose_impl(
     };
 
     // Handle kernel error
-    if let Err(e) = result {
-        client.allocator().deallocate(t_ptr, matrix_size);
-        client.allocator().deallocate(z_ptr, matrix_size);
-        client
-            .allocator()
-            .deallocate(flag_ptr, std::mem::size_of::<i32>());
-        return Err(e);
-    }
+    result?;
 
     client.synchronize();
 
-    // Clean up flag buffer
-    client
-        .allocator()
-        .deallocate(flag_ptr, std::mem::size_of::<i32>());
-
-    let z = unsafe { CudaClient::tensor_from_raw(z_ptr, &[n, n], dtype, device) };
-    let t = unsafe { CudaClient::tensor_from_raw(t_ptr, &[n, n], dtype, device) };
+    let z = unsafe { CudaClient::tensor_from_raw(z_guard.release(), &[n, n], dtype, device) };
+    let t = unsafe { CudaClient::tensor_from_raw(t_guard.release(), &[n, n], dtype, device) };
     Ok(SchurDecomposition { z, t })
 }
