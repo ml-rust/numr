@@ -38,3 +38,31 @@ pub fn scalar_op_impl(
 
     Ok(out)
 }
+
+/// Reverse scalar subtract: scalar - a
+pub fn rsub_scalar_op_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    scalar: f64,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    let a_contig = ensure_contiguous(a);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::rsub_scalar_kernel::<T>(
+                a_ptr as *const T,
+                scalar,
+                out_ptr as *mut T,
+                len,
+            );
+        }
+    }, "rsub_scalar");
+
+    Ok(out)
+}

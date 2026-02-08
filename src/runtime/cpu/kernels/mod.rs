@@ -79,7 +79,7 @@ pub use reduce::{
     Accumulator, argmax_kernel, argmin_kernel, reduce_kernel, reduce_kernel_with_precision,
     softmax_kernel, variance_kernel,
 };
-pub use scalar::scalar_op_kernel;
+pub use scalar::{rsub_scalar_kernel, scalar_op_kernel};
 pub use sort::{
     argsort_kernel, count_nonzero_kernel, count_unique_kernel, extract_unique_kernel,
     flat_to_multi_index_kernel, nonzero_flat_kernel, searchsorted_kernel, sort_kernel,

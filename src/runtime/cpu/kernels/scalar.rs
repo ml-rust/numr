@@ -103,3 +103,56 @@ unsafe fn scalar_op_kernel_scalar<T: Element>(
         }
     }
 }
+
+/// Reverse scalar subtract kernel: out[i] = scalar - a[i]
+///
+/// On x86-64, dispatches to SIMD (AVX-512/AVX2) for f32/f64.
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn rsub_scalar_kernel<T: Element>(a: *const T, scalar: f64, out: *mut T, len: usize) {
+    // Dispatch to SIMD for f32/f64 on x86-64
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::scalar;
+
+        match T::DTYPE {
+            DType::F32 => {
+                scalar::rsub_scalar_f32(a as *const f32, scalar as f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                scalar::rsub_scalar_f64(a as *const f64, scalar, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::scalar;
+
+        match T::DTYPE {
+            DType::F32 => {
+                scalar::rsub_scalar_f32(a as *const f32, scalar as f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                scalar::rsub_scalar_f64(a as *const f64, scalar, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback for other types
+    let a_slice = std::slice::from_raw_parts(a, len);
+    let out_slice = std::slice::from_raw_parts_mut(out, len);
+    let s = T::from_f64(scalar);
+
+    for i in 0..len {
+        out_slice[i] = s - a_slice[i];
+    }
+}

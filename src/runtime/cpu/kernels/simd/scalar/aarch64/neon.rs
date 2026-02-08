@@ -175,3 +175,41 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
         super::super::scalar_scalar_f64(op, a.add(offset), scalar, out.add(offset), remainder);
     }
 }
+
+/// NEON reverse scalar subtract for f32: out[i] = scalar - a[i]
+pub unsafe fn rsub_scalar_f32(a: *const f32, scalar: f32, out: *mut f32, len: usize) {
+    let chunks = len / F32_LANES;
+    let remainder = len % F32_LANES;
+    let vs = vdupq_n_f32(scalar);
+
+    for i in 0..chunks {
+        let offset = i * F32_LANES;
+        let va = vld1q_f32(a.add(offset));
+        let vr = vsubq_f32(vs, va);
+        vst1q_f32(out.add(offset), vr);
+    }
+
+    for i in 0..remainder {
+        let offset = chunks * F32_LANES + i;
+        *out.add(offset) = scalar - *a.add(offset);
+    }
+}
+
+/// NEON reverse scalar subtract for f64: out[i] = scalar - a[i]
+pub unsafe fn rsub_scalar_f64(a: *const f64, scalar: f64, out: *mut f64, len: usize) {
+    let chunks = len / F64_LANES;
+    let remainder = len % F64_LANES;
+    let vs = vdupq_n_f64(scalar);
+
+    for i in 0..chunks {
+        let offset = i * F64_LANES;
+        let va = vld1q_f64(a.add(offset));
+        let vr = vsubq_f64(vs, va);
+        vst1q_f64(out.add(offset), vr);
+    }
+
+    for i in 0..remainder {
+        let offset = chunks * F64_LANES + i;
+        *out.add(offset) = scalar - *a.add(offset);
+    }
+}

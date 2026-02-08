@@ -200,3 +200,47 @@ unsafe fn scalar_min_f64(a: *const f64, scalar: f64, out: *mut f64, chunks: usiz
         _mm512_storeu_pd(out.add(offset), vr);
     }
 }
+
+// ============================================================================
+// Reverse subtract (scalar - a) kernels
+// ============================================================================
+
+/// AVX-512 reverse scalar subtract for f32: out[i] = scalar - a[i]
+#[target_feature(enable = "avx512f")]
+pub unsafe fn rsub_scalar_f32(a: *const f32, scalar: f32, out: *mut f32, len: usize) {
+    let chunks = len / F32_LANES;
+    let remainder = len % F32_LANES;
+    let vs = _mm512_set1_ps(scalar);
+
+    for i in 0..chunks {
+        let offset = i * F32_LANES;
+        let va = _mm512_loadu_ps(a.add(offset));
+        let vr = _mm512_sub_ps(vs, va);
+        _mm512_storeu_ps(out.add(offset), vr);
+    }
+
+    for i in 0..remainder {
+        let offset = chunks * F32_LANES + i;
+        *out.add(offset) = scalar - *a.add(offset);
+    }
+}
+
+/// AVX-512 reverse scalar subtract for f64: out[i] = scalar - a[i]
+#[target_feature(enable = "avx512f")]
+pub unsafe fn rsub_scalar_f64(a: *const f64, scalar: f64, out: *mut f64, len: usize) {
+    let chunks = len / F64_LANES;
+    let remainder = len % F64_LANES;
+    let vs = _mm512_set1_pd(scalar);
+
+    for i in 0..chunks {
+        let offset = i * F64_LANES;
+        let va = _mm512_loadu_pd(a.add(offset));
+        let vr = _mm512_sub_pd(vs, va);
+        _mm512_storeu_pd(out.add(offset), vr);
+    }
+
+    for i in 0..remainder {
+        let offset = chunks * F64_LANES + i;
+        *out.add(offset) = scalar - *a.add(offset);
+    }
+}

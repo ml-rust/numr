@@ -208,6 +208,98 @@ pub unsafe fn scalar_scalar_f64(
     }
 }
 
+/// SIMD reverse scalar subtract for f32: out[i] = scalar - a[i]
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn rsub_scalar_f32(a: *const f32, scalar: f32, out: *mut f32, len: usize) {
+    let level = detect_simd();
+
+    if len < SIMD_THRESHOLD || level == SimdLevel::Scalar {
+        for i in 0..len {
+            *out.add(i) = scalar - *a.add(i);
+        }
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    match level {
+        SimdLevel::Avx512 => avx512::rsub_scalar_f32(a, scalar, out, len),
+        SimdLevel::Avx2Fma => avx2::rsub_scalar_f32(a, scalar, out, len),
+        _ => {
+            for i in 0..len {
+                *out.add(i) = scalar - *a.add(i);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::rsub_scalar_f32(a, scalar, out, len)
+        }
+        _ => {
+            for i in 0..len {
+                *out.add(i) = scalar - *a.add(i);
+            }
+        }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        for i in 0..len {
+            *out.add(i) = scalar - *a.add(i);
+        }
+    }
+}
+
+/// SIMD reverse scalar subtract for f64: out[i] = scalar - a[i]
+///
+/// # Safety
+/// - `a` and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn rsub_scalar_f64(a: *const f64, scalar: f64, out: *mut f64, len: usize) {
+    let level = detect_simd();
+
+    if len < SIMD_THRESHOLD || level == SimdLevel::Scalar {
+        for i in 0..len {
+            *out.add(i) = scalar - *a.add(i);
+        }
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    match level {
+        SimdLevel::Avx512 => avx512::rsub_scalar_f64(a, scalar, out, len),
+        SimdLevel::Avx2Fma => avx2::rsub_scalar_f64(a, scalar, out, len),
+        _ => {
+            for i in 0..len {
+                *out.add(i) = scalar - *a.add(i);
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::rsub_scalar_f64(a, scalar, out, len)
+        }
+        _ => {
+            for i in 0..len {
+                *out.add(i) = scalar - *a.add(i);
+            }
+        }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        for i in 0..len {
+            *out.add(i) = scalar - *a.add(i);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
