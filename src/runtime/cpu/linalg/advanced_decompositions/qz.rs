@@ -572,19 +572,18 @@ fn implicit_double_shift_qz_step<T: Element + LinalgElement>(
         }
 
         // Zero H[k+3, k+1] if it exists and is below the subdiagonal
-        if k + 3 < ihi {
-            if h[(k + 3) * n + (k + 1)].to_f64().abs()
+        if k + 3 < ihi
+            && h[(k + 3) * n + (k + 1)].to_f64().abs()
                 > eps
                     * (h[(k + 2) * n + (k + 1)].to_f64().abs()
                         + h[(k + 3) * n + (k + 3)].to_f64().abs())
                     .max(1.0)
-            {
-                let (c, s) = givens_params(
-                    h[(k + 2) * n + (k + 1)].to_f64(),
-                    h[(k + 3) * n + (k + 1)].to_f64(),
-                );
-                left_givens_with_r_restore(h, r, q, z, n, k + 2, k + 3, c, s, ihi);
-            }
+        {
+            let (c, s) = givens_params(
+                h[(k + 2) * n + (k + 1)].to_f64(),
+                h[(k + 3) * n + (k + 1)].to_f64(),
+            );
+            left_givens_with_r_restore(h, r, q, z, n, k + 2, k + 3, c, s, ihi);
         }
     }
 }
