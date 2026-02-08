@@ -28,8 +28,6 @@ pub unsafe fn where_f32(cond: *const u8, x: *const f32, y: *const f32, out: *mut
     let chunks = len / F32_LANES;
     let remainder = len % F32_LANES;
 
-    let zero_u8 = vdup_n_u8(0);
-
     for i in 0..chunks {
         let offset = i * F32_LANES;
 
@@ -39,19 +37,17 @@ pub unsafe fn where_f32(cond: *const u8, x: *const f32, y: *const f32, out: *mut
         let c2 = *cond.add(offset + 2);
         let c3 = *cond.add(offset + 3);
 
-        // Create u8x8 vector with condition bytes in first 4 positions
-        let cond_bytes = vcreate_u8(
-            (c0 as u64) | ((c1 as u64) << 8) | ((c2 as u64) << 16) | ((c3 as u64) << 24),
+        // Build full-width lane masks required by vbsl:
+        // 0xFFFF_FFFF selects from x, 0x0000_0000 selects from y.
+        let cond_mask_u32 = vld1q_u32(
+            [
+                if c0 != 0 { !0u32 } else { 0u32 },
+                if c1 != 0 { !0u32 } else { 0u32 },
+                if c2 != 0 { !0u32 } else { 0u32 },
+                if c3 != 0 { !0u32 } else { 0u32 },
+            ]
+            .as_ptr(),
         );
-
-        // Compare with zero to get mask: 0xFF for non-zero, 0x00 for zero
-        let cond_mask_u8 = vcgt_u8(cond_bytes, zero_u8);
-
-        // Expand u8 mask to u32 mask (4 elements)
-        // First expand u8x8 -> u16x8
-        let cond_mask_u16 = vmovl_u8(cond_mask_u8);
-        // Then expand low u16x4 -> u32x4
-        let cond_mask_u32 = vmovl_u16(vget_low_u16(cond_mask_u16));
 
         // Load x and y vectors
         let vx = vld1q_f32(x.add(offset));
@@ -98,7 +94,7 @@ pub unsafe fn where_f64(cond: *const u8, x: *const f64, y: *const f64, out: *mut
         let m0: u64 = if c0 != 0 { !0u64 } else { 0u64 };
         let m1: u64 = if c1 != 0 { !0u64 } else { 0u64 };
 
-        let mask = vcombine_u64(vcreate_u64(m0), vcreate_u64(m1));
+        let mask = vld1q_u64([m0, m1].as_ptr());
 
         // Load x and y vectors
         let vx = vld1q_f64(x.add(offset));
