@@ -26,4 +26,8 @@ impl ScalarOps<WgpuRuntime> for WgpuClient {
     fn pow_scalar(&self, a: &Tensor<WgpuRuntime>, scalar: f64) -> Result<Tensor<WgpuRuntime>> {
         native_scalar_op(self, "pow_scalar", a, scalar)
     }
+
+    fn rsub_scalar(&self, a: &Tensor<WgpuRuntime>, scalar: f64) -> Result<Tensor<WgpuRuntime>> {
+        native_scalar_op(self, "rsub_scalar", a, scalar)
+    }
 }

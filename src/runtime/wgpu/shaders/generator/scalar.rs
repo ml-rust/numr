@@ -99,6 +99,14 @@ fn sub_scalar_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 }}
 
 @compute @workgroup_size(256)
+fn rsub_scalar_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx < scalar_params.numel) {{
+        scalar_out[idx] = {t}(scalar_params.scalar) - scalar_a[idx];
+    }}
+}}
+
+@compute @workgroup_size(256)
 fn mul_scalar_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < scalar_params.numel) {{

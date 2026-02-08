@@ -80,3 +80,6 @@ mod multivariate;
 
 #[path = "../../../ops/wgpu/semiring_matmul.rs"]
 mod semiring_matmul;
+
+#[path = "../../../ops/wgpu/logical.rs"]
+mod logical;

@@ -243,6 +243,14 @@ fn sub_scalar_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
+fn rsub_scalar_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let gid = global_id.x;
+    if (gid < scalar_params.numel) {
+        scalar_out[gid] = scalar_params.scalar - scalar_a[gid];
+    }
+}
+
+@compute @workgroup_size(256)
 fn mul_scalar_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let gid = global_id.x;
     if (gid < scalar_params.numel) {
