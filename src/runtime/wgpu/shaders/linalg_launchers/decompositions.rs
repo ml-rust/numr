@@ -25,6 +25,7 @@ pub fn launch_lu_decompose(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_decompositions",
@@ -73,6 +74,7 @@ pub fn launch_cholesky_decompose(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg", "cholesky_decompose_f32", &module, &layout);
@@ -115,6 +117,7 @@ pub fn launch_qr_decompose(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_decompositions",

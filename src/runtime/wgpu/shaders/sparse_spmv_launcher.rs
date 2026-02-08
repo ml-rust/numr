@@ -48,6 +48,7 @@ pub fn launch_csr_spmv(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // row_ptrs, col_indices, values, x, y
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("csr_spmv", &entry_point, &module, &layout);
@@ -112,6 +113,7 @@ pub fn launch_csr_spmm(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // row_ptrs, col_indices, a_values, b, c
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("csr_spmm", &entry_point, &module, &layout);
@@ -173,6 +175,7 @@ pub fn launch_csr_extract_diagonal(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // row_ptrs, col_indices, values, diag
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(

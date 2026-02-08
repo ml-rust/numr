@@ -100,6 +100,7 @@ pub fn launch_sobol(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, direction_vectors, params]);
@@ -203,6 +204,7 @@ pub fn launch_halton(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -312,6 +314,7 @@ pub fn launch_latin_hypercube(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);

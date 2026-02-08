@@ -43,6 +43,7 @@ pub fn launch_bernoulli(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -85,6 +86,7 @@ pub fn launch_beta_dist(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -127,6 +129,7 @@ pub fn launch_gamma_dist(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -169,6 +172,7 @@ pub fn launch_exponential(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -211,6 +215,7 @@ pub fn launch_poisson(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -253,6 +258,7 @@ pub fn launch_binomial(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -295,6 +301,7 @@ pub fn launch_laplace(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -337,6 +344,7 @@ pub fn launch_chi_squared(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -379,6 +387,7 @@ pub fn launch_student_t(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -421,6 +430,7 @@ pub fn launch_f_distribution(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -490,6 +500,7 @@ pub fn launch_multinomial_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[cdf, uniforms, counts, params]);

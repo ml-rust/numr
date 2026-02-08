@@ -165,6 +165,7 @@ pub fn launch_mode_dim(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     // Get or create pipeline
@@ -225,6 +226,7 @@ pub fn launch_mode_full(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline(static_module_key, static_entry_point, &module, &layout);

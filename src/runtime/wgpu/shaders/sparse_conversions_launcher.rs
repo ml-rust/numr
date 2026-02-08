@@ -33,6 +33,7 @@ pub fn launch_expand_row_ptrs(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // row_ptrs, row_indices
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(
@@ -79,6 +80,7 @@ pub fn launch_expand_col_ptrs(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // col_ptrs, col_indices
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(
@@ -125,6 +127,7 @@ pub fn launch_histogram(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // indices, counts
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("histogram", "histogram", &module, &layout);
@@ -172,6 +175,7 @@ pub fn launch_coo_to_csr_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6, // in_row, in_col, in_val, row_ptrs_atomic, out_col, out_val
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -231,6 +235,7 @@ pub fn launch_coo_to_csc_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -290,6 +295,7 @@ pub fn launch_csr_to_csc_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -349,6 +355,7 @@ pub fn launch_csc_to_csr_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -402,6 +409,7 @@ pub fn launch_copy_ptrs(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // src, dst
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("copy_ptrs", "copy_ptrs", &module, &layout);
@@ -447,6 +455,7 @@ pub fn launch_csr_to_dense(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // row_ptrs, col_indices, values, dense
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(&key, "csr_to_dense", &module, &layout);
@@ -491,6 +500,7 @@ pub fn launch_count_nonzeros(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // dense, count
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(&key, "count_nonzeros", &module, &layout);
@@ -537,6 +547,7 @@ pub fn launch_dense_to_coo_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // dense, row_indices, col_indices, values, write_pos
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline =

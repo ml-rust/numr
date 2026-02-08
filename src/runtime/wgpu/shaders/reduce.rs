@@ -171,6 +171,7 @@ pub fn launch_reduce_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, static_entry_point, &module, &layout);
 
@@ -233,6 +234,7 @@ pub fn launch_full_reduce_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, static_entry_point, &module, &layout);
 
@@ -295,6 +297,7 @@ pub fn launch_argreduce_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, static_entry_point, &module, &layout);
 
@@ -342,6 +345,7 @@ pub fn launch_softmax_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("reduce", "softmax_f32", &module, &layout);
 

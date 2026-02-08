@@ -33,6 +33,7 @@ pub fn launch_validate_eigenvalues(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
@@ -91,6 +92,7 @@ pub fn launch_diagonal_func(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
@@ -149,6 +151,7 @@ pub fn launch_parlett_column(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);

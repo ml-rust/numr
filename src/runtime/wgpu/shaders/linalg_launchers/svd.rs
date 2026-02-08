@@ -32,6 +32,7 @@ pub fn launch_svd_jacobi(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("linalg_svd", "svd_jacobi_f32", &module, &layout);
 

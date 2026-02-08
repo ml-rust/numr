@@ -111,6 +111,7 @@ pub fn launch_index_select(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -162,6 +163,7 @@ pub fn launch_index_put(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -214,6 +216,7 @@ pub fn launch_validate_indices(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -264,6 +267,7 @@ pub fn launch_gather(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -314,6 +318,7 @@ pub fn launch_copy(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
 
@@ -360,6 +365,7 @@ pub fn launch_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -410,6 +416,7 @@ pub fn launch_masked_fill(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -461,6 +468,7 @@ pub fn launch_masked_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(mod_name, "masked_count", &module, &layout);
 
@@ -507,6 +515,7 @@ pub fn launch_masked_prefix_sum(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(mod_name, "masked_prefix_sum", &module, &layout);
 
@@ -558,6 +567,7 @@ pub fn launch_masked_select(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
 
@@ -611,6 +621,7 @@ pub fn launch_gather_nd(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -671,6 +682,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 3,
             num_uniform_buffers: 1,
+            num_readonly_storage: 0,
         });
         let bind_group =
             cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer]);
@@ -679,6 +691,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 2,
             num_uniform_buffers: 1,
+            num_readonly_storage: 0,
         });
         let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
         (layout, bind_group)
@@ -746,6 +759,7 @@ pub fn launch_scatter_reduce(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -801,6 +815,7 @@ pub fn launch_embedding_lookup(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 
@@ -858,6 +873,7 @@ pub fn launch_gather_2d(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 

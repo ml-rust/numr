@@ -42,6 +42,7 @@ pub fn launch_csr_merge_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_counts
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(
@@ -101,6 +102,7 @@ pub fn launch_csr_mul_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -169,6 +171,7 @@ pub fn launch_csr_add_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9, // 3 for A, 3 for B, 3 for output
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -237,6 +240,7 @@ pub fn launch_csr_sub_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -305,6 +309,7 @@ pub fn launch_csr_mul_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -373,6 +378,7 @@ pub fn launch_csr_div_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -436,6 +442,7 @@ pub fn launch_csc_merge_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(
@@ -495,6 +502,7 @@ pub fn launch_csc_mul_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -563,6 +571,7 @@ pub fn launch_csc_add_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -631,6 +640,7 @@ pub fn launch_csc_sub_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -699,6 +709,7 @@ pub fn launch_csc_mul_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -767,6 +778,7 @@ pub fn launch_csc_div_compute(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -829,6 +841,7 @@ pub fn launch_exclusive_scan_i32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(

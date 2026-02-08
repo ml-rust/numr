@@ -639,6 +639,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 3,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -720,6 +721,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 2,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -803,6 +805,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 2,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -887,6 +890,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 2,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -969,6 +973,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 1,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -1079,6 +1084,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 3,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -1182,6 +1188,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 3,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -1271,6 +1278,7 @@ macro_rules! impl_typed_kernel {
                 let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
                     num_storage_buffers: 3,
                     num_uniform_buffers: 1,
+                    num_readonly_storage: 0,
                 });
                 let pipeline = cache.get_or_create_pipeline(
                     self,
@@ -1366,6 +1374,7 @@ impl TypedNorm<f32> for WgpuClient {
         let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 3,
             num_uniform_buffers: 1,
+            num_readonly_storage: 0,
         });
         let pipeline =
             cache.get_or_create_pipeline(self, dtype, "norm", "rms_norm_f32", &module, &layout);
@@ -1450,6 +1459,7 @@ impl TypedNorm<f32> for WgpuClient {
         let layout = self.pipeline_cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 4,
             num_uniform_buffers: 1,
+            num_readonly_storage: 0,
         });
         let pipeline =
             cache.get_or_create_pipeline(self, dtype, "norm", "layer_norm_f32", &module, &layout);

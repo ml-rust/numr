@@ -58,6 +58,7 @@ pub fn launch_matmul(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("matmul", "matmul_f32", &module, &layout);
 
@@ -106,6 +107,7 @@ pub fn launch_matmul_simple(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("matmul", "matmul_simple_f32", &module, &layout);
 
@@ -159,6 +161,7 @@ pub fn launch_batched_matmul(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("matmul", "batched_matmul_f32", &module, &layout);
 
@@ -209,6 +212,7 @@ pub fn launch_matvec(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("matmul", "matvec_f32", &module, &layout);
 
@@ -298,6 +302,7 @@ pub fn launch_matmul_bias(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // a, b, bias, c
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
@@ -352,6 +357,7 @@ pub fn launch_batched_matmul_bias(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // a, b, bias, c
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, batched_entry_point, &module, &layout);
 

@@ -122,6 +122,7 @@ pub fn launch_special_unary(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -190,6 +191,7 @@ pub fn launch_special_binary(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -260,6 +262,7 @@ pub fn launch_special_ternary(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -331,6 +334,7 @@ pub fn launch_special_unary_with_int(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -393,6 +397,7 @@ pub fn launch_special_unary_with_two_ints(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -456,6 +461,7 @@ pub fn launch_special_binary_with_two_ints(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -519,6 +525,7 @@ pub fn launch_special_unary_with_2f32(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -583,6 +590,7 @@ pub fn launch_special_unary_with_3f32(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =

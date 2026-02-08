@@ -45,6 +45,7 @@ pub fn launch_split_lu_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("split_lu_count", "split_lu_count", &module, &layout);
@@ -106,6 +107,7 @@ pub fn launch_split_lu_scatter_l(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("split_lu_scatter_l", &entry_point, &module, &layout);
@@ -175,6 +177,7 @@ pub fn launch_split_lu_scatter_u(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("split_lu_scatter_u", &entry_point, &module, &layout);
@@ -237,6 +240,7 @@ pub fn launch_extract_lower_count(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "extract_lower_count",
@@ -300,6 +304,7 @@ pub fn launch_extract_lower_scatter(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(
         "extract_lower_scatter",
@@ -371,6 +376,7 @@ pub fn launch_sparse_scatter_f32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 0,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("sparse_scatter_f32", "sparse_scatter_f32", &module, &layout);
@@ -414,6 +420,7 @@ pub fn launch_sparse_axpy_f32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("sparse_axpy_f32", "sparse_axpy_f32", &module, &layout);
@@ -456,6 +463,7 @@ pub fn launch_sparse_gather_clear_f32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 0,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "sparse_gather_clear_f32",
@@ -512,6 +520,7 @@ pub fn launch_sparse_divide_pivot_f32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "sparse_divide_pivot_f32",
@@ -557,6 +566,7 @@ pub fn launch_sparse_clear_f32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 0,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("sparse_clear_f32", "sparse_clear_f32", &module, &layout);

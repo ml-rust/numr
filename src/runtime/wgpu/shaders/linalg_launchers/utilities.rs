@@ -23,6 +23,7 @@ pub fn launch_det_from_lu(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "det_from_lu_f32", &module, &layout);
@@ -65,6 +66,7 @@ pub fn launch_apply_lu_permutation(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg", "apply_lu_permutation_f32", &module, &layout);
@@ -107,6 +109,7 @@ pub fn launch_scatter_column(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "scatter_column_f32", &module, &layout);
@@ -149,6 +152,7 @@ pub fn launch_extract_column(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "extract_column_f32", &module, &layout);
@@ -191,6 +195,7 @@ pub fn launch_max_abs(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "max_abs_f32", &module, &layout);
@@ -233,6 +238,7 @@ pub fn launch_count_above_threshold(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg", "count_above_threshold_f32", &module, &layout);
@@ -275,6 +281,7 @@ pub fn launch_matrix_copy(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_utilities", "matrix_copy_f32", &module, &layout);

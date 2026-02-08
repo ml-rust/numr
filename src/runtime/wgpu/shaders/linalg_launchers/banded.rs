@@ -24,6 +24,7 @@ pub fn launch_thomas_solve(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_banded", "thomas_solve_f32", &module, &layout);
@@ -67,6 +68,7 @@ pub fn launch_banded_lu_solve(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_banded", "banded_lu_solve_f32", &module, &layout);

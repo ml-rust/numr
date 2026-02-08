@@ -44,6 +44,7 @@ pub fn launch_cumsum(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("cumsum", &entry_point_name, &module, &layout);
@@ -90,6 +91,7 @@ pub fn launch_cumsum_strided(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("cumsum_strided", &entry_point_name, &module, &layout);
@@ -140,6 +142,7 @@ pub fn launch_cumprod(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("cumprod", &entry_point_name, &module, &layout);
@@ -186,6 +189,7 @@ pub fn launch_cumprod_strided(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(
         "cumprod_strided",
@@ -240,6 +244,7 @@ pub fn launch_logsumexp(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline("logsumexp", &entry_point_name, &module, &layout);
@@ -286,6 +291,7 @@ pub fn launch_logsumexp_strided(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_dynamic_pipeline(
         "logsumexp_strided",

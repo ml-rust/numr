@@ -30,6 +30,7 @@ pub fn launch_exp_quasi_triangular(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_matrix_functions",
@@ -88,6 +89,7 @@ pub fn launch_sqrt_quasi_triangular(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_matrix_functions",
@@ -146,6 +148,7 @@ pub fn launch_log_quasi_triangular(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_matrix_functions",

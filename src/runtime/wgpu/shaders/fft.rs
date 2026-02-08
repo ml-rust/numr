@@ -36,6 +36,7 @@ pub fn launch_stockham_fft_batched(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
@@ -85,6 +86,7 @@ pub fn launch_stockham_fft_stage(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
@@ -134,6 +136,7 @@ pub fn launch_scale_complex(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
@@ -182,6 +185,7 @@ pub fn launch_fftshift(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -226,6 +230,7 @@ pub fn launch_ifftshift(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -270,6 +275,7 @@ pub fn launch_rfft_pack(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -314,6 +320,7 @@ pub fn launch_irfft_unpack(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
@@ -362,6 +369,7 @@ pub fn launch_hermitian_extend(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
@@ -410,6 +418,7 @@ pub fn launch_rfft_truncate(
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(

@@ -58,6 +58,7 @@ pub fn launch_complex_op(
     let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     // Get or create pipeline
@@ -125,6 +126,7 @@ pub fn launch_angle_real(
     let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -187,6 +189,7 @@ pub fn launch_from_real_imag(
     let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -250,6 +253,7 @@ pub fn launch_complex_mul_real(
     let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -313,6 +317,7 @@ pub fn launch_complex_div_real(
     let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =

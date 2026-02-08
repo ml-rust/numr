@@ -24,6 +24,7 @@ pub fn launch_trace(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "trace_f32", &module, &layout);
 
@@ -65,6 +66,7 @@ pub fn launch_diag(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "diag_f32", &module, &layout);
 
@@ -106,6 +108,7 @@ pub fn launch_diagflat(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "diagflat_f32", &module, &layout);
@@ -147,6 +150,7 @@ pub fn launch_create_identity(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "create_identity_f32", &module, &layout);
@@ -190,6 +194,7 @@ pub fn launch_kron(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("linalg_basic_ops", "kron_f32", &module, &layout);
 
@@ -232,6 +237,7 @@ pub fn launch_khatri_rao(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_basic_ops", "khatri_rao_f32", &module, &layout);

@@ -160,6 +160,7 @@ pub fn launch_pcg64_uniform(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
@@ -201,6 +202,7 @@ pub fn launch_pcg64_randn(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);

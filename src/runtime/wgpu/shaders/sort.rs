@@ -139,6 +139,7 @@ pub fn launch_sort(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -194,6 +195,7 @@ pub fn launch_sort_values_only(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -252,6 +254,7 @@ pub fn launch_argsort(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -316,6 +319,7 @@ pub fn launch_topk(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -373,6 +377,7 @@ pub fn launch_searchsorted(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -426,6 +431,7 @@ pub fn launch_count_nonzero(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -476,6 +482,7 @@ pub fn launch_gather_nonzero(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -520,6 +527,7 @@ pub fn launch_flat_to_multi_index(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline(static_module, "flat_to_multi_index", &module, &layout);
@@ -575,6 +583,7 @@ pub fn launch_count_unique(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -636,6 +645,7 @@ pub fn launch_extract_unique(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -692,6 +702,7 @@ pub fn launch_mark_boundaries(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 
@@ -745,6 +756,7 @@ pub fn launch_scatter_unique_with_counts(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(static_module, static_ep, &module, &layout);
 

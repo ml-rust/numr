@@ -193,6 +193,7 @@ pub fn launch_binary_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
@@ -281,6 +282,7 @@ pub fn launch_broadcast_binary_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
@@ -348,6 +350,7 @@ pub fn launch_unary_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
@@ -410,6 +413,7 @@ pub fn launch_scalar_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
@@ -473,6 +477,7 @@ pub fn launch_compare_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
@@ -551,6 +556,7 @@ pub fn launch_cast_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 

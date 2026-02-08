@@ -48,6 +48,7 @@ fn cast_i64_to_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 0,
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -146,6 +147,7 @@ fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_pipeline(
@@ -250,6 +252,7 @@ fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_pipeline(
@@ -354,6 +357,7 @@ fn compute_levels_ilu_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_pipeline(
@@ -451,6 +455,7 @@ fn scatter_by_level(@builtin(global_invocation_id) gid: vec3<u32>) {
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
 
     let pipeline =

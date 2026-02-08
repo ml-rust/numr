@@ -49,6 +49,7 @@ pub fn launch_dsmm_csc(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // a, col_ptrs, row_indices, b_values, c
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("dsmm_csc", &entry_point, &module, &layout);
@@ -114,6 +115,7 @@ pub fn launch_spgemm_symbolic(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_nnz, bitmap
         num_uniform_buffers: 1, // params
+        num_readonly_storage: 0,
     });
 
     let pipeline =
@@ -196,6 +198,7 @@ pub fn launch_spgemm_numeric(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 11, // a_row_ptrs, a_col_indices, a_values, b_row_ptrs, b_col_indices, b_values, c_row_ptrs, c_col_indices, c_values, accum, flags
         num_uniform_buffers: 1,  // params
+        num_readonly_storage: 0,
     });
 
     let pipeline =

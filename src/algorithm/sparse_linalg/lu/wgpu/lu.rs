@@ -261,6 +261,7 @@ fn run_factorization_f32(
     let scatter_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let scatter_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_lu_scatter",
@@ -274,6 +275,7 @@ fn run_factorization_f32(
     let axpy_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let axpy_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_lu_axpy",
@@ -287,6 +289,7 @@ fn run_factorization_f32(
     let gather_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let gather_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_lu_gather",
@@ -300,6 +303,7 @@ fn run_factorization_f32(
     let divide_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let divide_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_lu_divide",
@@ -837,6 +841,7 @@ pub fn sparse_lu_solve_wgpu(
     let find_diag_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let find_diag_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_find_diag_csc",
@@ -956,6 +961,7 @@ pub fn sparse_lu_solve_wgpu(
     let perm_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let perm_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_apply_perm",
@@ -1026,6 +1032,7 @@ pub fn sparse_lu_solve_wgpu(
     let lower_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let lower_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_trsv_csc_lower",
@@ -1117,6 +1124,7 @@ pub fn sparse_lu_solve_wgpu(
     let upper_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let upper_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_trsv_csc_upper",

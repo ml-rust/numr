@@ -179,6 +179,7 @@ pub fn launch_where_generic_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
@@ -233,6 +234,7 @@ pub fn launch_where_broadcast_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 8,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 

@@ -34,6 +34,7 @@ pub fn launch_eig_jacobi_symmetric(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
         "linalg_eig_symmetric",
@@ -98,6 +99,7 @@ pub fn launch_schur_decompose(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_schur", "schur_decompose_f32", &module, &layout);
@@ -151,6 +153,7 @@ pub fn launch_rsf2csf(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("linalg_schur", "rsf2csf_f32", &module, &layout);
 
@@ -210,6 +213,7 @@ pub fn launch_qz_decompose(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 7,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_eig_general", "qz_decompose_f32", &module, &layout);
@@ -281,6 +285,7 @@ pub fn launch_eig_general(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 7,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_pipeline("linalg_eig_general", "eig_general_f32", &module, &layout);

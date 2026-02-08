@@ -51,6 +51,7 @@ pub fn launch_rms_norm(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("norm", "rms_norm_f32", &module, &layout);
 
@@ -101,6 +102,7 @@ pub fn launch_layer_norm(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("norm", "layer_norm_f32", &module, &layout);
 
@@ -147,6 +149,7 @@ pub fn launch_layer_norm_no_bias(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline("norm", "layer_norm_no_bias_f32", &module, &layout);
 

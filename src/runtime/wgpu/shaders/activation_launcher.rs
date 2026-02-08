@@ -53,6 +53,7 @@ pub fn launch_leaky_relu(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
@@ -109,6 +110,7 @@ pub fn launch_elu(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
@@ -165,6 +167,7 @@ pub fn launch_clamp_op(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
+        num_readonly_storage: 0,
     });
     let pipeline =
         cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
