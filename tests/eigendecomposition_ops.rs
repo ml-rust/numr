@@ -546,7 +546,7 @@ fn test_eig_zero_matrix() {
 #[cfg(feature = "cuda")]
 mod cuda_tests {
     use super::*;
-    use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
+    use numr::runtime::cuda::CudaRuntime;
 
     #[test]
     fn test_cuda_eig_2x2() {

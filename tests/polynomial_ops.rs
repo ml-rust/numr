@@ -500,7 +500,7 @@ fn test_polyval_f64() {
 #[cfg(feature = "cuda")]
 mod cuda_tests {
     use super::*;
-    use numr::runtime::cuda::{CudaDevice, CudaRuntime};
+    use numr::runtime::cuda::CudaRuntime;
 
     #[test]
     fn test_cuda_polyroots() {

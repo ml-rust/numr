@@ -611,8 +611,7 @@ fn test_fft_complex128_roundtrip() {
 #[cfg(feature = "cuda")]
 mod cuda_parity {
     use super::*;
-    use numr::runtime::Runtime;
-    use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
+    use numr::runtime::cuda::CudaRuntime;
 
     #[test]
     fn test_fft_cpu_cuda_parity() {
