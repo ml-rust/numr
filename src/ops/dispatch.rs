@@ -39,8 +39,8 @@
 //! - `F32` -> `f32`
 //! - `F16` -> `half::f16` (requires "f16" feature)
 //! - `BF16` -> `half::bf16` (requires "f16" feature)
-//! - `FP8E4M3` -> `crate::dtype::FP8E4M3` (requires "fp8" feature)
-//! - `FP8E5M2` -> `crate::dtype::FP8E5M2` (requires "fp8" feature)
+//! - `FP8E4M3` -> `crate::dtype::FP8E4M3` (always available)
+//! - `FP8E5M2` -> `crate::dtype::FP8E5M2` (always available)
 //! - `I64` -> `i64`
 //! - `I32` -> `i32`
 //! - `I16` -> `i16`
@@ -57,7 +57,7 @@
 // macros (one per type). The type is passed as a parameter, reducing duplication.
 //
 // - dispatch_f16_type!: For F16/BF16 types (requires "f16" feature)
-// - dispatch_fp8_type!: For FP8E4M3/FP8E5M2 types (requires "fp8" feature)
+// - dispatch_fp8_type!: For FP8E4M3/FP8E5M2 types (always available)
 
 /// Internal helper macro to dispatch types requiring the "f16" feature.
 /// Parameterized by type to avoid duplicating macro for F16 vs BF16.
@@ -82,22 +82,13 @@ macro_rules! dispatch_f16_type {
 
 /// Internal helper macro to dispatch types requiring the "fp8" feature.
 /// Parameterized by type to avoid duplicating macro for FP8E4M3 vs FP8E5M2.
+/// FP8 types are now always available, so no feature gating is needed.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! dispatch_fp8_type {
     ($T:ident, $body:block, $dtype:expr, $error_op:expr, $type:ty) => {{
-        #[cfg(feature = "fp8")]
-        {
-            type $T = $type;
-            $body
-        }
-        #[cfg(not(feature = "fp8"))]
-        {
-            return Err($crate::error::Error::UnsupportedDType {
-                dtype: $dtype,
-                op: $error_op,
-            });
-        }
+        type $T = $type;
+        $body
     }};
 }
 

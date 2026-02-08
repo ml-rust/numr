@@ -5,13 +5,11 @@
 
 pub mod complex;
 mod element;
-#[cfg(feature = "fp8")]
 pub mod fp8;
 mod promotion;
 
 pub use complex::{Complex64, Complex128};
 pub use element::Element;
-#[cfg(feature = "fp8")]
 pub use fp8::{FP8E4M3, FP8E5M2};
 pub use promotion::promote;
 

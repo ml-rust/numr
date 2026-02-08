@@ -361,7 +361,6 @@ impl Element for half::bf16 {
 // 8-bit floating point types (requires "fp8" feature)
 // ============================================================================
 
-#[cfg(feature = "fp8")]
 impl Element for super::fp8::FP8E4M3 {
     const DTYPE: DType = DType::FP8E4M3;
 
@@ -386,7 +385,6 @@ impl Element for super::fp8::FP8E4M3 {
     }
 }
 
-#[cfg(feature = "fp8")]
 impl Element for super::fp8::FP8E5M2 {
     const DTYPE: DType = DType::FP8E5M2;
 
@@ -495,7 +493,6 @@ mod tests {
         assert_eq!(i32::from_f64(42.0), 42);
     }
 
-    #[cfg(feature = "fp8")]
     #[test]
     fn test_fp8_element_dtype() {
         use super::super::fp8::{FP8E4M3, FP8E5M2};
@@ -503,7 +500,6 @@ mod tests {
         assert_eq!(FP8E5M2::DTYPE, DType::FP8E5M2);
     }
 
-    #[cfg(feature = "fp8")]
     #[test]
     fn test_fp8_element_conversions() {
         use super::super::fp8::{FP8E4M3, FP8E5M2};

@@ -96,43 +96,23 @@ pub unsafe fn cast_kernel(
                     }
                 }
                 DType::FP8E4M3 => {
-                    #[cfg(feature = "fp8")]
-                    {
-                        let dst_slice = std::slice::from_raw_parts_mut(
-                            $dst_ptr as *mut crate::dtype::FP8E4M3,
-                            $len,
-                        );
-                        for i in 0..$len {
-                            dst_slice[i] =
-                                crate::dtype::FP8E4M3::from_f32(src_slice[i].to_f64() as f32);
-                        }
-                    }
-                    #[cfg(not(feature = "fp8"))]
-                    {
-                        return Err(Error::UnsupportedDType {
-                            dtype: DType::FP8E4M3,
-                            op: "cast",
-                        });
+                    let dst_slice = std::slice::from_raw_parts_mut(
+                        $dst_ptr as *mut crate::dtype::FP8E4M3,
+                        $len,
+                    );
+                    for i in 0..$len {
+                        dst_slice[i] =
+                            crate::dtype::FP8E4M3::from_f32(src_slice[i].to_f64() as f32);
                     }
                 }
                 DType::FP8E5M2 => {
-                    #[cfg(feature = "fp8")]
-                    {
-                        let dst_slice = std::slice::from_raw_parts_mut(
-                            $dst_ptr as *mut crate::dtype::FP8E5M2,
-                            $len,
-                        );
-                        for i in 0..$len {
-                            dst_slice[i] =
-                                crate::dtype::FP8E5M2::from_f32(src_slice[i].to_f64() as f32);
-                        }
-                    }
-                    #[cfg(not(feature = "fp8"))]
-                    {
-                        return Err(Error::UnsupportedDType {
-                            dtype: DType::FP8E5M2,
-                            op: "cast",
-                        });
+                    let dst_slice = std::slice::from_raw_parts_mut(
+                        $dst_ptr as *mut crate::dtype::FP8E5M2,
+                        $len,
+                    );
+                    for i in 0..$len {
+                        dst_slice[i] =
+                            crate::dtype::FP8E5M2::from_f32(src_slice[i].to_f64() as f32);
                     }
                 }
                 DType::I64 => {
@@ -243,30 +223,10 @@ pub unsafe fn cast_kernel(
             }
         }
         DType::FP8E4M3 => {
-            #[cfg(feature = "fp8")]
-            {
-                cast_from!(crate::dtype::FP8E4M3, src, dst, len, dst_dtype)
-            }
-            #[cfg(not(feature = "fp8"))]
-            {
-                return Err(Error::UnsupportedDType {
-                    dtype: DType::FP8E4M3,
-                    op: "cast",
-                });
-            }
+            cast_from!(crate::dtype::FP8E4M3, src, dst, len, dst_dtype)
         }
         DType::FP8E5M2 => {
-            #[cfg(feature = "fp8")]
-            {
-                cast_from!(crate::dtype::FP8E5M2, src, dst, len, dst_dtype)
-            }
-            #[cfg(not(feature = "fp8"))]
-            {
-                return Err(Error::UnsupportedDType {
-                    dtype: DType::FP8E5M2,
-                    op: "cast",
-                });
-            }
+            cast_from!(crate::dtype::FP8E5M2, src, dst, len, dst_dtype)
         }
         DType::I64 => cast_from!(i64, src, dst, len, dst_dtype),
         DType::I32 => cast_from!(i32, src, dst, len, dst_dtype),
