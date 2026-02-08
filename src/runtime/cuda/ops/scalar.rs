@@ -26,4 +26,8 @@ impl ScalarOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
     fn pow_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
         native_scalar_op(self, a, "pow_scalar", scalar)
     }
+
+    fn rsub_scalar(&self, a: &Tensor<CudaRuntime>, scalar: f64) -> Result<Tensor<CudaRuntime>> {
+        native_scalar_op(self, a, "rsub_scalar", scalar)
+    }
 }
