@@ -181,18 +181,6 @@ pub fn matmul_bias_output_shape(
 /// # Returns
 /// - `Ok(dtype)` if all dtypes match
 /// - `Err(DTypeMismatch)` if any dtypes differ
-///
-/// # Examples
-/// ```
-/// use numr::ops::matmul::validate_matmul_bias_dtypes;
-/// use numr::dtype::DType;
-///
-/// let a_dtype = DType::F32;
-/// let b_dtype = DType::F32;
-/// let bias_dtype = DType::F32;
-/// let dtype = validate_matmul_bias_dtypes(a_dtype, b_dtype, bias_dtype)?;
-/// # Ok::<(), numr::error::Error>(())
-/// ```
 pub fn validate_matmul_bias_dtypes(
     a_dtype: DType,
     b_dtype: DType,

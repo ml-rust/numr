@@ -3,8 +3,6 @@
 //! This module contains helper types and functions for arithmetic operations.
 //! The actual operations are defined in the `TensorOps` trait.
 
-use crate::tensor::Layout;
-
 /// Compute the output shape for binary operations with broadcasting
 ///
 /// Returns None if the shapes are incompatible for broadcasting.
@@ -30,13 +28,6 @@ pub fn broadcast_shape(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
 
     result.reverse();
     Some(result)
-}
-
-/// Check if two layouts are compatible for element-wise operations
-///
-/// Returns true if the shapes can be broadcast together.
-pub fn can_broadcast(a: &Layout, b: &Layout) -> bool {
-    broadcast_shape(a.shape(), b.shape()).is_some()
 }
 
 /// Binary operation kind

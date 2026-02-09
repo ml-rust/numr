@@ -21,9 +21,6 @@ use crate::error::{Error, Result};
 /// For F64 computations, consider using `EPSILON_F64` for tighter tolerance.
 pub const DIVISION_EPSILON: f64 = 1e-10;
 
-/// Tighter epsilon for F64 computations where higher precision is needed.
-pub const DIVISION_EPSILON_F64: f64 = 1e-15;
-
 // ============================================================================
 // Interpolation Methods
 // ============================================================================
@@ -152,13 +149,6 @@ impl Interpolation {
 ///
 /// A vector of `bins + 1` edge values.
 ///
-/// # Example
-///
-/// ```
-/// # use numr::runtime::statistics_common::compute_bin_edges_f64;
-/// let edges = compute_bin_edges_f64(0.0, 10.0, 5);
-/// assert_eq!(edges, vec![0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
-/// ```
 #[inline]
 pub fn compute_bin_edges_f64(min_val: f64, max_val: f64, bins: usize) -> Vec<f64> {
     let bin_width = (max_val - min_val) / bins as f64;
@@ -192,55 +182,6 @@ pub fn compute_bin_index(value: f64, min_val: f64, bin_width: f64, bins: usize) 
     } else {
         idx as usize
     }
-}
-
-// ============================================================================
-// Histogram Computation (Generic)
-// ============================================================================
-
-/// Compute histogram counts from a slice of typed data.
-///
-/// This is a generic implementation that works with any `Element` type
-/// by converting values to f64 for bin computation.
-///
-/// # Arguments
-///
-/// * `data` - Slice of input values
-/// * `bins` - Number of histogram bins
-/// * `min_val` - Minimum value of the histogram range
-/// * `max_val` - Maximum value of the histogram range
-///
-/// # Returns
-///
-/// A vector of `bins` counts (i64) representing the histogram.
-///
-/// # Algorithm
-///
-/// For each value in `data`:
-/// 1. Convert to f64
-/// 2. Compute bin index: `floor((value - min) / bin_width)`
-/// 3. Clamp index to `[0, bins - 1]`
-/// 4. Increment the corresponding count
-///
-/// # Complexity
-///
-/// O(n) where n is the length of the data slice.
-pub fn compute_histogram_counts<T: Element>(
-    data: &[T],
-    bins: usize,
-    min_val: f64,
-    max_val: f64,
-) -> Vec<i64> {
-    let mut counts = vec![0i64; bins];
-    let bin_width = (max_val - min_val) / bins as f64;
-
-    for &val in data {
-        let v = val.to_f64();
-        let bin_idx = compute_bin_index(v, min_val, bin_width, bins);
-        counts[bin_idx] += 1;
-    }
-
-    counts
 }
 
 // ============================================================================
@@ -282,91 +223,6 @@ pub fn compute_quantile_indices(q: f64, n: usize) -> (usize, usize, f64) {
     let frac = virtual_idx - floor_idx as f64;
 
     (floor_idx, ceil_idx, frac)
-}
-
-// ============================================================================
-// Quantile Interpolation (Generic)
-// ============================================================================
-
-/// Compute quantile values from sorted data using interpolation.
-///
-/// This function computes quantile values from pre-sorted data, handling
-/// the strided iteration pattern common to tensor reduction operations.
-///
-/// # Arguments
-///
-/// * `sorted` - Slice of sorted input data
-/// * `outer_size` - Number of outer iterations (product of dimensions before reduce dim)
-/// * `reduce_size` - Size of the dimension being reduced (sorted along)
-/// * `inner_size` - Number of inner iterations (product of dimensions after reduce dim)
-/// * `floor_idx` - Lower bounding index for interpolation
-/// * `ceil_idx` - Upper bounding index for interpolation
-/// * `frac` - Fractional part for linear interpolation
-/// * `interp` - Interpolation method to use
-///
-/// # Returns
-///
-/// Vector of quantile values with length `outer_size * inner_size`.
-///
-/// # Memory Layout
-///
-/// Input is assumed to be in row-major order with the reduce dimension
-/// being the middle dimension:
-/// ```text
-/// [outer][reduce][inner]
-/// ```
-///
-/// # Safety
-///
-/// This function assumes all indices are within bounds. The caller must ensure
-/// that `floor_idx < reduce_size` and `ceil_idx < reduce_size`.
-#[allow(clippy::too_many_arguments)]
-pub fn compute_quantile_interpolation<T: Element>(
-    sorted: &[T],
-    outer_size: usize,
-    reduce_size: usize,
-    inner_size: usize,
-    floor_idx: usize,
-    ceil_idx: usize,
-    frac: f64,
-    interp: Interpolation,
-) -> Vec<T> {
-    debug_assert!(
-        floor_idx < reduce_size,
-        "floor_idx {} must be < reduce_size {}",
-        floor_idx,
-        reduce_size
-    );
-    debug_assert!(
-        ceil_idx < reduce_size,
-        "ceil_idx {} must be < reduce_size {}",
-        ceil_idx,
-        reduce_size
-    );
-
-    let mut result = Vec::with_capacity(outer_size * inner_size);
-
-    for outer in 0..outer_size {
-        for inner in 0..inner_size {
-            let base_idx = outer * reduce_size * inner_size + inner;
-
-            // Bounds check in debug mode
-            debug_assert!(
-                base_idx + ceil_idx * inner_size < sorted.len(),
-                "Index {} out of bounds for sorted array of length {}",
-                base_idx + ceil_idx * inner_size,
-                sorted.len()
-            );
-
-            let lower_val = sorted[base_idx + floor_idx * inner_size].to_f64();
-            let upper_val = sorted[base_idx + ceil_idx * inner_size].to_f64();
-            let value = interp.interpolate(lower_val, upper_val, frac);
-
-            result.push(T::from_f64(value));
-        }
-    }
-
-    result
 }
 
 // ============================================================================

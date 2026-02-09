@@ -49,9 +49,9 @@
 //!    - [`ActivationKind`] - Activation function kinds
 //!
 //! 3. **Use validation helpers:**
-//!    - [`broadcast_shape`] - Compute broadcast shape for binary ops
-//!    - [`validate_matmul_shapes`] - Validate matmul dimensions
-//!    - [`reduce_output_shape`] - Compute reduction output shape
+//!    - `broadcast_shape` - Compute broadcast shape for binary ops
+//!    - `validate_matmul_shapes` - Validate matmul dimensions
+//!    - `reduce_output_shape` - Compute reduction output shape
 //!
 //! # Operation Categories
 //!
@@ -76,20 +76,29 @@ pub(crate) mod common;
 pub(crate) mod conv_common;
 mod dispatch;
 pub(crate) mod distance_common;
-pub mod impl_generic;
-pub mod matmul;
-pub mod reduce;
-pub mod semiring;
+pub(crate) mod impl_generic;
+pub(crate) mod matmul;
+pub(crate) mod reduce;
+pub(crate) mod semiring;
 mod special;
 pub mod traits;
 
-pub use activation::*;
-pub use arithmetic::*;
-pub use dispatch::*;
-pub use matmul::*;
-pub use reduce::*;
+// Re-export user-facing types
+pub use activation::ActivationKind;
+pub use arithmetic::{BinaryOp, CompareOp, UnaryOp};
+pub use matmul::MatmulParams;
+pub use reduce::ReduceOp;
 pub use semiring::SemiringOp;
 pub use special::SpecialFunctions;
+
+// Internal re-exports (accessible within the crate only)
+pub(crate) use arithmetic::broadcast_shape;
+pub(crate) use matmul::{
+    matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes,
+};
+pub(crate) use reduce::{
+    AccumulationPrecision, compute_reduce_strides, reduce_dim_output_shape, reduce_output_shape,
+};
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
     CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, Kernel, LinalgOps, LogicalOps,

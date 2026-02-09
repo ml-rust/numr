@@ -84,28 +84,6 @@ pub fn reduce_output_shape(input_shape: &[usize], dims: &[usize], keepdim: bool)
     }
 }
 
-/// Normalize reduction dimensions (handle negative indices)
-///
-/// Returns None if any dimension is out of range.
-pub fn normalize_dims(ndim: usize, dims: &[isize]) -> Option<Vec<usize>> {
-    dims.iter()
-        .map(|&d| {
-            if d >= 0 {
-                let d = d as usize;
-                if d < ndim { Some(d) } else { None }
-            } else {
-                let d = ndim as isize + d;
-                if d >= 0 { Some(d as usize) } else { None }
-            }
-        })
-        .collect()
-}
-
-/// All dimensions for full reduction
-pub fn all_dims(ndim: usize) -> Vec<usize> {
-    (0..ndim).collect()
-}
-
 /// Compute the strides for a single-dimension reduction (used by argmax/argmin).
 ///
 /// Returns `(outer_size, reduce_size, inner_size)` where:
@@ -120,14 +98,6 @@ pub fn all_dims(ndim: usize) -> Vec<usize> {
 /// * `shape` - Shape of the input tensor
 /// * `dim` - The dimension to reduce over
 ///
-/// # Example
-/// ```
-/// use numr::ops::reduce::compute_reduce_strides;
-///
-/// let shape = &[2, 3, 4];
-/// let (outer, reduce, inner) = compute_reduce_strides(shape, 1);
-/// assert_eq!((outer, reduce, inner), (2, 3, 4));
-/// ```
 #[inline]
 pub fn compute_reduce_strides(shape: &[usize], dim: usize) -> (usize, usize, usize) {
     let outer_size: usize = shape[..dim].iter().product::<usize>().max(1);
@@ -178,16 +148,14 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize_dims() {
-        // Positive dims
-        assert_eq!(normalize_dims(3, &[0, 1]), Some(vec![0, 1]));
+    fn test_compute_reduce_strides() {
+        let (outer, reduce, inner) = compute_reduce_strides(&[2, 3, 4], 1);
+        assert_eq!((outer, reduce, inner), (2, 3, 4));
 
-        // Negative dims
-        assert_eq!(normalize_dims(3, &[-1]), Some(vec![2]));
-        assert_eq!(normalize_dims(3, &[-2, -1]), Some(vec![1, 2]));
+        let (outer, reduce, inner) = compute_reduce_strides(&[2, 3, 4], 0);
+        assert_eq!((outer, reduce, inner), (1, 2, 12));
 
-        // Out of range
-        assert_eq!(normalize_dims(3, &[3]), None);
-        assert_eq!(normalize_dims(3, &[-4]), None);
+        let (outer, reduce, inner) = compute_reduce_strides(&[2, 3, 4], 2);
+        assert_eq!((outer, reduce, inner), (6, 4, 1));
     }
 }

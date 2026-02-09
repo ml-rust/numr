@@ -168,6 +168,3 @@ macro_rules! dispatch_dtype {
         }
     };
 }
-
-// Re-export at module level for qualified access
-pub use dispatch_dtype;
