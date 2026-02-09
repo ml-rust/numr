@@ -12,7 +12,7 @@ pub trait ReduceOps<R: Runtime> {
 
     /// Sum along specified dimensions with explicit accumulation precision.
     ///
-    /// See [`AccumulationPrecision`] for details on precision options.
+    /// See `AccumulationPrecision` for details on precision options.
     fn sum_with_precision(
         &self,
         a: &Tensor<R>,
@@ -29,7 +29,7 @@ pub trait ReduceOps<R: Runtime> {
 
     /// Maximum along specified dimensions with explicit accumulation precision.
     ///
-    /// See [`AccumulationPrecision`] for details on precision options.
+    /// See `AccumulationPrecision` for details on precision options.
     fn max_with_precision(
         &self,
         a: &Tensor<R>,
@@ -43,7 +43,7 @@ pub trait ReduceOps<R: Runtime> {
 
     /// Minimum along specified dimensions with explicit accumulation precision.
     ///
-    /// See [`AccumulationPrecision`] for details on precision options.
+    /// See `AccumulationPrecision` for details on precision options.
     fn min_with_precision(
         &self,
         a: &Tensor<R>,
@@ -83,7 +83,7 @@ pub trait ReduceOps<R: Runtime> {
     /// Accumulation precision is especially important for products as values
     /// can grow or shrink exponentially, causing overflow or underflow.
     ///
-    /// See [`AccumulationPrecision`] for details on precision options.
+    /// See `AccumulationPrecision` for details on precision options.
     fn prod_with_precision(
         &self,
         a: &Tensor<R>,

@@ -69,7 +69,7 @@ pub mod scalar;
 
 pub use scalar::*;
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -105,7 +105,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - erf(0) = 0
     /// - erf(∞) = 1, erf(-∞) = -1
     /// - erf(-x) = -erf(x) (odd function)
-    fn erf(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn erf(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::erf",
+        })
+    }
 
     /// Compute the complementary error function element-wise.
     ///
@@ -115,7 +120,12 @@ pub trait SpecialFunctions<R: Runtime> {
     ///
     /// For large x, erf(x) ≈ 1 and computing 1 - erf(x) loses precision.
     /// erfc(x) computes the small tail directly, maintaining accuracy.
-    fn erfc(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn erfc(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::erfc",
+        })
+    }
 
     /// Compute the inverse error function element-wise.
     ///
@@ -125,7 +135,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Domain: (-1, 1)
     /// - Range: all real numbers
     /// - erfinv(0) = 0
-    fn erfinv(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn erfinv(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::erfinv",
+        })
+    }
 
     // ========================================================================
     // Gamma Functions
@@ -141,7 +156,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Γ(n) = (n-1)! for positive integers
     /// - Γ(1) = 1, Γ(1/2) = √π
     /// - Has poles at non-positive integers (returns NaN/Inf)
-    fn gamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gamma(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::gamma",
+        })
+    }
 
     /// Compute the log-gamma function element-wise.
     ///
@@ -151,14 +171,24 @@ pub trait SpecialFunctions<R: Runtime> {
     ///
     /// Γ(x) grows extremely fast (Γ(171) overflows F64).
     /// lgamma computes the logarithm directly without overflow.
-    fn lgamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn lgamma(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::lgamma",
+        })
+    }
 
     /// Compute the digamma (psi) function element-wise.
     ///
     /// ```text
     /// ψ(x) = d/dx ln(Γ(x)) = Γ'(x)/Γ(x)
     /// ```
-    fn digamma(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn digamma(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::digamma",
+        })
+    }
 
     // ========================================================================
     // Beta Functions
@@ -169,14 +199,24 @@ pub trait SpecialFunctions<R: Runtime> {
     /// ```text
     /// B(a, b) = Γ(a)Γ(b)/Γ(a+b)
     /// ```
-    fn beta(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn beta(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::beta",
+        })
+    }
 
     /// Compute the regularized incomplete beta function element-wise.
     ///
     /// ```text
     /// I_x(a,b) = B(x;a,b)/B(a,b) = (1/B(a,b)) ∫₀ˣ t^(a-1)(1-t)^(b-1) dt
     /// ```
-    fn betainc(&self, a: &Tensor<R>, b: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn betainc(&self, a: &Tensor<R>, b: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b, x);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::betainc",
+        })
+    }
 
     // ========================================================================
     // Incomplete Gamma Functions
@@ -187,14 +227,24 @@ pub trait SpecialFunctions<R: Runtime> {
     /// ```text
     /// P(a, x) = γ(a,x)/Γ(a) = (1/Γ(a)) ∫₀ˣ t^(a-1) e^(-t) dt
     /// ```
-    fn gammainc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gammainc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, x);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::gammainc",
+        })
+    }
 
     /// Compute the upper regularized incomplete gamma function.
     ///
     /// ```text
     /// Q(a, x) = 1 - P(a, x)
     /// ```
-    fn gammaincc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gammaincc(&self, a: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, x);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::gammaincc",
+        })
+    }
 
     /// Compute the inverse of the lower regularized incomplete gamma function.
     ///
@@ -205,7 +255,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Range: x >= 0
     /// - gammaincinv(a, 0) = 0
     /// - gammaincinv(a, 1) = ∞
-    fn gammaincinv(&self, a: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gammaincinv(&self, a: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, p);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::gammaincinv",
+        })
+    }
 
     /// Compute the inverse of the regularized incomplete beta function.
     ///
@@ -216,7 +271,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Range: x in [0, 1]
     /// - betaincinv(a, b, 0) = 0
     /// - betaincinv(a, b, 1) = 1
-    fn betaincinv(&self, a: &Tensor<R>, b: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>>;
+    fn betaincinv(&self, a: &Tensor<R>, b: &Tensor<R>, p: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b, p);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::betaincinv",
+        })
+    }
 
     // ========================================================================
     // Bessel Functions
@@ -225,42 +285,82 @@ pub trait SpecialFunctions<R: Runtime> {
     /// Compute Bessel function of the first kind, order 0.
     ///
     /// J₀(0) = 1, even function, oscillates with decreasing amplitude.
-    fn bessel_j0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_j0(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_j0",
+        })
+    }
 
     /// Compute Bessel function of the first kind, order 1.
     ///
     /// J₁(0) = 0, odd function, oscillates with decreasing amplitude.
-    fn bessel_j1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_j1(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_j1",
+        })
+    }
 
     /// Compute Bessel function of the second kind, order 0 (Neumann function).
     ///
     /// Y₀(x) → -∞ as x → 0⁺. Domain: x > 0.
-    fn bessel_y0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_y0(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_y0",
+        })
+    }
 
     /// Compute Bessel function of the second kind, order 1 (Neumann function).
     ///
     /// Y₁(x) → -∞ as x → 0⁺. Domain: x > 0.
-    fn bessel_y1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_y1(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_y1",
+        })
+    }
 
     /// Compute modified Bessel function of the first kind, order 0.
     ///
     /// I₀(0) = 1, even function, grows exponentially.
-    fn bessel_i0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_i0(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_i0",
+        })
+    }
 
     /// Compute modified Bessel function of the first kind, order 1.
     ///
     /// I₁(0) = 0, odd function, grows exponentially.
-    fn bessel_i1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_i1(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_i1",
+        })
+    }
 
     /// Compute modified Bessel function of the second kind, order 0.
     ///
     /// K₀(x) → ∞ as x → 0⁺. Domain: x > 0. Decays exponentially.
-    fn bessel_k0(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_k0(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_k0",
+        })
+    }
 
     /// Compute modified Bessel function of the second kind, order 1.
     ///
     /// K₁(x) → ∞ as x → 0⁺. Domain: x > 0. Decays exponentially.
-    fn bessel_k1(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn bessel_k1(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::bessel_k1",
+        })
+    }
 
     // ========================================================================
     // Elliptic Integrals
@@ -277,7 +377,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - K(0) = π/2
     /// - K(m) → ∞ as m → 1
     /// - Uses parameter convention m = k², where k is the modulus
-    fn ellipk(&self, m: &Tensor<R>) -> Result<Tensor<R>>;
+    fn ellipk(&self, m: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = m;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::ellipk",
+        })
+    }
 
     /// Compute the complete elliptic integral of the second kind E(m).
     ///
@@ -289,7 +394,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Domain: m ∈ [0, 1]
     /// - E(0) = π/2
     /// - E(1) = 1
-    fn ellipe(&self, m: &Tensor<R>) -> Result<Tensor<R>>;
+    fn ellipe(&self, m: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = m;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::ellipe",
+        })
+    }
 
     // ========================================================================
     // Hypergeometric Functions
@@ -308,7 +418,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// # Arguments
     /// - a, b, c: Scalar parameters
     /// - z: Input tensor
-    fn hyp2f1(&self, a: f64, b: f64, c: f64, z: &Tensor<R>) -> Result<Tensor<R>>;
+    fn hyp2f1(&self, a: f64, b: f64, c: f64, z: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b, c, z);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::hyp2f1",
+        })
+    }
 
     /// Compute the confluent hypergeometric function ₁F₁(a; b; z) (Kummer's M).
     ///
@@ -320,7 +435,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - ₁F₁(a; b; 0) = 1
     /// - ₁F₁(0; b; z) = 1
     /// - Entire function in z
-    fn hyp1f1(&self, a: f64, b: f64, z: &Tensor<R>) -> Result<Tensor<R>>;
+    fn hyp1f1(&self, a: f64, b: f64, z: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b, z);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::hyp1f1",
+        })
+    }
 
     // ========================================================================
     // Airy Functions
@@ -336,7 +456,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Ai(x) → 0 as x → +∞ (exponentially)
     /// - Ai(x) oscillates for x < 0
     /// - Ai(0) ≈ 0.3550280538878172
-    fn airy_ai(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn airy_ai(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::airy_ai",
+        })
+    }
 
     /// Compute the Airy function of the second kind Bi(x).
     ///
@@ -348,7 +473,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - Bi(x) → +∞ as x → +∞ (exponentially)
     /// - Bi(x) oscillates for x < 0
     /// - Bi(0) ≈ 0.6149266274460007
-    fn airy_bi(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn airy_bi(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::airy_bi",
+        })
+    }
 
     // ========================================================================
     // Legendre Functions
@@ -361,7 +491,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - P_n(1) = 1
     /// - P_n(-1) = (-1)^n
     /// - P_0(x) = 1, P_1(x) = x
-    fn legendre_p(&self, n: i32, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn legendre_p(&self, n: i32, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (n, x);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::legendre_p",
+        })
+    }
 
     /// Compute the associated Legendre function P_n^m(x).
     ///
@@ -370,7 +505,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// # Properties
     /// - Domain: x ∈ [-1, 1], 0 ≤ m ≤ n
     /// - P_n^0(x) = P_n(x)
-    fn legendre_p_assoc(&self, n: i32, m: i32, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn legendre_p_assoc(&self, n: i32, m: i32, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (n, m, x);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::legendre_p_assoc",
+        })
+    }
 
     /// Compute the real spherical harmonic Y_n^m(θ, φ).
     ///
@@ -384,7 +524,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - m: order (-n ≤ m ≤ n)
     /// - theta: polar angle θ ∈ [0, π] (colatitude)
     /// - phi: azimuthal angle φ ∈ [0, 2π)
-    fn sph_harm(&self, n: i32, m: i32, theta: &Tensor<R>, phi: &Tensor<R>) -> Result<Tensor<R>>;
+    fn sph_harm(&self, n: i32, m: i32, theta: &Tensor<R>, phi: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (n, m, theta, phi);
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::sph_harm",
+        })
+    }
 
     // ========================================================================
     // Fresnel Integrals
@@ -400,7 +545,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - S(0) = 0
     /// - S(∞) = 0.5
     /// - S(-x) = -S(x) (odd function)
-    fn fresnel_s(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn fresnel_s(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::fresnel_s",
+        })
+    }
 
     /// Compute the Fresnel cosine integral C(x).
     ///
@@ -412,7 +562,12 @@ pub trait SpecialFunctions<R: Runtime> {
     /// - C(0) = 0
     /// - C(∞) = 0.5
     /// - C(-x) = -C(x) (odd function)
-    fn fresnel_c(&self, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn fresnel_c(&self, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = x;
+        Err(Error::NotImplemented {
+            feature: "SpecialFunctions::fresnel_c",
+        })
+    }
 }
 
 // ============================================================================

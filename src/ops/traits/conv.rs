@@ -3,7 +3,7 @@
 //! This module defines the `ConvOps` trait for 1D and 2D convolution operations
 //! commonly used in neural networks for feature extraction.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -134,7 +134,12 @@ pub trait ConvOps<R: Runtime> {
         padding: PaddingMode,
         dilation: usize,
         groups: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weight, bias, stride, padding, dilation, groups);
+        Err(Error::NotImplemented {
+            feature: "ConvOps::conv1d",
+        })
+    }
 
     /// Applies a 2D convolution over an input image.
     ///
@@ -198,7 +203,12 @@ pub trait ConvOps<R: Runtime> {
         padding: PaddingMode,
         dilation: (usize, usize),
         groups: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weight, bias, stride, padding, dilation, groups);
+        Err(Error::NotImplemented {
+            feature: "ConvOps::conv2d",
+        })
+    }
 
     /// Applies a depthwise separable 2D convolution.
     ///
@@ -257,5 +267,10 @@ pub trait ConvOps<R: Runtime> {
         stride: (usize, usize),
         padding: PaddingMode,
         dilation: (usize, usize),
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weight, bias, stride, padding, dilation);
+        Err(Error::NotImplemented {
+            feature: "ConvOps::depthwise_conv2d",
+        })
+    }
 }

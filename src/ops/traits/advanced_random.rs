@@ -12,7 +12,7 @@
 //! WGSL lacks native u64: uses 32-bit keys for Philox/ThreeFry, emulated u64 for PCG64/Xoshiro.
 //! Only F32 supported on WebGPU.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -43,7 +43,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         key: u64,
         counter: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, key, counter, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::philox_randn",
+        })
+    }
 
     /// Generate uniform [0,1) samples using Philox4x32-10.
     fn philox_uniform(
@@ -52,7 +57,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         key: u64,
         counter: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, key, counter, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::philox_uniform",
+        })
+    }
 
     /// Generate N(0,1) samples using ThreeFry4x64-20 (cryptographic quality).
     fn threefry_randn(
@@ -61,7 +71,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         key: u64,
         counter: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, key, counter, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::threefry_randn",
+        })
+    }
 
     /// Generate uniform [0,1) samples using ThreeFry4x64-20.
     fn threefry_uniform(
@@ -70,7 +85,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         key: u64,
         counter: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, key, counter, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::threefry_uniform",
+        })
+    }
 
     /// Generate N(0,1) samples using PCG64.
     /// Args: shape, seed, stream (for parallel generation), dtype
@@ -80,7 +100,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         seed: u64,
         stream: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, seed, stream, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::pcg64_randn",
+        })
+    }
 
     /// Generate uniform [0,1) samples using PCG64.
     fn pcg64_uniform(
@@ -89,7 +114,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         seed: u64,
         stream: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, seed, stream, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::pcg64_uniform",
+        })
+    }
 
     /// Generate N(0,1) samples using Xoshiro256++.
     /// Args: shape, seed, dtype
@@ -98,7 +128,12 @@ pub trait AdvancedRandomOps<R: Runtime> {
         shape: &[usize],
         seed: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, seed, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::xoshiro256_randn",
+        })
+    }
 
     /// Generate uniform [0,1) samples using Xoshiro256++.
     fn xoshiro256_uniform(
@@ -106,5 +141,10 @@ pub trait AdvancedRandomOps<R: Runtime> {
         shape: &[usize],
         seed: u64,
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, seed, dtype);
+        Err(Error::NotImplemented {
+            feature: "AdvancedRandomOps::xoshiro256_uniform",
+        })
+    }
 }

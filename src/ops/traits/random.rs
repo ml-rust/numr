@@ -2,7 +2,7 @@
 //!
 //! This module defines the `RandomOps` trait for sampling from various probability distributions.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -25,7 +25,12 @@ pub trait RandomOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor filled with uniform random values
-    fn rand(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+    fn rand(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>> {
+        let _ = (shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::rand",
+        })
+    }
 
     /// Generate standard normal random values (mean=0, std=1)
     ///
@@ -39,7 +44,12 @@ pub trait RandomOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor filled with normally distributed random values
-    fn randn(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+    fn randn(&self, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>> {
+        let _ = (shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::randn",
+        })
+    }
 
     /// Generate random integers in the range [low, high)
     ///
@@ -95,7 +105,12 @@ pub trait RandomOps<R: Runtime> {
         high: i64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (low, high, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::randint",
+        })
+    }
 
     // ===== Discrete Distributions =====
 
@@ -184,7 +199,12 @@ pub trait RandomOps<R: Runtime> {
         probs: &Tensor<R>,
         num_samples: usize,
         replacement: bool,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (probs, num_samples, replacement);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::multinomial",
+        })
+    }
 
     /// Sample from a Bernoulli distribution
     ///
@@ -230,7 +250,12 @@ pub trait RandomOps<R: Runtime> {
     /// let biased = client.bernoulli(0.7, &[1000], DType::F32)?;
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn bernoulli(&self, p: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+    fn bernoulli(&self, p: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>> {
+        let _ = (p, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::bernoulli",
+        })
+    }
 
     /// Sample from a Poisson distribution
     ///
@@ -292,7 +317,12 @@ pub trait RandomOps<R: Runtime> {
         lambda: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (lambda, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::poisson",
+        })
+    }
 
     /// Sample from a Binomial distribution
     ///
@@ -351,7 +381,12 @@ pub trait RandomOps<R: Runtime> {
         p: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (n, p, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::binomial",
+        })
+    }
 
     // ===== Continuous Distributions =====
 
@@ -416,7 +451,12 @@ pub trait RandomOps<R: Runtime> {
         beta: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (alpha, beta, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::beta",
+        })
+    }
 
     /// Sample from a Gamma distribution
     ///
@@ -472,7 +512,12 @@ pub trait RandomOps<R: Runtime> {
         scale: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (shape_param, scale, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::gamma",
+        })
+    }
 
     /// Sample from an Exponential distribution
     ///
@@ -529,7 +574,12 @@ pub trait RandomOps<R: Runtime> {
         rate: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (rate, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::exponential",
+        })
+    }
 
     /// Sample from a Laplace (double exponential) distribution
     ///
@@ -589,7 +639,12 @@ pub trait RandomOps<R: Runtime> {
         scale: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (loc, scale, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::laplace",
+        })
+    }
 
     /// Sample from a Chi-squared distribution
     ///
@@ -646,7 +701,12 @@ pub trait RandomOps<R: Runtime> {
         df: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (df, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::chi_squared",
+        })
+    }
 
     /// Sample from a Student's t distribution
     ///
@@ -702,7 +762,12 @@ pub trait RandomOps<R: Runtime> {
     /// let approx_normal = client.student_t(100.0, &[1000], DType::F32)?;
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn student_t(&self, df: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>>;
+    fn student_t(&self, df: f64, shape: &[usize], dtype: crate::dtype::DType) -> Result<Tensor<R>> {
+        let _ = (df, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::student_t",
+        })
+    }
 
     /// Sample from an F distribution
     ///
@@ -760,7 +825,12 @@ pub trait RandomOps<R: Runtime> {
         df2: f64,
         shape: &[usize],
         dtype: crate::dtype::DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (df1, df2, shape, dtype);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::f_distribution",
+        })
+    }
 
     /// Generate a random permutation of integers [0, n)
     ///
@@ -797,5 +867,10 @@ pub trait RandomOps<R: Runtime> {
     /// // perm might be [3, 0, 4, 1, 2] (random ordering of 0..5)
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn randperm(&self, n: usize) -> Result<Tensor<R>>;
+    fn randperm(&self, n: usize) -> Result<Tensor<R>> {
+        let _ = n;
+        Err(Error::NotImplemented {
+            feature: "RandomOps::randperm",
+        })
+    }
 }

@@ -1,6 +1,6 @@
 //! Cumulative operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -30,7 +30,12 @@ pub trait CumulativeOps<R: Runtime> {
     /// let result = client.cumsum(&a, 0)?; // [1, 3, 6, 10]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn cumsum(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>>;
+    fn cumsum(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (a, dim);
+        Err(Error::NotImplemented {
+            feature: "CumulativeOps::cumsum",
+        })
+    }
 
     /// Cumulative product along a dimension
     ///
@@ -56,7 +61,12 @@ pub trait CumulativeOps<R: Runtime> {
     /// let result = client.cumprod(&a, 0)?; // [1, 2, 6, 24]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn cumprod(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>>;
+    fn cumprod(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (a, dim);
+        Err(Error::NotImplemented {
+            feature: "CumulativeOps::cumprod",
+        })
+    }
 
     /// Log-sum-exp along specified dimensions (numerically stable)
     ///
@@ -86,5 +96,10 @@ pub trait CumulativeOps<R: Runtime> {
     /// // result ≈ log(exp(1) + exp(2) + exp(3)) ≈ 3.4076
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn logsumexp(&self, a: &Tensor<R>, dims: &[usize], keepdim: bool) -> Result<Tensor<R>>;
+    fn logsumexp(&self, a: &Tensor<R>, dims: &[usize], keepdim: bool) -> Result<Tensor<R>> {
+        let _ = (a, dims, keepdim);
+        Err(Error::NotImplemented {
+            feature: "CumulativeOps::logsumexp",
+        })
+    }
 }

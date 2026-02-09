@@ -5,7 +5,7 @@
 
 use super::MatrixNormOrder;
 use super::decompositions::*;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -62,7 +62,12 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// - `exp(A + B) = exp(A) @ exp(B)` if `AB = BA`
     /// - `det(exp(A)) = e^{tr(A)}`
     /// - `exp(A)^{-1} = exp(-A)`
-    fn expm(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn expm(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::expm",
+        })
+    }
 
     /// Matrix logarithm: log(A) (principal branch)
     ///
@@ -72,7 +77,12 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// # Requirements
     ///
     /// The matrix A must have no eigenvalues on the closed negative real axis.
-    fn logm(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn logm(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::logm",
+        })
+    }
 
     /// Matrix square root: A^{1/2} (principal branch)
     ///
@@ -89,7 +99,12 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// # Requirements
     ///
     /// The matrix A must have no eigenvalues on the closed negative real axis.
-    fn sqrtm(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn sqrtm(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::sqrtm",
+        })
+    }
 
     /// Matrix sign function: sign(A)
     ///
@@ -106,7 +121,12 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     ///
     /// - sign(A)^2 = I (involutory)
     /// - Eigenvalues of sign(A) are +1 or -1
-    fn signm(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn signm(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::signm",
+        })
+    }
 
     /// Fractional matrix power: A^p for any real p
     ///
@@ -119,7 +139,12 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// - p = -1: Returns matrix inverse
     /// - p = 0.5: Equivalent to sqrtm(A)
     /// - Integer p: Uses repeated squaring
-    fn fractional_matrix_power(&self, a: &Tensor<R>, p: f64) -> Result<Tensor<R>>;
+    fn fractional_matrix_power(&self, a: &Tensor<R>, p: f64) -> Result<Tensor<R>> {
+        let _ = (a, p);
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::fractional_matrix_power",
+        })
+    }
 
     /// General matrix function: f(A) for any scalar function f
     ///
@@ -139,7 +164,13 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// ```
     fn funm<F>(&self, a: &Tensor<R>, f: F) -> Result<Tensor<R>>
     where
-        F: Fn(f64) -> f64 + Send + Sync;
+        F: Fn(f64) -> f64 + Send + Sync,
+    {
+        let _ = (a, f);
+        Err(Error::NotImplemented {
+            feature: "MatrixFunctionsAlgorithms::funm",
+        })
+    }
 }
 
 /// Algorithmic contract for linear algebra operations
@@ -159,19 +190,44 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
 /// - Special case handling (singular matrices, non-positive-definite)
 pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// LU Decomposition with partial pivoting: PA = LU
-    fn lu_decompose(&self, a: &Tensor<R>) -> Result<LuDecomposition<R>>;
+    fn lu_decompose(&self, a: &Tensor<R>) -> Result<LuDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::lu_decompose",
+        })
+    }
 
     /// Cholesky Decomposition: A = LL^T
-    fn cholesky_decompose(&self, a: &Tensor<R>) -> Result<CholeskyDecomposition<R>>;
+    fn cholesky_decompose(&self, a: &Tensor<R>) -> Result<CholeskyDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::cholesky_decompose",
+        })
+    }
 
     /// QR Decomposition using Householder reflections: A = QR
-    fn qr_decompose(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>>;
+    fn qr_decompose(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::qr_decompose",
+        })
+    }
 
     /// Thin QR Decomposition: A = QR where Q is `[m, k]` and R is `[k, n]`
-    fn qr_decompose_thin(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>>;
+    fn qr_decompose_thin(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::qr_decompose_thin",
+        })
+    }
 
     /// Solve linear system Ax = b using LU decomposition
-    fn solve(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn solve(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::solve",
+        })
+    }
 
     /// Solve triangular system Lx = b (forward substitution)
     fn solve_triangular_lower(
@@ -179,28 +235,68 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
         l: &Tensor<R>,
         b: &Tensor<R>,
         unit_diagonal: bool,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (l, b, unit_diagonal);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::solve_triangular_lower",
+        })
+    }
 
     /// Solve triangular system Ux = b (backward substitution)
-    fn solve_triangular_upper(&self, u: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn solve_triangular_upper(&self, u: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (u, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::solve_triangular_upper",
+        })
+    }
 
     /// Least squares solution: minimize ||Ax - b||²
-    fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::lstsq",
+        })
+    }
 
     /// Matrix inverse using LU decomposition
-    fn inverse(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn inverse(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::inverse",
+        })
+    }
 
     /// Matrix determinant using LU decomposition
-    fn det(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn det(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::det",
+        })
+    }
 
     /// Matrix trace: sum of diagonal elements
-    fn trace(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn trace(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::trace",
+        })
+    }
 
     /// Extract diagonal elements
-    fn diag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn diag(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::diag",
+        })
+    }
 
     /// Create diagonal matrix from 1D tensor
-    fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::diagflat",
+        })
+    }
 
     /// Kronecker product: A ⊗ B
     ///
@@ -230,24 +326,44 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - Control theory (Sylvester/Lyapunov equation solvers)
     /// - Signal processing (2D filtering)
     /// - Graph theory (graph products)
-    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::kron",
+        })
+    }
 
     /// Upper triangular part of a matrix
     ///
     /// Returns a copy of the matrix with elements below the k-th diagonal zeroed.
     /// Supports all numeric dtypes (not just F32/F64).
-    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>> {
+        let _ = (a, diagonal);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::triu",
+        })
+    }
 
     /// Lower triangular part of a matrix
     ///
     /// Returns a copy of the matrix with elements above the k-th diagonal zeroed.
     /// Supports all numeric dtypes (not just F32/F64).
-    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>> {
+        let _ = (a, diagonal);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::tril",
+        })
+    }
 
     /// Sign and log-absolute-determinant
     ///
     /// Computes sign(det(A)) and log(|det(A)|) separately for numerical stability.
-    fn slogdet(&self, a: &Tensor<R>) -> Result<super::SlogdetResult<R>>;
+    fn slogdet(&self, a: &Tensor<R>) -> Result<super::SlogdetResult<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::slogdet",
+        })
+    }
 
     /// Solve banded linear system Ab*x = b
     ///
@@ -269,7 +385,12 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
         b: &Tensor<R>,
         kl: usize,
         ku: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (ab, b, kl, ku);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::solve_banded",
+        })
+    }
 
     /// Khatri-Rao product (column-wise Kronecker product): A ⊙ B
     ///
@@ -297,37 +418,92 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - Tucker decomposition
     /// - Multi-linear algebra
     /// - Compressed sensing
-    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::khatri_rao",
+        })
+    }
 
     /// Matrix rank via SVD
-    fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
+    fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>> {
+        let _ = (a, tol);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::matrix_rank",
+        })
+    }
 
     /// Matrix norm (Frobenius, Spectral, or Nuclear)
-    fn matrix_norm(&self, a: &Tensor<R>, ord: MatrixNormOrder) -> Result<Tensor<R>>;
+    fn matrix_norm(&self, a: &Tensor<R>, ord: MatrixNormOrder) -> Result<Tensor<R>> {
+        let _ = (a, ord);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::matrix_norm",
+        })
+    }
 
     /// Singular Value Decomposition: A = U @ diag(S) @ V^T
-    fn svd_decompose(&self, a: &Tensor<R>) -> Result<SvdDecomposition<R>>;
+    fn svd_decompose(&self, a: &Tensor<R>) -> Result<SvdDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::svd_decompose",
+        })
+    }
 
     /// Eigendecomposition for symmetric matrices: A = V @ diag(λ) @ V^T
-    fn eig_decompose_symmetric(&self, a: &Tensor<R>) -> Result<EigenDecomposition<R>>;
+    fn eig_decompose_symmetric(&self, a: &Tensor<R>) -> Result<EigenDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::eig_decompose_symmetric",
+        })
+    }
 
     /// General Eigendecomposition for non-symmetric matrices
-    fn eig_decompose(&self, a: &Tensor<R>) -> Result<GeneralEigenDecomposition<R>>;
+    fn eig_decompose(&self, a: &Tensor<R>) -> Result<GeneralEigenDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::eig_decompose",
+        })
+    }
 
     /// Schur Decomposition: A = Z @ T @ Z^T
-    fn schur_decompose(&self, a: &Tensor<R>) -> Result<SchurDecomposition<R>>;
+    fn schur_decompose(&self, a: &Tensor<R>) -> Result<SchurDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::schur_decompose",
+        })
+    }
 
     /// Moore-Penrose pseudo-inverse via SVD
-    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>>;
+    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>> {
+        let _ = (a, rcond);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::pinverse",
+        })
+    }
 
     /// Matrix condition number via SVD
-    fn cond(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn cond(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::cond",
+        })
+    }
 
     /// Covariance matrix
-    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>>;
+    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>> {
+        let _ = (a, ddof);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::cov",
+        })
+    }
 
     /// Correlation coefficient matrix (Pearson correlation)
-    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::corrcoef",
+        })
+    }
 
     /// Convert Real Schur form to Complex Schur form: rsf2csf
     ///
@@ -355,7 +531,12 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     fn rsf2csf(
         &self,
         schur: &super::SchurDecomposition<R>,
-    ) -> Result<super::ComplexSchurDecomposition<R>>;
+    ) -> Result<super::ComplexSchurDecomposition<R>> {
+        let _ = schur;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::rsf2csf",
+        })
+    }
 
     /// Generalized Schur (QZ) decomposition for matrix pencil (A, B)
     ///
@@ -380,7 +561,12 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
         &self,
         a: &Tensor<R>,
         b: &Tensor<R>,
-    ) -> Result<super::GeneralizedSchurDecomposition<R>>;
+    ) -> Result<super::GeneralizedSchurDecomposition<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::qz_decompose",
+        })
+    }
 
     /// Polar decomposition: A = U @ P
     ///
@@ -401,7 +587,12 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// - For invertible A: `U` is the closest unitary matrix to A (in Frobenius norm)
     /// - `P` is unique and equals `sqrt(A^H @ A)`
     /// - For real matrices: `U` is orthogonal, `P` is symmetric positive semi-definite
-    fn polar_decompose(&self, a: &Tensor<R>) -> Result<super::PolarDecomposition<R>>;
+    fn polar_decompose(&self, a: &Tensor<R>) -> Result<super::PolarDecomposition<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinearAlgebraAlgorithms::polar_decompose",
+        })
+    }
 }
 
 /// Tensor decomposition algorithms for higher-order tensors (N-dimensional arrays)
@@ -478,7 +669,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// let unfolded = client.unfold(&tensor, 1)?;
     /// // Result has shape `[3, 8]` (mode-1 fibers as rows)
     /// ```
-    fn unfold(&self, tensor: &Tensor<R>, mode: usize) -> Result<Tensor<R>>;
+    fn unfold(&self, tensor: &Tensor<R>, mode: usize) -> Result<Tensor<R>> {
+        let _ = (tensor, mode);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::unfold",
+        })
+    }
 
     /// Mode-n folding (tensorization) - inverse of unfolding
     ///
@@ -497,7 +693,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// # Panics
     ///
     /// If matrix dimensions don't match the expected unfolded size for the given shape.
-    fn fold(&self, matrix: &Tensor<R>, mode: usize, shape: &[usize]) -> Result<Tensor<R>>;
+    fn fold(&self, matrix: &Tensor<R>, mode: usize, shape: &[usize]) -> Result<Tensor<R>> {
+        let _ = (matrix, mode, shape);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::fold",
+        })
+    }
 
     /// Mode-n product: tensor × matrix along mode n
     ///
@@ -539,7 +740,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
         tensor: &Tensor<R>,
         matrix: &Tensor<R>,
         mode: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (tensor, matrix, mode);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::mode_n_product",
+        })
+    }
 
     /// Higher-Order SVD (HOSVD) decomposition
     ///
@@ -570,7 +776,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// # Returns
     ///
     /// Tucker decomposition with orthogonal factor matrices
-    fn hosvd(&self, tensor: &Tensor<R>, ranks: &[usize]) -> Result<super::TuckerDecomposition<R>>;
+    fn hosvd(&self, tensor: &Tensor<R>, ranks: &[usize]) -> Result<super::TuckerDecomposition<R>> {
+        let _ = (tensor, ranks);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::hosvd",
+        })
+    }
 
     /// Tucker decomposition via Higher-Order Orthogonal Iteration (HOOI)
     ///
@@ -606,7 +817,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
         tensor: &Tensor<R>,
         ranks: &[usize],
         options: super::TuckerOptions,
-    ) -> Result<super::TuckerDecomposition<R>>;
+    ) -> Result<super::TuckerDecomposition<R>> {
+        let _ = (tensor, ranks, options);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::tucker",
+        })
+    }
 
     /// CP/PARAFAC decomposition via Alternating Least Squares (ALS)
     ///
@@ -648,7 +864,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
         tensor: &Tensor<R>,
         rank: usize,
         options: super::CpOptions,
-    ) -> Result<super::CpDecomposition<R>>;
+    ) -> Result<super::CpDecomposition<R>> {
+        let _ = (tensor, rank, options);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::cp_decompose",
+        })
+    }
 
     /// Tensor-Train (TT) decomposition via TT-SVD
     ///
@@ -689,7 +910,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
         tensor: &Tensor<R>,
         max_rank: usize,
         tolerance: f64,
-    ) -> Result<super::TensorTrainDecomposition<R>>;
+    ) -> Result<super::TensorTrainDecomposition<R>> {
+        let _ = (tensor, max_rank, tolerance);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::tensor_train",
+        })
+    }
 
     /// Reconstruct tensor from Tucker decomposition
     ///
@@ -702,7 +928,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// # Returns
     ///
     /// Full tensor of shape `[I₁, I₂, ..., Iₙ]`
-    fn tucker_reconstruct(&self, decomp: &super::TuckerDecomposition<R>) -> Result<Tensor<R>>;
+    fn tucker_reconstruct(&self, decomp: &super::TuckerDecomposition<R>) -> Result<Tensor<R>> {
+        let _ = decomp;
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::tucker_reconstruct",
+        })
+    }
 
     /// Reconstruct tensor from CP decomposition
     ///
@@ -720,7 +951,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
         &self,
         decomp: &super::CpDecomposition<R>,
         shape: &[usize],
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (decomp, shape);
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::cp_reconstruct",
+        })
+    }
 
     /// Reconstruct tensor from Tensor-Train decomposition
     ///
@@ -733,5 +969,10 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// # Returns
     ///
     /// Full tensor of shape `[I₁, I₂, ..., Iₙ]`
-    fn tt_reconstruct(&self, decomp: &super::TensorTrainDecomposition<R>) -> Result<Tensor<R>>;
+    fn tt_reconstruct(&self, decomp: &super::TensorTrainDecomposition<R>) -> Result<Tensor<R>> {
+        let _ = decomp;
+        Err(Error::NotImplemented {
+            feature: "TensorDecomposeAlgorithms::tt_reconstruct",
+        })
+    }
 }

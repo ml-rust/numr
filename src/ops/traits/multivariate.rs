@@ -3,7 +3,7 @@
 //! This module defines the `MultivariateRandomOps` trait for sampling from
 //! multivariate probability distributions that require linear algebra operations.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -87,7 +87,12 @@ pub trait MultivariateRandomOps<R: Runtime> {
         mean: &Tensor<R>,
         cov: &Tensor<R>,
         n_samples: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (mean, cov, n_samples);
+        Err(Error::NotImplemented {
+            feature: "MultivariateRandomOps::multivariate_normal",
+        })
+    }
 
     /// Sample from a Wishart distribution: W ~ W(V, df)
     ///
@@ -148,7 +153,12 @@ pub trait MultivariateRandomOps<R: Runtime> {
     /// // samples has shape [100, 2, 2]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn wishart(&self, scale: &Tensor<R>, df: usize, n_samples: usize) -> Result<Tensor<R>>;
+    fn wishart(&self, scale: &Tensor<R>, df: usize, n_samples: usize) -> Result<Tensor<R>> {
+        let _ = (scale, df, n_samples);
+        Err(Error::NotImplemented {
+            feature: "MultivariateRandomOps::wishart",
+        })
+    }
 
     /// Sample from a Dirichlet distribution: X ~ Dir(α)
     ///
@@ -208,7 +218,12 @@ pub trait MultivariateRandomOps<R: Runtime> {
     /// let samples = client.dirichlet(&alpha, 1000)?;
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn dirichlet(&self, alpha: &Tensor<R>, n_samples: usize) -> Result<Tensor<R>>;
+    fn dirichlet(&self, alpha: &Tensor<R>, n_samples: usize) -> Result<Tensor<R>> {
+        let _ = (alpha, n_samples);
+        Err(Error::NotImplemented {
+            feature: "MultivariateRandomOps::dirichlet",
+        })
+    }
 
     /// Sample from a multinomial distribution with counts: X ~ Multinomial(probs, n_trials)
     ///
@@ -280,5 +295,10 @@ pub trait MultivariateRandomOps<R: Runtime> {
         probs: &Tensor<R>,
         n_trials: usize,
         n_samples: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (probs, n_trials, n_samples);
+        Err(Error::NotImplemented {
+            feature: "MultivariateRandomOps::multinomial_samples",
+        })
+    }
 }

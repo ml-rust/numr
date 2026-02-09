@@ -34,7 +34,7 @@
 //! All sequences generate points in the unit hypercube [0, 1)^d.
 
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -102,7 +102,12 @@ pub trait QuasiRandomOps<R: Runtime> {
         dimension: usize,
         skip: usize,
         dtype: DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (n_points, dimension, skip, dtype);
+        Err(Error::NotImplemented {
+            feature: "QuasiRandomOps::sobol",
+        })
+    }
 
     /// Generate Halton sequence points.
     ///
@@ -156,7 +161,12 @@ pub trait QuasiRandomOps<R: Runtime> {
         dimension: usize,
         skip: usize,
         dtype: DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (n_points, dimension, skip, dtype);
+        Err(Error::NotImplemented {
+            feature: "QuasiRandomOps::halton",
+        })
+    }
 
     /// Generate Latin Hypercube Sampling points.
     ///
@@ -207,5 +217,10 @@ pub trait QuasiRandomOps<R: Runtime> {
         n_samples: usize,
         dimension: usize,
         dtype: DType,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (n_samples, dimension, dtype);
+        Err(Error::NotImplemented {
+            feature: "QuasiRandomOps::latin_hypercube",
+        })
+    }
 }

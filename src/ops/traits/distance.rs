@@ -3,7 +3,7 @@
 //! This module defines the `DistanceOps` trait for computing pairwise distances
 //! between points using various distance metrics.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -107,7 +107,12 @@ pub trait DistanceOps<R: Runtime> {
     /// // d has shape (2, 2), `d[i,j]` = ||x[i] - y[j]||
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn cdist(&self, x: &Tensor<R>, y: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>>;
+    fn cdist(&self, x: &Tensor<R>, y: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>> {
+        let _ = (x, y, metric);
+        Err(Error::NotImplemented {
+            feature: "DistanceOps::cdist",
+        })
+    }
 
     /// Compute pairwise distances within a single point set (condensed form).
     ///
@@ -162,7 +167,12 @@ pub trait DistanceOps<R: Runtime> {
     /// // d has shape (3,) = n*(n-1)/2 for n=3
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn pdist(&self, x: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>>;
+    fn pdist(&self, x: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>> {
+        let _ = (x, metric);
+        Err(Error::NotImplemented {
+            feature: "DistanceOps::pdist",
+        })
+    }
 
     /// Convert condensed distance vector to square distance matrix.
     ///
@@ -201,7 +211,12 @@ pub trait DistanceOps<R: Runtime> {
     /// // square has shape (3, 3), symmetric with zero diagonal
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn squareform(&self, condensed: &Tensor<R>, n: usize) -> Result<Tensor<R>>;
+    fn squareform(&self, condensed: &Tensor<R>, n: usize) -> Result<Tensor<R>> {
+        let _ = (condensed, n);
+        Err(Error::NotImplemented {
+            feature: "DistanceOps::squareform",
+        })
+    }
 
     /// Convert square distance matrix to condensed form.
     ///
@@ -236,5 +251,10 @@ pub trait DistanceOps<R: Runtime> {
     /// let condensed = client.squareform_inverse(&square)?;
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn squareform_inverse(&self, square: &Tensor<R>) -> Result<Tensor<R>>;
+    fn squareform_inverse(&self, square: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = square;
+        Err(Error::NotImplemented {
+            feature: "DistanceOps::squareform_inverse",
+        })
+    }
 }

@@ -189,7 +189,12 @@ pub trait FftAlgorithms<R: Runtime> {
         input: &Tensor<R>,
         direction: FftDirection,
         norm: FftNormalization,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, direction, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::fft",
+        })
+    }
 
     /// 1D FFT along a specific dimension
     ///
@@ -209,7 +214,12 @@ pub trait FftAlgorithms<R: Runtime> {
         dim: isize,
         direction: FftDirection,
         norm: FftNormalization,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, dim, direction, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::fft_dim",
+        })
+    }
 
     /// Real FFT: Real input → Complex output
     ///
@@ -238,7 +248,12 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// - `InvalidArgument` if N is not a power of 2
     /// - `UnsupportedDType` if input is not F32 or F64
-    fn rfft(&self, input: &Tensor<R>, norm: FftNormalization) -> Result<Tensor<R>>;
+    fn rfft(&self, input: &Tensor<R>, norm: FftNormalization) -> Result<Tensor<R>> {
+        let _ = (input, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::rfft",
+        })
+    }
 
     /// Inverse real FFT: Complex input → Real output
     ///
@@ -263,7 +278,12 @@ pub trait FftAlgorithms<R: Runtime> {
         input: &Tensor<R>,
         n: Option<usize>,
         norm: FftNormalization,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, n, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::irfft",
+        })
+    }
 
     /// 2D FFT on complex input
     ///
@@ -283,7 +303,12 @@ pub trait FftAlgorithms<R: Runtime> {
         input: &Tensor<R>,
         direction: FftDirection,
         norm: FftNormalization,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, direction, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::fft2",
+        })
+    }
 
     /// 2D Real FFT
     ///
@@ -297,7 +322,12 @@ pub trait FftAlgorithms<R: Runtime> {
     /// # Returns
     ///
     /// Complex tensor of shape `[..., M, N/2 + 1]`
-    fn rfft2(&self, input: &Tensor<R>, norm: FftNormalization) -> Result<Tensor<R>>;
+    fn rfft2(&self, input: &Tensor<R>, norm: FftNormalization) -> Result<Tensor<R>> {
+        let _ = (input, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::rfft2",
+        })
+    }
 
     /// Inverse 2D Real FFT
     ///
@@ -315,7 +345,12 @@ pub trait FftAlgorithms<R: Runtime> {
         input: &Tensor<R>,
         s: Option<(usize, usize)>,
         norm: FftNormalization,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, s, norm);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::irfft2",
+        })
+    }
 
     /// Frequency shift: shift zero-frequency component to center
     ///
@@ -329,10 +364,20 @@ pub trait FftAlgorithms<R: Runtime> {
     /// # Returns
     ///
     /// Tensor with shifted frequencies
-    fn fftshift(&self, input: &Tensor<R>) -> Result<Tensor<R>>;
+    fn fftshift(&self, input: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = input;
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::fftshift",
+        })
+    }
 
     /// Inverse frequency shift: undo fftshift
-    fn ifftshift(&self, input: &Tensor<R>) -> Result<Tensor<R>>;
+    fn ifftshift(&self, input: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = input;
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::ifftshift",
+        })
+    }
 
     /// Generate FFT sample frequencies
     ///
@@ -349,7 +394,12 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// 1D tensor of shape `[N]` with frequencies:
     /// [0, 1, 2, ..., N/2-1, -N/2, ..., -1] / (d*N)
-    fn fftfreq(&self, n: usize, d: f64, dtype: DType, device: &R::Device) -> Result<Tensor<R>>;
+    fn fftfreq(&self, n: usize, d: f64, dtype: DType, device: &R::Device) -> Result<Tensor<R>> {
+        let _ = (n, d, dtype, device);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::fftfreq",
+        })
+    }
 
     /// Generate non-negative FFT sample frequencies for rfft
     ///
@@ -364,7 +414,12 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// 1D tensor of shape [N/2 + 1] with frequencies:
     /// [0, 1, 2, ..., N/2] / (d*N)
-    fn rfftfreq(&self, n: usize, d: f64, dtype: DType, device: &R::Device) -> Result<Tensor<R>>;
+    fn rfftfreq(&self, n: usize, d: f64, dtype: DType, device: &R::Device) -> Result<Tensor<R>> {
+        let _ = (n, d, dtype, device);
+        Err(Error::NotImplemented {
+            feature: "FftAlgorithms::rfftfreq",
+        })
+    }
 }
 
 // ============================================================================

@@ -1,6 +1,6 @@
 //! Statistical operations trait for tensor statistics.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -26,7 +26,12 @@ pub trait StatisticalOps<R: Runtime> {
         dims: &[usize],
         keepdim: bool,
         correction: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dims, keepdim, correction);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::var",
+        })
+    }
 
     /// Standard deviation along specified dimensions
     ///
@@ -48,7 +53,12 @@ pub trait StatisticalOps<R: Runtime> {
         dims: &[usize],
         keepdim: bool,
         correction: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dims, keepdim, correction);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::std",
+        })
+    }
 
     /// Compute the q-th quantile along a dimension
     ///
@@ -114,7 +124,12 @@ pub trait StatisticalOps<R: Runtime> {
         dim: Option<isize>,
         keepdim: bool,
         interpolation: &str,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, q, dim, keepdim, interpolation);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::quantile",
+        })
+    }
 
     /// Compute the p-th percentile along a dimension
     ///
@@ -146,7 +161,12 @@ pub trait StatisticalOps<R: Runtime> {
         p: f64,
         dim: Option<isize>,
         keepdim: bool,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, p, dim, keepdim);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::percentile",
+        })
+    }
 
     /// Compute median (50th percentile) along a dimension
     ///
@@ -174,7 +194,12 @@ pub trait StatisticalOps<R: Runtime> {
     /// let med = client.median(&b, Some(0), false)?;  // 2.5 (interpolated)
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn median(&self, a: &Tensor<R>, dim: Option<isize>, keepdim: bool) -> Result<Tensor<R>>;
+    fn median(&self, a: &Tensor<R>, dim: Option<isize>, keepdim: bool) -> Result<Tensor<R>> {
+        let _ = (a, dim, keepdim);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::median",
+        })
+    }
 
     /// Compute histogram of input values
     ///
@@ -223,7 +248,12 @@ pub trait StatisticalOps<R: Runtime> {
         a: &Tensor<R>,
         bins: usize,
         range: Option<(f64, f64)>,
-    ) -> Result<(Tensor<R>, Tensor<R>)>;
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (a, bins, range);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::histogram",
+        })
+    }
 
     /// Covariance matrix of observations
     ///
@@ -257,7 +287,12 @@ pub trait StatisticalOps<R: Runtime> {
     /// let c = client.cov(&x, None)?;  // [2, 2] covariance matrix
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>>;
+    fn cov(&self, a: &Tensor<R>, ddof: Option<usize>) -> Result<Tensor<R>> {
+        let _ = (a, ddof);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::cov",
+        })
+    }
 
     /// Pearson correlation coefficient matrix
     ///
@@ -289,7 +324,12 @@ pub trait StatisticalOps<R: Runtime> {
     /// let corr = client.corrcoef(&x)?;  // [2, 2] correlation matrix
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn corrcoef(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::corrcoef",
+        })
+    }
 
     /// Skewness (third standardized moment)
     ///
@@ -339,7 +379,12 @@ pub trait StatisticalOps<R: Runtime> {
         dims: &[usize],
         keepdim: bool,
         correction: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dims, keepdim, correction);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::skew",
+        })
+    }
 
     /// Kurtosis (fourth standardized moment, excess)
     ///
@@ -392,7 +437,12 @@ pub trait StatisticalOps<R: Runtime> {
         dims: &[usize],
         keepdim: bool,
         correction: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dims, keepdim, correction);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::kurtosis",
+        })
+    }
 
     /// Compute the mode (most frequent value) along a dimension
     ///
@@ -451,5 +501,10 @@ pub trait StatisticalOps<R: Runtime> {
         a: &Tensor<R>,
         dim: Option<isize>,
         keepdim: bool,
-    ) -> Result<(Tensor<R>, Tensor<R>)>;
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (a, dim, keepdim);
+        Err(Error::NotImplemented {
+            feature: "StatisticalOps::mode",
+        })
+    }
 }

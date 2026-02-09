@@ -1,6 +1,6 @@
 //! Indexing operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -39,7 +39,12 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor of I64 containing indices of maximum values
-    fn argmax(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>>;
+    fn argmax(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>> {
+        let _ = (a, dim, keepdim);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::argmax",
+        })
+    }
 
     /// Argmin: returns indices of minimum values along a dimension.
     ///
@@ -56,7 +61,12 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor of I64 containing indices of minimum values
-    fn argmin(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>>;
+    fn argmin(&self, a: &Tensor<R>, dim: usize, keepdim: bool) -> Result<Tensor<R>> {
+        let _ = (a, dim, keepdim);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::argmin",
+        })
+    }
 
     /// Gather elements along a dimension using an index tensor.
     ///
@@ -72,7 +82,12 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor with same shape as index tensor, same dtype as input
-    fn gather(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gather(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, dim, index);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::gather",
+        })
+    }
 
     /// Scatter values into a tensor at positions specified by an index tensor.
     ///
@@ -98,7 +113,12 @@ pub trait IndexingOps<R: Runtime> {
         dim: usize,
         index: &Tensor<R>,
         src: &Tensor<R>,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dim, index, src);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::scatter",
+        })
+    }
 
     /// Select elements along a dimension using a 1D index tensor.
     ///
@@ -119,7 +139,12 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// Returns `IndexOutOfBounds` error if any index is negative or >= dim_size.
     /// Indices must be in the range `[0, dim_size)`. Negative indices are not supported.
-    fn index_select(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>>;
+    fn index_select(&self, a: &Tensor<R>, dim: usize, index: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, dim, index);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::index_select",
+        })
+    }
 
     /// Put values at specified indices along a dimension.
     ///
@@ -168,7 +193,12 @@ pub trait IndexingOps<R: Runtime> {
         dim: usize,
         index: &Tensor<R>,
         src: &Tensor<R>,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, dim, index, src);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::index_put",
+        })
+    }
 
     /// Select elements where mask is true, returning a flattened 1D tensor.
     ///
@@ -180,7 +210,12 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// 1D tensor containing only elements where mask is true
-    fn masked_select(&self, a: &Tensor<R>, mask: &Tensor<R>) -> Result<Tensor<R>>;
+    fn masked_select(&self, a: &Tensor<R>, mask: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, mask);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::masked_select",
+        })
+    }
 
     /// Fill elements where mask is true with a scalar value.
     ///
@@ -193,7 +228,12 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// New tensor with masked positions filled with value
-    fn masked_fill(&self, a: &Tensor<R>, mask: &Tensor<R>, value: f64) -> Result<Tensor<R>>;
+    fn masked_fill(&self, a: &Tensor<R>, mask: &Tensor<R>, value: f64) -> Result<Tensor<R>> {
+        let _ = (a, mask, value);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::masked_fill",
+        })
+    }
 
     /// Look up embeddings from an embedding table using indices.
     ///
@@ -246,7 +286,12 @@ pub trait IndexingOps<R: Runtime> {
     /// On GPU, this operation is memory-bound and optimized for coalesced reads
     /// from the embedding table. Each thread handles one index lookup and writes
     /// a full embedding vector.
-    fn embedding_lookup(&self, embeddings: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>;
+    fn embedding_lookup(&self, embeddings: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (embeddings, indices);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::embedding_lookup",
+        })
+    }
 
     /// Scatter values with reduction into a destination tensor.
     ///
@@ -294,7 +339,12 @@ pub trait IndexingOps<R: Runtime> {
         src: &Tensor<R>,
         op: ScatterReduceOp,
         include_self: bool,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (dst, dim, index, src, op, include_self);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::scatter_reduce",
+        })
+    }
 
     /// Gather elements using N-dimensional indices.
     ///
@@ -332,7 +382,12 @@ pub trait IndexingOps<R: Runtime> {
     /// gather_nd(input, indices)
     /// # Result: [[0, 1], [2, 3]]  # input[0,:], input[1,:]
     /// ```
-    fn gather_nd(&self, input: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>;
+    fn gather_nd(&self, input: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (input, indices);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::gather_nd",
+        })
+    }
 
     /// Count occurrences of each value in an integer tensor.
     ///
@@ -374,7 +429,12 @@ pub trait IndexingOps<R: Runtime> {
         input: &Tensor<R>,
         weights: Option<&Tensor<R>>,
         minlength: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weights, minlength);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::bincount",
+        })
+    }
 
     /// Gather elements from a 2D matrix using row and column index vectors.
     ///
@@ -419,6 +479,15 @@ pub trait IndexingOps<R: Runtime> {
     /// * `ShapeMismatch` - if input is not 2D or rows/cols have different lengths
     /// * `DTypeMismatch` - if rows or cols are not I64
     /// * `IndexOutOfBounds` - if any (row, col) pair is out of bounds
-    fn gather_2d(&self, input: &Tensor<R>, rows: &Tensor<R>, cols: &Tensor<R>)
-    -> Result<Tensor<R>>;
+    fn gather_2d(
+        &self,
+        input: &Tensor<R>,
+        rows: &Tensor<R>,
+        cols: &Tensor<R>,
+    ) -> Result<Tensor<R>> {
+        let _ = (input, rows, cols);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::gather_2d",
+        })
+    }
 }

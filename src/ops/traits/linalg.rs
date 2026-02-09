@@ -6,7 +6,7 @@
 //! - Matrix properties (determinant, inverse, trace, rank)
 //! - Norms and diagonal operations
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -63,7 +63,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // x = [2.0, 1.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn solve(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn solve(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::solve",
+        })
+    }
 
     /// Least squares solution: minimize ||Ax - b||²
     ///
@@ -104,7 +109,12 @@ pub trait LinalgOps<R: Runtime> {
     /// let x = client.lstsq(&a, &b)?; // [m, c]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::lstsq",
+        })
+    }
 
     /// Moore-Penrose pseudo-inverse via SVD: A^+ = V @ diag(1/S) @ U^T
     ///
@@ -146,7 +156,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // Verify: a @ a_pinv @ a ≈ a
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>>;
+    fn pinverse(&self, a: &Tensor<R>, rcond: Option<f64>) -> Result<Tensor<R>> {
+        let _ = (a, rcond);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::pinverse",
+        })
+    }
 
     /// Matrix norm
     ///
@@ -205,7 +220,12 @@ pub trait LinalgOps<R: Runtime> {
         &self,
         a: &Tensor<R>,
         ord: crate::algorithm::linalg::MatrixNormOrder,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (a, ord);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::matrix_norm",
+        })
+    }
 
     /// Matrix inverse using LU decomposition
     ///
@@ -244,7 +264,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // Verify: a @ a_inv ≈ I
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn inverse(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn inverse(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::inverse",
+        })
+    }
 
     /// Matrix determinant using LU decomposition
     ///
@@ -281,7 +306,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // det = 1*4 - 2*3 = -2
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn det(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn det(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::det",
+        })
+    }
 
     /// Matrix trace: sum of diagonal elements
     ///
@@ -310,7 +340,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // tr = 1 + 4 = 5
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn trace(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn trace(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::trace",
+        })
+    }
 
     /// Extract diagonal elements
     ///
@@ -339,7 +374,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // d = [1, 5]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn diag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn diag(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::diag",
+        })
+    }
 
     /// Create diagonal matrix from 1D tensor
     ///
@@ -370,7 +410,12 @@ pub trait LinalgOps<R: Runtime> {
     /// //      [0, 0, 3]]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn diagflat(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::diagflat",
+        })
+    }
 
     /// Matrix rank via SVD
     ///
@@ -408,7 +453,12 @@ pub trait LinalgOps<R: Runtime> {
     /// // rank = 1 (rank-deficient: rows are linearly dependent)
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>>;
+    fn matrix_rank(&self, a: &Tensor<R>, tol: Option<f64>) -> Result<Tensor<R>> {
+        let _ = (a, tol);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::matrix_rank",
+        })
+    }
 
     /// Kronecker product: A ⊗ B
     ///
@@ -472,7 +522,12 @@ pub trait LinalgOps<R: Runtime> {
     /// //  [18, 21, 24, 28]]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn kron(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::kron",
+        })
+    }
 
     /// Solve banded linear system using LAPACK-style band storage
     ///
@@ -488,7 +543,12 @@ pub trait LinalgOps<R: Runtime> {
         b: &Tensor<R>,
         kl: usize,
         ku: usize,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (ab, b, kl, ku);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::solve_banded",
+        })
+    }
 
     /// Khatri-Rao product (column-wise Kronecker product)
     ///
@@ -550,7 +610,12 @@ pub trait LinalgOps<R: Runtime> {
     /// //  [21, 32]]  // 3*7, 4*8
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn khatri_rao(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::khatri_rao",
+        })
+    }
 
     /// Upper triangular part of a matrix
     ///
@@ -578,7 +643,12 @@ pub trait LinalgOps<R: Runtime> {
     /// //      [0, 0, 9]]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+    fn triu(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>> {
+        let _ = (a, diagonal);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::triu",
+        })
+    }
 
     /// Lower triangular part of a matrix
     ///
@@ -606,7 +676,12 @@ pub trait LinalgOps<R: Runtime> {
     /// //      [7, 8, 9]]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>;
+    fn tril(&self, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>> {
+        let _ = (a, diagonal);
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::tril",
+        })
+    }
 
     /// Sign and log-absolute-determinant
     ///
@@ -647,5 +722,10 @@ pub trait LinalgOps<R: Runtime> {
     /// // sign = -1.0, logabsdet = log(2) ≈ 0.693
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn slogdet(&self, a: &Tensor<R>) -> Result<crate::algorithm::linalg::SlogdetResult<R>>;
+    fn slogdet(&self, a: &Tensor<R>) -> Result<crate::algorithm::linalg::SlogdetResult<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "LinalgOps::slogdet",
+        })
+    }
 }

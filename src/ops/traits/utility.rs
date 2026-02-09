@@ -1,7 +1,7 @@
 //! Utility operations trait.
 
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -29,7 +29,12 @@ pub trait UtilityOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor with same shape and dtype as input, with values clamped to range
-    fn clamp(&self, a: &Tensor<R>, min_val: f64, max_val: f64) -> Result<Tensor<R>>;
+    fn clamp(&self, a: &Tensor<R>, min_val: f64, max_val: f64) -> Result<Tensor<R>> {
+        let _ = (a, min_val, max_val);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::clamp",
+        })
+    }
 
     /// Fill tensor with a constant value
     ///
@@ -44,7 +49,12 @@ pub trait UtilityOps<R: Runtime> {
     /// # Returns
     ///
     /// New tensor filled with the constant value
-    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<R>>;
+    fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<R>> {
+        let _ = (shape, value, dtype);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::fill",
+        })
+    }
 
     /// Create a 1D tensor with evenly spaced values within a half-open interval [start, stop)
     ///
@@ -75,7 +85,12 @@ pub trait UtilityOps<R: Runtime> {
     /// let t = client.arange(5.0, 0.0, -1.0, DType::F32)?; // [5, 4, 3, 2, 1]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn arange(&self, start: f64, stop: f64, step: f64, dtype: DType) -> Result<Tensor<R>>;
+    fn arange(&self, start: f64, stop: f64, step: f64, dtype: DType) -> Result<Tensor<R>> {
+        let _ = (start, stop, step, dtype);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::arange",
+        })
+    }
 
     /// Create a 1D tensor with evenly spaced values over a specified interval
     ///
@@ -105,7 +120,12 @@ pub trait UtilityOps<R: Runtime> {
     /// let t = client.linspace(0.0, 1.0, 3, DType::F64)?; // [0, 0.5, 1]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn linspace(&self, start: f64, stop: f64, steps: usize, dtype: DType) -> Result<Tensor<R>>;
+    fn linspace(&self, start: f64, stop: f64, steps: usize, dtype: DType) -> Result<Tensor<R>> {
+        let _ = (start, stop, steps, dtype);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::linspace",
+        })
+    }
 
     /// Create a 2D identity matrix (or batch of identity matrices)
     ///
@@ -134,7 +154,12 @@ pub trait UtilityOps<R: Runtime> {
     /// let rect = client.eye(2, Some(4), DType::F32)?; // 2x4 matrix with diagonal ones
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<R>>;
+    fn eye(&self, n: usize, m: Option<usize>, dtype: DType) -> Result<Tensor<R>> {
+        let _ = (n, m, dtype);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::eye",
+        })
+    }
 
     /// One-hot encode integer indices
     ///
@@ -171,7 +196,12 @@ pub trait UtilityOps<R: Runtime> {
     /// //       [0, 1, 0, 0]]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn one_hot(&self, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>;
+    fn one_hot(&self, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>> {
+        let _ = (indices, num_classes);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::one_hot",
+        })
+    }
 
     /// Create coordinate grids from 1-D coordinate vectors
     ///
@@ -191,5 +221,10 @@ pub trait UtilityOps<R: Runtime> {
         &self,
         tensors: &[&Tensor<R>],
         indexing: MeshgridIndexing,
-    ) -> Result<Vec<Tensor<R>>>;
+    ) -> Result<Vec<Tensor<R>>> {
+        let _ = (tensors, indexing);
+        Err(Error::NotImplemented {
+            feature: "UtilityOps::meshgrid",
+        })
+    }
 }

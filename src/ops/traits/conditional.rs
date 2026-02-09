@@ -1,6 +1,6 @@
 //! Conditional operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -51,5 +51,10 @@ pub trait ConditionalOps<R: Runtime> {
     /// - CPU: Native support for all condition dtypes with SIMD optimization for U8
     /// - CUDA: Native support for F32, F64, I32, I64, U32 conditions (optimized U8)
     /// - WebGPU: Native support for F32, I32, U32 conditions with broadcasting
-    fn where_cond(&self, cond: &Tensor<R>, x: &Tensor<R>, y: &Tensor<R>) -> Result<Tensor<R>>;
+    fn where_cond(&self, cond: &Tensor<R>, x: &Tensor<R>, y: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (cond, x, y);
+        Err(Error::NotImplemented {
+            feature: "ConditionalOps::where_cond",
+        })
+    }
 }

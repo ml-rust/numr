@@ -1,6 +1,6 @@
 //! Normalization operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -16,7 +16,12 @@ pub trait NormalizationOps<R: Runtime> {
     /// * `input` - Input tensor of shape `[..., hidden_size]`
     /// * `weight` - Weight tensor of shape `[hidden_size]`
     /// * `eps` - Small constant for numerical stability (typically 1e-5 or 1e-6)
-    fn rms_norm(&self, input: &Tensor<R>, weight: &Tensor<R>, eps: f32) -> Result<Tensor<R>>;
+    fn rms_norm(&self, input: &Tensor<R>, weight: &Tensor<R>, eps: f32) -> Result<Tensor<R>> {
+        let _ = (input, weight, eps);
+        Err(Error::NotImplemented {
+            feature: "NormalizationOps::rms_norm",
+        })
+    }
 
     /// Layer Normalization: output = (input - mean) / sqrt(variance + eps) * weight + bias
     ///
@@ -34,5 +39,10 @@ pub trait NormalizationOps<R: Runtime> {
         weight: &Tensor<R>,
         bias: &Tensor<R>,
         eps: f32,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weight, bias, eps);
+        Err(Error::NotImplemented {
+            feature: "NormalizationOps::layer_norm",
+        })
+    }
 }

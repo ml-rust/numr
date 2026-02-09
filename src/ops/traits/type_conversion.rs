@@ -1,7 +1,7 @@
 //! Type conversion operations trait.
 
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -32,5 +32,10 @@ pub trait TypeConversionOps<R: Runtime> {
     ///
     /// Returns `UnsupportedDType` if the conversion is not supported
     /// (e.g., Bool↔numeric without explicit handling).
-    fn cast(&self, a: &Tensor<R>, dtype: DType) -> Result<Tensor<R>>;
+    fn cast(&self, a: &Tensor<R>, dtype: DType) -> Result<Tensor<R>> {
+        let _ = (a, dtype);
+        Err(Error::NotImplemented {
+            feature: "TypeConversionOps::cast",
+        })
+    }
 }

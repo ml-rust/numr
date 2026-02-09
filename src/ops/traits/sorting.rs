@@ -1,6 +1,6 @@
 //! Sorting and search operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -38,7 +38,12 @@ pub trait SortingOps<R: Runtime> {
     /// let sorted = client.sort(&a, 0, false)?; // [1.0, 1.0, 3.0, 4.0, 5.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn sort(&self, a: &Tensor<R>, dim: isize, descending: bool) -> Result<Tensor<R>>;
+    fn sort(&self, a: &Tensor<R>, dim: isize, descending: bool) -> Result<Tensor<R>> {
+        let _ = (a, dim, descending);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::sort",
+        })
+    }
 
     /// Sort tensor along a dimension, returning both sorted values and indices.
     ///
@@ -76,7 +81,12 @@ pub trait SortingOps<R: Runtime> {
         a: &Tensor<R>,
         dim: isize,
         descending: bool,
-    ) -> Result<(Tensor<R>, Tensor<R>)>;
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (a, dim, descending);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::sort_with_indices",
+        })
+    }
 
     /// Return indices that would sort the tensor along a dimension.
     ///
@@ -109,7 +119,12 @@ pub trait SortingOps<R: Runtime> {
     /// // a[indices] would give [1.0, 3.0, 4.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn argsort(&self, a: &Tensor<R>, dim: isize, descending: bool) -> Result<Tensor<R>>;
+    fn argsort(&self, a: &Tensor<R>, dim: isize, descending: bool) -> Result<Tensor<R>> {
+        let _ = (a, dim, descending);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::argsort",
+        })
+    }
 
     /// Return top K largest (or smallest) values and their indices along a dimension.
     ///
@@ -155,7 +170,12 @@ pub trait SortingOps<R: Runtime> {
         dim: isize,
         largest: bool,
         sorted: bool,
-    ) -> Result<(Tensor<R>, Tensor<R>)>;
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (a, k, dim, largest, sorted);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::topk",
+        })
+    }
 
     /// Return unique elements of the input tensor.
     ///
@@ -181,7 +201,12 @@ pub trait SortingOps<R: Runtime> {
     /// let unique = client.unique(&a, true)?; // [1.0, 2.0, 3.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn unique(&self, a: &Tensor<R>, sorted: bool) -> Result<Tensor<R>>;
+    fn unique(&self, a: &Tensor<R>, sorted: bool) -> Result<Tensor<R>> {
+        let _ = (a, sorted);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::unique",
+        })
+    }
 
     /// Return unique elements with inverse indices and counts.
     ///
@@ -214,7 +239,12 @@ pub trait SortingOps<R: Runtime> {
     /// // counts = [2, 2, 1] (1.0 appears 2x, 2.0 appears 2x, 3.0 appears 1x)
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn unique_with_counts(&self, a: &Tensor<R>) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)>;
+    fn unique_with_counts(&self, a: &Tensor<R>) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "SortingOps::unique_with_counts",
+        })
+    }
 
     /// Return indices of non-zero elements.
     ///
@@ -242,7 +272,12 @@ pub trait SortingOps<R: Runtime> {
     /// // indices = [[0, 1], [1, 1]] (positions of 1.0 and 2.0)
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn nonzero(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn nonzero(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "SortingOps::nonzero",
+        })
+    }
 
     /// Find insertion points for values in a sorted sequence.
     ///
@@ -277,5 +312,10 @@ pub trait SortingOps<R: Runtime> {
         sorted_sequence: &Tensor<R>,
         values: &Tensor<R>,
         right: bool,
-    ) -> Result<Tensor<R>>;
+    ) -> Result<Tensor<R>> {
+        let _ = (sorted_sequence, values, right);
+        Err(Error::NotImplemented {
+            feature: "SortingOps::searchsorted",
+        })
+    }
 }

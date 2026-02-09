@@ -1,6 +1,6 @@
 //! Complex number operations trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -44,7 +44,12 @@ pub trait ComplexOps<R: Runtime> {
     /// // Result: [1.0 - 2.0i, 3.0 + 4.0i]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn conj(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn conj(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::conj",
+        })
+    }
 
     /// Extract real part of complex tensor: real(a + bi) = a
     ///
@@ -84,7 +89,12 @@ pub trait ComplexOps<R: Runtime> {
     /// let re = client.real(&z)?;  // F32 tensor: [1.0, 3.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn real(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn real(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::real",
+        })
+    }
 
     /// Extract imaginary part of complex tensor: imag(a + bi) = b
     ///
@@ -124,7 +134,12 @@ pub trait ComplexOps<R: Runtime> {
     /// let im = client.imag(&z)?;  // F32 tensor: [2.0, 4.0]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn imag(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn imag(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::imag",
+        })
+    }
 
     /// Compute phase angle of complex tensor: angle(a + bi) = atan2(b, a)
     ///
@@ -170,7 +185,12 @@ pub trait ComplexOps<R: Runtime> {
     /// For complex z = a + bi, returns atan2(b, a) in radians [-π, π].
     /// For real x, returns 0 if x ≥ 0, π if x < 0.
     /// To compute magnitude, use abs(z) = sqrt(re² + im²) separately.
-    fn angle(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
+    fn angle(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::angle",
+        })
+    }
 
     /// Construct complex tensor from separate real and imaginary part tensors.
     ///
@@ -211,7 +231,12 @@ pub trait ComplexOps<R: Runtime> {
     /// // Result: [1.0+4.0i, 2.0+5.0i, 3.0+6.0i]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn make_complex(&self, real: &Tensor<R>, imag: &Tensor<R>) -> Result<Tensor<R>>;
+    fn make_complex(&self, real: &Tensor<R>, imag: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (real, imag);
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::make_complex",
+        })
+    }
 
     /// Multiply complex tensor by real tensor element-wise.
     ///
@@ -256,7 +281,12 @@ pub trait ComplexOps<R: Runtime> {
     /// // Result: [2.0+4.0i, 1.5+2.0i]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn complex_mul_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
+    fn complex_mul_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (complex, real);
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::complex_mul_real",
+        })
+    }
 
     /// Divide complex tensor by real tensor element-wise.
     ///
@@ -305,7 +335,12 @@ pub trait ComplexOps<R: Runtime> {
     /// // Result: [2.0+3.0i, 1.0+2.0i]
     /// # Ok::<(), numr::error::Error>(())
     /// ```
-    fn complex_div_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>>;
+    fn complex_div_real(&self, complex: &Tensor<R>, real: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (complex, real);
+        Err(Error::NotImplemented {
+            feature: "ComplexOps::complex_div_real",
+        })
+    }
 
     /// Multiply real tensor by complex tensor element-wise.
     ///

@@ -1,6 +1,6 @@
 //! Semiring matrix multiplication trait.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::ops::semiring::SemiringOp;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
@@ -44,5 +44,10 @@ pub trait SemiringMatmulOps<R: Runtime> {
     /// # Returns
     ///
     /// Output tensor of shape `[..., M, N]`
-    fn semiring_matmul(&self, a: &Tensor<R>, b: &Tensor<R>, op: SemiringOp) -> Result<Tensor<R>>;
+    fn semiring_matmul(&self, a: &Tensor<R>, b: &Tensor<R>, op: SemiringOp) -> Result<Tensor<R>> {
+        let _ = (a, b, op);
+        Err(Error::NotImplemented {
+            feature: "SemiringMatmulOps::semiring_matmul",
+        })
+    }
 }

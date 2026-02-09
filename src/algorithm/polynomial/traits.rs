@@ -1,7 +1,7 @@
 //! Trait definition for polynomial operations
 
 use super::types::PolynomialRoots;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -47,7 +47,12 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// - If leading coefficient is zero (degenerate polynomial)
     /// - If tensor is not 1D or empty
-    fn polyroots(&self, coeffs: &Tensor<R>) -> Result<PolynomialRoots<R>>;
+    fn polyroots(&self, coeffs: &Tensor<R>) -> Result<PolynomialRoots<R>> {
+        let _ = coeffs;
+        Err(Error::NotImplemented {
+            feature: "PolynomialAlgorithms::polyroots",
+        })
+    }
 
     /// Evaluate polynomial at given points using Horner's method
     ///
@@ -71,7 +76,12 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     /// # Returns
     ///
     /// Tensor of same shape as `x` containing p(x) values
-    fn polyval(&self, coeffs: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+    fn polyval(&self, coeffs: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (coeffs, x);
+        Err(Error::NotImplemented {
+            feature: "PolynomialAlgorithms::polyval",
+        })
+    }
 
     /// Construct polynomial coefficients from roots
     ///
@@ -101,7 +111,12 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// Complex roots must come in conjugate pairs. The function processes
     /// pairs together to produce real quadratic factors.
-    fn polyfromroots(&self, roots_real: &Tensor<R>, roots_imag: &Tensor<R>) -> Result<Tensor<R>>;
+    fn polyfromroots(&self, roots_real: &Tensor<R>, roots_imag: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (roots_real, roots_imag);
+        Err(Error::NotImplemented {
+            feature: "PolynomialAlgorithms::polyfromroots",
+        })
+    }
 
     /// Multiply two polynomials via convolution
     ///
@@ -124,5 +139,10 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     /// # Returns
     ///
     /// Product polynomial coefficients `[m+n-1]` in ascending order
-    fn polymul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+    fn polymul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "PolynomialAlgorithms::polymul",
+        })
+    }
 }
