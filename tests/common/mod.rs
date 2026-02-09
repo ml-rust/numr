@@ -42,9 +42,12 @@ pub fn create_cuda_client() -> Option<(CudaClient, CudaDevice)> {
     if !numr::runtime::cuda::is_cuda_available() {
         return None;
     }
-    let device = CudaDevice::new(0);
-    let client = CudaRuntime::default_client(&device);
-    Some((client, device))
+    let init = std::panic::catch_unwind(|| {
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+        (client, device)
+    });
+    init.ok()
 }
 
 /// Create a WebGPU client and device, returning None if WebGPU is unavailable
@@ -53,9 +56,12 @@ pub fn create_wgpu_client() -> Option<(WgpuClient, WgpuDevice)> {
     if !numr::runtime::wgpu::is_wgpu_available() {
         return None;
     }
-    let device = WgpuDevice::new(0);
-    let client = WgpuRuntime::default_client(&device);
-    Some((client, device))
+    let init = std::panic::catch_unwind(|| {
+        let device = WgpuDevice::new(0);
+        let client = WgpuRuntime::default_client(&device);
+        (client, device)
+    });
+    init.ok()
 }
 
 /// Assert two f32 slices are close within tolerance
