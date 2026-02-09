@@ -1,9 +1,9 @@
-//! ScalarOps trait implementation for WebGPU runtime.
+//! WebGPU implementation of scalar operations.
 
-use super::super::{WgpuClient, WgpuRuntime};
-use super::native::*;
 use crate::error::Result;
 use crate::ops::ScalarOps;
+use crate::runtime::wgpu::ops::native::native_scalar_op;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 impl ScalarOps<WgpuRuntime> for WgpuClient {

@@ -1,43 +1,45 @@
-//! LogicalOps implementation for CUDA runtime
+//! CUDA implementation of logical operations.
 
-use super::super::CudaRuntime;
-use super::super::kernels::{
-    launch_logical_and_op, launch_logical_not_op, launch_logical_or_op, launch_logical_xor_op,
-};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::LogicalOps;
+use crate::runtime::cuda::kernels::{
+    launch_logical_and_op, launch_logical_not_op, launch_logical_or_op, launch_logical_xor_op,
+};
+use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
-impl LogicalOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
+/// Validate inputs for binary logical operations (U8 dtype, matching shapes).
+fn validate_logical_inputs(a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<()> {
+    if a.dtype() != DType::U8 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U8,
+            rhs: a.dtype(),
+        });
+    }
+    if b.dtype() != DType::U8 {
+        return Err(Error::DTypeMismatch {
+            lhs: DType::U8,
+            rhs: b.dtype(),
+        });
+    }
+    if a.shape() != b.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        });
+    }
+    Ok(())
+}
+
+impl LogicalOps<CudaRuntime> for CudaClient {
     fn logical_and(
         &self,
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Validate both tensors are U8 (boolean)
-        if a.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: a.dtype(),
-            });
-        }
-        if b.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: b.dtype(),
-            });
-        }
-
-        // Validate same shape
-        if a.shape() != b.shape() {
-            return Err(Error::ShapeMismatch {
-                expected: a.shape().to_vec(),
-                got: b.shape().to_vec(),
-            });
-        }
-
+        validate_logical_inputs(a, b)?;
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
@@ -62,28 +64,7 @@ impl LogicalOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Validate both tensors are U8 (boolean)
-        if a.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: a.dtype(),
-            });
-        }
-        if b.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: b.dtype(),
-            });
-        }
-
-        // Validate same shape
-        if a.shape() != b.shape() {
-            return Err(Error::ShapeMismatch {
-                expected: a.shape().to_vec(),
-                got: b.shape().to_vec(),
-            });
-        }
-
+        validate_logical_inputs(a, b)?;
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
@@ -108,28 +89,7 @@ impl LogicalOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Validate both tensors are U8 (boolean)
-        if a.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: a.dtype(),
-            });
-        }
-        if b.dtype() != DType::U8 {
-            return Err(Error::DTypeMismatch {
-                lhs: DType::U8,
-                rhs: b.dtype(),
-            });
-        }
-
-        // Validate same shape
-        if a.shape() != b.shape() {
-            return Err(Error::ShapeMismatch {
-                expected: a.shape().to_vec(),
-                got: b.shape().to_vec(),
-            });
-        }
-
+        validate_logical_inputs(a, b)?;
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
@@ -150,7 +110,6 @@ impl LogicalOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
     }
 
     fn logical_not(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
-        // Validate tensor is U8 (boolean)
         if a.dtype() != DType::U8 {
             return Err(Error::DTypeMismatch {
                 lhs: DType::U8,

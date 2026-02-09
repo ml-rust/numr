@@ -83,3 +83,12 @@ mod semiring_matmul;
 
 #[path = "../../../ops/wgpu/logical.rs"]
 mod logical;
+
+#[path = "../../../ops/wgpu/compare.rs"]
+mod compare;
+
+#[path = "../../../ops/wgpu/scalar.rs"]
+mod scalar;
+
+#[path = "../../../ops/wgpu/einsum.rs"]
+mod einsum;

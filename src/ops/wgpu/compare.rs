@@ -1,9 +1,9 @@
-//! CompareOps trait implementation for WebGPU runtime.
+//! WebGPU implementation of comparison operations.
 
-use super::super::{WgpuClient, WgpuRuntime};
-use super::native::*;
 use crate::error::Result;
 use crate::ops::CompareOps;
+use crate::runtime::wgpu::ops::native::native_compare_op;
+use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 impl CompareOps<WgpuRuntime> for WgpuClient {

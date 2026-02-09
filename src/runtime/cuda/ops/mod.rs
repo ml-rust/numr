@@ -1,49 +1,9 @@
-//! CUDA tensor operations implementation
+//! CUDA runtime operation helpers and TensorOps implementation.
 //!
-//! This module implements TensorOps, ScalarOps, CompareOps, and LogicalOps
-//! for the CUDA runtime using native CUDA kernels:
-//! - Element-wise, unary, scalar, reduction, and activation ops
-//! - Native tiled matrix multiplication (shared memory optimization)
-//!
-//! Kernels are compiled from .cu files by build.rs and loaded at runtime.
-//!
-//! # Performance Characteristics
-//!
-//! ## Native GPU Operations (Fast Path)
-//!
-//! Operations on tensors with matching shapes run entirely on GPU:
-//! - Binary ops (add, sub, mul, div, pow, max, min)
-//! - Unary ops (neg, abs, sqrt, exp, log, sin, cos, tan, tanh, etc.)
-//! - Scalar ops (add_scalar, mul_scalar, etc.)
-//! - Reductions (sum, max, min) - single dimension
-//! - Activations (relu, sigmoid, softmax)
-//! - Matrix multiplication (native tiled GEMM with shared memory)
-//!
-//! ## CPU Fallback (Slow Path)
-//!
-//! The following operations trigger GPU→CPU→GPU transfers, causing significant overhead:
-//!
-//! 1. **Broadcasting binary operations**: When tensor shapes don't match (e.g., `[3, 4] + [4]`),
-//!    the operation falls back to CPU. This involves:
-//!    - Copying both tensors from GPU to CPU
-//!    - Computing the result on CPU
-//!    - Copying the result back to GPU
-//!
-//! 2. **Multi-dimension reductions**: Reducing over multiple dimensions at once
-//!    (e.g., `sum(&[0, 1])`) falls back to CPU.
-//!
-//! 3. **Unsupported dtypes for scalar ops**: Non-F32/F64 scalar operations use CPU.
-//!
-//! ## Recommendations
-//!
-//! - Pre-broadcast tensors to matching shapes before binary operations
-//! - Use single-dimension reductions and chain them if needed
-//! - Use F32 or F64 for best GPU performance
+//! Trait implementations (CompareOps, ScalarOps, LogicalOps, etc.) live in `ops/cuda/`.
+//! This module provides shared helpers, kernel launchers, and TensorOps.
 
-mod compare;
-mod helpers;
-mod logical;
-mod scalar;
+pub(crate) mod helpers;
 mod statistics;
 mod tensor;
 

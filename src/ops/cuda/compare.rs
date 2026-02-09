@@ -1,12 +1,12 @@
-//! CompareOps implementation for CUDA runtime
+//! CUDA implementation of comparison operations.
 
-use super::super::CudaRuntime;
-use super::helpers::native_compare_op;
 use crate::error::Result;
 use crate::ops::CompareOps;
+use crate::runtime::cuda::ops::helpers::native_compare_op;
+use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
 
-impl CompareOps<CudaRuntime> for crate::runtime::cuda::CudaClient {
+impl CompareOps<CudaRuntime> for CudaClient {
     fn eq(&self, a: &Tensor<CudaRuntime>, b: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
         native_compare_op(self, a, b, "eq")
     }
