@@ -40,6 +40,23 @@ pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T,
         }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::unary;
+
+        match T::DTYPE {
+            DType::F32 => {
+                unary::unary_f32(op, a as *const f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                unary::unary_f64(op, a as *const f64, out as *mut f64, len);
+                return;
+            }
+            _ => {}
+        }
+    }
+
     unary_op_scalar(op, a, out, len);
 }
 
@@ -269,6 +286,23 @@ pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
         }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::unary;
+
+        match T::DTYPE {
+            DType::F32 => {
+                unary::relu_f32(a as *const f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                unary::relu_f64(a as *const f64, out as *mut f64, len);
+                return;
+            }
+            _ => {}
+        }
+    }
+
     relu_scalar(a, out, len);
 }
 
@@ -338,6 +372,29 @@ pub unsafe fn clamp_kernel<T: Element>(
     max_val: f64,
 ) {
     #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::clamp;
+
+        match T::DTYPE {
+            DType::F32 => {
+                clamp::clamp_f32(
+                    a as *const f32,
+                    out as *mut f32,
+                    len,
+                    min_val as f32,
+                    max_val as f32,
+                );
+                return;
+            }
+            DType::F64 => {
+                clamp::clamp_f64(a as *const f64, out as *mut f64, len, min_val, max_val);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
     {
         use super::simd::clamp;
 

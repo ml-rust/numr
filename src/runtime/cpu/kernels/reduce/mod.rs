@@ -65,6 +65,36 @@ pub unsafe fn reduce_kernel<T: Element>(
         }
     }
 
+    // Dispatch to SIMD for f32/f64 on aarch64
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::reduce;
+
+        match T::DTYPE {
+            DType::F32 => {
+                reduce::reduce_f32(
+                    op,
+                    a as *const f32,
+                    out as *mut f32,
+                    reduce_size,
+                    outer_size,
+                );
+                return;
+            }
+            DType::F64 => {
+                reduce::reduce_f64(
+                    op,
+                    a as *const f64,
+                    out as *mut f64,
+                    reduce_size,
+                    outer_size,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     // Scalar fallback
     reduce_kernel_scalar(op, a, out, reduce_size, outer_size);
 }

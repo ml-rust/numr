@@ -315,8 +315,15 @@ pub unsafe fn masked_count_kernel(mask: *const u8, numel: usize) -> usize {
         return index::masked_count(mask, numel);
     }
 
+    // Use SIMD on aarch64
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::index;
+        return index::masked_count(mask, numel);
+    }
+
     // Scalar fallback for other architectures
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         let mask_slice = std::slice::from_raw_parts(mask, numel);
         mask_slice.iter().filter(|&&m| m != 0).count()
@@ -343,6 +350,20 @@ pub unsafe fn masked_select_kernel<T: Element>(
 ) {
     // Use SIMD for f32/f64 types on x86_64
     #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::index;
+
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            let _ = index::masked_select_f32(a as *const f32, mask, out as *mut f32, numel);
+            return;
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            let _ = index::masked_select_f64(a as *const f64, mask, out as *mut f64, numel);
+            return;
+        }
+    }
+
+    // Use SIMD for f32/f64 types on aarch64
+    #[cfg(target_arch = "aarch64")]
     {
         use super::simd::index;
 
@@ -389,6 +410,20 @@ pub unsafe fn masked_fill_kernel<T: Element>(
 ) {
     // Use SIMD for f32/f64 types on x86_64
     #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::index;
+
+        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
+            index::masked_fill_f32(a as *const f32, mask, out as *mut f32, numel, value as f32);
+            return;
+        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+            index::masked_fill_f64(a as *const f64, mask, out as *mut f64, numel, value);
+            return;
+        }
+    }
+
+    // Use SIMD for f32/f64 types on aarch64
+    #[cfg(target_arch = "aarch64")]
     {
         use super::simd::index;
 

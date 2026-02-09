@@ -67,6 +67,37 @@ pub unsafe fn rms_norm_kernel<T: Element>(
         }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::norm;
+
+        match T::DTYPE {
+            DType::F32 => {
+                norm::rms_norm_f32(
+                    input as *const f32,
+                    weight as *const f32,
+                    out as *mut f32,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+                return;
+            }
+            DType::F64 => {
+                norm::rms_norm_f64(
+                    input as *const f64,
+                    weight as *const f64,
+                    out as *mut f64,
+                    batch_size,
+                    hidden_size,
+                    eps as f64,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     // Scalar fallback
     rms_norm_kernel_scalar(input, weight, out, batch_size, hidden_size, eps);
 }
@@ -141,6 +172,39 @@ pub unsafe fn layer_norm_kernel<T: Element>(
 ) {
     // Dispatch to SIMD for f32/f64 on x86-64
     #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::norm;
+
+        match T::DTYPE {
+            DType::F32 => {
+                norm::layer_norm_f32(
+                    input as *const f32,
+                    weight as *const f32,
+                    bias as *const f32,
+                    out as *mut f32,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+                return;
+            }
+            DType::F64 => {
+                norm::layer_norm_f64(
+                    input as *const f64,
+                    weight as *const f64,
+                    bias as *const f64,
+                    out as *mut f64,
+                    batch_size,
+                    hidden_size,
+                    eps as f64,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
     {
         use super::simd::norm;
 

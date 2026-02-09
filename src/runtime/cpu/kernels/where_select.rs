@@ -57,6 +57,35 @@ pub unsafe fn where_kernel<T: Element>(
         }
     }
 
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::where_select;
+
+        match T::DTYPE {
+            DType::F32 => {
+                where_select::where_f32(
+                    cond,
+                    x as *const f32,
+                    y as *const f32,
+                    out as *mut f32,
+                    len,
+                );
+                return;
+            }
+            DType::F64 => {
+                where_select::where_f64(
+                    cond,
+                    x as *const f64,
+                    y as *const f64,
+                    out as *mut f64,
+                    len,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     // Scalar fallback - delegate to generic kernel with u8 condition
     where_kernel_generic::<u8, T>(cond, x, y, out, len);
 }
