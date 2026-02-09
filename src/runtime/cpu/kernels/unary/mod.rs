@@ -4,6 +4,7 @@
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
 pub mod activations;
+mod complex;
 pub mod scalar;
 
 pub use activations::{elu_kernel, gelu_kernel, leaky_relu_kernel, sigmoid_kernel, silu_kernel};
@@ -23,6 +24,19 @@ use crate::ops::UnaryOp;
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len: usize) {
+    // Complex types need component-wise operations, not magnitude-based to_f64/from_f64
+    match T::DTYPE {
+        DType::Complex64 => {
+            complex::unary_op_complex64(op, a as *const f32, out as *mut f32, len);
+            return;
+        }
+        DType::Complex128 => {
+            complex::unary_op_complex128(op, a as *const f64, out as *mut f64, len);
+            return;
+        }
+        _ => {}
+    }
+
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::unary;
