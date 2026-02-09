@@ -1,6 +1,11 @@
 //! WebGPU runtime implementation
 
 use super::cache::get_or_create_client;
+
+/// Convert WgpuError to numr Error for use in Runtime trait methods.
+fn wgpu_err(e: super::device::WgpuError) -> crate::error::Error {
+    crate::error::Error::Backend(format!("WebGPU client error: {e}"))
+}
 use super::client::WgpuClient;
 use super::device::WgpuDevice;
 use super::shaders;
@@ -36,7 +41,7 @@ impl Runtime for WgpuRuntime {
             return Ok(0);
         }
 
-        let client = get_or_create_client(device);
+        let client = get_or_create_client(device).map_err(wgpu_err)?;
         client.allocator.allocate(size_bytes)
     }
 
@@ -45,8 +50,9 @@ impl Runtime for WgpuRuntime {
             return;
         }
 
-        let client = get_or_create_client(device);
-        client.allocator.deallocate(ptr, size_bytes);
+        if let Ok(client) = get_or_create_client(device) {
+            client.allocator.deallocate(ptr, size_bytes);
+        }
     }
 
     /// Copy data from host to device.
@@ -57,7 +63,7 @@ impl Runtime for WgpuRuntime {
             return Ok(());
         }
 
-        let client = get_or_create_client(device);
+        let client = get_or_create_client(device).map_err(wgpu_err)?;
 
         // Get the buffer from registry
         let buffer = super::client::get_buffer(dst).ok_or_else(|| {
@@ -84,7 +90,7 @@ impl Runtime for WgpuRuntime {
             return Ok(());
         }
 
-        let client = get_or_create_client(device);
+        let client = get_or_create_client(device).map_err(wgpu_err)?;
 
         // Get the source buffer from registry
         let buffer = super::client::get_buffer(src).ok_or_else(|| {
@@ -156,7 +162,7 @@ impl Runtime for WgpuRuntime {
             return Ok(());
         }
 
-        let client = get_or_create_client(device);
+        let client = get_or_create_client(device).map_err(wgpu_err)?;
 
         let src_buffer = super::client::get_buffer(src)
             .ok_or_else(|| crate::error::Error::Backend("Source buffer not found".into()))?;
@@ -232,7 +238,7 @@ impl Runtime for WgpuRuntime {
             });
         }
 
-        let client = get_or_create_client(device);
+        let client = get_or_create_client(device).map_err(wgpu_err)?;
         let src_buffer = super::client::get_buffer(src_handle).ok_or_else(|| {
             crate::error::Error::Backend("Source buffer not found for copy_strided".into())
         })?;
@@ -401,7 +407,7 @@ impl Runtime for WgpuRuntime {
     }
 
     fn default_client(device: &Self::Device) -> Self::Client {
-        get_or_create_client(device)
+        get_or_create_client(device).expect("Failed to create WebGPU client")
     }
 
     fn raw_handle(client: &Self::Client) -> &Self::RawHandle {

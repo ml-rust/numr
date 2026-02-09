@@ -12,17 +12,25 @@ use std::sync::{Mutex, OnceLock};
 static CLIENT_CACHE: OnceLock<Mutex<HashMap<usize, WgpuClient>>> = OnceLock::new();
 
 /// Get or create a cached WgpuClient for a device.
-pub(super) fn get_or_create_client(device: &WgpuDevice) -> WgpuClient {
+///
+/// This ensures only one `wgpu::Device` exists per device index. All
+/// `WgpuClient` instances for the same index share the same underlying
+/// device, queue, and buffer storage. This is critical because wgpu
+/// buffers belong to the device that created them and cannot be used
+/// in bind groups on a different device.
+pub(super) fn get_or_create_client(
+    device: &WgpuDevice,
+) -> Result<WgpuClient, super::device::WgpuError> {
     let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(client) = cache_guard.get(&device.index) {
-        return client.clone();
+        return Ok(client.clone());
     }
 
-    // Create new client and cache it
-    let client = WgpuClient::new(device.clone()).expect("Failed to create WGPU client");
+    // Create new client via uncached path and cache it
+    let client = WgpuClient::new_uncached(device.clone())?;
     cache_guard.insert(device.index, client.clone());
 
-    client
+    Ok(client)
 }

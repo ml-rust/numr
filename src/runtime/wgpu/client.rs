@@ -61,9 +61,12 @@ impl std::fmt::Debug for WgpuClient {
 }
 
 impl WgpuClient {
-    /// Create a new WebGPU client for a device.
+    /// Create or retrieve a cached WebGPU client for a device.
     ///
-    /// This initializes the WebGPU device and queue.
+    /// This returns the cached client for the given device index, creating one
+    /// if it doesn't exist yet. All clients for the same device index share
+    /// the same underlying `wgpu::Device` and queue, which is required because
+    /// wgpu buffers are device-specific and cannot be used across devices.
     ///
     /// # Errors
     ///
@@ -71,6 +74,15 @@ impl WgpuClient {
     /// - No suitable GPU adapter is found
     /// - Device creation fails
     pub fn new(device: WgpuDevice) -> Result<Self, WgpuError> {
+        super::cache::get_or_create_client(&device)
+    }
+
+    /// Internal: create a fresh WebGPU client (not cached).
+    ///
+    /// This is called by the cache layer. External users should call `new()`
+    /// which goes through the cache to ensure a single `wgpu::Device` per
+    /// device index.
+    pub(super) fn new_uncached(device: WgpuDevice) -> Result<Self, WgpuError> {
         let (adapter, info) = query_adapter_info_blocking(device.index)?;
 
         // Request device with compute features
