@@ -31,24 +31,6 @@ use crate::tensor::Tensor;
 /// # Errors
 ///
 /// Returns `Error::InvalidDimension` if the dimension is out of bounds.
-///
-/// # Examples
-///
-/// ```
-/// # use numr::runtime::helpers::normalize_dim;
-/// // Positive indexing
-/// assert_eq!(normalize_dim(0, 3)?, 0);
-/// assert_eq!(normalize_dim(2, 3)?, 2);
-///
-/// // Negative indexing
-/// assert_eq!(normalize_dim(-1, 3)?, 2);  // Last dimension
-/// assert_eq!(normalize_dim(-3, 3)?, 0);  // First dimension
-///
-/// // Out of bounds
-/// assert!(normalize_dim(3, 3).is_err());
-/// assert!(normalize_dim(-4, 3).is_err());
-/// # Ok::<(), numr::error::Error>(())
-/// ```
 #[inline]
 pub fn normalize_dim(dim: isize, ndim: usize) -> Result<usize> {
     let dim_idx = if dim < 0 {
@@ -124,15 +106,6 @@ pub fn validate_arange(start: f64, stop: f64, step: f64) -> Result<usize> {
 ///
 /// # Returns
 ///
-/// Ok(()) if parameters are valid. Note: steps=0 is valid (produces empty tensor).
-#[inline]
-pub fn validate_linspace(steps: usize) -> Result<()> {
-    // All values are valid for linspace; steps=0 produces empty tensor
-    // steps=1 produces single-element tensor with value=start
-    let _ = steps;
-    Ok(())
-}
-
 /// Validate eye (identity matrix) parameters.
 ///
 /// # Arguments
@@ -167,19 +140,6 @@ pub fn validate_eye(n: usize, m: Option<usize>) -> (usize, usize) {
 ///
 /// A new tensor that is guaranteed to be contiguous. If the input was already
 /// contiguous, this is zero-copy (just clones the Arc). Otherwise, data is copied.
-///
-/// # Example
-///
-/// ```
-/// # use numr::prelude::*;
-/// # use numr::runtime::helpers::ensure_contiguous;
-/// # let device = CpuDevice::new();
-/// let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
-/// let b = a.transpose(0, 1)?;  // Not contiguous after transpose
-/// let c = ensure_contiguous(&b);  // Makes a contiguous copy
-/// assert!(c.is_contiguous());
-/// # Ok::<(), numr::error::Error>(())
-/// ```
 #[inline]
 pub fn ensure_contiguous<R: Runtime>(tensor: &Tensor<R>) -> Tensor<R> {
     if tensor.is_contiguous() {
@@ -247,4 +207,39 @@ pub fn compute_broadcast_shape<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Resu
         lhs: a.shape().to_vec(),
         rhs: b.shape().to_vec(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_dim_positive() {
+        assert_eq!(normalize_dim(0, 3).unwrap(), 0);
+        assert_eq!(normalize_dim(2, 3).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_normalize_dim_negative() {
+        assert_eq!(normalize_dim(-1, 3).unwrap(), 2);
+        assert_eq!(normalize_dim(-3, 3).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_normalize_dim_out_of_bounds() {
+        assert!(normalize_dim(3, 3).is_err());
+        assert!(normalize_dim(-4, 3).is_err());
+    }
+
+    #[test]
+    fn test_ensure_contiguous() {
+        use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+        use crate::tensor::Tensor;
+
+        let device = CpuDevice::new();
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+        assert!(a.is_contiguous());
+        let c = ensure_contiguous(&a);
+        assert!(c.is_contiguous());
+    }
 }

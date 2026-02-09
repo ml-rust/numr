@@ -1,6 +1,6 @@
 //! Generic CPU fallback utilities for GPU backends
 //!
-#![allow(unreachable_code)] // dispatch_dtype! macro uses early returns in all branches
+#![allow(unreachable_code, dead_code)] // dispatch_dtype! macro uses early returns in all branches; some fallbacks only used by wgpu
 //!
 //! This module provides shared CPU fallback implementations for operations
 //! that are not yet implemented natively on GPU backends (CUDA, WGPU).

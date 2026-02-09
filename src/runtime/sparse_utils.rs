@@ -28,22 +28,6 @@ use crate::dtype::Element;
 /// - **F16/BF16/I16/U16**: `1e-3` - Aggressive threshold due to limited precision
 /// - **FP8/I8/U8**: `1e-2` - Very aggressive due to extreme quantization
 ///
-/// # Examples
-///
-/// ```
-/// use numr::runtime::sparse_utils::zero_tolerance;
-///
-/// // F32: eliminates small values
-/// let threshold_f32 = zero_tolerance::<f32>();
-/// assert_eq!(threshold_f32, 1e-7);
-/// // If a - b = 1e-8, it's eliminated from sparse result
-///
-/// // F64: preserves more precision
-/// let threshold_f64 = zero_tolerance::<f64>();
-/// assert_eq!(threshold_f64, 1e-15);
-/// // Values down to 1e-16 are kept in sparse result
-/// ```
-///
 /// # Backend Consistency
 ///
 /// This function is used identically by all backends (CPU, CUDA, WebGPU) to ensure

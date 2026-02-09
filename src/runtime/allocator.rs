@@ -82,6 +82,7 @@ impl<D: Clone + Send + Sync> Allocator for DefaultAllocator<D> {
     }
 }
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 /// RAII guard for GPU memory allocations.
 ///
 /// Ensures memory is deallocated when the guard is dropped, preventing leaks
@@ -94,6 +95,7 @@ pub struct AllocGuard<'a, A: Allocator> {
     released: bool,
 }
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 impl<'a, A: Allocator> AllocGuard<'a, A> {
     /// Allocate memory and wrap it in a guard.
     pub fn new(allocator: &'a A, size_bytes: usize) -> crate::error::Result<Self> {
@@ -122,6 +124,7 @@ impl<'a, A: Allocator> AllocGuard<'a, A> {
     }
 }
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 impl<A: Allocator> Drop for AllocGuard<'_, A> {
     fn drop(&mut self) {
         if !self.released && self.ptr != 0 {
