@@ -39,6 +39,7 @@ pub enum ReduceOp {
 /// | FP32 | 4 bytes | Good numerical stability |
 /// | FP64 | 8 bytes | Maximum precision (math/science) |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum AccumulationPrecision {
     /// Use native dtype for accumulation.
     /// Least memory usage, may have reduced precision for large reductions.

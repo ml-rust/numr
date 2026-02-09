@@ -63,49 +63,6 @@ pub enum ComputePrecision {
     BF16,
 }
 
-/// Accumulation precision for reductions and matrix multiplications.
-///
-/// During operations like sum, mean, and matmul, intermediate results are accumulated.
-/// Higher precision accumulation prevents numerical drift from repeated additions.
-///
-/// # Precision Comparison
-///
-/// | Precision | Decimal Digits | Use Case |
-/// |-----------|----------------|----------|
-/// | **F64**   | ~15-16         | Scientific computing, physics simulations, CFD |
-/// | **F32**   | ~7             | ML/AI training, general computing (default) |
-/// | **BF16**  | ~3             | Research, memory-constrained scenarios |
-///
-/// # When It Matters
-///
-/// - **Scientific simulations**: F64 required for physics, climate, quantum mechanics
-/// - **Gradient accumulation**: F32 usually sufficient for ML
-/// - **Matrix multiplication**: Dot product accumulation
-/// - **Long iterative processes**: Small F32 errors compound; F64 maintains stability
-///
-/// # Resolution Order
-///
-/// `per-operation > tensor-level > client default`
-///
-/// # Default
-///
-/// F32 is the default (good balance for ML). Use F64 for scientific computing
-/// where precision is critical. BF16 is experimental for research.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum AccumulationPrecision {
-    /// Accumulate in F64 (highest precision, for scientific computing)
-    /// Essential for: physics simulations, CFD, climate modeling, orbital mechanics
-    F64,
-    /// Accumulate in F32 (default, good for ML/AI)
-    /// Sufficient for: deep learning, general numeric computing
-    #[default]
-    F32,
-    /// Accumulate in BF16 (experimental, for research)
-    /// Use when: memory is extremely constrained, algorithm is numerically stable
-    BF16,
-}
-
 // ============================================================================
 // DType Enum
 // ============================================================================
@@ -490,10 +447,5 @@ mod tests {
     #[test]
     fn test_compute_precision_default() {
         assert_eq!(ComputePrecision::default(), ComputePrecision::BF16);
-    }
-
-    #[test]
-    fn test_accumulation_precision_default() {
-        assert_eq!(AccumulationPrecision::default(), AccumulationPrecision::F32);
     }
 }
