@@ -16,7 +16,7 @@ use super::loader::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 // Re-export AccumulationPrecision from ops for convenience
-pub use crate::ops::AccumulationPrecision;
+pub(crate) use crate::ops::AccumulationPrecision;
 
 /// Generate kernel name with accumulation precision suffix.
 ///

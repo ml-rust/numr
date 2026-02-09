@@ -34,6 +34,7 @@ impl DTypeSupport {
     };
 
     /// WebGPU only supports F32
+    #[allow(dead_code)]
     pub const F32_ONLY: Self = Self {
         f64_supported: false,
     };

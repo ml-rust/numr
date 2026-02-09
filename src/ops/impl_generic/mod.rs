@@ -24,10 +24,14 @@ pub mod multivariate;
 pub mod random;
 pub mod utility;
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use linalg::{slogdet_impl, tril_impl, triu_impl};
 pub use multivariate::{
     DTypeSupport, MultinomialSamplingOps, dirichlet_impl, multinomial_samples_impl,
     multivariate_normal_impl, wishart_impl,
 };
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use random::randperm_impl;
-pub use utility::{meshgrid_impl, one_hot_impl};
+pub use utility::meshgrid_impl;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+pub use utility::one_hot_impl;

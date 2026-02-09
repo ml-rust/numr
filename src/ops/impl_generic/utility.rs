@@ -3,9 +3,12 @@
 //! These implementations are shared across GPU backends (CUDA, WebGPU) to ensure
 //! numerical parity and eliminate code duplication.
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{CompareOps, MeshgridIndexing, TypeConversionOps, UtilityOps};
+use crate::ops::MeshgridIndexing;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+use crate::ops::{CompareOps, TypeConversionOps, UtilityOps};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -17,6 +20,7 @@ use crate::tensor::Tensor;
 /// 3. Reshape indices `[...] -> [..., 1]` and class indices `[1, ..., 1, num_classes]`
 /// 4. Broadcast compare: `indices == class_indices`
 /// 5. Cast boolean mask to F32
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn one_hot_impl<R, C>(client: &C, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>
 where
     R: Runtime,

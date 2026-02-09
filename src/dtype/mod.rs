@@ -49,6 +49,7 @@ use std::fmt;
 /// BF16 is the default, as it provides good speed with the same dynamic range as F32.
 /// This is the industry standard for mixed-precision ML training.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum ComputePrecision {
     /// Compute in F64 (highest precision, slowest)
     /// Use for: scientific simulations, physics, when F32 precision is insufficient
@@ -91,6 +92,7 @@ pub enum ComputePrecision {
 /// F32 is the default (good balance for ML). Use F64 for scientific computing
 /// where precision is critical. BF16 is experimental for research.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AccumulationPrecision {
     /// Accumulate in F64 (highest precision, for scientific computing)
     /// Essential for: physics simulations, CFD, climate modeling, orbital mechanics
@@ -127,6 +129,7 @@ pub enum AccumulationPrecision {
 ///
 /// New types will use reserved ranges. Existing values are NEVER changed.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum DType {
     // Floating point types (0-9)

@@ -13,7 +13,6 @@
 //!
 //! - `generator` - WGSL shader source generation per dtype
 //! - `pipeline` - Pipeline caching and dispatch utilities
-//! - `typed_kernels` - TypedKernel<T> implementations for compile-time dtype enforcement
 //! - `elementwise` - Element-wise operation launchers
 //! - `reduce` - Reduction operation launchers
 //! - `matmul` - Matrix multiplication launchers
@@ -39,7 +38,6 @@ pub mod shape;
 pub mod sort;
 pub mod special;
 pub mod statistics;
-pub mod typed_kernels;
 
 // Operation launchers
 pub mod activation_launcher;

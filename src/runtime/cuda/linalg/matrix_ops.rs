@@ -137,7 +137,7 @@ pub fn inverse_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tens
 
     client.synchronize();
 
-    let inv = unsafe { CudaClient::tensor_from_raw(inv_ptr, &[n, n], dtype, device) };
+    let inv = unsafe { CudaClient::tensor_from_raw(inv_guard.release(), &[n, n], dtype, device) };
 
     Ok(inv)
 }

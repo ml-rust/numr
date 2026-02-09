@@ -167,10 +167,11 @@ pub fn solve_impl(
 
     client.synchronize();
 
+    let released_ptr = x_guard.release();
     let x = if b_is_vector {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n], dtype, device) }
     } else {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n, num_rhs], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n, num_rhs], dtype, device) }
     };
 
     Ok(x)
@@ -299,10 +300,11 @@ pub fn solve_triangular_lower_impl(
 
     client.synchronize();
 
+    let released_ptr = x_guard.release();
     let x = if b_is_vector {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n], dtype, device) }
     } else {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n, num_rhs], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n, num_rhs], dtype, device) }
     };
 
     Ok(x)
@@ -428,10 +430,11 @@ pub fn solve_triangular_upper_impl(
 
     client.synchronize();
 
+    let released_ptr = x_guard.release();
     let x = if b_is_vector {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n], dtype, device) }
     } else {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n, num_rhs], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n, num_rhs], dtype, device) }
     };
 
     Ok(x)
@@ -576,10 +579,11 @@ pub fn lstsq_impl(
 
     client.synchronize();
 
+    let released_ptr = x_guard.release();
     let x = if b_is_vector {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n], dtype, device) }
     } else {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n, num_rhs], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n, num_rhs], dtype, device) }
     };
 
     Ok(x)

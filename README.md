@@ -471,7 +471,6 @@ numr = { version = "*", features = [
     "cuda",      # NVIDIA GPU support
     "wgpu",      # Cross-platform GPU (WebGPU)
     "f16",       # Half-precision (F16, BF16)
-    "fp8",       # 8-bit floating point
     "sparse",    # Sparse tensors
 ] }
 ```
@@ -485,7 +484,6 @@ numr = { version = "*", features = [
 | `wgpu`   | Cross-platform GPU (WebGPU)                         | ✗       |
 | `rayon`  | Multi-threaded CPU via Rayon                        | ✓       |
 | `f16`    | Half-precision floats (F16, BF16)                   | ✗       |
-| `fp8`    | 8-bit floats (FP8E4M3, FP8E5M2)                     | ✗       |
 | `sparse` | Sparse tensor support (CSR, CSC, COO)               | ✗       |
 
 ## Building from Source
@@ -501,7 +499,7 @@ cargo build --release --features cuda
 cargo build --release --features wgpu
 
 # With all features
-cargo build --release --features cuda,wgpu,f16,fp8,sparse
+cargo build --release --features cuda,wgpu,f16,sparse
 
 # Run tests
 cargo test --release

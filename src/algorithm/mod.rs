@@ -17,7 +17,7 @@
 //! - [`MatmulAlgorithm`] - Tiled GEMM with register blocking for dense matmul
 //! - [`LinearAlgebraAlgorithms`] - LU, Cholesky, QR, solve, inverse, det, trace
 //! - `FftAlgorithms` - FFT, IFFT, RFFT using Stockham autosort algorithm
-//! - [`SparseAlgorithms`] - SpGEMM, SpMV, DSMM (requires `sparse` feature)
+//! - `SparseAlgorithms` - SpGEMM, SpMV, DSMM (requires `sparse` feature)
 //!
 //! # Signal Processing
 //!

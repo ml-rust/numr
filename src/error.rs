@@ -8,6 +8,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Errors that can occur in numr operations
 #[derive(Error, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// Shape mismatch in an operation
     #[error("Shape mismatch: expected {expected:?}, got {got:?}")]

@@ -3,10 +3,15 @@
 //! These implementations are shared across GPU backends (CUDA, WebGPU) to ensure
 //! numerical parity and eliminate code duplication.
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::dtype::DType;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::error::{Error, Result};
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::ops::{RandomOps, SortingOps};
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::runtime::Runtime;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::tensor::Tensor;
 
 /// Random permutation of `[0, 1, ..., n-1]` via random keys + argsort (GPU-native)
@@ -14,6 +19,7 @@ use crate::tensor::Tensor;
 /// Algorithm: Generate n random F32 keys, then argsort to get a permutation.
 /// This is O(n log n) but fully parallelizable on GPU, unlike Fisher-Yates
 /// which is inherently sequential.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn randperm_impl<R, C>(client: &C, n: usize) -> Result<Tensor<R>>
 where
     R: Runtime,

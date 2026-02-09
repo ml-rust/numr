@@ -1,6 +1,7 @@
 //! Activation functions for CUDA runtime
 use crate::error::{Error, Result};
-use crate::ops::{ActivationOps, normalize_softmax_dim};
+use crate::ops::ActivationOps;
+use crate::ops::activation::normalize_softmax_dim;
 use crate::runtime::cuda::kernels::{
     launch_elu, launch_gelu, launch_leaky_relu, launch_relu, launch_sigmoid, launch_silu,
     launch_softmax, launch_softmax_dim,

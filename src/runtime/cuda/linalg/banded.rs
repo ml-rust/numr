@@ -187,10 +187,11 @@ pub fn solve_banded_impl(
     }
     client.synchronize();
 
+    let released_ptr = x_guard.release();
     let x = if b_is_1d {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n], dtype, device) }
     } else {
-        unsafe { CudaClient::tensor_from_raw(x_ptr, &[n, nrhs], dtype, device) }
+        unsafe { CudaClient::tensor_from_raw(released_ptr, &[n, nrhs], dtype, device) }
     };
 
     Ok(x)

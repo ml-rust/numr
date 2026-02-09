@@ -4,17 +4,25 @@
 //! numerical parity and eliminate code duplication. All operations stay entirely
 //! on the device — NO GPU-to-CPU data transfers.
 
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::algorithm::linalg::helpers::{
     validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::algorithm::linalg::{LinearAlgebraAlgorithms, SlogdetResult};
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::dtype::DType;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::error::Result;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UtilityOps};
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::runtime::Runtime;
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::tensor::Tensor;
 
 /// Which triangle to extract.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 enum Triangle {
     Upper,
     Lower,
@@ -24,6 +32,7 @@ enum Triangle {
 ///
 /// Creates row/column index tensors, broadcasts a comparison mask, and
 /// multiplies element-wise to zero out the unwanted triangle.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 fn triangular_mask_impl<R, C>(
     client: &C,
     a: &Tensor<R>,
@@ -62,6 +71,7 @@ where
 /// Upper triangular part of a matrix (GPU-native via mask composition).
 ///
 /// Supports all numeric dtypes the backend can handle.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn triu_impl<R, C>(client: &C, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>
 where
     R: Runtime,
@@ -73,6 +83,7 @@ where
 /// Lower triangular part of a matrix (GPU-native via mask composition).
 ///
 /// Supports all numeric dtypes the backend can handle.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn tril_impl<R, C>(client: &C, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>
 where
     R: Runtime,
@@ -86,6 +97,7 @@ where
 /// Computes `(sign, logabsdet)` where `det(A) = sign * exp(logabsdet)`.
 /// Uses LU decomposition to extract diagonal, then computes sign from
 /// diagonal element signs and permutation parity.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn slogdet_impl<R, C>(client: &C, a: &Tensor<R>) -> Result<SlogdetResult<R>>
 where
     R: Runtime,

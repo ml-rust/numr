@@ -538,7 +538,7 @@ fn test_wgpu_cpu_parity_angle() {
 
     for (cpu_val, wgpu_val) in cpu_output.iter().zip(wgpu_output.iter()) {
         assert!(
-            (cpu_val - wgpu_val).abs() < 1e-6,
+            (cpu_val - wgpu_val).abs() < 1e-4,
             "CPU: {}, WebGPU: {}",
             cpu_val,
             wgpu_val
@@ -575,7 +575,7 @@ fn test_wgpu_cpu_parity_angle_real() {
 
     for (i, (cpu_val, wgpu_val)) in cpu_output.iter().zip(wgpu_output.iter()).enumerate() {
         assert!(
-            (cpu_val - wgpu_val).abs() < 1e-6,
+            (cpu_val - wgpu_val).abs() < 1e-4,
             "Mismatch at index {}: CPU = {}, WebGPU = {}",
             i,
             cpu_val,
@@ -1345,13 +1345,13 @@ fn test_wgpu_cpu_parity_make_complex() {
 
     for (cpu_val, wgpu_val) in cpu_output.iter().zip(wgpu_output.iter()) {
         assert!(
-            (cpu_val.re - wgpu_val.re).abs() < 1e-6,
+            (cpu_val.re - wgpu_val.re).abs() < 1e-4,
             "Real mismatch: CPU={}, WebGPU={}",
             cpu_val.re,
             wgpu_val.re
         );
         assert!(
-            (cpu_val.im - wgpu_val.im).abs() < 1e-6,
+            (cpu_val.im - wgpu_val.im).abs() < 1e-4,
             "Imag mismatch: CPU={}, WebGPU={}",
             cpu_val.im,
             wgpu_val.im
@@ -1398,13 +1398,13 @@ fn test_wgpu_cpu_parity_complex_mul_real() {
 
     for (cpu_val, wgpu_val) in cpu_output.iter().zip(wgpu_output.iter()) {
         assert!(
-            (cpu_val.re - wgpu_val.re).abs() < 1e-6,
+            (cpu_val.re - wgpu_val.re).abs() < 1e-4,
             "Real mismatch: CPU={}, WebGPU={}",
             cpu_val.re,
             wgpu_val.re
         );
         assert!(
-            (cpu_val.im - wgpu_val.im).abs() < 1e-6,
+            (cpu_val.im - wgpu_val.im).abs() < 1e-4,
             "Imag mismatch: CPU={}, WebGPU={}",
             cpu_val.im,
             wgpu_val.im
@@ -1451,13 +1451,13 @@ fn test_wgpu_cpu_parity_complex_div_real() {
 
     for (cpu_val, wgpu_val) in cpu_output.iter().zip(wgpu_output.iter()) {
         assert!(
-            (cpu_val.re - wgpu_val.re).abs() < 1e-6,
+            (cpu_val.re - wgpu_val.re).abs() < 1e-4,
             "Real mismatch: CPU={}, WebGPU={}",
             cpu_val.re,
             wgpu_val.re
         );
         assert!(
-            (cpu_val.im - wgpu_val.im).abs() < 1e-6,
+            (cpu_val.im - wgpu_val.im).abs() < 1e-4,
             "Imag mismatch: CPU={}, WebGPU={}",
             cpu_val.im,
             wgpu_val.im

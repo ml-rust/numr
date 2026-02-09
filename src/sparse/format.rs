@@ -4,6 +4,7 @@ use crate::dtype::DType;
 
 /// Sparse matrix storage format
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum SparseFormat {
     /// Coordinate format (COO)
     ///

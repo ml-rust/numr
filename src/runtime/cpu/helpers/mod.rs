@@ -33,4 +33,4 @@ pub use crate::ops::{BinaryOp, UnaryOp};
 
 // Re-export dispatch macro and shared helpers
 pub use crate::dispatch_dtype;
-pub use crate::runtime::ensure_contiguous;
+pub(crate) use crate::runtime::ensure_contiguous;
