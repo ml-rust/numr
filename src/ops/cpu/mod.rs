@@ -12,6 +12,7 @@ pub mod conditional;
 pub mod conv;
 pub mod cumulative;
 pub mod distance;
+pub mod einsum;
 pub mod indexing;
 pub mod linalg;
 pub mod logical;
