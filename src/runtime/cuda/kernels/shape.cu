@@ -1,5 +1,5 @@
 // Shape operation CUDA kernels - cat, stack
-// Supports: f32, f64, f16, bf16, i32, i64, u32, u64
+// Supports: f32, f64, f16, bf16, i32, i64, u32, u64, c64, c128
 //
 // cat: Concatenates tensors along a specified dimension
 // stack: Uses unsqueeze + cat (implemented in Rust layer)
@@ -71,6 +71,8 @@ DEFINE_CAT_KERNEL(i16, short)
 DEFINE_CAT_KERNEL(i8, signed char)
 DEFINE_CAT_KERNEL(u16, unsigned short)
 DEFINE_CAT_KERNEL(u8, unsigned char)
+DEFINE_CAT_KERNEL(c64, numr_complex64)
+DEFINE_CAT_KERNEL(c128, numr_complex128)
 
 } // extern "C"
 
@@ -133,6 +135,8 @@ DEFINE_REPEAT_KERNEL(i16, short)
 DEFINE_REPEAT_KERNEL(i8, signed char)
 DEFINE_REPEAT_KERNEL(u16, unsigned short)
 DEFINE_REPEAT_KERNEL(u8, unsigned char)
+DEFINE_REPEAT_KERNEL(c64, numr_complex64)
+DEFINE_REPEAT_KERNEL(c128, numr_complex128)
 
 } // extern "C"
 
@@ -211,6 +215,8 @@ DEFINE_PAD_KERNEL(i16, short)
 DEFINE_PAD_KERNEL(i8, signed char)
 DEFINE_PAD_KERNEL(u16, unsigned short)
 DEFINE_PAD_KERNEL(u8, unsigned char)
+DEFINE_PAD_KERNEL(c64, numr_complex64)
+DEFINE_PAD_KERNEL(c128, numr_complex128)
 
 } // extern "C"
 
@@ -271,5 +277,7 @@ DEFINE_ROLL_KERNEL(i16, short)
 DEFINE_ROLL_KERNEL(i8, signed char)
 DEFINE_ROLL_KERNEL(u16, unsigned short)
 DEFINE_ROLL_KERNEL(u8, unsigned char)
+DEFINE_ROLL_KERNEL(c64, numr_complex64)
+DEFINE_ROLL_KERNEL(c128, numr_complex128)
 
 } // extern "C"
