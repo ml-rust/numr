@@ -41,6 +41,24 @@ pub unsafe fn scalar_op_kernel<T: Element>(
         }
     }
 
+    // Dispatch to SIMD for f32/f64 on aarch64
+    #[cfg(target_arch = "aarch64")]
+    {
+        use super::simd::scalar;
+
+        match T::DTYPE {
+            DType::F32 => {
+                scalar::scalar_f32(op, a as *const f32, scalar as f32, out as *mut f32, len);
+                return;
+            }
+            DType::F64 => {
+                scalar::scalar_f64(op, a as *const f64, scalar, out as *mut f64, len);
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     // Scalar fallback
     scalar_op_kernel_scalar(op, a, scalar, out, len);
 }
