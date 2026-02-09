@@ -93,12 +93,19 @@ pub fn quantile_impl(
     let (floor_idx, ceil_idx, frac) =
         crate::runtime::statistics_common::compute_quantile_indices(q, dim_size);
 
+    // index_select requires at least 1D indices, so use [1] for scalar output
+    let is_scalar_output = out_shape.is_empty();
+    let work_shape = if is_scalar_output {
+        vec![1]
+    } else {
+        out_shape.clone()
+    };
+
     // Create index tensors for gather
-    // We need to create tensors of shape matching output that indicate indices to gather
     let floor_indices =
-        Tensor::<CudaRuntime>::full_scalar(&out_shape, dtype, floor_idx as f64, &client.device);
+        Tensor::<CudaRuntime>::full_scalar(&work_shape, dtype, floor_idx as f64, &client.device);
     let ceil_indices =
-        Tensor::<CudaRuntime>::full_scalar(&out_shape, dtype, ceil_idx as f64, &client.device);
+        Tensor::<CudaRuntime>::full_scalar(&work_shape, dtype, ceil_idx as f64, &client.device);
 
     // Cast indices to I64 for gather
     let floor_indices_i64 = client.cast(&floor_indices, DType::I64)?;
@@ -142,7 +149,12 @@ pub fn quantile_impl(
         }
     };
 
-    Ok(result)
+    // Reshape to target output shape (handles scalar case)
+    if is_scalar_output {
+        result.reshape(&out_shape)
+    } else {
+        Ok(result)
+    }
 }
 
 /// Compute percentile (quantile * 100) along a dimension.

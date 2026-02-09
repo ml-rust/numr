@@ -27,7 +27,8 @@
 
 use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::{
-    launch_exclusive_scan_i32, launch_spgemm_numeric, launch_spgemm_symbolic,
+    launch_exclusive_scan_i32, launch_spgemm_accumulate, launch_spgemm_scatter,
+    launch_spgemm_symbolic,
 };
 use super::common::validate_wgpu_dtype;
 use super::merge::ScanParams;
@@ -35,7 +36,6 @@ use crate::algorithm::sparse::validate_spgemm_shapes;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TypeConversionOps;
-use crate::runtime::sparse_utils::zero_tolerance;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
@@ -51,15 +51,15 @@ pub struct SpgemmSymbolicParams {
     pub _pad1: u32,
 }
 
-/// SpGEMM numeric parameters uniform buffer layout (F32).
-/// Must match the WGSL struct `NumericParams`.
+/// SpGEMM numeric pass parameters uniform buffer layout.
+/// Must match the WGSL struct `SpgemmParams`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct SpgemmNumericParamsF32 {
+pub struct SpgemmParams {
     pub m: u32,
     pub n: u32,
-    pub threshold: f32,
-    pub _pad: u32,
+    pub _pad0: u32,
+    pub _pad1: u32,
 }
 
 /// Public function to be called from the combined trait implementation
@@ -245,28 +245,23 @@ pub(super) fn esc_spgemm_csr(
         mapped_at_creation: false,
     });
 
-    // Get threshold for zero filtering
-    let threshold = match dtype {
-        DType::F32 => zero_tolerance::<f32>() as f32,
-        DType::F16 => 1e-4f32, // Conservative threshold for f16
-        _ => 1e-10f32,
-    };
-
-    // Create numeric params buffer
-    // Note: For F32, the params struct has u32, u32, f32, u32 layout
+    // Create params buffer for numeric passes.
     let numeric_params_buffer = client.create_uniform_buffer("spgemm_numeric_params", 16);
-    // Write as raw bytes to handle mixed types
-    let params_bytes: [u8; 16] = {
-        let mut bytes = [0u8; 16];
-        bytes[0..4].copy_from_slice(&(m as u32).to_le_bytes());
-        bytes[4..8].copy_from_slice(&(n as u32).to_le_bytes());
-        bytes[8..12].copy_from_slice(&threshold.to_le_bytes());
-        bytes[12..16].copy_from_slice(&0u32.to_le_bytes());
-        bytes
+    let numeric_params = SpgemmParams {
+        m: m as u32,
+        n: n as u32,
+        _pad0: 0,
+        _pad1: 0,
     };
-    client
-        .wgpu_queue()
-        .write_buffer(&numeric_params_buffer, 0, &params_bytes);
+    client.write_buffer(
+        &numeric_params_buffer,
+        &[
+            numeric_params.m,
+            numeric_params.n,
+            numeric_params._pad0,
+            numeric_params._pad1,
+        ],
+    );
 
     // Get buffers for numeric phase
     let a_values_buffer = get_tensor_buffer(&a_csr.values)?;
@@ -274,8 +269,8 @@ pub(super) fn esc_spgemm_csr(
     let c_col_indices_buffer = get_tensor_buffer(&c_col_indices)?;
     let c_values_buffer = get_tensor_buffer(&c_values)?;
 
-    // Launch numeric phase kernel
-    launch_spgemm_numeric(
+    // Launch numeric phase A: accumulate into dense per-row buffers.
+    launch_spgemm_accumulate(
         client.pipeline_cache(),
         client.wgpu_queue(),
         &a_row_ptrs_buffer,
@@ -284,12 +279,23 @@ pub(super) fn esc_spgemm_csr(
         &b_row_ptrs_buffer,
         &b_col_indices_buffer,
         &b_values_buffer,
-        &c_row_ptrs_buffer,
-        &c_col_indices_buffer,
-        &c_values_buffer,
         &numeric_params_buffer,
         &accum,
         &flags,
+        m,
+        dtype,
+    )?;
+
+    // Launch numeric phase B: scatter compact CSR outputs.
+    launch_spgemm_scatter(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &c_row_ptrs_buffer,
+        &accum,
+        &flags,
+        &c_col_indices_buffer,
+        &c_values_buffer,
+        &numeric_params_buffer,
         m,
         dtype,
     )?;

@@ -599,10 +599,10 @@ DEFINE_GATHER_ND_KERNEL(i64, long long)
 // Uses atomicAdd for thread-safe accumulation
 // ============================================================================
 
-// Bincount without weights (counting)
+// Bincount without weights (counting) - output is I64
 __global__ void bincount_i32(
     const int* __restrict__ input,
-    float* __restrict__ output,
+    long long* __restrict__ output,
     unsigned int n,
     unsigned int minlength
 ) {
@@ -611,13 +611,13 @@ __global__ void bincount_i32(
 
     int val = input[idx];
     if (val >= 0 && (unsigned int)val < minlength) {
-        atomicAdd(&output[val], 1.0f);
+        atomicAdd((unsigned long long*)&output[val], 1ULL);
     }
 }
 
 __global__ void bincount_i64(
     const long long* __restrict__ input,
-    float* __restrict__ output,
+    long long* __restrict__ output,
     unsigned int n,
     unsigned int minlength
 ) {
@@ -626,7 +626,7 @@ __global__ void bincount_i64(
 
     long long val = input[idx];
     if (val >= 0 && (unsigned long long)val < minlength) {
-        atomicAdd(&output[val], 1.0f);
+        atomicAdd((unsigned long long*)&output[val], 1ULL);
     }
 }
 

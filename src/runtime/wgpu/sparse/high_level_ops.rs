@@ -4,9 +4,11 @@
 //! Supports SpMV, SpMM, element-wise operations, and format conversions.
 
 use super::super::{WgpuClient, WgpuRuntime};
+use crate::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
+use crate::dtype::DType;
 use crate::dtype::Element;
 use crate::error::{Error, Result};
-use crate::ops::{ReduceOps, ScalarOps};
+use crate::ops::{ReduceOps, ScalarOps, TypeConversionOps};
 use crate::sparse::{CooData, CscData, CsrData, SparseOps, SparseTensor};
 use crate::tensor::Tensor;
 
@@ -409,12 +411,50 @@ impl SparseOps<WgpuRuntime> for WgpuClient {
 
     fn dsmm(
         &self,
-        _a: &Tensor<WgpuRuntime>,
-        _b: &SparseTensor<WgpuRuntime>,
+        a: &Tensor<WgpuRuntime>,
+        b: &SparseTensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
-        Err(Error::NotImplemented {
-            feature: "WebGPU Dense-Sparse matrix multiplication",
-        })
+        validate_dtype_match(a.dtype(), b.dtype())?;
+
+        // WGPU sparse kernels are F32-only today. For F64, use a loss-limited
+        // compatibility path: cast -> run kernel -> cast back.
+        if a.dtype() == DType::F64 {
+            let a_f32 = self.cast(a, DType::F32)?;
+            let b_f32 = match b {
+                SparseTensor::Csr(data) => SparseTensor::Csr(CsrData {
+                    row_ptrs: data.row_ptrs.clone(),
+                    col_indices: data.col_indices.clone(),
+                    values: self.cast(&data.values, DType::F32)?,
+                    shape: data.shape,
+                }),
+                SparseTensor::Csc(data) => SparseTensor::Csc(CscData {
+                    col_ptrs: data.col_ptrs.clone(),
+                    row_indices: data.row_indices.clone(),
+                    values: self.cast(&data.values, DType::F32)?,
+                    shape: data.shape,
+                }),
+                SparseTensor::Coo(data) => SparseTensor::Coo(CooData {
+                    row_indices: data.row_indices.clone(),
+                    col_indices: data.col_indices.clone(),
+                    values: self.cast(&data.values, DType::F32)?,
+                    shape: data.shape,
+                    sorted: data.sorted,
+                }),
+            };
+
+            let out_f32 = self.dsmm(&a_f32, &b_f32)?;
+            return self.cast(&out_f32, DType::F64);
+        }
+
+        // Convert B to CSC format (optimal for dense × sparse)
+        let csc_b = match b {
+            SparseTensor::Csc(data) => data.clone(),
+            SparseTensor::Csr(data) => data.to_csc()?,
+            SparseTensor::Coo(data) => data.to_csc()?,
+        };
+
+        // Delegate to algorithm trait (backend-consistent implementation)
+        self.column_parallel_dsmm(a, &csc_b)
     }
 
     // =========================================================================
@@ -501,14 +541,35 @@ impl SparseOps<WgpuRuntime> for WgpuClient {
 
     fn sparse_matmul(
         &self,
-        _a: &SparseTensor<WgpuRuntime>,
-        _b: &SparseTensor<WgpuRuntime>,
+        a: &SparseTensor<WgpuRuntime>,
+        b: &SparseTensor<WgpuRuntime>,
     ) -> Result<SparseTensor<WgpuRuntime>> {
-        // sparse_matmul (SpGEMM) requires SparseAlgorithms trait implementation
-        // which is Task #6 in the plan. For now, return NotImplemented.
-        Err(Error::NotImplemented {
-            feature: "WebGPU sparse matrix multiplication (SpGEMM)",
-        })
+        validate_dtype_match(a.dtype(), b.dtype())?;
+
+        // Convert both to CSR format (optimal for ESC SpGEMM)
+        let csr_a = match a {
+            SparseTensor::Csr(data) => data.clone(),
+            SparseTensor::Coo(data) => data.to_csr()?,
+            SparseTensor::Csc(data) => data.to_csr()?,
+        };
+
+        let csr_b = match b {
+            SparseTensor::Csr(data) => data.clone(),
+            SparseTensor::Coo(data) => data.to_csr()?,
+            SparseTensor::Csc(data) => data.to_csr()?,
+        };
+
+        if csr_a.values.dtype() != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype: csr_a.values.dtype(),
+                op: "wgpu sparse_matmul",
+            });
+        }
+
+        // Delegate to ESC SpGEMM algorithm on WGPU.
+        let result_csr = self.esc_spgemm_csr(&csr_a, &csr_b)?;
+
+        Ok(SparseTensor::Csr(result_csr))
     }
 
     fn sparse_mul(

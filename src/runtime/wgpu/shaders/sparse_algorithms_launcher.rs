@@ -8,7 +8,8 @@ use wgpu::{Buffer, Queue};
 
 use super::generator::dtype_suffix;
 use super::generator::sparse_algorithms::{
-    generate_dsmm_csc_shader, generate_spgemm_numeric_shader, generate_spgemm_symbolic_shader,
+    generate_dsmm_csc_shader, generate_spgemm_accumulate_shader, generate_spgemm_scatter_shader,
+    generate_spgemm_symbolic_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -47,9 +48,9 @@ pub fn launch_dsmm_csc(
     let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
 
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5, // a, col_ptrs, row_indices, b_values, c
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
+        num_storage_buffers: 5,  // a, col_ptrs, row_indices, b_values, c
+        num_uniform_buffers: 1,  // params
+        num_readonly_storage: 4, // a, col_ptrs, row_indices, b_values
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline("dsmm_csc", &entry_point, &module, &layout);
@@ -115,7 +116,7 @@ pub fn launch_spgemm_symbolic(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_nnz, bitmap
         num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
+        num_readonly_storage: 4, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices
     });
 
     let pipeline =
@@ -129,8 +130,8 @@ pub fn launch_spgemm_symbolic(
             b_row_ptrs,
             b_col_indices,
             row_nnz,
-            params_buffer,
             bitmap,
+            params_buffer,
         ],
     );
 
@@ -154,7 +155,7 @@ pub fn launch_spgemm_symbolic(
     Ok(())
 }
 
-/// Launch SpGEMM numeric phase: compute output values
+/// Launch SpGEMM accumulate phase.
 ///
 /// # Buffers
 ///
@@ -164,13 +165,10 @@ pub fn launch_spgemm_symbolic(
 /// - `b_row_ptrs`: CSR row pointers for B [K + 1] (I32)
 /// - `b_col_indices`: CSR column indices for B [nnz_b] (I32)
 /// - `b_values`: CSR values for B [nnz_b] (dtype)
-/// - `c_row_ptrs`: CSR row pointers for C [M + 1] (I32, from symbolic)
-/// - `c_col_indices`: CSR column indices for C [nnz_c] (I32, to fill)
-/// - `c_values`: CSR values for C [nnz_c] (dtype, to fill)
-/// - `params_buffer`: Uniform buffer with SpgemmNumericParams { m, n, threshold }
+/// - `params_buffer`: Uniform buffer with SpgemmParams { m, n }
 /// - `accum`: Dense accumulator [M * N] (dtype)
 /// - `flags`: Column flags [M * N] (u32)
-pub fn launch_spgemm_numeric(
+pub fn launch_spgemm_accumulate(
     cache: &PipelineCache,
     queue: &Queue,
     a_row_ptrs: &Buffer,
@@ -179,9 +177,6 @@ pub fn launch_spgemm_numeric(
     b_row_ptrs: &Buffer,
     b_col_indices: &Buffer,
     b_values: &Buffer,
-    c_row_ptrs: &Buffer,
-    c_col_indices: &Buffer,
-    c_values: &Buffer,
     params_buffer: &Buffer,
     accum: &Buffer,
     flags: &Buffer,
@@ -189,20 +184,20 @@ pub fn launch_spgemm_numeric(
     dtype: DType,
 ) -> Result<()> {
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("spgemm_numeric_{}", suffix);
+    let entry_point = format!("spgemm_accumulate_{}", suffix);
 
-    let shader_source = generate_spgemm_numeric_shader(dtype)?;
-    let module_name = format!("spgemm_numeric_{}", suffix);
+    let shader_source = generate_spgemm_accumulate_shader(dtype)?;
+    let module_name = format!("spgemm_accumulate_{}", suffix);
     let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
 
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 11, // a_row_ptrs, a_col_indices, a_values, b_row_ptrs, b_col_indices, b_values, c_row_ptrs, c_col_indices, c_values, accum, flags
-        num_uniform_buffers: 1,  // params
-        num_readonly_storage: 0,
+        num_storage_buffers: 8, // a_row_ptrs, a_col_indices, a_values, b_row_ptrs, b_col_indices, b_values, accum, flags
+        num_uniform_buffers: 1, // params
+        num_readonly_storage: 6, // a_row_ptrs, a_col_indices, a_values, b_row_ptrs, b_col_indices, b_values
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("spgemm_numeric", &entry_point, &module, &layout);
+        cache.get_or_create_dynamic_pipeline("spgemm_accumulate", &entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -213,24 +208,82 @@ pub fn launch_spgemm_numeric(
             b_row_ptrs,
             b_col_indices,
             b_values,
-            c_row_ptrs,
-            c_col_indices,
-            c_values,
-            params_buffer,
             accum,
             flags,
+            params_buffer,
         ],
     );
 
     let mut encoder = cache
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("spgemm_numeric"),
+            label: Some("spgemm_accumulate"),
         });
 
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("spgemm_numeric"),
+            label: Some("spgemm_accumulate"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch SpGEMM scatter phase: compact accumulators into CSR arrays.
+pub fn launch_spgemm_scatter(
+    cache: &PipelineCache,
+    queue: &Queue,
+    c_row_ptrs: &Buffer,
+    accum: &Buffer,
+    flags: &Buffer,
+    c_col_indices: &Buffer,
+    c_values: &Buffer,
+    params_buffer: &Buffer,
+    m: usize,
+    dtype: DType,
+) -> Result<()> {
+    let suffix = dtype_suffix(dtype)?;
+    let entry_point = format!("spgemm_scatter_{}", suffix);
+
+    let shader_source = generate_spgemm_scatter_shader(dtype)?;
+    let module_name = format!("spgemm_scatter_{}", suffix);
+    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 5,  // c_row_ptrs, accum, flags, c_col_indices, c_values
+        num_uniform_buffers: 1,  // params
+        num_readonly_storage: 3, // c_row_ptrs, accum, flags
+    });
+
+    let pipeline =
+        cache.get_or_create_dynamic_pipeline("spgemm_scatter", &entry_point, &module, &layout);
+
+    let bind_group = cache.create_bind_group(
+        &layout,
+        &[
+            c_row_ptrs,
+            accum,
+            flags,
+            c_col_indices,
+            c_values,
+            params_buffer,
+        ],
+    );
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("spgemm_scatter"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("spgemm_scatter"),
             timestamp_writes: None,
         });
         pass.set_pipeline(&pipeline);
@@ -245,7 +298,8 @@ pub fn launch_spgemm_numeric(
 #[cfg(test)]
 mod tests {
     use super::super::generator::sparse_algorithms::{
-        generate_dsmm_csc_shader, generate_spgemm_numeric_shader, generate_spgemm_symbolic_shader,
+        generate_dsmm_csc_shader, generate_spgemm_accumulate_shader,
+        generate_spgemm_scatter_shader, generate_spgemm_symbolic_shader,
     };
     use super::*;
 
@@ -271,8 +325,14 @@ mod tests {
     }
 
     #[test]
-    fn test_spgemm_numeric_shader_syntax_f32() {
-        let shader = generate_spgemm_numeric_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpGEMM numeric shader should be valid WGSL");
+    fn test_spgemm_accumulate_shader_syntax_f32() {
+        let shader = generate_spgemm_accumulate_shader(DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).expect("SpGEMM accumulate shader should be valid WGSL");
+    }
+
+    #[test]
+    fn test_spgemm_scatter_shader_syntax_f32() {
+        let shader = generate_spgemm_scatter_shader(DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).expect("SpGEMM scatter shader should be valid WGSL");
     }
 }

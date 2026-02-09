@@ -24,7 +24,7 @@ pub(super) fn create_params_buffer<T: bytemuck::Pod>(
     let buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("params"),
         size: std::mem::size_of::<T>() as u64,
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        usage: BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     client
@@ -833,4 +833,22 @@ pub(crate) fn read_u32_from_buffer(
     staging_buffer.unmap();
 
     Ok(value)
+}
+
+/// Cast indices tensor to I32 for WebGPU shaders.
+/// WebGPU natively supports I32 indices; I64 indices are cast on GPU.
+/// Returns an error for unsupported index dtypes.
+pub(crate) fn ensure_i32_indices(
+    client: &super::super::WgpuClient,
+    indices: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    use crate::ops::TypeConversionOps;
+    match indices.dtype() {
+        DType::I32 => Ok(indices.clone()),
+        DType::I64 => client.cast(indices, DType::I32),
+        other => Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: other,
+        }),
+    }
 }

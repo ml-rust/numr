@@ -116,7 +116,8 @@ pub use sort::{
 // Sparse linear algebra exports from split modules
 #[cfg(feature = "sparse")]
 pub use sparse_algorithms::{
-    generate_dsmm_csc_shader, generate_spgemm_numeric_shader, generate_spgemm_symbolic_shader,
+    generate_dsmm_csc_shader, generate_spgemm_accumulate_shader, generate_spgemm_scatter_shader,
+    generate_spgemm_symbolic_shader,
 };
 #[cfg(feature = "sparse")]
 pub use sparse_conversions::{

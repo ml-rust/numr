@@ -1,7 +1,6 @@
 //! Indexing operation implementations for WebGPU.
 
 use super::helpers::*;
-use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::index;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
@@ -26,16 +25,9 @@ pub(crate) fn native_index_select(
         });
     }
 
-    // Indices must be I32 on WebGPU (no I64 support)
-    if indices.dtype() != DType::I32 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I32,
-            rhs: indices.dtype(),
-        });
-    }
-
     let a_contig = ensure_contiguous(a);
-    let indices_contig = ensure_contiguous(indices);
+    let indices_i32 = ensure_i32_indices(client, indices)?;
+    let indices_contig = ensure_contiguous(&indices_i32);
 
     // Compute output shape
     let index_len = indices.numel();
@@ -133,14 +125,6 @@ pub(crate) fn native_index_put(
         });
     }
 
-    // Indices must be I32 on WebGPU (no I64 support)
-    if indices.dtype() != DType::I32 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I32,
-            rhs: indices.dtype(),
-        });
-    }
-
     // Src dtype must match input
     if src.dtype() != dtype {
         return Err(Error::DTypeMismatch {
@@ -150,7 +134,8 @@ pub(crate) fn native_index_put(
     }
 
     let a_contig = ensure_contiguous(a);
-    let indices_contig = ensure_contiguous(indices);
+    let indices_i32 = ensure_i32_indices(client, indices)?;
+    let indices_contig = ensure_contiguous(&indices_i32);
     let src_contig = ensure_contiguous(src);
 
     let index_len = indices.numel();
@@ -268,20 +253,13 @@ pub(crate) fn native_gather(
         ));
     }
 
-    // Indices must be I32 on WebGPU
-    if indices.dtype() != DType::I32 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I32,
-            rhs: indices.dtype(),
-        });
-    }
-
     // Output shape is same as index shape
-    let out_shape = indices.shape().to_vec();
-    let total_elements = indices.numel();
+    let indices_i32 = ensure_i32_indices(client, indices)?;
+    let out_shape = indices_i32.shape().to_vec();
+    let total_elements = indices_i32.numel();
 
     let a_contig = ensure_contiguous(a);
-    let indices_contig = ensure_contiguous(indices);
+    let indices_contig = ensure_contiguous(&indices_i32);
 
     let out = alloc_output(client, &out_shape, dtype);
 
@@ -364,16 +342,9 @@ pub(crate) fn native_scatter(
         });
     }
 
-    // Indices must be I32 on WebGPU
-    if indices.dtype() != DType::I32 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I32,
-            rhs: indices.dtype(),
-        });
-    }
-
     let a_contig = ensure_contiguous(a);
-    let indices_contig = ensure_contiguous(indices);
+    let indices_i32 = ensure_i32_indices(client, indices)?;
+    let indices_contig = ensure_contiguous(&indices_i32);
     let src_contig = ensure_contiguous(src);
 
     let src_shape = src.shape();

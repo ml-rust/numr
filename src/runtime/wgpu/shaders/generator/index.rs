@@ -360,10 +360,10 @@ struct GatherNdParams {{
     input_strides: array<u32, 8>,
 }}
 
-@group(0) @binding(0) var<storage, read> gather_nd_input: array<{t}>;
-@group(0) @binding(1) var<storage, read> gather_nd_indices: array<i32>;
+@group(0) @binding(0) var<storage, read_write> gather_nd_input: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> gather_nd_indices: array<i32>;
 @group(0) @binding(2) var<storage, read_write> gather_nd_output: array<{t}>;
-@group(0) @binding(3) var<uniform> gather_nd_params: GatherNdParams;
+@group(0) @binding(3) var<storage, read_write> gather_nd_params: GatherNdParams;
 
 @compute @workgroup_size(256)
 fn gather_nd_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{

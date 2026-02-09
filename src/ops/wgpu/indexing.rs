@@ -2,14 +2,14 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{IndexingOps, ScatterReduceOp};
+use crate::ops::{IndexingOps, ReduceOps, ScatterReduceOp, TypeConversionOps};
 use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
     BincountParams, Gather2dParams, GatherNdParams, ScatterReduceParams, alloc_output,
-    create_params_buffer, get_tensor_buffer,
+    create_params_buffer, ensure_i32_indices, get_tensor_buffer,
 };
 use crate::runtime::wgpu::ops::native::{
     native_argreduce_op, native_embedding_lookup, native_gather, native_index_put,
@@ -149,7 +149,8 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
 
         // Ensure contiguous
         let dst = ensure_contiguous(dst);
-        let index = ensure_contiguous(index);
+        let index_i32 = ensure_i32_indices(self, index)?;
+        let index = ensure_contiguous(&index_i32);
         let src = ensure_contiguous(src);
 
         // Compute shape parameters
@@ -240,7 +241,8 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
 
         // Ensure contiguous
         let input = ensure_contiguous(input);
-        let indices = ensure_contiguous(indices);
+        let indices_i32 = ensure_i32_indices(self, indices)?;
+        let indices = ensure_contiguous(&indices_i32);
 
         let input_shape = input.shape();
         let indices_shape = indices.shape();
@@ -354,14 +356,34 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
             DType::U32 // Unweighted bincount returns counts as U32
         };
 
-        // Ensure contiguous
-        let input = ensure_contiguous(input);
+        // Cast I64→I32 on GPU (WebGPU shaders use i32 indices)
+        let input_i32 = ensure_i32_indices(self, input)?;
+        let input = ensure_contiguous(&input_i32);
         let weights = weights.map(ensure_contiguous);
 
         let n = input.numel();
 
-        // Allocate output (zeros)
-        let output = Tensor::zeros(&[minlength], output_dtype, self.device());
+        // Determine output size: max reduction on GPU, read single scalar back.
+        // This is a necessary system boundary (same as CPU/CUDA computing max first).
+        let input_f32 = self.cast(&input, DType::F32)?;
+        let max_tensor = self.max(&input_f32, &[0], true)?;
+        let max_val = max_tensor.item::<f32>()? as i64;
+        if max_val < 0 {
+            return Err(Error::InvalidArgument {
+                arg: "input",
+                reason: "bincount requires non-negative values".to_string(),
+            });
+        }
+        let output_len = ((max_val as usize) + 1).max(minlength);
+
+        // Allocate zero-initialized output buffer.
+        // Unweighted: U32 counts. Weighted: same dtype as weights (shader uses atomic<u32> bitcast).
+        let output = if output_dtype == DType::U32 {
+            let zeros = vec![0u32; output_len];
+            Tensor::<WgpuRuntime>::from_slice(&zeros, &[output_len], self.device())
+        } else {
+            Tensor::zeros(&[output_len], output_dtype, self.device())
+        };
 
         // Get buffers
         let input_buf = get_tensor_buffer(&input)?;
@@ -376,7 +398,7 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         // Create params
         let params = BincountParams {
             n: n as u32,
-            minlength: minlength as u32,
+            minlength: output_len as u32,
             _pad0: 0,
             _pad1: 0,
         };
@@ -392,6 +414,11 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
             n,
             weights.as_ref().map(|w| w.dtype()),
         )?;
+
+        // Cast U32 kernel output to I64 for parity with CPU backend (unweighted returns I64)
+        if weights.is_none() {
+            return self.cast(&output, DType::I64);
+        }
 
         Ok(output)
     }
@@ -464,8 +491,10 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
 
         // Make all inputs contiguous
         let input = ensure_contiguous(input);
-        let rows = ensure_contiguous(rows);
-        let cols = ensure_contiguous(cols);
+        let rows_i32 = ensure_i32_indices(self, rows)?;
+        let cols_i32 = ensure_i32_indices(self, cols)?;
+        let rows = ensure_contiguous(&rows_i32);
+        let cols = ensure_contiguous(&cols_i32);
 
         // Allocate output
         let output = alloc_output(self, &[num_indices], dtype);

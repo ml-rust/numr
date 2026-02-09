@@ -161,8 +161,8 @@ pub fn launch_index_put(
     let shader_source = generate_index_put_shader(dtype)?;
     let module = cache.get_or_create_module(name, &shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 3,
-        num_uniform_buffers: 1,
+        num_storage_buffers: 4,
+        num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
@@ -619,8 +619,8 @@ pub fn launch_gather_nd(
     let shader_source = super::generator::generate_gather_nd_shader(dtype)?;
     let module = cache.get_or_create_module(name, &shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 3,
-        num_uniform_buffers: 1,
+        num_storage_buffers: 4,
+        num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
@@ -682,7 +682,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 3,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: 2, // input and weights are read-only
         });
         let bind_group =
             cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer]);
@@ -691,7 +691,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 2,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: 1, // input is read-only
         });
         let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
         (layout, bind_group)

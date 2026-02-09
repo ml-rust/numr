@@ -117,10 +117,10 @@ struct SymbolicParams {{
 @group(0) @binding(3) var<storage, read> b_col_indices: array<i32>;
 // Output: NNZ per row
 @group(0) @binding(4) var<storage, read_write> row_nnz: array<i32>;
-// Parameters
-@group(0) @binding(5) var<uniform> params: SymbolicParams;
 // Global bitmap storage (one bitmap per row, M * ((N+31)/32) u32 words)
-@group(0) @binding(6) var<storage, read_write> bitmap: array<atomic<u32>>;
+@group(0) @binding(5) var<storage, read_write> bitmap: array<atomic<u32>>;
+// Parameters (uniforms are placed after storage buffers in LayoutKey layouts)
+@group(0) @binding(6) var<uniform> params: SymbolicParams;
 
 @compute @workgroup_size(256)
 fn spgemm_symbolic_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
@@ -173,26 +173,26 @@ fn spgemm_symbolic_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     ))
 }
 
-/// Generate WGSL shader for SpGEMM numeric phase: compute output values.
+/// Generate WGSL shader for SpGEMM accumulate phase.
 ///
-/// Uses pre-computed row_ptrs from symbolic phase.
-/// Each thread processes one output row using dense accumulator in global memory.
-pub fn generate_spgemm_numeric_shader(dtype: DType) -> Result<String> {
+/// Each thread handles one output row, clears accum/flags for that row, and accumulates
+/// contributions from A(row,:) * B(:,col).
+pub fn generate_spgemm_accumulate_shader(dtype: DType) -> Result<String> {
     let t = wgsl_type(dtype)?;
     let suffix = dtype_suffix(dtype)?;
 
     Ok(format!(
-        r#"// SpGEMM Numeric Phase: Compute output values
-// CSR A [M, K] × CSR B [K, N] → CSR C [M, N]
+        r#"// SpGEMM Accumulate Phase
+// CSR A [M, K] × CSR B [K, N] -> dense row accumulators
 // Uses dense accumulator array per row
 
 const WORKGROUP_SIZE: u32 = 256u;
 
-struct NumericParams {{
-    m: u32,       // Number of rows in output
-    n: u32,       // Number of columns in output
-    threshold: {t},  // Zero tolerance threshold
-    _pad: u32,
+struct SpgemmParams {{
+    m: u32,
+    n: u32,
+    _pad0: u32,
+    _pad1: u32,
 }}
 
 // CSR format for A
@@ -203,19 +203,15 @@ struct NumericParams {{
 @group(0) @binding(3) var<storage, read> b_row_ptrs: array<i32>;
 @group(0) @binding(4) var<storage, read> b_col_indices: array<i32>;
 @group(0) @binding(5) var<storage, read> b_values: array<{t}>;
-// Output CSR (row_ptrs from symbolic, col_indices/values to fill)
-@group(0) @binding(6) var<storage, read> c_row_ptrs: array<i32>;
-@group(0) @binding(7) var<storage, read_write> c_col_indices: array<i32>;
-@group(0) @binding(8) var<storage, read_write> c_values: array<{t}>;
-// Parameters
-@group(0) @binding(9) var<uniform> params: NumericParams;
 // Dense accumulator (M * N elements, used as temporary per-row storage)
-@group(0) @binding(10) var<storage, read_write> accum: array<{t}>;
+@group(0) @binding(6) var<storage, read_write> accum: array<{t}>;
 // Flag array to track which columns have values (M * N elements)
-@group(0) @binding(11) var<storage, read_write> flags: array<u32>;
+@group(0) @binding(7) var<storage, read_write> flags: array<u32>;
+// Parameters (uniforms are placed after storage buffers in LayoutKey layouts)
+@group(0) @binding(8) var<uniform> params: SpgemmParams;
 
 @compute @workgroup_size(256)
-fn spgemm_numeric_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+fn spgemm_accumulate_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let row = gid.x;
     if (row >= params.m) {{
         return;
@@ -248,28 +244,63 @@ fn spgemm_numeric_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
             flags[idx] = 1u;  // Mark column as having a value
         }}
     }}
+}}
+"#,
+        t = t,
+        suffix = suffix,
+        zero = zero_literal(dtype)
+    ))
+}
 
-    // Write non-zero values to output CSR (sorted by column)
-    let c_start = c_row_ptrs[row];
-    var write_idx: i32 = c_start;
+/// Generate WGSL shader for SpGEMM scatter phase.
+///
+/// Compacts per-row `accum/flags` into CSR `col_indices/values` using row_ptrs.
+pub fn generate_spgemm_scatter_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// SpGEMM Scatter Phase
+// Compacts dense row accumulators into CSR output arrays.
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct SpgemmParams {{
+    m: u32,
+    n: u32,
+    _pad0: u32,
+    _pad1: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> c_row_ptrs: array<i32>;
+@group(0) @binding(1) var<storage, read> accum: array<{t}>;
+@group(0) @binding(2) var<storage, read> flags: array<u32>;
+@group(0) @binding(3) var<storage, read_write> c_col_indices: array<i32>;
+@group(0) @binding(4) var<storage, read_write> c_values: array<{t}>;
+@group(0) @binding(5) var<uniform> params: SpgemmParams;
+
+@compute @workgroup_size(256)
+fn spgemm_scatter_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let row = gid.x;
+    if (row >= params.m) {{
+        return;
+    }}
+
+    let accum_offset = row * params.n;
+    var write_idx: i32 = c_row_ptrs[row];
 
     for (var col: u32 = 0u; col < params.n; col = col + 1u) {{
         let idx = accum_offset + col;
         if (flags[idx] != 0u) {{
-            let val = accum[idx];
-            // Check threshold
-            if (abs(val) > params.threshold) {{
-                c_col_indices[write_idx] = i32(col);
-                c_values[write_idx] = val;
-                write_idx = write_idx + 1;
-            }}
+            c_col_indices[write_idx] = i32(col);
+            c_values[write_idx] = accum[idx];
+            write_idx = write_idx + 1;
         }}
     }}
 }}
 "#,
         t = t,
-        suffix = suffix,
-        zero = zero_literal(dtype),
+        suffix = suffix
     ))
 }
 
@@ -309,8 +340,14 @@ mod tests {
     }
 
     #[test]
-    fn test_spgemm_numeric_shader_syntax_f32() {
-        let shader = generate_spgemm_numeric_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpGEMM numeric shader should be valid WGSL");
+    fn test_spgemm_accumulate_shader_syntax_f32() {
+        let shader = generate_spgemm_accumulate_shader(DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).expect("SpGEMM accumulate shader should be valid WGSL");
+    }
+
+    #[test]
+    fn test_spgemm_scatter_shader_syntax_f32() {
+        let shader = generate_spgemm_scatter_shader(DType::F32).unwrap();
+        validate_wgsl_syntax(&shader).expect("SpGEMM scatter shader should be valid WGSL");
     }
 }

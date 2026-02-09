@@ -841,7 +841,7 @@ pub fn launch_exclusive_scan_i32(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
-        num_readonly_storage: 0,
+        num_readonly_storage: 1,
     });
 
     let pipeline = cache.get_or_create_dynamic_pipeline(
