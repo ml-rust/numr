@@ -22,26 +22,8 @@ pub unsafe fn compare_op_kernel<T: Element>(
     out: *mut T,
     len: usize,
 ) {
-    // Dispatch to SIMD for f32/f64 on x86-64
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::simd::compare;
-
-        match T::DTYPE {
-            DType::F32 => {
-                compare::compare_f32(op, a as *const f32, b as *const f32, out as *mut f32, len);
-                return;
-            }
-            DType::F64 => {
-                compare::compare_f64(op, a as *const f64, b as *const f64, out as *mut f64, len);
-                return;
-            }
-            _ => {} // Fall through to scalar
-        }
-    }
-
-    // Dispatch to SIMD for f32/f64 on aarch64
-    #[cfg(target_arch = "aarch64")]
+    // Dispatch to SIMD for f32/f64 on x86-64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::compare;
 

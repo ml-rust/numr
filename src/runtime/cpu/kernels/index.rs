@@ -308,15 +308,8 @@ pub unsafe fn index_put_kernel<T: Element>(
 #[inline]
 #[allow(dead_code)] // Internally called by simd::index on x86_64, kept for API compatibility
 pub unsafe fn masked_count_kernel(mask: *const u8, numel: usize) -> usize {
-    // Use SIMD on x86_64
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::simd::index;
-        return index::masked_count(mask, numel);
-    }
-
-    // Use SIMD on aarch64
-    #[cfg(target_arch = "aarch64")]
+    // Use SIMD on x86_64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::index;
         return index::masked_count(mask, numel);
@@ -348,22 +341,8 @@ pub unsafe fn masked_select_kernel<T: Element>(
     out: *mut T,
     numel: usize,
 ) {
-    // Use SIMD for f32/f64 types on x86_64
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::simd::index;
-
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            let _ = index::masked_select_f32(a as *const f32, mask, out as *mut f32, numel);
-            return;
-        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-            let _ = index::masked_select_f64(a as *const f64, mask, out as *mut f64, numel);
-            return;
-        }
-    }
-
-    // Use SIMD for f32/f64 types on aarch64
-    #[cfg(target_arch = "aarch64")]
+    // Use SIMD for f32/f64 types on x86_64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::index;
 
@@ -408,22 +387,8 @@ pub unsafe fn masked_fill_kernel<T: Element>(
     numel: usize,
     value: f64,
 ) {
-    // Use SIMD for f32/f64 types on x86_64
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::simd::index;
-
-        if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            index::masked_fill_f32(a as *const f32, mask, out as *mut f32, numel, value as f32);
-            return;
-        } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-            index::masked_fill_f64(a as *const f64, mask, out as *mut f64, numel, value);
-            return;
-        }
-    }
-
-    // Use SIMD for f32/f64 types on aarch64
-    #[cfg(target_arch = "aarch64")]
+    // Use SIMD for f32/f64 types on x86_64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::index;
 

@@ -15,24 +15,7 @@ use crate::dtype::{DType, Element};
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn sigmoid_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::super::simd::activations;
-
-        match T::DTYPE {
-            DType::F32 => {
-                activations::sigmoid_f32(a as *const f32, out as *mut f32, len);
-                return;
-            }
-            DType::F64 => {
-                activations::sigmoid_f64(a as *const f64, out as *mut f64, len);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
 
@@ -73,24 +56,7 @@ unsafe fn sigmoid_scalar<T: Element>(a: *const T, out: *mut T, len: usize) {
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn silu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::super::simd::activations;
-
-        match T::DTYPE {
-            DType::F32 => {
-                activations::silu_f32(a as *const f32, out as *mut f32, len);
-                return;
-            }
-            DType::F64 => {
-                activations::silu_f64(a as *const f64, out as *mut f64, len);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
 
@@ -133,24 +99,7 @@ unsafe fn silu_scalar<T: Element>(a: *const T, out: *mut T, len: usize) {
 /// - `a` and `out` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn gelu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::super::simd::activations;
-
-        match T::DTYPE {
-            DType::F32 => {
-                activations::gelu_f32(a as *const f32, out as *mut f32, len);
-                return;
-            }
-            DType::F64 => {
-                activations::gelu_f64(a as *const f64, out as *mut f64, len);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
 
@@ -198,29 +147,7 @@ pub unsafe fn leaky_relu_kernel<T: Element>(
     len: usize,
     negative_slope: f64,
 ) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::super::simd::activations;
-
-        match T::DTYPE {
-            DType::F32 => {
-                activations::leaky_relu_f32(
-                    a as *const f32,
-                    out as *mut f32,
-                    len,
-                    negative_slope as f32,
-                );
-                return;
-            }
-            DType::F64 => {
-                activations::leaky_relu_f64(a as *const f64, out as *mut f64, len, negative_slope);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
 
@@ -268,24 +195,7 @@ unsafe fn leaky_relu_scalar<T: Element>(a: *const T, out: *mut T, len: usize, ne
 /// - `a` must be valid pointer to `len` elements
 /// - `out` must be valid pointer to `len` elements (may alias `a`)
 pub unsafe fn elu_kernel<T: Element>(a: *const T, out: *mut T, len: usize, alpha: f64) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::super::simd::activations;
-
-        match T::DTYPE {
-            DType::F32 => {
-                activations::elu_f32(a as *const f32, out as *mut f32, len, alpha as f32);
-                return;
-            }
-            DType::F64 => {
-                activations::elu_f64(a as *const f64, out as *mut f64, len, alpha);
-                return;
-            }
-            _ => {}
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
 

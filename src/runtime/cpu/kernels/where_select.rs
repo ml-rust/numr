@@ -27,37 +27,8 @@ pub unsafe fn where_kernel<T: Element>(
     out: *mut T,
     len: usize,
 ) {
-    // Dispatch to SIMD for f32/f64 on x86-64
-    #[cfg(target_arch = "x86_64")]
-    {
-        use super::simd::where_select;
-
-        match T::DTYPE {
-            DType::F32 => {
-                where_select::where_f32(
-                    cond,
-                    x as *const f32,
-                    y as *const f32,
-                    out as *mut f32,
-                    len,
-                );
-                return;
-            }
-            DType::F64 => {
-                where_select::where_f64(
-                    cond,
-                    x as *const f64,
-                    y as *const f64,
-                    out as *mut f64,
-                    len,
-                );
-                return;
-            }
-            _ => {} // Fall through to scalar
-        }
-    }
-
-    #[cfg(target_arch = "aarch64")]
+    // Dispatch to SIMD for f32/f64 on x86-64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::where_select;
 
