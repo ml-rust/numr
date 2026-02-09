@@ -34,7 +34,6 @@ fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
 use wgpu::{Buffer, Queue};
 
 use super::dtype_support;
-use super::elementwise_wgsl::ELEMENTWISE_SHADER;
 use super::generator::{
     dtype_suffix, generate_binary_shader, generate_cast_shader, generate_compare_shader,
     generate_scalar_shader, generate_unary_shader,
@@ -179,15 +178,10 @@ pub fn launch_binary_op(
     // Get entry point name based on dtype (cached, leaked once per op+dtype)
     let entry_point = get_or_leak_entry_point(op_name, dtype)?;
 
-    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
-    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
-        ("elementwise", ELEMENTWISE_SHADER)
-    } else {
-        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
-        let shader = get_or_leak_shader(dtype, "binary")?;
-        let module_key = get_or_leak_module_key(dtype, "binary")?;
-        (module_key, shader)
-    };
+    // Use generated shader for all dtypes to keep op coverage consistent.
+    let shader = get_or_leak_shader(dtype, "binary")?;
+    let module_key = get_or_leak_module_key(dtype, "binary")?;
+    let (module_name, shader_source): (&str, &str) = (module_key, shader);
 
     let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -336,15 +330,10 @@ pub fn launch_unary_op(
     // Get entry point name based on dtype (cached, leaked once per op+dtype)
     let entry_point = get_or_leak_entry_point(op, dtype)?;
 
-    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
-    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
-        ("elementwise", ELEMENTWISE_SHADER)
-    } else {
-        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
-        let shader = get_or_leak_shader(dtype, "unary")?;
-        let module_key = get_or_leak_module_key(dtype, "unary")?;
-        (module_key, shader)
-    };
+    // Use generated shader for all dtypes to keep op coverage consistent.
+    let shader = get_or_leak_shader(dtype, "unary")?;
+    let module_key = get_or_leak_module_key(dtype, "unary")?;
+    let (module_name, shader_source): (&str, &str) = (module_key, shader);
 
     let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -399,15 +388,10 @@ pub fn launch_scalar_op(
     // Get entry point name based on dtype (cached, leaked once per op+dtype)
     let entry_point = get_or_leak_entry_point(op, dtype)?;
 
-    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
-    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
-        ("elementwise", ELEMENTWISE_SHADER)
-    } else {
-        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
-        let shader = get_or_leak_shader(dtype, "scalar")?;
-        let module_key = get_or_leak_module_key(dtype, "scalar")?;
-        (module_key, shader)
-    };
+    // Use generated shader for all dtypes to keep op coverage consistent.
+    let shader = get_or_leak_shader(dtype, "scalar")?;
+    let module_key = get_or_leak_module_key(dtype, "scalar")?;
+    let (module_name, shader_source): (&str, &str) = (module_key, shader);
 
     let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -463,15 +447,10 @@ pub fn launch_compare_op(
     // Get entry point name based on dtype (cached, leaked once per op+dtype)
     let entry_point = get_or_leak_entry_point(op, dtype)?;
 
-    // Use F32 shader for backward compatibility, or dtype-specific for I32/U32
-    let (module_name, shader_source): (&str, &str) = if dtype == DType::F32 {
-        ("elementwise", ELEMENTWISE_SHADER)
-    } else {
-        // For I32/U32, get cached shader and module key (leaked once per dtype+op_type)
-        let shader = get_or_leak_shader(dtype, "compare")?;
-        let module_key = get_or_leak_module_key(dtype, "compare")?;
-        (module_key, shader)
-    };
+    // Use generated shader for all dtypes to keep op coverage consistent.
+    let shader = get_or_leak_shader(dtype, "compare")?;
+    let module_key = get_or_leak_module_key(dtype, "compare")?;
+    let (module_name, shader_source): (&str, &str) = (module_key, shader);
 
     let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
