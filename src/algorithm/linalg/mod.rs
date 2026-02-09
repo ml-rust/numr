@@ -31,7 +31,7 @@ pub mod traits;
 // Re-export all public types for convenient access
 pub use decompositions::*;
 pub use helpers::*;
-pub use traits::*;
+pub use traits::{LinearAlgebraAlgorithms, MatrixFunctionsAlgorithms, TensorDecomposeAlgorithms};
 
 // ============================================================================
 // Matrix Norm Orders
