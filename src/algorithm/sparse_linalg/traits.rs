@@ -115,22 +115,22 @@ pub trait SparseLinAlgAlgorithms<R: Runtime> {
     /// **Upper triangular (backward substitution):**
     /// ```text
     /// For i = n-1 down to 0:
-    ///   x[i] = b[i]
-    ///   For j in nonzeros(U[i, i+1:n]):
-    ///     x[i] = x[i] - U[i,j] * x[j]
-    ///   x[i] = x[i] / U[i,i]
+    ///   `x[i]` = `b[i]`
+    ///   For j in nonzeros(`U[i, i+1:n]`):
+    ///     `x[i]` = `x[i]` - `U[i,j]` * `x[j]`
+    ///   `x[i]` = `x[i]` / `U[i,i]`
     /// ```
     ///
     /// # Arguments
     ///
     /// * `l_or_u` - Sparse triangular matrix in CSR format
-    /// * `b` - Right-hand side dense vector [n] or matrix [n, k]
+    /// * `b` - Right-hand side dense vector `[n]` or matrix `[n, k]`
     /// * `lower` - True for lower triangular, false for upper triangular
     /// * `unit_diagonal` - True if diagonal is implicitly 1 (for unit triangular)
     ///
     /// # Returns
     ///
-    /// Solution vector x [n] or matrix [n, k]
+    /// Solution vector x `[n]` or matrix `[n, k]`
     ///
     /// # Errors
     ///

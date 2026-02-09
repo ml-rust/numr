@@ -21,8 +21,8 @@ pub type Strides = SmallVec<[isize; STACK_DIMS]>;
 /// in row-major order. The layout specifies how to compute the memory address
 /// of any element given its indices.
 ///
-/// Address of element at indices [i0, i1, ..., in]:
-///   offset + i0 * strides[0] + i1 * strides[1] + ... + in * strides[n]
+/// Address of element at indices `[i0, i1, ..., in]`:
+///   offset + i0 * `strides[0]` + i1 * `strides[1]` + ... + in * `strides[n]`
 #[derive(Clone, PartialEq, Eq)]
 pub struct Layout {
     /// Shape: size along each dimension

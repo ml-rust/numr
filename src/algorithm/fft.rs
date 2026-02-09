@@ -213,8 +213,8 @@ pub trait FftAlgorithms<R: Runtime> {
 
     /// Real FFT: Real input → Complex output
     ///
-    /// Exploits Hermitian symmetry: for real input, X[k] = conj(X[N-k]),
-    /// so we only need to store the first N/2 + 1 complex values.
+    /// Exploits Hermitian symmetry: for real input, `X[k] = conj(X[N-k])`,
+    /// so we only need to store the first `N/2 + 1` complex values.
     ///
     /// # Algorithm
     ///
@@ -271,7 +271,7 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `input` - Complex tensor of shape [..., M, N] where M, N are powers of 2
+    /// * `input` - Complex tensor of shape `[..., M, N]` where `M`, `N` are powers of 2
     /// * `direction` - Forward or Inverse FFT
     /// * `norm` - Normalization mode
     ///
@@ -291,25 +291,25 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `input` - Real tensor of shape [..., M, N]
+    /// * `input` - Real tensor of shape `[..., M, N]`
     /// * `norm` - Normalization mode
     ///
     /// # Returns
     ///
-    /// Complex tensor of shape [..., M, N/2 + 1]
+    /// Complex tensor of shape `[..., M, N/2 + 1]`
     fn rfft2(&self, input: &Tensor<R>, norm: FftNormalization) -> Result<Tensor<R>>;
 
     /// Inverse 2D Real FFT
     ///
     /// # Arguments
     ///
-    /// * `input` - Complex tensor of shape [..., M, N/2 + 1]
-    /// * `s` - Output shape (M, N). If None, uses (M, 2*(N-1))
+    /// * `input` - Complex tensor of shape `[..., M, N/2 + 1]`
+    /// * `s` - Output shape `(M, N)`. If None, uses `(M, 2*(N-1))`
     /// * `norm` - Normalization mode
     ///
     /// # Returns
     ///
-    /// Real tensor of shape [..., M, N]
+    /// Real tensor of shape `[..., M, N]`
     fn irfft2(
         &self,
         input: &Tensor<R>,
@@ -319,8 +319,8 @@ pub trait FftAlgorithms<R: Runtime> {
 
     /// Frequency shift: shift zero-frequency component to center
     ///
-    /// For a tensor of shape [..., N], swaps the halves:
-    /// [0..N/2] <-> [N/2..N]
+    /// For a tensor of shape `[..., N]`, swaps the halves:
+    /// `[0..N/2] <-> [N/2..N]`
     ///
     /// # Arguments
     ///
@@ -347,7 +347,7 @@ pub trait FftAlgorithms<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// 1D tensor of shape [N] with frequencies:
+    /// 1D tensor of shape `[N]` with frequencies:
     /// [0, 1, 2, ..., N/2-1, -N/2, ..., -1] / (d*N)
     fn fftfreq(&self, n: usize, d: f64, dtype: DType, device: &R::Device) -> Result<Tensor<R>>;
 

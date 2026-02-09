@@ -10,7 +10,7 @@ use crate::tensor::Tensor;
 ///
 /// # Root Storage
 ///
-/// For a polynomial of degree n, both tensors have shape [n].
+/// For a polynomial of degree n, both tensors have shape `[n]`.
 ///
 /// - Real roots: `roots_imag[i] = 0`
 /// - Complex roots come in conjugate pairs:
@@ -26,10 +26,10 @@ use crate::tensor::Tensor;
 /// // roots_imag = [1.0, -1.0]
 /// ```
 pub struct PolynomialRoots<R: Runtime> {
-    /// Real parts of roots [n]
+    /// Real parts of roots `[n]`
     pub roots_real: Tensor<R>,
 
-    /// Imaginary parts of roots [n]
+    /// Imaginary parts of roots `[n]`
     /// Zero for real roots, non-zero for complex conjugate pairs
     pub roots_imag: Tensor<R>,
 }

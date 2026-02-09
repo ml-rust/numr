@@ -30,8 +30,8 @@ use crate::tensor::Tensor;
 ///
 /// - **Column-Parallel DSMM**: Dense × Sparse Matrix Multiplication
 ///   - For each column j of sparse matrix B (CSC format)
-///   - For each non-zero B[k,j] in column j
-///   - Compute C[:,j] += A[:,k] * B[k,j]
+///   - For each non-zero `B[k,j]` in column j
+///   - Compute `C[:,j]` += `A[:,k]` * `B[k,j]`
 ///
 /// # Implementation Requirements
 ///

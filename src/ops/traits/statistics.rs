@@ -59,7 +59,7 @@ pub trait StatisticalOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `a` - Input tensor
-    /// * `q` - Quantile to compute, must be in [0.0, 1.0]
+    /// * `q` - Quantile to compute, must be in `[0.0, 1.0]`
     /// * `dim` - Dimension to reduce (None = flatten first)
     /// * `keepdim` - If true, keep reduced dimension as size 1
     /// * `interpolation` - Method for interpolating between data points:
@@ -80,11 +80,11 @@ pub trait StatisticalOps<R: Runtime> {
     /// 1. Sort input along dimension
     /// 2. Compute index: idx = q * (n - 1) where n = dimension size
     /// 3. Interpolate based on method:
-    ///    - linear: result = sorted[floor] * (1 - frac) + sorted[ceil] * frac
-    ///    - lower: result = sorted[floor(idx)]
-    ///    - higher: result = sorted[ceil(idx)]
-    ///    - nearest: result = sorted[round(idx)]
-    ///    - midpoint: result = (sorted[floor] + sorted[ceil]) / 2
+    ///    - linear: result = sorted`[floor]` * (1 - frac) + sorted`[ceil]` * frac
+    ///    - lower: result = sorted`[floor(idx)]`
+    ///    - higher: result = sorted`[ceil(idx)]`
+    ///    - nearest: result = sorted`[round(idx)]`
+    ///    - midpoint: result = (sorted`[floor]` + sorted`[ceil]`) / 2
     /// ```
     ///
     /// # Examples
@@ -104,7 +104,7 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Errors
     ///
-    /// - `InvalidArgument` if q is outside [0.0, 1.0]
+    /// - `InvalidArgument` if q is outside `[0.0, 1.0]`
     /// - `InvalidArgument` if interpolation is not a valid method
     /// - `InvalidAxis` if dim is out of bounds
     fn quantile(
@@ -123,7 +123,7 @@ pub trait StatisticalOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `a` - Input tensor
-    /// * `p` - Percentile to compute, must be in [0.0, 100.0]
+    /// * `p` - Percentile to compute, must be in `[0.0, 100.0]`
     /// * `dim` - Dimension to reduce (None = flatten first)
     /// * `keepdim` - If true, keep reduced dimension as size 1
     ///
@@ -189,19 +189,19 @@ pub trait StatisticalOps<R: Runtime> {
     /// # Returns
     ///
     /// Tuple of (histogram, bin_edges):
-    /// - histogram: I64 tensor of shape [bins] with counts
-    /// - bin_edges: Tensor of shape [bins + 1] with bin boundaries
+    /// - histogram: I64 tensor of shape `[bins]` with counts
+    /// - bin_edges: Tensor of shape `[bins + 1]` with bin boundaries
     ///
     /// # Algorithm
     ///
     /// ```text
-    /// 1. Determine range: [min, max] (from input or provided)
+    /// 1. Determine range: `[min, max]` (from input or provided)
     /// 2. Compute bin_width = (max - min) / bins
     /// 3. For each value x:
     ///    bin_idx = floor((x - min) / bin_width)
-    ///    Clamp to [0, bins-1]
-    ///    counts[bin_idx]++
-    /// 4. bin_edges = [min, min+w, min+2w, ..., max]
+    ///    Clamp to `[0, bins-1]`
+    ///    counts`[bin_idx]`++
+    /// 4. bin_edges = `[min, min+w, min+2w, ..., max]`
     /// ```
     ///
     /// # Examples
@@ -237,12 +237,12 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Covariance matrix [n_features, n_features]
+    /// Covariance matrix `[n_features, n_features]`
     ///
     /// # Properties
     ///
-    /// - Symmetric: cov[i,j] = cov[j,i]
-    /// - Diagonal elements are variances: cov[i,i] = var(X[:,i])
+    /// - Symmetric: cov`[i,j]` = cov`[j,i]`
+    /// - Diagonal elements are variances: `cov[i,i]` = `var(X[:,i])`
     ///
     /// # Examples
     ///
@@ -269,13 +269,13 @@ pub trait StatisticalOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Correlation matrix [n_features, n_features] with values in [-1, 1]
+    /// Correlation matrix `[n_features, n_features]` with values in `[-1, 1]`
     ///
     /// # Properties
     ///
     /// - Diagonal elements are 1.0 (unless feature has zero variance)
-    /// - Off-diagonal in [-1, 1]: correlation coefficient
-    /// - Symmetric: corr[i,j] = corr[j,i]
+    /// - Off-diagonal in `[-1, 1]`: correlation coefficient
+    /// - Symmetric: corr`[i,j]` = corr`[j,i]`
     ///
     /// # Examples
     ///

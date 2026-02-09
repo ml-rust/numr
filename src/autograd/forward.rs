@@ -216,7 +216,7 @@ where
 
 /// Compute the full Jacobian matrix using forward-mode AD
 ///
-/// For a function f: ℝⁿ → ℝᵐ, computes the full Jacobian matrix J where J[i,j] = ∂fᵢ/∂xⱼ.
+/// For a function f: ℝⁿ → ℝᵐ, computes the full Jacobian matrix J where `J[i,j] = ∂fᵢ/∂xⱼ`.
 /// This is done by calling `jvp` n times, once for each standard basis vector.
 ///
 /// # Arguments
@@ -232,8 +232,8 @@ where
 /// # Example
 ///
 /// ```ignore
-/// // f(x) = [x[0]², x[0]*x[1], x[1]²]
-/// // J = [[2*x[0], 0], [x[1], x[0]], [0, 2*x[1]]]
+/// // f(x) = `[x[0]², x[0]*x[1], x[1]²]`
+/// // J = `[[2*x[0], 0], [x[1], x[0]], [0, 2*x[1]]]`
 /// let x = Tensor::from_slice(&[3.0f32, 2.0], &[2], &device);
 /// let f = |x: &DualTensor<_>, c: &_| -> Result<DualTensor<_>> {
 ///     let x0_sq = dual_mul(&x.index(&[0..1]), &x.index(&[0..1]), c)?;

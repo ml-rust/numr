@@ -4,7 +4,7 @@
 
 /// Scatter sparse column into dense work vector
 ///
-/// work[row_indices[i]] = values[i] for i in 0..nnz
+/// `work[row_indices[i]]` = `values[i]` for i in 0..nnz
 ///
 /// # Arguments
 ///

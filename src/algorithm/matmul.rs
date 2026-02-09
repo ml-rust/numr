@@ -10,12 +10,12 @@
 //! # Algorithm Overview
 //!
 //! ```text
-//! C[M,N] = A[M,K] @ B[K,N]
+//! C`[M,N]` = A`[M,K]` @ B`[K,N]`
 //!
 //! For each block tile (BLOCK_M × BLOCK_N) of C:
 //!   For k = 0..K step BLOCK_K:
-//!     1. Cooperative load: threads load A tile [BLOCK_M, BLOCK_K] to shared mem
-//!     2. Cooperative load: threads load B tile [BLOCK_K, BLOCK_N] to shared mem
+//!     1. Cooperative load: threads load A tile `[BLOCK_M, BLOCK_K]` to shared mem
+//!     2. Cooperative load: threads load B tile `[BLOCK_K, BLOCK_N]` to shared mem
 //!     3. Barrier sync
 //!     4. Each thread:
 //!        - Load THREAD_M elements from A tile into registers
@@ -173,32 +173,32 @@ impl Default for TileConfig {
 /// // Level 2: Register Tiling (Per-Thread Micro-Tile)
 /// // Level 3: FMA Micro-Kernel
 ///
-/// fn tiled_gemm(A[M,K], B[K,N], C[M,N], config: TileConfig):
+/// fn tiled_gemm(A`[M,K]`, B`[K,N]`, C`[M,N]`, config: TileConfig):
 ///     for bm = 0..M step BLOCK_M:
 ///         for bn = 0..N step BLOCK_N:
 ///             // Each thread block handles one (BLOCK_M × BLOCK_N) tile of C
-///             reg_c[THREAD_M][THREAD_N] = 0  // Register tile accumulator
+///             reg_c`[THREAD_M][THREAD_N]` = 0  // Register tile accumulator
 ///
 ///             for bk = 0..K step BLOCK_K:
 ///                 // Cooperative load into shared memory
-///                 shared_a[BLOCK_M][BLOCK_K] = A[bm:bm+BLOCK_M, bk:bk+BLOCK_K]
-///                 shared_b[BLOCK_K][BLOCK_N] = B[bk:bk+BLOCK_K, bn:bn+BLOCK_N]
+///                 shared_a`[BLOCK_M][BLOCK_K]` = A`[bm:bm+BLOCK_M, bk:bk+BLOCK_K]`
+///                 shared_b`[BLOCK_K][BLOCK_N]` = B`[bk:bk+BLOCK_K, bn:bn+BLOCK_N]`
 ///                 barrier()
 ///
 ///                 // Register blocking: each thread computes THREAD_M × THREAD_N outputs
 ///                 for k = 0..BLOCK_K:
-///                     reg_a[THREAD_M] = shared_a[thread_row:thread_row+THREAD_M, k]
-///                     reg_b[THREAD_N] = shared_b[k, thread_col:thread_col+THREAD_N]
+///                     reg_a`[THREAD_M]` = shared_a`[thread_row:thread_row+THREAD_M, k]`
+///                     reg_b`[THREAD_N]` = shared_b`[k, thread_col:thread_col+THREAD_N]`
 ///
 ///                     // Outer product: THREAD_M × THREAD_N FMAs
 ///                     for i = 0..THREAD_M:
 ///                         for j = 0..THREAD_N:
-///                             reg_c[i][j] += reg_a[i] * reg_b[j]
+///                             reg_c`[i][j]` += reg_a`[i]` * reg_b`[j]`
 ///
 ///                 barrier()
 ///
 ///             // Write register tile to global memory
-///             C[bm+thread_row:..., bn+thread_col:...] = reg_c
+///             C`[bm+thread_row:..., bn+thread_col:...]` = reg_c
 /// ```
 ///
 /// # Accumulation Precision
@@ -232,26 +232,26 @@ pub trait MatmulAlgorithm<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - Matrix A with shape [..., M, K]
-    /// * `b` - Matrix B with shape [..., K, N]
+    /// * `a` - Matrix A with shape `[..., M, K]`
+    /// * `b` - Matrix B with shape `[..., K, N]`
     ///
     /// # Returns
     ///
-    /// Matrix C with shape [..., M, N]
+    /// Matrix C with shape `[..., M, N]`
     fn tiled_matmul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
-    /// Batched matrix multiplication: C[i] = A[i] @ B[i]
+    /// Batched matrix multiplication: `C[i]` = `A[i]` @ `B[i]`
     ///
     /// Uses Grid-Z mapping for GPU, parallel loop for CPU.
     ///
     /// # Arguments
     ///
-    /// * `a` - Batched matrix A with shape [batch, M, K]
-    /// * `b` - Batched matrix B with shape [batch, K, N]
+    /// * `a` - Batched matrix A with shape `[batch, M, K]`
+    /// * `b` - Batched matrix B with shape `[batch, K, N]`
     ///
     /// # Returns
     ///
-    /// Batched matrix C with shape [batch, M, N]
+    /// Batched matrix C with shape `[batch, M, N]`
     fn tiled_batched_matmul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 }
 

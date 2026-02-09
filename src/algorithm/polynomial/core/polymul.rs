@@ -15,7 +15,7 @@ use crate::tensor::Tensor;
 /// # Algorithm
 ///
 /// For polynomials a(x) and b(x), c(x) = a(x) * b(x) where:
-/// c[k] = Σᵢ a[i] * b[k-i] for valid i
+/// `c[k]` = Σᵢ `a[i]` * `b[k-i]` for valid i
 ///
 /// Result has length: len(a) + len(b) - 1
 ///

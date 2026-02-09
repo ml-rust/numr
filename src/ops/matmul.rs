@@ -24,7 +24,7 @@ pub struct MatmulParams {
 }
 
 impl MatmulParams {
-    /// Create params for standard matmul: C[M,N] = A[M,K] @ B[K,N]
+    /// Create params for standard matmul: C`[M,N]` = A`[M,K]` @ B`[K,N]`
     pub fn new(m: usize, k: usize, n: usize) -> Self {
         Self {
             m,

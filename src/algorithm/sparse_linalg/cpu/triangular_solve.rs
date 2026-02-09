@@ -18,24 +18,24 @@ use crate::tensor::Tensor;
 ///
 /// Forward substitution (lower triangular):
 ///   For i = 0 to n-1:
-///     x[i] = b[i] - sum(L[i,j] * x[j] for j < i)
-///     x[i] /= L[i,i] (unless unit diagonal)
+///     `x[i]` = `b[i]` - sum(`L[i,j]` * `x[j]` for j < i)
+///     `x[i]` /= `L[i,i]` (unless unit diagonal)
 ///
 /// Backward substitution (upper triangular):
 ///   For i = n-1 down to 0:
-///     x[i] = b[i] - sum(U[i,j] * x[j] for j > i)
-///     x[i] /= U[i,i]
+///     `x[i]` = `b[i]` - sum(`U[i,j]` * `x[j]` for j > i)
+///     `x[i]` /= `U[i,i]`
 ///
 /// # Arguments
 ///
 /// * `l_or_u` - Sparse triangular matrix in CSR format
-/// * `b` - Right-hand side dense vector [n] or matrix [n, k]
+/// * `b` - Right-hand side dense vector `[n]` or matrix `[n, k]`
 /// * `lower` - True for lower triangular, false for upper triangular
 /// * `unit_diagonal` - True if diagonal is implicitly 1 (for unit triangular)
 ///
 /// # Returns
 ///
-/// Solution vector x [n] or matrix [n, k]
+/// Solution vector x `[n]` or matrix `[n, k]`
 pub fn sparse_solve_triangular_cpu<R: Runtime>(
     l_or_u: &CsrData<R>,
     b: &Tensor<R>,

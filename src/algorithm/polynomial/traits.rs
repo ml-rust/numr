@@ -37,7 +37,7 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `coeffs` - Polynomial coefficients [n+1] in ascending order
+    /// * `coeffs` - Polynomial coefficients `[n+1]` in ascending order
     ///
     /// # Returns
     ///
@@ -65,8 +65,8 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `coeffs` - Polynomial coefficients [n+1] in ascending order
-    /// * `x` - Points at which to evaluate [m] or any shape
+    /// * `coeffs` - Polynomial coefficients `[n+1]` in ascending order
+    /// * `x` - Points at which to evaluate `[m]` or any shape
     ///
     /// # Returns
     ///
@@ -89,12 +89,12 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `roots_real` - Real parts of roots [n]
-    /// * `roots_imag` - Imaginary parts of roots [n]
+    /// * `roots_real` - Real parts of roots `[n]`
+    /// * `roots_imag` - Imaginary parts of roots `[n]`
     ///
     /// # Returns
     ///
-    /// Polynomial coefficients [n+1] in ascending order, normalized to monic
+    /// Polynomial coefficients `[n+1]` in ascending order, normalized to monic
     /// (leading coefficient = 1)
     ///
     /// # Complex Conjugate Handling
@@ -118,11 +118,11 @@ pub trait PolynomialAlgorithms<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - First polynomial coefficients [m] in ascending order
-    /// * `b` - Second polynomial coefficients [n] in ascending order
+    /// * `a` - First polynomial coefficients `[m]` in ascending order
+    /// * `b` - Second polynomial coefficients `[n]` in ascending order
     ///
     /// # Returns
     ///
-    /// Product polynomial coefficients [m+n-1] in ascending order
+    /// Product polynomial coefficients `[m+n-1]` in ascending order
     fn polymul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 }

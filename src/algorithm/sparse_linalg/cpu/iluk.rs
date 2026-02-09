@@ -20,10 +20,10 @@ use crate::tensor::Tensor;
 /// # Algorithm
 ///
 /// The level-of-fill for each position (i,j) is computed as:
-/// - level[i,j] = 0 if A[i,j] ≠ 0
-/// - level[i,j] = min over all paths i→k→j of: level[i,k] + level[k,j] + 1
+/// - `level[i,j]` = 0 if `A[i,j]` ≠ 0
+/// - `level[i,j]` = min over all paths i→k→j of: `level[i,k]` + `level[k,j]` + 1
 ///
-/// Positions with level[i,j] ≤ k are included in the fill pattern.
+/// Positions with `level[i,j]` ≤ k are included in the fill pattern.
 pub fn iluk_symbolic_cpu<R: Runtime>(a: &CsrData<R>, level: IluFillLevel) -> Result<IlukSymbolic> {
     let n = validate_square_sparse(a.shape)?;
 

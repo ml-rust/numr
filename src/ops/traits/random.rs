@@ -109,12 +109,12 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// Uses inverse transform sampling (CDF method):
     /// 1. Compute cumulative sum of probabilities (CDF)
-    /// 2. For each sample, draw uniform random u ∈ [0, 1)
-    /// 3. Find smallest index i where CDF[i] ≥ u (binary search)
+    /// 2. For each sample, draw uniform random u ∈ `[0, 1)`
+    /// 3. Find smallest index i where CDF`[i]` ≥ u (binary search)
     ///
     /// ```text
-    /// probs:  [0.1, 0.2, 0.3, 0.4]
-    /// CDF:    [0.1, 0.3, 0.6, 1.0]
+    /// probs:  `[0.1, 0.2, 0.3, 0.4]`
+    /// CDF:    `[0.1, 0.3, 0.6, 1.0]`
     ///          ↑    ↑    ↑    ↑
     /// u=0.05 → 0    │    │    │   (u < 0.1)
     /// u=0.25 ──────→ 1   │    │   (0.1 ≤ u < 0.3)
@@ -771,7 +771,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// Uses Fisher-Yates shuffle:
     /// 1. Create array [0, 1, 2, ..., n-1]
-    /// 2. For i from n-1 down to 1: swap arr[i] with arr[random(0..=i)]
+    /// 2. For i from n-1 down to 1: swap `arr[i]` with `arr[random(0..=i)]`
     ///
     /// # Arguments
     ///
@@ -779,7 +779,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// 1D tensor of shape [n] with dtype I64 containing a random permutation
+    /// 1D tensor of shape `[n]` with dtype I64 containing a random permutation
     ///
     /// # Errors
     ///

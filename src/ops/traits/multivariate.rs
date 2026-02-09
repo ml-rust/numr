@@ -42,22 +42,22 @@ pub trait MultivariateRandomOps<R: Runtime> {
     /// # Algorithm
     ///
     /// Uses the Cholesky decomposition method:
-    /// 1. Compute Cholesky decomposition: Σ = L @ L^T
-    /// 2. Generate standard normal samples: Z ~ N(0, I) with shape (n_samples, d)
-    /// 3. Transform: X = μ + (L @ Z^T)^T = μ + Z @ L^T
+    /// 1. Compute Cholesky decomposition: `Σ = L @ L^T`
+    /// 2. Generate standard normal samples: `Z ~ N(0, I)` with shape `(n_samples, d)`
+    /// 3. Transform: `X = μ + (L @ Z^T)^T = μ + Z @ L^T`
     ///
     /// This guarantees that X has the correct covariance:
-    /// Cov(X) = L @ Cov(Z) @ L^T = L @ I @ L^T = Σ
+    /// `Cov(X) = L @ Cov(Z) @ L^T = L @ I @ L^T = Σ`
     ///
     /// # Arguments
     ///
-    /// * `mean` - Mean vector μ with shape `(d,)` where d is the dimensionality
-    /// * `cov` - Covariance matrix Σ with shape `(d, d)`, must be symmetric positive definite
+    /// * `mean` - Mean vector `μ` with shape `(d,)` where `d` is the dimensionality
+    /// * `cov` - Covariance matrix `Σ` with shape `(d, d)`, must be symmetric positive definite
     /// * `n_samples` - Number of samples to generate
     ///
     /// # Returns
     ///
-    /// Tensor with shape `(n_samples, d)` containing samples from N(μ, Σ)
+    /// Tensor with shape `(n_samples, d)` containing samples from `N(μ, Σ)`
     ///
     /// # Errors
     ///
@@ -107,16 +107,16 @@ pub trait MultivariateRandomOps<R: Runtime> {
     /// # Algorithm (Bartlett Decomposition)
     ///
     /// For efficient sampling, uses the Bartlett decomposition:
-    /// 1. Compute Cholesky: V = L @ L^T
+    /// 1. Compute Cholesky: `V = L @ L^T`
     /// 2. Generate A (lower triangular):
-    ///    - A[i,i] ~ sqrt(χ²(df - i)) for i = 0, ..., d-1
-    ///    - A[i,j] ~ N(0, 1) for i > j
-    /// 3. Compute: W = L @ A @ A^T @ L^T
+    ///    - `A[i,i] ~ sqrt(χ²(df - i))` for `i = 0, ..., d-1`
+    ///    - `A[i,j] ~ N(0, 1)` for `i > j`
+    /// 3. Compute: `W = L @ A @ A^T @ L^T`
     ///
     /// # Arguments
     ///
-    /// * `scale` - Scale matrix V with shape `(d, d)`, must be symmetric positive definite
-    /// * `df` - Degrees of freedom, must be ≥ d (matrix dimension)
+    /// * `scale` - Scale matrix `V` with shape `(d, d)`, must be symmetric positive definite
+    /// * `df` - Degrees of freedom, must be `≥ d` (matrix dimension)
     /// * `n_samples` - Number of samples to generate
     ///
     /// # Returns

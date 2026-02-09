@@ -177,7 +177,7 @@ impl<R: Runtime> DualTensor<R> {
     /// Create a zero tangent with the same shape as the primal
     ///
     /// This is useful when we need an explicit zero tangent for operations
-    /// that can't handle Option<Tensor> directly.
+    /// that can't handle `Option<Tensor>` directly.
     pub fn zero_tangent(&self, device: &R::Device) -> Tensor<R> {
         Tensor::zeros(self.primal.shape(), self.primal.dtype(), device)
     }

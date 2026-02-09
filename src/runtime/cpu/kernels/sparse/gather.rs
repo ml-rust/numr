@@ -4,7 +4,7 @@
 
 /// Gather nonzeros from work vector and clear
 ///
-/// output[i] = work[row_indices[i]], then work[row_indices[i]] = 0.0
+/// `output[i]` = `work[row_indices[i]]`, then `work[row_indices[i]]` = 0.0
 ///
 /// # Arguments
 ///
@@ -85,7 +85,7 @@ unsafe fn gather_and_clear_avx2(work: &mut [f64], row_indices: &[i64], output: &
 
 /// Divide elements by pivot value
 ///
-/// work[row_indices[i]] /= pivot for i in 0..nnz
+/// `work[row_indices[i]]` /= `pivot` for i in 0..nnz
 #[inline]
 pub fn divide_by_pivot(work: &mut [f64], row_indices: &[i64], pivot: f64) {
     let inv_pivot = 1.0 / pivot;

@@ -14,7 +14,7 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Arguments
     ///
-    /// * `x` - Dense vector of length `ncols` (or shape [ncols] or [ncols, 1])
+    /// * `x` - Dense vector of length `ncols` (or shape `[ncols]` or `[ncols, 1]`)
     ///
     /// # Returns
     ///
@@ -111,11 +111,11 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Arguments
     ///
-    /// * `b` - Dense matrix of shape [K, N] where K == ncols of sparse matrix
+    /// * `b` - Dense matrix of shape `[K, N]` where K == ncols of sparse matrix
     ///
     /// # Returns
     ///
-    /// Dense matrix of shape [M, N] where M == nrows of sparse matrix
+    /// Dense matrix of shape `[M, N]` where M == nrows of sparse matrix
     ///
     /// # Errors
     ///
@@ -129,12 +129,12 @@ impl<R: Runtime> CsrData<R> {
     /// For each row i of A and each column n of B:
     /// ```text
     /// C[i, n] = sum(A.values[j] * B[A.col_indices[j], n])
-    ///           for j in row_ptrs[i]..row_ptrs[i+1]
+    ///           for j in `row_ptrs[i]..row_ptrs[i+1]`
     /// ```
     ///
     /// # Performance
     ///
-    /// - O(nnz * N) time complexity
+    /// - `O(nnz * N)` time complexity
     /// - CSR format provides good memory access for row-wise traversal
     ///
     /// # Example
@@ -145,7 +145,7 @@ impl<R: Runtime> CsrData<R> {
     /// # {
     /// # use numr::sparse::SparseTensor;
     /// # let device = CpuDevice::new();
-    /// // A: [2, 3] sparse, B: [3, 2] dense -> C: [2, 2] dense
+    /// // A: `[2, 3]` sparse, B: `[3, 2]` dense -> C: `[2, 2]` dense
     /// # let sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 1, 2], &[1.0f32, 2.0, 3.0], [2, 3], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(csr) = sp {
     /// # let b = Tensor::from_slice(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0f32], &[3, 2], &device);
@@ -217,12 +217,12 @@ impl<R: Runtime> CsrData<R> {
 
     /// Transpose the sparse matrix: B = A^T
     ///
-    /// Returns the transpose as a CSC matrix. This is an O(1) operation
+    /// Returns the transpose as a CSC matrix. This is an `O(1)` operation
     /// that reinterprets the CSR structure as CSC:
-    /// - row_ptrs become col_ptrs
-    /// - col_indices become row_indices
-    /// - values remain the same
-    /// - shape is swapped
+    /// - `row_ptrs` become `col_ptrs`
+    /// - `col_indices` become `row_indices`
+    /// - `values` remain the same
+    /// - `shape` is swapped
     ///
     /// # Returns
     ///
@@ -230,7 +230,7 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Performance
     ///
-    /// O(1) - structural reinterpretation, no data copying beyond cloning tensors.
+    /// `O(1)` - structural reinterpretation, no data copying beyond cloning tensors.
     ///
     /// # Example
     ///
@@ -240,13 +240,13 @@ impl<R: Runtime> CsrData<R> {
     /// # {
     /// # use numr::sparse::SparseTensor;
     /// # let device = CpuDevice::new();
-    /// // A [2, 3] in CSR:
-    /// // [1, 0, 2]
-    /// // [0, 3, 0]
+    /// // A `[2, 3]` in CSR:
+    /// // `[1, 0, 2]`
+    /// // `[0, 3, 0]`
     /// # let sp = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 0, 1], &[0, 2, 1], &[1.0f32, 2.0, 3.0], [2, 3], &device)?.to_csr()?;
     /// # if let numr::sparse::SparseTensor::Csr(a) = sp {
     /// let a_t = a.transpose();
-    /// // A^T [3, 2] in CSC (same underlying data)
+    /// // A^T `[3, 2]` in CSC (same underlying data)
     /// # }
     /// # }
     /// # Ok::<(), numr::error::Error>(())

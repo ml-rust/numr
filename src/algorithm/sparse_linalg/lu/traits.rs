@@ -92,7 +92,7 @@ pub trait SparseLuOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `factors` - Precomputed LU factorization
-    /// * `b` - Right-hand side vector [n] or matrix [n, nrhs]
+    /// * `b` - Right-hand side vector `[n]` or matrix `[n, nrhs]`
     ///
     /// # Returns
     ///
@@ -119,7 +119,7 @@ pub trait SparseLuOps<R: Runtime> {
 pub trait SparseLuKernels<R: Runtime> {
     /// Scatter sparse column into dense work vector
     ///
-    /// work[row_indices[i]] = values[i] for i in 0..nnz
+    /// `work[row_indices[i]]` = `values[i]` for i in 0..nnz
     ///
     /// # Arguments
     ///
@@ -128,9 +128,9 @@ pub trait SparseLuKernels<R: Runtime> {
     /// * `work` - Dense work vector (length n), modified in place
     fn scatter_column(&self, values: &[f64], row_indices: &[i64], work: &mut [f64]);
 
-    /// Sparse AXPY: work[indices] -= scale * values
+    /// Sparse AXPY: `work[indices]` -= scale * values
     ///
-    /// For each i: work[row_indices[i]] -= scale * values[i]
+    /// For each i: `work[row_indices[i]]` -= scale * `values[i]`
     ///
     /// # Arguments
     ///
@@ -140,9 +140,9 @@ pub trait SparseLuKernels<R: Runtime> {
     /// * `work` - Dense work vector, modified in place
     fn sparse_axpy(&self, scale: f64, values: &[f64], row_indices: &[i64], work: &mut [f64]);
 
-    /// Find index of maximum absolute value in work[start..end]
+    /// Find index of maximum absolute value in `work[start..end]`
     ///
-    /// Returns (index, max_abs_value) where index is in [start, end)
+    /// Returns (index, max_abs_value) where index is in `[start, end)`
     ///
     /// # Arguments
     ///
@@ -153,8 +153,8 @@ pub trait SparseLuKernels<R: Runtime> {
 
     /// Gather nonzeros from work vector into sparse output
     ///
-    /// output[i] = work[row_indices[i]] for i in 0..nnz
-    /// Then: work[row_indices[i]] = 0.0 (clear for next column)
+    /// `output[i]` = `work[row_indices[i]]` for i in 0..nnz
+    /// Then: `work[row_indices[i]]` = 0.0 (clear for next column)
     ///
     /// # Arguments
     ///
@@ -165,7 +165,7 @@ pub trait SparseLuKernels<R: Runtime> {
 
     /// Divide work vector elements by pivot
     ///
-    /// work[row_indices[i]] /= pivot for i in 0..nnz
+    /// `work[row_indices[i]] /= pivot` for `i` in `0..nnz`
     ///
     /// # Arguments
     ///

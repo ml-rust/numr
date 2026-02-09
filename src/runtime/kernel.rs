@@ -39,11 +39,11 @@
 //!
 //! Each backend must implement `TypedKernel<T>` for ALL dtypes it can handle:
 //!
-//! | Backend | Required TypedKernel<T> implementations |
+//! | Backend | Required `TypedKernel<T>` implementations |
 //! |---------|----------------------------------------|
-//! | CPU     | f32, f64, i32, i64, u32, u64, i16, i8, u16, u8, (f16, bf16, fp8) |
-//! | CUDA    | f32, f64, i32, i64, u32, u64, i16, i8, u16, u8, (f16, bf16, fp8) |
-//! | WebGPU  | f32, i32, u32, (f16 with extension) |
+//! | CPU     | `f32`, `f64`, `i32`, `i64`, `u32`, `u64`, `i16`, `i8`, `u16`, `u8`, (`f16`, `bf16`, `fp8`) |
+//! | CUDA    | `f32`, `f64`, `i32`, `i64`, `u32`, `u64`, `i16`, `i8`, `u16`, `u8`, (`f16`, `bf16`, `fp8`) |
+//! | WebGPU  | `f32`, `i32`, `u32`, (`f16` with extension) |
 //!
 //! If a backend doesn't implement a dtype, code using that dtype won't compile.
 //!
@@ -86,7 +86,7 @@ use crate::ops::{BinaryOp, ReduceOp, UnaryOp};
 /// - Operations are dispatched through `dispatch_dtype!` which calls the appropriate impl
 /// - Backends should cache compiled kernels/pipelines by `(op, dtype)` key
 pub trait TypedKernel<T: Element>: Send + Sync {
-    /// Element-wise binary operation: out[i] = a[i] op b[i]
+    /// Element-wise binary operation: `out[i] = a[i] op b[i]`
     ///
     /// # Arguments
     /// * `op` - Binary operation to perform (Add, Sub, Mul, Div, Pow, Max, Min)
@@ -96,7 +96,7 @@ pub trait TypedKernel<T: Element>: Send + Sync {
     /// * `len` - Number of elements
     fn binary_op(&self, op: BinaryOp, a: u64, b: u64, out: u64, len: usize) -> Result<()>;
 
-    /// Element-wise unary operation: out[i] = op(a[i])
+    /// Element-wise unary operation: `out[i] = op(a[i])`
     ///
     /// # Arguments
     /// * `op` - Unary operation to perform (Neg, Abs, Sqrt, Exp, Log, Sin, Cos, etc.)
@@ -105,7 +105,7 @@ pub trait TypedKernel<T: Element>: Send + Sync {
     /// * `len` - Number of elements
     fn unary_op(&self, op: UnaryOp, a: u64, out: u64, len: usize) -> Result<()>;
 
-    /// Scalar operation: out[i] = a[i] op scalar
+    /// Scalar operation: `out[i] = a[i] op scalar`
     ///
     /// # Arguments
     /// * `op` - Binary operation to apply with scalar
@@ -175,7 +175,7 @@ pub trait TypedMatmul<T: Element>: Send + Sync {
         ldc: usize,
     ) -> Result<()>;
 
-    /// Batched matrix multiplication: C[b] = A[b] @ B[b]
+    /// Batched matrix multiplication: `C[b] = A[b] @ B[b]`
     ///
     /// # Arguments
     /// * `a` - Handle to batched matrix A (batch × m × k)
@@ -280,11 +280,11 @@ pub enum CompareOp {
 /// Marker trait for backends that support all WebGPU-compatible dtypes.
 ///
 /// WebGPU backends MUST implement this trait, which requires:
-/// - TypedKernel<f32>
-/// - TypedKernel<i32>
-/// - TypedKernel<u32>
-/// - TypedMatmul<f32>
-/// - TypedNorm<f32>
+/// - `TypedKernel<f32>`
+/// - `TypedKernel<i32>`
+/// - `TypedKernel<u32>`
+/// - `TypedMatmul<f32>`
+/// - `TypedNorm<f32>`
 ///
 /// If any of these are missing, the backend won't compile.
 ///

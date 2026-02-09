@@ -88,8 +88,8 @@ pub struct SymbolicIlu0 {
 
     /// For each row, list of (k, idx_ik, update_list) where:
     /// - k is a column index < i
-    /// - idx_ik is the position of L[i,k] in values
-    /// - update_list contains (j, idx_ij, idx_kj) for the update A[i,j] -= L[i,k]*U[k,j]
+    /// - idx_ik is the position of `L[i,k]` in values
+    /// - update_list contains (j, idx_ij, idx_kj) for the update `A[i,j]` -= `L[i,k]`*`U[k,j]`
     ///
     /// This precomputed structure avoids hash map lookups during numeric factorization.
     pub update_schedule: Vec<Vec<(usize, usize, Vec<(usize, usize, usize)>)>>,
@@ -258,7 +258,7 @@ pub struct IlukSymbolic {
     pub n: usize,
 
     /// Level of fill for each (row, col) position
-    /// level_of_fill[row] maps col -> level
+    /// `level_of_fill[row]` maps col -> level
     pub level_of_fill: Vec<HashMap<usize, usize>>,
 
     /// Row pointers for L factor

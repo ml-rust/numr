@@ -7,7 +7,7 @@
 //! # Background
 //!
 //! Sparse triangular operations have row-to-row dependencies:
-//! - Row i depends on all rows j < i where A[i,j] ≠ 0
+//! - Row i depends on all rows j < i where `A[i,j]` ≠ 0
 //!
 //! Level scheduling groups rows into "levels" where:
 //! - All rows within a level are independent (can execute in parallel)
@@ -17,13 +17,13 @@
 //!
 //! For a lower triangular matrix:
 //! ```text
-//! level[i] = max(level[j] for all j where L[i,j] ≠ 0 and j < i) + 1
+//! level[i] = max(level[j] for all j where `L[i,j]` ≠ 0 and j < i) + 1
 //! level[0] = 0  (first row has no dependencies)
 //! ```
 //!
 //! For an upper triangular matrix (backward):
 //! ```text
-//! level[i] = max(level[j] for all j where U[i,j] ≠ 0 and j > i) + 1
+//! level[i] = max(level[j] for all j where `U[i,j]` ≠ 0 and j > i) + 1
 //! level[n-1] = 0  (last row has no dependencies in backward solve)
 //! ```
 
@@ -35,10 +35,10 @@ use crate::error::Result;
 /// for efficient parallel dispatch.
 #[derive(Debug, Clone)]
 pub struct LevelSchedule {
-    /// Level assignment for each row: level_of_row[i] = level of row i
+    /// Level assignment for each row: `level_of_row[i]` = level of row `i`
     pub level_of_row: Vec<usize>,
 
-    /// Rows grouped by level: rows_per_level[l] = Vec of row indices at level l
+    /// Rows grouped by level: `rows_per_level[l]` = Vec of row indices at level `l`
     pub rows_per_level: Vec<Vec<usize>>,
 
     /// Total number of levels (depth of the dependency DAG)
@@ -53,8 +53,8 @@ pub struct LevelSchedule {
 /// # Arguments
 ///
 /// * `n` - Matrix dimension (n x n)
-/// * `row_ptrs` - CSR row pointers [n+1]
-/// * `col_indices` - CSR column indices [nnz]
+/// * `row_ptrs` - CSR row pointers `[n+1]`
+/// * `col_indices` - CSR column indices `[nnz]`
 ///
 /// # Returns
 ///
@@ -109,8 +109,8 @@ pub fn compute_levels_lower(
 /// # Arguments
 ///
 /// * `n` - Matrix dimension (n x n)
-/// * `row_ptrs` - CSR row pointers [n+1]
-/// * `col_indices` - CSR column indices [nnz]
+/// * `row_ptrs` - CSR row pointers `[n+1]`
+/// * `col_indices` - CSR column indices `[nnz]`
 ///
 /// # Returns
 ///
@@ -161,13 +161,13 @@ pub fn compute_levels_upper(
 /// Compute level schedule for ILU(0) factorization.
 ///
 /// ILU(0) has dependencies based on the full matrix structure (not just lower triangle).
-/// Row i depends on all rows k < i where A[i,k] ≠ 0 (to compute L[i,k] = A[i,k] / U[k,k]).
+/// Row i depends on all rows k < i where `A[i,k]` ≠ 0 (to compute `L[i,k]` = `A[i,k]` / `U[k,k]`).
 ///
 /// # Arguments
 ///
 /// * `n` - Matrix dimension (n x n)
-/// * `row_ptrs` - CSR row pointers [n+1]
-/// * `col_indices` - CSR column indices [nnz]
+/// * `row_ptrs` - CSR row pointers `[n+1]`
+/// * `col_indices` - CSR column indices `[nnz]`
 ///
 /// # Returns
 ///
@@ -184,17 +184,17 @@ pub fn compute_levels_ilu(
 /// Compute level schedule for CSC lower triangular matrix (for forward substitution).
 ///
 /// In CSC format, when solving Lx = b:
-/// - Column j can be processed after all columns k < j where L[j,k] ≠ 0 have been processed
-/// - For lower triangular L, L[j,k] can only be nonzero if j > k, so row j of L gives dependencies
-/// - We need to find: for each column j, which columns k < j have L[j,k] ≠ 0
+/// - Column j can be processed after all columns k < j where `L[j,k]` ≠ 0 have been processed
+/// - For lower triangular L, `L[j,k]` can only be nonzero if j > k, so row j of L gives dependencies
+/// - We need to find: for each column j, which columns k < j have `L[j,k]` ≠ 0
 ///
 /// This requires transposing the dependency logic: look at which rows each column affects.
 ///
 /// # Arguments
 ///
 /// * `n` - Matrix dimension (n x n)
-/// * `col_ptrs` - CSC column pointers [n+1]
-/// * `row_indices` - CSC row indices [nnz]
+/// * `col_ptrs` - CSC column pointers `[n+1]`
+/// * `row_indices` - CSC row indices `[nnz]`
 ///
 /// # Returns
 ///
@@ -205,13 +205,13 @@ pub fn compute_levels_csc_lower(
     row_indices: &[i64],
 ) -> Result<LevelSchedule> {
     // For CSC lower triangular solve (Lx = b), processing column j:
-    // x[j] = b[j] / L[j,j], then b[i] -= L[i,j] * x[j] for i > j
+    // `x[j]` = `b[j]` / `L[j,j]`, then `b[i]` -= `L[i,j]` * `x[j]` for i > j
     //
     // Column j depends on column k if there exists row i where:
-    // - Column k affects row i (L[i,k] ≠ 0, i > k)
+    // - Column k affects row i (`L[i,k]` ≠ 0, i > k)
     // - Row i is the diagonal of column j (i = j)
     //
-    // So column j depends on all columns k < j where L[j,k] ≠ 0.
+    // So column j depends on all columns k < j where `L[j,k]` ≠ 0.
     // But L is stored by columns, so we need to find which columns contain row j.
     //
     // Build reverse lookup: for each row i, which columns have entries at row i
@@ -225,8 +225,8 @@ pub fn compute_levels_csc_lower(
         }
     }
 
-    // Now compute levels: column j depends on columns k < j where L[j,k] ≠ 0
-    // L[j,k] ≠ 0 means column k contains row j
+    // Now compute levels: column j depends on columns k < j where `L[j,k]` ≠ 0
+    // `L[j,k]` ≠ 0 means column k contains row j
     let mut level_of_col = vec![0usize; n];
 
     for j in 0..n {
@@ -261,14 +261,14 @@ pub fn compute_levels_csc_lower(
 /// Compute level schedule for CSC upper triangular matrix (for backward substitution).
 ///
 /// In CSC format, when solving Ux = b (processing columns right to left):
-/// - Column j can be processed after all columns k > j where U[j,k] ≠ 0 have been processed
-/// - For upper triangular U, U[j,k] can only be nonzero if j < k, so row j of U gives dependencies
+/// - Column j can be processed after all columns k > j where `U[j,k]` ≠ 0 have been processed
+/// - For upper triangular U, `U[j,k]` can only be nonzero if j < k, so row j of U gives dependencies
 ///
 /// # Arguments
 ///
 /// * `n` - Matrix dimension (n x n)
-/// * `col_ptrs` - CSC column pointers [n+1]
-/// * `row_indices` - CSC row indices [nnz]
+/// * `col_ptrs` - CSC column pointers `[n+1]`
+/// * `row_indices` - CSC row indices `[nnz]`
 ///
 /// # Returns
 ///
@@ -279,9 +279,9 @@ pub fn compute_levels_csc_upper(
     row_indices: &[i64],
 ) -> Result<LevelSchedule> {
     // For CSC upper triangular solve (Ux = b), processing column j (right to left):
-    // x[j] = b[j] / U[j,j], then b[i] -= U[i,j] * x[j] for i < j
+    // `x[j]` = `b[j]` / `U[j,j]`, then `b[i]` -= `U[i,j]` * `x[j]` for i < j
     //
-    // Column j depends on column k > j if U[j,k] ≠ 0.
+    // Column j depends on column k > j if `U[j,k]` ≠ 0.
     // Build reverse lookup: for each row i, which columns have entries at row i
     let mut row_to_cols: Vec<Vec<usize>> = vec![Vec::new(); n];
     for col in 0..n {
@@ -329,8 +329,8 @@ pub fn compute_levels_csc_upper(
 /// Flatten level schedule into arrays suitable for GPU execution.
 ///
 /// Returns:
-/// - `level_ptrs`: Start index of each level in `level_rows` [num_levels + 1]
-/// - `level_rows`: Row indices sorted by level [n]
+/// - `level_ptrs`: Start index of each level in `level_rows` `[num_levels + 1]`
+/// - `level_rows`: Row indices sorted by level `[n]`
 pub fn flatten_levels(schedule: &LevelSchedule) -> (Vec<i32>, Vec<i32>) {
     let n: usize = schedule.level_of_row.len();
     let mut level_ptrs = Vec::with_capacity(schedule.num_levels + 1);

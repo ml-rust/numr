@@ -18,15 +18,15 @@ use crate::tensor::Tensor;
 /// # Algorithm (row-by-row Cholesky)
 ///
 /// For each row i:
-///   For k = 0 to i-1 where a[i,k] exists:
-///     For j = 0 to k-1 where both a[i,j] and L[k,j] exist:
-///       a[i,k] = a[i,k] - a[i,j] * L[k,j]
-///     a[i,k] = a[i,k] / L[k,k]
+///   For k = 0 to i-1 where `a[i,k]` exists:
+///     For j = 0 to k-1 where both `a[i,j]` and `L[k,j]` exist:
+///       `a[i,k]` = `a[i,k]` - `a[i,j]` * `L[k,j]`
+///     `a[i,k]` = `a[i,k]` / `L[k,k]`
 ///
-///   sum = a[i,i]
-///   For j = 0 to i-1 where a[i,j] exists:
-///     sum = sum - a[i,j]²
-///   L[i,i] = sqrt(sum)
+///   sum = `a[i,i]`
+///   For j = 0 to i-1 where `a[i,j]` exists:
+///     sum = sum - `a[i,j]`²
+///   `L[i,i]` = sqrt(sum)
 ///
 /// # Arguments
 ///

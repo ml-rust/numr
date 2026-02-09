@@ -7,49 +7,49 @@
 //! # Functions Provided
 //!
 //! ## Error Functions (for normal distribution)
-//! - [`erf`] - Error function
-//! - [`erfc`] - Complementary error function (1 - erf(x))
-//! - [`erfinv`] - Inverse error function
+//! - `erf` - Error function
+//! - `erfc` - Complementary error function (1 - erf(x))
+//! - `erfinv` - Inverse error function
 //!
 //! ## Gamma Functions (for gamma, chi2, t, F distributions)
-//! - [`gamma`] - Gamma function Γ(x)
-//! - [`lgamma`] - Log-gamma function ln(Γ(x)) (numerically stable)
-//! - [`digamma`] - Digamma function ψ(x) = Γ'(x)/Γ(x)
+//! - `gamma` - Gamma function Γ(x)
+//! - `lgamma` - Log-gamma function ln(Γ(x)) (numerically stable)
+//! - `digamma` - Digamma function ψ(x) = Γ'(x)/Γ(x)
 //!
 //! ## Beta Functions (for beta distribution)
-//! - [`beta`] - Beta function B(a,b) = Γ(a)Γ(b)/Γ(a+b)
-//! - [`betainc`] - Regularized incomplete beta function I_x(a,b)
+//! - `beta` - Beta function B(a,b) = Γ(a)Γ(b)/Γ(a+b)
+//! - `betainc` - Regularized incomplete beta function I_x(a,b)
 //!
 //! ## Incomplete Gamma (for gamma/chi2 CDF)
-//! - [`gammainc`] - Lower regularized incomplete gamma P(a,x)
-//! - [`gammaincc`] - Upper regularized incomplete gamma Q(a,x) = 1 - P(a,x)
+//! - `gammainc` - Lower regularized incomplete gamma P(a,x)
+//! - `gammaincc` - Upper regularized incomplete gamma Q(a,x) = 1 - P(a,x)
 //!
 //! ## Bessel Functions
-//! - [`bessel_j0`], [`bessel_j1`] - First kind J₀, J₁
-//! - [`bessel_y0`], [`bessel_y1`] - Second kind Y₀, Y₁
-//! - [`bessel_i0`], [`bessel_i1`] - Modified first kind I₀, I₁
-//! - [`bessel_k0`], [`bessel_k1`] - Modified second kind K₀, K₁
+//! - `bessel_j0`, `bessel_j1` - First kind J₀, J₁
+//! - `bessel_y0`, `bessel_y1` - Second kind Y₀, Y₁
+//! - `bessel_i0`, `bessel_i1` - Modified first kind I₀, I₁
+//! - `bessel_k0`, `bessel_k1` - Modified second kind K₀, K₁
 //!
 //! ## Elliptic Integrals
-//! - [`ellipk`] - Complete elliptic integral of first kind K(m)
-//! - [`ellipe`] - Complete elliptic integral of second kind E(m)
+//! - `ellipk` - Complete elliptic integral of first kind K(m)
+//! - `ellipe` - Complete elliptic integral of second kind E(m)
 //!
 //! ## Hypergeometric Functions
-//! - [`hyp2f1`] - Gauss hypergeometric function ₂F₁(a, b; c; z)
-//! - [`hyp1f1`] - Confluent hypergeometric function ₁F₁(a; b; z)
+//! - `hyp2f1` - Gauss hypergeometric function ₂F₁(a, b; c; z)
+//! - `hyp1f1` - Confluent hypergeometric function ₁F₁(a; b; z)
 //!
 //! ## Airy Functions
-//! - [`airy_ai`] - Airy function of first kind Ai(x)
-//! - [`airy_bi`] - Airy function of second kind Bi(x)
+//! - `airy_ai` - Airy function of first kind Ai(x)
+//! - `airy_bi` - Airy function of second kind Bi(x)
 //!
 //! ## Legendre Functions and Spherical Harmonics
-//! - [`legendre_p`] - Legendre polynomial P_n(x)
-//! - [`legendre_p_assoc`] - Associated Legendre function P_n^m(x)
-//! - [`sph_harm`] - Real spherical harmonic Y_n^m(θ, φ)
+//! - `legendre_p` - Legendre polynomial P_n(x)
+//! - `legendre_p_assoc` - Associated Legendre function P_n^m(x)
+//! - `sph_harm` - Real spherical harmonic Y_n^m(θ, φ)
 //!
 //! ## Fresnel Integrals
-//! - [`fresnel_s`] - Fresnel sine integral S(x)
-//! - [`fresnel_c`] - Fresnel cosine integral C(x)
+//! - `fresnel_s` - Fresnel sine integral S(x)
+//! - `fresnel_c` - Fresnel cosine integral C(x)
 //!
 //! # Algorithm Sources
 //!

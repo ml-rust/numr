@@ -22,11 +22,11 @@
 //! ```
 //! # use numr::dtype::complex::Complex64;
 //! let z = Complex64::new(3.0, 4.0);
-//! assert_eq!(z.magnitude(), 5.0);  // |z| = sqrt(3² + 4²) = 5
+//! assert_eq!(z.magnitude(), 5.0);  // `|z| = sqrt(3² + 4²) = 5`
 //!
 //! let w = Complex64::new(1.0, 2.0);
 //! let product = z * w;  // Complex multiplication
-//! let conjugate = z.conj();  // 3 - 4i
+//! let conjugate = z.conj();  // `3 - 4i`
 //! assert_eq!(conjugate.im, -4.0);
 //! ```
 
@@ -56,7 +56,7 @@ macro_rules! impl_complex {
     ) => {
         #[doc = concat!($doc_bits, "-bit complex number with ", $doc_float_bits, " real and imaginary parts")]
         ///
-        #[doc = concat!("Memory layout: ", stringify!($name), " is ", stringify!($float), " × 2, interleaved format.")]
+        #[doc = concat!("Memory layout: `", stringify!($name), "` is `", stringify!($float), "` × 2, interleaved format.")]
         #[doc = concat!("This matches the layout expected by ", $doc_gpu_type, ".")]
         #[repr(C)]
         #[derive(Copy, Clone, Debug, Default, PartialEq, Pod, Zeroable)]
@@ -284,7 +284,7 @@ impl_complex!(
     f32,
     "64",
     "f32",
-    "CUDA float2 and WebGPU vec2<f32>"
+    "CUDA float2 and WebGPU `vec2<f32>`"
 );
 impl_complex!(Complex128, f64, "128", "f64", "CUDA double2");
 

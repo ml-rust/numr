@@ -107,12 +107,12 @@ impl<R: Runtime> GradStore<R> {
 
     /// Insert a gradient, overwriting any existing value
     ///
-    /// This is intentionally simpler than [`accumulate`] - it directly inserts
+    /// This is intentionally simpler than `accumulate` - it directly inserts
     /// the gradient without addition. Use this when you don't have access to
     /// a TensorOps client, or when overwriting semantics are desired.
     ///
     /// For proper gradient accumulation (adding to existing gradients),
-    /// use [`accumulate`] with an add function instead.
+    /// use `accumulate` with an add function instead.
     pub fn accumulate_or_insert(&mut self, id: TensorId, grad: Tensor<R>) {
         self.grads.insert(id, grad);
     }

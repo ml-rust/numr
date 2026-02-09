@@ -68,7 +68,7 @@ pub use traits::*;
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MatrixNormOrder {
-    /// Frobenius norm: sqrt(sum(A[i,j]²))
+    /// Frobenius norm: sqrt(sum(`A[i,j]`²))
     ///
     /// The Frobenius norm treats the matrix as a flattened vector and computes
     /// its Euclidean length. It's always available since it only requires

@@ -32,9 +32,9 @@ use crate::error::{Error, Result};
 /// Result of maximum matching computation.
 #[derive(Debug, Clone)]
 pub struct MatchingResult {
-    /// For each column j, row_match[j] = row matched to column j, or -1 if unmatched.
+    /// For each column j, `row_match[j]` = row matched to column j, or -1 if unmatched.
     pub col_to_row: Vec<i32>,
-    /// For each row i, col_match[i] = column matched to row i, or -1 if unmatched.
+    /// For each row i, `col_match[i]` = column matched to row i, or -1 if unmatched.
     pub row_to_col: Vec<i32>,
     /// Size of the maximum matching (number of matched pairs).
     pub matching_size: usize,

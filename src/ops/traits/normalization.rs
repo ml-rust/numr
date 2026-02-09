@@ -13,8 +13,8 @@ pub trait NormalizationOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `input` - Input tensor of shape [..., hidden_size]
-    /// * `weight` - Weight tensor of shape [hidden_size]
+    /// * `input` - Input tensor of shape `[..., hidden_size]`
+    /// * `weight` - Weight tensor of shape `[hidden_size]`
     /// * `eps` - Small constant for numerical stability (typically 1e-5 or 1e-6)
     fn rms_norm(&self, input: &Tensor<R>, weight: &Tensor<R>, eps: f32) -> Result<Tensor<R>>;
 
@@ -24,9 +24,9 @@ pub trait NormalizationOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `input` - Input tensor of shape [..., hidden_size]
-    /// * `weight` - Weight (gamma) tensor of shape [hidden_size]
-    /// * `bias` - Bias (beta) tensor of shape [hidden_size]
+    /// * `input` - Input tensor of shape `[..., hidden_size]`
+    /// * `weight` - Weight (gamma) tensor of shape `[hidden_size]`
+    /// * `bias` - Bias (beta) tensor of shape `[hidden_size]`
     /// * `eps` - Small constant for numerical stability (typically 1e-5)
     fn layer_norm(
         &self,

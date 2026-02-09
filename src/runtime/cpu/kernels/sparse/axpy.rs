@@ -3,7 +3,7 @@
 //! Sparse AXPY: work[indices] -= scale * values
 //! This is the hot loop in Gilbert-Peierls sparse LU.
 
-/// Sparse AXPY: work[row_indices[i]] -= scale * values[i]
+/// Sparse AXPY: `work[row_indices[i]]` -= `scale * values[i]`
 ///
 /// # Arguments
 ///

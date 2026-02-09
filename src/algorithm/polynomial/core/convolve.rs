@@ -42,7 +42,7 @@ const FFT_THRESHOLD: usize = 64;
 /// # Returns
 ///
 /// Convolution result with length n+m-1, where:
-/// c[k] = Σᵢ a[i] * b[k-i] for valid i
+/// `c[k]` = Σᵢ `a[i]` * `b[k-i]` for valid i
 ///
 /// # Example
 ///

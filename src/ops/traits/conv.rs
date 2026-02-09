@@ -55,13 +55,13 @@ impl PaddingMode {
 /// # Memory Layout
 ///
 /// All tensors use the following memory layouts:
-/// - **Input 1D**: (N, C_in, L) - batch, input channels, length
-/// - **Input 2D**: (N, C_in, H, W) - batch, input channels, height, width
-/// - **Weight 1D**: (C_out, C_in/groups, K) - output channels, input channels per group, kernel size
-/// - **Weight 2D**: (C_out, C_in/groups, K_h, K_w) - output channels, input channels per group, kernel height, kernel width
-/// - **Bias**: (C_out,) - one bias per output channel
-/// - **Output 1D**: (N, C_out, L_out) - batch, output channels, output length
-/// - **Output 2D**: (N, C_out, H_out, W_out) - batch, output channels, output height, output width
+/// - **Input 1D**: `(N, C_in, L)` - batch, input channels, length
+/// - **Input 2D**: `(N, C_in, H, W)` - batch, input channels, height, width
+/// - **Weight 1D**: `(C_out, C_in/groups, K)` - output channels, input channels per group, kernel size
+/// - **Weight 2D**: `(C_out, C_in/groups, K_h, K_w)` - output channels, input channels per group, kernel height, kernel width
+/// - **Bias**: `(C_out,)` - one bias per output channel
+/// - **Output 1D**: `(N, C_out, L_out)` - batch, output channels, output length
+/// - **Output 2D**: `(N, C_out, H_out, W_out)` - batch, output channels, output height, output width
 ///
 /// # Backend Support
 ///
@@ -75,14 +75,14 @@ impl PaddingMode {
 pub trait ConvOps<R: Runtime> {
     /// Applies a 1D convolution over an input signal.
     ///
-    /// Given input of shape (N, C_in, L) and weight of shape (C_out, C_in/groups, K),
-    /// produces output of shape (N, C_out, L_out).
+    /// Given input of shape `(N, C_in, L)` and weight of shape `(C_out, C_in/groups, K)`,
+    /// produces output of shape `(N, C_out, L_out)`.
     ///
     /// # Arguments
     ///
-    /// * `input` - Input tensor of shape (N, C_in, L)
-    /// * `weight` - Convolution kernel of shape (C_out, C_in/groups, K)
-    /// * `bias` - Optional bias of shape (C_out,)
+    /// * `input` - Input tensor of shape `(N, C_in, L)`
+    /// * `weight` - Convolution kernel of shape `(C_out, C_in/groups, K)`
+    /// * `bias` - Optional bias of shape `(C_out,)`
     /// * `stride` - Stride of the convolution (default: 1)
     /// * `padding` - Padding mode
     /// * `dilation` - Spacing between kernel elements (default: 1)
@@ -90,8 +90,8 @@ pub trait ConvOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Output tensor of shape (N, C_out, L_out) where:
-    /// L_out = floor((L + pad_left + pad_right - dilation * (K - 1) - 1) / stride + 1)
+    /// Output tensor of shape `(N, C_out, L_out)` where:
+    /// `L_out = floor((L + pad_left + pad_right - dilation * (K - 1) - 1) / stride + 1)`
     ///
     /// # Errors
     ///
@@ -223,7 +223,7 @@ pub trait ConvOps<R: Runtime> {
     ///
     /// Returns `Error::InvalidArgument` if:
     /// - Input is not a 4D tensor
-    /// - Weight is not a 4D tensor with shape[1] = 1
+    /// - Weight is not a 4D tensor with `shape[1]` = 1
     /// - Weight channels don't match input channels
     /// - Bias is not a 1D tensor with length C
     /// - Any stride or dilation value is 0

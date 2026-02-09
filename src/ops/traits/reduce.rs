@@ -170,8 +170,8 @@ pub trait ReduceOps<R: Runtime> {
     ///
     /// # See Also
     ///
-    /// * [`all`] - Test if all elements are true (logical AND)
-    /// * [`sum`] - For counting non-zero elements, consider `sum(a != 0)`
+    /// * `all` - Test if all elements are true (logical AND)
+    /// * `sum` - For counting non-zero elements, consider `sum(a != 0)`
     fn any(&self, a: &Tensor<R>, dims: &[usize], keepdim: bool) -> Result<Tensor<R>>;
 
     /// Test if all elements are true (non-zero) along specified dimensions.
@@ -260,7 +260,7 @@ pub trait ReduceOps<R: Runtime> {
     ///
     /// # See Also
     ///
-    /// * [`any`] - Test if any element is true (logical OR)
-    /// * [`prod`] - Product reduction (different from logical AND)
+    /// * `any` - Test if any element is true (logical OR)
+    /// * `prod` - Product reduction (different from logical AND)
     fn all(&self, a: &Tensor<R>, dims: &[usize], keepdim: bool) -> Result<Tensor<R>>;
 }

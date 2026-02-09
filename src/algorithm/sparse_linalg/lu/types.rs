@@ -18,19 +18,19 @@ use crate::sparse::CscData;
 #[derive(Debug, Clone)]
 pub struct LuFactors<R: Runtime> {
     /// Lower triangular factor (unit diagonal, stored implicitly as zeros)
-    /// Shape: [n, n] in CSC format
+    /// Shape: `[n, n]` in CSC format
     pub l: CscData<R>,
 
     /// Upper triangular factor (includes diagonal)
-    /// Shape: [n, n] in CSC format
+    /// Shape: `[n, n]` in CSC format
     pub u: CscData<R>,
 
     /// Row permutation from partial pivoting
-    /// perm[k] = row that was pivoted to position k
+    /// `perm[k]` = row that was pivoted to position k
     pub row_perm: Vec<usize>,
 
     /// Inverse row permutation
-    /// inv_perm[row] = position of original row
+    /// `inv_perm[row]` = position of original row
     pub row_perm_inv: Vec<usize>,
 }
 
@@ -51,7 +51,7 @@ pub struct LuSymbolic {
     /// Matrix dimension
     pub n: usize,
 
-    /// Elimination tree: etree[j] = parent of column j, or n if root
+    /// Elimination tree: `etree[j]` = parent of column j, or n if root
     pub etree: Vec<usize>,
 
     /// Post-order traversal of elimination tree
@@ -59,7 +59,7 @@ pub struct LuSymbolic {
     pub post_order: Vec<usize>,
 
     /// For each column k, the list of columns j < k that contribute to it
-    /// reach[k] contains column indices in topological order
+    /// `reach[k]` contains column indices in topological order
     pub reach: Vec<Vec<usize>>,
 
     /// Column pointers for L pattern (predicted fill-in positions)
@@ -180,7 +180,7 @@ pub struct LuMetrics {
     /// Number of row swaps performed during pivoting
     pub row_swaps: usize,
 
-    /// Maximum pivot growth factor: max(|U[i,i]|) / max(|A[i,j]|)
+    /// Maximum pivot growth factor: max(`|U[i,i]|`) / max(`|A[i,j]|`)
     pub pivot_growth: f64,
 }
 

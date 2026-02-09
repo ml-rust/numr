@@ -18,10 +18,10 @@ use crate::tensor::Tensor;
 /// # Algorithm (IKJ variant)
 ///
 /// For each row i:
-///   For k = 0 to i-1 where a[i,k] exists:
-///     a[i,k] = a[i,k] / a[k,k]  (becomes L[i,k])
-///     For j = k+1 to n-1 where both a[i,j] and a[k,j] exist:
-///       a[i,j] = a[i,j] - a[i,k] * a[k,j]
+///   For k = 0 to i-1 where `a[i,k]` exists:
+///     `a[i,k]` = `a[i,k]` / `a[k,k]`  (becomes `L[i,k]`)
+///     For j = k+1 to n-1 where both `a[i,j]` and `a[k,j]` exist:
+///       `a[i,j]` = `a[i,j]` - `a[i,k]` * `a[k,j]`
 ///
 /// # Arguments
 ///

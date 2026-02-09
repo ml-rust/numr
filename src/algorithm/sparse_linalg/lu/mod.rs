@@ -20,7 +20,7 @@
 //! The factorization uses these primitive kernel operations:
 //!
 //! - **scatter_column**: Copy sparse column into dense work vector
-//! - **sparse_axpy**: work[i] -= scale * values[i] for sparse indices
+//! - **sparse_axpy**: `work[i]` -= scale * `values[i]` for sparse indices
 //! - **find_pivot**: Find maximum absolute value (SIMD reduction)
 //! - **gather_and_clear**: Extract nonzeros back to sparse storage
 //!

@@ -129,7 +129,7 @@ pub fn ilu0_symbolic_impl(n: usize, row_ptrs: &[i64], col_indices: &[i64]) -> Re
 /// Compute ILU(k) symbolic factorization from raw CSR data.
 ///
 /// Uses level-of-fill algorithm to determine which fill-in entries to keep.
-/// An entry (i,j) has level = min over all k of (level[i,k] + level[k,j] + 1).
+/// An entry (i,j) has level = min over all k of (`level[i,k]` + `level[k,j]` + 1).
 /// Original entries have level 0, and we keep entries with level <= fill_level.
 ///
 /// # Arguments

@@ -48,7 +48,7 @@ impl Default for SparseEigOptions {
 pub struct SparseEigResult<R: Runtime> {
     /// Eigenvalues (real), sorted according to `which`
     pub eigenvalues: Tensor<R>,
-    /// Eigenvectors as columns of [n, k] matrix
+    /// Eigenvectors as columns of `[n, k]` matrix
     pub eigenvectors: Tensor<R>,
     /// Number of iterations performed
     pub iterations: usize,
@@ -61,11 +61,11 @@ pub struct SparseEigResult<R: Runtime> {
 /// Result of sparse eigensolver for non-symmetric matrices
 #[derive(Debug, Clone)]
 pub struct SparseEigComplexResult<R: Runtime> {
-    /// Real parts of eigenvalues [k]
+    /// Real parts of eigenvalues `[k]`
     pub eigenvalues_real: Tensor<R>,
-    /// Imaginary parts of eigenvalues [k]
+    /// Imaginary parts of eigenvalues `[k]`
     pub eigenvalues_imag: Tensor<R>,
-    /// Eigenvectors as columns of [n, k] matrix
+    /// Eigenvectors as columns of `[n, k]` matrix
     ///
     /// For complex conjugate pairs, consecutive columns store the
     /// real and imaginary parts respectively.

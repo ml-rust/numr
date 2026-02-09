@@ -40,11 +40,11 @@ impl Default for SvdsOptions {
 /// Result of sparse SVD computation
 #[derive(Debug, Clone)]
 pub struct SparseSvdResult<R: Runtime> {
-    /// Left singular vectors U [m, k]
+    /// Left singular vectors U `[m, k]`
     pub u: Tensor<R>,
-    /// Singular values [k] (sorted descending)
+    /// Singular values `[k]` (sorted descending)
     pub singular_values: Tensor<R>,
-    /// Right singular vectors Vt [k, n]
+    /// Right singular vectors Vt `[k, n]`
     pub vt: Tensor<R>,
     /// Number of iterations performed
     pub iterations: usize,

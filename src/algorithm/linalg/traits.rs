@@ -11,13 +11,13 @@ use crate::tensor::Tensor;
 
 /// Trait for matrix function operations (expm, logm, sqrtm)
 ///
-/// Matrix functions extend scalar functions to matrices. For a scalar function f
-/// and a diagonalizable matrix A = V @ diag(λ) @ V^{-1}, the matrix function is:
+/// Matrix functions extend scalar functions to matrices. For a scalar function `f`
+/// and a diagonalizable matrix `A = V @ diag(λ) @ V^{-1}`, the matrix function is:
 ///
-/// f(A) = V @ diag(f(λ)) @ V^{-1}
+/// `f(A) = V @ diag(f(λ)) @ V^{-1}`
 ///
 /// For non-diagonalizable matrices, the Schur decomposition is used:
-/// A = Z @ T @ Z^T, then f(A) = Z @ f(T) @ Z^T
+/// `A = Z @ T @ Z^T`, then `f(A) = Z @ f(T) @ Z^T`
 ///
 /// where f(T) is computed using special formulas for quasi-triangular matrices.
 ///
@@ -29,22 +29,22 @@ use crate::tensor::Tensor;
 ///
 /// # Use Cases
 ///
-/// - **expm**: Solving linear ODEs dx/dt = Ax → x(t) = e^{At} x(0)
-/// - **logm**: Computing matrix powers A^p = e^{p*log(A)}
+/// - **expm**: Solving linear ODEs `dx/dt = Ax` → `x(t) = e^{At} x(0)`
+/// - **logm**: Computing matrix powers `A^p = e^{p*log(A)}`
 /// - **sqrtm**: Polar decomposition, control theory
 pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     /// Matrix exponential: e^A
     ///
     /// Computes the matrix exponential using the Schur-Parlett algorithm:
-    /// 1. Compute Schur decomposition: A = Z @ T @ Z^T
-    /// 2. Compute exp(T) for quasi-triangular T
-    /// 3. Reconstruct: exp(A) = Z @ exp(T) @ Z^T
+    /// 1. Compute Schur decomposition: `A = Z @ T @ Z^T`
+    /// 2. Compute `exp(T)` for quasi-triangular `T`
+    /// 3. Reconstruct: `exp(A) = Z @ exp(T) @ Z^T`
     ///
     /// # Algorithm for Quasi-Triangular T
     ///
-    /// For 1×1 diagonal blocks: exp(t_ii) = e^{t_ii}
+    /// For 1×1 diagonal blocks: `exp(t_ii) = e^{t_ii}`
     ///
-    /// For 2×2 diagonal blocks (complex conjugate eigenvalues a ± bi):
+    /// For 2×2 diagonal blocks (complex conjugate eigenvalues `a ± bi`):
     /// ```text
     /// exp([a, b; -b, a]) = e^a * [cos(b), sin(b); -sin(b), cos(b)]
     /// ```
@@ -58,10 +58,10 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
     ///
     /// # Properties
     ///
-    /// - exp(0) = I (identity)
-    /// - exp(A + B) = exp(A) @ exp(B) if AB = BA
-    /// - det(exp(A)) = e^{tr(A)}
-    /// - exp(A)^{-1} = exp(-A)
+    /// - `exp(0) = I` (identity)
+    /// - `exp(A + B) = exp(A) @ exp(B)` if `AB = BA`
+    /// - `det(exp(A)) = e^{tr(A)}`
+    /// - `exp(A)^{-1} = exp(-A)`
     fn expm(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Matrix logarithm: log(A) (principal branch)
@@ -110,7 +110,7 @@ pub trait MatrixFunctionsAlgorithms<R: Runtime> {
 
     /// Fractional matrix power: A^p for any real p
     ///
-    /// Computes A^p using: A^p = exp(p * log(A))
+    /// Computes `A^p` using: `A^p = exp(p * log(A))`
     ///
     /// # Special Cases
     ///
@@ -167,7 +167,7 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// QR Decomposition using Householder reflections: A = QR
     fn qr_decompose(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>>;
 
-    /// Thin QR Decomposition: A = QR where Q is [m, k] and R is [k, n]
+    /// Thin QR Decomposition: A = QR where Q is `[m, k]` and R is `[k, n]`
     fn qr_decompose_thin(&self, a: &Tensor<R>) -> Result<QrDecomposition<R>>;
 
     /// Solve linear system Ax = b using LU decomposition
@@ -218,11 +218,11 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     ///
     /// # Properties
     ///
-    /// - (A ⊗ B) ⊗ C = A ⊗ (B ⊗ C) (associative)
-    /// - A ⊗ (B + C) = A ⊗ B + A ⊗ C (distributive)
-    /// - (A ⊗ B)^T = A^T ⊗ B^T
-    /// - (A ⊗ B)(C ⊗ D) = (AC) ⊗ (BD) (mixed-product property)
-    /// - det(A ⊗ B) = det(A)^q * det(B)^m for square matrices
+    /// - `(A ⊗ B) ⊗ C = A ⊗ (B ⊗ C)` (associative)
+    /// - `A ⊗ (B + C) = A ⊗ B + A ⊗ C` (distributive)
+    /// - `(A ⊗ B)^T = A^T ⊗ B^T`
+    /// - `(A ⊗ B)(C ⊗ D) = (AC) ⊗ (BD)` (mixed-product property)
+    /// - `det(A ⊗ B) = det(A)^q * det(B)^m` for square matrices
     ///
     /// # Use Cases
     ///
@@ -252,15 +252,15 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     /// Solve banded linear system Ab*x = b
     ///
     /// Uses LAPACK-style band storage where `ab` has shape `[kl + ku + 1, n]`
-    /// and `ab[ku + i - j, j] = A[i, j]` for max(0, j-ku) <= i <= min(n-1, j+kl).
+    /// and `ab[ku + i - j, j] = A[i, j]` for `max(0, j-ku) <= i <= min(n-1, j+kl)`.
     ///
     /// For tridiagonal systems (kl=1, ku=1), uses Thomas algorithm O(n).
     /// For general banded systems, uses banded LU with partial pivoting.
     ///
     /// # Arguments
     ///
-    /// * `ab` - Band matrix in LAPACK band storage [kl + ku + 1, n]
-    /// * `b` - Right-hand side vector [n] or matrix [n, nrhs]
+    /// * `ab` - Band matrix in LAPACK band storage `[kl + ku + 1, n]`
+    /// * `b` - Right-hand side vector `[n]` or matrix `[n, nrhs]`
     /// * `kl` - Number of subdiagonals
     /// * `ku` - Number of superdiagonals
     fn solve_banded(
@@ -287,7 +287,7 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     ///
     /// # Properties
     ///
-    /// - (A ⊙ B)^T (A ⊙ B) = (A^T A) * (B^T B) (Hadamard/element-wise product)
+    /// - `(A ⊙ B)^T (A ⊙ B) = (A^T A) * (B^T B)` (Hadamard/element-wise product)
     /// - Essential for CP/PARAFAC tensor decomposition
     /// - Related to mode-n unfolding operations
     ///
@@ -369,9 +369,9 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     ///
     /// # Generalized Eigenvalues
     ///
-    /// The generalized eigenvalues λ satisfy: det(A - λB) = 0
-    /// Computed as: λ_i = alpha_i / beta_i where alpha and beta are
-    /// extracted from the diagonal of S and T respectively.
+    /// The generalized eigenvalues `λ` satisfy: `det(A - λB) = 0`
+    /// Computed as: `λ_i = alpha_i / beta_i` where `alpha` and `beta` are
+    /// extracted from the diagonal of `S` and `T` respectively.
     ///
     /// # Requirements
     ///
@@ -398,9 +398,9 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     ///
     /// # Properties
     ///
-    /// - For invertible A: U is the closest unitary matrix to A (in Frobenius norm)
-    /// - P is unique and equals sqrt(A^H @ A)
-    /// - For real matrices: U is orthogonal, P is symmetric positive semi-definite
+    /// - For invertible A: `U` is the closest unitary matrix to A (in Frobenius norm)
+    /// - `P` is unique and equals `sqrt(A^H @ A)`
+    /// - For real matrices: `U` is orthogonal, `P` is symmetric positive semi-definite
     fn polar_decompose(&self, a: &Tensor<R>) -> Result<super::PolarDecomposition<R>>;
 }
 
@@ -447,14 +447,14 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Mathematical Definition
     ///
-    /// For a tensor T of shape [I₁, I₂, ..., Iₙ], the mode-n unfolding T₍ₙ₎
-    /// is a matrix of shape [Iₙ, ∏ⱼ≠ₙ Iⱼ] where:
+    /// For a tensor T of shape `[I₁, I₂, ..., Iₙ]`, the mode-n unfolding `T₍ₙ₎`
+    /// is a matrix of shape `[Iₙ, ∏ⱼ≠ₙ Iⱼ]` where:
     ///
     /// ```text
     /// T₍ₙ₎[iₙ, j] = T[i₁, i₂, ..., iₙ, ..., iₙ]
     /// ```
     ///
-    /// where j is computed from indices (i₁, ..., iₙ₋₁, iₙ₊₁, ..., iₙ)
+    /// where `j` is computed from indices `(i₁, ..., iₙ₋₁, iₙ₊₁, ..., iₙ)`
     /// using a specific ordering convention.
     ///
     /// # Convention
@@ -469,14 +469,14 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Returns
     ///
-    /// Matrix of shape [I_mode, ∏ⱼ≠mode Iⱼ]
+    /// Matrix of shape `[I_mode, ∏ⱼ≠mode Iⱼ]`
     ///
     /// # Example
     ///
     /// ```ignore
-    /// // Tensor of shape [2, 3, 4]
+    /// // Tensor of shape `[2, 3, 4]`
     /// let unfolded = client.unfold(&tensor, 1)?;
-    /// // Result has shape [3, 8] (mode-1 fibers as rows)
+    /// // Result has shape `[3, 8]` (mode-1 fibers as rows)
     /// ```
     fn unfold(&self, tensor: &Tensor<R>, mode: usize) -> Result<Tensor<R>>;
 
@@ -506,8 +506,8 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Mathematical Definition
     ///
-    /// For tensor T of shape [I₁, ..., Iₙ, ..., Iₙ] and matrix M of shape [J, Iₙ],
-    /// the mode-n product Y = T ×ₙ M has shape [I₁, ..., J, ..., Iₙ] where:
+    /// For tensor T of shape `[I₁, ..., Iₙ, ..., Iₙ]` and matrix M of shape `[J, Iₙ]`,
+    /// the mode-n product `Y = T ×ₙ M` has shape `[I₁, ..., J, ..., Iₙ]` where:
     ///
     /// ```text
     /// Y[i₁, ..., j, ..., iₙ] = Σₖ T[i₁, ..., k, ..., iₙ] × M[j, k]
@@ -521,19 +521,19 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Properties
     ///
-    /// - (T ×ₘ A) ×ₙ B = (T ×ₙ B) ×ₘ A  when m ≠ n (modes commute)
-    /// - (T ×ₙ A) ×ₙ B = T ×ₙ (BA)  (same mode contracts)
-    /// - T ×ₙ I = T  (identity matrix leaves tensor unchanged)
+    /// - `(T ×ₘ A) ×ₙ B = (T ×ₙ B) ×ₘ A` when `m ≠ n` (modes commute)
+    /// - `(T ×ₙ A) ×ₙ B = T ×ₙ (BA)` (same mode contracts)
+    /// - `T ×ₙ I = T` (identity matrix leaves tensor unchanged)
     ///
     /// # Arguments
     ///
-    /// * `tensor` - Input tensor of shape [I₁, ..., Iₙ, ..., Iₙ]
-    /// * `matrix` - Matrix of shape [J, Iₙ] to multiply along mode n
+    /// * `tensor` - Input tensor of shape `[I₁, ..., Iₙ, ..., Iₙ]`
+    /// * `matrix` - Matrix of shape `[J, Iₙ]` to multiply along mode `n`
     /// * `mode` - Mode along which to multiply (0-indexed)
     ///
     /// # Returns
     ///
-    /// Tensor of shape [I₁, ..., J, ..., Iₙ] (mode n dimension changed from Iₙ to J)
+    /// Tensor of shape `[I₁, ..., J, ..., Iₙ]` (mode `n` dimension changed from `Iₙ` to `J`)
     fn mode_n_product(
         &self,
         tensor: &Tensor<R>,
@@ -548,23 +548,23 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Algorithm
     ///
-    /// 1. For each mode n = 1, ..., N:
-    ///    - Compute mode-n unfolding: T₍ₙ₎
-    ///    - Compute truncated SVD: T₍ₙ₎ ≈ Uₙ @ Sₙ @ Vₙᵀ
-    ///    - Set factor matrix Aₙ = first Rₙ columns of Uₙ
-    /// 2. Compute core: G = T ×₁ A₁ᵀ ×₂ A₂ᵀ ... ×ₙ Aₙᵀ
+    /// 1. For each mode `n = 1, ..., N`:
+    ///    - Compute mode-n unfolding: `T₍ₙ₎`
+    ///    - Compute truncated SVD: `T₍ₙ₎ ≈ Uₙ @ Sₙ @ Vₙᵀ`
+    ///    - Set factor matrix `Aₙ = first Rₙ columns of Uₙ`
+    /// 2. Compute core: `G = T ×₁ A₁ᵀ ×₂ A₂ᵀ ... ×ₙ Aₙᵀ`
     ///
     /// # Properties
     ///
-    /// - Factor matrices are orthogonal: Aₙᵀ @ Aₙ = I
+    /// - Factor matrices are orthogonal: `Aₙᵀ @ Aₙ = I`
     /// - Core tensor is "all-orthogonal": mode-n unfoldings have orthogonal rows
-    /// - NOT the best rank-(R₁, ..., Rₙ) approximation (use Tucker ALS for that)
+    /// - NOT the best `rank-(R₁, ..., Rₙ)` approximation (use Tucker ALS for that)
     /// - Fast: O(N × SVD cost) vs iterative methods
     ///
     /// # Arguments
     ///
     /// * `tensor` - Input tensor of arbitrary dimension
-    /// * `ranks` - Multilinear ranks [R₁, R₂, ..., Rₙ]. Each Rₖ ≤ Iₖ.
+    /// * `ranks` - Multilinear ranks `[R₁, R₂, ..., Rₙ]`. Each `Rₖ ≤ Iₖ`.
     ///   Use 0 or dimension size to keep full rank for that mode.
     ///
     /// # Returns
@@ -581,10 +581,10 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// 1. Initialize factors using HOSVD or random
     /// 2. Repeat until convergence:
-    ///    - For each mode n:
-    ///      - Compute: Y = T ×₁ A₁ᵀ ... ×ₙ₋₁ Aₙ₋₁ᵀ ×ₙ₊₁ Aₙ₊₁ᵀ ... ×ₙ Aₙᵀ
-    ///      - Update Aₙ = leading Rₙ left singular vectors of unfold(Y, n)
-    /// 3. Compute core: G = T ×₁ A₁ᵀ ×₂ A₂ᵀ ... ×ₙ Aₙᵀ
+    ///    - For each mode `n`:
+    ///      - Compute: `Y = T ×₁ A₁ᵀ ... ×ₙ₋₁ Aₙ₋₁ᵀ ×ₙ₊₁ Aₙ₊₁ᵀ ... ×ₙ Aₙᵀ`
+    ///      - Update `Aₙ = leading Rₙ left singular vectors of unfold(Y, n)`
+    /// 3. Compute core: `G = T ×₁ A₁ᵀ ×₂ A₂ᵀ ... ×ₙ Aₙᵀ`
     ///
     /// # Convergence
     ///
@@ -595,7 +595,7 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// # Arguments
     ///
     /// * `tensor` - Input tensor
-    /// * `ranks` - Multilinear ranks [R₁, R₂, ..., Rₙ]
+    /// * `ranks` - Multilinear ranks `[R₁, R₂, ..., Rₙ]`
     /// * `options` - Algorithm options (max_iter, tolerance, initialization)
     ///
     /// # Returns
@@ -616,10 +616,10 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// 1. Initialize factor matrices randomly or via SVD
     /// 2. Repeat until convergence:
-    ///    - For each mode n:
-    ///      - Fix all factors except Aₙ
-    ///      - Solve least squares for Aₙ:
-    ///        Aₙ = T₍ₙ₎ @ (⊙ⱼ≠ₙ Aⱼ) @ (⊛ⱼ≠ₙ AⱼᵀAⱼ)⁻¹
+    ///    - For each mode `n`:
+    ///      - Fix all factors except `Aₙ`
+    ///      - Solve least squares for `Aₙ`:
+    ///        `Aₙ = T₍ₙ₎ @ (⊙ⱼ≠ₙ Aⱼ) @ (⊛ⱼ≠ₙ AⱼᵀAⱼ)⁻¹`
     ///    - Optionally normalize factors and update weights
     /// 3. Return factor matrices and weights
     ///
@@ -632,7 +632,7 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     /// krank(A₁) + krank(A₂) + ... + krank(Aₙ) ≥ 2R + (N - 1)
     /// ```
     ///
-    /// where krank is the Kruskal rank.
+    /// where `krank` is the Kruskal rank.
     ///
     /// # Arguments
     ///
@@ -657,12 +657,12 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Algorithm (TT-SVD)
     ///
-    /// 1. Reshape T to [I₁, I₂ × ... × Iₙ]
-    /// 2. Compute truncated SVD: T ≈ U @ S @ Vᵀ, keep rank R₁
-    /// 3. Set G₁ = reshape(U, [1, I₁, R₁])
-    /// 4. Reshape S @ Vᵀ to [R₁ × I₂, I₃ × ... × Iₙ]
+    /// 1. Reshape T to `[I₁, I₂ × ... × Iₙ]`
+    /// 2. Compute truncated SVD: `T ≈ U @ S @ Vᵀ`, keep rank `R₁`
+    /// 3. Set `G₁ = reshape(U, [1, I₁, R₁])`
+    /// 4. Reshape `S @ Vᵀ` to `[R₁ × I₂, I₃ × ... × Iₙ]`
     /// 5. Repeat SVD for each mode
-    /// 6. Last core Gₙ has shape [Rₙ₋₁, Iₙ, 1]
+    /// 6. Last core `Gₙ` has shape `[Rₙ₋₁, Iₙ, 1]`
     ///
     /// # Rank Selection
     ///
@@ -672,7 +672,7 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Quasi-Optimal
     ///
-    /// TT-SVD is quasi-optimal: the error is at most √(N-1) times
+    /// TT-SVD is quasi-optimal: the error is at most `√(N-1)` times
     /// the best possible error for the given ranks.
     ///
     /// # Arguments
@@ -693,7 +693,7 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
 
     /// Reconstruct tensor from Tucker decomposition
     ///
-    /// Computes: T = G ×₁ A₁ ×₂ A₂ ... ×ₙ Aₙ
+    /// Computes: `T = G ×₁ A₁ ×₂ A₂ ... ×ₙ Aₙ`
     ///
     /// # Arguments
     ///
@@ -701,17 +701,17 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Returns
     ///
-    /// Full tensor of shape [I₁, I₂, ..., Iₙ]
+    /// Full tensor of shape `[I₁, I₂, ..., Iₙ]`
     fn tucker_reconstruct(&self, decomp: &super::TuckerDecomposition<R>) -> Result<Tensor<R>>;
 
     /// Reconstruct tensor from CP decomposition
     ///
-    /// Computes: T = Σᵣ λᵣ × (a₁ʳ ⊗ a₂ʳ ⊗ ... ⊗ aₙʳ)
+    /// Computes: `T = Σᵣ λᵣ × (a₁ʳ ⊗ a₂ʳ ⊗ ... ⊗ aₙʳ)`
     ///
     /// # Arguments
     ///
     /// * `decomp` - CP decomposition (factor matrices + weights)
-    /// * `shape` - Output tensor shape [I₁, I₂, ..., Iₙ]
+    /// * `shape` - Output tensor shape `[I₁, I₂, ..., Iₙ]`
     ///
     /// # Returns
     ///
@@ -732,6 +732,6 @@ pub trait TensorDecomposeAlgorithms<R: Runtime>: LinearAlgebraAlgorithms<R> {
     ///
     /// # Returns
     ///
-    /// Full tensor of shape [I₁, I₂, ..., Iₙ]
+    /// Full tensor of shape `[I₁, I₂, ..., Iₙ]`
     fn tt_reconstruct(&self, decomp: &super::TensorTrainDecomposition<R>) -> Result<Tensor<R>>;
 }

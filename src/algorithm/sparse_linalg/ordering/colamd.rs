@@ -156,7 +156,7 @@ impl Row {
 ///
 /// # Returns
 ///
-/// Tuple of (permutation, stats) where permutation[j] is the original column
+/// Tuple of (permutation, stats) where `permutation[j]` is the original column
 /// index that should be placed in position j.
 pub fn colamd(
     n_rows: usize,

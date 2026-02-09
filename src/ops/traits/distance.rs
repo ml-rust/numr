@@ -71,21 +71,21 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `x` - First point set with shape (n, d) where n is the number of points
-    ///   and d is the dimensionality
-    /// * `y` - Second point set with shape (m, d)
+    /// * `x` - First point set with shape `(n, d)` where `n` is the number of points
+    ///   and `d` is the dimensionality
+    /// * `y` - Second point set with shape `(m, d)`
     /// * `metric` - Distance metric to use
     ///
     /// # Returns
     ///
-    /// Distance matrix with shape (n, m) where element (i, j) is the distance
-    /// between x[i] and y[j].
+    /// Distance matrix with shape `(n, m)` where element `(i, j)` is the distance
+    /// between `x[i]` and `y[j]`.
     ///
     /// # Errors
     ///
     /// Returns `Error::InvalidArgument` if:
     /// - Inputs are not 2D tensors
-    /// - Dimensionality doesn't match (x.shape[1] != y.shape[1])
+    /// - Dimensionality doesn't match (`x.shape[1]` != `y.shape[1]`)
     ///
     /// Returns `Error::UnsupportedDType` if dtype is not floating point.
     ///
@@ -104,7 +104,7 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// // Euclidean distances
     /// let d = client.cdist(&x, &y, DistanceMetric::Euclidean)?;
-    /// // d has shape (2, 2), d[i,j] = ||x[i] - y[j]||
+    /// // d has shape (2, 2), `d[i,j]` = ||x[i] - y[j]||
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn cdist(&self, x: &Tensor<R>, y: &Tensor<R>, metric: DistanceMetric) -> Result<Tensor<R>>;
@@ -123,20 +123,20 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Condensed distance vector with shape (n*(n-1)/2,) containing the upper
+    /// Condensed distance vector with shape `(n*(n-1)/2,)` containing the upper
     /// triangle of the distance matrix in row-major order.
     ///
-    /// For n points, the condensed form stores distances as:
-    /// [d(0,1), d(0,2), ..., d(0,n-1), d(1,2), ..., d(n-2,n-1)]
+    /// For `n` points, the condensed form stores distances as:
+    /// `[d(0,1), d(0,2), ..., d(0,n-1), d(1,2), ..., d(n-2,n-1)]`
     ///
     /// # Index Conversion
     ///
-    /// To convert from condensed index k to matrix indices (i, j) where i < j:
-    /// - i = n - 2 - floor(sqrt(-8*k + 4*n*(n-1) - 7) / 2 - 0.5)
-    /// - j = k + i + 1 - n*(n-1)/2 + (n-i)*((n-i)-1)/2
+    /// To convert from condensed index `k` to matrix indices `(i, j)` where `i < j`:
+    /// - `i = n - 2 - floor(sqrt(-8*k + 4*n*(n-1) - 7) / 2 - 0.5)`
+    /// - `j = k + i + 1 - n*(n-1)/2 + (n-i)*((n-i)-1)/2`
     ///
-    /// To convert from (i, j) to condensed index k:
-    /// - k = n*i - i*(i+1)/2 + j - i - 1
+    /// To convert from `(i, j)` to condensed index `k`:
+    /// - `k = n*i - i*(i+1)/2 + j - i - 1`
     ///
     /// # Errors
     ///
@@ -178,7 +178,7 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// Square distance matrix with shape (n, n) where:
     /// - Diagonal elements are 0
-    /// - Matrix is symmetric (d[i,j] == d[j,i])
+    /// - Matrix is symmetric (`d[i,j]` == `d[j,i]`)
     ///
     /// # Errors
     ///
@@ -220,7 +220,7 @@ pub trait DistanceOps<R: Runtime> {
     ///
     /// Returns `Error::InvalidArgument` if:
     /// - `square` is not 2D
-    /// - `square` is not square (shape[0] != shape[1])
+    /// - `square` is not square (`shape[0]` != `shape[1]`)
     ///
     /// # Examples
     ///

@@ -23,7 +23,7 @@ pub trait SparseOrdering {
     ///
     /// # Returns
     ///
-    /// Column permutation vector P where P[j] is the original column index
+    /// Column permutation vector P where `P[j]` is the original column index
     /// that should be placed in position j of the permuted matrix.
     fn column_ordering(
         &self,
@@ -47,7 +47,7 @@ pub trait SparseOrdering {
     ///
     /// # Returns
     ///
-    /// Permutation vector P where P[i] is the original index that should
+    /// Permutation vector P where `P[i]` is the original index that should
     /// be placed in position i of the permuted matrix.
     fn symmetric_ordering(
         &self,
