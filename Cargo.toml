@@ -7,15 +7,7 @@ description = "High-performance numerical computing with multi-backend GPU accel
 license = "Apache-2.0"
 repository = "https://github.com/ml-rust/numr"
 documentation = "https://docs.rs/numr"
-keywords = [
-  "tensor",
-  "ndarray",
-  "fft",
-  "linear-algebra",
-  "gpu",
-  "sparse",
-  "numpy",
-]
+keywords = ["tensor", "ndarray", "linear-algebra", "gpu", "fft"]
 categories = ["science", "mathematics", "data-structures"]
 
 [package.metadata.docs.rs]
