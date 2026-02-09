@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ github.ref_name }}
 
 on:
   push:
@@ -58,8 +59,8 @@ jobs:
 
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
-  test:
-    name: Test before publish
+  lint:
+    name: Lint, Format & Docs
     needs: validate-version
     runs-on: ubuntu-latest
     steps:
@@ -67,10 +68,44 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: lint
 
-      - name: Run tests
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy (all CI-safe features)
+        run: cargo clippy --all-targets --features f16,sparse -- -D warnings
+
+      - name: Build docs
+        run: cargo doc --no-deps --features f16,sparse
+
+      - name: Run doctests
+        run: cargo test --doc --features f16,sparse
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: validate-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: test
+
+      - name: Run tests (default)
         run: cargo test
 
       - name: Run tests (f16 + sparse)
@@ -78,7 +113,7 @@ jobs:
 
   publish:
     name: Publish to crates.io
-    needs: [validate-version, test]
+    needs: [validate-version, lint, test]
     runs-on: ubuntu-latest
     environment: crates-io
     steps:
