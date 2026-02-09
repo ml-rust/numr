@@ -7,8 +7,20 @@ description = "High-performance numerical computing with multi-backend GPU accel
 license = "Apache-2.0"
 repository = "https://github.com/ml-rust/numr"
 documentation = "https://docs.rs/numr"
-keywords = ["tensor", "ndarray", "fft", "linear-algebra", "gpu"]
+keywords = [
+  "tensor",
+  "ndarray",
+  "fft",
+  "linear-algebra",
+  "gpu",
+  "sparse",
+  "numpy",
+]
 categories = ["science", "mathematics", "data-structures"]
+
+[package.metadata.docs.rs]
+features = ["f16", "sparse"]
+# cuda and wgpu require hardware SDKs not available on docs.rs
 
 [features]
 default = ["cpu", "rayon"]
@@ -17,7 +29,6 @@ cuda = ["dep:cudarc"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
 f16 = ["dep:half", "cudarc?/f16"]
-fp8 = []                            # 8-bit floating point types (FP8E4M3, FP8E5M2)
 sparse = []                         # Sparse tensor formats (CSR, CSC, COO) and operations
 
 [dependencies]
@@ -39,7 +50,10 @@ rand_distr = "0.5"
 rkyv = "0.8"
 
 # Optional: Half-precision floats
-half = { version = "2.7", optional = true, features = ["bytemuck", "num-traits"] }
+half = { version = "2.7", optional = true, features = [
+  "bytemuck",
+  "num-traits",
+] }
 
 # Optional: CUDA backend
 cudarc = { version = "0.18", optional = true, features = [

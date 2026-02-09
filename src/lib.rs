@@ -41,7 +41,6 @@
 //! - `wgpu`: Cross-platform GPU via WebGPU
 //! - `rayon` (default): Multi-threaded CPU operations
 //! - `f16`: Half-precision floats (F16, BF16)
-//! - `fp8`: 8-bit floats (FP8E4M3, FP8E5M2)
 //! - `sparse`: Sparse tensor formats (CSR, CSC, COO)
 
 #![warn(missing_docs)]
