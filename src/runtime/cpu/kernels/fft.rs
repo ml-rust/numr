@@ -129,19 +129,18 @@ pub unsafe fn stockham_fft_batched_c64(
     batch_size: usize,
     inverse: bool,
     normalize_factor: f32,
+    min_batch_len: usize,
 ) {
     use rayon::prelude::*;
 
     debug_assert_eq!(input.len(), batch_size * n);
     debug_assert_eq!(output.len(), batch_size * n);
 
-    let output_chunks = std::slice::from_raw_parts_mut(output.as_mut_ptr(), batch_size * n);
-
     // Process batches in parallel
-    output_chunks
-        .chunks_mut(n)
+    output
+        .par_chunks_mut(n)
         .enumerate()
-        .par_bridge()
+        .with_min_len(min_batch_len.max(1))
         .for_each(|(batch_idx, out_chunk)| {
             let in_start = batch_idx * n;
             let in_chunk = &input[in_start..in_start + n];
@@ -157,6 +156,7 @@ pub unsafe fn stockham_fft_batched_c64(
     batch_size: usize,
     inverse: bool,
     normalize_factor: f32,
+    _min_batch_len: usize,
 ) {
     for batch_idx in 0..batch_size {
         let start = batch_idx * n;
@@ -256,18 +256,17 @@ pub unsafe fn stockham_fft_batched_c128(
     batch_size: usize,
     inverse: bool,
     normalize_factor: f64,
+    min_batch_len: usize,
 ) {
     use rayon::prelude::*;
 
     debug_assert_eq!(input.len(), batch_size * n);
     debug_assert_eq!(output.len(), batch_size * n);
 
-    let output_chunks = std::slice::from_raw_parts_mut(output.as_mut_ptr(), batch_size * n);
-
-    output_chunks
-        .chunks_mut(n)
+    output
+        .par_chunks_mut(n)
         .enumerate()
-        .par_bridge()
+        .with_min_len(min_batch_len.max(1))
         .for_each(|(batch_idx, out_chunk)| {
             let in_start = batch_idx * n;
             let in_chunk = &input[in_start..in_start + n];
@@ -283,6 +282,7 @@ pub unsafe fn stockham_fft_batched_c128(
     batch_size: usize,
     inverse: bool,
     normalize_factor: f64,
+    _min_batch_len: usize,
 ) {
     for batch_idx in 0..batch_size {
         let start = batch_idx * n;

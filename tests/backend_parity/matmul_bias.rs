@@ -1,6 +1,7 @@
 // Backend parity tests for MatmulOps::matmul_bias
 
 use numr::ops::{BinaryOps, MatmulOps};
+use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
 use crate::backend_parity::helpers::assert_parity_f32;
@@ -106,4 +107,38 @@ fn test_matmul_bias_matches_matmul_plus_bias() {
         .unwrap()
         .to_vec();
     assert_parity_f32(&fused, &reference, "matmul_bias_matches_reference_cpu");
+}
+
+#[test]
+fn test_cpu_matmul_bias_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(1024)));
+
+    let a_shape = [4, 20, 16];
+    let b_shape = [4, 16, 10];
+    let bias_shape = [10];
+    let a_numel: usize = a_shape.iter().product();
+    let b_numel: usize = b_shape.iter().product();
+    let bias_numel: usize = bias_shape.iter().product();
+
+    let a_data: Vec<f32> = (0..a_numel)
+        .map(|i| (i as f32 * 0.009).sin() + (i as f32 * 0.004).cos())
+        .collect();
+    let b_data: Vec<f32> = (0..b_numel)
+        .map(|i| (i as f32 * 0.015).cos() - (i as f32 * 0.006).sin())
+        .collect();
+    let bias_data: Vec<f32> = (0..bias_numel).map(|i| (i as f32 * 0.021).sin()).collect();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &a_shape, &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &b_shape, &device);
+    let bias = Tensor::<CpuRuntime>::from_slice(&bias_data, &bias_shape, &device);
+
+    let base: Vec<f32> = default_client.matmul_bias(&a, &b, &bias).unwrap().to_vec();
+    let cfg: Vec<f32> = configured_client
+        .matmul_bias(&a, &b, &bias)
+        .unwrap()
+        .to_vec();
+    assert_parity_f32(&base, &cfg, "cpu_matmul_bias_parallelism_config");
 }

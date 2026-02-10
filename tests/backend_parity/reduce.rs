@@ -5,10 +5,12 @@
 
 use numr::ops::ReduceOps;
 use numr::runtime::Runtime;
+use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::helpers::assert_parity_f32;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
@@ -128,6 +130,13 @@ fn test_sum_parity() {
                 vec![1],
                 false,
             ),
+            // 3D multi-dim reduce
+            ReduceTest::new(
+                (1..=24).map(|v| v as f32).collect(),
+                vec![2, 3, 4],
+                vec![1, 2],
+                false,
+            ),
         ],
     );
 }
@@ -150,6 +159,12 @@ fn test_mean_parity() {
                 vec![1],
                 false,
             ),
+            ReduceTest::new(
+                (1..=24).map(|v| v as f32).collect(),
+                vec![2, 3, 4],
+                vec![0, 2],
+                true,
+            ),
         ],
     );
 }
@@ -170,6 +185,12 @@ fn test_max_parity() {
                 vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
                 vec![2, 3],
                 vec![1],
+                false,
+            ),
+            ReduceTest::new(
+                (1..=24).map(|v| v as f32).collect(),
+                vec![2, 3, 4],
+                vec![0, 1],
                 false,
             ),
         ],
@@ -194,6 +215,12 @@ fn test_min_parity() {
                 vec![1],
                 false,
             ),
+            ReduceTest::new(
+                (1..=24).map(|v| v as f32).collect(),
+                vec![2, 3, 4],
+                vec![0, 1],
+                false,
+            ),
         ],
     );
 }
@@ -214,6 +241,12 @@ fn test_prod_parity() {
                 vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
                 vec![2, 3],
                 vec![1],
+                false,
+            ),
+            ReduceTest::new(
+                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                vec![1, 2, 3],
+                vec![0, 2],
                 false,
             ),
         ],
@@ -243,6 +276,12 @@ fn test_any_parity() {
                 vec![1],
                 false,
             ),
+            ReduceTest::new(
+                vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                vec![1, 2, 3],
+                vec![0, 2],
+                false,
+            ),
         ],
     );
 }
@@ -270,6 +309,53 @@ fn test_all_parity() {
                 vec![1],
                 false,
             ),
+            ReduceTest::new(
+                vec![1.0, 2.0, 3.0, 1.0, 0.0, 3.0],
+                vec![1, 2, 3],
+                vec![0, 2],
+                false,
+            ),
         ],
     );
+}
+
+#[test]
+fn test_cpu_reduce_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(64)));
+
+    // Large enough to exercise non-last-dim reduction paths where parallel scheduling matters.
+    let shape = [96, 64, 32];
+    let numel: usize = shape.iter().product();
+    let data: Vec<f32> = (0..numel)
+        .map(|i| (i as f32 * 0.013).sin() + (i as f32 * 0.007).cos())
+        .collect();
+    let boolish_data: Vec<f32> = (0..numel)
+        .map(|i| if i % 13 == 0 { 0.0 } else { 1.0 })
+        .collect();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&data, &shape, &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&boolish_data, &shape, &device);
+
+    let sum_base: Vec<f32> = default_client.sum(&a, &[1], false).unwrap().to_vec();
+    let sum_cfg: Vec<f32> = configured_client.sum(&a, &[1], false).unwrap().to_vec();
+    assert_parity_f32(&sum_base, &sum_cfg, "cpu_reduce_parallelism_sum");
+
+    let mean_base: Vec<f32> = default_client.mean(&a, &[1], false).unwrap().to_vec();
+    let mean_cfg: Vec<f32> = configured_client.mean(&a, &[1], false).unwrap().to_vec();
+    assert_parity_f32(&mean_base, &mean_cfg, "cpu_reduce_parallelism_mean");
+
+    let max_base: Vec<f32> = default_client.max(&a, &[1], false).unwrap().to_vec();
+    let max_cfg: Vec<f32> = configured_client.max(&a, &[1], false).unwrap().to_vec();
+    assert_parity_f32(&max_base, &max_cfg, "cpu_reduce_parallelism_max");
+
+    let prod_base: Vec<f32> = default_client.prod(&a, &[1], false).unwrap().to_vec();
+    let prod_cfg: Vec<f32> = configured_client.prod(&a, &[1], false).unwrap().to_vec();
+    assert_parity_f32(&prod_base, &prod_cfg, "cpu_reduce_parallelism_prod");
+
+    let any_base: Vec<f32> = default_client.any(&b, &[1], false).unwrap().to_vec();
+    let any_cfg: Vec<f32> = configured_client.any(&b, &[1], false).unwrap().to_vec();
+    assert_parity_f32(&any_base, &any_cfg, "cpu_reduce_parallelism_any");
 }

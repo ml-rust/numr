@@ -121,6 +121,7 @@ mod forward;
 pub mod ops;
 
 // Reverse-mode exports
+pub use crate::tensor::id::TensorId;
 pub use backward::{backward, backward_with_graph};
 pub use grad_fn::GradFn;
 pub use grad_store::GradStore;

@@ -11,7 +11,7 @@ use numr::ops::{BinaryOps, ComplexOps, UnaryOps};
 #[cfg(feature = "wgpu")]
 use numr::prelude::DType;
 use numr::runtime::Runtime;
-use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
 fn assert_complex_close(cpu: &[Complex64], other: &[Complex64], tol: f32, label: &str) {
@@ -36,6 +36,100 @@ fn assert_complex_close(cpu: &[Complex64], other: &[Complex64], tol: f32, label:
             b.im
         );
     }
+}
+
+#[test]
+fn test_cpu_complex_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(2), Some(257)));
+
+    // Keep this above CPU complex kernel parallel threshold (4096) to exercise
+    // the Rayon chunking path with custom chunk_size.
+    let shape = [128, 64];
+    let numel: usize = shape.iter().product();
+    let a_data: Vec<Complex64> = (0..numel)
+        .map(|i| Complex64::new((i as f32 * 0.011).sin(), (i as f32 * 0.017).cos()))
+        .collect();
+    let real_data: Vec<f32> = (0..numel)
+        .map(|i| 1.1 + (i as f32 * 0.019).sin().abs())
+        .collect();
+    let imag_data: Vec<f32> = (0..numel).map(|i| (i as f32 * 0.023).cos()).collect();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &shape, &device);
+    let real = Tensor::<CpuRuntime>::from_slice(&real_data, &shape, &device);
+    let imag = Tensor::<CpuRuntime>::from_slice(&imag_data, &shape, &device);
+
+    let base_conj: Vec<Complex64> = default_client.conj(&a).unwrap().to_vec();
+    let cfg_conj: Vec<Complex64> = configured_client.conj(&a).unwrap().to_vec();
+    assert_complex_close(
+        &base_conj,
+        &cfg_conj,
+        1e-6,
+        "cpu complex conj parallelism config",
+    );
+
+    let base_real: Vec<f32> = default_client.real(&a).unwrap().to_vec();
+    let cfg_real: Vec<f32> = configured_client.real(&a).unwrap().to_vec();
+    for (idx, (b, c)) in base_real.iter().zip(cfg_real.iter()).enumerate() {
+        assert!((b - c).abs() <= 1e-6, "cpu complex real mismatch at {idx}");
+    }
+
+    let base_imag: Vec<f32> = default_client.imag(&a).unwrap().to_vec();
+    let cfg_imag: Vec<f32> = configured_client.imag(&a).unwrap().to_vec();
+    for (idx, (b, c)) in base_imag.iter().zip(cfg_imag.iter()).enumerate() {
+        assert!((b - c).abs() <= 1e-6, "cpu complex imag mismatch at {idx}");
+    }
+
+    let base_angle: Vec<f32> = default_client.angle(&a).unwrap().to_vec();
+    let cfg_angle: Vec<f32> = configured_client.angle(&a).unwrap().to_vec();
+    for (idx, (b, c)) in base_angle.iter().zip(cfg_angle.iter()).enumerate() {
+        assert!((b - c).abs() <= 1e-6, "cpu complex angle mismatch at {idx}");
+    }
+
+    let base_make: Vec<Complex64> = default_client.make_complex(&real, &imag).unwrap().to_vec();
+    let cfg_make: Vec<Complex64> = configured_client
+        .make_complex(&real, &imag)
+        .unwrap()
+        .to_vec();
+    assert_complex_close(
+        &base_make,
+        &cfg_make,
+        1e-6,
+        "cpu make_complex parallelism config",
+    );
+
+    let made = default_client.make_complex(&real, &imag).unwrap();
+    let base_mul: Vec<Complex64> = default_client
+        .complex_mul_real(&made, &real)
+        .unwrap()
+        .to_vec();
+    let cfg_mul: Vec<Complex64> = configured_client
+        .complex_mul_real(&made, &real)
+        .unwrap()
+        .to_vec();
+    assert_complex_close(
+        &base_mul,
+        &cfg_mul,
+        1e-6,
+        "cpu complex_mul_real parallelism config",
+    );
+
+    let base_div: Vec<Complex64> = default_client
+        .complex_div_real(&made, &real)
+        .unwrap()
+        .to_vec();
+    let cfg_div: Vec<Complex64> = configured_client
+        .complex_div_real(&made, &real)
+        .unwrap()
+        .to_vec();
+    assert_complex_close(
+        &base_div,
+        &cfg_div,
+        1e-6,
+        "cpu complex_div_real parallelism config",
+    );
 }
 
 #[test]

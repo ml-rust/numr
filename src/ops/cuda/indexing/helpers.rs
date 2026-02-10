@@ -2,9 +2,10 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::TypeConversionOps;
 use crate::ops::broadcast_shape;
 use crate::runtime::cuda::kernels::compute_broadcast_strides;
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 use crate::tensor::Tensor;
 
 /// Validates that the mask tensor has dtype U8.
@@ -16,6 +17,24 @@ pub fn validate_mask_dtype(mask: &Tensor<CudaRuntime>) -> Result<()> {
         });
     }
     Ok(())
+}
+
+/// Normalize index tensor to I64 for CUDA indexing kernels.
+///
+/// CUDA indexing kernels consume i64 indices. This helper accepts both I32 and I64
+/// public API inputs and casts to I64 on device when needed.
+pub fn normalize_indices_to_i64(
+    client: &CudaClient,
+    indices: &Tensor<CudaRuntime>,
+) -> Result<Tensor<CudaRuntime>> {
+    match indices.dtype() {
+        DType::I64 => Ok(indices.clone()),
+        DType::I32 => client.cast(indices, DType::I64),
+        other => Err(Error::DTypeMismatch {
+            lhs: DType::I64,
+            rhs: other,
+        }),
+    }
 }
 
 /// Context for broadcast masked operations.

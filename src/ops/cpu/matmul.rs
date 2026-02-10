@@ -66,6 +66,57 @@ impl MatmulOps<CpuRuntime> for CpuClient {
 
         // Dispatch based on dtype
         dispatch_dtype!(dtype, T => {
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+
+                if batch_size > 1 {
+                    let min_len = self.rayon_min_len();
+                    self.install_parallelism(|| {
+                        (0..batch_size)
+                            .into_par_iter()
+                            .with_min_len(min_len)
+                            .for_each(|batch| unsafe {
+                            let a_offset = batch * m * k;
+                            let b_offset = batch * k * n;
+                            let out_offset = batch * m * n;
+
+                            <Self as Kernel<CpuRuntime>>::matmul::<T>(
+                                self,
+                                (a_ptr as *const T).add(a_offset),
+                                (b_ptr as *const T).add(b_offset),
+                                (out_ptr as *mut T).add(out_offset),
+                                m,
+                                n,
+                                k,
+                                lda,
+                                ldb,
+                                ldc,
+                            );
+                        });
+                    });
+                } else {
+                    unsafe {
+                        let a_offset = 0;
+                        let b_offset = 0;
+                        let out_offset = 0;
+                        <Self as Kernel<CpuRuntime>>::matmul::<T>(
+                            self,
+                            (a_ptr as *const T).add(a_offset),
+                            (b_ptr as *const T).add(b_offset),
+                            (out_ptr as *mut T).add(out_offset),
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "rayon"))]
             unsafe {
                 for batch in 0..batch_size {
                     let a_offset = batch * m * k;
@@ -149,6 +200,58 @@ impl MatmulOps<CpuRuntime> for CpuClient {
 
         // Dispatch based on dtype
         dispatch_dtype!(dtype, T => {
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+
+                if batch_size > 1 {
+                    let min_len = self.rayon_min_len();
+                    self.install_parallelism(|| {
+                        (0..batch_size)
+                            .into_par_iter()
+                            .with_min_len(min_len)
+                            .for_each(|batch| unsafe {
+                            let a_offset = batch * m * k;
+                            let b_offset = batch * k * n;
+                            let out_offset = batch * m * n;
+
+                            matmul_bias_kernel::<T>(
+                                (a_ptr as *const T).add(a_offset),
+                                (b_ptr as *const T).add(b_offset),
+                                bias_ptr as *const T, // bias is 1D, same for all batches
+                                (out_ptr as *mut T).add(out_offset),
+                                m,
+                                n,
+                                k,
+                                lda,
+                                ldb,
+                                ldc,
+                            );
+                        });
+                    });
+                } else {
+                    unsafe {
+                        let a_offset = 0;
+                        let b_offset = 0;
+                        let out_offset = 0;
+
+                        matmul_bias_kernel::<T>(
+                            (a_ptr as *const T).add(a_offset),
+                            (b_ptr as *const T).add(b_offset),
+                            bias_ptr as *const T,
+                            (out_ptr as *mut T).add(out_offset),
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "rayon"))]
             unsafe {
                 for batch in 0..batch_size {
                     let a_offset = batch * m * k;

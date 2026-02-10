@@ -2,14 +2,14 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{IndexingOps, ReduceOps, ScatterReduceOp, TypeConversionOps};
+use crate::ops::{IndexingOps, ReduceOps, ScalarOps, ScatterReduceOp, TypeConversionOps};
 use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
-    BincountParams, Gather2dParams, GatherNdParams, ScatterReduceParams, alloc_output,
-    create_params_buffer, ensure_i32_indices, get_tensor_buffer,
+    BincountParams, Gather2dParams, GatherNdParams, MeanDivParams, ScatterReduceParams,
+    alloc_output, create_params_buffer, ensure_i32_indices, get_tensor_buffer,
 };
 use crate::runtime::wgpu::ops::native::{
     native_argreduce_op, native_embedding_lookup, native_gather, native_index_put,
@@ -17,6 +17,7 @@ use crate::runtime::wgpu::ops::native::{
 };
 use crate::runtime::wgpu::shaders::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
+    launch_scatter_reduce_count, launch_scatter_reduce_mean_div, launch_scatter_reduce_prod,
 };
 use crate::tensor::Tensor;
 
@@ -122,6 +123,14 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
             });
         }
 
+        // Mean only supports F32 on WebGPU
+        if matches!(op, ScatterReduceOp::Mean) && dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "scatter_reduce_mean",
+            });
+        }
+
         // Validate index dtype
         if !matches!(index.dtype(), DType::I32 | DType::I64) {
             return Err(Error::InvalidArgument {
@@ -129,23 +138,6 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
                 reason: "scatter_reduce index must be I32 or I64".to_string(),
             });
         }
-
-        // Map operation
-        let op_str = match op {
-            ScatterReduceOp::Sum => "sum",
-            ScatterReduceOp::Max => "max",
-            ScatterReduceOp::Min => "min",
-            ScatterReduceOp::Prod => {
-                return Err(Error::NotImplemented {
-                    feature: "scatter_reduce with Prod on WebGPU",
-                });
-            }
-            ScatterReduceOp::Mean => {
-                return Err(Error::NotImplemented {
-                    feature: "scatter_reduce with Mean on WebGPU (requires count tracking)",
-                });
-            }
-        };
 
         // Ensure contiguous
         let dst = ensure_contiguous(dst);
@@ -169,26 +161,22 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         let src_dim_size = src.shape().get(dim).copied().unwrap_or(1);
         let total_src = src.numel();
 
-        // Allocate output and initialize
+        // Initialize output with identity for the operation
+        let identity = match op {
+            ScatterReduceOp::Sum | ScatterReduceOp::Mean => 0.0f64,
+            ScatterReduceOp::Max => f64::NEG_INFINITY,
+            ScatterReduceOp::Min => f64::INFINITY,
+            ScatterReduceOp::Prod => 1.0,
+        };
         let output = if include_self {
-            dst.clone()
+            // Must deep-copy: clone() shares the GPU buffer, but scatter_reduce
+            // modifies it in-place via atomics, which would corrupt the original.
+            self.add_scalar(&dst, 0.0)?
         } else {
-            // Initialize to identity for the operation
-            let identity = match op {
-                ScatterReduceOp::Sum => 0.0f64,
-                ScatterReduceOp::Max => f64::NEG_INFINITY,
-                ScatterReduceOp::Min => f64::INFINITY,
-                _ => 0.0,
-            };
             Tensor::full_scalar(dst_shape, dtype, identity, self.device())
         };
 
-        // Get buffers
-        let src_buf = get_tensor_buffer(&src)?;
-        let index_buf = get_tensor_buffer(&index)?;
-        let output_buf = get_tensor_buffer(&output)?;
-
-        // Create params
+        // Create shared params
         let params = ScatterReduceParams {
             dim: dim as u32,
             outer_size: outer_size as u32,
@@ -201,19 +189,105 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         };
         let params_buf = create_params_buffer(self, &params);
 
-        launch_scatter_reduce(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &src_buf,
-            &index_buf,
-            &output_buf,
-            &params_buf,
-            total_src,
-            dtype,
-            op_str,
-        )?;
+        let src_buf = get_tensor_buffer(&src)?;
+        let index_buf = get_tensor_buffer(&index)?;
+        let output_buf = get_tensor_buffer(&output)?;
 
-        Ok(output)
+        match op {
+            ScatterReduceOp::Prod => {
+                launch_scatter_reduce_prod(
+                    self.pipeline_cache(),
+                    self.wgpu_queue(),
+                    &src_buf,
+                    &index_buf,
+                    &output_buf,
+                    &params_buf,
+                    total_src,
+                    dtype,
+                )?;
+                Ok(output)
+            }
+            ScatterReduceOp::Mean => {
+                // Step 1: scatter sum
+                launch_scatter_reduce(
+                    self.pipeline_cache(),
+                    self.wgpu_queue(),
+                    &src_buf,
+                    &index_buf,
+                    &output_buf,
+                    &params_buf,
+                    total_src,
+                    dtype,
+                    "sum",
+                )?;
+
+                // Step 2: scatter count (u32 buffer)
+                let numel = dst.numel();
+                let count_init = if include_self { 1u32 } else { 0u32 };
+                let count_data = vec![count_init; numel];
+                let count_tensor =
+                    Tensor::<WgpuRuntime>::from_slice(&count_data, dst_shape, self.device());
+                let count_buf = get_tensor_buffer(&count_tensor)?;
+
+                launch_scatter_reduce_count(
+                    self.pipeline_cache(),
+                    self.wgpu_queue(),
+                    &index_buf,
+                    &count_buf,
+                    &params_buf,
+                    total_src,
+                    dtype,
+                )?;
+
+                // Step 3: divide sum by count
+                let result = alloc_output(self, dst_shape, dtype);
+                let result_buf = get_tensor_buffer(&result)?;
+
+                let mean_params = MeanDivParams {
+                    n: numel as u32,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
+                };
+                let mean_params_buf = create_params_buffer(self, &mean_params);
+
+                launch_scatter_reduce_mean_div(
+                    self.pipeline_cache(),
+                    self.wgpu_queue(),
+                    &output_buf,
+                    &count_buf,
+                    &result_buf,
+                    &mean_params_buf,
+                    numel,
+                    dtype,
+                )?;
+
+                Ok(result)
+            }
+            _ => {
+                // Sum, Max, Min - use existing shader
+                let op_str = match op {
+                    ScatterReduceOp::Sum => "sum",
+                    ScatterReduceOp::Max => "max",
+                    ScatterReduceOp::Min => "min",
+                    _ => unreachable!(),
+                };
+
+                launch_scatter_reduce(
+                    self.pipeline_cache(),
+                    self.wgpu_queue(),
+                    &src_buf,
+                    &index_buf,
+                    &output_buf,
+                    &params_buf,
+                    total_src,
+                    dtype,
+                    op_str,
+                )?;
+
+                Ok(output)
+            }
+        }
     }
 
     fn gather_nd(

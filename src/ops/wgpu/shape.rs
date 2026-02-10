@@ -3,6 +3,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ShapeOps;
+use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
 use crate::runtime::shape_ops;
 use crate::runtime::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::wgpu::WgpuClient;
@@ -360,5 +361,24 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         )?;
 
         Ok(out)
+    }
+
+    fn unfold(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        dim: isize,
+        size: usize,
+        step: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        unfold_impl(self, tensor, dim, size, step)
+    }
+
+    fn repeat_interleave(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        repeats: usize,
+        dim: Option<isize>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        repeat_interleave_impl(self, tensor, repeats, dim)
     }
 }

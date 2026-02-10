@@ -707,6 +707,234 @@ fn scatter_reduce_{op}_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 }
 
+/// Generate WGSL shader for scatter_reduce prod operation.
+///
+/// Uses CAS loop for atomic multiply (no native atomicMul in WGSL).
+/// Only supports F32 (uses bitcast to u32 for atomics).
+pub fn generate_scatter_reduce_prod_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+    let is_float = matches!(dtype, DType::F32);
+
+    if is_float {
+        Ok(format!(
+            r#"// Auto-generated scatter_reduce_prod for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct ScatterReduceParams {{
+    dim: u32,
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    src_dim_size: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read_write> scatter_src: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> scatter_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> scatter_dst: array<atomic<u32>>;
+@group(0) @binding(3) var<uniform> scatter_params: ScatterReduceParams;
+
+@compute @workgroup_size(256)
+fn scatter_reduce_prod_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = scatter_params.outer_size * scatter_params.src_dim_size * scatter_params.inner_size;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let inner = idx % scatter_params.inner_size;
+    let src_dim_idx = (idx / scatter_params.inner_size) % scatter_params.src_dim_size;
+    let outer = idx / (scatter_params.src_dim_size * scatter_params.inner_size);
+
+    let index_val = scatter_indices[src_dim_idx];
+    if (index_val < 0 || u32(index_val) >= scatter_params.dim_size) {{
+        return;
+    }}
+
+    let src_val = scatter_src[idx];
+    let dst_idx = outer * scatter_params.dim_size * scatter_params.inner_size + u32(index_val) * scatter_params.inner_size + inner;
+
+    // CAS loop for atomic multiply
+    var old_bits: u32;
+    var new_bits: u32;
+    loop {{
+        old_bits = atomicLoad(&scatter_dst[dst_idx]);
+        let old_val = bitcast<f32>(old_bits);
+        let new_val = old_val * src_val;
+        new_bits = bitcast<u32>(new_val);
+        let result = atomicCompareExchangeWeak(&scatter_dst[dst_idx], old_bits, new_bits);
+        if (result.exchanged) {{
+            break;
+        }}
+    }}
+}}
+"#,
+            t = t,
+            suffix = suffix,
+        ))
+    } else {
+        // Integer prod using CAS loop
+        let atomic_t = if dtype == DType::I32 { "i32" } else { "u32" };
+        Ok(format!(
+            r#"// Auto-generated scatter_reduce_prod for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct ScatterReduceParams {{
+    dim: u32,
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    src_dim_size: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read> scatter_src: array<{t}>;
+@group(0) @binding(1) var<storage, read> scatter_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> scatter_dst: array<atomic<{atomic_t}>>;
+@group(0) @binding(3) var<uniform> scatter_params: ScatterReduceParams;
+
+@compute @workgroup_size(256)
+fn scatter_reduce_prod_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = scatter_params.outer_size * scatter_params.src_dim_size * scatter_params.inner_size;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let inner = idx % scatter_params.inner_size;
+    let src_dim_idx = (idx / scatter_params.inner_size) % scatter_params.src_dim_size;
+    let outer = idx / (scatter_params.src_dim_size * scatter_params.inner_size);
+
+    let index_val = scatter_indices[src_dim_idx];
+    if (index_val < 0 || u32(index_val) >= scatter_params.dim_size) {{
+        return;
+    }}
+
+    let src_val = scatter_src[idx];
+    let dst_idx = outer * scatter_params.dim_size * scatter_params.inner_size + u32(index_val) * scatter_params.inner_size + inner;
+
+    // CAS loop for atomic multiply
+    loop {{
+        let old_val = atomicLoad(&scatter_dst[dst_idx]);
+        let new_val = old_val * src_val;
+        let result = atomicCompareExchangeWeak(&scatter_dst[dst_idx], old_val, new_val);
+        if (result.exchanged) {{
+            break;
+        }}
+    }}
+}}
+"#,
+            t = t,
+            suffix = suffix,
+            atomic_t = atomic_t,
+        ))
+    }
+}
+
+/// Generate WGSL shader for scatter_reduce count (for mean computation).
+///
+/// Atomically increments count buffer at scattered positions.
+pub fn generate_scatter_reduce_count_shader(dtype: DType) -> Result<String> {
+    let suffix = dtype_suffix(dtype)?;
+
+    // Count buffer is always u32 (atomic<u32>)
+    Ok(format!(
+        r#"// Auto-generated scatter_reduce_count for mean computation
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct ScatterReduceParams {{
+    dim: u32,
+    outer_size: u32,
+    dim_size: u32,
+    inner_size: u32,
+    src_dim_size: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read_write> scatter_indices: array<i32>;
+@group(0) @binding(1) var<storage, read_write> scatter_count: array<atomic<u32>>;
+@group(0) @binding(2) var<uniform> scatter_params: ScatterReduceParams;
+
+@compute @workgroup_size(256)
+fn scatter_reduce_count_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    let total = scatter_params.outer_size * scatter_params.src_dim_size * scatter_params.inner_size;
+    if (idx >= total) {{
+        return;
+    }}
+
+    let inner = idx % scatter_params.inner_size;
+    let src_dim_idx = (idx / scatter_params.inner_size) % scatter_params.src_dim_size;
+    let outer = idx / (scatter_params.src_dim_size * scatter_params.inner_size);
+
+    let index_val = scatter_indices[src_dim_idx];
+    if (index_val < 0 || u32(index_val) >= scatter_params.dim_size) {{
+        return;
+    }}
+
+    let dst_idx = outer * scatter_params.dim_size * scatter_params.inner_size + u32(index_val) * scatter_params.inner_size + inner;
+
+    atomicAdd(&scatter_count[dst_idx], 1u);
+}}
+"#,
+        suffix = suffix,
+    ))
+}
+
+/// Generate WGSL shader for scatter_reduce mean divide.
+///
+/// Element-wise: output[i] = sum[i] / f32(count[i]). If count == 0, output = 0.
+pub fn generate_scatter_reduce_mean_div_shader(dtype: DType) -> Result<String> {
+    let t = wgsl_type(dtype)?;
+    let suffix = dtype_suffix(dtype)?;
+
+    Ok(format!(
+        r#"// Auto-generated scatter_reduce_mean_div for {t}
+
+const WORKGROUP_SIZE: u32 = 256u;
+
+struct MeanDivParams {{
+    n: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+}}
+
+@group(0) @binding(0) var<storage, read_write> mean_sum: array<{t}>;
+@group(0) @binding(1) var<storage, read_write> mean_count: array<u32>;
+@group(0) @binding(2) var<storage, read_write> mean_output: array<{t}>;
+@group(0) @binding(3) var<uniform> mean_params: MeanDivParams;
+
+@compute @workgroup_size(256)
+fn scatter_reduce_mean_div_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
+    let idx = gid.x;
+    if (idx >= mean_params.n) {{
+        return;
+    }}
+
+    let c = mean_count[idx];
+    if (c > 0u) {{
+        mean_output[idx] = mean_sum[idx] / {t}(c);
+    }} else {{
+        mean_output[idx] = {t}(0);
+    }}
+}}
+"#,
+        t = t,
+        suffix = suffix,
+    ))
+}
+
 /// Generate WGSL shader for index bounds validation.
 ///
 /// Validates that all indices are within bounds `[0, dim_size)`.

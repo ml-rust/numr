@@ -63,8 +63,10 @@ impl<R: Runtime> Tensor<R> {
     /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
     /// # Ok::<(), numr::error::Error>(())
     /// ```
+    #[track_caller]
     pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
-        Self::try_from_slice(data, shape, device).expect("Tensor::from_slice failed")
+        Self::try_from_slice(data, shape, device)
+            .unwrap_or_else(|e| panic!("Tensor::from_slice failed: {e}"))
     }
 
     /// Create a tensor from a slice of data (fallible version)
@@ -107,8 +109,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// # Safety
     /// The contents are uninitialized. Reading before writing is undefined behavior.
+    ///
+    /// # Panics
+    /// Panics if allocation fails. Use [`Self::try_empty`] in fallible contexts.
+    #[track_caller]
     pub fn empty(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::try_empty(shape, dtype, device).expect("Tensor::empty failed")
+        Self::try_empty(shape, dtype, device)
+            .unwrap_or_else(|e| panic!("Tensor::empty failed: {e}"))
     }
 
     /// Create an uninitialized tensor (fallible version)
@@ -127,8 +134,10 @@ impl<R: Runtime> Tensor<R> {
     /// Create a tensor filled with zeros
     ///
     /// This properly initializes memory to zero on all backends (CPU and GPU).
+    #[track_caller]
     pub fn zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::try_zeros(shape, dtype, device).expect("Tensor::zeros failed")
+        Self::try_zeros(shape, dtype, device)
+            .unwrap_or_else(|e| panic!("Tensor::zeros failed: {e}"))
     }
 
     /// Create a tensor filled with zeros (fallible version)
@@ -137,8 +146,9 @@ impl<R: Runtime> Tensor<R> {
     }
 
     /// Create a tensor filled with ones
+    #[track_caller]
     pub fn ones(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::try_ones(shape, dtype, device).expect("Tensor::ones failed")
+        Self::try_ones(shape, dtype, device).unwrap_or_else(|e| panic!("Tensor::ones failed: {e}"))
     }
 
     /// Create a tensor filled with ones (fallible version)
@@ -149,8 +159,10 @@ impl<R: Runtime> Tensor<R> {
     /// Create a tensor filled with a scalar value
     ///
     /// The scalar is converted to the target dtype.
+    #[track_caller]
     pub fn full_scalar(shape: &[usize], dtype: DType, value: f64, device: &R::Device) -> Self {
-        Self::try_full_scalar(shape, dtype, value, device).expect("Tensor::full_scalar failed")
+        Self::try_full_scalar(shape, dtype, value, device)
+            .unwrap_or_else(|e| panic!("Tensor::full_scalar failed: {e}"))
     }
 
     /// Create a tensor filled with a scalar value (fallible version)
@@ -238,9 +250,9 @@ impl<R: Runtime> Tensor<R> {
 
     // ===== Accessors =====
 
-    /// Get the tensor ID
+    /// Get the internal tensor ID for autograd graph tracking.
     #[inline]
-    pub fn id(&self) -> TensorId {
+    pub(crate) fn id(&self) -> TensorId {
         self.id
     }
 

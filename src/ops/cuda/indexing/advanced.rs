@@ -5,11 +5,14 @@ use crate::error::{Error, Result};
 use crate::ops::{ReduceOps, ScatterReduceOp, TypeConversionOps};
 use crate::runtime::cuda::kernels::{
     ScatterReduceOpCuda, launch_bincount_weighted, launch_copy, launch_embedding_lookup,
-    launch_fill_with_f64, launch_gather_nd, launch_scatter_reduce,
+    launch_fill_with_f64, launch_gather_nd, launch_scatter_reduce, launch_scatter_reduce_count,
+    launch_scatter_reduce_mean_div,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
+
+use super::helpers::normalize_indices_to_i64;
 
 /// Execute embedding_lookup operation.
 pub fn embedding_lookup(
@@ -28,24 +31,18 @@ pub fn embedding_lookup(
         });
     }
 
-    // Validate indices dtype
-    if indices.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: indices.dtype(),
-        });
-    }
+    let indices_i64 = normalize_indices_to_i64(client, indices)?;
 
     let vocab_size = emb_shape[0];
     let embedding_dim = emb_shape[1];
-    let num_indices = indices.numel();
+    let num_indices = indices_i64.numel();
 
     // Output shape: indices.shape() + [embedding_dim]
-    let mut out_shape = indices.shape().to_vec();
+    let mut out_shape = indices_i64.shape().to_vec();
     out_shape.push(embedding_dim);
 
     let emb_contig = ensure_contiguous(embeddings);
-    let idx_contig = ensure_contiguous(indices);
+    let idx_contig = ensure_contiguous(&indices_i64);
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
@@ -88,13 +85,7 @@ pub fn scatter_reduce(
         });
     }
 
-    // Validate dtypes
-    if index.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: index.dtype(),
-        });
-    }
+    let index_i64 = normalize_indices_to_i64(client, index)?;
 
     if src.dtype() != dtype {
         return Err(Error::DTypeMismatch {
@@ -104,35 +95,32 @@ pub fn scatter_reduce(
     }
 
     // Validate that index and src have same shape
-    if index.shape() != src.shape() {
+    if index_i64.shape() != src.shape() {
         return Err(Error::ShapeMismatch {
             expected: src.shape().to_vec(),
-            got: index.shape().to_vec(),
+            got: index_i64.shape().to_vec(),
         });
     }
 
     // Validate that index has same number of dimensions as dst
-    if index.ndim() != ndim {
+    if index_i64.ndim() != ndim {
         return Err(Error::ShapeMismatch {
             expected: shape.to_vec(),
-            got: index.shape().to_vec(),
+            got: index_i64.shape().to_vec(),
         });
     }
 
     // Map ScatterReduceOp to ScatterReduceOpCuda
     let cuda_op = match op {
-        ScatterReduceOp::Sum | ScatterReduceOp::Mean => ScatterReduceOpCuda::Sum,
+        ScatterReduceOp::Sum => ScatterReduceOpCuda::Sum,
         ScatterReduceOp::Max => ScatterReduceOpCuda::Max,
         ScatterReduceOp::Min => ScatterReduceOpCuda::Min,
-        ScatterReduceOp::Prod => {
-            return Err(Error::NotImplemented {
-                feature: "scatter_reduce with Prod on CUDA",
-            });
-        }
+        ScatterReduceOp::Prod => ScatterReduceOpCuda::Prod,
+        ScatterReduceOp::Mean => ScatterReduceOpCuda::Sum, // Mean uses sum kernel + count + div
     };
 
     let dst_contig = ensure_contiguous(dst);
-    let index_contig = ensure_contiguous(index);
+    let index_contig = ensure_contiguous(&index_i64);
     let src_contig = ensure_contiguous(src);
 
     // Allocate output and initialize with dst values if include_self
@@ -196,12 +184,78 @@ pub fn scatter_reduce(
         )?;
     }
 
-    // For Mean operation, we would need to track counts and divide
-    // This is not currently supported in the kernel
-    if op == ScatterReduceOp::Mean {
-        return Err(Error::NotImplemented {
-            feature: "scatter_reduce with Mean on CUDA (requires count tracking)",
-        });
+    // For mean: divide sum by count
+    if matches!(op, ScatterReduceOp::Mean) {
+        // Only float types support mean
+        if !matches!(dtype, DType::F32 | DType::F64) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "scatter_reduce_mean",
+            });
+        }
+
+        // Allocate count buffer (same shape as output, zero-initialized)
+        let count = Tensor::<CudaRuntime>::empty(shape, dtype, &client.device);
+        unsafe {
+            launch_fill_with_f64(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                0.0,
+                count.storage().ptr(),
+                dst.numel(),
+            )?;
+        }
+
+        // If include_self, each dst element starts with count=1
+        if include_self {
+            unsafe {
+                launch_fill_with_f64(
+                    &client.context,
+                    &client.stream,
+                    client.device.index,
+                    dtype,
+                    1.0,
+                    count.storage().ptr(),
+                    dst.numel(),
+                )?;
+            }
+        }
+
+        // Scatter count: atomicAdd 1 for each src element
+        unsafe {
+            launch_scatter_reduce_count(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                index_contig.storage().ptr(),
+                count.storage().ptr(),
+                dim,
+                outer_size,
+                dim_size,
+                inner_size,
+                src_dim_size,
+            )?;
+        }
+
+        // Divide sum by count
+        let result = Tensor::<CudaRuntime>::empty(shape, dtype, &client.device);
+        unsafe {
+            launch_scatter_reduce_mean_div(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                out.storage().ptr(),
+                count.storage().ptr(),
+                result.storage().ptr(),
+                dst.numel(),
+            )?;
+        }
+
+        return Ok(result);
     }
 
     Ok(out)
@@ -215,15 +269,8 @@ pub fn gather_nd(
 ) -> Result<Tensor<CudaRuntime>> {
     let dtype = input.dtype();
     let input_shape = input.shape();
-    let indices_shape = indices.shape();
-
-    // Validate indices dtype
-    if indices.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: indices.dtype(),
-        });
-    }
+    let indices_i64 = normalize_indices_to_i64(client, indices)?;
+    let indices_shape = indices_i64.shape();
 
     // Indices must have at least 1 dimension
     if indices_shape.is_empty() {
@@ -263,7 +310,7 @@ pub fn gather_nd(
     let slice_size = slice_size.max(1);
 
     let input_contig = ensure_contiguous(input);
-    let indices_contig = ensure_contiguous(indices);
+    let indices_contig = ensure_contiguous(&indices_i64);
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     // Allocate device memory for input shape and strides

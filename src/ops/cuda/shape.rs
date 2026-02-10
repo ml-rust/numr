@@ -1,6 +1,7 @@
 //! Shape operations for CUDA runtime
 use crate::error::Result;
 use crate::ops::ShapeOps;
+use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
 use crate::runtime::cuda::kernels::{launch_cat_copy, launch_pad, launch_repeat, launch_roll};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{ensure_contiguous, shape_ops};
@@ -181,5 +182,24 @@ impl ShapeOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn unfold(
+        &self,
+        tensor: &Tensor<CudaRuntime>,
+        dim: isize,
+        size: usize,
+        step: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        unfold_impl(self, tensor, dim, size, step)
+    }
+
+    fn repeat_interleave(
+        &self,
+        tensor: &Tensor<CudaRuntime>,
+        repeats: usize,
+        dim: Option<isize>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        repeat_interleave_impl(self, tensor, repeats, dim)
     }
 }

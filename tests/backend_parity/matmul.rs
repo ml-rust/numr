@@ -4,10 +4,12 @@
 // CPU, CUDA, and WebGPU backends.
 
 use numr::ops::MatmulOps;
+use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::helpers::assert_parity_f32;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
@@ -126,4 +128,31 @@ fn test_matmul_vector_parity() {
     let b = vec![5.0, 6.0, 7.0, 8.0];
 
     test_matmul_parity(vec![MatmulTest::new(a, vec![1, 4], b, vec![4, 1])]);
+}
+
+#[test]
+fn test_cpu_matmul_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(1024)));
+
+    // Batched case to exercise batch parallelism path.
+    let a_shape = [6, 24, 16];
+    let b_shape = [6, 16, 12];
+    let a_numel: usize = a_shape.iter().product();
+    let b_numel: usize = b_shape.iter().product();
+    let a_data: Vec<f32> = (0..a_numel)
+        .map(|i| (i as f32 * 0.013).sin() + (i as f32 * 0.007).cos())
+        .collect();
+    let b_data: Vec<f32> = (0..b_numel)
+        .map(|i| (i as f32 * 0.011).cos() - (i as f32 * 0.005).sin())
+        .collect();
+
+    let a = Tensor::<CpuRuntime>::from_slice(&a_data, &a_shape, &device);
+    let b = Tensor::<CpuRuntime>::from_slice(&b_data, &b_shape, &device);
+
+    let base: Vec<f32> = default_client.matmul(&a, &b).unwrap().to_vec();
+    let cfg: Vec<f32> = configured_client.matmul(&a, &b).unwrap().to_vec();
+    assert_parity_f32(&base, &cfg, "cpu_matmul_parallelism_config");
 }
