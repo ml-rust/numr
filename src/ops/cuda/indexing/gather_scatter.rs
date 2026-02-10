@@ -10,6 +10,8 @@ use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
 
+use super::helpers::normalize_indices_to_i64;
+
 /// Execute gather operation along dimension.
 pub fn gather(
     client: &CudaClient,
@@ -17,13 +19,7 @@ pub fn gather(
     dim: usize,
     index: &Tensor<CudaRuntime>,
 ) -> Result<Tensor<CudaRuntime>> {
-    // Validate index dtype
-    if index.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: index.dtype(),
-        });
-    }
+    let index_i64 = normalize_indices_to_i64(client, index)?;
 
     // Validate dimension
     let ndim = a.ndim();
@@ -35,19 +31,19 @@ pub fn gather(
     }
 
     // Validate index tensor has same number of dimensions
-    if index.ndim() != ndim {
+    if index_i64.ndim() != ndim {
         return Err(Error::ShapeMismatch {
             expected: a.shape().to_vec(),
-            got: index.shape().to_vec(),
+            got: index_i64.shape().to_vec(),
         });
     }
 
     let dtype = a.dtype();
     let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(index);
+    let index_contig = ensure_contiguous(&index_i64);
 
     // Output has same shape as index
-    let out_shape = index.shape().to_vec();
+    let out_shape = index_i64.shape().to_vec();
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     // Prepare shape and stride arrays for GPU
@@ -117,13 +113,7 @@ pub fn scatter(
     index: &Tensor<CudaRuntime>,
     src: &Tensor<CudaRuntime>,
 ) -> Result<Tensor<CudaRuntime>> {
-    // Validate index dtype
-    if index.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: index.dtype(),
-        });
-    }
+    let index_i64 = normalize_indices_to_i64(client, index)?;
 
     // Validate dimension
     let ndim = a.ndim();
@@ -144,15 +134,15 @@ pub fn scatter(
     }
 
     // Index and src must have same shape
-    if index.shape() != src.shape() {
+    if index_i64.shape() != src.shape() {
         return Err(Error::ShapeMismatch {
-            expected: index.shape().to_vec(),
+            expected: index_i64.shape().to_vec(),
             got: src.shape().to_vec(),
         });
     }
 
     let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(index);
+    let index_contig = ensure_contiguous(&index_i64);
     let src_contig = ensure_contiguous(src);
 
     // Output has same shape as input
@@ -249,19 +239,13 @@ pub fn index_select(
     dim: usize,
     index: &Tensor<CudaRuntime>,
 ) -> Result<Tensor<CudaRuntime>> {
-    // Validate index dtype
-    if index.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: index.dtype(),
-        });
-    }
+    let index_i64 = normalize_indices_to_i64(client, index)?;
 
     // Validate index is 1D
-    if index.ndim() != 1 {
+    if index_i64.ndim() != 1 {
         return Err(Error::ShapeMismatch {
-            expected: vec![index.numel()],
-            got: index.shape().to_vec(),
+            expected: vec![index_i64.numel()],
+            got: index_i64.shape().to_vec(),
         });
     }
 
@@ -277,10 +261,10 @@ pub fn index_select(
 
     let dtype = a.dtype();
     let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(index);
+    let index_contig = ensure_contiguous(&index_i64);
 
     // Compute output shape: same as input but dim[dim] = index.len()
-    let index_len = index.numel();
+    let index_len = index_i64.numel();
     let mut out_shape = shape.to_vec();
     out_shape[dim] = index_len;
 
@@ -373,48 +357,36 @@ pub fn gather_2d(
     let nrows = shape[0];
     let ncols = shape[1];
 
-    // Validate index dtypes
-    if rows.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: rows.dtype(),
-        });
-    }
-
-    if cols.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: cols.dtype(),
-        });
-    }
+    let rows_i64 = normalize_indices_to_i64(client, rows)?;
+    let cols_i64 = normalize_indices_to_i64(client, cols)?;
 
     // Validate rows and cols are 1D and have same length
-    if rows.ndim() != 1 {
+    if rows_i64.ndim() != 1 {
         return Err(Error::ShapeMismatch {
-            expected: vec![rows.numel()],
-            got: rows.shape().to_vec(),
+            expected: vec![rows_i64.numel()],
+            got: rows_i64.shape().to_vec(),
         });
     }
 
-    if cols.ndim() != 1 {
+    if cols_i64.ndim() != 1 {
         return Err(Error::ShapeMismatch {
-            expected: vec![cols.numel()],
-            got: cols.shape().to_vec(),
+            expected: vec![cols_i64.numel()],
+            got: cols_i64.shape().to_vec(),
         });
     }
 
-    let num_indices = rows.numel();
-    if cols.numel() != num_indices {
+    let num_indices = rows_i64.numel();
+    if cols_i64.numel() != num_indices {
         return Err(Error::ShapeMismatch {
             expected: vec![num_indices],
-            got: cols.shape().to_vec(),
+            got: cols_i64.shape().to_vec(),
         });
     }
 
     // Make all inputs contiguous
     let input_contig = ensure_contiguous(input);
-    let rows_contig = ensure_contiguous(rows);
-    let cols_contig = ensure_contiguous(cols);
+    let rows_contig = ensure_contiguous(&rows_i64);
+    let cols_contig = ensure_contiguous(&cols_i64);
 
     // Allocate output
     let out = Tensor::<CudaRuntime>::empty(&[num_indices], dtype, &client.device);
@@ -458,19 +430,13 @@ pub fn index_put(
         });
     }
 
-    // Validate index dtype
-    if index.dtype() != DType::I64 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I64,
-            rhs: index.dtype(),
-        });
-    }
+    let index_i64 = normalize_indices_to_i64(client, index)?;
 
     // Validate index is 1D
-    if index.ndim() != 1 {
+    if index_i64.ndim() != 1 {
         return Err(Error::ShapeMismatch {
-            expected: vec![index.numel()],
-            got: index.shape().to_vec(),
+            expected: vec![index_i64.numel()],
+            got: index_i64.shape().to_vec(),
         });
     }
 
@@ -482,7 +448,7 @@ pub fn index_put(
         });
     }
 
-    let index_len = index.numel();
+    let index_len = index_i64.numel();
 
     // Validate src shape: must match a's shape except at dim where it equals index_len
     let mut expected_src_shape = shape.to_vec();
@@ -495,7 +461,7 @@ pub fn index_put(
     }
 
     let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(index);
+    let index_contig = ensure_contiguous(&index_i64);
     let src_contig = ensure_contiguous(src);
 
     // Compute dim_size for validation

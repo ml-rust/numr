@@ -701,6 +701,16 @@ pub(crate) struct ScatterReduceParams {
     pub(crate) _pad2: u32,
 }
 
+/// Params for scatter_reduce mean division
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct MeanDivParams {
+    pub(crate) n: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) _pad2: u32,
+}
+
 /// Params for gather_2d operation
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

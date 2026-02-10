@@ -1,5 +1,6 @@
 //! Indexing operations trait.
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
@@ -20,6 +21,20 @@ pub enum ScatterReduceOp {
     Min,
     /// Multiply all values together
     Prod,
+}
+
+/// Validate that indices tensor has an integer dtype (I32 or I64).
+fn validate_index_dtype<R: Runtime>(indices: &Tensor<R>) -> Result<()> {
+    match indices.dtype() {
+        DType::I32 | DType::I64 => Ok(()),
+        other => Err(Error::InvalidArgument {
+            arg: "indices",
+            reason: format!(
+                "indices must have integer dtype (I32 or I64), got {:?}",
+                other
+            ),
+        }),
+    }
 }
 
 /// Indexing operations
@@ -77,7 +92,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `a` - Input tensor
     /// * `dim` - Dimension along which to gather
-    /// * `index` - Index tensor (I64) with same number of dimensions as input
+    /// * `index` - Index tensor (I32 or I64) with same number of dimensions as input
     ///
     /// # Returns
     ///
@@ -101,7 +116,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `a` - Input tensor (values to scatter into)
     /// * `dim` - Dimension along which to scatter
-    /// * `index` - Index tensor (I64) specifying scatter positions
+    /// * `index` - Index tensor (I32 or I64) specifying scatter positions
     /// * `src` - Source tensor with values to scatter
     ///
     /// # Returns
@@ -129,7 +144,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `a` - Input tensor
     /// * `dim` - Dimension along which to select
-    /// * `index` - 1D index tensor (I64) of length m
+    /// * `index` - 1D index tensor (I32 or I64) of length m
     ///
     /// # Returns
     ///
@@ -175,7 +190,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `a` - Input tensor to modify (copied, not mutated)
     /// * `dim` - Dimension along which to put values
-    /// * `index` - 1D index tensor (I64) specifying positions
+    /// * `index` - 1D index tensor (I32 or I64) specifying positions
     /// * `src` - Source tensor with values to insert. Shape must match `a` except
     ///   at `dim` where it must equal `index.numel()`
     ///
@@ -198,6 +213,63 @@ pub trait IndexingOps<R: Runtime> {
         Err(Error::NotImplemented {
             feature: "IndexingOps::index_put",
         })
+    }
+
+    /// Take values from a tensor using flat indices.
+    ///
+    /// The input tensor is treated as flattened 1D storage, and values are gathered
+    /// at positions specified by `indices`. The output shape matches `indices.shape()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor to gather from
+    /// * `indices` - Index tensor (I32 or I64) containing flat indices
+    ///
+    /// # Returns
+    ///
+    /// Tensor of shape `indices.shape()` with gathered values
+    fn take(&self, tensor: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>> {
+        validate_index_dtype(indices)?;
+        let flat = tensor.contiguous().flatten()?;
+        let indices_flat = indices.contiguous().flatten()?;
+        let out_flat = self.index_select(&flat, 0, &indices_flat)?;
+        out_flat.reshape(indices.shape())
+    }
+
+    /// Put values into a tensor at flat indices (functional, non-mutating).
+    ///
+    /// Returns a new tensor with `values` written at positions specified by `indices`,
+    /// treating the input tensor as flattened 1D storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor to update
+    /// * `indices` - Index tensor (I32 or I64) containing flat indices
+    /// * `values` - Values to write. Must have the same number of elements as `indices`.
+    ///
+    /// # Returns
+    ///
+    /// New tensor with the same shape as `tensor` and updated values
+    fn put(
+        &self,
+        tensor: &Tensor<R>,
+        indices: &Tensor<R>,
+        values: &Tensor<R>,
+    ) -> Result<Tensor<R>> {
+        validate_index_dtype(indices)?;
+        let flat = tensor.contiguous().flatten()?;
+        let indices_flat = indices.contiguous().flatten()?;
+        let values_flat = values.contiguous().flatten()?;
+
+        if values_flat.numel() != indices_flat.numel() {
+            return Err(Error::ShapeMismatch {
+                expected: vec![indices_flat.numel()],
+                got: vec![values_flat.numel()],
+            });
+        }
+
+        let out_flat = self.index_put(&flat, 0, &indices_flat, &values_flat)?;
+        out_flat.reshape(tensor.shape())
     }
 
     /// Select elements where mask is true, returning a flattened 1D tensor.
@@ -256,7 +328,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `embeddings` - 2D embedding table of shape `` `[vocab_size, embedding_dim]` ``
     /// * `indices` - Index tensor of any shape containing indices into the embedding table.
-    ///   Must be I64 (or I32 on WebGPU). Values must be in range `` `[0, vocab_size)` ``.
+    ///   Must be I32 or I64. Values must be in range `` `[0, vocab_size)` ``.
     ///
     /// # Returns
     ///
@@ -278,7 +350,7 @@ pub trait IndexingOps<R: Runtime> {
     /// # Errors
     ///
     /// * `ShapeMismatch` - if embeddings is not 2D
-    /// * `DTypeMismatch` - if indices is not I64 (or I32 on WebGPU)
+    /// * `DTypeMismatch` - if indices is not I32 or I64
     /// * Index out of bounds results in undefined behavior (implementation may return zeros)
     ///
     /// # Performance
@@ -312,7 +384,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// * `dst` - Destination tensor to scatter into (used as initial values)
     /// * `dim` - Dimension along which to scatter
-    /// * `index` - Index tensor (I64) specifying scatter positions
+    /// * `index` - Index tensor (I32 or I64) specifying scatter positions
     /// * `src` - Source tensor with values to scatter
     /// * `op` - Reduction operation to apply (Sum, Mean, Max, Min, Prod)
     /// * `include_self` - If true, include `dst` values in reduction; if false, initialize
@@ -453,8 +525,8 @@ pub trait IndexingOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `input` - 2D input tensor of shape `` `[nrows, ncols]` ``
-    /// * `rows` - 1D index tensor (I64) specifying row indices
-    /// * `cols` - 1D index tensor (I64) specifying column indices
+    /// * `rows` - 1D index tensor (I32 or I64) specifying row indices
+    /// * `cols` - 1D index tensor (I32 or I64) specifying column indices
     ///
     /// # Returns
     ///
@@ -477,7 +549,7 @@ pub trait IndexingOps<R: Runtime> {
     /// # Errors
     ///
     /// * `ShapeMismatch` - if input is not 2D or rows/cols have different lengths
-    /// * `DTypeMismatch` - if rows or cols are not I64
+    /// * `DTypeMismatch` - if rows or cols are not I32 or I64
     /// * `IndexOutOfBounds` - if any (row, col) pair is out of bounds
     fn gather_2d(
         &self,

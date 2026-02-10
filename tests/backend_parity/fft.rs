@@ -7,7 +7,7 @@ use crate::backend_parity::helpers::with_wgpu_backend;
 use numr::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
 use numr::dtype::Complex64;
 use numr::runtime::RuntimeClient;
-use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
+use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
 fn get_cpu_client() -> CpuClient {
@@ -20,6 +20,13 @@ fn assert_complex_close(cpu: &[Complex64], other: &[Complex64], tol: f32, label:
     for (i, (c, g)) in cpu.iter().zip(other.iter()).enumerate() {
         assert!((c.re - g.re).abs() < tol, "{} re idx {}", label, i);
         assert!((c.im - g.im).abs() < tol, "{} im idx {}", label, i);
+    }
+}
+
+fn assert_f32_close(cpu: &[f32], other: &[f32], tol: f32, label: &str) {
+    assert_eq!(cpu.len(), other.len(), "{} length mismatch", label);
+    for (i, (c, g)) in cpu.iter().zip(other.iter()).enumerate() {
+        assert!((c - g).abs() < tol, "{} idx {}", label, i);
     }
 }
 
@@ -200,4 +207,114 @@ fn test_fftshift_parity() {
         let data: Vec<Complex64> = result.to_vec();
         assert_complex_close(&cpu_data, &data, 1e-5, "fftshift wgpu");
     });
+}
+
+#[test]
+fn test_cpu_fft_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(1024)));
+
+    // Use a batched shape so CPU FFT goes through the batched kernel path.
+    let shape = [8, 128];
+    let numel: usize = shape.iter().product();
+    let input_data: Vec<Complex64> = (0..numel)
+        .map(|i| Complex64::new((i as f32 * 0.031).sin(), (i as f32 * 0.017).cos()))
+        .collect();
+
+    let input = Tensor::<CpuRuntime>::from_slice(&input_data, &shape, &device);
+    let base = default_client
+        .fft(&input, FftDirection::Forward, FftNormalization::None)
+        .unwrap();
+    let configured = configured_client
+        .fft(&input, FftDirection::Forward, FftNormalization::None)
+        .unwrap();
+
+    let base_data: Vec<Complex64> = base.to_vec();
+    let configured_data: Vec<Complex64> = configured.to_vec();
+    assert_complex_close(
+        &base_data,
+        &configured_data,
+        1e-5,
+        "cpu fft parallelism config",
+    );
+}
+
+#[test]
+fn test_cpu_rfft_irfft_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(1024)));
+
+    let shape = [6, 64];
+    let numel: usize = shape.iter().product();
+    let input_data: Vec<f32> = (0..numel).map(|i| (i as f32 * 0.023).sin()).collect();
+
+    let input = Tensor::<CpuRuntime>::from_slice(&input_data, &shape, &device);
+    let base_freq = default_client.rfft(&input, FftNormalization::None).unwrap();
+    let cfg_freq = configured_client
+        .rfft(&input, FftNormalization::None)
+        .unwrap();
+    let base_freq_data: Vec<Complex64> = base_freq.to_vec();
+    let cfg_freq_data: Vec<Complex64> = cfg_freq.to_vec();
+    assert_complex_close(
+        &base_freq_data,
+        &cfg_freq_data,
+        1e-5,
+        "cpu rfft parallelism config",
+    );
+
+    let base_rec = default_client
+        .irfft(&base_freq, Some(shape[1]), FftNormalization::Backward)
+        .unwrap();
+    let cfg_rec = configured_client
+        .irfft(&cfg_freq, Some(shape[1]), FftNormalization::Backward)
+        .unwrap();
+    let base_rec_data: Vec<f32> = base_rec.to_vec();
+    let cfg_rec_data: Vec<f32> = cfg_rec.to_vec();
+    assert_f32_close(
+        &base_rec_data,
+        &cfg_rec_data,
+        1e-5,
+        "cpu irfft parallelism config",
+    );
+}
+
+#[test]
+fn test_cpu_fftshift_parallelism_config_matches_default() {
+    let device = CpuDevice::new();
+    let default_client = CpuClient::new(device.clone());
+    let configured_client =
+        default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(1024)));
+
+    let shape = [5, 32];
+    let numel: usize = shape.iter().product();
+    let input_data: Vec<Complex64> = (0..numel)
+        .map(|i| Complex64::new((i as f32 * 0.013).cos(), (i as f32 * 0.019).sin()))
+        .collect();
+
+    let input = Tensor::<CpuRuntime>::from_slice(&input_data, &shape, &device);
+    let base_shift = default_client.fftshift(&input).unwrap();
+    let cfg_shift = configured_client.fftshift(&input).unwrap();
+    let base_shift_data: Vec<Complex64> = base_shift.to_vec();
+    let cfg_shift_data: Vec<Complex64> = cfg_shift.to_vec();
+    assert_complex_close(
+        &base_shift_data,
+        &cfg_shift_data,
+        1e-5,
+        "cpu fftshift parallelism config",
+    );
+
+    let base_unshift = default_client.ifftshift(&base_shift).unwrap();
+    let cfg_unshift = configured_client.ifftshift(&cfg_shift).unwrap();
+    let base_unshift_data: Vec<Complex64> = base_unshift.to_vec();
+    let cfg_unshift_data: Vec<Complex64> = cfg_unshift.to_vec();
+    assert_complex_close(
+        &base_unshift_data,
+        &cfg_unshift_data,
+        1e-5,
+        "cpu ifftshift parallelism config",
+    );
 }

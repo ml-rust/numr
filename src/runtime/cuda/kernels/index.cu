@@ -1058,4 +1058,139 @@ DEFINE_GATHER_2D_KERNEL(bf16, __nv_bfloat16)
 DEFINE_GATHER_2D_KERNEL(i32, int)
 DEFINE_GATHER_2D_KERNEL(i64, long long)
 
+// ============================================================================
+// Scatter Reduce - Prod (atomic multiply via CAS)
+// ============================================================================
+
+__device__ __forceinline__ float atomicMulFloat(float* address, float val) {
+    int* address_as_int = (int*)address;
+    int old = *address_as_int;
+    int assumed;
+    do {
+        assumed = old;
+        float old_val = __int_as_float(assumed);
+        float new_val = old_val * val;
+        old = atomicCAS(address_as_int, assumed, __float_as_int(new_val));
+    } while (assumed != old);
+    return __int_as_float(old);
+}
+
+__device__ __forceinline__ double atomicMulDouble(double* address, double val) {
+    unsigned long long* address_as_ull = (unsigned long long*)address;
+    unsigned long long old = *address_as_ull;
+    unsigned long long assumed;
+    do {
+        assumed = old;
+        double old_val = __longlong_as_double(assumed);
+        double new_val = old_val * val;
+        old = atomicCAS(address_as_ull, assumed, __double_as_longlong(new_val));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+
+__device__ __forceinline__ int atomicMulInt(int* address, int val) {
+    int old = *address;
+    int assumed;
+    do {
+        assumed = old;
+        int new_val = assumed * val;
+        old = atomicCAS(address, assumed, new_val);
+    } while (assumed != old);
+    return old;
+}
+
+#define DEFINE_SCATTER_REDUCE_PROD_KERNEL(suffix, dtype, atomic_mul_fn) \
+__global__ void scatter_reduce_prod_##suffix( \
+    const dtype* __restrict__ src, \
+    const long long* __restrict__ indices, \
+    dtype* __restrict__ dst, \
+    unsigned int dim, \
+    unsigned int outer_size, \
+    unsigned int dim_size, \
+    unsigned int inner_size, \
+    unsigned int src_dim_size \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    unsigned int total = outer_size * src_dim_size * inner_size; \
+    if (idx >= total) return; \
+    \
+    unsigned int inner = idx % inner_size; \
+    unsigned int src_d = (idx / inner_size) % src_dim_size; \
+    unsigned int outer = idx / (src_dim_size * inner_size); \
+    \
+    long long index_val = indices[src_d]; \
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) { \
+        return; \
+    } \
+    \
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner; \
+    unsigned int src_idx = outer * src_dim_size * inner_size + src_d * inner_size + inner; \
+    \
+    atomic_mul_fn(&dst[dst_idx], src[src_idx]); \
+}
+
+DEFINE_SCATTER_REDUCE_PROD_KERNEL(f32, float, atomicMulFloat)
+DEFINE_SCATTER_REDUCE_PROD_KERNEL(f64, double, atomicMulDouble)
+DEFINE_SCATTER_REDUCE_PROD_KERNEL(i32, int, atomicMulInt)
+
+// ============================================================================
+// Scatter Reduce - Count (for mean: atomicAdd 1 to count buffer per scatter)
+// ============================================================================
+
+#define DEFINE_SCATTER_REDUCE_COUNT_KERNEL(suffix, dtype) \
+__global__ void scatter_reduce_count_##suffix( \
+    const long long* __restrict__ indices, \
+    dtype* __restrict__ count, \
+    unsigned int dim, \
+    unsigned int outer_size, \
+    unsigned int dim_size, \
+    unsigned int inner_size, \
+    unsigned int src_dim_size \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    unsigned int total = outer_size * src_dim_size * inner_size; \
+    if (idx >= total) return; \
+    \
+    unsigned int inner = idx % inner_size; \
+    unsigned int src_d = (idx / inner_size) % src_dim_size; \
+    unsigned int outer = idx / (src_dim_size * inner_size); \
+    \
+    long long index_val = indices[src_d]; \
+    if (index_val < 0 || (unsigned int)index_val >= dim_size) { \
+        return; \
+    } \
+    \
+    unsigned int dst_idx = outer * dim_size * inner_size + (unsigned int)index_val * inner_size + inner; \
+    \
+    atomicAdd(&count[dst_idx], (dtype)1); \
+}
+
+DEFINE_SCATTER_REDUCE_COUNT_KERNEL(f32, float)
+DEFINE_SCATTER_REDUCE_COUNT_KERNEL(f64, double)
+
+// ============================================================================
+// Scatter Reduce - Mean Divide (element-wise: out[i] = sum[i] / count[i])
+// ============================================================================
+
+#define DEFINE_SCATTER_REDUCE_MEAN_DIV_KERNEL(suffix, dtype) \
+__global__ void scatter_reduce_mean_div_##suffix( \
+    const dtype* __restrict__ sum_buf, \
+    const dtype* __restrict__ count_buf, \
+    dtype* __restrict__ output, \
+    unsigned int n \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (idx >= n) return; \
+    \
+    dtype c = count_buf[idx]; \
+    if (c > (dtype)0) { \
+        output[idx] = sum_buf[idx] / c; \
+    } else { \
+        output[idx] = (dtype)0; \
+    } \
+}
+
+DEFINE_SCATTER_REDUCE_MEAN_DIV_KERNEL(f32, float)
+DEFINE_SCATTER_REDUCE_MEAN_DIV_KERNEL(f64, double)
+
 } // extern "C"

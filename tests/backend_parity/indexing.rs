@@ -4,6 +4,8 @@
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
+use crate::common::create_cpu_client;
+use numr::error::Error;
 use numr::ops::IndexingOps;
 #[cfg(feature = "cuda")]
 use numr::runtime::Runtime;
@@ -116,4 +118,174 @@ fn test_masked_ops_parity() {
         let filled: Vec<f32> = wgpu_client.masked_fill(&a, &mask, -1.0).unwrap().to_vec();
         assert_eq!(filled, vec![-1.0, 2.0, -1.0, 4.0, 5.0, -1.0, 7.0, -1.0]);
     });
+}
+
+#[test]
+fn test_take_put_parity() {
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let a_cpu = Tensor::from_slice(
+        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+        &[2, 3],
+        &cpu_device,
+    );
+    let idx_cpu = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cpu_device);
+    let put_values_cpu = Tensor::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &cpu_device);
+    let cpu_take: Vec<f32> = cpu_client.take(&a_cpu, &idx_cpu).unwrap().to_vec();
+    let cpu_put: Vec<f32> = cpu_client
+        .put(&a_cpu, &idx_cpu, &put_values_cpu)
+        .unwrap()
+        .to_vec();
+    assert_eq!(cpu_take, vec![60.0, 10.0, 30.0, 50.0]);
+    assert_eq!(cpu_put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+
+    #[cfg(feature = "cuda")]
+    with_cuda_backend(|cuda_client, cuda_device| {
+        let a = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+            &[2, 3],
+            &cuda_device,
+        );
+        let idx = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[5i32, 0, 2, 4],
+            &[2, 2],
+            &cuda_device,
+        );
+        let put_values = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[2, 2],
+            &cuda_device,
+        );
+
+        let take: Vec<f32> = cuda_client.take(&a, &idx).unwrap().to_vec();
+        assert_eq!(cpu_take, take);
+
+        let put: Vec<f32> = cuda_client.put(&a, &idx, &put_values).unwrap().to_vec();
+        assert_eq!(cpu_put, put);
+    });
+
+    #[cfg(feature = "wgpu")]
+    with_wgpu_backend(|wgpu_client, wgpu_device| {
+        let a = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+            &[2, 3],
+            &wgpu_device,
+        );
+        let idx = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[5i32, 0, 2, 4],
+            &[2, 2],
+            &wgpu_device,
+        );
+        let put_values = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[2, 2],
+            &wgpu_device,
+        );
+
+        let take: Vec<f32> = wgpu_client.take(&a, &idx).unwrap().to_vec();
+        assert_eq!(take, vec![60.0, 10.0, 30.0, 50.0]);
+
+        let put: Vec<f32> = wgpu_client.put(&a, &idx, &put_values).unwrap().to_vec();
+        assert_eq!(put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+    });
+}
+
+#[test]
+fn test_take_put_i64_indices_parity() {
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let a_cpu = Tensor::from_slice(
+        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+        &[2, 3],
+        &cpu_device,
+    );
+    let idx_cpu = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cpu_device);
+    let put_values_cpu = Tensor::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &cpu_device);
+    let cpu_take: Vec<f32> = cpu_client.take(&a_cpu, &idx_cpu).unwrap().to_vec();
+    let cpu_put: Vec<f32> = cpu_client
+        .put(&a_cpu, &idx_cpu, &put_values_cpu)
+        .unwrap()
+        .to_vec();
+    assert_eq!(cpu_take, vec![60.0, 10.0, 30.0, 50.0]);
+    assert_eq!(cpu_put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+
+    #[cfg(feature = "cuda")]
+    with_cuda_backend(|cuda_client, cuda_device| {
+        let a = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+            &[2, 3],
+            &cuda_device,
+        );
+        let idx = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[5i64, 0, 2, 4],
+            &[2, 2],
+            &cuda_device,
+        );
+        let put_values = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[2, 2],
+            &cuda_device,
+        );
+
+        let take: Vec<f32> = cuda_client.take(&a, &idx).unwrap().to_vec();
+        assert_eq!(cpu_take, take);
+
+        let put: Vec<f32> = cuda_client.put(&a, &idx, &put_values).unwrap().to_vec();
+        assert_eq!(cpu_put, put);
+    });
+
+    #[cfg(feature = "wgpu")]
+    with_wgpu_backend(|wgpu_client, wgpu_device| {
+        let a = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+            &[2, 3],
+            &wgpu_device,
+        );
+        let idx = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[5i64, 0, 2, 4],
+            &[2, 2],
+            &wgpu_device,
+        );
+        let put_values = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[2, 2],
+            &wgpu_device,
+        );
+
+        let take: Vec<f32> = wgpu_client.take(&a, &idx).unwrap().to_vec();
+        assert_eq!(take, vec![60.0, 10.0, 30.0, 50.0]);
+
+        let put: Vec<f32> = wgpu_client.put(&a, &idx, &put_values).unwrap().to_vec();
+        assert_eq!(put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+    });
+}
+
+#[test]
+fn test_take_put_reject_non_integer_indices() {
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let a_cpu = Tensor::from_slice(
+        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
+        &[2, 3],
+        &cpu_device,
+    );
+    let idx_cpu = Tensor::from_slice(&[0.0f32, 2.0], &[2], &cpu_device);
+    let put_values_cpu = Tensor::from_slice(&[1.0f32, 2.0], &[2], &cpu_device);
+
+    let take_err = cpu_client.take(&a_cpu, &idx_cpu).unwrap_err();
+    match take_err {
+        Error::InvalidArgument { arg, reason } => {
+            assert_eq!(arg, "indices");
+            assert!(reason.contains("I32 or I64"));
+        }
+        other => panic!("unexpected error variant: {other:?}"),
+    }
+
+    let put_err = cpu_client
+        .put(&a_cpu, &idx_cpu, &put_values_cpu)
+        .unwrap_err();
+    match put_err {
+        Error::InvalidArgument { arg, reason } => {
+            assert_eq!(arg, "indices");
+            assert!(reason.contains("I32 or I64"));
+        }
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }

@@ -78,6 +78,11 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("scatter_reduce_min", DType::F32) => Ok("scatter_reduce_min_f32"),
         ("scatter_reduce_min", DType::I32) => Ok("scatter_reduce_min_i32"),
         ("scatter_reduce_min", DType::U32) => Ok("scatter_reduce_min_u32"),
+        ("scatter_reduce_prod", DType::F32) => Ok("scatter_reduce_prod_f32"),
+        ("scatter_reduce_prod", DType::I32) => Ok("scatter_reduce_prod_i32"),
+        ("scatter_reduce_prod", DType::U32) => Ok("scatter_reduce_prod_u32"),
+        ("scatter_reduce_count", DType::F32) => Ok("scatter_reduce_count_f32"),
+        ("scatter_reduce_mean_div", DType::F32) => Ok("scatter_reduce_mean_div_f32"),
         ("gather_2d", DType::F32) => Ok("gather_2d_f32"),
         ("gather_2d", DType::I32) => Ok("gather_2d_i32"),
         ("gather_2d", DType::U32) => Ok("gather_2d_u32"),
@@ -161,8 +166,8 @@ pub fn launch_index_put(
     let shader_source = generate_index_put_shader(dtype)?;
     let module = cache.get_or_create_module(name, &shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 4,
-        num_uniform_buffers: 0,
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
@@ -786,6 +791,154 @@ pub fn launch_scatter_reduce(
 }
 
 // ============================================================================
+// Scatter Reduce Prod Operation
+// ============================================================================
+
+/// Launch a scatter_reduce_prod operation kernel.
+///
+/// Scatters values with product reduction using CAS loop.
+pub fn launch_scatter_reduce_prod(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    indices: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "scatter_reduce_prod")?;
+
+    let name = kernel_name("scatter_reduce_prod", dtype)?;
+    let shader_source = super::generator::generate_scatter_reduce_prod_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, indices, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_reduce_prod"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter_reduce_prod"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Scatter Reduce Count Operation (for Mean)
+// ============================================================================
+
+/// Launch a scatter_reduce_count operation kernel.
+///
+/// Atomically counts scattered elements per destination position.
+pub fn launch_scatter_reduce_count(
+    cache: &PipelineCache,
+    queue: &Queue,
+    indices: &Buffer,
+    count: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+) -> Result<()> {
+    let name = kernel_name("scatter_reduce_count", dtype)?;
+    let shader_source = super::generator::generate_scatter_reduce_count_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[indices, count, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_reduce_count"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter_reduce_count"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Scatter Reduce Mean Divide Operation
+// ============================================================================
+
+/// Launch scatter_reduce_mean_div: output[i] = sum[i] / count[i].
+pub fn launch_scatter_reduce_mean_div(
+    cache: &PipelineCache,
+    queue: &Queue,
+    sum_buf: &Buffer,
+    count_buf: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    n: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "scatter_reduce_mean_div")?;
+
+    let name = kernel_name("scatter_reduce_mean_div", dtype)?;
+    let shader_source = super::generator::generate_scatter_reduce_mean_div_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[sum_buf, count_buf, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("scatter_reduce_mean_div"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("scatter_reduce_mean_div"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
 // Embedding Lookup Operation
 // ============================================================================
 
@@ -873,7 +1026,7 @@ pub fn launch_gather_2d(
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
-        num_readonly_storage: 0,
+        num_readonly_storage: 3,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
 

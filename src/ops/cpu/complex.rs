@@ -29,17 +29,30 @@ impl ComplexOps<CpuRuntime> for CpuClient {
 
         let a_ptr = a_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::conj_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::conj_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("conj called on non-complex dtype"),
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::conj_complex64(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
             }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::conj_complex128(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
+            }
+            _ => unreachable!("conj called on non-complex dtype"),
         }
 
         Ok(out)
@@ -71,17 +84,30 @@ impl ComplexOps<CpuRuntime> for CpuClient {
 
         let a_ptr = a_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::real_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::real_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("real called on non-complex dtype"),
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::real_complex64(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
             }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::real_complex128(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
+            }
+            _ => unreachable!("real called on non-complex dtype"),
         }
 
         Ok(out)
@@ -113,17 +139,30 @@ impl ComplexOps<CpuRuntime> for CpuClient {
 
         let a_ptr = a_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::imag_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::imag_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("imag called on non-complex dtype"),
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::imag_complex64(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
             }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::imag_complex128(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
+            }
+            _ => unreachable!("imag called on non-complex dtype"),
         }
 
         Ok(out)
@@ -133,6 +172,7 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let dtype = a.dtype();
         let shape = a.shape();
         let numel = a.numel();
+        let chunk_size = self.chunk_size_hint();
 
         let a_contig = ensure_contiguous(a);
 
@@ -148,19 +188,31 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             let a_ptr = a_contig.storage().ptr();
             let out_ptr = out.storage().ptr();
 
-            unsafe {
-                match dtype {
-                    DType::F32 => {
-                        kernels::angle_real_f32(a_ptr as *const _, out_ptr as *mut _, numel);
-                    }
-                    DType::F64 => {
-                        kernels::angle_real_f64(a_ptr as *const _, out_ptr as *mut _, numel);
-                    }
-                    _ => {
-                        // For integer types, angle doesn't make mathematical sense
-                        // Return zeros
-                        return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
-                    }
+            match dtype {
+                DType::F32 => {
+                    self.install_parallelism(|| unsafe {
+                        kernels::angle_real_f32(
+                            a_ptr as *const _,
+                            out_ptr as *mut _,
+                            numel,
+                            chunk_size,
+                        );
+                    });
+                }
+                DType::F64 => {
+                    self.install_parallelism(|| unsafe {
+                        kernels::angle_real_f64(
+                            a_ptr as *const _,
+                            out_ptr as *mut _,
+                            numel,
+                            chunk_size,
+                        );
+                    });
+                }
+                _ => {
+                    // For integer types, angle doesn't make mathematical sense
+                    // Return zeros
+                    return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
                 }
             }
             return Ok(out);
@@ -181,16 +233,28 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let a_ptr = a_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
-                    kernels::angle_complex64(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                DType::Complex128 => {
-                    kernels::angle_complex128(a_ptr as *const _, out_ptr as *mut _, numel);
-                }
-                _ => unreachable!("angle called on non-complex dtype"),
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::angle_complex64(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
             }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
+                    kernels::angle_complex128(
+                        a_ptr as *const _,
+                        out_ptr as *mut _,
+                        numel,
+                        chunk_size,
+                    );
+                });
+            }
+            _ => unreachable!("angle called on non-complex dtype"),
         }
 
         Ok(out)
@@ -226,27 +290,32 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let real_ptr = real_contig.storage().ptr();
         let imag_ptr = imag_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match input_dtype {
-                DType::F32 => {
+        match input_dtype {
+            DType::F32 => {
+                self.install_parallelism(|| unsafe {
                     kernels::from_real_imag_f32(
                         real_ptr as *const _,
                         imag_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                DType::F64 => {
+                });
+            }
+            DType::F64 => {
+                self.install_parallelism(|| unsafe {
                     kernels::from_real_imag_f64(
                         real_ptr as *const _,
                         imag_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                _ => unreachable!("validated above"),
+                });
             }
+            _ => unreachable!("validated above"),
         }
 
         Ok(out)
@@ -275,27 +344,32 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let complex_ptr = complex_contig.storage().ptr();
         let real_ptr = real_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
                     kernels::complex64_mul_real(
                         complex_ptr as *const _,
                         real_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                DType::Complex128 => {
+                });
+            }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
                     kernels::complex128_mul_real(
                         complex_ptr as *const _,
                         real_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                _ => unreachable!("validated above"),
+                });
             }
+            _ => unreachable!("validated above"),
         }
 
         Ok(out)
@@ -324,27 +398,32 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let complex_ptr = complex_contig.storage().ptr();
         let real_ptr = real_contig.storage().ptr();
         let out_ptr = out.storage().ptr();
+        let chunk_size = self.chunk_size_hint();
 
-        unsafe {
-            match dtype {
-                DType::Complex64 => {
+        match dtype {
+            DType::Complex64 => {
+                self.install_parallelism(|| unsafe {
                     kernels::complex64_div_real(
                         complex_ptr as *const _,
                         real_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                DType::Complex128 => {
+                });
+            }
+            DType::Complex128 => {
+                self.install_parallelism(|| unsafe {
                     kernels::complex128_div_real(
                         complex_ptr as *const _,
                         real_ptr as *const _,
                         out_ptr as *mut _,
                         numel,
+                        chunk_size,
                     );
-                }
-                _ => unreachable!("validated above"),
+                });
             }
+            _ => unreachable!("validated above"),
         }
 
         Ok(out)

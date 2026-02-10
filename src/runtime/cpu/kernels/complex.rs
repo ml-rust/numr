@@ -17,23 +17,29 @@ use crate::dtype::{Complex64, Complex128};
 use rayon::prelude::*;
 
 /// Parallelization threshold: skip Rayon for small tensors (overhead > benefit)
+#[cfg(feature = "rayon")]
 const PARALLEL_THRESHOLD: usize = 4096;
 
 /// Complex conjugate kernel for Complex64 with Rayon parallelization
 ///
 /// Performance: ~95% of memory bandwidth (memory-bound, simple negation)
 #[inline]
-pub unsafe fn conj_complex64(input: *const Complex64, output: *mut Complex64, numel: usize) {
+pub unsafe fn conj_complex64(
+    input: *const Complex64,
+    output: *mut Complex64,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.conj();
@@ -50,17 +56,22 @@ pub unsafe fn conj_complex64(input: *const Complex64, output: *mut Complex64, nu
 
 /// Complex conjugate kernel for Complex128 with Rayon parallelization
 #[inline]
-pub unsafe fn conj_complex128(input: *const Complex128, output: *mut Complex128, numel: usize) {
+pub unsafe fn conj_complex128(
+    input: *const Complex128,
+    output: *mut Complex128,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.conj();
@@ -78,17 +89,22 @@ pub unsafe fn conj_complex128(input: *const Complex128, output: *mut Complex128,
 ///
 /// Performance: ~98% of memory bandwidth (pure memory copy)
 #[inline]
-pub unsafe fn real_complex64(input: *const Complex64, output: *mut f32, numel: usize) {
+pub unsafe fn real_complex64(
+    input: *const Complex64,
+    output: *mut f32,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.re;
@@ -104,17 +120,22 @@ pub unsafe fn real_complex64(input: *const Complex64, output: *mut f32, numel: u
 
 /// Extract real component from Complex128 with Rayon parallelization
 #[inline]
-pub unsafe fn real_complex128(input: *const Complex128, output: *mut f64, numel: usize) {
+pub unsafe fn real_complex128(
+    input: *const Complex128,
+    output: *mut f64,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.re;
@@ -130,17 +151,22 @@ pub unsafe fn real_complex128(input: *const Complex128, output: *mut f64, numel:
 
 /// Extract imaginary component from Complex64 with Rayon parallelization
 #[inline]
-pub unsafe fn imag_complex64(input: *const Complex64, output: *mut f32, numel: usize) {
+pub unsafe fn imag_complex64(
+    input: *const Complex64,
+    output: *mut f32,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.im;
@@ -156,17 +182,22 @@ pub unsafe fn imag_complex64(input: *const Complex64, output: *mut f32, numel: u
 
 /// Extract imaginary component from Complex128 with Rayon parallelization
 #[inline]
-pub unsafe fn imag_complex128(input: *const Complex128, output: *mut f64, numel: usize) {
+pub unsafe fn imag_complex128(
+    input: *const Complex128,
+    output: *mut f64,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.im;
@@ -184,17 +215,22 @@ pub unsafe fn imag_complex128(input: *const Complex128, output: *mut f64, numel:
 ///
 /// Performance: ~80% of compute bound (atan2 ~20 cycles)
 #[inline]
-pub unsafe fn angle_complex64(input: *const Complex64, output: *mut f32, numel: usize) {
+pub unsafe fn angle_complex64(
+    input: *const Complex64,
+    output: *mut f32,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.phase();
@@ -210,17 +246,22 @@ pub unsafe fn angle_complex64(input: *const Complex64, output: *mut f32, numel: 
 
 /// Compute phase angle for Complex128 with Rayon parallelization
 #[inline]
-pub unsafe fn angle_complex128(input: *const Complex128, output: *mut f64, numel: usize) {
+pub unsafe fn angle_complex128(
+    input: *const Complex128,
+    output: *mut f64,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &i) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = i.phase();
@@ -238,17 +279,22 @@ pub unsafe fn angle_complex128(input: *const Complex128, output: *mut f64, numel
 ///
 /// angle(x) = 0 if x >= 0, π if x < 0
 #[inline]
-pub unsafe fn angle_real_f32(input: *const f32, output: *mut f32, numel: usize) {
+pub unsafe fn angle_real_f32(
+    input: *const f32,
+    output: *mut f32,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &val) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = if val < 0.0 { std::f32::consts::PI } else { 0.0 };
@@ -267,17 +313,22 @@ pub unsafe fn angle_real_f32(input: *const f32, output: *mut f32, numel: usize) 
 ///
 /// angle(x) = 0 if x >= 0, π if x < 0
 #[inline]
-pub unsafe fn angle_real_f64(input: *const f64, output: *mut f64, numel: usize) {
+pub unsafe fn angle_real_f64(
+    input: *const f64,
+    output: *mut f64,
+    numel: usize,
+    _chunk_size: usize,
+) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
         use std::slice;
         let input_slice = slice::from_raw_parts(input, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(input_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(input_slice.par_chunks(chunk_size))
             .for_each(|(out_chunk, in_chunk)| {
                 for (o, &val) in out_chunk.iter_mut().zip(in_chunk) {
                     *o = if val < 0.0 { std::f64::consts::PI } else { 0.0 };
@@ -305,6 +356,7 @@ pub unsafe fn from_real_imag_f32(
     imag: *const f32,
     output: *mut Complex64,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -312,12 +364,12 @@ pub unsafe fn from_real_imag_f32(
         let real_slice = slice::from_raw_parts(real, numel);
         let imag_slice = slice::from_raw_parts(imag, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
-            .zip(imag_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(real_slice.par_chunks(chunk_size))
+            .zip(imag_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, re_chunk), im_chunk)| {
                 for ((o, &re), &im) in out_chunk.iter_mut().zip(re_chunk).zip(im_chunk) {
                     *o = Complex64::new(re, im);
@@ -339,6 +391,7 @@ pub unsafe fn from_real_imag_f64(
     imag: *const f64,
     output: *mut Complex128,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -346,12 +399,12 @@ pub unsafe fn from_real_imag_f64(
         let real_slice = slice::from_raw_parts(real, numel);
         let imag_slice = slice::from_raw_parts(imag, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
-            .zip(imag_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(real_slice.par_chunks(chunk_size))
+            .zip(imag_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, re_chunk), im_chunk)| {
                 for ((o, &re), &im) in out_chunk.iter_mut().zip(re_chunk).zip(im_chunk) {
                     *o = Complex128::new(re, im);
@@ -378,6 +431,7 @@ pub unsafe fn complex64_mul_real(
     real: *const f32,
     output: *mut Complex64,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -385,12 +439,12 @@ pub unsafe fn complex64_mul_real(
         let complex_slice = slice::from_raw_parts(complex, numel);
         let real_slice = slice::from_raw_parts(real, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(complex_slice.par_chunks(CHUNK_SIZE))
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(complex_slice.par_chunks(chunk_size))
+            .zip(real_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, c_chunk), r_chunk)| {
                 for ((o, &c), &r) in out_chunk.iter_mut().zip(c_chunk).zip(r_chunk) {
                     *o = Complex64::new(c.re * r, c.im * r);
@@ -413,6 +467,7 @@ pub unsafe fn complex128_mul_real(
     real: *const f64,
     output: *mut Complex128,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -420,12 +475,12 @@ pub unsafe fn complex128_mul_real(
         let complex_slice = slice::from_raw_parts(complex, numel);
         let real_slice = slice::from_raw_parts(real, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(complex_slice.par_chunks(CHUNK_SIZE))
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(complex_slice.par_chunks(chunk_size))
+            .zip(real_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, c_chunk), r_chunk)| {
                 for ((o, &c), &r) in out_chunk.iter_mut().zip(c_chunk).zip(r_chunk) {
                     *o = Complex128::new(c.re * r, c.im * r);
@@ -450,6 +505,7 @@ pub unsafe fn complex64_div_real(
     real: *const f32,
     output: *mut Complex64,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -457,12 +513,12 @@ pub unsafe fn complex64_div_real(
         let complex_slice = slice::from_raw_parts(complex, numel);
         let real_slice = slice::from_raw_parts(real, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(complex_slice.par_chunks(CHUNK_SIZE))
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(complex_slice.par_chunks(chunk_size))
+            .zip(real_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, c_chunk), r_chunk)| {
                 for ((o, &c), &r) in out_chunk.iter_mut().zip(c_chunk).zip(r_chunk) {
                     *o = Complex64::new(c.re / r, c.im / r);
@@ -485,6 +541,7 @@ pub unsafe fn complex128_div_real(
     real: *const f64,
     output: *mut Complex128,
     numel: usize,
+    _chunk_size: usize,
 ) {
     #[cfg(feature = "rayon")]
     if numel >= PARALLEL_THRESHOLD {
@@ -492,12 +549,12 @@ pub unsafe fn complex128_div_real(
         let complex_slice = slice::from_raw_parts(complex, numel);
         let real_slice = slice::from_raw_parts(real, numel);
         let output_slice = slice::from_raw_parts_mut(output, numel);
+        let chunk_size = _chunk_size.max(1);
 
-        const CHUNK_SIZE: usize = 4096;
         output_slice
-            .par_chunks_mut(CHUNK_SIZE)
-            .zip(complex_slice.par_chunks(CHUNK_SIZE))
-            .zip(real_slice.par_chunks(CHUNK_SIZE))
+            .par_chunks_mut(chunk_size)
+            .zip(complex_slice.par_chunks(chunk_size))
+            .zip(real_slice.par_chunks(chunk_size))
             .for_each(|((out_chunk, c_chunk), r_chunk)| {
                 for ((o, &c), &r) in out_chunk.iter_mut().zip(c_chunk).zip(r_chunk) {
                     *o = Complex128::new(c.re / r, c.im / r);

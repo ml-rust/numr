@@ -44,6 +44,7 @@ mod tiling;
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
 pub(crate) mod half_convert;
 
 use super::{SimdLevel, detect_simd};
