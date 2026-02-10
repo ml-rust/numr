@@ -124,7 +124,9 @@ fn ceil_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 fn round_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
-        unary_out[idx] = round(unary_a[idx]);
+        // Match CPU/CUDA behavior: ties round away from zero.
+        let x = unary_a[idx];
+        unary_out[idx] = select(ceil(x - 0.5), floor(x + 0.5), x >= 0.0);
     }}
 }}
 
@@ -199,7 +201,9 @@ fn log1p_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 fn asin_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
-        unary_out[idx] = asin(unary_a[idx]);
+        let x = unary_a[idx];
+        let y = sqrt(max(0.0, 1.0 - x * x));
+        unary_out[idx] = atan2(x, y);
     }}
 }}
 
@@ -207,7 +211,9 @@ fn asin_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 fn acos_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
-        unary_out[idx] = acos(unary_a[idx]);
+        let x = unary_a[idx];
+        let y = sqrt(max(0.0, 1.0 - x * x));
+        unary_out[idx] = atan2(y, x);
     }}
 }}
 
@@ -291,8 +297,11 @@ fn isnan_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
         let x = unary_a[idx];
-        // NaN != NaN in IEEE 754
-        unary_out[idx] = select(0.0, 1.0, x != x);
+        let bits = bitcast<u32>(f32(x));
+        let exp = bits & 0x7f800000u;
+        let mant = bits & 0x007fffffu;
+        let is_nan = (exp == 0x7f800000u) && (mant != 0u);
+        unary_out[idx] = select(0.0, 1.0, is_nan);
     }}
 }}
 
@@ -301,8 +310,10 @@ fn isinf_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     let idx = gid.x;
     if (idx < unary_params.numel) {{
         let x = unary_a[idx];
-        // Inf detection: x == x (not NaN) && x + 1 == x (overflow) && x != 0
-        let is_inf = (x == x) && (x + 1.0 == x) && (x != 0.0);
+        let bits = bitcast<u32>(f32(x));
+        let exp = bits & 0x7f800000u;
+        let mant = bits & 0x007fffffu;
+        let is_inf = (exp == 0x7f800000u) && (mant == 0u);
         unary_out[idx] = select(0.0, 1.0, is_inf);
     }}
 }}

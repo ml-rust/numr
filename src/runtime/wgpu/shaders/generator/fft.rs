@@ -1,6 +1,6 @@
 //! WGSL shader generation for FFT operations
 //!
-//! Generates Stockham FFT shaders using vec2<f32> for complex numbers.
+//! Generates Stockham FFT shaders using `vec2<f32>` for complex numbers.
 //! WGSL doesn't have native complex type, so we use vec2 (re, im).
 
 use crate::error::Result;

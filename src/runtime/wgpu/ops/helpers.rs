@@ -24,7 +24,7 @@ pub(super) fn create_params_buffer<T: bytemuck::Pod>(
     let buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("params"),
         size: std::mem::size_of::<T>() as u64,
-        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        usage: BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
     client
@@ -333,7 +333,7 @@ pub(super) struct RandnParams {
     pub(super) _pad2: u32,
 }
 
-/// Randint params for signed integer types (I32)
+/// Randint params for signed integer types (`I32`)
 /// The `low` field is i32 to properly handle negative bounds.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -344,7 +344,7 @@ pub(super) struct RandintParamsI32 {
     pub(super) seed: u32,
 }
 
-/// Randint params for unsigned integer types (U32)
+/// Randint params for unsigned integer types (`U32`)
 /// The `low` field is u32 for unsigned bounds.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -361,11 +361,11 @@ pub(super) struct RandintParamsU32 {
 // Arrays in WGSL uniform buffers must have 16-byte aligned elements, so we pack 8 u32s
 // into 2 vec4<u32> (represented as [[u32; 4]; 2] in Rust).
 
-/// Pack a flat `[u32; 8]` array into `[[u32; 4]; 2]` for WGSL uniform buffer alignment.
+/// Pack a flat `` `[u32; 8]` `` array into `` `[[u32; 4]; 2]` `` for WGSL uniform buffer alignment.
 ///
 /// WGSL uniform buffers require 16-byte alignment for array elements. Since `u32` is 4 bytes,
-/// `array<u32, 8>` would have 4-byte stride which violates this requirement. By packing into
-/// `array<vec4<u32>, 2>`, each element is 16 bytes and properly aligned.
+/// `` `array<u32, 8>` `` would have 4-byte stride which violates this requirement. By packing into
+/// `` `array<vec4<u32>, 2>` ``, each element is 16 bytes and properly aligned.
 #[inline]
 pub(super) fn pack_u32_array(values: &[u32; 8]) -> [[u32; 4]; 2] {
     [
@@ -382,13 +382,13 @@ pub(super) struct RepeatParams {
     pub(super) total_elements: u32,
     pub(super) _pad0: u32,
     pub(super) _pad1: u32,
-    /// Source tensor shape (8 values packed as 2 vec4<u32> for alignment)
+    /// Source tensor shape (8 values packed as `` `2 vec4<u32>` `` for alignment)
     pub(super) src_shape: [[u32; 4]; 2],
-    /// Output tensor shape (8 values packed as 2 vec4<u32> for alignment)
+    /// Output tensor shape (8 values packed as `` `2 vec4<u32>` `` for alignment)
     pub(super) out_shape: [[u32; 4]; 2],
 }
 
-/// Params for pad operation with F32 fill value
+/// Params for pad operation with `F32` fill value
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct PadParamsF32 {
@@ -401,7 +401,7 @@ pub(super) struct PadParamsF32 {
     pub(super) pad_before: [[u32; 4]; 2],
 }
 
-/// Params for pad operation with I32 fill value
+/// Params for pad operation with `I32` fill value
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct PadParamsI32 {
@@ -414,7 +414,7 @@ pub(super) struct PadParamsI32 {
     pub(super) pad_before: [[u32; 4]; 2],
 }
 
-/// Params for pad operation with U32 fill value
+/// Params for pad operation with `U32` fill value
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct PadParamsU32 {
@@ -442,8 +442,8 @@ pub(super) struct RollParams {
 }
 
 /// Params for embedding lookup operation
-/// Looks up embeddings from a 2D embedding table [vocab_size, embedding_dim]
-/// using indices [num_indices]. Output shape is [num_indices, embedding_dim].
+/// Looks up embeddings from a 2D embedding table `` `[vocab_size, embedding_dim]` ``
+/// using indices `` `[num_indices]` ``. Output shape is `` `[num_indices, embedding_dim]` ``.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct EmbeddingLookupParams {
@@ -833,4 +833,22 @@ pub(crate) fn read_u32_from_buffer(
     staging_buffer.unmap();
 
     Ok(value)
+}
+
+/// Cast indices tensor to I32 for WebGPU shaders.
+/// WebGPU natively supports I32 indices; I64 indices are cast on GPU.
+/// Returns an error for unsupported index dtypes.
+pub(crate) fn ensure_i32_indices(
+    client: &super::super::WgpuClient,
+    indices: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    use crate::ops::TypeConversionOps;
+    match indices.dtype() {
+        DType::I32 => Ok(indices.clone()),
+        DType::I64 => client.cast(indices, DType::I32),
+        other => Err(Error::DTypeMismatch {
+            lhs: DType::I32,
+            rhs: other,
+        }),
+    }
 }

@@ -7,8 +7,8 @@ use crate::tensor::Tensor;
 
 /// Generalized matrix multiplication over arbitrary semirings.
 ///
-/// Standard matmul computes `C[i,j] = Σ_k A[i,k] * B[k,j]` using the (+, ×) semiring.
-/// This trait generalizes to `C[i,j] = ⊕_k (A[i,k] ⊗ B[k,j])` for any semiring (⊕, ⊗).
+/// Standard matmul computes `` `C[i,j] = Σ_k A[i,k] * B[k,j]` `` using the (+, ×) semiring.
+/// This trait generalizes to `` `C[i,j] = ⊕_k (A[i,k] ⊗ B[k,j])` `` for any semiring (⊕, ⊗).
 ///
 /// # Supported Semirings
 ///
@@ -33,17 +33,17 @@ use crate::tensor::Tensor;
 pub trait SemiringMatmulOps<R: Runtime> {
     /// Generalized semiring matrix multiplication.
     ///
-    /// Computes `C[i,j] = ⊕_k (A[i,k] ⊗ B[k,j])` where ⊕ and ⊗ are defined by `op`.
+    /// Computes `` `C[i,j] = ⊕_k (A[i,k] ⊗ B[k,j])` `` where ⊕ and ⊗ are defined by `op`.
     ///
     /// # Arguments
     ///
-    /// * `a` - Input tensor of shape `[..., M, K]`
-    /// * `b` - Input tensor of shape `[..., K, N]`
+    /// * `a` - Input tensor of shape `` `[..., M, K]` ``
+    /// * `b` - Input tensor of shape `` `[..., K, N]` ``
     /// * `op` - The semiring operation to use
     ///
     /// # Returns
     ///
-    /// Output tensor of shape `[..., M, N]`
+    /// Output tensor of shape `` `[..., M, N]` ``
     fn semiring_matmul(&self, a: &Tensor<R>, b: &Tensor<R>, op: SemiringOp) -> Result<Tensor<R>> {
         let _ = (a, b, op);
         Err(Error::NotImplemented {

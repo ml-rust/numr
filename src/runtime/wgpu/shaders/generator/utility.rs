@@ -344,8 +344,8 @@ fn randint_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 ///
 /// Uses inverse transform sampling (CDF method):
 /// 1. Compute cumulative sum of normalized probabilities
-/// 2. For each sample, draw uniform random u ∈ [0, 1)
-/// 3. Find smallest index i where CDF[i] ≥ u (linear search)
+/// 2. For each sample, draw uniform random u ∈ `[0, 1)`
+/// 3. Find smallest index i where `CDF[i]` ≥ u (linear search)
 pub fn generate_multinomial_with_replacement_shader() -> Result<String> {
     Ok(format!(
         r#"// Auto-generated multinomial_with_replacement operation for f32

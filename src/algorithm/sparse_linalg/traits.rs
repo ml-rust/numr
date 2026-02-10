@@ -36,14 +36,14 @@ pub trait SparseLinAlgAlgorithms<R: Runtime> {
     ///
     /// ```text
     /// For i = 0 to n-1:
-    ///   For k = 0 to i-1 where A[i,k] ≠ 0:
-    ///     A[i,k] = A[i,k] / A[k,k]  (L factor)
-    ///     For j = k+1 to n-1 where A[i,j] ≠ 0 AND A[k,j] ≠ 0:
-    ///       A[i,j] = A[i,j] - A[i,k] * A[k,j]  (U factor update)
+    ///   For k = 0 to i-1 where `` `A[i,k]` `` ≠ 0:
+    ///     `` `A[i,k] = A[i,k] / A[k,k]` ``  (L factor)
+    ///     For j = k+1 to n-1 where `` `A[i,j]` `` ≠ 0 AND `` `A[k,j]` `` ≠ 0:
+    ///       `` `A[i,j] = A[i,j] - A[i,k] * A[k,j]` ``  (U factor update)
     ///
     /// Result:
-    ///   L[i,k] = A[i,k] for k < i
-    ///   U[i,j] = A[i,j] for j >= i
+    ///   `` `L[i,k] = A[i,k]` `` for k < i
+    ///   `` `U[i,j] = A[i,j]` `` for j >= i
     /// ```
     ///
     /// # Arguments
@@ -67,14 +67,14 @@ pub trait SparseLinAlgAlgorithms<R: Runtime> {
     ///
     /// ```text
     /// For i = 0 to n-1:
-    ///   For k = 0 to i-1 where A[i,k] ≠ 0:
-    ///     For j = 0 to k-1 where A[i,j] ≠ 0 AND L[k,j] ≠ 0:
-    ///       A[i,k] = A[i,k] - A[i,j] * L[k,j]
-    ///     A[i,k] = A[i,k] / L[k,k]
+    ///   For k = 0 to i-1 where `` `A[i,k]` `` ≠ 0:
+    ///     For j = 0 to k-1 where `` `A[i,j]` `` ≠ 0 AND `` `L[k,j]` `` ≠ 0:
+    ///       `` `A[i,k] = A[i,k] - A[i,j] * L[k,j]` ``
+    ///     `` `A[i,k] = A[i,k] / L[k,k]` ``
     ///
-    ///   sum = A[i,i]
-    ///   For j = 0 to i-1 where A[i,j] ≠ 0:
-    ///     sum = sum - A[i,j]²
+    ///   `` `sum = A[i,i]` ``
+    ///   For j = 0 to i-1 where `` `A[i,j]` `` ≠ 0:
+    ///     `` `sum = sum - A[i,j]²` ``
     ///   L[i,i] = sqrt(sum)
     ///
     /// Result: L lower triangular where A ≈ L·Lᵀ
@@ -106,10 +106,10 @@ pub trait SparseLinAlgAlgorithms<R: Runtime> {
     /// **Lower triangular (forward substitution):**
     /// ```text
     /// For i = 0 to n-1:
-    ///   x[i] = b[i]
-    ///   For j in nonzeros(L[i, 0:i]):
-    ///     x[i] = x[i] - L[i,j] * x[j]
-    ///   x[i] = x[i] / L[i,i]  (if not unit diagonal)
+    ///   `` `x[i] = b[i]` ``
+    ///   For j in nonzeros(`` `L[i, 0:i]` ``):
+    ///     `` `x[i] = x[i] - L[i,j] * x[j]` ``
+    ///   `` `x[i] = x[i] / L[i,i]` ``  (if not unit diagonal)
     /// ```
     ///
     /// **Upper triangular (backward substitution):**
@@ -124,13 +124,13 @@ pub trait SparseLinAlgAlgorithms<R: Runtime> {
     /// # Arguments
     ///
     /// * `l_or_u` - Sparse triangular matrix in CSR format
-    /// * `b` - Right-hand side dense vector `[n]` or matrix `[n, k]`
+    /// * `b` - Right-hand side dense vector `` `[n]` `` or matrix `` `[n, k]` ``
     /// * `lower` - True for lower triangular, false for upper triangular
     /// * `unit_diagonal` - True if diagonal is implicitly 1 (for unit triangular)
     ///
     /// # Returns
     ///
-    /// Solution vector x `[n]` or matrix `[n, k]`
+    /// Solution vector x `` `[n]` `` or matrix `` `[n, k]` ``
     ///
     /// # Errors
     ///

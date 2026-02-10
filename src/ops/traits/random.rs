@@ -125,11 +125,11 @@ pub trait RandomOps<R: Runtime> {
     /// Uses inverse transform sampling (CDF method):
     /// 1. Compute cumulative sum of probabilities (CDF)
     /// 2. For each sample, draw uniform random u ∈ `[0, 1)`
-    /// 3. Find smallest index i where CDF`[i]` ≥ u (binary search)
+    /// 3. Find smallest index i where `` `CDF[i]` `` ≥ u (binary search)
     ///
     /// ```text
-    /// probs:  `[0.1, 0.2, 0.3, 0.4]`
-    /// CDF:    `[0.1, 0.3, 0.6, 1.0]`
+    /// probs:  `` `[0.1, 0.2, 0.3, 0.4]` ``
+    /// CDF:    `` `[0.1, 0.3, 0.6, 1.0]` ``
     ///          ↑    ↑    ↑    ↑
     /// u=0.05 → 0    │    │    │   (u < 0.1)
     /// u=0.25 ──────→ 1   │    │   (0.1 ≤ u < 0.3)
@@ -139,7 +139,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `probs` - Probability tensor with shape `[..., num_categories]`
+    /// * `probs` - Probability tensor with shape `` `[..., num_categories]` ``
     ///   - Probabilities must be non-negative
     ///   - Probabilities are normalized automatically (do not need to sum to 1)
     ///   - Must be floating point dtype (F32, F64, F16, BF16)
@@ -222,7 +222,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `p` - Probability of success (1), must be in [0, 1]
+    /// * `p` - Probability of success (1), must be in `` `[0, 1]` ``
     /// * `shape` - Shape of the output tensor
     /// * `dtype` - Data type of the output tensor (must be floating point)
     ///
@@ -232,7 +232,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Errors
     ///
-    /// Returns `Error::InvalidArgument` if p is not in [0, 1].
+    /// Returns `Error::InvalidArgument` if p is not in `` `[0, 1]` ``.
     /// Returns `Error::UnsupportedDType` if dtype is not floating point.
     ///
     /// # Examples
@@ -347,7 +347,7 @@ pub trait RandomOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `n` - Number of trials (n > 0)
-    /// * `p` - Probability of success per trial, must be in [0, 1]
+    /// * `p` - Probability of success per trial, must be in `` `[0, 1]` ``
     /// * `shape` - Shape of the output tensor
     /// * `dtype` - Data type of the output tensor (must be floating point)
     ///
@@ -357,7 +357,7 @@ pub trait RandomOps<R: Runtime> {
     ///
     /// # Errors
     ///
-    /// Returns `Error::InvalidArgument` if n ≤ 0 or p is not in [0, 1].
+    /// Returns `Error::InvalidArgument` if n ≤ 0 or p is not in `` `[0, 1]` ``.
     /// Returns `Error::UnsupportedDType` if dtype is not floating point.
     ///
     /// # Examples

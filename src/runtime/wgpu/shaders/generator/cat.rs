@@ -4,10 +4,10 @@ use super::common::{dtype_suffix, wgsl_type};
 use crate::dtype::DType;
 use crate::error::Result;
 
-/// WGSL helper function to access packed `array<vec4<u32>, 2>` by index.
+/// WGSL helper function to access packed `` `array<vec4<u32>, 2>` `` by index.
 ///
 /// WGSL uniform buffers require 16-byte alignment for array elements. We pack 8 u32 values
-/// into 2 vec4<u32> to meet this requirement. This helper extracts individual values.
+/// into `` `2 vec4<u32>` `` to meet this requirement. This helper extracts individual values.
 const WGSL_GET_PACKED_VALUE_HELPER: &str = r#"// Helper to access packed array<vec4<u32>, 2> by index
 fn get_packed_value(arr: array<vec4<u32>, 2>, d: i32) -> u32 {
     let vec_idx = u32(d) / 4u;

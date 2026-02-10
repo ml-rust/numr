@@ -11,9 +11,9 @@ use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 /// Launch SVD decomposition kernel using One-Sided Jacobi algorithm.
 ///
 /// # Arguments
-/// * `b` - Working matrix buffer [m * n], will contain U columns after kernel completes
-/// * `v` - V matrix buffer [n * n], will contain V (not transposed) after kernel completes
-/// * `s` - Singular values buffer [n]
+/// * `b` - Working matrix buffer `[m * n]`, will contain U columns after kernel completes
+/// * `v` - V matrix buffer `[n * n]`, will contain V (not transposed) after kernel completes
+/// * `s` - Singular values buffer `[n]`
 /// * `converged_flag` - Convergence flag buffer (atomic i32): 0 if converged, 1 if not
 /// * `params_buffer` - Parameters buffer with (work_m, work_n)
 pub fn launch_svd_jacobi(

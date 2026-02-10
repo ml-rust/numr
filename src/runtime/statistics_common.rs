@@ -226,7 +226,112 @@ pub fn compute_quantile_indices(q: f64, n: usize) -> (usize, usize, f64) {
 }
 
 // ============================================================================
-// Moment Statistics (Skewness / Kurtosis)
+// Generic GPU Moment Statistics (Skewness / Kurtosis)
+// ============================================================================
+
+/// Compute skewness (third standardized moment) using primitive tensor ops.
+///
+/// This is a generic composite implementation usable by any backend (CUDA, WebGPU, etc.)
+/// that implements the required primitive operation traits.
+///
+/// Uses `mul` chains instead of `pow_scalar` to correctly handle negative values
+/// (GPU `powf(negative, 3.0)` returns NaN).
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+pub fn skew_composite<R, C>(
+    client: &C,
+    a: &crate::tensor::Tensor<R>,
+    dims: &[usize],
+    keepdim: bool,
+    correction: usize,
+) -> Result<crate::tensor::Tensor<R>>
+where
+    R: crate::runtime::Runtime,
+    C: crate::ops::BinaryOps<R>
+        + crate::ops::ReduceOps<R>
+        + crate::ops::StatisticalOps<R>
+        + crate::runtime::RuntimeClient<R>,
+{
+    let dtype = a.dtype();
+
+    // skew = E[(X - mean)^3] / std^3
+    let mean = client.mean(a, dims, true)?;
+    let centered = client.sub(a, &mean)?;
+
+    // Compute third moment via multiplications (avoids NaN from pow on negatives)
+    let centered_sq = client.mul(&centered, &centered)?;
+    let centered_cubed = client.mul(&centered_sq, &centered)?;
+    let m3 = client.mean(&centered_cubed, dims, keepdim)?;
+
+    // Compute std^3
+    let std_val = client.std(a, dims, keepdim, correction)?;
+    let std_sq = client.mul(&std_val, &std_val)?;
+    let std_cubed = client.mul(&std_sq, &std_val)?;
+
+    // skew = m3 / std^3 (with epsilon to avoid division by zero)
+    let epsilon = crate::tensor::Tensor::<R>::full_scalar(
+        std_cubed.shape(),
+        dtype,
+        DIVISION_EPSILON,
+        client.device(),
+    );
+    let std_cubed_safe = client.add(&std_cubed, &epsilon)?;
+
+    client.div(&m3, &std_cubed_safe)
+}
+
+/// Compute excess kurtosis (fourth standardized moment - 3) using primitive tensor ops.
+///
+/// This is a generic composite implementation usable by any backend (CUDA, WebGPU, etc.)
+/// that implements the required primitive operation traits.
+///
+/// Uses `mul` chains instead of `pow_scalar` to correctly handle negative values.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
+pub fn kurtosis_composite<R, C>(
+    client: &C,
+    a: &crate::tensor::Tensor<R>,
+    dims: &[usize],
+    keepdim: bool,
+    correction: usize,
+) -> Result<crate::tensor::Tensor<R>>
+where
+    R: crate::runtime::Runtime,
+    C: crate::ops::BinaryOps<R>
+        + crate::ops::ReduceOps<R>
+        + crate::ops::StatisticalOps<R>
+        + crate::runtime::RuntimeClient<R>,
+{
+    let dtype = a.dtype();
+
+    // kurtosis = E[(X - mean)^4] / std^4 - 3
+    let mean = client.mean(a, dims, true)?;
+    let centered = client.sub(a, &mean)?;
+
+    // Compute fourth moment via multiplications
+    let centered_sq = client.mul(&centered, &centered)?;
+    let centered_fourth = client.mul(&centered_sq, &centered_sq)?;
+    let m4 = client.mean(&centered_fourth, dims, keepdim)?;
+
+    // Compute std^4
+    let std_val = client.std(a, dims, keepdim, correction)?;
+    let std_sq = client.mul(&std_val, &std_val)?;
+    let std_fourth = client.mul(&std_sq, &std_sq)?;
+
+    // kurtosis = m4 / std^4 - 3 (with epsilon to avoid division by zero)
+    let epsilon = crate::tensor::Tensor::<R>::full_scalar(
+        std_fourth.shape(),
+        dtype,
+        DIVISION_EPSILON,
+        client.device(),
+    );
+    let std_fourth_safe = client.add(&std_fourth, &epsilon)?;
+
+    let ratio = client.div(&m4, &std_fourth_safe)?;
+    let three = crate::tensor::Tensor::<R>::full_scalar(ratio.shape(), dtype, 3.0, client.device());
+    client.sub(&ratio, &three)
+}
+
+// ============================================================================
+// CPU Scalar Moment Statistics (Skewness / Kurtosis)
 // ============================================================================
 
 /// Compute the skewness (third standardized moment) of a data slice.

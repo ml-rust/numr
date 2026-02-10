@@ -43,7 +43,7 @@ pub trait MultivariateRandomOps<R: Runtime> {
     ///
     /// Uses the Cholesky decomposition method:
     /// 1. Compute Cholesky decomposition: `Σ = L @ L^T`
-    /// 2. Generate standard normal samples: `Z ~ N(0, I)` with shape `(n_samples, d)`
+    /// 2. Generate standard normal samples: `Z ~ N(0, I)` with shape `` `(n_samples, d)` ``
     /// 3. Transform: `X = μ + (L @ Z^T)^T = μ + Z @ L^T`
     ///
     /// This guarantees that X has the correct covariance:
@@ -51,13 +51,13 @@ pub trait MultivariateRandomOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `mean` - Mean vector `μ` with shape `(d,)` where `d` is the dimensionality
-    /// * `cov` - Covariance matrix `Σ` with shape `(d, d)`, must be symmetric positive definite
+    /// * `mean` - Mean vector `μ` with shape `` `(d,)` `` where `d` is the dimensionality
+    /// * `cov` - Covariance matrix `Σ` with shape `` `(d, d)` ``, must be symmetric positive definite
     /// * `n_samples` - Number of samples to generate
     ///
     /// # Returns
     ///
-    /// Tensor with shape `(n_samples, d)` containing samples from `N(μ, Σ)`
+    /// Tensor with shape `` `(n_samples, d)` `` containing samples from `` `N(μ, Σ)` ``
     ///
     /// # Errors
     ///

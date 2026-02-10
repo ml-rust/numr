@@ -13,8 +13,8 @@ use crate::error::Result;
 /// Launch eigenvalue validation on Schur form.
 ///
 /// Returns validation result in `result` buffer:
-/// - result[0] = 1.0 if any non-positive real eigenvalue found, 0.0 otherwise
-/// - result[1] = the problematic eigenvalue value (if any)
+/// - `result[0]` = 1.0 if any non-positive real eigenvalue found, 0.0 otherwise
+/// - `result[1]` = the problematic eigenvalue value (if any)
 pub fn launch_validate_eigenvalues(
     cache: &PipelineCache,
     queue: &Queue,

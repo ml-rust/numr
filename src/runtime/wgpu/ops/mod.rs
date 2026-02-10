@@ -1,26 +1,11 @@
-//! TensorOps, ScalarOps, and CompareOps implementations for WebGPU runtime
+//! WebGPU runtime operation helpers and TensorOps implementation.
 //!
-//! This module implements tensor operations for WebGPU using native WGSL
-//! compute shaders. All operations run entirely on GPU with no CPU fallback.
-//!
-//! # Performance Note
-//!
-//! All operations use native WGSL compute shaders for maximum performance.
-//! Data stays on GPU throughout the computation pipeline.
-//!
-//! # Module Structure
-//!
-//! - `helpers`: Shared utility functions (buffer creation, allocation)
-//! - `native`: Native GPU operation implementations
-//! - `tensor`: TensorOps trait implementation
-//! - `scalar`: ScalarOps trait implementation
-//! - `compare`: CompareOps trait implementation
+//! Trait implementations (CompareOps, ScalarOps, LogicalOps, etc.) live in `ops/wgpu/`.
+//! This module provides shared helpers, native GPU launchers, and TensorOps.
 
-pub mod compare;
-pub mod helpers;
-pub mod native;
-pub mod scalar;
-pub mod tensor;
+pub(crate) mod helpers;
+pub(crate) mod native;
+mod tensor;
 
 // ============================================================================
 // Tests

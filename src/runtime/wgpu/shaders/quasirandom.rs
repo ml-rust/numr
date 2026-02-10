@@ -77,7 +77,7 @@ fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// * `cache` - Pipeline cache for shader compilation
 /// * `queue` - Command queue for GPU execution
 /// * `out` - Output buffer for generated samples
-/// * `direction_vectors` - Pre-computed direction vectors buffer [dimension][32]
+/// * `direction_vectors` - Pre-computed direction vectors buffer `[dimension][32]`
 /// * `params` - Parameters buffer (dimension, offset)
 /// * `n_points` - Number of points to generate
 /// * `dtype` - Data type (must be floating-point)

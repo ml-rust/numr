@@ -14,11 +14,11 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Arguments
     ///
-    /// * `x` - Dense vector of length `ncols` (or shape `[ncols]` or `[ncols, 1]`)
+    /// * `x` - Dense vector of length `ncols` (or shape `` `[ncols]` `` or `` `[ncols, 1]` ``)
     ///
     /// # Returns
     ///
-    /// Dense vector of length `nrows`
+    /// Dense vector of length `` `nrows` ``
     ///
     /// # Errors
     ///
@@ -30,7 +30,7 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// For each row i:
     /// ```text
-    /// y[i] = sum(values[j] * x[col_indices[j]]) for j in row_ptrs[i]..row_ptrs[i+1]
+    /// `` `y[i] = sum(values[j] * x[col_indices[j]]) for j in row_ptrs[i]..row_ptrs[i+1]` ``
     /// ```
     ///
     /// # Performance
@@ -111,11 +111,11 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// # Arguments
     ///
-    /// * `b` - Dense matrix of shape `[K, N]` where K == ncols of sparse matrix
+    /// * `b` - Dense matrix of shape `` `[K, N]` `` where K == ncols of sparse matrix
     ///
     /// # Returns
     ///
-    /// Dense matrix of shape `[M, N]` where M == nrows of sparse matrix
+    /// Dense matrix of shape `` `[M, N]` `` where M == nrows of sparse matrix
     ///
     /// # Errors
     ///
@@ -128,8 +128,8 @@ impl<R: Runtime> CsrData<R> {
     ///
     /// For each row i of A and each column n of B:
     /// ```text
-    /// C[i, n] = sum(A.values[j] * B[A.col_indices[j], n])
-    ///           for j in `row_ptrs[i]..row_ptrs[i+1]`
+    /// `` `C[i, n] = sum(A.values[j] * B[A.col_indices[j], n])` ``
+    ///           for j in `` `row_ptrs[i]..row_ptrs[i+1]` ``
     /// ```
     ///
     /// # Performance

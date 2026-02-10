@@ -13,8 +13,8 @@ use super::common::wgsl_type;
 
 /// Generate shader for expanding CSR row pointers to explicit row indices (CSR → COO).
 ///
-/// Input: row_ptrs[nrows+1], nnz elements total
-/// Output: row_indices[nnz] where each element i gets the row index it belongs to
+/// Input: `row_ptrs[nrows+1]`, nnz elements total
+/// Output: `row_indices[nnz]` where each element i gets the row index it belongs to
 pub fn generate_expand_row_ptrs_shader() -> Result<String> {
     Ok(r#"
 // Expand CSR row pointers to explicit row indices

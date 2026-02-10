@@ -132,5 +132,6 @@ pub fn mode_impl(
         dtype,
     )?;
 
-    Ok((mode_values, mode_counts))
+    let mode_counts_i64 = client.cast(&mode_counts, DType::I64)?;
+    Ok((mode_values, mode_counts_i64))
 }

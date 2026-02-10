@@ -139,7 +139,7 @@ pub trait SortingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tuple of (values, indices) where:
-    /// - `values`: Tensor with shape [..., k, ...] (dim replaced with k), same dtype as input
+    /// - `values`: Tensor with shape `` `[..., k, ...]` `` (dim replaced with k), same dtype as input
     /// - `indices`: I64 tensor with same shape as values, containing original indices
     ///
     /// # Errors
@@ -256,7 +256,7 @@ pub trait SortingOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// I64 tensor of shape [N, ndim] where N is the number of non-zero elements
+    /// I64 tensor of shape `` `[N, ndim]` `` where N is the number of non-zero elements
     /// and ndim is the number of dimensions in the input tensor. Each row contains
     /// the multi-dimensional index of a non-zero element.
     ///

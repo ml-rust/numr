@@ -11,8 +11,8 @@ use crate::error::Result;
 /// Generate shader for validating Schur eigenvalues (checking for non-positive real eigenvalues).
 ///
 /// Returns a tensor with validation results:
-/// - output[0] = 1.0 if any non-positive real eigenvalue found, 0.0 otherwise
-/// - output[1] = the first problematic eigenvalue value (if any)
+/// - `output[0]` = 1.0 if any non-positive real eigenvalue found, 0.0 otherwise
+/// - `output[1]` = the first problematic eigenvalue value (if any)
 pub fn generate_validate_eigenvalues_shader(dtype: DType) -> Result<String> {
     let t = wgsl_type(dtype)?;
     let suffix = dtype_suffix(dtype)?;
@@ -328,7 +328,7 @@ fn diagonal_{func_type}_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) 
 /// Generate shader for computing off-diagonal elements using Parlett's recurrence.
 ///
 /// For column j, processes rows i < j:
-/// F[i,j] = (T[i,i] - T[j,j])^(-1) * (F[i,j] * T[i,j] - sum_{k=i+1}^{j-1} F[i,k]*T[k,j] + T[i,k]*F[k,j])
+/// `F[i,j] = (T[i,i] - T[j,j])^(-1) * (F[i,j] * T[i,j] - sum_{k=i+1}^{j-1} F[i,k]*T[k,j] + T[i,k]*F[k,j])`
 ///
 /// This kernel processes one column at a time (called n times).
 pub fn generate_parlett_column_shader(dtype: DType) -> Result<String> {

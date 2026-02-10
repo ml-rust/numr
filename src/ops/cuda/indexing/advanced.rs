@@ -2,7 +2,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::ScatterReduceOp;
+use crate::ops::{ReduceOps, ScatterReduceOp, TypeConversionOps};
 use crate::runtime::cuda::kernels::{
     ScatterReduceOpCuda, launch_bincount_weighted, launch_copy, launch_embedding_lookup,
     launch_fill_with_f64, launch_gather_nd, launch_scatter_reduce,
@@ -357,11 +357,21 @@ pub fn bincount(
     let input_contig = ensure_contiguous(input);
     let numel = input.numel();
 
-    // For bincount, we need to find the max value to determine output size
-    // Since we can't easily compute max on GPU without another kernel,
-    // we use minlength and let the kernel handle bounds checking
-    // In practice, the caller should provide an appropriate minlength
-    let output_len = minlength.max(1);
+    // Find the max value on GPU to determine output size.
+    // Cast to F64 for max reduction (CUDA reduce kernels support F64 but not integer types),
+    // then read the single scalar back to CPU for allocation sizing —
+    // this is a necessary system boundary (same as CPU impl computing max first).
+    // F64 preserves full i32/i64 precision (up to 2^53), unlike F32 which loses precision past 2^24.
+    let input_f64 = client.cast(input, DType::F64)?;
+    let max_tensor = client.max(&input_f64, &[0], false)?;
+    let max_val = max_tensor.item::<f64>()? as i64;
+    if max_val < 0 {
+        return Err(Error::InvalidArgument {
+            arg: "input",
+            reason: "bincount requires non-negative values".to_string(),
+        });
+    }
+    let output_len = ((max_val as usize) + 1).max(minlength);
 
     // Allocate output and zero-initialize
     let out = Tensor::<CudaRuntime>::empty(&[output_len], out_dtype, &client.device);

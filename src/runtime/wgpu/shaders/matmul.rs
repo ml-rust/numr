@@ -142,7 +142,7 @@ pub fn launch_matmul_simple(
 
 /// Launch batched matrix multiplication kernel.
 ///
-/// Computes C[b] = A[b] @ B[b] for each batch b.
+/// Computes `C[b] = A[b] @ B[b]` for each batch b.
 pub fn launch_batched_matmul(
     cache: &PipelineCache,
     queue: &Queue,
@@ -195,7 +195,7 @@ pub fn launch_batched_matmul(
 
 /// Launch matrix-vector multiplication kernel.
 ///
-/// Computes y = A @ x where A is [M, N] and x is [N].
+/// Computes y = A @ x where A is `[M, N]` and x is `[N]`.
 pub fn launch_matvec(
     cache: &PipelineCache,
     queue: &Queue,
@@ -276,10 +276,10 @@ fn matmul_bias_keys(dtype: DType) -> Result<(&'static str, &'static str, &'stati
 /// Launch tiled matrix multiplication with fused bias addition.
 ///
 /// Computes C = A @ B + bias where:
-/// - A is [M, K]
-/// - B is [K, N]
-/// - bias is [N] (broadcast across rows)
-/// - C is [M, N]
+/// - A is `[M, K]`
+/// - B is `[K, N]`
+/// - bias is `[N]` (broadcast across rows)
+/// - C is `[M, N]`
 ///
 /// The bias addition is fused into the GEMM epilogue for efficiency.
 pub fn launch_matmul_bias(
@@ -334,7 +334,7 @@ pub fn launch_matmul_bias(
 
 /// Launch batched matrix multiplication with fused bias addition.
 ///
-/// Computes C[b] = A[b] @ B[b] + bias for each batch b.
+/// Computes `C[b] = A[b] @ B[b] + bias` for each batch b.
 /// The same bias vector is used for all batches.
 pub fn launch_batched_matmul_bias(
     cache: &PipelineCache,

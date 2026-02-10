@@ -36,12 +36,12 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - Coefficient matrix `[n, n]`
-    /// * `b` - Right-hand side vector/matrix `[n]` or `[n, k]`
+    /// * `a` - Coefficient matrix `` `[n, n]` ``
+    /// * `b` - Right-hand side vector/matrix `` `[n]` `` or `` `[n, k]` ``
     ///
     /// # Returns
     ///
-    /// Solution tensor x `[n]` or `[n, k]`
+    /// Solution tensor x `` `[n]` `` or `` `[n, k]` ``
     ///
     /// # Errors
     ///
@@ -85,12 +85,12 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - Coefficient matrix `[m, n]` (can be non-square)
-    /// * `b` - Right-hand side vector/matrix `[m]` or `[m, k]`
+    /// * `a` - Coefficient matrix `` `[m, n]` `` (can be non-square)
+    /// * `b` - Right-hand side vector/matrix `` `[m]` `` or `` `[m, k]` ``
     ///
     /// # Returns
     ///
-    /// Solution tensor x `[n]` or `[n, k]` that minimizes ||Ax - b||²
+    /// Solution tensor x `` `[n]` `` or `` `[n, k]` `` that minimizes ||Ax - b||²
     ///
     /// # Errors
     ///
@@ -128,7 +128,7 @@ pub trait LinalgOps<R: Runtime> {
     /// # Algorithm
     ///
     /// 1. Compute SVD: A = U @ diag(S) @ V^T
-    /// 2. Invert non-zero singular values: `S_inv[i]` = 1/`S[i]` if `S[i]` > `rcond*max(S)`, else 0
+    /// 2. Invert non-zero singular values: `` `S_inv[i]` `` = `` `1/S[i]` `` if `` `S[i]` `` > `` `rcond*max(S)` ``, else 0
     /// 3. Compute: A^+ = V @ diag(S_inv) @ U^T
     ///
     /// # Arguments
@@ -169,7 +169,7 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// # Supported Norms
     ///
-    /// - **Frobenius**: `sqrt(sum(A[i,j]²))` - Euclidean norm of the matrix
+    /// - **Frobenius**: `` `sqrt(sum(A[i,j]²))` `` - Euclidean norm of the matrix
     /// - **Spectral** (2-norm): Maximum singular value (requires SVD)
     /// - **Nuclear** (trace norm): Sum of singular values (requires SVD)
     ///
@@ -323,7 +323,7 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Scalar tensor containing `trace(A)` = `sum_i A[i,i]`
+    /// Scalar tensor containing `` `trace(A)` `` = `` `sum_i A[i,i]` ``
     ///
     /// # Errors
     ///
@@ -387,7 +387,7 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - 1D tensor `[n]`
+    /// * `a` - 1D tensor `` `[n]` ``
     ///
     /// # Returns
     ///
@@ -425,7 +425,7 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// ```text
     /// 1. Compute SVD: A = U @ diag(S) @ V^T
-    /// 2. Count singular values: rank = #{i : S[i] > tol}
+    /// 2. Count singular values: rank = #{i : `` `S[i]` `` > tol}
     /// ```
     ///
     /// # Arguments
@@ -534,7 +534,7 @@ pub trait LinalgOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `ab` - Band matrix `[kl + ku + 1, n]`
-    /// * `b` - Right-hand side `[n]` or `[n, nrhs]`
+    /// * `b` - Right-hand side `` `[n]` `` or `` `[n, nrhs]` ``
     /// * `kl` - Number of subdiagonals
     /// * `ku` - Number of superdiagonals
     fn solve_banded(
@@ -693,9 +693,9 @@ pub trait LinalgOps<R: Runtime> {
     ///
     /// ```text
     /// 1. Compute PA = LU (pivoted LU decomposition)
-    /// 2. sign = (-1)^num_swaps * product(sign(U[i,i]))
-    /// 3. logabsdet = sum(log(|U[i,i]|))
-    /// 4. If any U[i,i] == 0: sign = 0, logabsdet = -inf
+    /// 2. sign = (-1)^num_swaps * product(sign(`` `U[i,i]` ``))
+    /// 3. logabsdet = sum(log(|`` `U[i,i]` ``|))
+    /// 4. If any `` `U[i,i]` `` == 0: sign = 0, logabsdet = -inf
     /// ```
     ///
     /// # Arguments

@@ -53,6 +53,24 @@ pub trait Element:
     /// For complex types, this creates a **real number** (imaginary part = 0).
     fn from_f64(v: f64) -> Self;
 
+    /// Convert to f32
+    ///
+    /// Default implementation goes through f64. Types that have direct f32
+    /// conversion (f16, bf16, fp8) override this for efficiency.
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_f64() as f32
+    }
+
+    /// Convert from f32 to this type
+    ///
+    /// Default implementation goes through f64. Types that have direct f32
+    /// conversion (f16, bf16, fp8) override this for efficiency.
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        Self::from_f64(v as f64)
+    }
+
     /// Zero value
     fn zero() -> Self;
 
@@ -71,6 +89,16 @@ impl Element for f64 {
     #[inline]
     fn from_f64(v: f64) -> Self {
         v
+    }
+
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self as f32
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        v as f64
     }
 
     #[inline]
@@ -95,6 +123,16 @@ impl Element for f32 {
     #[inline]
     fn from_f64(v: f64) -> Self {
         v as f32
+    }
+
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        v
     }
 
     #[inline]
@@ -322,6 +360,16 @@ impl Element for half::f16 {
     }
 
     #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_f32()
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        half::f16::from_f32(v)
+    }
+
+    #[inline]
     fn zero() -> Self {
         half::f16::ZERO
     }
@@ -344,6 +392,16 @@ impl Element for half::bf16 {
     #[inline]
     fn from_f64(v: f64) -> Self {
         half::bf16::from_f64(v)
+    }
+
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_f32()
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        half::bf16::from_f32(v)
     }
 
     #[inline]
@@ -375,6 +433,16 @@ impl Element for super::fp8::FP8E4M3 {
     }
 
     #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_f32()
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        Self::from_f32(v)
+    }
+
+    #[inline]
     fn zero() -> Self {
         Self::ZERO
     }
@@ -396,6 +464,16 @@ impl Element for super::fp8::FP8E5M2 {
     #[inline]
     fn from_f64(v: f64) -> Self {
         Self::from_f32(v as f32)
+    }
+
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self.to_f32()
+    }
+
+    #[inline]
+    fn from_f32(v: f32) -> Self {
+        Self::from_f32(v)
     }
 
     #[inline]

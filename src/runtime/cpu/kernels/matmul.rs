@@ -35,7 +35,7 @@ pub unsafe fn matmul_kernel<T: Element>(
     ldb: usize,
     ldc: usize,
 ) {
-    // Dispatch to SIMD for f32/f64 on x86-64
+    // Dispatch to SIMD for f32/f64 on x86-64, f16/bf16 via f32 conversion
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::matmul;
@@ -67,6 +67,11 @@ pub unsafe fn matmul_kernel<T: Element>(
                     ldb,
                     ldc,
                 );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                matmul::half_convert::matmul_via_f32(a, b, out, m, n, k, lda, ldb, ldc);
                 return;
             }
             _ => {} // Fall through to scalar
@@ -143,7 +148,7 @@ pub unsafe fn matmul_bias_kernel<T: Element>(
     ldb: usize,
     ldc: usize,
 ) {
-    // Dispatch to fused SIMD for f32/f64 on x86-64
+    // Dispatch to fused SIMD for f32/f64 on x86-64, f16/bf16 via f32 conversion
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::matmul;
@@ -177,6 +182,11 @@ pub unsafe fn matmul_bias_kernel<T: Element>(
                     ldb,
                     ldc,
                 );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                matmul::half_convert::matmul_bias_via_f32(a, b, bias, out, m, n, k, lda, ldb, ldc);
                 return;
             }
             _ => {} // Fall through to scalar

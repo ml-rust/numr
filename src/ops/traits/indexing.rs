@@ -71,7 +71,7 @@ pub trait IndexingOps<R: Runtime> {
     /// Gather elements along a dimension using an index tensor.
     ///
     /// For a 3D tensor with dim=1:
-    /// `out[i][j][k] = input[i][index[i][j][k]][k]`
+    /// `` `out[i][j][k] = input[i][index[i][j][k]][k]` ``
     ///
     /// # Arguments
     ///
@@ -95,7 +95,7 @@ pub trait IndexingOps<R: Runtime> {
     /// specified by `index` along dimension `dim`.
     ///
     /// For a 3D tensor with dim=1:
-    /// `out[i][index[i][j][k]][k] = src[i][j][k]`
+    /// `` `out[i][index[i][j][k]][k] = src[i][j][k]` ``
     ///
     /// # Arguments
     ///
@@ -254,13 +254,13 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `embeddings` - 2D embedding table of shape `[vocab_size, embedding_dim]`
+    /// * `embeddings` - 2D embedding table of shape `` `[vocab_size, embedding_dim]` ``
     /// * `indices` - Index tensor of any shape containing indices into the embedding table.
-    ///   Must be I64 (or I32 on WebGPU). Values must be in range `[0, vocab_size)`.
+    ///   Must be I64 (or I32 on WebGPU). Values must be in range `` `[0, vocab_size)` ``.
     ///
     /// # Returns
     ///
-    /// Tensor of shape `indices.shape() + [embedding_dim]` containing the looked-up embeddings.
+    /// Tensor of shape `` `indices.shape() + [embedding_dim]` `` containing the looked-up embeddings.
     ///
     /// # Example
     ///
@@ -354,11 +354,11 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// # Algorithm
     ///
-    /// If `indices` has shape `[..., M]` and `input` has `N` dimensions:
-    /// - If M == N: output has shape `indices.shape()[:-1]`
-    /// - If M < N: output has shape `indices.shape()[:-1] + input.shape()[M:]`
+    /// If `indices` has shape `` `[..., M]` `` and `input` has `N` dimensions:
+    /// - If M == N: output has shape `` `indices.shape()[:-1]` ``
+    /// - If M < N: output has shape `` `indices.shape()[:-1] + input.shape()[M:]` ``
     ///
-    /// Each index vector `indices[..., :]` specifies coordinates for the first
+    /// Each index vector `` `indices[..., :]` `` specifies coordinates for the first
     /// M dimensions of `input`.
     ///
     /// # Arguments
@@ -391,7 +391,7 @@ pub trait IndexingOps<R: Runtime> {
 
     /// Count occurrences of each value in an integer tensor.
     ///
-    /// Returns a histogram where `output[i]` contains the count (or weighted sum)
+    /// Returns a histogram where `` `output[i]` `` contains the count (or weighted sum)
     /// of how many times value `i` appears in the input.
     ///
     /// # Arguments
@@ -404,7 +404,7 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// 1D tensor of length `max(max(input)+1, minlength)` containing counts
+    /// 1D tensor of length `` `max(max(input)+1, minlength)` `` containing counts
     /// or weighted sums.
     ///
     /// # Example
@@ -438,7 +438,7 @@ pub trait IndexingOps<R: Runtime> {
 
     /// Gather elements from a 2D matrix using row and column index vectors.
     ///
-    /// For each index i, extracts `input[rows[i], cols[i]]`.
+    /// For each index i, extracts `` `input[rows[i], cols[i]]` ``.
     ///
     /// This is a specialized gather operation optimized for sparse matrix
     /// applications where you need to extract values at specific (row, col)
@@ -452,13 +452,13 @@ pub trait IndexingOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `input` - 2D input tensor of shape `[nrows, ncols]`
+    /// * `input` - 2D input tensor of shape `` `[nrows, ncols]` ``
     /// * `rows` - 1D index tensor (I64) specifying row indices
     /// * `cols` - 1D index tensor (I64) specifying column indices
     ///
     /// # Returns
     ///
-    /// 1D tensor of length `rows.numel()` with gathered values.
+    /// 1D tensor of length `` `rows.numel()` `` with gathered values.
     /// Same dtype as input.
     ///
     /// # Example

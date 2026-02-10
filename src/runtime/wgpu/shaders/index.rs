@@ -161,8 +161,8 @@ pub fn launch_index_put(
     let shader_source = generate_index_put_shader(dtype)?;
     let module = cache.get_or_create_module(name, &shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 3,
-        num_uniform_buffers: 1,
+        num_storage_buffers: 4,
+        num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
@@ -619,8 +619,8 @@ pub fn launch_gather_nd(
     let shader_source = super::generator::generate_gather_nd_shader(dtype)?;
     let module = cache.get_or_create_module(name, &shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 3,
-        num_uniform_buffers: 1,
+        num_storage_buffers: 4,
+        num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
@@ -654,8 +654,8 @@ pub fn launch_gather_nd(
 /// Launch a bincount operation kernel.
 ///
 /// Counts occurrences of each value in an integer tensor.
-/// Input: integer tensor with values in [0, minlength)
-/// Output: count tensor of shape [minlength]
+/// Input: integer tensor with values in `[0, minlength)`
+/// Output: count tensor of shape `[minlength]`
 pub fn launch_bincount(
     cache: &PipelineCache,
     queue: &Queue,
@@ -682,7 +682,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 3,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: 2, // input and weights are read-only
         });
         let bind_group =
             cache.create_bind_group(&layout, &[input, weights_buf, output, params_buffer]);
@@ -691,7 +691,7 @@ pub fn launch_bincount(
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: 2,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: 1, // input is read-only
         });
         let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
         (layout, bind_group)
@@ -792,8 +792,8 @@ pub fn launch_scatter_reduce(
 /// Launch an embedding_lookup operation kernel.
 ///
 /// Looks up embeddings from a 2D embedding table using indices.
-/// Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
-/// Output: output [num_indices, embedding_dim]
+/// Input: embeddings `[vocab_size, embedding_dim]`, indices `[num_indices]`
+/// Output: output `[num_indices, embedding_dim]`
 ///
 /// This is the industry-standard embedding lookup operation used in neural networks
 /// for word embeddings, entity embeddings, etc.
@@ -849,10 +849,10 @@ pub fn launch_embedding_lookup(
 /// Launch a gather_2d operation kernel.
 ///
 /// Gathers elements from a 2D matrix at specific (row, col) positions.
-/// Input: input [nrows, ncols], rows [num_indices], cols [num_indices]
-/// Output: output [num_indices]
+/// Input: input `[nrows, ncols]`, rows `[num_indices]`, cols `[num_indices]`
+/// Output: output `[num_indices]`
 ///
-/// For each index i: output[i] = input[rows[i], cols[i]]
+/// For each index i: `output[i] = input[rows[i], cols[i]]`
 #[allow(clippy::too_many_arguments)]
 pub fn launch_gather_2d(
     cache: &PipelineCache,

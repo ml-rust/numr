@@ -80,3 +80,15 @@ mod multivariate;
 
 #[path = "../../../ops/cuda/semiring_matmul.rs"]
 mod semiring_matmul;
+
+#[path = "../../../ops/cuda/compare.rs"]
+mod compare;
+
+#[path = "../../../ops/cuda/scalar.rs"]
+mod scalar;
+
+#[path = "../../../ops/cuda/logical.rs"]
+mod logical;
+
+#[path = "../../../ops/cuda/einsum.rs"]
+mod einsum;

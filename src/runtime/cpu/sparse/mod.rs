@@ -10,10 +10,12 @@ use crate::tensor::Tensor;
 // Submodules
 mod dsmm;
 mod esc_spgemm;
+mod format_convert;
 mod high_level_ops;
 mod iterative;
 mod linalg;
 pub(crate) mod merge;
+mod sparse_highlevel;
 #[cfg(test)]
 mod tests;
 

@@ -61,7 +61,6 @@ pub mod sparse_merge_launcher;
 pub mod sparse_spmv_launcher;
 pub mod where_launcher;
 
-mod elementwise_wgsl;
 mod linalg_launchers;
 mod linalg_shaders;
 mod linalg_wgsl;
@@ -128,7 +127,7 @@ pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
 #[cfg(feature = "sparse")]
 pub use sparse_algorithms_launcher::{
-    launch_dsmm_csc, launch_spgemm_numeric, launch_spgemm_symbolic,
+    launch_dsmm_csc, launch_spgemm_accumulate, launch_spgemm_scatter, launch_spgemm_symbolic,
 };
 #[cfg(feature = "sparse")]
 pub use sparse_conversions_launcher::{

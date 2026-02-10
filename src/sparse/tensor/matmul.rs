@@ -12,11 +12,11 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Arguments
     ///
-    /// * `x` - Dense vector of length `ncols` (or shape `[ncols]` or `[ncols, 1]`)
+    /// * `x` - Dense vector of length `ncols` (or shape `` `[ncols]` `` or `` `[ncols, 1]` ``)
     ///
     /// # Returns
     ///
-    /// Dense vector of length `nrows`
+    /// Dense vector of length `` `nrows` ``
     ///
     /// # Errors
     ///
@@ -60,11 +60,11 @@ impl<R: Runtime> SparseTensor<R> {
     ///
     /// # Arguments
     ///
-    /// * `b` - Dense matrix of shape `[K, N]` where K == ncols of sparse matrix
+    /// * `b` - Dense matrix of shape `` `[K, N]` `` where K == ncols of sparse matrix
     ///
     /// # Returns
     ///
-    /// Dense matrix of shape `[M, N]` where M == nrows of sparse matrix
+    /// Dense matrix of shape `` `[M, N]` `` where M == nrows of sparse matrix
     ///
     /// # Errors
     ///

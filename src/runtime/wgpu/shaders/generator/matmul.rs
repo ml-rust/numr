@@ -139,10 +139,10 @@ fn batched_matmul_{suffix}(@builtin(global_invocation_id) global_id: vec3<u32>,
 /// Generate WGSL shader for fused matrix multiplication with bias addition
 ///
 /// This implements C = A @ B + bias where:
-/// - A has shape [M, K] or [batch, M, K]
-/// - B has shape [K, N] or [batch, K, N]
-/// - bias has shape [N] (1D, broadcast across all rows and batches)
-/// - C has shape [M, N] or [batch, M, N]
+/// - A has shape `[M, K]` or `[batch, M, K]`
+/// - B has shape `[K, N]` or `[batch, K, N]`
+/// - bias has shape `[N]` (1D, broadcast across all rows and batches)
+/// - C has shape `[M, N]` or `[batch, M, N]`
 ///
 /// The bias addition is fused into the GEMM epilogue for efficiency,
 /// avoiding an extra memory round-trip.

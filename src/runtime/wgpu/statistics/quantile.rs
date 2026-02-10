@@ -43,6 +43,13 @@ pub fn quantile_impl(
     let _interp = Interpolation::parse(interpolation)?;
     let dtype = a.dtype();
 
+    // WebGPU sort path does not support F64 directly; compute in F32 and cast back.
+    if dtype == DType::F64 {
+        let a_f32 = client.cast(a, DType::F32)?;
+        let out_f32 = quantile_impl(client, &a_f32, q, dim, keepdim, interpolation)?;
+        return client.cast(&out_f32, DType::F64);
+    }
+
     // Handle None dim: flatten to 1D first
     if dim.is_none() {
         let numel = a.numel();
@@ -102,9 +109,9 @@ pub fn quantile_impl(
     // Gather floor and ceil values using index_select
     // Create index tensors for the floor and ceil positions
     let floor_idx_tensor =
-        Tensor::<WgpuRuntime>::from_slice(&[floor_idx as i64], &[1], client.device());
+        Tensor::<WgpuRuntime>::from_slice(&[floor_idx as i32], &[1], client.device());
     let ceil_idx_tensor =
-        Tensor::<WgpuRuntime>::from_slice(&[ceil_idx as i64], &[1], client.device());
+        Tensor::<WgpuRuntime>::from_slice(&[ceil_idx as i32], &[1], client.device());
 
     // Select floor and ceil values along dimension
     let floor_vals = client.index_select(&sorted, dim_idx, &floor_idx_tensor)?;

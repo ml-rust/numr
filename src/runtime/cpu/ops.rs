@@ -89,3 +89,6 @@ mod multivariate;
 
 #[path = "../../ops/cpu/semiring_matmul.rs"]
 mod semiring_matmul;
+
+#[path = "../../ops/cpu/einsum.rs"]
+mod einsum;

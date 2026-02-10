@@ -1,10 +1,11 @@
 //! Unary operations for WebGPU runtime
 
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::UnaryOps;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
-use crate::runtime::wgpu::ops::native::native_unary_op;
+use crate::runtime::wgpu::ops::native::{native_cast_op, native_unary_op};
 use crate::tensor::Tensor;
 
 impl UnaryOps<WgpuRuntime> for WgpuClient {
@@ -133,10 +134,14 @@ impl UnaryOps<WgpuRuntime> for WgpuClient {
     }
 
     fn isnan(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "isnan", a)
+        // WebGPU boolean tensors are represented as U32 (no native U8 support).
+        let out_f32 = native_unary_op(self, "isnan", a)?;
+        native_cast_op(self, &out_f32, DType::U32)
     }
 
     fn isinf(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
-        native_unary_op(self, "isinf", a)
+        // WebGPU boolean tensors are represented as U32 (no native U8 support).
+        let out_f32 = native_unary_op(self, "isinf", a)?;
+        native_cast_op(self, &out_f32, DType::U32)
     }
 }

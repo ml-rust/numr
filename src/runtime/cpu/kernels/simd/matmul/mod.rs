@@ -44,6 +44,8 @@ mod tiling;
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 
+pub(crate) mod half_convert;
+
 use super::{SimdLevel, detect_simd};
 use scalar::{matmul_bias_scalar_f32, matmul_bias_scalar_f64};
 use scalar::{matmul_scalar_f32, matmul_scalar_f64};

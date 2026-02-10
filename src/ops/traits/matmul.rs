@@ -38,13 +38,13 @@ pub trait MatmulOps<R: Runtime> {
     ///
     /// # Arguments
     ///
-    /// * `a` - Input tensor of shape `[..., M, K]`
-    /// * `b` - Weight tensor of shape `[..., K, N]`
-    /// * `bias` - Bias tensor of shape `[N]` (1D, broadcast across all M rows)
+    /// * `a` - Input tensor of shape `` `[..., M, K]` ``
+    /// * `b` - Weight tensor of shape `` `[..., K, N]` ``
+    /// * `bias` - Bias tensor of shape `` `[N]` `` (1D, broadcast across all M rows)
     ///
     /// # Returns
     ///
-    /// Output tensor of shape `[..., M, N]` where `C[..., i, j] = sum_k(A[..., i, k] * B[..., k, j]) + bias[j]`
+    /// Output tensor of shape `` `[..., M, N]` `` where `` `C[..., i, j] = sum_k(A[..., i, k] * B[..., k, j]) + bias[j]` ``
     ///
     /// # Errors
     ///

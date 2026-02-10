@@ -78,13 +78,8 @@ pub(crate) fn native_embedding_lookup(
         });
     }
 
-    // Validate indices dtype - WebGPU uses I32 for indices
-    if indices.dtype() != DType::I32 {
-        return Err(Error::DTypeMismatch {
-            lhs: DType::I32,
-            rhs: indices.dtype(),
-        });
-    }
+    // Normalize indices dtype to I32 for WebGPU shaders.
+    let indices_i32 = ensure_i32_indices(client, indices)?;
 
     // Only F32, I32, U32 are supported on WebGPU natively
     if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
@@ -96,14 +91,14 @@ pub(crate) fn native_embedding_lookup(
 
     let vocab_size = emb_shape[0];
     let embedding_dim = emb_shape[1];
-    let num_indices = indices.numel();
+    let num_indices = indices_i32.numel();
 
     // Output shape: indices.shape() + [embedding_dim]
-    let mut out_shape = indices.shape().to_vec();
+    let mut out_shape = indices_i32.shape().to_vec();
     out_shape.push(embedding_dim);
 
     let emb_contig = ensure_contiguous(embeddings);
-    let idx_contig = ensure_contiguous(indices);
+    let idx_contig = ensure_contiguous(&indices_i32);
     let out = alloc_output(client, &out_shape, dtype);
 
     let emb_buf = get_tensor_buffer(&emb_contig)?;

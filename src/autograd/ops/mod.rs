@@ -16,6 +16,8 @@
 
 mod activation;
 mod arithmetic;
+mod cumulative;
+mod indexing;
 mod linalg;
 mod matmul;
 mod reduce;
@@ -25,6 +27,8 @@ mod unary;
 
 pub use activation::*;
 pub use arithmetic::*;
+pub use cumulative::*;
+pub use indexing::*;
 pub use linalg::*;
 pub use matmul::*;
 pub use reduce::*;

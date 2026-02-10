@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +18,7 @@ env:
 
 jobs:
   lint:
+    if: github.event.pull_request.draft == false
     name: Lint, Format & Docs
     runs-on: ubuntu-latest
     steps:
@@ -44,6 +46,7 @@ jobs:
         run: cargo test --doc --features f16,sparse
 
   test:
+    if: github.event.pull_request.draft == false
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:

@@ -26,7 +26,7 @@ use crate::tensor::Tensor;
 ///
 /// Uses shared memory tiling for cache efficiency. This is the default
 /// implementation that works without any vendor dependencies.
-pub(super) fn matmul_native(
+pub(crate) fn matmul_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -64,7 +64,7 @@ pub(super) fn matmul_native(
 }
 
 /// Native batched matrix multiplication using tiled CUDA kernel.
-pub(super) fn matmul_batched_native(
+pub(crate) fn matmul_batched_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -111,7 +111,7 @@ pub(super) fn matmul_batched_native(
 ///
 /// Uses the same tiled GEMM algorithm as matmul_native, but fuses bias addition
 /// into the epilogue to avoid an extra memory round-trip.
-pub(super) fn matmul_bias_native(
+pub(crate) fn matmul_bias_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -155,7 +155,7 @@ pub(super) fn matmul_bias_native(
 
 /// Native batched fused matmul+bias using tiled CUDA kernel:
 /// C[batch,M,N] = A[batch,M,K] @ B[batch,K,N] + bias[N]
-pub(super) fn matmul_bias_batched_native(
+pub(crate) fn matmul_bias_batched_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -212,7 +212,7 @@ pub(super) fn matmul_bias_batched_native(
 ///
 /// For broadcasting operations, consider pre-expanding tensors to matching shapes
 /// using `broadcast_to()` or similar operations to avoid CPU fallback.
-pub(super) fn native_binary_op(
+pub(crate) fn native_binary_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -276,7 +276,7 @@ pub(super) fn native_binary_op(
 ///
 /// # Arguments
 /// * `op` - Operation name (must match kernel function suffix, e.g., "neg", "exp")
-pub(super) fn native_unary_op(
+pub(crate) fn native_unary_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     op: &'static str,
@@ -309,7 +309,7 @@ pub(super) fn native_unary_op(
 /// # Arguments
 /// * `op` - Operation name (e.g., "add_scalar", "mul_scalar")
 /// * `scalar` - Scalar value to apply to each element
-pub(super) fn native_scalar_op(
+pub(crate) fn native_scalar_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     op: &'static str,
@@ -434,7 +434,7 @@ pub(super) fn native_scalar_op(
 /// * `dims` - Dimensions to reduce over
 /// * `keepdim` - Whether to keep reduced dimensions as size 1
 /// * `precision` - Optional accumulation precision (higher precision for sum)
-pub(super) fn native_reduce_op(
+pub(crate) fn native_reduce_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     op: &'static str,
@@ -516,7 +516,7 @@ pub(super) fn native_reduce_op(
 ///
 /// - **Same shape**: Uses optimized element-wise kernel (fast)
 /// - **Different shapes**: Uses broadcast kernel with strided access (stays on GPU)
-pub(super) fn native_compare_op(
+pub(crate) fn native_compare_op(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -578,7 +578,7 @@ pub(super) fn native_compare_op(
 // ============================================================================
 
 /// Native semiring matrix multiplication using CUDA kernel.
-pub(super) fn semiring_matmul_native(
+pub(crate) fn semiring_matmul_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
@@ -618,7 +618,7 @@ pub(super) fn semiring_matmul_native(
 }
 
 /// Native batched semiring matrix multiplication using CUDA kernel.
-pub(super) fn semiring_matmul_batched_native(
+pub(crate) fn semiring_matmul_batched_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
     b: &Tensor<CudaRuntime>,
