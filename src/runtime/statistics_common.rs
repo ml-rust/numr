@@ -236,6 +236,7 @@ pub fn compute_quantile_indices(q: f64, n: usize) -> (usize, usize, f64) {
 ///
 /// Uses `mul` chains instead of `pow_scalar` to correctly handle negative values
 /// (GPU `powf(negative, 3.0)` returns NaN).
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn skew_composite<R, C>(
     client: &C,
     a: &crate::tensor::Tensor<R>,
@@ -284,6 +285,7 @@ where
 /// that implements the required primitive operation traits.
 ///
 /// Uses `mul` chains instead of `pow_scalar` to correctly handle negative values.
+#[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn kurtosis_composite<R, C>(
     client: &C,
     a: &crate::tensor::Tensor<R>,
