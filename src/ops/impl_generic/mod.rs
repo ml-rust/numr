@@ -23,6 +23,7 @@ pub mod einsum;
 pub mod linalg;
 pub mod multivariate;
 pub mod random;
+pub mod shape;
 pub mod utility;
 
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
@@ -33,6 +34,7 @@ pub use multivariate::{
 };
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use random::randperm_impl;
+pub use shape::{repeat_interleave_impl, unfold_impl};
 pub use utility::meshgrid_impl;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use utility::one_hot_impl;

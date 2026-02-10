@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::ops::ShapeOps;
+use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_impl, stack_impl},
@@ -56,5 +57,24 @@ impl ShapeOps<CpuRuntime> for CpuClient {
         dim: isize,
     ) -> Result<Tensor<CpuRuntime>> {
         roll_impl(self, tensor, shift, dim)
+    }
+
+    fn unfold(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        dim: isize,
+        size: usize,
+        step: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        unfold_impl(self, tensor, dim, size, step)
+    }
+
+    fn repeat_interleave(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        repeats: usize,
+        dim: Option<isize>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        repeat_interleave_impl(self, tensor, repeats, dim)
     }
 }

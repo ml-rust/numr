@@ -211,4 +211,76 @@ pub trait ShapeOps<R: Runtime> {
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn roll(&self, tensor: &Tensor<R>, shift: isize, dim: isize) -> Result<Tensor<R>>;
+
+    /// Extract sliding local windows along a dimension.
+    ///
+    /// Returns a tensor containing all windows of length `size` sampled every `step`
+    /// elements along `dim`. The output has one extra dimension, with the window-size
+    /// dimension appended at the end.
+    ///
+    /// If input shape is `` `[d0, ..., d_dim, ..., dn]` ``, output shape is
+    /// `` `[d0, ..., num_windows, ..., dn, size]` `` where:
+    /// `` `num_windows = (d_dim - size) / step + 1` ``.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor
+    /// * `dim` - Dimension along which to extract windows (supports negative indexing)
+    /// * `size` - Window size (must be > 0 and <= dimension size)
+    /// * `step` - Stride between window starts (must be > 0)
+    ///
+    /// # Returns
+    ///
+    /// New tensor containing extracted windows
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device);
+    /// let windows = client.unfold(&a, 0, 3, 1)?; // Shape: [3, 3]
+    /// // Result: [[1,2,3], [2,3,4], [3,4,5]]
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    fn unfold(&self, tensor: &Tensor<R>, dim: isize, size: usize, step: usize)
+    -> Result<Tensor<R>>;
+
+    /// Repeat each element along a dimension.
+    ///
+    /// Unlike `repeat`, which tiles whole tensor blocks along each dimension,
+    /// `repeat_interleave` repeats individual elements in-place along one dimension.
+    ///
+    /// # Arguments
+    ///
+    /// * `tensor` - Input tensor
+    /// * `repeats` - Number of times to repeat each element (must be > 0)
+    /// * `dim` - Dimension to repeat along (supports negative indexing). If `None`, input is flattened first.
+    ///
+    /// # Returns
+    ///
+    /// New tensor with repeated elements
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::ShapeOps;
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+    /// let out = client.repeat_interleave(&a, 2, Some(0))?;
+    /// // Result: [1, 1, 2, 2, 3, 3]
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    fn repeat_interleave(
+        &self,
+        tensor: &Tensor<R>,
+        repeats: usize,
+        dim: Option<isize>,
+    ) -> Result<Tensor<R>>;
 }
