@@ -5,6 +5,7 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -69,3 +70,61 @@ jobs:
 
       - name: Run tests (f16 + sparse)
         run: cargo test --features f16,sparse
+
+  # ---------------------------------------------------------------------------
+  # Backend compile gates + parity + examples — single VM
+  # ---------------------------------------------------------------------------
+  # CUDA and WebGPU require hardware SDKs not available on hosted runners, so
+  # we verify that the code *compiles* (cargo check / --no-run) under each
+  # feature flag.  All checks share one runner to avoid redundant VM setup.
+
+  backend-and-parity:
+    if: github.event.pull_request.draft == false
+    name: Backend Compile, Parity & Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: backend-parity
+
+      # Backend compile gates
+      - name: "Compile: cpu-only"
+        run: cargo check --no-default-features --features cpu
+
+      - name: "Compile: wgpu"
+        run: cargo check --features wgpu,f16,sparse
+
+      - name: "Compile: cuda"
+        run: cargo check --features cuda,f16,sparse
+
+      # Test compilation (no run — no GPU hardware)
+      - name: "Compile tests: cpu-only"
+        run: cargo test --no-run --no-default-features --features cpu
+
+      - name: "Compile tests: wgpu"
+        run: cargo test --no-run --features wgpu,f16,sparse
+
+      - name: "Compile tests: cuda"
+        run: cargo test --no-run --features cuda,f16,sparse
+
+      # Backend parity
+      - name: Run backend parity tests
+        run: cargo test backend_parity --features f16,sparse
+
+      # Examples
+      - name: Build all examples
+        run: cargo build --examples --features sparse
+
+      - name: Run examples
+        run: |
+          cargo run --example basic_tensor_ops
+          cargo run --example autograd_linear_regression
+          cargo run --example conv_unfold_im2col
+          cargo run --example fft_roundtrip
+          cargo run --example sparse_coo_csr_workflow --features sparse
+          cargo run --example backend_switch_cpu_wgpu
