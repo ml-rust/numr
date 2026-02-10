@@ -169,7 +169,7 @@ pub fn launch_angle_real(
 /// * `queue` - WebGPU queue for command submission
 /// * `real_buf` - Input buffer (F32 real parts)
 /// * `imag_buf` - Input buffer (F32 imaginary parts)
-/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `output_buf` - Output buffer (Complex64 / `vec2<f32>` data)
 /// * `params_buf` - Parameters buffer containing numel
 /// * `numel` - Number of elements
 pub fn launch_from_real_imag(
@@ -231,9 +231,9 @@ pub fn launch_from_real_imag(
 ///
 /// * `cache` - Pipeline cache for shader compilation
 /// * `queue` - WebGPU queue for command submission
-/// * `complex_buf` - Input buffer (Complex64 / vec2<f32> data)
+/// * `complex_buf` - Input buffer (Complex64 / `vec2<f32>` data)
 /// * `real_buf` - Input buffer (F32 real coefficients)
-/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `output_buf` - Output buffer (Complex64 / `vec2<f32>` data)
 /// * `params_buf` - Parameters buffer containing numel
 /// * `numel` - Number of elements
 pub fn launch_complex_mul_real(
@@ -295,9 +295,9 @@ pub fn launch_complex_mul_real(
 ///
 /// * `cache` - Pipeline cache for shader compilation
 /// * `queue` - WebGPU queue for command submission
-/// * `complex_buf` - Input buffer (Complex64 / vec2<f32> data)
+/// * `complex_buf` - Input buffer (Complex64 / `vec2<f32>` data)
 /// * `real_buf` - Input buffer (F32 real divisors)
-/// * `output_buf` - Output buffer (Complex64 / vec2<f32> data)
+/// * `output_buf` - Output buffer (Complex64 / `vec2<f32>` data)
 /// * `params_buf` - Parameters buffer containing numel
 /// * `numel` - Number of elements
 pub fn launch_complex_div_real(

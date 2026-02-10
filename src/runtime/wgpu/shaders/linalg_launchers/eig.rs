@@ -13,9 +13,9 @@ use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 /// Launch eigendecomposition kernel using Jacobi algorithm for symmetric matrices.
 ///
 /// # Arguments
-/// * `work` - Working matrix buffer [n * n], will be diagonalized
-/// * `eigenvectors` - Eigenvector matrix buffer [n * n], stores column eigenvectors
-/// * `eigenvalues` - Eigenvalue vector buffer [n]
+/// * `work` - Working matrix buffer `[n * n]`, will be diagonalized
+/// * `eigenvectors` - Eigenvector matrix buffer `[n * n]`, stores column eigenvectors
+/// * `eigenvalues` - Eigenvalue vector buffer `[n]`
 /// * `converged_flag` - Convergence flag buffer (atomic i32): 0 if converged, 1 if not
 /// * `params_buffer` - Parameters buffer with n (matrix dimension)
 pub fn launch_eig_jacobi_symmetric(
@@ -186,12 +186,12 @@ pub fn launch_rsf2csf(
 /// and Q^T @ B @ Z = T (upper triangular).
 ///
 /// # Arguments
-/// * `s` - Matrix A buffer [n * n], outputs S (quasi-triangular Schur form)
-/// * `t` - Matrix B buffer [n * n], outputs T (upper triangular)
-/// * `q` - Left orthogonal matrix buffer [n * n]
-/// * `z` - Right orthogonal matrix buffer [n * n]
-/// * `eval_real` - Real parts of generalized eigenvalues buffer [n]
-/// * `eval_imag` - Imaginary parts of generalized eigenvalues buffer [n]
+/// * `s` - Matrix A buffer `[n * n]`, outputs S (quasi-triangular Schur form)
+/// * `t` - Matrix B buffer `[n * n]`, outputs T (upper triangular)
+/// * `q` - Left orthogonal matrix buffer `[n * n]`
+/// * `z` - Right orthogonal matrix buffer `[n * n]`
+/// * `eval_real` - Real parts of generalized eigenvalues buffer `[n]`
+/// * `eval_imag` - Imaginary parts of generalized eigenvalues buffer `[n]`
 /// * `converged_flag` - Convergence flag buffer (atomic i32): 0 if converged, 1 if not
 /// * `params_buffer` - Parameters buffer with n (matrix dimension)
 pub fn launch_qz_decompose(
@@ -258,12 +258,12 @@ pub fn launch_qz_decompose(
 /// Returns real and imaginary parts of eigenvalues and eigenvectors.
 ///
 /// # Arguments
-/// * `t` - Working matrix buffer [n * n], modified during computation
-/// * `z` - Schur transformation matrix buffer [n * n]
-/// * `eval_real` - Real parts of eigenvalues buffer [n]
-/// * `eval_imag` - Imaginary parts of eigenvalues buffer [n]
-/// * `evec_real` - Real parts of eigenvectors buffer [n * n]
-/// * `evec_imag` - Imaginary parts of eigenvectors buffer [n * n]
+/// * `t` - Working matrix buffer `[n * n]`, modified during computation
+/// * `z` - Schur transformation matrix buffer `[n * n]`
+/// * `eval_real` - Real parts of eigenvalues buffer `[n]`
+/// * `eval_imag` - Imaginary parts of eigenvalues buffer `[n]`
+/// * `evec_real` - Real parts of eigenvectors buffer `[n * n]`
+/// * `evec_imag` - Imaginary parts of eigenvectors buffer `[n * n]`
 /// * `converged_flag` - Convergence flag buffer (atomic i32): 0 if converged, 1 if not
 /// * `params_buffer` - Parameters buffer with n (matrix dimension)
 pub fn launch_eig_general(

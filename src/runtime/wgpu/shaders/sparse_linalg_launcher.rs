@@ -362,7 +362,7 @@ pub struct SparseLuParams {
 
 /// Launch sparse scatter kernel - f32
 ///
-/// Scatters values into work vector: work[row_indices[i]] = values[i]
+/// Scatters values into work vector: `work[row_indices[i]] = values[i]`
 pub fn launch_sparse_scatter_f32(
     cache: &PipelineCache,
     queue: &Queue,
@@ -405,7 +405,7 @@ pub fn launch_sparse_scatter_f32(
 
 /// Launch sparse AXPY kernel - f32
 ///
-/// Computes: work[row_indices[i]] -= scale * values[i]
+/// Computes: `work[row_indices[i]] -= scale * values[i]`
 pub fn launch_sparse_axpy_f32(
     cache: &PipelineCache,
     queue: &Queue,
@@ -449,7 +449,7 @@ pub fn launch_sparse_axpy_f32(
 
 /// Launch sparse gather and clear kernel - f32
 ///
-/// Gathers: output[i] = work[row_indices[i]], then clears work[row_indices[i]] = 0
+/// Gathers: `output[i] = work[row_indices[i]]`, then clears `work[row_indices[i]] = 0`
 pub fn launch_sparse_gather_clear_f32(
     cache: &PipelineCache,
     queue: &Queue,
@@ -506,7 +506,7 @@ pub struct DividePivotParams {
 
 /// Launch sparse divide by pivot kernel - f32
 ///
-/// Computes: work[row_indices[i]] *= inv_pivot
+/// Computes: `work[row_indices[i]] *= inv_pivot`
 pub fn launch_sparse_divide_pivot_f32(
     cache: &PipelineCache,
     queue: &Queue,
@@ -553,7 +553,7 @@ pub fn launch_sparse_divide_pivot_f32(
 
 /// Launch sparse clear kernel - f32
 ///
-/// Clears: work[row_indices[i]] = 0
+/// Clears: `work[row_indices[i]] = 0`
 pub fn launch_sparse_clear_f32(
     cache: &PipelineCache,
     queue: &Queue,

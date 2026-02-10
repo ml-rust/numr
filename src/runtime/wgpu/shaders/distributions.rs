@@ -474,9 +474,9 @@ pub struct MultinomialCountParams {
 /// many samples fall into each category.
 ///
 /// # Arguments
-/// * `cdf` - CDF array buffer [k]
-/// * `uniforms` - Uniform samples buffer [n_samples, n_trials]
-/// * `counts` - Output counts buffer [n_samples, k]
+/// * `cdf` - CDF array buffer `[k]`
+/// * `uniforms` - Uniform samples buffer `[n_samples, n_trials]`
+/// * `counts` - Output counts buffer `[n_samples, k]`
 /// * `params` - Parameters buffer containing MultinomialCountParams
 /// * `n_samples` - Number of samples (used for workgroup dispatch)
 pub fn launch_multinomial_count(

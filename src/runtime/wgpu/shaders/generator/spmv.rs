@@ -128,7 +128,7 @@ fn csr_spmm_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
     ))
 }
 
-/// Generate WGSL shader for CSR diagonal extraction: diag[i] = A[i,i]
+/// Generate WGSL shader for CSR diagonal extraction: `diag[i] = A[i,i]`
 ///
 /// Thread-per-row: each thread scans its row for the diagonal entry.
 pub fn generate_csr_extract_diagonal_shader(dtype: DType) -> Result<String> {

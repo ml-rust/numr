@@ -654,8 +654,8 @@ pub fn launch_gather_nd(
 /// Launch a bincount operation kernel.
 ///
 /// Counts occurrences of each value in an integer tensor.
-/// Input: integer tensor with values in [0, minlength)
-/// Output: count tensor of shape [minlength]
+/// Input: integer tensor with values in `[0, minlength)`
+/// Output: count tensor of shape `[minlength]`
 pub fn launch_bincount(
     cache: &PipelineCache,
     queue: &Queue,
@@ -792,8 +792,8 @@ pub fn launch_scatter_reduce(
 /// Launch an embedding_lookup operation kernel.
 ///
 /// Looks up embeddings from a 2D embedding table using indices.
-/// Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
-/// Output: output [num_indices, embedding_dim]
+/// Input: embeddings `[vocab_size, embedding_dim]`, indices `[num_indices]`
+/// Output: output `[num_indices, embedding_dim]`
 ///
 /// This is the industry-standard embedding lookup operation used in neural networks
 /// for word embeddings, entity embeddings, etc.
@@ -849,10 +849,10 @@ pub fn launch_embedding_lookup(
 /// Launch a gather_2d operation kernel.
 ///
 /// Gathers elements from a 2D matrix at specific (row, col) positions.
-/// Input: input [nrows, ncols], rows [num_indices], cols [num_indices]
-/// Output: output [num_indices]
+/// Input: input `[nrows, ncols]`, rows `[num_indices]`, cols `[num_indices]`
+/// Output: output `[num_indices]`
 ///
-/// For each index i: output[i] = input[rows[i], cols[i]]
+/// For each index i: `output[i] = input[rows[i], cols[i]]`
 #[allow(clippy::too_many_arguments)]
 pub fn launch_gather_2d(
     cache: &PipelineCache,

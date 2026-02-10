@@ -20,11 +20,11 @@ use crate::error::Result;
 ///
 /// # Buffers
 ///
-/// - `row_ptrs`: CSR row pointers [nrows + 1] (I32)
-/// - `col_indices`: CSR column indices [nnz] (I32)
-/// - `values`: CSR values [nnz] (dtype)
-/// - `x`: Dense input vector [ncols] (dtype)
-/// - `y`: Dense output vector [nrows] (dtype)
+/// - `row_ptrs`: CSR row pointers `[nrows + 1]` (I32)
+/// - `col_indices`: CSR column indices `[nnz]` (I32)
+/// - `values`: CSR values `[nnz]` (dtype)
+/// - `x`: Dense input vector `[ncols]` (dtype)
+/// - `y`: Dense output vector `[nrows]` (dtype)
 /// - `params`: Uniform buffer with SpmvParams { nrows, ncols }
 pub fn launch_csr_spmv(
     cache: &PipelineCache,
@@ -80,15 +80,15 @@ pub fn launch_csr_spmv(
 
 /// Launch CSR SpMM kernel: C = A * B
 ///
-/// Element-parallel implementation where each thread computes one output element C[row, col].
+/// Element-parallel implementation where each thread computes one output element `C[row, col]`.
 ///
 /// # Buffers
 ///
-/// - `row_ptrs`: CSR row pointers [m + 1] (I32)
-/// - `col_indices`: CSR column indices [nnz] (I32)
-/// - `a_values`: CSR values of A [nnz] (dtype)
-/// - `b`: Dense matrix B [k, n] (dtype, row-major)
-/// - `c`: Dense output matrix C [m, n] (dtype, row-major)
+/// - `row_ptrs`: CSR row pointers `[m + 1]` (I32)
+/// - `col_indices`: CSR column indices `[nnz]` (I32)
+/// - `a_values`: CSR values of A `[nnz]` (dtype)
+/// - `b`: Dense matrix B `[k, n]` (dtype, row-major)
+/// - `c`: Dense output matrix C `[m, n]` (dtype, row-major)
 /// - `params`: Uniform buffer with SpmmParams { m, k, n }
 pub fn launch_csr_spmm(
     cache: &PipelineCache,
@@ -145,14 +145,14 @@ pub fn launch_csr_spmm(
     Ok(())
 }
 
-/// Launch CSR extract diagonal kernel: diag[i] = A[i,i]
+/// Launch CSR extract diagonal kernel: `diag[i] = A[i,i]`
 ///
 /// # Buffers
 ///
-/// - `row_ptrs`: CSR row pointers [n + 1] (I32)
-/// - `col_indices`: CSR column indices [nnz] (I32)
-/// - `values`: CSR values [nnz] (dtype)
-/// - `diag`: Output diagonal [n] (dtype)
+/// - `row_ptrs`: CSR row pointers `[n + 1]` (I32)
+/// - `col_indices`: CSR column indices `[nnz]` (I32)
+/// - `values`: CSR values `[nnz]` (dtype)
+/// - `diag`: Output diagonal `[n]` (dtype)
 /// - `params`: Uniform buffer with DiagParams { n }
 pub fn launch_csr_extract_diagonal(
     cache: &PipelineCache,

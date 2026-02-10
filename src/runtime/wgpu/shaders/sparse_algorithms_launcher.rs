@@ -21,11 +21,11 @@ use crate::error::Result;
 ///
 /// # Buffers
 ///
-/// - `a`: Dense matrix A [M, K] (dtype, row-major)
-/// - `col_ptrs`: CSC column pointers [N + 1] (I32)
-/// - `row_indices`: CSC row indices [nnz] (I32)
-/// - `b_values`: CSC values [nnz] (dtype)
-/// - `c`: Dense output matrix C [M, N] (dtype, row-major)
+/// - `a`: Dense matrix A `[M, K]` (dtype, row-major)
+/// - `col_ptrs`: CSC column pointers `[N + 1]` (I32)
+/// - `row_indices`: CSC row indices `[nnz]` (I32)
+/// - `b_values`: CSC values `[nnz]` (dtype)
+/// - `c`: Dense output matrix C `[M, N]` (dtype, row-major)
 /// - `params_buffer`: Uniform buffer with DsmmParams { m, k, n }
 pub fn launch_dsmm_csc(
     cache: &PipelineCache,
@@ -86,13 +86,13 @@ pub fn launch_dsmm_csc(
 ///
 /// # Buffers
 ///
-/// - `a_row_ptrs`: CSR row pointers for A [M + 1] (I32)
-/// - `a_col_indices`: CSR column indices for A [nnz_a] (I32)
-/// - `b_row_ptrs`: CSR row pointers for B [K + 1] (I32)
-/// - `b_col_indices`: CSR column indices for B [nnz_b] (I32)
-/// - `row_nnz`: Output NNZ per row [M] (I32)
+/// - `a_row_ptrs`: CSR row pointers for A `[M + 1]` (I32)
+/// - `a_col_indices`: CSR column indices for A `[nnz_a]` (I32)
+/// - `b_row_ptrs`: CSR row pointers for B `[K + 1]` (I32)
+/// - `b_col_indices`: CSR column indices for B `[nnz_b]` (I32)
+/// - `row_nnz`: Output NNZ per row `[M]` (I32)
 /// - `params_buffer`: Uniform buffer with SpgemmSymbolicParams { m, n }
-/// - `bitmap`: Working bitmap buffer [M * words_per_row] (atomic<u32>)
+/// - `bitmap`: Working bitmap buffer `` `[M * words_per_row]` `` (`` `atomic<u32>` ``)
 pub fn launch_spgemm_symbolic(
     cache: &PipelineCache,
     queue: &Queue,
@@ -159,15 +159,15 @@ pub fn launch_spgemm_symbolic(
 ///
 /// # Buffers
 ///
-/// - `a_row_ptrs`: CSR row pointers for A [M + 1] (I32)
-/// - `a_col_indices`: CSR column indices for A [nnz_a] (I32)
-/// - `a_values`: CSR values for A [nnz_a] (dtype)
-/// - `b_row_ptrs`: CSR row pointers for B [K + 1] (I32)
-/// - `b_col_indices`: CSR column indices for B [nnz_b] (I32)
-/// - `b_values`: CSR values for B [nnz_b] (dtype)
+/// - `a_row_ptrs`: CSR row pointers for A `[M + 1]` (I32)
+/// - `a_col_indices`: CSR column indices for A `[nnz_a]` (I32)
+/// - `a_values`: CSR values for A `[nnz_a]` (dtype)
+/// - `b_row_ptrs`: CSR row pointers for B `[K + 1]` (I32)
+/// - `b_col_indices`: CSR column indices for B `[nnz_b]` (I32)
+/// - `b_values`: CSR values for B `[nnz_b]` (dtype)
 /// - `params_buffer`: Uniform buffer with SpgemmParams { m, n }
-/// - `accum`: Dense accumulator [M * N] (dtype)
-/// - `flags`: Column flags [M * N] (u32)
+/// - `accum`: Dense accumulator `[M * N]` (dtype)
+/// - `flags`: Column flags `[M * N]` (u32)
 pub fn launch_spgemm_accumulate(
     cache: &PipelineCache,
     queue: &Queue,

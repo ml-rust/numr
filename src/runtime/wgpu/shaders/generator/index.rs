@@ -277,8 +277,8 @@ fn index_put_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 /// This is the industry-standard embedding lookup operation used in neural networks
 /// for word embeddings, entity embeddings, etc.
 ///
-/// Input: embeddings [vocab_size, embedding_dim], indices [num_indices]
-/// Output: output [num_indices, embedding_dim]
+/// Input: embeddings `[vocab_size, embedding_dim]`, indices `[num_indices]`
+/// Output: output `[num_indices, embedding_dim]`
 pub fn generate_embedding_lookup_shader(dtype: DType) -> Result<String> {
     let t = wgsl_type(dtype)?;
     let suffix = dtype_suffix(dtype)?;
@@ -709,9 +709,9 @@ fn scatter_reduce_{op}_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for index bounds validation.
 ///
-/// Validates that all indices are within bounds [0, dim_size).
+/// Validates that all indices are within bounds `[0, dim_size)`.
 /// Atomically counts the number of out-of-bounds indices.
-/// Returns count in error_count[0]. If count > 0, some indices are invalid.
+/// Returns count in `error_count[0]`. If count > 0, some indices are invalid.
 pub fn generate_validate_indices_shader() -> String {
     r#"// Auto-generated index bounds validation kernel
 
@@ -747,10 +747,10 @@ fn validate_indices(@builtin(global_invocation_id) gid: vec3<u32>) {
 /// Generate WGSL shader for gather_2d operation.
 ///
 /// Gathers elements from a 2D matrix at specific (row, col) positions.
-/// Input: input [nrows, ncols], rows [num_indices], cols [num_indices]
-/// Output: output [num_indices]
+/// Input: input `[nrows, ncols]`, rows `[num_indices]`, cols `[num_indices]`
+/// Output: output `[num_indices]`
 ///
-/// For each index i: output[i] = input[rows[i], cols[i]]
+/// For each index i: `output[i] = input[rows[i], cols[i]]`
 pub fn generate_gather_2d_shader(dtype: DType) -> Result<String> {
     let t = wgsl_type(dtype)?;
     let suffix = dtype_suffix(dtype)?;

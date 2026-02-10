@@ -82,14 +82,14 @@ fn cast_i64_to_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Launch iterative lower triangle level computation.
 ///
-/// Iteratively computes level[i] = max(level[j] + 1) for all j < i.
+/// Iteratively computes `level[i] = max(level[j] + 1)` for all j < i.
 /// Returns immediately; convergence happens on GPU.
 ///
 /// Buffers:
 /// - row_ptrs: CSR row pointers (I32)
 /// - col_indices: CSR column indices (I32)
 /// - levels: Current level values (I32, atomic)
-/// - changed: Convergence flag (U32 array[1], atomic)
+/// - changed: Convergence flag (U32 `array[1]`, atomic)
 pub fn launch_compute_levels_lower_iter(
     cache: &PipelineCache,
     queue: &Queue,
@@ -194,7 +194,7 @@ fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Launch iterative upper triangle level computation.
 ///
-/// Iteratively computes level[i] = max(level[j] + 1) for all j > i.
+/// Iteratively computes `level[i] = max(level[j] + 1)` for all j > i.
 pub fn launch_compute_levels_upper_iter(
     cache: &PipelineCache,
     queue: &Queue,
@@ -299,7 +299,7 @@ fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Launch iterative ILU level computation.
 ///
-/// Iteratively computes level[i] = max(level[j] + 1) for all j < i.
+/// Iteratively computes `level[i] = max(level[j] + 1)` for all j < i.
 pub fn launch_compute_levels_ilu_iter(
     cache: &PipelineCache,
     queue: &Queue,

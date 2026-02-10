@@ -1,7 +1,7 @@
 //! WGSL shader generation for where_cond (ternary conditional select)
 //!
 //! Generates shaders for: where_cond(condition, x, y) → output
-//! where output[i] = condition[i] != 0 ? x[i] : y[i]
+//! where `output[i] = condition[i] != 0 ? x[i] : y[i]`
 //!
 //! Supports multiple condition dtypes (F32, I32, U32) and multiple output dtypes.
 

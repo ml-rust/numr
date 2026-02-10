@@ -86,7 +86,7 @@ fn dsmm_csc_{suffix}(@builtin(global_invocation_id) gid: vec3<u32>) {{
 
 /// Generate WGSL shader for SpGEMM symbolic phase: count NNZ per output row.
 ///
-/// CSR A [M, K] × CSR B [K, N] → row_nnz[M]
+/// CSR A `[M, K]` × CSR B `[K, N]` → `row_nnz[M]`
 ///
 /// For small N (< 4096), uses a bitmap to track unique columns.
 /// Each workgroup processes one row of the output.

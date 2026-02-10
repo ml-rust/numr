@@ -826,8 +826,8 @@ pub fn launch_csc_div_compute(
 
 /// Launch exclusive scan kernel for i32 arrays
 ///
-/// Computes prefix sum: output[i] = sum(input[0..i])
-/// output has n+1 elements (output[n] = total sum)
+/// Computes prefix sum: `output[i] = sum(input[0..i])`
+/// output has n+1 elements (`output[n]` = total sum)
 pub fn launch_exclusive_scan_i32(
     cache: &PipelineCache,
     queue: &Queue,

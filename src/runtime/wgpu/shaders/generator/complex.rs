@@ -1,6 +1,6 @@
 //! WGSL shader generation for complex number operations
 //!
-//! Complex64 is represented as vec2<f32> where:
+//! Complex64 is represented as `vec2<f32>` where:
 //! - .x = real part
 //! - .y = imaginary part
 
@@ -9,8 +9,8 @@ use crate::error::{Error, Result};
 
 /// Generate WGSL shader for complex conjugate operation.
 ///
-/// Input: Complex64 (vec2<f32>)
-/// Output: Complex64 (vec2<f32>)
+/// Input: Complex64 (`vec2<f32>`)
+/// Output: Complex64 (`vec2<f32>`)
 /// Operation: conj(a + bi) = a - bi
 pub fn generate_conj_shader() -> Result<String> {
     Ok(r#"
@@ -36,8 +36,8 @@ fn conj_complex64(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for extracting real part.
 ///
-/// Input: Complex64 (vec2<f32>)
-/// Output: F32 (f32)
+/// Input: Complex64 (`vec2<f32>`)
+/// Output: F32 (`f32`)
 /// Operation: real(a + bi) = a
 pub fn generate_real_shader() -> Result<String> {
     Ok(r#"
@@ -62,8 +62,8 @@ fn real_complex64(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for extracting imaginary part.
 ///
-/// Input: Complex64 (vec2<f32>)
-/// Output: F32 (f32)
+/// Input: Complex64 (`vec2<f32>`)
+/// Output: F32 (`f32`)
 /// Operation: imag(a + bi) = b
 pub fn generate_imag_shader() -> Result<String> {
     Ok(r#"
@@ -88,8 +88,8 @@ fn imag_complex64(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for computing phase angle.
 ///
-/// Input: Complex64 (vec2<f32>)
-/// Output: F32 (f32)
+/// Input: Complex64 (`vec2<f32>`)
+/// Output: F32 (`f32`)
 /// Operation: angle(a + bi) = atan2(b, a)
 pub fn generate_angle_shader() -> Result<String> {
     Ok(r#"
@@ -198,8 +198,8 @@ pub fn complex_output_dtype(input_dtype: DType, op: &str) -> Result<DType> {
 /// Generate WGSL shader for constructing complex from real and imaginary parts.
 ///
 /// Input: F32 arrays for real and imaginary parts
-/// Output: Complex64 (vec2<f32>)
-/// Operation: from_real_imag(real, imag)[i] = vec2(real[i], imag[i])
+/// Output: Complex64 (`` `vec2<f32>` ``)
+/// Operation: `from_real_imag(real, imag)[i] = vec2(real[i], imag[i])`
 pub fn generate_from_real_imag_shader() -> Result<String> {
     // Note: All storage bindings use read_write to match the pipeline layout
     // (PipelineCache creates all storage buffers as read_write)
@@ -226,8 +226,8 @@ fn from_real_imag_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for complex × real multiplication.
 ///
-/// Input: Complex64 (vec2<f32>) and F32 (real coefficient)
-/// Output: Complex64 (vec2<f32>)
+/// Input: Complex64 (`vec2<f32>`) and F32 (real coefficient)
+/// Output: Complex64 (`vec2<f32>`)
 /// Operation: (a+bi) * r = ar + br*i
 pub fn generate_complex_mul_real_shader() -> Result<String> {
     // Note: All storage bindings use read_write to match the pipeline layout
@@ -256,8 +256,8 @@ fn complex64_mul_real(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 /// Generate WGSL shader for complex / real division.
 ///
-/// Input: Complex64 (vec2<f32>) and F32 (real divisor)
-/// Output: Complex64 (vec2<f32>)
+/// Input: Complex64 (`vec2<f32>`) and F32 (real divisor)
+/// Output: Complex64 (`vec2<f32>`)
 /// Operation: (a+bi) / r = (a/r) + (b/r)*i
 pub fn generate_complex_div_real_shader() -> Result<String> {
     // Note: All storage bindings use read_write to match the pipeline layout
