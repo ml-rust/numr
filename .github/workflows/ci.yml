@@ -93,24 +93,23 @@ jobs:
           prefix-key: backend-parity
 
       # Backend compile gates
-      - name: "Compile: cpu-only"
+      # Note: CUDA is excluded — its build script requires nvcc (CUDA Toolkit),
+      # which is not available on hosted runners.  CUDA compilation is validated
+      # on self-hosted GPU runners separately.
+      - name: "Compile: cpu-only (no default features)"
         run: cargo check --no-default-features --features cpu
+
+      - name: "Compile: cpu + f16 + sparse"
+        run: cargo check --features f16,sparse
 
       - name: "Compile: wgpu"
         run: cargo check --features wgpu,f16,sparse
 
-      - name: "Compile: cuda"
-        run: cargo check --features cuda,f16,sparse
-
-      # Test compilation (no run — no GPU hardware)
       - name: "Compile tests: cpu-only"
         run: cargo test --no-run --no-default-features --features cpu
 
       - name: "Compile tests: wgpu"
         run: cargo test --no-run --features wgpu,f16,sparse
-
-      - name: "Compile tests: cuda"
-        run: cargo test --no-run --features cuda,f16,sparse
 
       # Backend parity
       - name: Run backend parity tests
