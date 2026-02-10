@@ -73,11 +73,7 @@ fn complex_unary_op(op: UnaryOp, re: f64, im: f64) -> (f64, f64) {
             let abs = (re * re + im * im).sqrt();
             let r = ((abs + re) / 2.0).sqrt();
             let i_val = ((abs - re) / 2.0).sqrt();
-            if im >= 0.0 {
-                (r, i_val)
-            } else {
-                (r, -i_val)
-            }
+            if im >= 0.0 { (r, i_val) } else { (r, -i_val) }
         }
         UnaryOp::Sign => {
             let abs = (re * re + im * im).sqrt();
