@@ -469,709 +469,166 @@ __device__ void reduce_all_dim_impl(
 }
 
 // ============================================================================
+// Instantiation macros - eliminates boilerplate in extern "C" wrappers
+// ============================================================================
+
+// Global reductions: reduce_sum_SUFFIX, reduce_max_SUFFIX, etc.
+#define INSTANTIATE_GLOBAL_REDUCE(T, Acc, SUFFIX) \
+__global__ void reduce_sum_##SUFFIX(const T* input, T* output, unsigned int n) { \
+    reduce_sum_impl<T, Acc>(input, output, n); \
+} \
+__global__ void reduce_max_##SUFFIX(const T* input, T* output, unsigned int n) { \
+    reduce_max_impl<T, Acc>(input, output, n); \
+} \
+__global__ void reduce_min_##SUFFIX(const T* input, T* output, unsigned int n) { \
+    reduce_min_impl<T, Acc>(input, output, n); \
+} \
+__global__ void reduce_prod_##SUFFIX(const T* input, T* output, unsigned int n) { \
+    reduce_prod_impl<T, Acc>(input, output, n); \
+}
+
+// Dim reductions: reduce_sum_dim_SUFFIX, reduce_max_dim_SUFFIX, reduce_min_dim_SUFFIX
+#define INSTANTIATE_DIM_REDUCE_CORE(T, Acc, SUFFIX) \
+__global__ void reduce_sum_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_sum_dim_impl<T, Acc>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_max_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_max_dim_impl<T, Acc>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_min_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_min_dim_impl<T, Acc>(input, output, outer_size, reduce_size, inner_size); \
+}
+
+// Argmax/argmin dim: argmax_dim_SUFFIX, argmin_dim_SUFFIX
+#define INSTANTIATE_ARG_REDUCE(T, CompareType, SUFFIX) \
+__global__ void argmax_dim_##SUFFIX( \
+    const T* input, long long* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    argmax_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void argmin_dim_##SUFFIX( \
+    const T* input, long long* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    argmin_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+}
+
+// Prod dim: reduce_prod_dim_SUFFIX
+#define INSTANTIATE_PROD_DIM(T, Acc, SUFFIX) \
+__global__ void reduce_prod_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_prod_dim_impl<T, Acc>(input, output, outer_size, reduce_size, inner_size); \
+}
+
+// Any/all dim: reduce_any_dim_SUFFIX, reduce_all_dim_SUFFIX
+#define INSTANTIATE_LOGICAL_DIM(T, CompareType, SUFFIX) \
+__global__ void reduce_any_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_any_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_all_dim_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_all_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+}
+
+// ============================================================================
 // extern "C" wrapper kernels for Rust FFI
-// Each kernel calls the corresponding templated __device__ function
+//
+// Accumulation Strategy:
+//   Each dtype has multiple accumulation variants selected by suffix:
+//   - Native (e.g. f32): Accumulates in the same type. Fastest, but may
+//     lose precision for large reductions on low-precision types.
+//   - fp32acc (e.g. f16_fp32acc): Accumulates in f32. Default for f16/bf16
+//     reductions — good precision/speed tradeoff.
+//   - fp64acc (e.g. f16_fp64acc): Accumulates in f64. Maximum precision for
+//     scientific computing workloads. Slowest due to f64 throughput on GPU.
+//   - bf16acc (e.g. fp8_e4m3_bf16acc): FP8 types accumulate in bf16 as a
+//     fast alternative to fp32acc.
+//
+//   The Rust dispatch layer selects the appropriate suffix at runtime based
+//   on the requested precision level.
 // ============================================================================
 
 extern "C" {
 
-// ----------------------------------------------------------------------------
-// F32 kernels (native accumulation)
-// ----------------------------------------------------------------------------
+// --- F32 (native accumulation) ---
+INSTANTIATE_GLOBAL_REDUCE(float, float, f32)
+INSTANTIATE_DIM_REDUCE_CORE(float, float, f32)
+INSTANTIATE_DIM_REDUCE_CORE(float, double, f32_fp64acc)
+INSTANTIATE_ARG_REDUCE(float, float, f32)
+INSTANTIATE_PROD_DIM(float, float, f32)
+INSTANTIATE_PROD_DIM(float, double, f32_fp64acc)
+INSTANTIATE_LOGICAL_DIM(float, float, f32)
 
-__global__ void reduce_sum_f32(const float* input, float* output, unsigned int n) {
-    reduce_sum_impl<float, float>(input, output, n);
-}
-__global__ void reduce_max_f32(const float* input, float* output, unsigned int n) {
-    reduce_max_impl<float, float>(input, output, n);
-}
-__global__ void reduce_min_f32(const float* input, float* output, unsigned int n) {
-    reduce_min_impl<float, float>(input, output, n);
-}
-__global__ void reduce_prod_f32(const float* input, float* output, unsigned int n) {
-    reduce_prod_impl<float, float>(input, output, n);
-}
+// --- F64 (native accumulation only) ---
+INSTANTIATE_GLOBAL_REDUCE(double, double, f64)
+INSTANTIATE_DIM_REDUCE_CORE(double, double, f64)
+INSTANTIATE_ARG_REDUCE(double, double, f64)
+INSTANTIATE_PROD_DIM(double, double, f64)
+INSTANTIATE_LOGICAL_DIM(double, double, f64)
 
-__global__ void reduce_sum_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
+// --- F16 (native, fp32acc, fp64acc) ---
+INSTANTIATE_GLOBAL_REDUCE(__half, __half, f16)
+INSTANTIATE_GLOBAL_REDUCE(__half, float, f16_fp32acc)
+INSTANTIATE_DIM_REDUCE_CORE(__half, __half, f16)
+INSTANTIATE_DIM_REDUCE_CORE(__half, float, f16_fp32acc)
+INSTANTIATE_DIM_REDUCE_CORE(__half, double, f16_fp64acc)
+INSTANTIATE_ARG_REDUCE(__half, float, f16)
+INSTANTIATE_PROD_DIM(__half, __half, f16)
+INSTANTIATE_PROD_DIM(__half, float, f16_fp32acc)
+INSTANTIATE_PROD_DIM(__half, double, f16_fp64acc)
+INSTANTIATE_LOGICAL_DIM(__half, float, f16)
 
-// F32 with F64 accumulation
-__global__ void reduce_sum_dim_f32_fp64acc(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<float, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f32_fp64acc(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<float, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f32_fp64acc(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<float, double>(input, output, outer_size, reduce_size, inner_size);
-}
+// --- BF16 (native, fp32acc, fp64acc) ---
+INSTANTIATE_GLOBAL_REDUCE(__nv_bfloat16, __nv_bfloat16, bf16)
+INSTANTIATE_GLOBAL_REDUCE(__nv_bfloat16, float, bf16_fp32acc)
+INSTANTIATE_DIM_REDUCE_CORE(__nv_bfloat16, __nv_bfloat16, bf16)
+INSTANTIATE_DIM_REDUCE_CORE(__nv_bfloat16, float, bf16_fp32acc)
+INSTANTIATE_DIM_REDUCE_CORE(__nv_bfloat16, double, bf16_fp64acc)
+INSTANTIATE_ARG_REDUCE(__nv_bfloat16, float, bf16)
+INSTANTIATE_PROD_DIM(__nv_bfloat16, __nv_bfloat16, bf16)
+INSTANTIATE_PROD_DIM(__nv_bfloat16, float, bf16_fp32acc)
+INSTANTIATE_PROD_DIM(__nv_bfloat16, double, bf16_fp64acc)
+INSTANTIATE_LOGICAL_DIM(__nv_bfloat16, float, bf16)
 
-__global__ void argmax_dim_f32(
-    const float* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_f32(
-    const float* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
+// --- FP8 E4M3 (fp32 default, bf16acc, fp64acc) ---
+INSTANTIATE_GLOBAL_REDUCE(numr_fp8_e4m3, float, fp8_e4m3)
+INSTANTIATE_GLOBAL_REDUCE(numr_fp8_e4m3, __nv_bfloat16, fp8_e4m3_bf16acc)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e4m3, float, fp8_e4m3)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e4m3, __nv_bfloat16, fp8_e4m3_bf16acc)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e4m3, double, fp8_e4m3_fp64acc)
+INSTANTIATE_ARG_REDUCE(numr_fp8_e4m3, float, fp8_e4m3)
+INSTANTIATE_PROD_DIM(numr_fp8_e4m3, float, fp8_e4m3)
+INSTANTIATE_PROD_DIM(numr_fp8_e4m3, __nv_bfloat16, fp8_e4m3_bf16acc)
+INSTANTIATE_PROD_DIM(numr_fp8_e4m3, double, fp8_e4m3_fp64acc)
+INSTANTIATE_LOGICAL_DIM(numr_fp8_e4m3, float, fp8_e4m3)
 
-__global__ void reduce_prod_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_f32(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<float, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// F32 with F64 accumulation for prod
-__global__ void reduce_prod_dim_f32_fp64acc(
-    const float* input, float* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<float, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// ----------------------------------------------------------------------------
-// F64 kernels (native accumulation only)
-// ----------------------------------------------------------------------------
-
-__global__ void reduce_sum_f64(const double* input, double* output, unsigned int n) {
-    reduce_sum_impl<double, double>(input, output, n);
-}
-__global__ void reduce_max_f64(const double* input, double* output, unsigned int n) {
-    reduce_max_impl<double, double>(input, output, n);
-}
-__global__ void reduce_min_f64(const double* input, double* output, unsigned int n) {
-    reduce_min_impl<double, double>(input, output, n);
-}
-__global__ void reduce_prod_f64(const double* input, double* output, unsigned int n) {
-    reduce_prod_impl<double, double>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void argmax_dim_f64(
-    const double* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_f64(
-    const double* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void reduce_prod_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_f64(
-    const double* input, double* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<double, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// ----------------------------------------------------------------------------
-// F16 kernels - native and fp32acc/fp64acc variants
-// ----------------------------------------------------------------------------
-
-__global__ void reduce_sum_f16(const __half* input, __half* output, unsigned int n) {
-    reduce_sum_impl<__half, __half>(input, output, n);
-}
-__global__ void reduce_max_f16(const __half* input, __half* output, unsigned int n) {
-    reduce_max_impl<__half, __half>(input, output, n);
-}
-__global__ void reduce_min_f16(const __half* input, __half* output, unsigned int n) {
-    reduce_min_impl<__half, __half>(input, output, n);
-}
-__global__ void reduce_prod_f16(const __half* input, __half* output, unsigned int n) {
-    reduce_prod_impl<__half, __half>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__half, __half>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__half, __half>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__half, __half>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// F16 with FP32 accumulation
-__global__ void reduce_sum_f16_fp32acc(const __half* input, __half* output, unsigned int n) {
-    reduce_sum_impl<__half, float>(input, output, n);
-}
-__global__ void reduce_max_f16_fp32acc(const __half* input, __half* output, unsigned int n) {
-    reduce_max_impl<__half, float>(input, output, n);
-}
-__global__ void reduce_min_f16_fp32acc(const __half* input, __half* output, unsigned int n) {
-    reduce_min_impl<__half, float>(input, output, n);
-}
-__global__ void reduce_prod_f16_fp32acc(const __half* input, __half* output, unsigned int n) {
-    reduce_prod_impl<__half, float>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_f16_fp32acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f16_fp32acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f16_fp32acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// F16 with FP64 accumulation
-__global__ void reduce_sum_dim_f16_fp64acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__half, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_f16_fp64acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__half, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_f16_fp64acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__half, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void argmax_dim_f16(
-    const __half* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_f16(
-    const __half* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void reduce_prod_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__half, __half>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_f16_fp32acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_f16_fp64acc(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__half, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_f16(
-    const __half* input, __half* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<__half, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// ----------------------------------------------------------------------------
-// BF16 kernels - native and fp32acc/fp64acc variants
-// ----------------------------------------------------------------------------
-
-__global__ void reduce_sum_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_sum_impl<__nv_bfloat16, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_max_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_max_impl<__nv_bfloat16, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_min_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_min_impl<__nv_bfloat16, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_prod_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_prod_impl<__nv_bfloat16, __nv_bfloat16>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__nv_bfloat16, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__nv_bfloat16, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__nv_bfloat16, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// BF16 with FP32 accumulation
-__global__ void reduce_sum_bf16_fp32acc(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_sum_impl<__nv_bfloat16, float>(input, output, n);
-}
-__global__ void reduce_max_bf16_fp32acc(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_max_impl<__nv_bfloat16, float>(input, output, n);
-}
-__global__ void reduce_min_bf16_fp32acc(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_min_impl<__nv_bfloat16, float>(input, output, n);
-}
-__global__ void reduce_prod_bf16_fp32acc(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int n) {
-    reduce_prod_impl<__nv_bfloat16, float>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_bf16_fp32acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_bf16_fp32acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_bf16_fp32acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// BF16 with FP64 accumulation
-__global__ void reduce_sum_dim_bf16_fp64acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<__nv_bfloat16, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_bf16_fp64acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<__nv_bfloat16, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_bf16_fp64acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<__nv_bfloat16, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void argmax_dim_bf16(
-    const __nv_bfloat16* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_bf16(
-    const __nv_bfloat16* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// BF16 prod/any/all - native accumulation
-__global__ void reduce_prod_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__nv_bfloat16, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_bf16_fp32acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_bf16_fp64acc(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<__nv_bfloat16, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_bf16(
-    const __nv_bfloat16* input, __nv_bfloat16* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<__nv_bfloat16, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// ----------------------------------------------------------------------------
-// FP8 E4M3 kernels - FP32 accumulation by default, BF16 and FP64 variants
-// ----------------------------------------------------------------------------
-
-__global__ void reduce_sum_fp8_e4m3(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_sum_impl<numr_fp8_e4m3, float>(input, output, n);
-}
-__global__ void reduce_max_fp8_e4m3(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_max_impl<numr_fp8_e4m3, float>(input, output, n);
-}
-__global__ void reduce_min_fp8_e4m3(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_min_impl<numr_fp8_e4m3, float>(input, output, n);
-}
-__global__ void reduce_prod_fp8_e4m3(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_prod_impl<numr_fp8_e4m3, float>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E4M3 with BF16 accumulation
-__global__ void reduce_sum_fp8_e4m3_bf16acc(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_sum_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_max_fp8_e4m3_bf16acc(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_max_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_min_fp8_e4m3_bf16acc(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_min_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_prod_fp8_e4m3_bf16acc(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int n) {
-    reduce_prod_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_fp8_e4m3_bf16acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e4m3_bf16acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e4m3_bf16acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E4M3 with FP64 accumulation
-__global__ void reduce_sum_dim_fp8_e4m3_fp64acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e4m3, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e4m3_fp64acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e4m3, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e4m3_fp64acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e4m3, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void argmax_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E4M3 prod/any/all - FP32 accumulation by default
-__global__ void reduce_prod_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_fp8_e4m3_bf16acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e4m3, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_fp8_e4m3_fp64acc(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e4m3, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_fp8_e4m3(
-    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<numr_fp8_e4m3, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// ----------------------------------------------------------------------------
-// FP8 E5M2 kernels - FP32 accumulation by default, BF16 and FP64 variants
-// ----------------------------------------------------------------------------
-
-__global__ void reduce_sum_fp8_e5m2(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_sum_impl<numr_fp8_e5m2, float>(input, output, n);
-}
-__global__ void reduce_max_fp8_e5m2(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_max_impl<numr_fp8_e5m2, float>(input, output, n);
-}
-__global__ void reduce_min_fp8_e5m2(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_min_impl<numr_fp8_e5m2, float>(input, output, n);
-}
-__global__ void reduce_prod_fp8_e5m2(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_prod_impl<numr_fp8_e5m2, float>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E5M2 with BF16 accumulation
-__global__ void reduce_sum_fp8_e5m2_bf16acc(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_sum_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_max_fp8_e5m2_bf16acc(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_max_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_min_fp8_e5m2_bf16acc(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_min_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, n);
-}
-__global__ void reduce_prod_fp8_e5m2_bf16acc(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int n) {
-    reduce_prod_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, n);
-}
-
-__global__ void reduce_sum_dim_fp8_e5m2_bf16acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e5m2_bf16acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e5m2_bf16acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E5M2 with FP64 accumulation
-__global__ void reduce_sum_dim_fp8_e5m2_fp64acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_sum_dim_impl<numr_fp8_e5m2, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_max_dim_fp8_e5m2_fp64acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_max_dim_impl<numr_fp8_e5m2, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_min_dim_fp8_e5m2_fp64acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_min_dim_impl<numr_fp8_e5m2, double>(input, output, outer_size, reduce_size, inner_size);
-}
-
-__global__ void argmax_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmax_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void argmin_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    argmin_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-
-// FP8 E5M2 prod/any/all - FP32 accumulation by default
-__global__ void reduce_prod_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_fp8_e5m2_bf16acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e5m2, __nv_bfloat16>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_prod_dim_fp8_e5m2_fp64acc(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_prod_dim_impl<numr_fp8_e5m2, double>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_any_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_any_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
-__global__ void reduce_all_dim_fp8_e5m2(
-    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    reduce_all_dim_impl<numr_fp8_e5m2, float>(input, output, outer_size, reduce_size, inner_size);
-}
+// --- FP8 E5M2 (fp32 default, bf16acc, fp64acc) ---
+INSTANTIATE_GLOBAL_REDUCE(numr_fp8_e5m2, float, fp8_e5m2)
+INSTANTIATE_GLOBAL_REDUCE(numr_fp8_e5m2, __nv_bfloat16, fp8_e5m2_bf16acc)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e5m2, float, fp8_e5m2)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e5m2, __nv_bfloat16, fp8_e5m2_bf16acc)
+INSTANTIATE_DIM_REDUCE_CORE(numr_fp8_e5m2, double, fp8_e5m2_fp64acc)
+INSTANTIATE_ARG_REDUCE(numr_fp8_e5m2, float, fp8_e5m2)
+INSTANTIATE_PROD_DIM(numr_fp8_e5m2, float, fp8_e5m2)
+INSTANTIATE_PROD_DIM(numr_fp8_e5m2, __nv_bfloat16, fp8_e5m2_bf16acc)
+INSTANTIATE_PROD_DIM(numr_fp8_e5m2, double, fp8_e5m2_fp64acc)
+INSTANTIATE_LOGICAL_DIM(numr_fp8_e5m2, float, fp8_e5m2)
 
 } // extern "C"
