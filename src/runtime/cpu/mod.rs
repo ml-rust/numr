@@ -35,6 +35,6 @@ pub mod special;
 pub(crate) mod statistics;
 
 pub use crate::tensor::Tensor;
-pub use client::{CpuAllocator, CpuClient};
+pub use client::{CpuAllocator, CpuClient, ParallelismConfig};
 pub use device::CpuDevice;
 pub use runtime::CpuRuntime;
