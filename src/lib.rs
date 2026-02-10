@@ -96,7 +96,7 @@ pub mod prelude {
     // Core types
     pub use crate::dtype::DType;
     pub use crate::error::{Error, Result};
-    pub use crate::tensor::{Layout, Tensor};
+    pub use crate::tensor::{Layout, Shape, Strides, Tensor};
 
     // Runtime traits
     pub use crate::runtime::{Device, Runtime, RuntimeClient};
@@ -116,7 +116,7 @@ pub mod prelude {
 
     // Backend runtimes
     #[cfg(feature = "cpu")]
-    pub use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
+    pub use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 
     #[cfg(feature = "cuda")]
     pub use crate::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};

@@ -1,19 +1,9 @@
 //! Layout: shape, strides, and offset for tensor memory layout
 
-use smallvec::SmallVec;
+pub use super::shape::Shape;
+pub use super::strides::Strides;
+
 use std::fmt;
-
-/// Stack allocation threshold for dimensions
-/// Most tensors have 4 or fewer dimensions, so we stack-allocate up to 4
-const STACK_DIMS: usize = 4;
-
-/// Shape type: dimensions of a tensor
-pub type Shape = SmallVec<[usize; STACK_DIMS]>;
-
-/// Strides type: element offsets between consecutive elements along each dimension
-/// Signed to support negative strides (e.g., for flip operations)
-/// NOTE: Strides are in ELEMENTS, not bytes (per TDD §3.0.1)
-pub type Strides = SmallVec<[isize; STACK_DIMS]>;
 
 /// Layout describes the memory layout of a tensor
 ///
@@ -54,7 +44,9 @@ impl Layout {
     }
 
     /// Create a layout with explicit shape, strides, and offset
-    pub fn new(shape: Shape, strides: Strides, offset: usize) -> Self {
+    pub fn new(shape: impl Into<Shape>, strides: impl Into<Strides>, offset: usize) -> Self {
+        let shape = shape.into();
+        let strides = strides.into();
         debug_assert_eq!(shape.len(), strides.len());
         Self {
             shape,
@@ -66,8 +58,8 @@ impl Layout {
     /// Create a scalar (0-dimensional) layout
     pub fn scalar() -> Self {
         Self {
-            shape: SmallVec::new(),
-            strides: SmallVec::new(),
+            shape: Shape::new(),
+            strides: Strides::new(),
             offset: 0,
         }
     }
@@ -75,10 +67,10 @@ impl Layout {
     /// Compute contiguous strides for a given shape (row-major order)
     fn compute_contiguous_strides(shape: &[usize]) -> Strides {
         if shape.is_empty() {
-            return SmallVec::new();
+            return Strides::new();
         }
 
-        let mut strides: Strides = SmallVec::with_capacity(shape.len());
+        let mut strides = Strides::with_capacity(shape.len());
         let mut stride = 1isize;
 
         // Compute strides from last dimension to first
@@ -205,12 +197,10 @@ impl Layout {
     ///
     /// Returns None if the tensor is not contiguous or shapes don't match
     pub fn reshape(&self, new_shape: &[usize]) -> Option<Self> {
-        // Must be contiguous to reshape without copying
         if !self.is_contiguous() {
             return None;
         }
 
-        // Element count must match
         let new_count: usize = new_shape.iter().product();
         if new_count != self.elem_count() {
             return None;
@@ -262,11 +252,9 @@ impl Layout {
         let mut new_shape = self.shape.clone();
         let mut new_strides = self.strides.clone();
 
-        // Stride for the new dimension: product of strides after this position
         let new_stride = if idx < ndim {
             new_strides[idx] * new_shape[idx] as isize
         } else {
-            // Last dimension or scalar case: stride = 1
             1
         };
 
@@ -295,12 +283,10 @@ impl Layout {
     pub fn permute(&self, dims: &[usize]) -> Option<Self> {
         let ndim = self.ndim();
 
-        // dims must have same length as number of dimensions
         if dims.len() != ndim {
             return None;
         }
 
-        // Validate dims is a valid permutation: each index 0..ndim appears exactly once
         let mut seen = vec![false; ndim];
         for &d in dims {
             if d >= ndim || seen[d] {
@@ -309,7 +295,6 @@ impl Layout {
             seen[d] = true;
         }
 
-        // Create new shape and strides by reordering
         let mut new_shape = Shape::with_capacity(ndim);
         let mut new_strides = Strides::with_capacity(ndim);
 
@@ -353,14 +338,11 @@ impl Layout {
             return None;
         }
 
-        // New shape: same as original but with dim narrowed
         let mut new_shape = self.shape.clone();
         new_shape[dim] = length;
 
-        // Strides remain the same
         let new_strides = self.strides.clone();
 
-        // Offset increases by start * stride[dim]
         let new_offset = self.offset as isize + start as isize * self.strides[dim];
         if new_offset < 0 {
             return None;
@@ -392,7 +374,6 @@ impl Layout {
     pub fn flip(&self, dim: isize) -> Option<Self> {
         let idx = self.normalize_dim(dim)?;
 
-        // If dimension size is 0 or 1, flip is a no-op
         if self.shape[idx] <= 1 {
             return Some(self.clone());
         }
@@ -400,17 +381,12 @@ impl Layout {
         let mut new_strides = self.strides.clone();
         let old_stride = self.strides[idx];
 
-        // Negate the stride
         new_strides[idx] = -old_stride;
 
-        // Adjust offset to point to the "last" element along this dimension
-        // New offset = old_offset + (dim_size - 1) * old_stride
-        // Use checked arithmetic to prevent overflow
         let dim_size = self.shape[idx] as isize;
         let stride_factor = (dim_size - 1).checked_mul(old_stride)?;
         let new_offset = (self.offset as isize).checked_add(stride_factor)?;
 
-        // Sanity check: offset should be non-negative
         if new_offset < 0 {
             return None;
         }
@@ -450,14 +426,12 @@ impl Layout {
         let mut new_shape = Shape::new();
         let mut new_strides = Strides::new();
 
-        // Pad with leading 1s
         let pad = target.len() - self.ndim();
         for &t in &target[..pad] {
             new_shape.push(t);
-            new_strides.push(0); // Stride 0 for broadcast dimensions
+            new_strides.push(0);
         }
 
-        // Check compatibility and compute strides
         for ((&s, &st), &t) in self
             .shape
             .iter()
@@ -469,9 +443,9 @@ impl Layout {
                 new_strides.push(st);
             } else if s == 1 {
                 new_shape.push(t);
-                new_strides.push(0); // Broadcast: stride 0
+                new_strides.push(0);
             } else {
-                return None; // Incompatible shapes
+                return None;
             }
         }
 
@@ -522,6 +496,24 @@ mod tests {
     }
 
     #[test]
+    fn test_shape_and_strides_newtypes() {
+        let mut shape = Shape::from([2, 3, 4]);
+        assert_eq!(shape.len(), 3);
+        assert_eq!(shape.ndim(), 3);
+        assert!(!shape.is_empty());
+        assert_eq!(shape.as_ref(), &[2, 3, 4]);
+        shape.remove(1);
+        assert_eq!(shape.as_slice(), &[2, 4]);
+
+        let mut strides = Strides::from([12, 4, 1]);
+        assert_eq!(strides.len(), 3);
+        assert!(!strides.is_empty());
+        assert_eq!(strides.as_ref(), &[12, 4, 1]);
+        strides.reverse();
+        assert_eq!(strides.as_slice(), &[1, 4, 12]);
+    }
+
+    #[test]
     fn test_transpose() {
         let layout = Layout::contiguous(&[2, 3, 4]);
         let transposed = layout.transpose(-1, -2).unwrap();
@@ -552,8 +544,6 @@ mod tests {
         assert_eq!(unsqueezed.shape(), &[1, 3, 4]);
     }
 
-    // Note: broadcast_shape tests are in ops/arithmetic.rs
-
     #[test]
     fn test_index() {
         let layout = Layout::contiguous(&[2, 3]);
@@ -561,94 +551,69 @@ mod tests {
         assert_eq!(layout.index(&[0, 2]), Some(2));
         assert_eq!(layout.index(&[1, 0]), Some(3));
         assert_eq!(layout.index(&[1, 2]), Some(5));
-        assert_eq!(layout.index(&[2, 0]), None); // Out of bounds
+        assert_eq!(layout.index(&[2, 0]), None);
     }
 
     #[test]
     fn test_permute() {
         let layout = Layout::contiguous(&[2, 3, 4]);
-        // Original strides: [12, 4, 1]
 
-        // Permute to [4, 2, 3] -> dims [2, 0, 1]
         let permuted = layout.permute(&[2, 0, 1]).unwrap();
         assert_eq!(permuted.shape(), &[4, 2, 3]);
         assert_eq!(permuted.strides(), &[1, 12, 4]);
         assert!(!permuted.is_contiguous());
 
-        // Identity permutation should preserve layout
         let identity = layout.permute(&[0, 1, 2]).unwrap();
         assert_eq!(identity.shape(), &[2, 3, 4]);
-        assert_eq!(identity.strides(), &[12, 4, 1]);
         assert!(identity.is_contiguous());
 
-        // Invalid permutation: wrong length
         assert!(layout.permute(&[0, 1]).is_none());
-
-        // Invalid permutation: duplicate
         assert!(layout.permute(&[0, 0, 1]).is_none());
-
-        // Invalid permutation: out of range
         assert!(layout.permute(&[0, 1, 5]).is_none());
     }
 
     #[test]
     fn test_narrow() {
         let layout = Layout::contiguous(&[4, 5, 6]);
-        // Original strides: [30, 6, 1]
 
-        // Narrow dim 1: take elements 1..4 (3 elements)
         let narrowed = layout.narrow(1, 1, 3).unwrap();
         assert_eq!(narrowed.shape(), &[4, 3, 6]);
         assert_eq!(narrowed.strides(), &[30, 6, 1]);
-        assert_eq!(narrowed.offset(), 6); // 1 * stride[1] = 1 * 6 = 6
+        assert_eq!(narrowed.offset(), 6);
 
-        // Narrow dim 0: take elements 2..4 (2 elements)
         let narrowed2 = layout.narrow(0, 2, 2).unwrap();
         assert_eq!(narrowed2.shape(), &[2, 5, 6]);
-        assert_eq!(narrowed2.offset(), 60); // 2 * stride[0] = 2 * 30 = 60
+        assert_eq!(narrowed2.offset(), 60);
 
-        // Narrow last dim
         let narrowed3 = layout.narrow(2, 0, 3).unwrap();
         assert_eq!(narrowed3.shape(), &[4, 5, 3]);
         assert_eq!(narrowed3.offset(), 0);
 
-        // Invalid: dim out of range
         assert!(layout.narrow(3, 0, 1).is_none());
-
-        // Invalid: start out of range
         assert!(layout.narrow(0, 5, 1).is_none());
-
-        // Invalid: start + length out of range
         assert!(layout.narrow(0, 3, 3).is_none());
-
-        // Invalid: length = 0
         assert!(layout.narrow(0, 0, 0).is_none());
     }
 
     #[test]
     fn test_flip() {
         let layout = Layout::contiguous(&[2, 3]);
-        // Original: strides [3, 1], offset 0
 
-        // Flip last dim
         let flipped = layout.flip(-1).unwrap();
         assert_eq!(flipped.shape(), &[2, 3]);
-        assert_eq!(flipped.strides(), &[3, -1]); // Negated stride
-        assert_eq!(flipped.offset(), 2); // Point to last element of row (0 + 2*1)
+        assert_eq!(flipped.strides(), &[3, -1]);
+        assert_eq!(flipped.offset(), 2);
 
-        // Flip first dim
         let flipped2 = layout.flip(0).unwrap();
         assert_eq!(flipped2.shape(), &[2, 3]);
-        assert_eq!(flipped2.strides(), &[-3, 1]); // Negated stride for dim 0
-        assert_eq!(flipped2.offset(), 3); // Point to last row (0 + 1*3)
+        assert_eq!(flipped2.strides(), &[-3, 1]);
+        assert_eq!(flipped2.offset(), 3);
 
-        // Flip dimension with size 1 - should be a no-op
         let layout1d = Layout::contiguous(&[1, 5]);
         let flipped1 = layout1d.flip(0).unwrap();
-        assert_eq!(flipped1.strides(), &[5, 1]); // Unchanged since size is 1
+        assert_eq!(flipped1.strides(), &[5, 1]);
         assert_eq!(flipped1.offset(), 0);
 
-        // Invalid dimension
         assert!(layout.flip(5).is_none());
         assert!(layout.flip(-5).is_none());
     }
@@ -656,15 +621,11 @@ mod tests {
     #[test]
     fn test_flip_dims() {
         let layout = Layout::contiguous(&[2, 3, 4]);
-        // Original: strides [12, 4, 1], offset 0
 
-        // Flip multiple dims
         let flipped = layout.flip_dims(&[0, 2]).unwrap();
         assert_eq!(flipped.strides(), &[-12, 4, -1]);
-        // Offset: dim 0 adds (2-1)*12 = 12, dim 2 adds (4-1)*1 = 3 → total = 15
         assert_eq!(flipped.offset(), 15);
 
-        // Empty dims - no change
         let flipped_empty = layout.flip_dims(&[]).unwrap();
         assert_eq!(flipped_empty.strides(), layout.strides());
         assert_eq!(flipped_empty.offset(), layout.offset());
@@ -672,16 +633,13 @@ mod tests {
 
     #[test]
     fn test_flip_index() {
-        // Test that flipped layout indexes correctly
         let layout = Layout::contiguous(&[2, 3]);
-        // Memory: [0, 1, 2, 3, 4, 5] representing [[0,1,2], [3,4,5]]
 
-        // Flip last dim: should index as [[2,1,0], [5,4,3]]
         let flipped = layout.flip(-1).unwrap();
-        assert_eq!(flipped.index(&[0, 0]), Some(2)); // Was index 2, now at [0,0]
-        assert_eq!(flipped.index(&[0, 1]), Some(1)); // Was index 1, now at [0,1]
-        assert_eq!(flipped.index(&[0, 2]), Some(0)); // Was index 0, now at [0,2]
-        assert_eq!(flipped.index(&[1, 0]), Some(5)); // Was index 5
-        assert_eq!(flipped.index(&[1, 2]), Some(3)); // Was index 3
+        assert_eq!(flipped.index(&[0, 0]), Some(2));
+        assert_eq!(flipped.index(&[0, 1]), Some(1));
+        assert_eq!(flipped.index(&[0, 2]), Some(0));
+        assert_eq!(flipped.index(&[1, 0]), Some(5));
+        assert_eq!(flipped.index(&[1, 2]), Some(3));
     }
 }
