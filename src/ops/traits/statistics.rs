@@ -69,7 +69,7 @@ pub trait StatisticalOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `a` - Input tensor
-    /// * `q` - Quantile to compute, must be in `[0.0, 1.0]`
+    /// * `q` - Quantile to compute, must be in `` `[0.0, 1.0]` ``
     /// * `dim` - Dimension to reduce (None = flatten first)
     /// * `keepdim` - If true, keep reduced dimension as size 1
     /// * `interpolation` - Method for interpolating between data points:
@@ -90,11 +90,11 @@ pub trait StatisticalOps<R: Runtime> {
     /// 1. Sort input along dimension
     /// 2. Compute index: idx = q * (n - 1) where n = dimension size
     /// 3. Interpolate based on method:
-    ///    - linear: result = sorted`[floor]` * (1 - frac) + sorted`[ceil]` * frac
-    ///    - lower: result = sorted`[floor(idx)]`
-    ///    - higher: result = sorted`[ceil(idx)]`
-    ///    - nearest: result = sorted`[round(idx)]`
-    ///    - midpoint: result = (sorted`[floor]` + sorted`[ceil]`) / 2
+    ///    - linear: result = `` `sorted[floor]` `` * (1 - frac) + `` `sorted[ceil]` `` * frac
+    ///    - lower: result = `` `sorted[floor(idx)]` ``
+    ///    - higher: result = `` `sorted[ceil(idx)]` ``
+    ///    - nearest: result = `` `sorted[round(idx)]` ``
+    ///    - midpoint: result = (`` `sorted[floor]` `` + `` `sorted[ceil]` ``) / 2
     /// ```
     ///
     /// # Examples

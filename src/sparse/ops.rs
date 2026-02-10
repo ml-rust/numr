@@ -71,15 +71,15 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers `[nrows + 1]` (dtype I64)
-    /// * `col_indices` - CSR column indices `[nnz]` (dtype I64)
-    /// * `values` - CSR values `[nnz]` (dtype T)
-    /// * `x` - Dense vector `[ncols]`
-    /// * `shape` - Matrix shape `[nrows, ncols]`
+    /// * `row_ptrs` - CSR row pointers `` `[nrows + 1]` `` (dtype I64)
+    /// * `col_indices` - CSR column indices `` `[nnz]` `` (dtype I64)
+    /// * `values` - CSR values `` `[nnz]` `` (dtype T)
+    /// * `x` - Dense vector `` `[ncols]` ``
+    /// * `shape` - Matrix shape `` `[nrows, ncols]` ``
     ///
     /// # Returns
     ///
-    /// Dense vector `[nrows]`
+    /// Dense vector `` `[nrows]` ``
     fn spmv_csr<T: crate::dtype::Element>(
         &self,
         row_ptrs: &Tensor<R>,
@@ -93,15 +93,15 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers `[nrows + 1]`
-    /// * `col_indices` - CSR column indices `[nnz]`
-    /// * `values` - CSR values `[nnz]`
-    /// * `b` - Dense matrix `[ncols, n]`
-    /// * `shape` - Sparse matrix shape `[nrows, ncols]`
+    /// * `row_ptrs` - CSR row pointers `` `[nrows + 1]` ``
+    /// * `col_indices` - CSR column indices `` `[nnz]` ``
+    /// * `values` - CSR values `` `[nnz]` ``
+    /// * `b` - Dense matrix `` `[ncols, n]` ``
+    /// * `shape` - Sparse matrix shape `` `[nrows, ncols]` ``
     ///
     /// # Returns
     ///
-    /// Dense matrix [nrows, n]
+    /// Dense matrix `` `[nrows, n]` ``
     fn spmm_csr<T: crate::dtype::Element>(
         &self,
         row_ptrs: &Tensor<R>,
@@ -171,9 +171,9 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// # Semantics
     ///
     /// - **Intersection strategy**: Result contains only positions where both A and B have values
-    /// - **Mathematical**: `C[i,j]` = `A[i,j]` / `B[i,j]` when both exist
+    /// - **Mathematical**: `` `C[i,j]` `` = `` `A[i,j]` `` / `` `B[i,j]` `` when both exist
     /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
-    /// - **Example**: `A=[1,0,3]`, `B=[2,4,0]` → `C=[0.5]` (only position 0 has both values)
+    /// - **Example**: `` `A=[1,0,3]` ``, `` `B=[2,4,0]` `` → `` `C=[0.5]` `` (only position 0 has both values)
     ///
     /// # Errors
     ///
@@ -253,9 +253,9 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// # Semantics
     ///
     /// - **Intersection strategy**: Result contains only positions where both A and B have values
-    /// - **Mathematical**: `C[i,j]` = `A[i,j]` / `B[i,j]` when both exist
+    /// - **Mathematical**: `` `C[i,j]` `` = `` `A[i,j]` `` / `` `B[i,j]` `` when both exist
     /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
-    /// - **Example**: `A=[1,0,3]`, `B=[2,4,0]` → `C=[0.5]` (only position 0 has both values)
+    /// - **Example**: `` `A=[1,0,3]` ``, `` `B=[2,4,0]` `` → `` `C=[0.5]` `` (only position 0 has both values)
     ///
     /// # Errors
     ///
@@ -335,9 +335,9 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// # Semantics
     ///
     /// - **Intersection strategy**: Result contains only positions where both A and B have values
-    /// - **Mathematical**: `C[i,j]` = `A[i,j]` / `B[i,j]` when both exist
+    /// - **Mathematical**: `` `C[i,j]` `` = `` `A[i,j]` `` / `` `B[i,j]` `` when both exist
     /// - **Division by zero**: Implicit zeros in B where A has values are skipped (no division by zero)
-    /// - **Example**: `A=[1,0,3]`, `B=[2,4,0]` → `C=[0.5]` (only position 0 has both values)
+    /// - **Example**: `` `A=[1,0,3]` ``, `` `B=[2,4,0]` `` → `` `C=[0.5]` `` (only position 0 has both values)
     ///
     /// # Errors
     ///
@@ -364,12 +364,12 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `a` - Sparse matrix `[M, K]`
-    /// * `x` - Dense vector `[K]` or `[K, 1]`
+    /// * `a` - Sparse matrix `` `[M, K]` ``
+    /// * `x` - Dense vector `` `[K]` `` or `` `[K, 1]` ``
     ///
     /// # Returns
     ///
-    /// Dense vector `[M]` or `[M, 1]`
+    /// Dense vector `` `[M]` `` or `` `[M, 1]` ``
     ///
     /// # Performance
     ///
@@ -381,24 +381,24 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `a` - Sparse matrix `[M, K]`
-    /// * `b` - Dense matrix `[K, N]`
+    /// * `a` - Sparse matrix `` `[M, K]` ``
+    /// * `b` - Dense matrix `` `[K, N]` ``
     ///
     /// # Returns
     ///
-    /// Dense matrix `[M, N]`
+    /// Dense matrix `` `[M, N]` ``
     fn spmm(&self, a: &SparseTensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Dense matrix-sparse matrix multiplication: C = A * B
     ///
     /// # Arguments
     ///
-    /// * `a` - Dense matrix `[M, K]`
-    /// * `b` - Sparse matrix `[K, N]`
+    /// * `a` - Dense matrix `` `[M, K]` ``
+    /// * `b` - Sparse matrix `` `[K, N]` ``
     ///
     /// # Returns
     ///
-    /// Dense matrix `[M, N]`
+    /// Dense matrix `` `[M, N]` ``
     ///
     /// # Performance
     ///
@@ -448,32 +448,32 @@ pub trait SparseOps<R: Runtime>: Sized {
     /// Sum of all non-zero elements
     fn sparse_sum(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
 
-    /// Sum along rows: `result[i]` = `sum(A[i, :])`
+    /// Sum along rows: `` `result[i]` `` = `` `sum(A[i, :])` ``
     ///
     /// # Returns
     ///
-    /// Dense vector `[M]`
+    /// Dense vector `` `[M]` ``
     fn sparse_sum_rows(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
 
-    /// Sum along columns: `result[j]` = `sum(A[:, j])`
+    /// Sum along columns: `` `result[j]` `` = `` `sum(A[:, j])` ``
     ///
     /// # Returns
     ///
-    /// Dense vector `[N]`
+    /// Dense vector `` `[N]` ``
     fn sparse_sum_cols(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
 
     /// Number of non-zeros per row
     ///
     /// # Returns
     ///
-    /// Dense vector `[M]` with counts
+    /// Dense vector `` `[M]` `` with counts
     fn sparse_nnz_per_row(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
 
     /// Number of non-zeros per column
     ///
     /// # Returns
     ///
-    /// Dense vector `[N]` with counts
+    /// Dense vector `` `[N]` `` with counts
     fn sparse_nnz_per_col(&self, a: &SparseTensor<R>) -> Result<Tensor<R>>;
 
     // =========================================================================
@@ -566,14 +566,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_indices` - COO row indices `[nnz]`
-    /// * `col_indices` - COO column indices `[nnz]`
-    /// * `values` - COO values `[nnz]`
-    /// * `shape` - Matrix shape `[nrows, ncols]`
+    /// * `row_indices` - COO row indices `` `[nnz]` ``
+    /// * `col_indices` - COO column indices `` `[nnz]` ``
+    /// * `values` - COO values `` `[nnz]` ``
+    /// * `shape` - Matrix shape `` `[nrows, ncols]` ``
     ///
     /// # Returns
     ///
-    /// Tuple of `(row_ptrs [nrows+1], col_indices [nnz], values [nnz])`
+    /// Tuple of `` `(row_ptrs [nrows+1], col_indices [nnz], values [nnz])` ``
     ///
     /// # Performance
     ///
@@ -591,14 +591,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_indices` - COO row indices `[nnz]`
-    /// * `col_indices` - COO column indices `[nnz]`
-    /// * `values` - COO values `[nnz]`
-    /// * `shape` - Matrix shape `[nrows, ncols]`
+    /// * `row_indices` - COO row indices `` `[nnz]` ``
+    /// * `col_indices` - COO column indices `` `[nnz]` ``
+    /// * `values` - COO values `` `[nnz]` ``
+    /// * `shape` - Matrix shape `` `[nrows, ncols]` ``
     ///
     /// # Returns
     ///
-    /// Tuple of `(col_ptrs [ncols+1], row_indices [nnz], values [nnz])`
+    /// Tuple of `` `(col_ptrs [ncols+1], row_indices [nnz], values [nnz])` ``
     fn coo_to_csc<T: crate::dtype::Element>(
         &self,
         row_indices: &Tensor<R>,
@@ -611,14 +611,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers `[nrows+1]`
-    /// * `col_indices` - CSR column indices `[nnz]`
-    /// * `values` - CSR values `[nnz]`
+    /// * `row_ptrs` - CSR row pointers `` `[nrows+1]` ``
+    /// * `col_indices` - CSR column indices `` `[nnz]` ``
+    /// * `values` - CSR values `` `[nnz]` ``
     /// * `shape` - Matrix shape `[nrows, ncols]`
     ///
     /// # Returns
     ///
-    /// Tuple of `(row_indices [nnz], col_indices [nnz], values [nnz])`
+    /// Tuple of `` `(row_indices [nnz], col_indices [nnz], values [nnz])` ``
     fn csr_to_coo<T: crate::dtype::Element>(
         &self,
         row_ptrs: &Tensor<R>,
@@ -631,14 +631,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `col_ptrs` - CSC column pointers `[ncols+1]`
-    /// * `row_indices` - CSC row indices `[nnz]`
-    /// * `values` - CSC values `[nnz]`
+    /// * `col_ptrs` - CSC column pointers `` `[ncols+1]` ``
+    /// * `row_indices` - CSC row indices `` `[nnz]` ``
+    /// * `values` - CSC values `` `[nnz]` ``
     /// * `shape` - Matrix shape `[nrows, ncols]`
     ///
     /// # Returns
     ///
-    /// Tuple of `(row_indices [nnz], col_indices [nnz], values [nnz])`
+    /// Tuple of `` `(row_indices [nnz], col_indices [nnz], values [nnz])` ``
     fn csc_to_coo<T: crate::dtype::Element>(
         &self,
         col_ptrs: &Tensor<R>,
@@ -651,14 +651,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers `[nrows+1]`
-    /// * `col_indices` - CSR column indices `[nnz]`
-    /// * `values` - CSR values `[nnz]`
+    /// * `row_ptrs` - CSR row pointers `` `[nrows+1]` ``
+    /// * `col_indices` - CSR column indices `` `[nnz]` ``
+    /// * `values` - CSR values `` `[nnz]` ``
     /// * `shape` - Matrix shape `[nrows, ncols]`
     ///
     /// # Returns
     ///
-    /// Tuple of `(col_ptrs [ncols+1], row_indices [nnz], values [nnz])`
+    /// Tuple of `` `(col_ptrs [ncols+1], row_indices [nnz], values [nnz])` ``
     ///
     /// # Performance
     ///
@@ -675,14 +675,14 @@ pub trait SparseOps<R: Runtime>: Sized {
     ///
     /// # Arguments
     ///
-    /// * `col_ptrs` - CSC column pointers `[ncols+1]`
-    /// * `row_indices` - CSC row indices `[nnz]`
-    /// * `values` - CSC values `[nnz]`
+    /// * `col_ptrs` - CSC column pointers `` `[ncols+1]` ``
+    /// * `row_indices` - CSC row indices `` `[nnz]` ``
+    /// * `values` - CSC values `` `[nnz]` ``
     /// * `shape` - Matrix shape `[nrows, ncols]`
     ///
     /// # Returns
     ///
-    /// Tuple of `(row_ptrs [nrows+1], col_indices [nnz], values [nnz])`
+    /// Tuple of `` `(row_ptrs [nrows+1], col_indices [nnz], values [nnz])` ``
     fn csc_to_csr<T: crate::dtype::Element>(
         &self,
         col_ptrs: &Tensor<R>,
@@ -799,7 +799,7 @@ pub trait SparseScaling<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Tensor of shape `[nrows]` containing the norm of each row.
+    /// Tensor of shape `` `[nrows]` `` containing the norm of each row.
     fn row_norms<T: crate::dtype::Element + Default + Copy>(
         &self,
         norm: NormType,
@@ -813,7 +813,7 @@ pub trait SparseScaling<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// Tensor of shape `[ncols]` containing the norm of each column.
+    /// Tensor of shape `` `[ncols]` `` containing the norm of each column.
     fn col_norms<T: crate::dtype::Element + Default + Copy>(
         &self,
         norm: NormType,
@@ -821,11 +821,11 @@ pub trait SparseScaling<R: Runtime> {
 
     /// Scale rows of a sparse matrix by given factors.
     ///
-    /// Computes `B[i,j] = scales[i] * A[i,j]` for all nonzeros.
+    /// Computes `` `B[i,j] = scales[i] * A[i,j]` `` for all nonzeros.
     ///
     /// # Arguments
     ///
-    /// * `scales` - Row scaling factors `[nrows]`
+    /// * `scales` - Row scaling factors `` `[nrows]` ``
     ///
     /// # Returns
     ///
@@ -839,11 +839,11 @@ pub trait SparseScaling<R: Runtime> {
 
     /// Scale columns of a sparse matrix by given factors.
     ///
-    /// Computes `B[i,j] = A[i,j] * scales[j]` for all nonzeros.
+    /// Computes `` `B[i,j] = A[i,j] * scales[j]` `` for all nonzeros.
     ///
     /// # Arguments
     ///
-    /// * `scales` - Column scaling factors `[ncols]`
+    /// * `scales` - Column scaling factors `` `[ncols]` ``
     ///
     /// # Returns
     ///
@@ -865,8 +865,8 @@ pub trait SparseScaling<R: Runtime> {
     ///
     /// Tuple of:
     /// - Scaled matrix (same sparsity pattern)
-    /// - Row scales `[nrows]`
-    /// - Column scales `[ncols]`
+    /// - Row scales `` `[nrows]` ``
+    /// - Column scales `` `[ncols]` ``
     ///
     /// To undo the scaling on the solution:
     /// - If solving Ax = b, the scaled system is (R*A*C) * (C⁻¹*x) = R*b

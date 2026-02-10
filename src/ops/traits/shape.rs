@@ -134,7 +134,7 @@ pub trait ShapeOps<R: Runtime> {
     ///
     /// # Returns
     ///
-    /// New tensor with shape `[dim_0 * repeats[0], dim_1 * repeats[1], ...]`
+    /// New tensor with shape `` `[dim_0 * repeats[0], dim_1 * repeats[1], ...]` ``
     ///
     /// # Example
     ///
@@ -159,7 +159,7 @@ pub trait ShapeOps<R: Runtime> {
     /// # Arguments
     ///
     /// * `tensor` - Input tensor
-    /// * `padding` - Padding sizes as pairs: `[last_before, last_after, second_last_before, ...]`
+    /// * `padding` - Padding sizes as pairs: `` `[last_before, last_after, second_last_before, ...]` ``
     /// * `value` - Value to use for padding
     ///
     /// # Returns

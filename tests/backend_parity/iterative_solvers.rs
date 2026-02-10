@@ -14,7 +14,10 @@ pub fn get_client() -> CpuClient {
 }
 
 /// Create 1D Laplacian (SPD tridiagonal): diag=2, off-diag=-1
-pub fn create_1d_laplacian(n: usize, device: &<CpuRuntime as Runtime>::Device) -> CsrData<CpuRuntime> {
+pub fn create_1d_laplacian(
+    n: usize,
+    device: &<CpuRuntime as Runtime>::Device,
+) -> CsrData<CpuRuntime> {
     let mut row_ptrs = Vec::with_capacity(n + 1);
     let mut col_indices = Vec::new();
     let mut values = Vec::new();
@@ -45,7 +48,10 @@ pub fn create_1d_laplacian(n: usize, device: &<CpuRuntime as Runtime>::Device) -
 
 /// Create a non-symmetric sparse matrix for CGS/Arnoldi testing
 /// Convection-diffusion: tridiagonal with asymmetric off-diags
-pub fn create_nonsymmetric(n: usize, device: &<CpuRuntime as Runtime>::Device) -> CsrData<CpuRuntime> {
+pub fn create_nonsymmetric(
+    n: usize,
+    device: &<CpuRuntime as Runtime>::Device,
+) -> CsrData<CpuRuntime> {
     let mut row_ptrs = Vec::with_capacity(n + 1);
     let mut col_indices = Vec::new();
     let mut values = Vec::new();
