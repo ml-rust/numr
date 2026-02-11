@@ -218,5 +218,5 @@ struct FScale16384;
 struct FScale65536;
 
 fn main() {
-    fluxbench_cli::run().unwrap();
+    fluxbench::run().unwrap();
 }

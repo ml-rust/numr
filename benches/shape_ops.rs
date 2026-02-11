@@ -270,5 +270,5 @@ struct Cat2DRatio;
 struct CudaCatSpeedup;
 
 fn main() {
-    fluxbench_cli::run().unwrap();
+    fluxbench::run().unwrap();
 }

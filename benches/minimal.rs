@@ -23,5 +23,5 @@ fn numr_512(b: &mut Bencher) {
 }
 
 fn main() {
-    fluxbench_cli::run().unwrap();
+    fluxbench::run().unwrap();
 }

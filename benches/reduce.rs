@@ -368,5 +368,5 @@ struct CudaSumSpeedup1M;
 struct CudaSumSpeedup10M;
 
 fn main() {
-    fluxbench_cli::run().unwrap();
+    fluxbench::run().unwrap();
 }

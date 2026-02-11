@@ -20,8 +20,9 @@ cpu = []
 cuda = ["dep:cudarc"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
-f16 = ["dep:half", "cudarc?/f16"]
-sparse = []                         # Sparse tensor formats (CSR, CSC, COO) and operations
+f16 = ["dep:half", "cudarc?/f16"]   # Half-precision floats (F16, BF16) - optional reduced-precision support
+fp8 = []                             # 8-bit floats (FP8E4M3, FP8E5M2) - optional ultra-low-precision support
+sparse = []                          # Sparse tensor formats (CSR, CSC, COO) and operations
 
 [dependencies]
 # Core
@@ -60,8 +61,7 @@ paste = "1.0.15"
 [dev-dependencies]
 approx = "0.5"
 rand = "0.9"
-fluxbench = { path = "../fluxbench/fluxbench" }
-fluxbench-cli = { path = "../fluxbench/fluxbench-cli" }
+fluxbench = "0.1"
 ndarray = "0.16"
 nalgebra = "0.33"
 
@@ -87,6 +87,10 @@ harness = false
 
 [[bench]]
 name = "minimal"
+harness = false
+
+[[bench]]
+name = "parallelism"
 harness = false
 
 [profile.release]
