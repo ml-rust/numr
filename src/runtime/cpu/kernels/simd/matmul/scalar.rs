@@ -8,9 +8,9 @@ use super::MR;
 /// Generate scalar matmul function for a given type
 macro_rules! define_scalar_matmul {
     ($name:ident, $ty:ty) => {
-        /// Scalar matmul: C = A @ B
+        /// Matmul: C = A @ B
         ///
-        /// Uses ikj loop order for better cache locality on B.
+        /// Uses ikj loop order with slice-based access for auto-vectorization.
         ///
         /// # Safety
         /// - All pointers must be valid for the specified dimensions
@@ -27,20 +27,20 @@ macro_rules! define_scalar_matmul {
             ldb: usize,
             ldc: usize,
         ) {
-            // Zero output first
+            // Zero output
+            let out_slice = std::slice::from_raw_parts_mut(out, m * ldc);
             for i in 0..m {
-                for j in 0..n {
-                    *out.add(i * ldc + j) = 0.0;
-                }
+                out_slice[i * ldc..i * ldc + n].fill(0.0);
             }
 
-            // ikj loop order for better cache locality
+            // ikj loop with slice access enables auto-vectorization
             for i in 0..m {
+                let c_row = &mut std::slice::from_raw_parts_mut(out.add(i * ldc), n)[..n];
                 for kk in 0..k {
                     let a_val = *a.add(i * lda + kk);
+                    let b_row = std::slice::from_raw_parts(b.add(kk * ldb), n);
                     for j in 0..n {
-                        let out_ptr = out.add(i * ldc + j);
-                        *out_ptr += a_val * *b.add(kk * ldb + j);
+                        c_row[j] += a_val * b_row[j];
                     }
                 }
             }
@@ -51,7 +51,7 @@ macro_rules! define_scalar_matmul {
 /// Generate scalar matmul with fused bias for a given type
 macro_rules! define_scalar_matmul_bias {
     ($name:ident, $ty:ty) => {
-        /// Scalar matmul with fused bias: C = A @ B + bias
+        /// Matmul with fused bias: C = A @ B + bias
         ///
         /// Single-pass: initializes C with bias, then accumulates matmul.
         ///
@@ -71,20 +71,19 @@ macro_rules! define_scalar_matmul_bias {
             ldb: usize,
             ldc: usize,
         ) {
-            // Initialize with bias (single write pass)
+            let bias_slice = std::slice::from_raw_parts(bias, n);
             for i in 0..m {
-                for j in 0..n {
-                    *out.add(i * ldc + j) = *bias.add(j);
-                }
+                let c_row = &mut std::slice::from_raw_parts_mut(out.add(i * ldc), n)[..n];
+                c_row.copy_from_slice(bias_slice);
             }
 
-            // Accumulate matmul (ikj order for cache locality)
             for i in 0..m {
+                let c_row = &mut std::slice::from_raw_parts_mut(out.add(i * ldc), n)[..n];
                 for kk in 0..k {
                     let a_val = *a.add(i * lda + kk);
+                    let b_row = std::slice::from_raw_parts(b.add(kk * ldb), n);
                     for j in 0..n {
-                        let out_ptr = out.add(i * ldc + j);
-                        *out_ptr += a_val * *b.add(kk * ldb + j);
+                        c_row[j] += a_val * b_row[j];
                     }
                 }
             }
@@ -97,12 +96,8 @@ macro_rules! define_microkernel_edge {
     ($name:ident, $ty:ty) => {
         /// Scalar microkernel for edge tiles (partial MR×NR blocks)
         ///
-        /// Packed layout: For each k, MR consecutive A elements, NR consecutive B elements
-        ///
-        /// # Safety
-        /// - `a` must be valid for `k * MR` elements (packed format)
-        /// - `b` must be valid for `k * nr` elements (packed format)
-        /// - `c` must be valid for `mr * ldc` elements
+        /// When `first_k` is true, C tile is zeroed before accumulation.
+        /// When false, C is loaded and accumulated into.
         #[inline]
         #[allow(clippy::too_many_arguments)]
         pub unsafe fn $name(
@@ -113,7 +108,16 @@ macro_rules! define_microkernel_edge {
             nr: usize,
             k: usize,
             ldc: usize,
+            first_k: bool,
         ) {
+            if first_k {
+                for i in 0..mr {
+                    for j in 0..nr {
+                        *c.add(i * ldc + j) = 0.0;
+                    }
+                }
+            }
+
             for kk in 0..k {
                 for i in 0..mr {
                     let a_val = *a.add(kk * MR + i);
