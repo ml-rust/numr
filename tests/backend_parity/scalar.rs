@@ -1,32 +1,35 @@
 // Backend parity tests for ScalarOps trait
 //
-// Tests verify that all ScalarOps operations produce identical results across
-// CPU, CUDA, and WebGPU backends.
+// Dtype-parameterized: each test runs for all supported dtypes across all backends.
+// Comparison reads back in native dtype via assert_tensor_allclose.
 
+use numr::dtype::DType;
 use numr::ops::ScalarOps;
 use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
 // ============================================================================
 // Test Utilities
 // ============================================================================
 
+#[derive(Clone)]
 struct ScalarTest {
-    data: Vec<f32>,
+    data: Vec<f64>,
     shape: Vec<usize>,
     scalar: f64,
 }
 
 impl ScalarTest {
-    fn new(data: Vec<f32>, shape: Vec<usize>, scalar: f64) -> Self {
+    fn new(data: Vec<f64>, shape: Vec<usize>, scalar: f64) -> Self {
         ScalarTest {
             data,
             shape,
@@ -52,116 +55,133 @@ fn apply_scalar_op<R: Runtime>(
     }
 }
 
-fn test_scalar_parity(op: &str, test_cases: Vec<ScalarTest>) {
-    // CPU baseline
-    let cpu_results: Vec<Vec<f32>> = test_cases
+fn test_scalar_parity(op: &str, test_cases: &[ScalarTest], dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = test_cases
         .iter()
         .map(|tc| {
-            let (client, device) = create_cpu_client();
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &device);
-            apply_scalar_op(&client, op, &tensor, tc.scalar)
-                .expect("CPU operation failed")
-                .to_vec::<f32>()
+            let tensor = tensor_from_f64(&tc.data, &tc.shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            apply_scalar_op(&cpu_client, op, &tensor, tc.scalar)
+                .unwrap_or_else(|e| panic!("CPU {op} failed for {dtype:?}: {e}"))
         })
         .collect();
 
-    // CUDA parity
     #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &cuda_device);
-            let result = apply_scalar_op(&cuda_client, op, &tensor, tc.scalar)
-                .expect("CUDA operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &result, op, "cuda");
-        }
-    });
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&tc.data, &tc.shape, dtype, &cuda_device, &cuda_client)
+                        .unwrap_or_else(|e| {
+                            panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_scalar_op(&cuda_client, op, &tensor, tc.scalar)
+                    .unwrap_or_else(|e| panic!("CUDA {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
 
-    // WebGPU parity
     #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &wgpu_device);
-            let result = apply_scalar_op(&wgpu_client, op, &tensor, tc.scalar)
-                .expect("WebGPU operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &result, op, "wgpu");
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&tc.data, &tc.shape, dtype, &wgpu_device, &wgpu_client)
+                        .unwrap_or_else(|e| {
+                            panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_scalar_op(&wgpu_client, op, &tensor, tc.scalar)
+                    .unwrap_or_else(|e| panic!("WebGPU {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+macro_rules! scalar_case {
+    ($name:ident, $op:expr, $cases:expr) => {
+        #[test]
+        fn $name() {
+            for dtype in supported_dtypes("cpu") {
+                test_scalar_parity($op, $cases, dtype);
+            }
         }
-    });
+    };
 }
 
 // ============================================================================
 // Scalar Operation Parity Tests
 // ============================================================================
 
-#[test]
-fn test_add_scalar_parity() {
-    test_scalar_parity(
-        "add_scalar",
-        vec![
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 5.0),
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], -2.5),
-            ScalarTest::new(vec![0.5, 1.5, 2.5, 3.5], vec![2, 2], 10.0),
-        ],
-    );
-}
+scalar_case!(
+    test_add_scalar_parity,
+    "add_scalar",
+    &[
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 5.0),
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], -2.5),
+        ScalarTest::new(vec![0.5, 1.5, 2.5, 3.5], vec![2, 2], 10.0),
+    ]
+);
 
-#[test]
-fn test_sub_scalar_parity() {
-    test_scalar_parity(
-        "sub_scalar",
-        vec![
-            ScalarTest::new(vec![5.0, 6.0, 7.0, 8.0], vec![4], 2.0),
-            ScalarTest::new(vec![10.0, 20.0, 30.0, 40.0], vec![2, 2], 5.0),
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], 0.5),
-        ],
-    );
-}
+scalar_case!(
+    test_sub_scalar_parity,
+    "sub_scalar",
+    &[
+        ScalarTest::new(vec![5.0, 6.0, 7.0, 8.0], vec![4], 2.0),
+        ScalarTest::new(vec![10.0, 20.0, 30.0, 40.0], vec![2, 2], 5.0),
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], 0.5),
+    ]
+);
 
-#[test]
-fn test_mul_scalar_parity() {
-    test_scalar_parity(
-        "mul_scalar",
-        vec![
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 2.0),
-            ScalarTest::new(vec![2.0, 4.0, 6.0, 8.0], vec![2, 2], 0.5),
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], -3.0),
-        ],
-    );
-}
+scalar_case!(
+    test_mul_scalar_parity,
+    "mul_scalar",
+    &[
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 2.0),
+        ScalarTest::new(vec![2.0, 4.0, 6.0, 8.0], vec![2, 2], 0.5),
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], -3.0),
+    ]
+);
 
-#[test]
-fn test_div_scalar_parity() {
-    test_scalar_parity(
-        "div_scalar",
-        vec![
-            ScalarTest::new(vec![10.0, 20.0, 30.0, 40.0], vec![4], 2.0),
-            ScalarTest::new(vec![100.0, 200.0, 300.0, 400.0], vec![2, 2], 10.0),
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], 4.0),
-        ],
-    );
-}
+scalar_case!(
+    test_div_scalar_parity,
+    "div_scalar",
+    &[
+        ScalarTest::new(vec![10.0, 20.0, 30.0, 40.0], vec![4], 2.0),
+        ScalarTest::new(vec![100.0, 200.0, 300.0, 400.0], vec![2, 2], 10.0),
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2], 4.0),
+    ]
+);
 
-#[test]
-fn test_pow_scalar_parity() {
-    test_scalar_parity(
-        "pow_scalar",
-        vec![
-            ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![4], 2.0),
-            ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2], 3.0),
-            ScalarTest::new(vec![4.0, 9.0, 16.0, 25.0], vec![2, 2], 0.5),
-        ],
-    );
-}
+scalar_case!(
+    test_pow_scalar_parity,
+    "pow_scalar",
+    &[
+        ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![4], 2.0),
+        ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2], 3.0),
+        ScalarTest::new(vec![4.0, 9.0, 16.0, 25.0], vec![2, 2], 0.5),
+    ]
+);
 
-#[test]
-fn test_rsub_scalar_parity() {
-    test_scalar_parity(
-        "rsub_scalar",
-        vec![
-            ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 10.0),
-            ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2], 20.0),
-            ScalarTest::new(vec![0.5, 1.5, 2.5, 3.5], vec![2, 2], 5.0),
-        ],
-    );
-}
+scalar_case!(
+    test_rsub_scalar_parity,
+    "rsub_scalar",
+    &[
+        ScalarTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], 10.0),
+        ScalarTest::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2], 20.0),
+        ScalarTest::new(vec![0.5, 1.5, 2.5, 3.5], vec![2, 2], 5.0),
+    ]
+);

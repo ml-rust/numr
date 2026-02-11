@@ -1,35 +1,38 @@
 // Backend parity tests for ReduceOps trait
 //
-// Tests verify that all ReduceOps operations produce identical results across
-// CPU, CUDA, and WebGPU backends.
+// Dtype-parameterized: each test runs for all supported dtypes across all backends.
+// Comparison reads back in native dtype via assert_tensor_allclose.
 
+use numr::dtype::DType;
 use numr::ops::ReduceOps;
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 use crate::backend_parity::helpers::assert_parity_f32;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
 // ============================================================================
 // Test Utilities
 // ============================================================================
 
+#[derive(Clone)]
 struct ReduceTest {
-    data: Vec<f32>,
+    data: Vec<f64>,
     shape: Vec<usize>,
     dims: Vec<usize>,
     keepdim: bool,
 }
 
 impl ReduceTest {
-    fn new(data: Vec<f32>, shape: Vec<usize>, dims: Vec<usize>, keepdim: bool) -> Self {
+    fn new(data: Vec<f64>, shape: Vec<usize>, dims: Vec<usize>, keepdim: bool) -> Self {
         ReduceTest {
             data,
             shape,
@@ -58,266 +61,271 @@ fn apply_reduce_op<R: Runtime>(
     }
 }
 
-fn test_reduce_parity(op: &str, test_cases: Vec<ReduceTest>) {
-    // CPU baseline
-    let cpu_results: Vec<Vec<f32>> = test_cases
+fn test_reduce_parity(op: &str, test_cases: &[ReduceTest], dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+
+    let cpu_results: Vec<Tensor<CpuRuntime>> = test_cases
         .iter()
         .map(|tc| {
-            let (client, device) = create_cpu_client();
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &device);
-            apply_reduce_op(&client, op, &tensor, &tc.dims, tc.keepdim)
-                .expect("CPU operation failed")
-                .to_vec::<f32>()
+            let tensor = tensor_from_f64(&tc.data, &tc.shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            apply_reduce_op(&cpu_client, op, &tensor, &tc.dims, tc.keepdim)
+                .unwrap_or_else(|e| panic!("CPU {op} failed for {dtype:?}: {e}"))
         })
         .collect();
 
-    // CUDA parity
     #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &cuda_device);
-            let result = apply_reduce_op(&cuda_client, op, &tensor, &tc.dims, tc.keepdim)
-                .expect("CUDA operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &result, op, "cuda");
-        }
-    });
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&tc.data, &tc.shape, dtype, &cuda_device, &cuda_client)
+                        .unwrap_or_else(|e| {
+                            panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_reduce_op(&cuda_client, op, &tensor, &tc.dims, tc.keepdim)
+                    .unwrap_or_else(|e| panic!("CUDA {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
 
-    // WebGPU parity
     #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let tensor = Tensor::from_slice(&tc.data, &tc.shape, &wgpu_device);
-            let result = apply_reduce_op(&wgpu_client, op, &tensor, &tc.dims, tc.keepdim)
-                .expect("WebGPU operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &result, op, "wgpu");
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&tc.data, &tc.shape, dtype, &wgpu_device, &wgpu_client)
+                        .unwrap_or_else(|e| {
+                            panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_reduce_op(&wgpu_client, op, &tensor, &tc.dims, tc.keepdim)
+                    .unwrap_or_else(|e| panic!("WebGPU {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+macro_rules! reduce_case {
+    ($name:ident, $op:expr, $cases:expr) => {
+        #[test]
+        fn $name() {
+            for dtype in supported_dtypes("cpu") {
+                test_reduce_parity($op, $cases, dtype);
+            }
         }
-    });
+    };
 }
 
 // ============================================================================
 // Reduce Operation Parity Tests
 // ============================================================================
 
-#[test]
-fn test_sum_parity() {
-    test_reduce_parity(
-        "sum",
-        vec![
-            // 1D full reduction
-            ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
-            // 1D full reduction with keepdim
-            ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], true),
-            // 2D reduce rows
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            // 2D reduce columns
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            // 3D reduce
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-                vec![2, 2, 2],
-                vec![1],
-                false,
-            ),
-            // 3D multi-dim reduce
-            ReduceTest::new(
-                (1..=24).map(|v| v as f32).collect(),
-                vec![2, 3, 4],
-                vec![1, 2],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_sum_parity,
+    "sum",
+    &[
+        ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
+        ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], true),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+            vec![2, 2, 2],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            (1..=24).map(|v| v as f64).collect(),
+            vec![2, 3, 4],
+            vec![1, 2],
+            false,
+        ),
+    ]
+);
 
-#[test]
-fn test_mean_parity() {
-    test_reduce_parity(
-        "mean",
-        vec![
-            ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                (1..=24).map(|v| v as f32).collect(),
-                vec![2, 3, 4],
-                vec![0, 2],
-                true,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_mean_parity,
+    "mean",
+    &[
+        ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            (1..=24).map(|v| v as f64).collect(),
+            vec![2, 3, 4],
+            vec![0, 2],
+            true,
+        ),
+    ]
+);
 
-#[test]
-fn test_max_parity() {
-    test_reduce_parity(
-        "max",
-        vec![
-            ReduceTest::new(vec![1.0, 4.0, 2.0, 3.0], vec![4], vec![0], false),
-            ReduceTest::new(
-                vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            ReduceTest::new(
-                vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                (1..=24).map(|v| v as f32).collect(),
-                vec![2, 3, 4],
-                vec![0, 1],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_max_parity,
+    "max",
+    &[
+        ReduceTest::new(vec![1.0, 4.0, 2.0, 3.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            (1..=24).map(|v| v as f64).collect(),
+            vec![2, 3, 4],
+            vec![0, 1],
+            false,
+        ),
+    ]
+);
 
-#[test]
-fn test_min_parity() {
-    test_reduce_parity(
-        "min",
-        vec![
-            ReduceTest::new(vec![1.0, 4.0, 2.0, 3.0], vec![4], vec![0], false),
-            ReduceTest::new(
-                vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            ReduceTest::new(
-                vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                (1..=24).map(|v| v as f32).collect(),
-                vec![2, 3, 4],
-                vec![0, 1],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_min_parity,
+    "min",
+    &[
+        ReduceTest::new(vec![1.0, 4.0, 2.0, 3.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![5.0, 2.0, 3.0, 1.0, 6.0, 4.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            (1..=24).map(|v| v as f64).collect(),
+            vec![2, 3, 4],
+            vec![0, 1],
+            false,
+        ),
+    ]
+);
 
-#[test]
-fn test_prod_parity() {
-    test_reduce_parity(
-        "prod",
-        vec![
-            ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
-            ReduceTest::new(
-                vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            ReduceTest::new(
-                vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-                vec![1, 2, 3],
-                vec![0, 2],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_prod_parity,
+    "prod",
+    &[
+        ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            vec![1, 2, 3],
+            vec![0, 2],
+            false,
+        ),
+    ]
+);
 
-#[test]
-fn test_any_parity() {
-    test_reduce_parity(
-        "any",
-        vec![
-            // All zeros
-            ReduceTest::new(vec![0.0, 0.0, 0.0, 0.0], vec![4], vec![0], false),
-            // Some non-zero
-            ReduceTest::new(vec![0.0, 1.0, 0.0, 2.0], vec![4], vec![0], false),
-            // 2D reduce
-            ReduceTest::new(
-                vec![0.0, 0.0, 0.0, 1.0, 2.0, 0.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            // 2D reduce along axis 1
-            ReduceTest::new(
-                vec![0.0, 0.0, 0.0, 1.0, 2.0, 0.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
-                vec![1, 2, 3],
-                vec![0, 2],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_any_parity,
+    "any",
+    &[
+        ReduceTest::new(vec![0.0, 0.0, 0.0, 0.0], vec![4], vec![0], false),
+        ReduceTest::new(vec![0.0, 1.0, 0.0, 2.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![0.0, 0.0, 0.0, 1.0, 2.0, 0.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![0.0, 0.0, 0.0, 1.0, 2.0, 0.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+            vec![1, 2, 3],
+            vec![0, 2],
+            false,
+        ),
+    ]
+);
 
-#[test]
-fn test_all_parity() {
-    test_reduce_parity(
-        "all",
-        vec![
-            // All non-zero
-            ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
-            // Some zeros
-            ReduceTest::new(vec![1.0, 0.0, 2.0, 3.0], vec![4], vec![0], false),
-            // 2D reduce
-            ReduceTest::new(
-                vec![1.0, 1.0, 1.0, 1.0, 2.0, 3.0],
-                vec![2, 3],
-                vec![0],
-                false,
-            ),
-            // 2D reduce along axis 1 with zero
-            ReduceTest::new(
-                vec![1.0, 2.0, 0.0, 1.0, 2.0, 3.0],
-                vec![2, 3],
-                vec![1],
-                false,
-            ),
-            ReduceTest::new(
-                vec![1.0, 2.0, 3.0, 1.0, 0.0, 3.0],
-                vec![1, 2, 3],
-                vec![0, 2],
-                false,
-            ),
-        ],
-    );
-}
+reduce_case!(
+    test_all_parity,
+    "all",
+    &[
+        ReduceTest::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![0], false),
+        ReduceTest::new(vec![1.0, 0.0, 2.0, 3.0], vec![4], vec![0], false),
+        ReduceTest::new(
+            vec![1.0, 1.0, 1.0, 1.0, 2.0, 3.0],
+            vec![2, 3],
+            vec![0],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 0.0, 1.0, 2.0, 3.0],
+            vec![2, 3],
+            vec![1],
+            false,
+        ),
+        ReduceTest::new(
+            vec![1.0, 2.0, 3.0, 1.0, 0.0, 3.0],
+            vec![1, 2, 3],
+            vec![0, 2],
+            false,
+        ),
+    ]
+);
+
+// ============================================================================
+// CPU Parallelism Config Test (F32-specific, not dtype-parameterized)
+// ============================================================================
 
 #[test]
 fn test_cpu_reduce_parallelism_config_matches_default() {
@@ -326,7 +334,6 @@ fn test_cpu_reduce_parallelism_config_matches_default() {
     let configured_client =
         default_client.with_parallelism(ParallelismConfig::new(Some(1), Some(64)));
 
-    // Large enough to exercise non-last-dim reduction paths where parallel scheduling matters.
     let shape = [96, 64, 32];
     let numel: usize = shape.iter().product();
     let data: Vec<f32> = (0..numel)
