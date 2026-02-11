@@ -60,6 +60,34 @@ paste = "1.0.15"
 [dev-dependencies]
 approx = "0.5"
 rand = "0.9"
+fluxbench = { path = "../fluxbench/fluxbench" }
+fluxbench-cli = { path = "../fluxbench/fluxbench-cli" }
+ndarray = "0.16"
+nalgebra = "0.33"
+
+[[bench]]
+name = "matmul"
+harness = false
+
+[[bench]]
+name = "reduce"
+harness = false
+
+[[bench]]
+name = "fft"
+harness = false
+
+[[bench]]
+name = "indexing"
+harness = false
+
+[[bench]]
+name = "shape_ops"
+harness = false
+
+[[bench]]
+name = "minimal"
+harness = false
 
 [profile.release]
 lto = "thin"
