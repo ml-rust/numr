@@ -1,3 +1,4 @@
+pub mod dtype_helpers;
 pub mod helpers;
 
 pub mod advanced_random;
