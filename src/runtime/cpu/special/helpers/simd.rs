@@ -63,6 +63,10 @@ macro_rules! impl_simd_special_fn {
                     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
                     apply_unary(x, device, $scalar_fn)
                 }
+                // F16/BF16/FP8: Convert to F32, compute, convert back
+                DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2 => {
+                    apply_unary(x, device, $scalar_fn)
+                }
                 _ => unreachable!("dtype validated by caller"),
             }
         }

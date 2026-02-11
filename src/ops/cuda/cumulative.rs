@@ -164,7 +164,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         let input_dtype = a.dtype();
         if !matches!(
             input_dtype,
-            DType::F32 | DType::F64 | DType::F16 | DType::BF16
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2
         ) {
             return Err(Error::UnsupportedDType {
                 dtype: input_dtype,
@@ -172,14 +172,8 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
             });
         }
 
-        // For F16/BF16, upcast to F32 for computation
-        let (a_compute, needs_cast) = match input_dtype {
-            DType::F16 | DType::BF16 => {
-                let a_f32 = self.cast(a, DType::F32)?;
-                (a_f32, true)
-            }
-            _ => (a.clone(), false),
-        };
+        // F16/BF16/FP8 have native CUDA kernels that accumulate in F32 internally
+        let (a_compute, needs_cast) = (a.clone(), false);
 
         let shape = a_compute.shape();
         let ndim = shape.len();
