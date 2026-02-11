@@ -54,15 +54,7 @@ impl MatmulOps<CudaRuntime> for CudaClient {
 
         // Native tiled CUDA kernel
         match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_native(self, a, b, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 => {
                 if batch_size > 1 {
                     matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
                 } else {
@@ -140,15 +132,7 @@ impl MatmulOps<CudaRuntime> for CudaClient {
 
         // Native tiled CUDA kernel with fused bias
         match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 => {
                 if batch_size > 1 {
                     matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
                 } else {
