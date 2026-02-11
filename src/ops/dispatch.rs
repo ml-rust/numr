@@ -70,9 +70,9 @@ macro_rules! dispatch_f16_type {
         }
         #[cfg(not(feature = "f16"))]
         {
-            return Err($crate::error::Error::UnsupportedDType {
+            return Err($crate::error::Error::FeatureRequired {
                 dtype: $dtype,
-                op: $error_op,
+                feature: "f16",
             });
         }
     }};
@@ -80,13 +80,22 @@ macro_rules! dispatch_f16_type {
 
 /// Internal helper macro to dispatch types requiring the "fp8" feature.
 /// Parameterized by type to avoid duplicating macro for FP8E4M3 vs FP8E5M2.
-/// FP8 types are now always available, so no feature gating is needed.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! dispatch_fp8_type {
     ($T:ident, $body:block, $dtype:expr, $error_op:expr, $type:ty) => {{
-        type $T = $type;
-        $body
+        #[cfg(feature = "fp8")]
+        {
+            type $T = $type;
+            $body
+        }
+        #[cfg(not(feature = "fp8"))]
+        {
+            return Err($crate::error::Error::FeatureRequired {
+                dtype: $dtype,
+                feature: "fp8",
+            });
+        }
     }};
 }
 
