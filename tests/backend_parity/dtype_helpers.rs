@@ -57,12 +57,24 @@ pub fn tensor_from_f64<R: Runtime>(
     device: &R::Device,
     client: &impl TypeConversionOps<R>,
 ) -> Result<Tensor<R>> {
-    let tensor = Tensor::from_slice(data, shape, device);
+    if dtype == DType::F64 {
+        return Ok(Tensor::from_slice(data, shape, device));
+    }
 
-    if tensor.dtype() == dtype {
-        Ok(tensor) // No cast needed
-    } else {
-        client.cast(&tensor, dtype)
+    // Try creating as F64 and casting. If the backend doesn't support F64
+    // (e.g. WebGPU), fall back to creating as F32 and casting from there.
+    let f64_tensor = Tensor::from_slice(data, shape, device);
+    match client.cast(&f64_tensor, dtype) {
+        Ok(t) => Ok(t),
+        Err(_) => {
+            let f32_data: Vec<f32> = data.iter().map(|&v| v as f32).collect();
+            let f32_tensor = Tensor::from_slice(&f32_data, shape, device);
+            if dtype == DType::F32 {
+                Ok(f32_tensor)
+            } else {
+                client.cast(&f32_tensor, dtype)
+            }
+        }
     }
 }
 
@@ -124,7 +136,6 @@ pub fn tensor_from_i32<R: Runtime>(
 mod tests {
     use super::*;
     use crate::common::create_cpu_client;
-    use numr::ops::TypeConversionOps;
 
     #[test]
     fn test_tensor_from_f64_no_cast_needed() {

@@ -258,8 +258,10 @@ pub fn assert_tensor_allclose<R1: Runtime, R2: Runtime>(
         DType::FP8E4M3 => compare_native!(numr::dtype::FP8E4M3),
         #[cfg(feature = "fp8")]
         DType::FP8E5M2 => compare_native!(numr::dtype::FP8E5M2),
+        DType::I64 => compare_native!(i64),
         DType::I32 => compare_native!(i32),
         DType::U32 => compare_native!(u32),
+        DType::Bool => compare_native!(u8),
         _ => panic!("assert_tensor_allclose: unsupported dtype {dtype:?}"),
     }
 }
@@ -279,12 +281,22 @@ impl ToF64 for f32 {
         self as f64
     }
 }
+impl ToF64 for i64 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
 impl ToF64 for i32 {
     fn to_f64(self) -> f64 {
         self as f64
     }
 }
 impl ToF64 for u32 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+impl ToF64 for u8 {
     fn to_f64(self) -> f64 {
         self as f64
     }
@@ -311,6 +323,42 @@ impl ToF64 for numr::dtype::FP8E4M3 {
 impl ToF64 for numr::dtype::FP8E5M2 {
     fn to_f64(self) -> f64 {
         self.to_f64()
+    }
+}
+
+/// Read back a tensor as a boolean mask (Vec<bool>), regardless of its dtype.
+///
+/// Compare ops may return different dtypes depending on the backend and input dtype
+/// (Bool/u8 on CPU, U32 on WebGPU, or the input dtype with 0/1 values).
+/// This function normalizes all of them to Vec<bool> for uniform comparison.
+///
+/// Nonzero = true, zero = false.
+pub fn readback_as_bool<R: Runtime>(tensor: &numr::tensor::Tensor<R>) -> Vec<bool> {
+    macro_rules! nonzero {
+        ($T:ty) => {
+            tensor
+                .to_vec::<$T>()
+                .iter()
+                .map(|x| <$T as ToF64>::to_f64(*x) != 0.0)
+                .collect()
+        };
+    }
+
+    match tensor.dtype() {
+        DType::Bool => tensor.to_vec::<u8>().iter().map(|&x| x != 0).collect(),
+        DType::U32 => tensor.to_vec::<u32>().iter().map(|&x| x != 0).collect(),
+        DType::I32 => tensor.to_vec::<i32>().iter().map(|&x| x != 0).collect(),
+        DType::F32 => nonzero!(f32),
+        DType::F64 => nonzero!(f64),
+        #[cfg(feature = "f16")]
+        DType::F16 => nonzero!(half::f16),
+        #[cfg(feature = "f16")]
+        DType::BF16 => nonzero!(half::bf16),
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 => nonzero!(numr::dtype::FP8E4M3),
+        #[cfg(feature = "fp8")]
+        DType::FP8E5M2 => nonzero!(numr::dtype::FP8E5M2),
+        other => panic!("readback_as_bool: unsupported dtype {other:?}"),
     }
 }
 
