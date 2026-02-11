@@ -3,7 +3,7 @@
 use super::client::{CpuAllocator, CpuClient};
 use super::device::CpuDevice;
 use crate::runtime::Runtime;
-use std::alloc::{Layout as AllocLayout, alloc_zeroed, dealloc};
+use std::alloc::{Layout as AllocLayout, alloc, dealloc};
 
 /// CPU compute runtime
 ///
@@ -32,7 +32,9 @@ impl Runtime for CpuRuntime {
         let layout = AllocLayout::from_size_align(size_bytes, align)
             .map_err(|_| crate::error::Error::OutOfMemory { size: size_bytes })?;
 
-        let ptr = unsafe { alloc_zeroed(layout) };
+        // Use alloc (not alloc_zeroed) — Tensor::empty is explicitly uninitialized.
+        // Operations that need zeroed memory (e.g. Tensor::zeros) handle zeroing themselves.
+        let ptr = unsafe { alloc(layout) };
 
         if ptr.is_null() {
             return Err(crate::error::Error::OutOfMemory { size: size_bytes });
