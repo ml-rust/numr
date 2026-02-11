@@ -257,14 +257,6 @@ pub unsafe fn launch_logsumexp(
     reduce_size: usize,
     outer_size: usize,
 ) -> Result<()> {
-    // Only support floating point types
-    if !matches!(dtype, DType::F32 | DType::F64) {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "logsumexp",
-        });
-    }
-
     let module = get_or_load_module(context, device_index, kernel_names::CUMULATIVE_MODULE)?;
     let func_name = kernel_name("logsumexp", dtype);
     let func = get_kernel_function(&module, &func_name)?;
@@ -318,14 +310,6 @@ pub unsafe fn launch_logsumexp_strided(
     outer_size: usize,
     inner_size: usize,
 ) -> Result<()> {
-    // Only support floating point types
-    if !matches!(dtype, DType::F32 | DType::F64) {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "logsumexp",
-        });
-    }
-
     let module = get_or_load_module(context, device_index, kernel_names::CUMULATIVE_MODULE)?;
     let func_name = kernel_name("logsumexp_strided", dtype);
     let func = get_kernel_function(&module, &func_name)?;

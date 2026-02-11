@@ -600,28 +600,32 @@ __global__ void square_f16(const __half* a, __half* out, unsigned int n) {
 __global__ void floor_f16(const __half* a, __half* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = hfloor(a[idx]);
+        float fa = __half2float(a[idx]);
+        out[idx] = __float2half(floorf(fa));
     }
 }
 
 __global__ void ceil_f16(const __half* a, __half* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = hceil(a[idx]);
+        float fa = __half2float(a[idx]);
+        out[idx] = __float2half(ceilf(fa));
     }
 }
 
 __global__ void round_f16(const __half* a, __half* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = hrint(a[idx]);
+        float fa = __half2float(a[idx]);
+        out[idx] = __float2half(roundf(fa));
     }
 }
 
 __global__ void trunc_f16(const __half* a, __half* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = htrunc(a[idx]);
+        float fa = __half2float(a[idx]);
+        out[idx] = __float2half(truncf(fa));
     }
 }
 

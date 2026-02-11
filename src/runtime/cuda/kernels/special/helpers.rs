@@ -22,6 +22,10 @@ pub(crate) fn special_kernel_name(
     let suffix = match dtype {
         DType::F32 => "f32",
         DType::F64 => "f64",
+        DType::F16 => "f16",
+        DType::BF16 => "bf16",
+        DType::FP8E4M3 => "fp8_e4m3",
+        DType::FP8E5M2 => "fp8_e5m2",
         _ => {
             return Err(Error::UnsupportedDType { dtype, op: op_name });
         }
