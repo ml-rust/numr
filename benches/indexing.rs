@@ -147,6 +147,61 @@ fn numr_embedding_128k_vocab(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// CUDA benchmarks
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+fn cuda_setup() -> (CudaDevice, CudaClient) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    (device, client)
+}
+
+#[cfg(feature = "cuda")]
+fn rand_cuda(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F32).unwrap()
+}
+
+#[cfg(feature = "cuda")]
+fn rand_cuda_indices(n: usize, max_val: i32, device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let data: Vec<i32> = (0..n).map(|i| (i as i32) % max_val).collect();
+    Tensor::<CudaRuntime>::from_slice(&data, &[n], device)
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "index_select_f32")]
+fn cuda_index_select_100k(b: &mut Bencher) {
+    let (device, client) = cuda_setup();
+    let t = rand_cuda(&[100_000, 128], &device);
+    let idx = rand_cuda_indices(10_000, 100_000, &device);
+    b.iter(|| black_box(client.index_select(&t, 0, &idx).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "embedding_f32")]
+fn cuda_embedding_32k_vocab(b: &mut Bencher) {
+    let (device, client) = cuda_setup();
+    let embeddings = rand_cuda(&[32_000, 128], &device);
+    let idx = rand_cuda_indices(512, 32_000, &device);
+    b.iter(|| black_box(client.embedding_lookup(&embeddings, &idx).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "gather_f32")]
+fn cuda_gather_100k(b: &mut Bencher) {
+    let (device, client) = cuda_setup();
+    let t = rand_cuda(&[100_000, 64], &device);
+    let idx = rand_cuda_indices(10_000, 100_000, &device);
+    let idx = idx.reshape(&[10_000, 1]).unwrap();
+    let idx = {
+        let c = CudaRuntime::default_client(&device);
+        c.repeat(&idx, &[1, 64]).unwrap()
+    };
+    b.iter(|| black_box(client.gather(&t, 0, &idx).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
 // Comparisons
 // ---------------------------------------------------------------------------
 
@@ -168,6 +223,7 @@ struct IndexSelectCmp;
 )]
 struct TakeCmp;
 
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "embedding_cmp",
     title = "Embedding: 32K vs 128K vocab",
@@ -176,6 +232,24 @@ struct TakeCmp;
     metric = "mean"
 )]
 struct EmbeddingCmp;
+
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "embedding_cmp",
+    title = "Embedding: CPU vs CUDA (32K vocab)",
+    benchmarks = ["numr_embedding_32k_vocab", "numr_embedding_128k_vocab", "cuda_embedding_32k_vocab"],
+    baseline = "numr_embedding_32k_vocab",
+    metric = "mean"
+)]
+struct EmbeddingCmp;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_embedding_speedup",
+    formula = "numr_embedding_32k_vocab / cuda_embedding_32k_vocab",
+    unit = "x"
+)]
+struct CudaEmbeddingSpeedup;
 
 fn main() {
     fluxbench_cli::run().unwrap();

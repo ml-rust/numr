@@ -244,6 +244,73 @@ fn nalgebra_1024x1024(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// CUDA benchmarks
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+fn rand_cuda(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F32).unwrap()
+}
+
+#[cfg(feature = "cuda")]
+fn rand_cuda_f64(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F64).unwrap()
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "matmul_2d_f32")]
+fn cuda_512x512(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda(&[512, 512], &device);
+    let bm = rand_cuda(&[512, 512], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "matmul_2d_f32")]
+fn cuda_1024x1024(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda(&[1024, 1024], &device);
+    let bm = rand_cuda(&[1024, 1024], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "matmul_2d_f64")]
+fn cuda_f64_512x512(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f64(&[512, 512], &device);
+    let bm = rand_cuda_f64(&[512, 512], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "matmul_batched_f32")]
+fn cuda_batch8_64x64(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda(&[8, 64, 64], &device);
+    let bm = rand_cuda(&[8, 64, 64], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "matmul_bias_f32")]
+fn cuda_bias_512x512(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda(&[512, 512], &device);
+    let bm = rand_cuda(&[512, 512], &device);
+    let bias = rand_cuda(&[512], &device);
+    b.iter(|| black_box(client.matmul_bias(&a, &bm, &bias).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
 // Comparisons
 // ---------------------------------------------------------------------------
 
@@ -265,6 +332,7 @@ struct MatmulSmall;
 )]
 struct MatmulMedium;
 
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "matmul_large",
     title = "Matmul 512x512 (numr vs ndarray vs nalgebra)",
@@ -274,10 +342,31 @@ struct MatmulMedium;
 )]
 struct MatmulLarge;
 
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "matmul_large",
+    title = "Matmul 512x512 (numr vs ndarray vs nalgebra vs CUDA)",
+    benchmarks = ["numr_512x512", "ndarray_512x512", "nalgebra_512x512", "cuda_512x512"],
+    baseline = "numr_512x512",
+    metric = "mean"
+)]
+struct MatmulLarge;
+
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "matmul_xlarge",
     title = "Matmul 1024x1024 (numr vs ndarray vs nalgebra)",
     benchmarks = ["numr_1024x1024", "ndarray_1024x1024", "nalgebra_1024x1024"],
+    baseline = "numr_1024x1024",
+    metric = "mean"
+)]
+struct MatmulXLarge;
+
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "matmul_xlarge",
+    title = "Matmul 1024x1024 (numr vs ndarray vs nalgebra vs CUDA)",
+    benchmarks = ["numr_1024x1024", "ndarray_1024x1024", "nalgebra_1024x1024", "cuda_1024x1024"],
     baseline = "numr_1024x1024",
     metric = "mean"
 )]
@@ -303,11 +392,11 @@ struct Scale1024;
 // Verifications: numr must be >= 90% of ndarray speed (ratio < 1.1)
 // ---------------------------------------------------------------------------
 
-#[flux::verify(expr = "numr_512x512 / ndarray_512x512 < 1.2", severity = "critical")]
+#[flux::verify(expr = "numr_512x512 / ndarray_512x512 < 1.1", severity = "critical")]
 struct VerifyMatmul512;
 
 #[flux::verify(
-    expr = "numr_1024x1024 / ndarray_1024x1024 < 1.2",
+    expr = "numr_1024x1024 / ndarray_1024x1024 < 1.1",
     severity = "critical"
 )]
 struct VerifyMatmul1024;
@@ -325,6 +414,22 @@ struct Matmul512Ratio;
     unit = "x"
 )]
 struct Matmul1024Ratio;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_speedup_512",
+    formula = "numr_512x512 / cuda_512x512",
+    unit = "x"
+)]
+struct CudaSpeedup512;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_speedup_1024",
+    formula = "numr_1024x1024 / cuda_1024x1024",
+    unit = "x"
+)]
+struct CudaSpeedup1024;
 
 fn main() {
     fluxbench_cli::run().unwrap();

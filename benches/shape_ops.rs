@@ -132,6 +132,45 @@ fn numr_chunk_10k_into_10(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// CUDA benchmarks
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+fn rand_cuda(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F32).unwrap()
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "cat_f32")]
+fn cuda_cat_10x_256x64(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let tensors: Vec<_> = (0..10).map(|_| rand_cuda(&[256, 64], &device)).collect();
+    let refs: Vec<&Tensor<CudaRuntime>> = tensors.iter().collect();
+    b.iter(|| black_box(client.cat(&refs, 0).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "repeat_f32")]
+fn cuda_repeat_256x256_2x2(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[256, 256], &device);
+    b.iter(|| black_box(client.repeat(&t, &[2, 2]).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "stack_f32")]
+fn cuda_stack_8x_1000(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let tensors: Vec<_> = (0..8).map(|_| rand_cuda(&[1000], &device)).collect();
+    let refs: Vec<&Tensor<CudaRuntime>> = tensors.iter().collect();
+    b.iter(|| black_box(client.stack(&refs, 0).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
 // ndarray comparison: repeat via broadcast + to_owned
 // ---------------------------------------------------------------------------
 
@@ -172,10 +211,21 @@ fn ndarray_cat_10x_256x64(b: &mut Bencher) {
 )]
 struct Cat1D;
 
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "cat_2d",
     title = "Concatenate 10x 256x64 (numr vs ndarray)",
     benchmarks = ["numr_cat_10x_256x64", "ndarray_cat_10x_256x64"],
+    baseline = "numr_cat_10x_256x64",
+    metric = "mean"
+)]
+struct Cat2D;
+
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "cat_2d",
+    title = "Concatenate 10x 256x64 (numr vs ndarray vs CUDA)",
+    benchmarks = ["numr_cat_10x_256x64", "ndarray_cat_10x_256x64", "cuda_cat_10x_256x64"],
     baseline = "numr_cat_10x_256x64",
     metric = "mean"
 )]
@@ -186,13 +236,13 @@ struct Cat2D;
 // ---------------------------------------------------------------------------
 
 #[flux::verify(
-    expr = "numr_cat_10x_1000 / ndarray_cat_10x_1000 < 1.2",
+    expr = "numr_cat_10x_1000 / ndarray_cat_10x_1000 < 1.1",
     severity = "critical"
 )]
 struct VerifyCat1D;
 
 #[flux::verify(
-    expr = "numr_cat_10x_256x64 / ndarray_cat_10x_256x64 < 1.2",
+    expr = "numr_cat_10x_256x64 / ndarray_cat_10x_256x64 < 1.1",
     severity = "critical"
 )]
 struct VerifyCat2D;
@@ -210,6 +260,14 @@ struct Cat1DRatio;
     unit = "x"
 )]
 struct Cat2DRatio;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_cat_speedup",
+    formula = "numr_cat_10x_256x64 / cuda_cat_10x_256x64",
+    unit = "x"
+)]
+struct CudaCatSpeedup;
 
 fn main() {
     fluxbench_cli::run().unwrap();

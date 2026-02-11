@@ -134,6 +134,61 @@ fn numr_sum_f64_1m(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// CUDA benchmarks
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "cuda")]
+fn rand_cuda(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F32).unwrap()
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "sum_single_dim_f32")]
+fn cuda_sum_1m(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[1_000_000], &device);
+    b.iter(|| black_box(client.sum(&t, &[0], false).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "sum_single_dim_f32")]
+fn cuda_sum_10m(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[10_000_000], &device);
+    b.iter(|| black_box(client.sum(&t, &[0], false).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "sum_2d_rows_f32")]
+fn cuda_sum_rows_1024x1024(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[1024, 1024], &device);
+    b.iter(|| black_box(client.sum(&t, &[1], false).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "mean_f32")]
+fn cuda_mean_1m(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[1_000_000], &device);
+    b.iter(|| black_box(client.mean(&t, &[0], false).unwrap()));
+}
+
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "max_f32")]
+fn cuda_max_1m(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let t = rand_cuda(&[1_000_000], &device);
+    b.iter(|| black_box(client.max(&t, &[0], false).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
 // ndarray comparison
 // ---------------------------------------------------------------------------
 
@@ -190,6 +245,7 @@ fn ndarray_mean_1m(b: &mut Bencher) {
 // Comparisons
 // ---------------------------------------------------------------------------
 
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "sum_1m",
     title = "Sum 1M elements (numr vs ndarray)",
@@ -199,6 +255,17 @@ fn ndarray_mean_1m(b: &mut Bencher) {
 )]
 struct Sum1M;
 
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "sum_1m",
+    title = "Sum 1M elements (numr vs ndarray vs CUDA)",
+    benchmarks = ["numr_sum_1m", "ndarray_sum_1m", "cuda_sum_1m"],
+    baseline = "numr_sum_1m",
+    metric = "mean"
+)]
+struct Sum1M;
+
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "sum_10m",
     title = "Sum 10M elements (numr vs ndarray)",
@@ -208,10 +275,31 @@ struct Sum1M;
 )]
 struct Sum10M;
 
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "sum_10m",
+    title = "Sum 10M elements (numr vs ndarray vs CUDA)",
+    benchmarks = ["numr_sum_10m", "ndarray_sum_10m", "cuda_sum_10m"],
+    baseline = "numr_sum_10m",
+    metric = "mean"
+)]
+struct Sum10M;
+
+#[cfg(not(feature = "cuda"))]
 #[flux::compare(
     id = "sum_rows_1024",
     title = "Row-sum 1024x1024 (numr vs ndarray)",
     benchmarks = ["numr_sum_rows_1024x1024", "ndarray_sum_rows_1024x1024"],
+    baseline = "numr_sum_rows_1024x1024",
+    metric = "mean"
+)]
+struct SumRows1024;
+
+#[cfg(feature = "cuda")]
+#[flux::compare(
+    id = "sum_rows_1024",
+    title = "Row-sum 1024x1024 (numr vs ndarray vs CUDA)",
+    benchmarks = ["numr_sum_rows_1024x1024", "ndarray_sum_rows_1024x1024", "cuda_sum_rows_1024x1024"],
     baseline = "numr_sum_rows_1024x1024",
     metric = "mean"
 )]
@@ -262,6 +350,22 @@ struct Sum1MRatio;
     unit = "x"
 )]
 struct Sum10MRatio;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_sum_speedup_1m",
+    formula = "numr_sum_1m / cuda_sum_1m",
+    unit = "x"
+)]
+struct CudaSumSpeedup1M;
+
+#[cfg(feature = "cuda")]
+#[flux::synthetic(
+    id = "cuda_sum_speedup_10m",
+    formula = "numr_sum_10m / cuda_sum_10m",
+    unit = "x"
+)]
+struct CudaSumSpeedup10M;
 
 fn main() {
     fluxbench_cli::run().unwrap();
