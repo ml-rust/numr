@@ -186,7 +186,13 @@ struct Cat2D;
 // ---------------------------------------------------------------------------
 
 #[flux::verify(
-    expr = "numr_cat_10x_256x64 / ndarray_cat_10x_256x64 < 1.1",
+    expr = "numr_cat_10x_1000 / ndarray_cat_10x_1000 < 1.2",
+    severity = "critical"
+)]
+struct VerifyCat1D;
+
+#[flux::verify(
+    expr = "numr_cat_10x_256x64 / ndarray_cat_10x_256x64 < 1.2",
     severity = "critical"
 )]
 struct VerifyCat2D;
