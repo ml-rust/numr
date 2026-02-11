@@ -3,10 +3,11 @@
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    LinearAlgebraAlgorithms, PolarDecomposition, validate_linalg_dtype, validate_square_matrix,
+    LinearAlgebraAlgorithms, PolarDecomposition, linalg_demote, linalg_promote,
+    validate_linalg_dtype, validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -16,16 +17,19 @@ pub fn polar_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<PolarDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => polar_decompose_typed::<f32>(client, a, n),
-        DType::F64 => polar_decompose_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "polar_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => polar_decompose_typed::<f32>(client, &a, n),
+        DType::F64 => polar_decompose_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(PolarDecomposition {
+        u: linalg_demote(client, result.u, original_dtype)?,
+        p: linalg_demote(client, result.p, original_dtype)?,
+    })
 }
 
 fn polar_decompose_typed<T: Element + LinalgElement>(

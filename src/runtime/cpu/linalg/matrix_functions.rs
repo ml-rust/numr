@@ -7,7 +7,8 @@ use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::schur::schur_decompose_impl;
 use crate::algorithm::linalg::{
-    matrix_functions_core, validate_linalg_dtype, validate_square_matrix,
+    linalg_demote, linalg_promote, matrix_functions_core, validate_linalg_dtype,
+    validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -36,16 +37,16 @@ const SIGNM_MAX_ITER: usize = 100;
 /// 3. Reconstruct: exp(A) = Z @ exp(T) @ Z^T
 pub fn expm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => expm_typed::<f32>(client, a, n),
-        DType::F64 => expm_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "expm",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => expm_typed::<f32>(client, &a, n),
+        DType::F64 => expm_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn expm_typed<T: Element + LinalgElement>(
@@ -105,16 +106,16 @@ fn expm_typed<T: Element + LinalgElement>(
 /// from the CPU's existing infrastructure.
 pub fn sqrtm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => sqrtm_typed::<f32>(client, a, n),
-        DType::F64 => sqrtm_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "sqrtm",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => sqrtm_typed::<f32>(client, &a, n),
+        DType::F64 => sqrtm_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn sqrtm_typed<T: Element + LinalgElement>(
@@ -244,16 +245,16 @@ fn denman_beavers_iteration(a: &[f64], n: usize, eps: f64, max_iter: usize) -> R
 /// Matrix logarithm using inverse scaling and squaring with Schur decomposition
 pub fn logm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => logm_typed::<f32>(client, a, n),
-        DType::F64 => logm_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "logm",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => logm_typed::<f32>(client, &a, n),
+        DType::F64 => logm_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn logm_typed<T: Element + LinalgElement>(
@@ -356,16 +357,16 @@ fn validate_log_eigenvalues(t: &[f64], n: usize, eps: f64) -> Result<()> {
 /// Matrix sign function using Newton iteration
 pub fn signm_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => signm_typed::<f32>(client, a, n),
-        DType::F64 => signm_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "signm",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => signm_typed::<f32>(client, &a, n),
+        DType::F64 => signm_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn signm_typed<T: Element + LinalgElement>(

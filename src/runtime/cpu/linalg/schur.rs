@@ -2,9 +2,12 @@
 
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{SchurDecomposition, validate_linalg_dtype, validate_square_matrix};
+use crate::algorithm::linalg::{
+    SchurDecomposition, linalg_demote, linalg_promote, validate_linalg_dtype,
+    validate_square_matrix,
+};
 use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -16,16 +19,19 @@ pub fn schur_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<SchurDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => schur_decompose_typed::<f32>(client, a, n),
-        DType::F64 => schur_decompose_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "schur_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => schur_decompose_typed::<f32>(client, &a, n),
+        DType::F64 => schur_decompose_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(SchurDecomposition {
+        z: linalg_demote(client, result.z, original_dtype)?,
+        t: linalg_demote(client, result.t, original_dtype)?,
+    })
 }
 
 fn schur_decompose_typed<T: Element + LinalgElement>(

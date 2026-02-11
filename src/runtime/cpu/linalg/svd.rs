@@ -5,9 +5,11 @@ use super::super::jacobi::{
     compute_gram_elements, identity_matrix, normalize_columns, permute_columns,
 };
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
+use crate::algorithm::linalg::{
+    SvdDecomposition, linalg_demote, linalg_promote, validate_linalg_dtype, validate_matrix_2d,
+};
 use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -17,16 +19,20 @@ pub fn svd_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<SvdDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => svd_decompose_typed::<f32>(client, a, m, n),
-        DType::F64 => svd_decompose_typed::<f64>(client, a, m, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "svd_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => svd_decompose_typed::<f32>(client, &a, m, n),
+        DType::F64 => svd_decompose_typed::<f64>(client, &a, m, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(SvdDecomposition {
+        u: linalg_demote(client, result.u, original_dtype)?,
+        s: linalg_demote(client, result.s, original_dtype)?,
+        vt: linalg_demote(client, result.vt, original_dtype)?,
+    })
 }
 
 /// SVD decomposition using One-Sided Jacobi algorithm

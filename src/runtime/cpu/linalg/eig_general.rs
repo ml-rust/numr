@@ -4,10 +4,11 @@ use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::schur::schur_decompose_impl;
 use crate::algorithm::linalg::{
-    GeneralEigenDecomposition, validate_linalg_dtype, validate_square_matrix,
+    GeneralEigenDecomposition, linalg_demote, linalg_promote, validate_linalg_dtype,
+    validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -19,16 +20,21 @@ pub fn eig_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<GeneralEigenDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => eig_decompose_typed::<f32>(client, a, n),
-        DType::F64 => eig_decompose_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "eig_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => eig_decompose_typed::<f32>(client, &a, n),
+        DType::F64 => eig_decompose_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(GeneralEigenDecomposition {
+        eigenvalues_real: linalg_demote(client, result.eigenvalues_real, original_dtype)?,
+        eigenvalues_imag: linalg_demote(client, result.eigenvalues_imag, original_dtype)?,
+        eigenvectors_real: linalg_demote(client, result.eigenvectors_real, original_dtype)?,
+        eigenvectors_imag: linalg_demote(client, result.eigenvectors_imag, original_dtype)?,
+    })
 }
 
 fn eig_decompose_typed<T: Element + LinalgElement>(

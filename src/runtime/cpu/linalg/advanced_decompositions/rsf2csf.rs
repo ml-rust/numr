@@ -3,7 +3,8 @@
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    ComplexSchurDecomposition, SchurDecomposition, validate_linalg_dtype,
+    ComplexSchurDecomposition, SchurDecomposition, linalg_demote, linalg_promote,
+    validate_linalg_dtype,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -19,6 +20,13 @@ pub fn rsf2csf_impl(
     schur: &SchurDecomposition<CpuRuntime>,
 ) -> Result<ComplexSchurDecomposition<CpuRuntime>> {
     validate_linalg_dtype(schur.t.dtype())?;
+    let (t, original_dtype) = linalg_promote(client, &schur.t)?;
+    let (z, _) = linalg_promote(client, &schur.z)?;
+    let schur = SchurDecomposition {
+        t: t.into_owned(),
+        z: z.into_owned(),
+    };
+
     let shape = schur.t.shape();
     if shape.len() != 2 || shape[0] != shape[1] {
         return Err(Error::Internal(
@@ -27,14 +35,18 @@ pub fn rsf2csf_impl(
     }
     let n = shape[0];
 
-    match schur.t.dtype() {
-        DType::F32 => rsf2csf_typed::<f32>(client, schur, n),
-        DType::F64 => rsf2csf_typed::<f64>(client, schur, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: schur.t.dtype(),
-            op: "rsf2csf",
-        }),
-    }
+    let result = match schur.t.dtype() {
+        DType::F32 => rsf2csf_typed::<f32>(client, &schur, n),
+        DType::F64 => rsf2csf_typed::<f64>(client, &schur, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(ComplexSchurDecomposition {
+        z_real: linalg_demote(client, result.z_real, original_dtype)?,
+        z_imag: linalg_demote(client, result.z_imag, original_dtype)?,
+        t_real: linalg_demote(client, result.t_real, original_dtype)?,
+        t_imag: linalg_demote(client, result.t_imag, original_dtype)?,
+    })
 }
 
 fn rsf2csf_typed<T: Element + LinalgElement>(
