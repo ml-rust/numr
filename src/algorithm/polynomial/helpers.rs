@@ -47,7 +47,9 @@ pub fn validate_polynomial_roots(shape: &[usize]) -> Result<usize> {
 /// Validate dtype for polynomial operations
 pub fn validate_polynomial_dtype(dtype: DType) -> Result<()> {
     match dtype {
-        DType::F32 | DType::F64 => Ok(()),
+        DType::F32 | DType::F64 | DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2 => {
+            Ok(())
+        }
         _ => Err(Error::UnsupportedDType {
             dtype,
             op: "polynomial",
