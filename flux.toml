@@ -1,0 +1,18 @@
+[runner]
+samples = 5
+timeout = "120s"
+bootstrap_iterations = 10
+confidence_level = 0.95
+
+[allocator]
+track = false
+
+[output]
+format = "human"
+directory = "target/fluxbench"
+save_baseline = true
+
+[ci]
+regression_threshold = 10.0
+github_annotations = false
+fail_on_critical = false
