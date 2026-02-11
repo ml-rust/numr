@@ -28,17 +28,26 @@ pub fn cat_impl(
                 let tensor_contig = ensure_contiguous(tensor);
                 let src_ptr = tensor_contig.storage().ptr() as *const T;
                 let src_cat_size = tensor.shape()[params.dim_idx];
+                let src_elems = src_cat_size * params.inner_size;
 
-                // Copy each row-block
-                for outer in 0..params.outer_size {
-                    for cat_i in 0..src_cat_size {
-                        let src_base = outer * src_cat_size * params.inner_size + cat_i * params.inner_size;
-                        let dst_base = outer * params.cat_dim_total * params.inner_size + (cat_offset + cat_i) * params.inner_size;
-
+                if params.outer_size == 1 {
+                    // Fast path: single contiguous memcpy per tensor
+                    let dst_base = cat_offset * params.inner_size;
+                    std::ptr::copy_nonoverlapping(
+                        src_ptr,
+                        (out_ptr as *mut T).add(dst_base),
+                        src_elems,
+                    );
+                } else {
+                    // General path: copy row-blocks
+                    let row_size = params.cat_dim_total * params.inner_size;
+                    for outer in 0..params.outer_size {
+                        let src_base = outer * src_elems;
+                        let dst_base = outer * row_size + cat_offset * params.inner_size;
                         std::ptr::copy_nonoverlapping(
                             src_ptr.add(src_base),
                             (out_ptr as *mut T).add(dst_base),
-                            params.inner_size,
+                            src_elems,
                         );
                     }
                 }
