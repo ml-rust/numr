@@ -2,10 +2,10 @@
 //
 // Dtype-parameterized: each test runs for all supported dtypes (F32, F64, F16, BF16, FP8).
 // Tensors are created in f64 then cast to target dtype via tensor_from_f64().
-// Tolerance is dtype-aware via assert_allclose_for_dtype().
+// Comparison reads back in native dtype - no unnecessary f64 conversion.
 
 use numr::dtype::DType;
-use numr::ops::{BinaryOps, TypeConversionOps};
+use numr::ops::BinaryOps;
 use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
@@ -15,7 +15,7 @@ use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
 use crate::common::{
-    assert_allclose_for_dtype, create_cpu_client, is_dtype_supported, supported_dtypes,
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -70,8 +70,8 @@ fn apply_binary_op<R: Runtime>(
 fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase], dtype: DType) {
     let (cpu_client, cpu_device) = create_cpu_client();
 
-    // Compute CPU baseline with actual target dtype
-    let cpu_results: Vec<Vec<f64>> = test_cases
+    // Compute CPU baseline results (kept as tensors for native comparison)
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = test_cases
         .iter()
         .map(|tc| {
             let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cpu_device, &cpu_client)
@@ -79,21 +79,8 @@ fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase], dtype: DType) {
             let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cpu_device, &cpu_client)
                 .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
 
-            let result = apply_binary_op(&cpu_client, op, &a, &b)
-                .unwrap_or_else(|e| panic!("CPU {op:?} failed for {dtype:?}: {e}"));
-
-            // Read back as f64 for comparison (cast back from target dtype)
-            if dtype == DType::F64 {
-                result.to_vec::<f64>()
-            } else if dtype == DType::F32 {
-                result.to_vec::<f32>().iter().map(|&v| v as f64).collect()
-            } else {
-                // For F16/BF16/FP8: cast result to F32, read as f32, widen to f64
-                let as_f32 = cpu_client
-                    .cast(&result, DType::F32)
-                    .unwrap_or_else(|e| panic!("cast to F32 failed for {dtype:?}: {e}"));
-                as_f32.to_vec::<f32>().iter().map(|&v| v as f64).collect()
-            }
+            apply_binary_op(&cpu_client, op, &a, &b)
+                .unwrap_or_else(|e| panic!("CPU {op:?} failed for {dtype:?}: {e}"))
         })
         .collect();
 
@@ -109,19 +96,8 @@ fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase], dtype: DType) {
                 let result = apply_binary_op(&cuda_client, op, &a, &b)
                     .unwrap_or_else(|e| panic!("CUDA {op:?} failed for {dtype:?}: {e}"));
 
-                let cuda_vec: Vec<f64> = if dtype == DType::F64 {
-                    result.to_vec::<f64>()
-                } else if dtype == DType::F32 {
-                    result.to_vec::<f32>().iter().map(|&v| v as f64).collect()
-                } else {
-                    let as_f32 = cuda_client
-                        .cast(&result, DType::F32)
-                        .unwrap_or_else(|e| panic!("CUDA cast to F32 failed: {e}"));
-                    as_f32.to_vec::<f32>().iter().map(|&v| v as f64).collect()
-                };
-
-                assert_allclose_for_dtype(
-                    &cuda_vec,
+                assert_tensor_allclose(
+                    &result,
                     &cpu_results[idx],
                     dtype,
                     &format!("{op:?} CUDA vs CPU [{dtype:?}] case {idx}"),
@@ -142,12 +118,8 @@ fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase], dtype: DType) {
                 let result = apply_binary_op(&wgpu_client, op, &a, &b)
                     .unwrap_or_else(|e| panic!("WebGPU {op:?} failed for {dtype:?}: {e}"));
 
-                // WebGPU only supports F32 (guarded by is_dtype_supported above)
-                debug_assert_eq!(dtype, DType::F32);
-                let wgpu_vec: Vec<f64> = result.to_vec::<f32>().iter().map(|&v| v as f64).collect();
-
-                assert_allclose_for_dtype(
-                    &wgpu_vec,
+                assert_tensor_allclose(
+                    &result,
                     &cpu_results[idx],
                     dtype,
                     &format!("{op:?} WebGPU vs CPU [{dtype:?}] case {idx}"),

@@ -99,7 +99,7 @@ pub fn backend_supported_dtypes(backend: &str) -> Vec<DType> {
         "cuda" => build_dtype_list(&[DType::F32, DType::F64, DType::I32, DType::U32]),
         #[cfg(feature = "wgpu")]
         "wgpu" => {
-            // WebGPU: WGSL limitation - no F64, F16, BF16, FP8
+            // WebGPU: 32-bit types only (F32, I32, U32)
             vec![DType::F32, DType::I32, DType::U32]
         }
         _ => build_dtype_list(&[DType::F32, DType::F64, DType::I32, DType::U32]),
@@ -141,7 +141,7 @@ pub fn is_dtype_supported(backend: &str, dtype: DType) -> bool {
 /// For testing purposes, we test:
 /// - CPU: All supported dtypes (F32, F64 always; F16/BF16 if f16 feature; FP8 if fp8 feature)
 /// - CUDA: All supported dtypes
-/// - WebGPU: F32 only (WGSL limitation - F64/F16/BF16/FP8 not supported)
+/// - WebGPU: F32 only (32-bit types only)
 pub fn supported_dtypes(backend: &str) -> Vec<DType> {
     match backend {
         #[cfg(feature = "cuda")]
@@ -198,6 +198,119 @@ pub fn assert_allclose_for_dtype(actual: &[f64], expected: &[f64], dtype: DType,
             diff,
             tol
         );
+    }
+}
+
+/// Assert two tensors are close by reading back in native dtype and comparing.
+///
+/// Dispatches on `dtype` to call `to_vec::<T>()` with the correct native type,
+/// then compares element-wise using dtype-appropriate tolerance.
+/// No unnecessary casting - F32 compares as f32, F64 as f64, F16 as f16, etc.
+pub fn assert_tensor_allclose<R1: Runtime, R2: Runtime>(
+    actual: &numr::tensor::Tensor<R1>,
+    expected: &numr::tensor::Tensor<R2>,
+    dtype: DType,
+    msg: &str,
+) {
+    let (rtol, atol) = tolerance_for_dtype(dtype);
+
+    macro_rules! compare_native {
+        ($T:ty) => {{
+            let a_vec = actual.to_vec::<$T>();
+            let e_vec = expected.to_vec::<$T>();
+            assert_eq!(
+                a_vec.len(),
+                e_vec.len(),
+                "{}: dtype={:?}: length mismatch ({} vs {})",
+                msg,
+                dtype,
+                a_vec.len(),
+                e_vec.len()
+            );
+            for (i, (a, e)) in a_vec.iter().zip(e_vec.iter()).enumerate() {
+                let a_f64 = <$T as ToF64>::to_f64(*a);
+                let e_f64 = <$T as ToF64>::to_f64(*e);
+                let diff = (a_f64 - e_f64).abs();
+                let tol = atol + rtol * e_f64.abs();
+                assert!(
+                    diff <= tol,
+                    "{}: dtype={:?}: element {} differs: {} vs {} (diff={:.2e}, tol={:.2e})",
+                    msg,
+                    dtype,
+                    i,
+                    a_f64,
+                    e_f64,
+                    diff,
+                    tol
+                );
+            }
+        }};
+    }
+
+    match dtype {
+        DType::F64 => compare_native!(f64),
+        DType::F32 => compare_native!(f32),
+        #[cfg(feature = "f16")]
+        DType::F16 => compare_native!(half::f16),
+        #[cfg(feature = "f16")]
+        DType::BF16 => compare_native!(half::bf16),
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 => compare_native!(numr::dtype::FP8E4M3),
+        #[cfg(feature = "fp8")]
+        DType::FP8E5M2 => compare_native!(numr::dtype::FP8E5M2),
+        DType::I32 => compare_native!(i32),
+        DType::U32 => compare_native!(u32),
+        _ => panic!("assert_tensor_allclose: unsupported dtype {dtype:?}"),
+    }
+}
+
+/// Helper trait to convert numeric types to f64 for tolerance comparison
+pub trait ToF64: Copy {
+    fn to_f64(self) -> f64;
+}
+
+impl ToF64 for f64 {
+    fn to_f64(self) -> f64 {
+        self
+    }
+}
+impl ToF64 for f32 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+impl ToF64 for i32 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+impl ToF64 for u32 {
+    fn to_f64(self) -> f64 {
+        self as f64
+    }
+}
+#[cfg(feature = "f16")]
+impl ToF64 for half::f16 {
+    fn to_f64(self) -> f64 {
+        self.to_f64()
+    }
+}
+#[cfg(feature = "f16")]
+impl ToF64 for half::bf16 {
+    fn to_f64(self) -> f64 {
+        self.to_f64()
+    }
+}
+#[cfg(feature = "fp8")]
+impl ToF64 for numr::dtype::FP8E4M3 {
+    fn to_f64(self) -> f64 {
+        self.to_f64()
+    }
+}
+#[cfg(feature = "fp8")]
+impl ToF64 for numr::dtype::FP8E5M2 {
+    fn to_f64(self) -> f64 {
+        self.to_f64()
     }
 }
 

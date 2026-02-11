@@ -94,4 +94,6 @@ dmypy.json
 *.bak
 *.tmp
 *.log
-.gradle/.cargo/
+.gradle/
+
+.cargo/
