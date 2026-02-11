@@ -17,7 +17,10 @@
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use super::macros::{define_microkernel_f32, define_microkernel_f64};
+use super::macros::{
+    define_microkernel_2x_f32, define_microkernel_2x_f64, define_microkernel_f32,
+    define_microkernel_f64,
+};
 
 // Generate f32 6x16 microkernel using AVX-512
 define_microkernel_f32!(
@@ -29,6 +32,7 @@ define_microkernel_f32!(
     _mm512_storeu_ps,
     _mm512_set1_ps,
     _mm512_fmadd_ps,
+    _mm512_setzero_ps,
     __m512
 );
 
@@ -42,6 +46,35 @@ define_microkernel_f64!(
     _mm512_storeu_pd,
     _mm512_set1_pd,
     _mm512_fmadd_pd,
+    _mm512_setzero_pd,
+    __m512d
+);
+
+// Generate f32 6x32 double-width microkernel using AVX-512 (12 FMA chains)
+define_microkernel_2x_f32!(
+    microkernel_6x32_f32,
+    16,
+    "avx512f",
+    "fma",
+    _mm512_loadu_ps,
+    _mm512_storeu_ps,
+    _mm512_set1_ps,
+    _mm512_fmadd_ps,
+    _mm512_setzero_ps,
+    __m512
+);
+
+// Generate f64 6x16 double-width microkernel using AVX-512 (12 FMA chains)
+define_microkernel_2x_f64!(
+    microkernel_6x16_f64,
+    8,
+    "avx512f",
+    "fma",
+    _mm512_loadu_pd,
+    _mm512_storeu_pd,
+    _mm512_set1_pd,
+    _mm512_fmadd_pd,
+    _mm512_setzero_pd,
     __m512d
 );
 
@@ -73,7 +106,7 @@ mod tests {
         let mut c: Vec<f32> = vec![0.0; 6 * 16];
 
         unsafe {
-            microkernel_6x16_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 16);
+            microkernel_6x16_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 16, true);
         }
 
         // C[i][j] = A[i][0]*1 + A[i][1]*(j+1) = (i+1) + (j+1)
@@ -107,7 +140,7 @@ mod tests {
         let mut c: Vec<f64> = vec![0.0; 6 * 8];
 
         unsafe {
-            microkernel_6x8_f64(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8);
+            microkernel_6x8_f64(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8, true);
         }
 
         for i in 0..6 {
@@ -136,7 +169,7 @@ mod tests {
         let mut c: Vec<f32> = vec![100.0; 6 * 16];
 
         unsafe {
-            microkernel_6x16_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 16);
+            microkernel_6x16_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 16, false);
         }
 
         // Expected: C[i][j] = 100 + 2*1 = 102
