@@ -3,6 +3,7 @@ pub mod helpers;
 
 pub mod advanced_random;
 pub mod binary;
+pub mod cast;
 pub mod compare;
 pub mod complex;
 pub mod conv;
