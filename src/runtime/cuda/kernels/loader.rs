@@ -45,6 +45,11 @@ fn load_ptx(name: &str) -> Ptx {
 static MODULE_CACHE: OnceLock<Mutex<HashMap<(usize, &'static str), Arc<CudaModule>>>> =
     OnceLock::new();
 
+/// Get a reference to the module cache (for cache invalidation during recovery).
+pub fn module_cache() -> Option<&'static Mutex<HashMap<(usize, &'static str), Arc<CudaModule>>>> {
+    MODULE_CACHE.get()
+}
+
 /// Get or load a CUDA module from PTX.
 ///
 /// Modules are cached per-device to avoid repeated loading. This is thread-safe
@@ -65,12 +70,9 @@ pub fn get_or_load_module(
     module_name: &'static str,
 ) -> Result<Arc<CudaModule>> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().map_err(|e| {
-        Error::Internal(format!(
-            "Failed to acquire module cache lock (Mutex poisoned): {}",
-            e
-        ))
-    })?;
+    let mut guard = cache
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let key = (device_index, module_name);
     if let Some(module) = guard.get(&key) {

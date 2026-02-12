@@ -113,7 +113,11 @@ pub struct CudaAllocator {
 impl Allocator for CudaAllocator {
     /// Allocate GPU memory using stream-ordered allocation.
     ///
-    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails.
+    /// If the first allocation attempt fails, synchronizes the stream to flush
+    /// pending async frees, then retries once. This handles the common case where
+    /// `cuMemFreeAsync` calls haven't completed yet.
+    ///
+    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails even after retry.
     fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
         if size_bytes == 0 {
             return Ok(0);
@@ -121,6 +125,17 @@ impl Allocator for CudaAllocator {
 
         unsafe {
             let mut ptr: u64 = 0;
+            let result =
+                cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
+
+            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Ok(ptr);
+            }
+
+            // First attempt failed - synchronize stream to flush pending async frees,
+            // then retry.
+            let _ = self.stream.synchronize();
+
             let result =
                 cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
 
