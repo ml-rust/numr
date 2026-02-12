@@ -26,15 +26,16 @@ pub(crate) fn native_masked_fill(
         });
     }
 
-    if mask.shape() != a.shape() {
-        return Err(Error::ShapeMismatch {
+    // Broadcast mask to match tensor shape (same as CPU behavior)
+    let mask_broadcast = mask
+        .broadcast_to(a.shape())
+        .map_err(|_| Error::ShapeMismatch {
             expected: a.shape().to_vec(),
             got: mask.shape().to_vec(),
-        });
-    }
+        })?;
 
     let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(mask);
+    let mask_contig = ensure_contiguous(&mask_broadcast);
 
     let out = alloc_output(client, a.shape(), dtype);
 
@@ -143,15 +144,16 @@ pub(crate) fn native_masked_select(
         });
     }
 
-    if mask.shape() != a.shape() {
-        return Err(Error::ShapeMismatch {
+    // Broadcast mask to match tensor shape (same as CPU behavior)
+    let mask_broadcast = mask
+        .broadcast_to(a.shape())
+        .map_err(|_| Error::ShapeMismatch {
             expected: a.shape().to_vec(),
             got: mask.shape().to_vec(),
-        });
-    }
+        })?;
 
     let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(mask);
+    let mask_contig = ensure_contiguous(&mask_broadcast);
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let mask_buf = get_tensor_buffer(&mask_contig)?;
