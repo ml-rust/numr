@@ -1,6 +1,7 @@
 //! Matrix multiplication operations for CUDA runtime
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::BinaryOps;
 use crate::ops::{
     MatmulOps, matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes,
 };
@@ -140,12 +141,9 @@ impl MatmulOps<CudaRuntime> for CudaClient {
                 }
             }
             _ => {
-                // For unsupported dtypes, return error instead of silent fallback
-                // (matmul_bias requires fused kernel for efficiency - non-fused defeats the purpose)
-                Err(Error::UnsupportedDType {
-                    dtype,
-                    op: "matmul_bias",
-                })
+                // FP8 and other dtypes: fall back to matmul + add
+                let mm = self.matmul(a, b)?;
+                self.add(&mm, &bias.reshape(&[1, n])?)
             }
         }
     }
