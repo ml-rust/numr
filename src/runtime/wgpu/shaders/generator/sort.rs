@@ -644,12 +644,16 @@ struct FlatToMultiParams {
     ndim: u32,
     _pad0: u32,
     _pad1: u32,
-    shape: array<u32, 8>,
+    shape: array<vec4<u32>, 2>,
 }
 
 @group(0) @binding(0) var<storage, read_write> flat_indices: array<i32>;
 @group(0) @binding(1) var<storage, read_write> multi_indices: array<i32>;
 @group(0) @binding(2) var<uniform> params: FlatToMultiParams;
+
+fn get_shape_dim(d: u32) -> u32 {
+    return params.shape[d / 4u][d % 4u];
+}
 
 @compute @workgroup_size(256)
 fn flat_to_multi_index(@builtin(global_invocation_id) global_id: vec3<u32>) {
@@ -666,7 +670,7 @@ fn flat_to_multi_index(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // and convert flat index to multi-index
     for (var d: u32 = ndim; d > 0u; d = d - 1u) {
         let dim = d - 1u;
-        let dim_size = params.shape[dim];
+        let dim_size = get_shape_dim(dim);
         let coord = flat_idx % dim_size;
         flat_idx = flat_idx / dim_size;
 

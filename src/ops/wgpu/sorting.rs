@@ -7,7 +7,7 @@ use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
     CountParams, FlatToMultiParams, SearchsortedParams, SortParams, TopkParams, UniqueCountsParams,
-    alloc_output, create_params_buffer, get_tensor_buffer,
+    alloc_output, create_params_buffer, get_tensor_buffer, pack_u32_array,
 };
 use crate::runtime::wgpu::shaders::sort;
 use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
@@ -611,7 +611,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             ndim: ndim as u32,
             _pad0: 0,
             _pad1: 0,
-            shape: shape_arr,
+            shape: pack_u32_array(&shape_arr),
         };
         let flat_to_multi_params_buf = create_params_buffer(self, &flat_to_multi_params);
 

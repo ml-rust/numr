@@ -652,7 +652,7 @@ pub(super) struct FlatToMultiParams {
     pub(super) ndim: u32,
     pub(super) _pad0: u32,
     pub(super) _pad1: u32,
-    pub(super) shape: [u32; 8],
+    pub(super) shape: [[u32; 4]; 2],
 }
 
 /// Params for index bounds validation kernel
