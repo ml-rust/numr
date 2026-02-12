@@ -2,6 +2,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::RandomOps;
+use crate::ops::TypeConversionOps; // Required for self.cast() method resolution
 use crate::runtime::cuda::kernels::{
     launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
     launch_f_distribution, launch_gamma_dist, launch_laplace, launch_multinomial_with_replacement,
@@ -15,6 +16,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 impl RandomOps<CudaRuntime> for CudaClient {
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // FP8: generate F32 rand and cast down
+        #[cfg(feature = "fp8")]
+        if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+            let f32_result = self.rand(shape, DType::F32)?;
+            return self.cast(&f32_result, dtype);
+        }
+
         // Supported: F32, F64, F16, BF16
         if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
             return Err(Error::UnsupportedDType { dtype, op: "rand" });
@@ -49,6 +57,13 @@ impl RandomOps<CudaRuntime> for CudaClient {
     }
 
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
+        // FP8: generate F32 randn and cast down
+        #[cfg(feature = "fp8")]
+        if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+            let f32_result = self.randn(shape, DType::F32)?;
+            return self.cast(&f32_result, dtype);
+        }
+
         // Supported: F32, F64, F16, BF16
         if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
             return Err(Error::UnsupportedDType { dtype, op: "randn" });
