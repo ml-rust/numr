@@ -1213,6 +1213,7 @@ fn test_f16_broadcast() {
 
 // ===== FP8 Integration Tests =====
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_tensor_creation() {
     use numr::dtype::FP8E4M3;
@@ -1238,6 +1239,7 @@ fn test_fp8e4m3_tensor_creation() {
     }
 }
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e5m2_tensor_creation() {
     use numr::dtype::FP8E5M2;
@@ -1262,6 +1264,7 @@ fn test_fp8e5m2_tensor_creation() {
     }
 }
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_add() {
     use numr::dtype::FP8E4M3;
@@ -1294,6 +1297,7 @@ fn test_fp8e4m3_add() {
     }
 }
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e4m3_mul() {
     use numr::dtype::FP8E4M3;
@@ -1322,6 +1326,7 @@ fn test_fp8e4m3_mul() {
     }
 }
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8e5m2_large_values() {
     use numr::dtype::FP8E5M2;
@@ -1352,6 +1357,7 @@ fn test_fp8e5m2_large_values() {
     }
 }
 
+#[cfg(feature = "fp8")]
 #[test]
 fn test_fp8_full_scalar_tensor() {
     use numr::dtype::FP8E4M3;
