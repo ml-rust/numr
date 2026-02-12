@@ -223,17 +223,31 @@ impl CpuClient {
                     std::slice::from_raw_parts_mut(output_ptr as *mut Complex64, batch_size * n)
                 };
 
-                self.install_parallelism(|| unsafe {
-                    kernels::stockham_fft_batched_c64(
-                        input_slice,
-                        output_slice,
-                        n,
-                        batch_size,
-                        inverse,
-                        normalize_factor as f32,
-                        min_len,
-                    );
-                });
+                if batch_size > 1 {
+                    self.install_parallelism(|| unsafe {
+                        kernels::stockham_fft_batched_c64(
+                            input_slice,
+                            output_slice,
+                            n,
+                            batch_size,
+                            inverse,
+                            normalize_factor as f32,
+                            min_len,
+                        );
+                    });
+                } else {
+                    unsafe {
+                        kernels::stockham_fft_batched_c64(
+                            input_slice,
+                            output_slice,
+                            n,
+                            batch_size,
+                            inverse,
+                            normalize_factor as f32,
+                            min_len,
+                        );
+                    }
+                }
             }
             DType::Complex128 => {
                 let input_slice: &[Complex128] = unsafe {
@@ -243,17 +257,31 @@ impl CpuClient {
                     std::slice::from_raw_parts_mut(output_ptr as *mut Complex128, batch_size * n)
                 };
 
-                self.install_parallelism(|| unsafe {
-                    kernels::stockham_fft_batched_c128(
-                        input_slice,
-                        output_slice,
-                        n,
-                        batch_size,
-                        inverse,
-                        normalize_factor,
-                        min_len,
-                    );
-                });
+                if batch_size > 1 {
+                    self.install_parallelism(|| unsafe {
+                        kernels::stockham_fft_batched_c128(
+                            input_slice,
+                            output_slice,
+                            n,
+                            batch_size,
+                            inverse,
+                            normalize_factor,
+                            min_len,
+                        );
+                    });
+                } else {
+                    unsafe {
+                        kernels::stockham_fft_batched_c128(
+                            input_slice,
+                            output_slice,
+                            n,
+                            batch_size,
+                            inverse,
+                            normalize_factor,
+                            min_len,
+                        );
+                    }
+                }
             }
             _ => unreachable!(),
         }

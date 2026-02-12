@@ -136,7 +136,12 @@ pub unsafe fn stockham_fft_batched_c64(
     debug_assert_eq!(input.len(), batch_size * n);
     debug_assert_eq!(output.len(), batch_size * n);
 
-    // Process batches in parallel
+    // Single-batch: call directly to avoid Rayon thread pool overhead (~15-20%)
+    if batch_size == 1 {
+        stockham_fft_c64(input, output, inverse, normalize_factor);
+        return;
+    }
+
     output
         .par_chunks_mut(n)
         .enumerate()
@@ -262,6 +267,12 @@ pub unsafe fn stockham_fft_batched_c128(
 
     debug_assert_eq!(input.len(), batch_size * n);
     debug_assert_eq!(output.len(), batch_size * n);
+
+    // Single-batch: call directly to avoid Rayon thread pool overhead (~15-20%)
+    if batch_size == 1 {
+        stockham_fft_c128(input, output, inverse, normalize_factor);
+        return;
+    }
 
     output
         .par_chunks_mut(n)
