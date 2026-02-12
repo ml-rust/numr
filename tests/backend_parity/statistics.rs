@@ -140,11 +140,13 @@ fn test_corrcoef_range_parity() {
                 .iter()
                 .map(|&x| x as f64)
                 .collect(),
+            #[cfg(feature = "f16")]
             DType::F16 => cpu_result
                 .to_vec::<half::f16>()
                 .iter()
                 .map(|&x| x.to_f64())
                 .collect(),
+            #[cfg(feature = "f16")]
             DType::BF16 => cpu_result
                 .to_vec::<half::bf16>()
                 .iter()
@@ -224,7 +226,9 @@ fn test_skew_kurtosis_parity() {
         let skew_val: f64 = match dtype {
             DType::F64 => cpu_skew.to_vec::<f64>()[0],
             DType::F32 => cpu_skew.to_vec::<f32>()[0] as f64,
+            #[cfg(feature = "f16")]
             DType::F16 => cpu_skew.to_vec::<half::f16>()[0].to_f64(),
+            #[cfg(feature = "f16")]
             DType::BF16 => cpu_skew.to_vec::<half::bf16>()[0].to_f64(),
             _ => panic!("Unsupported dtype for skew: {dtype:?}"),
         };
@@ -249,7 +253,9 @@ fn test_skew_kurtosis_parity() {
         let kurt_val: f64 = match dtype {
             DType::F64 => cpu_kurt.to_vec::<f64>()[0],
             DType::F32 => cpu_kurt.to_vec::<f32>()[0] as f64,
+            #[cfg(feature = "f16")]
             DType::F16 => cpu_kurt.to_vec::<half::f16>()[0].to_f64(),
+            #[cfg(feature = "f16")]
             DType::BF16 => cpu_kurt.to_vec::<half::bf16>()[0].to_f64(),
             _ => panic!("Unsupported dtype for kurtosis: {dtype:?}"),
         };
@@ -819,11 +825,13 @@ fn test_histogram_parity() {
                 .iter()
                 .map(|&x| x as f64)
                 .collect(),
+            #[cfg(feature = "f16")]
             DType::F16 => cpu_edges
                 .to_vec::<half::f16>()
                 .iter()
                 .map(|&x| x.to_f64())
                 .collect(),
+            #[cfg(feature = "f16")]
             DType::BF16 => cpu_edges
                 .to_vec::<half::bf16>()
                 .iter()
