@@ -9,6 +9,64 @@
 #include "dtype_traits.cuh"
 
 // ============================================================================
+// FP8 comparison operators for templated sort/search kernels
+// ============================================================================
+
+__device__ __forceinline__ bool operator<(numr_fp8_e4m3 a, numr_fp8_e4m3 b) {
+    return fp8_e4m3_to_f32(a.data) < fp8_e4m3_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator>(numr_fp8_e4m3 a, numr_fp8_e4m3 b) {
+    return fp8_e4m3_to_f32(a.data) > fp8_e4m3_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator==(numr_fp8_e4m3 a, numr_fp8_e4m3 b) {
+    return fp8_e4m3_to_f32(a.data) == fp8_e4m3_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator!=(numr_fp8_e4m3 a, numr_fp8_e4m3 b) {
+    return fp8_e4m3_to_f32(a.data) != fp8_e4m3_to_f32(b.data);
+}
+
+__device__ __forceinline__ bool operator<(numr_fp8_e5m2 a, numr_fp8_e5m2 b) {
+    return fp8_e5m2_to_f32(a.data) < fp8_e5m2_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator>(numr_fp8_e5m2 a, numr_fp8_e5m2 b) {
+    return fp8_e5m2_to_f32(a.data) > fp8_e5m2_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator==(numr_fp8_e5m2 a, numr_fp8_e5m2 b) {
+    return fp8_e5m2_to_f32(a.data) == fp8_e5m2_to_f32(b.data);
+}
+__device__ __forceinline__ bool operator!=(numr_fp8_e5m2 a, numr_fp8_e5m2 b) {
+    return fp8_e5m2_to_f32(a.data) != fp8_e5m2_to_f32(b.data);
+}
+
+// ============================================================================
+// Sort padding value helpers (type-safe max/min for bitonic sort padding)
+// ============================================================================
+
+template<typename T> __device__ __forceinline__ T sort_pad_max();
+template<typename T> __device__ __forceinline__ T sort_pad_min();
+
+template<> __device__ __forceinline__ float sort_pad_max<float>() { return 1e38f; }
+template<> __device__ __forceinline__ float sort_pad_min<float>() { return -1e38f; }
+template<> __device__ __forceinline__ double sort_pad_max<double>() { return 1e308; }
+template<> __device__ __forceinline__ double sort_pad_min<double>() { return -1e308; }
+template<> __device__ __forceinline__ int sort_pad_max<int>() { return INT_MAX; }
+template<> __device__ __forceinline__ int sort_pad_min<int>() { return INT_MIN; }
+template<> __device__ __forceinline__ long long sort_pad_max<long long>() { return LLONG_MAX; }
+template<> __device__ __forceinline__ long long sort_pad_min<long long>() { return LLONG_MIN; }
+template<> __device__ __forceinline__ unsigned int sort_pad_max<unsigned int>() { return UINT_MAX; }
+template<> __device__ __forceinline__ unsigned int sort_pad_min<unsigned int>() { return 0u; }
+template<> __device__ __forceinline__ unsigned long long sort_pad_max<unsigned long long>() { return ULLONG_MAX; }
+template<> __device__ __forceinline__ unsigned long long sort_pad_min<unsigned long long>() { return 0ull; }
+template<> __device__ __forceinline__ __half sort_pad_max<__half>() { return __float2half(65504.0f); }
+template<> __device__ __forceinline__ __half sort_pad_min<__half>() { return __float2half(-65504.0f); }
+template<> __device__ __forceinline__ __nv_bfloat16 sort_pad_max<__nv_bfloat16>() { return __float2bfloat16(1e38f); }
+template<> __device__ __forceinline__ __nv_bfloat16 sort_pad_min<__nv_bfloat16>() { return __float2bfloat16(-1e38f); }
+template<> __device__ __forceinline__ numr_fp8_e4m3 sort_pad_max<numr_fp8_e4m3>() { return numr_fp8_e4m3(f32_to_fp8_e4m3(FP8_E4M3_MAX)); }
+template<> __device__ __forceinline__ numr_fp8_e4m3 sort_pad_min<numr_fp8_e4m3>() { return numr_fp8_e4m3(f32_to_fp8_e4m3(FP8_E4M3_MIN)); }
+template<> __device__ __forceinline__ numr_fp8_e5m2 sort_pad_max<numr_fp8_e5m2>() { return numr_fp8_e5m2(f32_to_fp8_e5m2(FP8_E5M2_MAX)); }
+template<> __device__ __forceinline__ numr_fp8_e5m2 sort_pad_min<numr_fp8_e5m2>() { return numr_fp8_e5m2(f32_to_fp8_e5m2(FP8_E5M2_MIN)); }
+
+// ============================================================================
 // Comparison helpers for sorting
 // ============================================================================
 
@@ -76,7 +134,10 @@ __device__ void sort_dim_impl(
     // Layout: [n values of type T][n indices of type long long]
     extern __shared__ char shared_mem[];
     T* shared_vals = (T*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // Place after padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -93,9 +154,7 @@ __device__ void sort_dim_impl(
     __syncthreads();
 
     // Pad with max/min values
-    T pad_val = descending ?
-        (sizeof(T) == 8 ? (T)-1e308 : (T)-1e38f) :
-        (sizeof(T) == 8 ? (T)1e308 : (T)1e38f);
+    T pad_val = descending ? sort_pad_min<T>() : sort_pad_max<T>();
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
         shared_vals[i] = pad_val;
         shared_idx[i] = sort_size; // Invalid index
@@ -147,7 +206,10 @@ __device__ void topk_dim_impl(
 
     extern __shared__ char shared_mem[];
     T* shared_vals = (T*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -168,9 +230,7 @@ __device__ void topk_dim_impl(
 
     // Full bitonic sort for simplicity (can optimize for partial sort later)
 
-    T pad_val = largest ?
-        (sizeof(T) == 8 ? (T)-1e308 : (T)-1e38f) :
-        (sizeof(T) == 8 ? (T)1e308 : (T)1e38f);
+    T pad_val = largest ? sort_pad_min<T>() : sort_pad_max<T>();
     for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
         shared_vals[i] = pad_val;
         shared_idx[i] = sort_size;
@@ -364,6 +424,69 @@ __device__ void bincount_impl(
 }
 
 // ============================================================================
+// Templated argsort (indices only, no values output)
+// ============================================================================
+
+template<typename T>
+__device__ void argsort_dim_impl(
+    const T* input, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    unsigned int n = 1;
+    while (n < sort_size) n <<= 1;
+
+    extern __shared__ char shared_mem[];
+    T* shared_vals = (T*)shared_mem;
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
+
+    unsigned int outer_idx = blockIdx.x;
+    unsigned int inner_idx = blockIdx.y;
+    unsigned int tid = threadIdx.x;
+
+    if (outer_idx >= outer_size || inner_idx >= inner_size) return;
+
+    for (unsigned int i = tid; i < sort_size; i += blockDim.x) {
+        unsigned int idx = outer_idx * sort_size * inner_size + i * inner_size + inner_idx;
+        shared_vals[i] = input[idx];
+        shared_idx[i] = i;
+    }
+    __syncthreads();
+
+    T pad_val = descending ? sort_pad_min<T>() : sort_pad_max<T>();
+    for (unsigned int i = tid + sort_size; i < n; i += blockDim.x) {
+        shared_vals[i] = pad_val;
+        shared_idx[i] = sort_size;
+    }
+    __syncthreads();
+
+    for (unsigned int k = 2; k <= n; k *= 2) {
+        for (unsigned int j = k / 2; j > 0; j /= 2) {
+            for (unsigned int i = tid; i < n / 2; i += blockDim.x) {
+                unsigned int ij = (i / j) * 2 * j + (i % j);
+                unsigned int ij_pair = ij + j;
+                bool ascending_local = ((ij / k) % 2 == 0) != descending;
+
+                if (ij_pair < n) {
+                    bitonic_cas_indexed(shared_vals[ij], shared_idx[ij],
+                                       shared_vals[ij_pair], shared_idx[ij_pair],
+                                       ascending_local);
+                }
+            }
+            __syncthreads();
+        }
+    }
+
+    for (unsigned int i = tid; i < sort_size; i += blockDim.x) {
+        unsigned int out_idx = outer_idx * sort_size * inner_size + i * inner_size + inner_idx;
+        indices[out_idx] = shared_idx[i];
+    }
+}
+
+// ============================================================================
 // extern "C" wrapper kernels for Rust FFI
 // ============================================================================
 
@@ -418,7 +541,10 @@ __global__ void argsort_f32(
 
     extern __shared__ char shared_mem[];
     float* shared_vals = (float*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -495,7 +621,10 @@ __global__ void argsort_f64(
 
     extern __shared__ char shared_mem[];
     double* shared_vals = (double*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -570,7 +699,10 @@ __global__ void argsort_i32(
 
     extern __shared__ char shared_mem[];
     int* shared_vals = (int*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -645,7 +777,10 @@ __global__ void argsort_i64(
 
     extern __shared__ char shared_mem[];
     long long* shared_vals = (long long*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -720,7 +855,10 @@ __global__ void argsort_u32(
 
     extern __shared__ char shared_mem[];
     unsigned int* shared_vals = (unsigned int*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -795,7 +933,10 @@ __global__ void argsort_u64(
 
     extern __shared__ char shared_mem[];
     unsigned long long* shared_vals = (unsigned long long*)shared_mem;
-    long long* shared_idx = (long long*)(shared_vals + n);  // After padded values
+    // Align to 8 bytes for long long access
+    char* idx_start = (char*)(shared_vals + n);
+    idx_start = (char*)(((unsigned long long)idx_start + 7) & ~7ULL);
+    long long* shared_idx = (long long*)idx_start;
 
     unsigned int outer_idx = blockIdx.x;
     unsigned int inner_idx = blockIdx.y;
@@ -980,6 +1121,234 @@ __global__ void extract_unique_i64(const long long* input, long long* output, un
 __global__ void bincount(const long long* indices, long long* counts,
                          unsigned int n, unsigned int num_bins) {
     bincount_impl(indices, counts, n, num_bins);
+}
+
+// ============================================================================
+// F16 (__half) sort/search kernels
+// ============================================================================
+
+__global__ void sort_f16(
+    const __half* input, __half* output, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<__half>(input, output, indices, outer_size, sort_size, inner_size, descending, true);
+}
+
+__global__ void sort_values_only_f16(
+    const __half* input, __half* output,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<__half>(input, output, nullptr, outer_size, sort_size, inner_size, descending, false);
+}
+
+__global__ void argsort_f16(
+    const __half* input, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    argsort_dim_impl<__half>(input, indices, outer_size, sort_size, inner_size, descending);
+}
+
+__global__ void topk_f16(
+    const __half* input, __half* out_values, long long* out_indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    unsigned int k, bool largest, bool sorted
+) {
+    topk_dim_impl<__half>(input, out_values, out_indices, outer_size, sort_size, inner_size, k, largest, sorted);
+}
+
+__global__ void count_nonzero_f16(const __half* input, unsigned int* count, unsigned int n) {
+    count_nonzero_impl<__half>(input, count, n);
+}
+
+__global__ void gather_nonzero_f16(const __half* input, long long* indices, unsigned int* counter, unsigned int n) {
+    gather_nonzero_impl<__half>(input, indices, counter, n);
+}
+
+__global__ void searchsorted_f16(const __half* seq, const __half* values, long long* output,
+                                  unsigned int seq_len, unsigned int num_values, bool right) {
+    searchsorted_impl<__half>(seq, values, output, seq_len, num_values, right);
+}
+
+__global__ void count_unique_f16(const __half* input, unsigned int* count, unsigned int n) {
+    count_unique_impl<__half>(input, count, n);
+}
+
+__global__ void extract_unique_f16(const __half* input, __half* output, unsigned int* counter, unsigned int n) {
+    extract_unique_impl<__half>(input, output, counter, n);
+}
+
+// ============================================================================
+// BF16 (__nv_bfloat16) sort/search kernels
+// ============================================================================
+
+__global__ void sort_bf16(
+    const __nv_bfloat16* input, __nv_bfloat16* output, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<__nv_bfloat16>(input, output, indices, outer_size, sort_size, inner_size, descending, true);
+}
+
+__global__ void sort_values_only_bf16(
+    const __nv_bfloat16* input, __nv_bfloat16* output,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<__nv_bfloat16>(input, output, nullptr, outer_size, sort_size, inner_size, descending, false);
+}
+
+__global__ void argsort_bf16(
+    const __nv_bfloat16* input, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    argsort_dim_impl<__nv_bfloat16>(input, indices, outer_size, sort_size, inner_size, descending);
+}
+
+__global__ void topk_bf16(
+    const __nv_bfloat16* input, __nv_bfloat16* out_values, long long* out_indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    unsigned int k, bool largest, bool sorted
+) {
+    topk_dim_impl<__nv_bfloat16>(input, out_values, out_indices, outer_size, sort_size, inner_size, k, largest, sorted);
+}
+
+__global__ void count_nonzero_bf16(const __nv_bfloat16* input, unsigned int* count, unsigned int n) {
+    count_nonzero_impl<__nv_bfloat16>(input, count, n);
+}
+
+__global__ void gather_nonzero_bf16(const __nv_bfloat16* input, long long* indices, unsigned int* counter, unsigned int n) {
+    gather_nonzero_impl<__nv_bfloat16>(input, indices, counter, n);
+}
+
+__global__ void searchsorted_bf16(const __nv_bfloat16* seq, const __nv_bfloat16* values, long long* output,
+                                   unsigned int seq_len, unsigned int num_values, bool right) {
+    searchsorted_impl<__nv_bfloat16>(seq, values, output, seq_len, num_values, right);
+}
+
+__global__ void count_unique_bf16(const __nv_bfloat16* input, unsigned int* count, unsigned int n) {
+    count_unique_impl<__nv_bfloat16>(input, count, n);
+}
+
+__global__ void extract_unique_bf16(const __nv_bfloat16* input, __nv_bfloat16* output, unsigned int* counter, unsigned int n) {
+    extract_unique_impl<__nv_bfloat16>(input, output, counter, n);
+}
+
+// ============================================================================
+// FP8 E4M3 sort/search kernels
+// ============================================================================
+
+__global__ void sort_fp8_e4m3(
+    const numr_fp8_e4m3* input, numr_fp8_e4m3* output, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<numr_fp8_e4m3>(input, output, indices, outer_size, sort_size, inner_size, descending, true);
+}
+
+__global__ void sort_values_only_fp8_e4m3(
+    const numr_fp8_e4m3* input, numr_fp8_e4m3* output,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<numr_fp8_e4m3>(input, output, nullptr, outer_size, sort_size, inner_size, descending, false);
+}
+
+__global__ void argsort_fp8_e4m3(
+    const numr_fp8_e4m3* input, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    argsort_dim_impl<numr_fp8_e4m3>(input, indices, outer_size, sort_size, inner_size, descending);
+}
+
+__global__ void topk_fp8_e4m3(
+    const numr_fp8_e4m3* input, numr_fp8_e4m3* out_values, long long* out_indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    unsigned int k, bool largest, bool sorted
+) {
+    topk_dim_impl<numr_fp8_e4m3>(input, out_values, out_indices, outer_size, sort_size, inner_size, k, largest, sorted);
+}
+
+__global__ void count_nonzero_fp8_e4m3(const numr_fp8_e4m3* input, unsigned int* count, unsigned int n) {
+    count_nonzero_impl<numr_fp8_e4m3>(input, count, n);
+}
+
+__global__ void gather_nonzero_fp8_e4m3(const numr_fp8_e4m3* input, long long* indices, unsigned int* counter, unsigned int n) {
+    gather_nonzero_impl<numr_fp8_e4m3>(input, indices, counter, n);
+}
+
+__global__ void searchsorted_fp8_e4m3(const numr_fp8_e4m3* seq, const numr_fp8_e4m3* values, long long* output,
+                                       unsigned int seq_len, unsigned int num_values, bool right) {
+    searchsorted_impl<numr_fp8_e4m3>(seq, values, output, seq_len, num_values, right);
+}
+
+__global__ void count_unique_fp8_e4m3(const numr_fp8_e4m3* input, unsigned int* count, unsigned int n) {
+    count_unique_impl<numr_fp8_e4m3>(input, count, n);
+}
+
+__global__ void extract_unique_fp8_e4m3(const numr_fp8_e4m3* input, numr_fp8_e4m3* output, unsigned int* counter, unsigned int n) {
+    extract_unique_impl<numr_fp8_e4m3>(input, output, counter, n);
+}
+
+// ============================================================================
+// FP8 E5M2 sort/search kernels
+// ============================================================================
+
+__global__ void sort_fp8_e5m2(
+    const numr_fp8_e5m2* input, numr_fp8_e5m2* output, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<numr_fp8_e5m2>(input, output, indices, outer_size, sort_size, inner_size, descending, true);
+}
+
+__global__ void sort_values_only_fp8_e5m2(
+    const numr_fp8_e5m2* input, numr_fp8_e5m2* output,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    sort_dim_impl<numr_fp8_e5m2>(input, output, nullptr, outer_size, sort_size, inner_size, descending, false);
+}
+
+__global__ void argsort_fp8_e5m2(
+    const numr_fp8_e5m2* input, long long* indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    bool descending
+) {
+    argsort_dim_impl<numr_fp8_e5m2>(input, indices, outer_size, sort_size, inner_size, descending);
+}
+
+__global__ void topk_fp8_e5m2(
+    const numr_fp8_e5m2* input, numr_fp8_e5m2* out_values, long long* out_indices,
+    unsigned int outer_size, unsigned int sort_size, unsigned int inner_size,
+    unsigned int k, bool largest, bool sorted
+) {
+    topk_dim_impl<numr_fp8_e5m2>(input, out_values, out_indices, outer_size, sort_size, inner_size, k, largest, sorted);
+}
+
+__global__ void count_nonzero_fp8_e5m2(const numr_fp8_e5m2* input, unsigned int* count, unsigned int n) {
+    count_nonzero_impl<numr_fp8_e5m2>(input, count, n);
+}
+
+__global__ void gather_nonzero_fp8_e5m2(const numr_fp8_e5m2* input, long long* indices, unsigned int* counter, unsigned int n) {
+    gather_nonzero_impl<numr_fp8_e5m2>(input, indices, counter, n);
+}
+
+__global__ void searchsorted_fp8_e5m2(const numr_fp8_e5m2* seq, const numr_fp8_e5m2* values, long long* output,
+                                       unsigned int seq_len, unsigned int num_values, bool right) {
+    searchsorted_impl<numr_fp8_e5m2>(seq, values, output, seq_len, num_values, right);
+}
+
+__global__ void count_unique_fp8_e5m2(const numr_fp8_e5m2* input, unsigned int* count, unsigned int n) {
+    count_unique_impl<numr_fp8_e5m2>(input, count, n);
+}
+
+__global__ void extract_unique_fp8_e5m2(const numr_fp8_e5m2* input, numr_fp8_e5m2* output, unsigned int* counter, unsigned int n) {
+    extract_unique_impl<numr_fp8_e5m2>(input, output, counter, n);
 }
 
 } // extern "C"
