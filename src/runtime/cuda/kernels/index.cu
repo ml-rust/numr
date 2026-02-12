@@ -412,6 +412,8 @@ DEFINE_MASKED_SELECT_BROADCAST_KERNEL(f16, __half)
 DEFINE_MASKED_SELECT_BROADCAST_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_SELECT_BROADCAST_KERNEL(i32, int)
 DEFINE_MASKED_SELECT_BROADCAST_KERNEL(i64, long long)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_MASKED_SELECT_BROADCAST_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 DEFINE_MASKED_FILL_BROADCAST_KERNEL(f32, float)
 DEFINE_MASKED_FILL_BROADCAST_KERNEL(f64, double)
@@ -419,6 +421,8 @@ DEFINE_MASKED_FILL_BROADCAST_KERNEL(f16, __half)
 DEFINE_MASKED_FILL_BROADCAST_KERNEL(bf16, __nv_bfloat16)
 DEFINE_MASKED_FILL_BROADCAST_KERNEL(i32, int)
 DEFINE_MASKED_FILL_BROADCAST_KERNEL(i64, long long)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_MASKED_FILL_BROADCAST_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 // ============================================================================
 // Index Bounds Validation Kernel (dtype-independent)
@@ -536,6 +540,32 @@ DEFINE_MASKED_FILL_KERNEL(i64, long long)
 DEFINE_EMBEDDING_LOOKUP_KERNEL(i64, long long)
 
 // ============================================================================
+// FP8 E4M3 Kernels
+// ============================================================================
+
+DEFINE_GATHER_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_SCATTER_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_COPY_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_INDEX_SELECT_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_INDEX_PUT_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_MASKED_SELECT_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_MASKED_FILL_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+
+// ============================================================================
+// FP8 E5M2 Kernels
+// ============================================================================
+
+DEFINE_GATHER_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_SCATTER_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_COPY_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_INDEX_SELECT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_INDEX_PUT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_MASKED_SELECT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_MASKED_FILL_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+DEFINE_EMBEDDING_LOOKUP_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+
+// ============================================================================
 // Gather ND - N-dimensional gather operation
 // Gathers slices from input at positions specified by indices tensor.
 // indices: (num_slices, index_depth) where index_depth <= ndim
@@ -590,6 +620,8 @@ DEFINE_GATHER_ND_KERNEL(f16, __half)
 DEFINE_GATHER_ND_KERNEL(bf16, __nv_bfloat16)
 DEFINE_GATHER_ND_KERNEL(i32, int)
 DEFINE_GATHER_ND_KERNEL(i64, long long)
+DEFINE_GATHER_ND_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_GATHER_ND_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 // ============================================================================
 // Bincount - Count occurrences of each value in an integer tensor
@@ -1057,6 +1089,8 @@ DEFINE_GATHER_2D_KERNEL(f16, __half)
 DEFINE_GATHER_2D_KERNEL(bf16, __nv_bfloat16)
 DEFINE_GATHER_2D_KERNEL(i32, int)
 DEFINE_GATHER_2D_KERNEL(i64, long long)
+DEFINE_GATHER_2D_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_GATHER_2D_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 // ============================================================================
 // Scatter Reduce - Prod (atomic multiply via CAS)
