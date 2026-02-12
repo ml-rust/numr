@@ -86,10 +86,6 @@ name = "shape_ops"
 harness = false
 
 [[bench]]
-name = "minimal"
-harness = false
-
-[[bench]]
 name = "parallelism"
 harness = false
 
