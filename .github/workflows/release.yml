@@ -59,11 +59,11 @@ jobs:
 
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
-  # Reuse the full CI pipeline (lint, test, backend-compile, parity, examples)
+  # Reuse benchmark workflow which includes the full test suite + regression check
   ci:
-    name: CI
+    name: CI + Benchmark
     needs: validate-version
-    uses: ./.github/workflows/ci.yml
+    uses: ./.github/workflows/benchmark.yml
 
   publish:
     name: Publish to crates.io

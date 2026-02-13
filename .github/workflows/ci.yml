@@ -1,3 +1,9 @@
+# CI — thin wrapper that calls the reusable test workflow.
+#
+# All test jobs (lint, cross-platform tests, backend compile gates, parity,
+# examples) live in test.yml to avoid duplication across ci.yml, benchmark.yml,
+# baseline.yml, and release.yml.
+
 name: CI
 
 on:
@@ -14,116 +20,8 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  lint:
-    if: github.event.pull_request.draft == false
-    name: Lint, Format & Docs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: lint
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run clippy (all CI-safe features)
-        run: cargo clippy --all-targets --features f16,sparse -- -D warnings
-
-      - name: Build docs
-        run: cargo doc --no-deps --features f16,sparse
-
-      - name: Run doctests
-        run: cargo test --doc --features f16,sparse
-
   test:
     if: github.event.pull_request.draft == false
-    name: Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: test
-
-      - name: Run tests (default)
-        run: cargo test
-
-      - name: Run tests (f16 + sparse)
-        run: cargo test --features f16,sparse
-
-  # ---------------------------------------------------------------------------
-  # Backend compile gates + parity + examples — single VM
-  # ---------------------------------------------------------------------------
-  # CUDA and WebGPU require hardware SDKs not available on hosted runners, so
-  # we verify that the code *compiles* (cargo check / --no-run) under each
-  # feature flag.  All checks share one runner to avoid redundant VM setup.
-
-  backend-and-parity:
-    if: github.event.pull_request.draft == false
-    name: Backend Compile, Parity & Examples
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: backend-parity
-
-      # Backend compile gates
-      # Note: CUDA is excluded — its build script requires nvcc (CUDA Toolkit),
-      # which is not available on hosted runners.  CUDA compilation is validated
-      # on self-hosted GPU runners separately.
-      - name: "Compile: cpu-only (no default features)"
-        run: cargo check --no-default-features --features cpu
-
-      - name: "Compile: cpu + f16 + sparse"
-        run: cargo check --features f16,sparse
-
-      - name: "Compile: wgpu"
-        run: cargo check --features wgpu,f16,sparse
-
-      - name: "Compile tests: cpu-only"
-        run: cargo test --no-run --no-default-features --features cpu
-
-      - name: "Compile tests: wgpu"
-        run: cargo test --no-run --features wgpu,f16,sparse
-
-      # Backend parity
-      - name: Run backend parity tests
-        run: cargo test backend_parity --features f16,sparse
-
-      # Examples
-      - name: Build all examples
-        run: cargo build --examples --features sparse
-
-      - name: Run examples
-        run: |
-          cargo run --example basic_tensor_ops
-          cargo run --example autograd_linear_regression
-          cargo run --example conv_unfold_im2col
-          cargo run --example fft_roundtrip
-          cargo run --example sparse_coo_csr_workflow --features sparse
-          cargo run --example backend_switch_cpu_wgpu
+    name: Test Suite
+    uses: ./.github/workflows/test.yml

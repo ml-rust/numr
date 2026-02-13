@@ -1,0 +1,77 @@
+# Benchmark regression check.
+#
+# Runs on PRs (non-draft) and can be called by other workflows (e.g. release.yml).
+#
+# How regression detection works:
+#   1. baseline.yml saves a baseline JSON after each merge to main (cached by commit SHA).
+#   2. This workflow restores that baseline and passes it via --baseline to fluxbench.
+#   3. Each benchmark has a per-bench threshold — regressions beyond this are flagged.
+#   4. Exit codes are controlled by #[verify] expressions with severity levels:
+#        - critical: exits non-zero -> job fails -> PR blocked
+#        - warning:  exits zero -> shows warnings in summary
+#        - info:     logged in the summary only
+#   5. If no baseline exists yet (first run), benchmarks run without comparison.
+
+name: Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_call:
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    if: github.event.pull_request.draft == false
+    uses: ./.github/workflows/test.yml
+
+  benchmark:
+    needs: test
+    name: Regression Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: bench
+
+      - name: Build benchmarks
+        run: cargo build --bench ci_regression --release
+
+      # Restore the most recent baseline saved by baseline.yml on main.
+      # Uses prefix matching — the exact key won't match, but restore-keys
+      # picks the latest cache entry starting with "numr-bench-baseline-".
+      # On cache miss (no baseline yet), this is a silent no-op.
+      - name: Restore baseline from main
+        uses: actions/cache/restore@v4
+        with:
+          path: target/fluxbench/baseline.json
+          key: numr-bench-baseline-dummy
+          restore-keys: numr-bench-baseline-
+
+      # --format github-summary: renders a markdown table for the step summary.
+      # --baseline (if file exists): enables regression comparison against main.
+      # Exit code reflects critical verification failures (see flux.toml: fail_on_critical).
+      - name: Run benchmarks
+        run: |
+          ARGS="--format github-summary"
+          if [ -f target/fluxbench/baseline.json ]; then
+            ARGS="$ARGS --baseline target/fluxbench/baseline.json"
+          fi
+          cargo bench --bench ci_regression -- $ARGS >> $GITHUB_STEP_SUMMARY

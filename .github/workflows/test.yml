@@ -1,0 +1,118 @@
+# Reusable test workflow: lint, format, docs, cross-platform tests, backend checks.
+#
+# Called by:
+#   - ci.yml        (PR checks)
+#   - benchmark.yml (PR regression checks)
+#   - baseline.yml  (post-merge baseline saves)
+#   - release.yml   (via benchmark.yml)
+#
+# Not triggered directly — use workflow_call only.
+
+name: Test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Lint, Format & Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: lint
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy (all CI-safe features)
+        run: cargo clippy --all-targets --features f16,sparse -- -D warnings
+
+      - name: Build docs
+        run: cargo doc --no-deps --features f16,sparse
+
+      - name: Run doctests
+        run: cargo test --doc --features f16,sparse
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: test
+
+      - name: Run tests (default)
+        run: cargo test
+
+      - name: Run tests (f16 + sparse)
+        run: cargo test --features f16,sparse
+
+  backend-and-parity:
+    name: Backend Compile, Parity & Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: backend-parity
+
+      # Backend compile gates
+      - name: "Compile: cpu-only (no default features)"
+        run: cargo check --no-default-features --features cpu
+
+      - name: "Compile: cpu + f16 + sparse"
+        run: cargo check --features f16,sparse
+
+      - name: "Compile: wgpu"
+        run: cargo check --features wgpu,f16,sparse
+
+      - name: "Compile tests: cpu-only"
+        run: cargo test --no-run --no-default-features --features cpu
+
+      - name: "Compile tests: wgpu"
+        run: cargo test --no-run --features wgpu,f16,sparse
+
+      # Backend parity
+      - name: Run backend parity tests
+        run: cargo test backend_parity --features f16,sparse
+
+      # Examples
+      - name: Build all examples
+        run: cargo build --examples --features sparse
+
+      - name: Run examples
+        run: |
+          cargo run --example basic_tensor_ops
+          cargo run --example autograd_linear_regression
+          cargo run --example conv_unfold_im2col
+          cargo run --example fft_roundtrip
+          cargo run --example sparse_coo_csr_workflow --features sparse
+          cargo run --example backend_switch_cpu_wgpu
