@@ -5,12 +5,12 @@
 # How regression detection works:
 #   1. baseline.yml saves a baseline JSON after each merge to main (cached by commit SHA).
 #   2. This workflow restores that baseline and passes it via --baseline to fluxbench.
+#      If no cached baseline exists, one is generated from main on-the-fly.
 #   3. Each benchmark has a per-bench threshold — regressions beyond this are flagged.
 #   4. Exit codes are controlled by #[verify] expressions with severity levels:
 #        - critical: exits non-zero -> job fails -> PR blocked
 #        - warning:  exits zero -> shows warnings in summary
 #        - info:     logged in the summary only
-#   5. If no baseline exists yet (first run), benchmarks run without comparison.
 
 name: Benchmark
 
@@ -43,6 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -57,13 +59,24 @@ jobs:
       # Restore the most recent baseline saved by baseline.yml on main.
       # Uses prefix matching — the exact key won't match, but restore-keys
       # picks the latest cache entry starting with "numr-bench-baseline-".
-      # On cache miss (no baseline yet), this is a silent no-op.
       - name: Restore baseline from main
+        id: baseline-cache
         uses: actions/cache/restore@v4
         with:
           path: target/fluxbench/baseline.json
           key: numr-bench-baseline-dummy
           restore-keys: numr-bench-baseline-
+
+      # If no cached baseline exists (expired or first run), generate one
+      # from main. Checks out main, runs benchmarks to save baseline, then
+      # returns to the PR branch.
+      - name: Generate baseline from main (if none cached)
+        if: steps.baseline-cache.outputs.cache-hit != 'true' && !hashFiles('target/fluxbench/baseline.json')
+        run: |
+          CURRENT_REF=$(git rev-parse HEAD)
+          git checkout origin/main
+          cargo bench --bench ci_regression -- --save-baseline
+          git checkout "$CURRENT_REF"
 
       # --format github-summary: renders a markdown table for the step summary.
       # --baseline (if file exists): enables regression comparison against main.
