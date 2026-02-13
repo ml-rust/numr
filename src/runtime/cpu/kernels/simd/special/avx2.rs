@@ -92,12 +92,12 @@ pub unsafe fn erf_f64(input: *const f64, output: *mut f64, len: usize) {
 
     let zero = _mm256_setzero_pd();
     let one = _mm256_set1_pd(1.0);
-    let neg_one = _mm256_set1_pd(-1.0);
+    let _neg_one = _mm256_set1_pd(-1.0);
     let three = _mm256_set1_pd(3.0);
     let six = _mm256_set1_pd(6.0);
-    let two_over_sqrt_pi = _mm256_set1_pd(1.1283791670955126); // 2/sqrt(pi)
+    let two_over_sqrt_pi = _mm256_set1_pd(std::f64::consts::FRAC_2_SQRT_PI);
     let frac_1_sqrt_pi = _mm256_set1_pd(0.5641895835477563); // 1/sqrt(pi)
-    let half = _mm256_set1_pd(0.5);
+    let _half = _mm256_set1_pd(0.5);
     let sign_mask = _mm256_set1_pd(-0.0);
 
     for i in 0..chunks {

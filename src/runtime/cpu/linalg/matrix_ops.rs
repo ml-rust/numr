@@ -498,7 +498,7 @@ pub fn matrix_rank_impl(
     tol: Option<f64>,
 ) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
-    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (a, _original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
     // matrix_rank returns I64 (integer rank) - no demotion needed

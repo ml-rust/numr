@@ -37,7 +37,7 @@ pub fn erf_scalar(x: f64) -> f64 {
                 break;
             }
         }
-        const TWO_OVER_SQRT_PI: f64 = 1.1283791670955126; // 2/sqrt(pi)
+        const TWO_OVER_SQRT_PI: f64 = std::f64::consts::FRAC_2_SQRT_PI;
         sign * sum * TWO_OVER_SQRT_PI
     } else if a < 6.0 {
         // Laplace continued fraction for erfc(x):
