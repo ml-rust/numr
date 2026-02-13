@@ -166,10 +166,11 @@ fn test_randn_invariants_all_backends() {
         let (cpu_client, _) = create_cpu_client();
 
         // CPU baseline: verify shape, dtype, normal distribution
+        // Use 10000 samples to reduce flakiness (SE ≈ 0.01 vs 0.016 at 4096)
         let cpu = cpu_client
-            .randn(&[4096], dtype)
+            .randn(&[10000], dtype)
             .unwrap_or_else(|e| panic!("CPU randn failed for {dtype:?}: {e}"));
-        assert_eq!(cpu.shape(), &[4096]);
+        assert_eq!(cpu.shape(), &[10000]);
         assert_eq!(cpu.dtype(), dtype);
 
         macro_rules! check_cpu {
