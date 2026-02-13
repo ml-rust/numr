@@ -13,7 +13,7 @@ use std::fmt;
 ///
 /// Address of element at indices `[i0, i1, ..., in]`:
 ///   offset + i0 * `strides[0]` + i1 * `strides[1]` + ... + in * `strides[n]`
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Layout {
     /// Shape: size along each dimension
     shape: Shape,
@@ -120,13 +120,17 @@ impl Layout {
     }
 
     /// Check if memory is contiguous (row-major order)
+    ///
+    /// A layout is contiguous if its strides match row-major order.
+    /// The offset does not affect contiguity (a narrowed view can still
+    /// be contiguous in its stride pattern).
     pub fn is_contiguous(&self) -> bool {
         if self.is_scalar() {
             return true;
         }
 
         let expected = Self::compute_contiguous_strides(&self.shape);
-        self.strides == expected && self.offset == 0
+        self.strides == expected
     }
 
     /// Get size along a specific dimension
@@ -415,6 +419,253 @@ impl Layout {
         Some(result)
     }
 
+    /// Create layout from usize strides (convenience for existing code)
+    ///
+    /// Converts usize strides to isize. All values must fit in isize.
+    #[inline]
+    pub fn new_unsigned(shape: &[usize], strides: &[usize], offset: usize) -> Self {
+        let strides_isize: Strides = strides.iter().map(|&s| s as isize).collect();
+        Self {
+            shape: shape.into(),
+            strides: strides_isize,
+            offset,
+        }
+    }
+
+    /// Get the rank (number of dimensions) - alias for `ndim()`
+    #[inline]
+    pub fn rank(&self) -> usize {
+        self.shape.len()
+    }
+
+    /// Returns true if the tensor has zero elements
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.elem_count() == 0
+    }
+
+    /// Transpose last two dimensions (for matrix operations)
+    ///
+    /// Common operation for matmul: transpose(-2, -1)
+    #[inline]
+    pub fn t(&self) -> Option<Self> {
+        if self.ndim() < 2 {
+            return None;
+        }
+        let n = self.ndim();
+        self.transpose_axes(n - 2, n - 1)
+    }
+
+    /// Transpose two dimensions by axis index (usize version)
+    ///
+    /// Unlike `transpose()` which takes isize for negative indexing support,
+    /// this takes usize indices directly.
+    pub fn transpose_axes(&self, dim0: usize, dim1: usize) -> Option<Self> {
+        if dim0 >= self.ndim() || dim1 >= self.ndim() {
+            return None;
+        }
+
+        let mut new_shape = self.shape.clone();
+        let mut new_strides = self.strides.clone();
+        new_shape.swap(dim0, dim1);
+        new_strides.swap(dim0, dim1);
+
+        Some(Self {
+            shape: new_shape,
+            strides: new_strides,
+            offset: self.offset,
+        })
+    }
+
+    /// Squeeze a specific dimension (remove if size is 1)
+    ///
+    /// Returns None if dim is out of bounds or dimension size is not 1.
+    pub fn squeeze_dim(&self, dim: usize) -> Option<Self> {
+        if dim >= self.ndim() || self.shape[dim] != 1 {
+            return None;
+        }
+
+        let mut new_shape = self.shape.clone();
+        let mut new_strides = self.strides.clone();
+        new_shape.remove(dim);
+        new_strides.remove(dim);
+
+        Some(Self::new(new_shape, new_strides, self.offset))
+    }
+
+    /// Squeeze all dimensions of size 1
+    pub fn squeeze_all(&self) -> Self {
+        self.squeeze(None)
+    }
+
+    /// Unsqueeze (add dimension of size 1) at a usize index
+    pub fn unsqueeze_at(&self, dim: usize) -> Option<Self> {
+        if dim > self.ndim() {
+            return None;
+        }
+
+        let mut new_shape = self.shape.clone();
+        let mut new_strides = self.strides.clone();
+
+        let new_stride = if dim < self.ndim() {
+            new_strides[dim] * new_shape[dim] as isize
+        } else {
+            1
+        };
+
+        new_shape.insert(dim, 1);
+        new_strides.insert(dim, new_stride);
+
+        Some(Self::new(new_shape, new_strides, self.offset))
+    }
+
+    /// Permute dimensions according to the given order
+    ///
+    /// Alias provided for API compatibility. See `permute()`.
+    #[inline]
+    pub fn permute_dims(&self, dims: &[usize]) -> Option<Self> {
+        self.permute(dims)
+    }
+
+    /// Flatten dimensions [start_dim, end_dim] into a single dimension
+    pub fn flatten(&self, start_dim: usize, end_dim: usize) -> Option<Self> {
+        if start_dim > end_dim || end_dim >= self.ndim() {
+            return None;
+        }
+
+        // Must be contiguous in the flattened range
+        for i in start_dim..end_dim {
+            if self.strides[i] != self.strides[i + 1] * self.shape[i + 1] as isize {
+                return None;
+            }
+        }
+
+        let flat_size: usize = self.shape[start_dim..=end_dim].iter().product();
+        let mut new_shape = Shape::new();
+        let mut new_strides = Strides::new();
+
+        for i in 0..start_dim {
+            new_shape.push(self.shape[i]);
+            new_strides.push(self.strides[i]);
+        }
+
+        new_shape.push(flat_size);
+        new_strides.push(self.strides[end_dim]);
+
+        for i in (end_dim + 1)..self.ndim() {
+            new_shape.push(self.shape[i]);
+            new_strides.push(self.strides[i]);
+        }
+
+        Some(Self::new(new_shape, new_strides, self.offset))
+    }
+
+    /// Create a strided view with arbitrary shape, strides, and offset
+    ///
+    /// Low-level operation for advanced indexing. The offset is relative
+    /// to the current layout's offset.
+    pub fn as_strided(&self, shape: &[usize], strides: &[isize], offset: usize) -> Self {
+        Self {
+            shape: shape.into(),
+            strides: strides.into(),
+            offset: self.offset + offset,
+        }
+    }
+
+    /// Compute the minimum storage size required for this layout (in elements)
+    ///
+    /// For contiguous layouts: elem_count() + offset
+    /// For strided layouts: max reachable offset + 1
+    pub fn storage_size(&self) -> usize {
+        if self.shape.is_empty() {
+            return if self.offset > 0 { self.offset + 1 } else { 1 };
+        }
+
+        let mut max_offset = self.offset as isize;
+        for (&dim, &stride) in self.shape.iter().zip(self.strides.iter()) {
+            if dim > 0 && stride > 0 {
+                max_offset += (dim as isize - 1) * stride;
+            }
+        }
+        debug_assert!(
+            max_offset >= 0,
+            "storage_size: negative max_offset {}",
+            max_offset
+        );
+        (max_offset as usize) + 1
+    }
+
+    /// Compute linear offset for a multi-dimensional index
+    ///
+    /// Alias for `index()` for API compatibility.
+    #[inline]
+    pub fn index_to_offset(&self, indices: &[usize]) -> Option<usize> {
+        self.index(indices)
+    }
+
+    /// Compute linear offset without bounds checking
+    ///
+    /// # Safety
+    /// Caller must ensure index is within bounds.
+    #[inline]
+    pub unsafe fn index_to_offset_unchecked(&self, index: &[usize]) -> usize {
+        let mut offset = self.offset as isize;
+        for (&i, &stride) in index.iter().zip(self.strides.iter()) {
+            offset += i as isize * stride;
+        }
+        offset as usize
+    }
+
+    /// Convert linear offset back to multi-dimensional index
+    ///
+    /// Only works correctly for contiguous layouts.
+    pub fn offset_to_index(&self, mut offset: usize) -> Option<Vec<usize>> {
+        if !self.is_contiguous() || offset >= self.elem_count() {
+            return None;
+        }
+
+        let mut index = Vec::with_capacity(self.ndim());
+        for &stride in self.strides.iter() {
+            if stride > 0 {
+                let s = stride as usize;
+                index.push(offset / s);
+                offset %= s;
+            } else {
+                index.push(0);
+            }
+        }
+
+        Some(index)
+    }
+
+    /// Compute broadcast shape between this layout and another
+    pub fn broadcast_shape(&self, other: &Layout) -> Option<Vec<usize>> {
+        Self::broadcast_shapes(self.shape(), other.shape())
+    }
+
+    /// Compute broadcast shape between two shapes
+    pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
+        let max_rank = a.len().max(b.len());
+        let mut result = vec![0usize; max_rank];
+
+        for i in 0..max_rank {
+            let dim_a = if i < a.len() { a[a.len() - 1 - i] } else { 1 };
+            let dim_b = if i < b.len() { b[b.len() - 1 - i] } else { 1 };
+
+            if dim_a == dim_b {
+                result[max_rank - 1 - i] = dim_a;
+            } else if dim_a == 1 {
+                result[max_rank - 1 - i] = dim_b;
+            } else if dim_b == 1 {
+                result[max_rank - 1 - i] = dim_a;
+            } else {
+                return None;
+            }
+        }
+
+        Some(result)
+    }
+
     /// Create a broadcast layout to a target shape
     ///
     /// Returns None if shapes are not broadcastable
@@ -468,6 +719,67 @@ impl fmt::Debug for Layout {
 impl fmt::Display for Layout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.shape.as_slice())
+    }
+}
+
+// Convenient From implementations
+impl From<Vec<usize>> for Layout {
+    fn from(dims: Vec<usize>) -> Self {
+        Layout::contiguous(&dims)
+    }
+}
+
+impl From<&[usize]> for Layout {
+    fn from(dims: &[usize]) -> Self {
+        Layout::contiguous(dims)
+    }
+}
+
+impl<const N: usize> From<[usize; N]> for Layout {
+    fn from(dims: [usize; N]) -> Self {
+        Layout::contiguous(&dims)
+    }
+}
+
+impl From<usize> for Layout {
+    fn from(dim: usize) -> Self {
+        Layout::contiguous(&[dim])
+    }
+}
+
+impl From<(usize,)> for Layout {
+    fn from((d,): (usize,)) -> Self {
+        Layout::contiguous(&[d])
+    }
+}
+
+impl From<(usize, usize)> for Layout {
+    fn from((d1, d2): (usize, usize)) -> Self {
+        Layout::contiguous(&[d1, d2])
+    }
+}
+
+impl From<(usize, usize, usize)> for Layout {
+    fn from((d1, d2, d3): (usize, usize, usize)) -> Self {
+        Layout::contiguous(&[d1, d2, d3])
+    }
+}
+
+impl From<(usize, usize, usize, usize)> for Layout {
+    fn from((d1, d2, d3, d4): (usize, usize, usize, usize)) -> Self {
+        Layout::contiguous(&[d1, d2, d3, d4])
+    }
+}
+
+impl From<(usize, usize, usize, usize, usize)> for Layout {
+    fn from((d1, d2, d3, d4, d5): (usize, usize, usize, usize, usize)) -> Self {
+        Layout::contiguous(&[d1, d2, d3, d4, d5])
+    }
+}
+
+impl From<(usize, usize, usize, usize, usize, usize)> for Layout {
+    fn from((d1, d2, d3, d4, d5, d6): (usize, usize, usize, usize, usize, usize)) -> Self {
+        Layout::contiguous(&[d1, d2, d3, d4, d5, d6])
     }
 }
 

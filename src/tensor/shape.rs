@@ -10,7 +10,7 @@ use std::ops::{Deref, DerefMut};
 pub(crate) const STACK_DIMS: usize = 4;
 
 /// Shape type: dimensions of a tensor
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default, Hash)]
 pub struct Shape(SmallVec<[usize; STACK_DIMS]>);
 
 impl Shape {

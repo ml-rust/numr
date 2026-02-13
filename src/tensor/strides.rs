@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 /// Strides type: element offsets between consecutive elements along each dimension
 /// Signed to support negative strides (e.g., for flip operations)
 /// NOTE: Strides are in ELEMENTS, not bytes
-#[derive(Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default, Hash)]
 pub struct Strides(SmallVec<[isize; STACK_DIMS]>);
 
 impl Strides {
