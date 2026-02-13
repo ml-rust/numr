@@ -1,6 +1,7 @@
 //! Matrix multiplication operations for CUDA runtime
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::BinaryOps;
 use crate::ops::{
     MatmulOps, matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes,
 };
@@ -54,15 +55,7 @@ impl MatmulOps<CudaRuntime> for CudaClient {
 
         // Native tiled CUDA kernel
         match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_native(self, a, b, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 => {
                 if batch_size > 1 {
                     matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
                 } else {
@@ -140,15 +133,7 @@ impl MatmulOps<CudaRuntime> for CudaClient {
 
         // Native tiled CUDA kernel with fused bias
         match dtype {
-            DType::F32 | DType::F64 => {
-                if batch_size > 1 {
-                    matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
-                } else {
-                    matmul_bias_native(self, a, b, bias, dtype, m, k, n)
-                }
-            }
-            #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => {
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 => {
                 if batch_size > 1 {
                     matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
                 } else {
@@ -156,12 +141,9 @@ impl MatmulOps<CudaRuntime> for CudaClient {
                 }
             }
             _ => {
-                // For unsupported dtypes, return error instead of silent fallback
-                // (matmul_bias requires fused kernel for efficiency - non-fused defeats the purpose)
-                Err(Error::UnsupportedDType {
-                    dtype,
-                    op: "matmul_bias",
-                })
+                // FP8 and other dtypes: fall back to matmul + add
+                let mm = self.matmul(a, b)?;
+                self.add(&mm, &bias.reshape(&[1, n])?)
             }
         }
     }

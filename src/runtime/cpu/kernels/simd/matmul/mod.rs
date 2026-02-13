@@ -39,6 +39,8 @@ mod avx512;
 mod macros;
 mod packing;
 mod scalar;
+mod small;
+mod small_kernels;
 mod tiling;
 
 #[cfg(target_arch = "aarch64")]
@@ -62,16 +64,19 @@ use tiling::{matmul_tiled_f32, matmul_tiled_f64};
 pub const MR: usize = 6;
 
 /// L3 cache blocking: M dimension (Mc)
-pub const MC: usize = 128;
+/// Must be a multiple of MR to avoid buffer overflow in packing.
+pub const MC: usize = 126; // 21 * MR(6)
 
 /// L2 cache blocking: K dimension (Kc)
-pub const KC: usize = 512;
+/// Sized so packed_A (MC×KC×4) fits in L2 cache (~256KB):
+/// 126 × 256 × 4 = 129KB
+pub const KC: usize = 256;
 
 /// L3 cache blocking: N dimension (Nc)
 pub const NC: usize = 512;
 
-/// Small matrix threshold - below this, scalar is faster due to packing overhead
-const SMALL_MATRIX_THRESHOLD: usize = 64 * 64 * 64;
+/// Small matrix threshold - below this, register-blocked SIMD is faster than tiled
+const SMALL_MATRIX_THRESHOLD: usize = 128 * 128 * 128 + 1;
 
 // ============================================================================
 // Public API
@@ -101,21 +106,22 @@ pub unsafe fn matmul_f32(
     let level = detect_simd();
 
     if m * n * k < SMALL_MATRIX_THRESHOLD {
-        matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc);
+        small::small_matmul_f32(a, b, out, m, n, k, lda, ldb, ldc, level);
         return;
     }
 
+    // Use double-width NR for 12 FMA chains (2×NR columns per microkernel)
     #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => matmul_tiled_f32::<16>(a, b, out, m, n, k, lda, ldb, ldc, level),
-        SimdLevel::Avx2Fma => matmul_tiled_f32::<8>(a, b, out, m, n, k, lda, ldb, ldc, level),
+        SimdLevel::Avx512 => matmul_tiled_f32::<32>(a, b, out, m, n, k, lda, ldb, ldc, level),
+        SimdLevel::Avx2Fma => matmul_tiled_f32::<16>(a, b, out, m, n, k, lda, ldb, ldc, level),
         _ => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
     }
 
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            matmul_tiled_f32::<4>(a, b, out, m, n, k, lda, ldb, ldc, level)
+            matmul_tiled_f32::<8>(a, b, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
     }
@@ -141,21 +147,21 @@ pub unsafe fn matmul_f64(
     let level = detect_simd();
 
     if m * n * k < SMALL_MATRIX_THRESHOLD {
-        matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc);
+        small::small_matmul_f64(a, b, out, m, n, k, lda, ldb, ldc, level);
         return;
     }
 
     #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => matmul_tiled_f64::<8>(a, b, out, m, n, k, lda, ldb, ldc, level),
-        SimdLevel::Avx2Fma => matmul_tiled_f64::<4>(a, b, out, m, n, k, lda, ldb, ldc, level),
+        SimdLevel::Avx512 => matmul_tiled_f64::<16>(a, b, out, m, n, k, lda, ldb, ldc, level),
+        SimdLevel::Avx2Fma => matmul_tiled_f64::<8>(a, b, out, m, n, k, lda, ldb, ldc, level),
         _ => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
     }
 
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            matmul_tiled_f64::<2>(a, b, out, m, n, k, lda, ldb, ldc, level)
+            matmul_tiled_f64::<4>(a, b, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
     }
@@ -185,17 +191,17 @@ pub unsafe fn matmul_bias_f32(
     let level = detect_simd();
 
     if m * n * k < SMALL_MATRIX_THRESHOLD {
-        matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc);
+        small::small_matmul_bias_f32(a, b, bias, out, m, n, k, lda, ldb, ldc, level);
         return;
     }
 
     #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
-            matmul_bias_tiled_f32::<16>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f32::<32>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         SimdLevel::Avx2Fma => {
-            matmul_bias_tiled_f32::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f32::<16>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
@@ -203,7 +209,7 @@ pub unsafe fn matmul_bias_f32(
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            matmul_bias_tiled_f32::<4>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f32::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
@@ -230,17 +236,17 @@ pub unsafe fn matmul_bias_f64(
     let level = detect_simd();
 
     if m * n * k < SMALL_MATRIX_THRESHOLD {
-        matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc);
+        small::small_matmul_bias_f64(a, b, bias, out, m, n, k, lda, ldb, ldc, level);
         return;
     }
 
     #[cfg(target_arch = "x86_64")]
     match level {
         SimdLevel::Avx512 => {
-            matmul_bias_tiled_f64::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f64::<16>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         SimdLevel::Avx2Fma => {
-            matmul_bias_tiled_f64::<4>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f64::<8>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
@@ -248,7 +254,7 @@ pub unsafe fn matmul_bias_f64(
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            matmul_bias_tiled_f64::<2>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
+            matmul_bias_tiled_f64::<4>(a, b, bias, out, m, n, k, lda, ldb, ldc, level)
         }
         _ => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
@@ -261,7 +267,9 @@ pub unsafe fn matmul_bias_f64(
 // Microkernel dispatch (must be here for target_feature to work)
 // ============================================================================
 
-/// Dispatch to the appropriate SIMD microkernel for f32
+/// Dispatch to the appropriate SIMD microkernel for f32 (single-width NR)
+///
+/// `first_k`: when true, accumulators start from zero (beta=0, no load from C).
 #[inline]
 pub(crate) unsafe fn call_microkernel_f32(
     a: *const f32,
@@ -270,27 +278,75 @@ pub(crate) unsafe fn call_microkernel_f32(
     k: usize,
     ldc: usize,
     level: SimdLevel,
+    first_k: bool,
 ) {
     #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::microkernel_6x16_f32(a, b, c, k, ldc),
-        SimdLevel::Avx2Fma => avx2::microkernel_6x8_f32(a, b, c, k, ldc),
-        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc),
+        SimdLevel::Avx512 => avx512::microkernel_6x16_f32(a, b, c, k, ldc, first_k),
+        SimdLevel::Avx2Fma => avx2::microkernel_6x8_f32(a, b, c, k, ldc, first_k),
+        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc, first_k),
     }
 
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            aarch64::neon::microkernel_6x4_f32(a, b, c, k, ldc)
+            aarch64::neon::microkernel_6x4_f32(a, b, c, k, ldc, first_k)
         }
-        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc),
+        _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc, first_k),
     }
 
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f32(a, b, c, MR, 4, k, ldc);
+    microkernel_edge_f32(a, b, c, MR, 4, k, ldc, first_k);
 }
 
-/// Dispatch to the appropriate SIMD microkernel for f64
+/// Dispatch to the double-width SIMD microkernel for f32 (2×NR columns)
+///
+/// Processes 6 rows × 2*NR columns = 12 independent FMA chains.
+#[inline]
+pub(crate) unsafe fn call_microkernel_2x_f32(
+    a: *const f32,
+    b: *const f32,
+    c: *mut f32,
+    k: usize,
+    ldc: usize,
+    level: SimdLevel,
+    first_k: bool,
+) {
+    #[cfg(target_arch = "x86_64")]
+    match level {
+        SimdLevel::Avx512 => avx512::microkernel_6x32_f32(a, b, c, k, ldc, first_k),
+        SimdLevel::Avx2Fma => avx2::microkernel_6x16_f32(a, b, c, k, ldc, first_k),
+        _ => {
+            // Fallback: call single-width twice
+            let nr = 4usize;
+            microkernel_edge_f32(a, b, c, MR, nr, k, ldc, first_k);
+            microkernel_edge_f32(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            // NEON: call single-width twice (4+4=8)
+            aarch64::neon::microkernel_6x4_f32(a, b, c, k, ldc, first_k);
+            aarch64::neon::microkernel_6x4_f32(a, b.add(4 * k), c.add(4), k, ldc, first_k);
+        }
+        _ => {
+            let nr = 4usize;
+            microkernel_edge_f32(a, b, c, MR, nr, k, ldc, first_k);
+            microkernel_edge_f32(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+        }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        let nr = 4usize;
+        microkernel_edge_f32(a, b, c, MR, nr, k, ldc, first_k);
+        microkernel_edge_f32(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+    }
+}
+
+/// Dispatch to the appropriate SIMD microkernel for f64 (single-width NR)
 #[inline]
 pub(crate) unsafe fn call_microkernel_f64(
     a: *const f64,
@@ -299,24 +355,68 @@ pub(crate) unsafe fn call_microkernel_f64(
     k: usize,
     ldc: usize,
     level: SimdLevel,
+    first_k: bool,
 ) {
     #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => avx512::microkernel_6x8_f64(a, b, c, k, ldc),
-        SimdLevel::Avx2Fma => avx2::microkernel_6x4_f64(a, b, c, k, ldc),
-        _ => microkernel_edge_f64(a, b, c, MR, 4, k, ldc),
+        SimdLevel::Avx512 => avx512::microkernel_6x8_f64(a, b, c, k, ldc, first_k),
+        SimdLevel::Avx2Fma => avx2::microkernel_6x4_f64(a, b, c, k, ldc, first_k),
+        _ => microkernel_edge_f64(a, b, c, MR, 4, k, ldc, first_k),
     }
 
     #[cfg(target_arch = "aarch64")]
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => {
-            aarch64::neon::microkernel_6x2_f64(a, b, c, k, ldc)
+            aarch64::neon::microkernel_6x2_f64(a, b, c, k, ldc, first_k)
         }
-        _ => microkernel_edge_f64(a, b, c, MR, 2, k, ldc),
+        _ => microkernel_edge_f64(a, b, c, MR, 2, k, ldc, first_k),
     }
 
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f64(a, b, c, MR, 4, k, ldc);
+    microkernel_edge_f64(a, b, c, MR, 4, k, ldc, first_k);
+}
+
+/// Dispatch to the double-width SIMD microkernel for f64 (2×NR columns)
+#[inline]
+pub(crate) unsafe fn call_microkernel_2x_f64(
+    a: *const f64,
+    b: *const f64,
+    c: *mut f64,
+    k: usize,
+    ldc: usize,
+    level: SimdLevel,
+    first_k: bool,
+) {
+    #[cfg(target_arch = "x86_64")]
+    match level {
+        SimdLevel::Avx512 => avx512::microkernel_6x16_f64(a, b, c, k, ldc, first_k),
+        SimdLevel::Avx2Fma => avx2::microkernel_6x8_f64(a, b, c, k, ldc, first_k),
+        _ => {
+            let nr = 4usize;
+            microkernel_edge_f64(a, b, c, MR, nr, k, ldc, first_k);
+            microkernel_edge_f64(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => {
+            aarch64::neon::microkernel_6x2_f64(a, b, c, k, ldc, first_k);
+            aarch64::neon::microkernel_6x2_f64(a, b.add(2 * k), c.add(2), k, ldc, first_k);
+        }
+        _ => {
+            let nr = 2usize;
+            microkernel_edge_f64(a, b, c, MR, nr, k, ldc, first_k);
+            microkernel_edge_f64(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+        }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        let nr = 4usize;
+        microkernel_edge_f64(a, b, c, MR, nr, k, ldc, first_k);
+        microkernel_edge_f64(a, b.add(nr * k), c.add(nr), MR, nr, k, ldc, first_k);
+    }
 }
 
 // ============================================================================

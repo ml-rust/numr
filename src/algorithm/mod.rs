@@ -61,8 +61,8 @@ pub mod iterative;
 pub use linalg::{
     CholeskyDecomposition, EigenDecomposition, GeneralEigenDecomposition, LinearAlgebraAlgorithms,
     LuDecomposition, MatrixFunctionsAlgorithms, MatrixNormOrder, QrDecomposition,
-    SchurDecomposition, SvdDecomposition, machine_epsilon, validate_linalg_dtype,
-    validate_matrix_2d, validate_square_matrix,
+    SchurDecomposition, SvdDecomposition, linalg_working_dtype, machine_epsilon,
+    validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 
 pub use matmul::{MatmulAlgorithm, TileConfig};

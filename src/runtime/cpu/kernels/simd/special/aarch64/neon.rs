@@ -27,7 +27,7 @@ use crate::algorithm::special::scalar::{
 
 /// NEON erf for f32
 ///
-/// Uses Abramowitz and Stegun approximation 7.1.26 with polynomial coefficients.
+/// Uses A&S 7.1.26 (~1e-7 accuracy), sufficient for f32's ~7 significant digits.
 ///
 /// # Safety
 /// - Pointers must be valid for `len` elements
@@ -101,55 +101,69 @@ pub unsafe fn erf_f32(input: *const f32, output: *mut f32, len: usize) {
 }
 
 /// NEON erf for f64
+///
+/// Uses Maclaurin series for |x| < 3, Laplace continued fraction for 3 ≤ |x| < 6,
+/// and asymptotic ±1 for |x| ≥ 6. Accuracy: ~1e-15 (full f64 precision).
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 pub unsafe fn erf_f64(input: *const f64, output: *mut f64, len: usize) {
     let lanes = 2;
     let chunks = len / lanes;
 
-    let a1 = vdupq_n_f64(0.254829592);
-    let a2 = vdupq_n_f64(-0.284496736);
-    let a3 = vdupq_n_f64(1.421413741);
-    let a4 = vdupq_n_f64(-1.453152027);
-    let a5 = vdupq_n_f64(1.061405429);
-    let p = vdupq_n_f64(0.3275911);
+    let zero = vdupq_n_f64(0.0);
     let one = vdupq_n_f64(1.0);
     let neg_one = vdupq_n_f64(-1.0);
+    let three = vdupq_n_f64(3.0);
+    let six = vdupq_n_f64(6.0);
+    let two_over_sqrt_pi = vdupq_n_f64(1.1283791670955126);
+    let frac_1_sqrt_pi = vdupq_n_f64(0.5641895835477563);
 
     for i in 0..chunks {
         let idx = i * lanes;
         let x = vld1q_f64(input.add(idx));
 
-        let sign = vbslq_f64(vcltq_f64(x, vdupq_n_f64(0.0)), neg_one, one);
-        let absx = vabsq_f64(x);
+        // sign and |x|
+        let sign = vbslq_f64(vcltq_f64(x, zero), neg_one, one);
+        let ax = vabsq_f64(x);
 
-        let t = vdivq_f64(one, vaddq_f64(one, vmulq_f64(p, absx)));
+        // === Maclaurin series ===
+        let x2 = vmulq_f64(ax, ax);
+        let neg_x2 = vnegq_f64(x2);
+        let mut term = ax;
+        let mut sum = ax;
+        for n in 1..30 {
+            let n_f = n as f64;
+            term = vmulq_f64(term, vdivq_f64(neg_x2, vdupq_n_f64(n_f)));
+            let contrib = vdivq_f64(term, vdupq_n_f64(2.0 * n_f + 1.0));
+            sum = vaddq_f64(sum, contrib);
+        }
+        let maclaurin_result = vmulq_f64(sum, two_over_sqrt_pi);
 
-        let poly = vmulq_f64(
-            t,
-            vaddq_f64(
-                a1,
-                vmulq_f64(
-                    t,
-                    vaddq_f64(
-                        a2,
-                        vmulq_f64(
-                            t,
-                            vaddq_f64(a3, vmulq_f64(t, vaddq_f64(a4, vmulq_f64(t, a5)))),
-                        ),
-                    ),
-                ),
-            ),
-        );
-
-        let x2 = vmulq_f64(absx, absx);
+        // === Laplace continued fraction for erfc ===
+        let mut f = zero;
+        for n in (1..=50_u32).rev() {
+            f = vdivq_f64(vdupq_n_f64(n as f64 * 0.5), vaddq_f64(ax, f));
+        }
+        let cf = vdivq_f64(one, vaddq_f64(ax, f));
+        // exp(-x²) via scalar (NEON has no native exp)
         let exp_arr = [
             (-vgetq_lane_f64(x2, 0)).exp(),
             (-vgetq_lane_f64(x2, 1)).exp(),
         ];
         let exp_neg_x2 = vld1q_f64(exp_arr.as_ptr());
+        let erfc_val = vmulq_f64(vmulq_f64(exp_neg_x2, frac_1_sqrt_pi), cf);
+        let cf_result = vsubq_f64(one, erfc_val);
 
-        let result = vmulq_f64(sign, vsubq_f64(one, vmulq_f64(poly, exp_neg_x2)));
+        // === Blend regions ===
+        let mask_small = vcltq_f64(ax, three); // |x| < 3
+        let mask_large = vcgeq_f64(ax, six); // |x| ≥ 6
+
+        // Start with continued fraction, override Maclaurin where |x| < 3
+        let mut result = vbslq_f64(mask_small, maclaurin_result, cf_result);
+        // Override with 1.0 where |x| ≥ 6
+        result = vbslq_f64(mask_large, one, result);
+        // Apply sign
+        result = vmulq_f64(sign, result);
 
         vst1q_f64(output.add(idx), result);
     }

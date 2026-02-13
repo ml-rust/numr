@@ -156,16 +156,26 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         dims: &[usize],
         keepdim: bool,
     ) -> Result<Tensor<CudaRuntime>> {
-        // Only support floating point types
+        // Support: F32, F64, F16, BF16
+        // For F16/BF16: upcast to F32, compute, downcast back
         use crate::dtype::DType;
-        if !matches!(a.dtype(), DType::F32 | DType::F64) {
+        use crate::ops::TypeConversionOps;
+
+        let input_dtype = a.dtype();
+        if !matches!(
+            input_dtype,
+            DType::F32 | DType::F64 | DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2
+        ) {
             return Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
+                dtype: input_dtype,
                 op: "logsumexp",
             });
         }
 
-        let shape = a.shape();
+        // F16/BF16/FP8 have native CUDA kernels that accumulate in F32 internally
+        let (a_compute, needs_cast) = (a.clone(), false);
+
+        let shape = a_compute.shape();
         let ndim = shape.len();
 
         // Handle empty dims (reduce over all dimensions)
@@ -186,18 +196,20 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         }
 
         // Handle empty tensor
-        if a.numel() == 0 {
+        if a_compute.numel() == 0 {
             let out_shape = reduce_output_shape(shape, &actual_dims, keepdim);
-            return Ok(Tensor::<CudaRuntime>::empty(
-                &out_shape,
-                a.dtype(),
-                &self.device,
-            ));
+            let out = Tensor::<CudaRuntime>::empty(&out_shape, a_compute.dtype(), &self.device);
+            // Cast back to original dtype if needed
+            return if needs_cast {
+                Ok(self.cast(&out, input_dtype)?)
+            } else {
+                Ok(out)
+            };
         }
 
         // For multi-dimensional reduction, reduce one dimension at a time
         if actual_dims.len() > 1 {
-            let mut result = a.clone();
+            let mut result = a_compute.clone();
             // Sort dims in descending order to avoid index invalidation
             let mut sorted_dims = actual_dims.clone();
             sorted_dims.sort_by(|a, b| b.cmp(a));
@@ -219,7 +231,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         let dim = actual_dims[0];
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(&a_compute);
 
         // Calculate dimensions for kernel launch
         let reduce_size = shape[dim];
@@ -230,8 +242,9 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
         let out_numel: usize = out_shape.iter().product();
 
-        // Allocate output
-        let out = Tensor::<CudaRuntime>::empty(&out_shape, a.dtype(), &self.device);
+        // Allocate output (in F32 if upcast, else in original dtype)
+        let compute_dtype = a_compute.dtype();
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, compute_dtype, &self.device);
 
         // Choose kernel based on dimension position
         if inner_size == 1 {
@@ -242,7 +255,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    a.dtype(),
+                    a_compute.dtype(),
                     a_contig.storage().ptr(),
                     out.storage().ptr(),
                     reduce_size,
@@ -256,7 +269,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    a.dtype(),
+                    a_compute.dtype(),
                     a_contig.storage().ptr(),
                     out.storage().ptr(),
                     reduce_size,
@@ -266,11 +279,18 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
             }
         }
 
-        // Handle keepdim reshape if needed
-        if keepdim && out.numel() == out_numel {
-            Ok(out)
+        // Cast back to original dtype if needed
+        let result = if needs_cast {
+            self.cast(&out, input_dtype)?
         } else {
-            Ok(out)
+            out
+        };
+
+        // Handle keepdim reshape if needed
+        if keepdim && result.numel() == out_numel {
+            Ok(result)
+        } else {
+            Ok(result)
         }
     }
 }

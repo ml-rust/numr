@@ -13,40 +13,50 @@ pub fn cat_impl(
     tensors: &[&Tensor<CpuRuntime>],
     dim: isize,
 ) -> Result<Tensor<CpuRuntime>> {
-    // Use shared validation
     let params = shape_ops::validate_cat(tensors, dim)?;
 
-    // Allocate output
     let out = Tensor::<CpuRuntime>::empty(&params.out_shape, params.dtype, &client.device);
     let out_ptr = out.storage().ptr();
+    let elem_size = params.dtype.size_in_bytes();
 
-    // Copy data from each tensor
-    dispatch_dtype!(params.dtype, T => {
-        unsafe {
-            let mut cat_offset = 0usize;
-            for &tensor in tensors {
-                let tensor_contig = ensure_contiguous(tensor);
-                let src_ptr = tensor_contig.storage().ptr() as *const T;
-                let src_cat_size = tensor.shape()[params.dim_idx];
+    // Byte-level copies — memcpy doesn't need type dispatch, and dispatch_dtype!
+    // adds measurable branch overhead for small tensors (~25% regression on 1D cat).
+    unsafe {
+        let mut cat_offset = 0usize;
+        for &tensor in tensors {
+            let contig_tmp;
+            let src_ptr = if tensor.is_contiguous() {
+                tensor.storage().ptr() as *const u8
+            } else {
+                contig_tmp = tensor.contiguous();
+                contig_tmp.storage().ptr() as *const u8
+            };
+            let src_cat_size = tensor.shape()[params.dim_idx];
+            let src_bytes = src_cat_size * params.inner_size * elem_size;
 
-                // Copy each row-block
+            if params.outer_size == 1 {
+                let dst_offset = cat_offset * params.inner_size * elem_size;
+                std::ptr::copy_nonoverlapping(
+                    src_ptr,
+                    (out_ptr as *mut u8).add(dst_offset),
+                    src_bytes,
+                );
+            } else {
+                let row_bytes = params.cat_dim_total * params.inner_size * elem_size;
                 for outer in 0..params.outer_size {
-                    for cat_i in 0..src_cat_size {
-                        let src_base = outer * src_cat_size * params.inner_size + cat_i * params.inner_size;
-                        let dst_base = outer * params.cat_dim_total * params.inner_size + (cat_offset + cat_i) * params.inner_size;
-
-                        std::ptr::copy_nonoverlapping(
-                            src_ptr.add(src_base),
-                            (out_ptr as *mut T).add(dst_base),
-                            params.inner_size,
-                        );
-                    }
+                    let src_base = outer * src_bytes;
+                    let dst_base = outer * row_bytes + cat_offset * params.inner_size * elem_size;
+                    std::ptr::copy_nonoverlapping(
+                        src_ptr.add(src_base),
+                        (out_ptr as *mut u8).add(dst_base),
+                        src_bytes,
+                    );
                 }
-
-                cat_offset += src_cat_size;
             }
+
+            cat_offset += src_cat_size;
         }
-    }, "cat");
+    }
 
     Ok(out)
 }

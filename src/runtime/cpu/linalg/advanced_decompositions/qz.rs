@@ -8,7 +8,8 @@
 use super::super::super::jacobi::LinalgElement;
 use super::super::super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    GeneralizedSchurDecomposition, validate_linalg_dtype, validate_square_matrix,
+    GeneralizedSchurDecomposition, linalg_demote, linalg_promote, validate_linalg_dtype,
+    validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -28,6 +29,8 @@ pub fn qz_decompose_impl(
             rhs: b.dtype(),
         });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (b, _) = linalg_promote(client, b)?;
     let n = validate_square_matrix(a.shape())?;
     let n_b = validate_square_matrix(b.shape())?;
     if n != n_b {
@@ -37,14 +40,20 @@ pub fn qz_decompose_impl(
         });
     }
 
-    match a.dtype() {
-        DType::F32 => qz_decompose_typed::<f32>(client, a, b, n),
-        DType::F64 => qz_decompose_typed::<f64>(client, a, b, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "qz_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => qz_decompose_typed::<f32>(client, &a, &b, n),
+        DType::F64 => qz_decompose_typed::<f64>(client, &a, &b, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(GeneralizedSchurDecomposition {
+        q: linalg_demote(client, result.q, original_dtype)?,
+        z: linalg_demote(client, result.z, original_dtype)?,
+        s: linalg_demote(client, result.s, original_dtype)?,
+        t: linalg_demote(client, result.t, original_dtype)?,
+        eigenvalues_real: linalg_demote(client, result.eigenvalues_real, original_dtype)?,
+        eigenvalues_imag: linalg_demote(client, result.eigenvalues_imag, original_dtype)?,
+    })
 }
 
 fn qz_decompose_typed<T: Element + LinalgElement>(

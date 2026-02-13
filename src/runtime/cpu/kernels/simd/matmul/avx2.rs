@@ -19,7 +19,10 @@
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::*;
 
-use super::macros::{define_microkernel_f32, define_microkernel_f64};
+use super::macros::{
+    define_microkernel_2x_f32, define_microkernel_2x_f64, define_microkernel_f32,
+    define_microkernel_f64,
+};
 
 // Generate f32 6x8 microkernel using AVX2+FMA
 define_microkernel_f32!(
@@ -31,6 +34,7 @@ define_microkernel_f32!(
     _mm256_storeu_ps,
     _mm256_set1_ps,
     _mm256_fmadd_ps,
+    _mm256_setzero_ps,
     __m256
 );
 
@@ -44,6 +48,35 @@ define_microkernel_f64!(
     _mm256_storeu_pd,
     _mm256_set1_pd,
     _mm256_fmadd_pd,
+    _mm256_setzero_pd,
+    __m256d
+);
+
+// Generate f32 6x16 double-width microkernel using AVX2+FMA (12 FMA chains)
+define_microkernel_2x_f32!(
+    microkernel_6x16_f32,
+    8,
+    "avx2",
+    "fma",
+    _mm256_loadu_ps,
+    _mm256_storeu_ps,
+    _mm256_set1_ps,
+    _mm256_fmadd_ps,
+    _mm256_setzero_ps,
+    __m256
+);
+
+// Generate f64 6x8 double-width microkernel using AVX2+FMA (12 FMA chains)
+define_microkernel_2x_f64!(
+    microkernel_6x8_f64,
+    4,
+    "avx2",
+    "fma",
+    _mm256_loadu_pd,
+    _mm256_storeu_pd,
+    _mm256_set1_pd,
+    _mm256_fmadd_pd,
+    _mm256_setzero_pd,
     __m256d
 );
 
@@ -75,7 +108,7 @@ mod tests {
         let mut c: Vec<f32> = vec![0.0; 6 * 8];
 
         unsafe {
-            microkernel_6x8_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8);
+            microkernel_6x8_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8, true);
         }
 
         // Expected: C[i][j] = A[i][0]*B[0][j] + A[i][1]*B[1][j]
@@ -114,7 +147,7 @@ mod tests {
         let mut c: Vec<f64> = vec![0.0; 6 * 4];
 
         unsafe {
-            microkernel_6x4_f64(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 4);
+            microkernel_6x4_f64(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 4, true);
         }
 
         for i in 0..6 {
@@ -143,8 +176,8 @@ mod tests {
         let mut c: Vec<f32> = vec![100.0; 6 * 8];
 
         unsafe {
-            // Use accumulating version (not beta0)
-            microkernel_6x8_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8);
+            // Use accumulating version (first_k=false, beta=1)
+            microkernel_6x8_f32(a.as_ptr(), b.as_ptr(), c.as_mut_ptr(), 2, 8, false);
         }
 
         // Expected: C[i][j] = 100 + 2*1 = 102

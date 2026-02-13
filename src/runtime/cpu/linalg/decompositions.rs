@@ -3,8 +3,8 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{
-    CholeskyDecomposition, LuDecomposition, QrDecomposition, validate_linalg_dtype,
-    validate_matrix_2d, validate_square_matrix,
+    CholeskyDecomposition, LuDecomposition, QrDecomposition, linalg_demote, linalg_promote,
+    validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -17,16 +17,20 @@ pub fn lu_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<LuDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => lu_decompose_typed::<f32>(client, a, m, n),
-        DType::F64 => lu_decompose_typed::<f64>(client, a, m, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "lu_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => lu_decompose_typed::<f32>(client, &a, m, n),
+        DType::F64 => lu_decompose_typed::<f64>(client, &a, m, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(LuDecomposition {
+        lu: linalg_demote(client, result.lu, original_dtype)?,
+        pivots: result.pivots,
+        num_swaps: result.num_swaps,
+    })
 }
 
 fn lu_decompose_typed<T: Element + LinalgElement>(
@@ -106,16 +110,18 @@ pub fn cholesky_decompose_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<CholeskyDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => cholesky_decompose_typed::<f32>(client, a, n),
-        DType::F64 => cholesky_decompose_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "cholesky_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => cholesky_decompose_typed::<f32>(client, &a, n),
+        DType::F64 => cholesky_decompose_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(CholeskyDecomposition {
+        l: linalg_demote(client, result.l, original_dtype)?,
+    })
 }
 
 fn cholesky_decompose_typed<T: Element + LinalgElement>(
@@ -163,16 +169,19 @@ pub fn qr_decompose_impl(
     thin: bool,
 ) -> Result<QrDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => qr_decompose_typed::<f32>(client, a, m, n, thin),
-        DType::F64 => qr_decompose_typed::<f64>(client, a, m, n, thin),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "qr_decompose",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => qr_decompose_typed::<f32>(client, &a, m, n, thin),
+        DType::F64 => qr_decompose_typed::<f64>(client, &a, m, n, thin),
+        _ => unreachable!(),
+    }?;
+
+    Ok(QrDecomposition {
+        q: linalg_demote(client, result.q, original_dtype)?,
+        r: linalg_demote(client, result.r, original_dtype)?,
+    })
 }
 
 fn qr_decompose_typed<T: Element + LinalgElement>(

@@ -122,6 +122,17 @@ pub enum Error {
         /// Description of the unimplemented feature
         feature: &'static str,
     },
+
+    /// Cargo feature required but not enabled
+    #[error(
+        "{dtype:?} requires the \"{feature}\" feature. Enable it with: cargo build --features {feature}"
+    )]
+    FeatureRequired {
+        /// The dtype that needs the feature
+        dtype: DType,
+        /// The cargo feature name to enable
+        feature: &'static str,
+    },
 }
 
 impl Error {

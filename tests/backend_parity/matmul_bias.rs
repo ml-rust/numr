@@ -1,97 +1,130 @@
 // Backend parity tests for MatmulOps::matmul_bias
+//
+// This module tests matmul_bias across all supported dtypes and backends,
+// ensuring numerical consistency across CPU, CUDA, and WebGPU.
 
 use numr::ops::{BinaryOps, MatmulOps};
 use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 use numr::tensor::Tensor;
 
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 use crate::backend_parity::helpers::assert_parity_f32;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
-fn cpu_reference(
-    a: &[f32],
-    a_shape: &[usize],
-    b: &[f32],
-    b_shape: &[usize],
-    bias: &[f32],
-) -> Vec<f32> {
-    let (cpu_client, cpu_device) = create_cpu_client();
-    let a_t = Tensor::from_slice(a, a_shape, &cpu_device);
-    let b_t = Tensor::from_slice(b, b_shape, &cpu_device);
-    let bias_t = Tensor::from_slice(bias, &[bias.len()], &cpu_device);
-    cpu_client
-        .matmul_bias(&a_t, &b_t, &bias_t)
-        .unwrap()
-        .to_vec::<f32>()
-}
-
+/// Test matmul_bias with 2D matrices across all supported dtypes and backends
 #[test]
 fn test_matmul_bias_2d_parity() {
-    let a = vec![1.0f32, 2.0, 3.0, 4.0];
-    let b = vec![5.0f32, 6.0, 7.0, 8.0];
-    let bias = vec![1.0f32, 2.0];
-    let cpu = cpu_reference(&a, &[2, 2], &b, &[2, 2], &bias);
+    let a = vec![1.0f64, 2.0, 3.0, 4.0];
+    let b = vec![5.0f64, 6.0, 7.0, 8.0];
+    let bias = vec![1.0f64, 2.0];
 
-    #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        let a_t = Tensor::from_slice(&a, &[2, 2], &cuda_device);
-        let b_t = Tensor::from_slice(&b, &[2, 2], &cuda_device);
-        let bias_t = Tensor::from_slice(&bias, &[2], &cuda_device);
-        let got: Vec<f32> = cuda_client
-            .matmul_bias(&a_t, &b_t, &bias_t)
-            .unwrap()
-            .to_vec();
-        assert_parity_f32(&cpu, &got, "matmul_bias_2d_cuda");
-    });
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+        let a_t = tensor_from_f64(&a, &[2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+        let b_t = tensor_from_f64(&b, &[2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+        let bias_t = tensor_from_f64(&bias, &[2], dtype, &cpu_device, &cpu_client).unwrap();
+        let cpu_result = cpu_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
 
-    #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        let a_t = Tensor::from_slice(&a, &[2, 2], &wgpu_device);
-        let b_t = Tensor::from_slice(&b, &[2, 2], &wgpu_device);
-        let bias_t = Tensor::from_slice(&bias, &[2], &wgpu_device);
-        let got: Vec<f32> = wgpu_client
-            .matmul_bias(&a_t, &b_t, &bias_t)
-            .unwrap()
-            .to_vec();
-        assert_parity_f32(&cpu, &got, "matmul_bias_2d_wgpu");
-    });
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a_t = tensor_from_f64(&a, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let b_t = tensor_from_f64(&b, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &cuda_device, &cuda_client).unwrap();
+                let result = cuda_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("matmul_bias_2d CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a_t = tensor_from_f64(&a, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let b_t = tensor_from_f64(&b, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let result = wgpu_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("matmul_bias_2d WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
 }
 
+/// Test matmul_bias with batched 3D tensors across all supported dtypes and backends
 #[test]
 fn test_matmul_bias_batched_parity() {
-    let a = vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-    let b = vec![1.0f32, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0];
-    let bias = vec![0.5f32, 1.0];
-    let cpu = cpu_reference(&a, &[2, 2, 2], &b, &[2, 2, 2], &bias);
+    let a = vec![1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+    let b = vec![1.0f64, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 2.0];
+    let bias = vec![0.5f64, 1.0];
 
-    #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        let a_t = Tensor::from_slice(&a, &[2, 2, 2], &cuda_device);
-        let b_t = Tensor::from_slice(&b, &[2, 2, 2], &cuda_device);
-        let bias_t = Tensor::from_slice(&bias, &[2], &cuda_device);
-        let got: Vec<f32> = cuda_client
-            .matmul_bias(&a_t, &b_t, &bias_t)
-            .unwrap()
-            .to_vec();
-        assert_parity_f32(&cpu, &got, "matmul_bias_batched_cuda");
-    });
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+        let a_t = tensor_from_f64(&a, &[2, 2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+        let b_t = tensor_from_f64(&b, &[2, 2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+        let bias_t = tensor_from_f64(&bias, &[2], dtype, &cpu_device, &cpu_client).unwrap();
+        let cpu_result = cpu_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
 
-    #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        let a_t = Tensor::from_slice(&a, &[2, 2, 2], &wgpu_device);
-        let b_t = Tensor::from_slice(&b, &[2, 2, 2], &wgpu_device);
-        let bias_t = Tensor::from_slice(&bias, &[2], &wgpu_device);
-        let got: Vec<f32> = wgpu_client
-            .matmul_bias(&a_t, &b_t, &bias_t)
-            .unwrap()
-            .to_vec();
-        assert_parity_f32(&cpu, &got, "matmul_bias_batched_wgpu");
-    });
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a_t =
+                    tensor_from_f64(&a, &[2, 2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let b_t =
+                    tensor_from_f64(&b, &[2, 2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &cuda_device, &cuda_client).unwrap();
+                let result = cuda_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("matmul_bias_batched CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a_t =
+                    tensor_from_f64(&a, &[2, 2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let b_t =
+                    tensor_from_f64(&b, &[2, 2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let result = wgpu_client.matmul_bias(&a_t, &b_t, &bias_t).unwrap();
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("matmul_bias_batched WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
 }
 
+/// CPU-only reference test: verify matmul_bias matches matmul + add pattern
+///
+/// This test is F32-only (not parameterized) because it verifies the mathematical
+/// identity of the fused operation against the reference implementation.
 #[test]
 fn test_matmul_bias_matches_matmul_plus_bias() {
     let (cpu_client, cpu_device) = create_cpu_client();
@@ -109,6 +142,10 @@ fn test_matmul_bias_matches_matmul_plus_bias() {
     assert_parity_f32(&fused, &reference, "matmul_bias_matches_reference_cpu");
 }
 
+/// CPU-only test: verify matmul_bias parallelism configuration doesn't affect results
+///
+/// This test is F32-only (not parameterized) because it verifies that different
+/// parallelism configurations produce identical numerical results on CPU.
 #[test]
 fn test_cpu_matmul_bias_parallelism_config_matches_default() {
     let device = CpuDevice::new();

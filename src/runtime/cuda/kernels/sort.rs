@@ -19,7 +19,10 @@ fn sort_shared_mem_size(sort_size: usize, elem_size: usize) -> u32 {
     // Need space for values and indices
     // Pad to next power of 2 for bitonic sort
     let n = sort_size.next_power_of_two();
-    ((n * elem_size) + (n * 8)) as u32 // values + i64 indices
+    let vals_bytes = n * elem_size;
+    // Align to 8 bytes for long long indices (matches kernel alignment logic)
+    let aligned_offset = (vals_bytes + 7) & !7;
+    (aligned_offset + n * 8) as u32
 }
 
 /// Launch sort kernel with indices

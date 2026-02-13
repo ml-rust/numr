@@ -1,18 +1,22 @@
 // Backend parity tests for EinsumOps trait
 //
-// Tests verify that einsum operations produce identical results across
-// CPU, CUDA, and WebGPU backends.
+// Dtype-parameterized: each test runs for all supported dtypes (F32, F64, F16, BF16, FP8).
+// Tensors are created in f64 then cast to target dtype via tensor_from_f64().
+// Comparison reads back in native dtype - no unnecessary f64 conversion.
 
+use numr::dtype::DType;
 use numr::ops::EinsumOps;
+use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use crate::backend_parity::helpers::assert_single_parity_f32;
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
 // ============================================================================
 // Test Utilities
@@ -20,60 +24,96 @@ use crate::common::create_cpu_client;
 
 struct EinsumTest {
     notation: &'static str,
-    inputs: Vec<(Vec<f32>, Vec<usize>)>,
+    inputs: Vec<(Vec<f64>, Vec<usize>)>,
 }
 
 impl EinsumTest {
-    fn new(notation: &'static str, inputs: Vec<(Vec<f32>, Vec<usize>)>) -> Self {
+    fn new(notation: &'static str, inputs: Vec<(Vec<f64>, Vec<usize>)>) -> Self {
         EinsumTest { notation, inputs }
     }
 }
 
-fn test_einsum_parity(test_cases: Vec<EinsumTest>) {
-    for test_case in &test_cases {
-        // CPU baseline
-        let (cpu_client, cpu_device) = create_cpu_client();
-        let cpu_tensors: Vec<_> = test_case
-            .inputs
-            .iter()
-            .map(|(data, shape)| Tensor::from_slice(data, shape, &cpu_device))
-            .collect();
-        let cpu_refs: Vec<_> = cpu_tensors.iter().collect();
-        let cpu_result = cpu_client
-            .einsum(test_case.notation, &cpu_refs)
-            .expect("CPU einsum failed")
-            .to_vec::<f32>();
+fn test_einsum_parity(test_cases: &[EinsumTest], dtype: DType) {
+    // CPU baseline
+    let (cpu_client, cpu_device) = create_cpu_client();
 
-        // CUDA parity
-        #[cfg(feature = "cuda")]
+    let cpu_results: Vec<Tensor<CpuRuntime>> = test_cases
+        .iter()
+        .map(|tc| {
+            let tensors: Vec<_> = tc
+                .inputs
+                .iter()
+                .map(|(data, shape)| {
+                    tensor_from_f64(data, shape, dtype, &cpu_device, &cpu_client)
+                        .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"))
+                })
+                .collect();
+            let tensor_refs: Vec<_> = tensors.iter().collect();
+            cpu_client
+                .einsum(tc.notation, &tensor_refs)
+                .unwrap_or_else(|e| panic!("CPU einsum failed for {dtype:?}: {e}"))
+        })
+        .collect();
+
+    // CUDA parity
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
         with_cuda_backend(|cuda_client, cuda_device| {
-            let cuda_tensors: Vec<_> = test_case
-                .inputs
-                .iter()
-                .map(|(data, shape)| Tensor::from_slice(data, shape, &cuda_device))
-                .collect();
-            let cuda_refs: Vec<_> = cuda_tensors.iter().collect();
-            let cuda_result = cuda_client
-                .einsum(test_case.notation, &cuda_refs)
-                .expect("CUDA einsum failed")
-                .to_vec::<f32>();
-            assert_single_parity_f32(&cpu_result, &cuda_result, test_case.notation, "cuda");
-        });
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensors: Vec<_> = tc
+                    .inputs
+                    .iter()
+                    .map(|(data, shape)| {
+                        tensor_from_f64(data, shape, dtype, &cuda_device, &cuda_client)
+                            .unwrap_or_else(|e| {
+                                panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                            })
+                    })
+                    .collect();
+                let tensor_refs: Vec<_> = tensors.iter().collect();
 
-        // WebGPU parity
-        #[cfg(feature = "wgpu")]
+                let result = cuda_client
+                    .einsum(tc.notation, &tensor_refs)
+                    .unwrap_or_else(|e| panic!("CUDA einsum failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("einsum {} CUDA vs CPU [{dtype:?}]", tc.notation),
+                );
+            }
+        });
+    }
+
+    // WebGPU parity
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
         with_wgpu_backend(|wgpu_client, wgpu_device| {
-            let wgpu_tensors: Vec<_> = test_case
-                .inputs
-                .iter()
-                .map(|(data, shape)| Tensor::from_slice(data, shape, &wgpu_device))
-                .collect();
-            let wgpu_refs: Vec<_> = wgpu_tensors.iter().collect();
-            let wgpu_result = wgpu_client
-                .einsum(test_case.notation, &wgpu_refs)
-                .expect("WebGPU einsum failed")
-                .to_vec::<f32>();
-            assert_single_parity_f32(&cpu_result, &wgpu_result, test_case.notation, "wgpu");
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let tensors: Vec<_> = tc
+                    .inputs
+                    .iter()
+                    .map(|(data, shape)| {
+                        tensor_from_f64(data, shape, dtype, &wgpu_device, &wgpu_client)
+                            .unwrap_or_else(|e| {
+                                panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                            })
+                    })
+                    .collect();
+                let tensor_refs: Vec<_> = tensors.iter().collect();
+
+                let result = wgpu_client
+                    .einsum(tc.notation, &tensor_refs)
+                    .unwrap_or_else(|e| panic!("WebGPU einsum failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("einsum {} WebGPU vs CPU [{dtype:?}]", tc.notation),
+                );
+            }
         });
     }
 }
@@ -82,91 +122,106 @@ fn test_einsum_parity(test_cases: Vec<EinsumTest>) {
 // Einsum Parity Tests
 // ============================================================================
 
-#[test]
-fn test_einsum_matmul_parity() {
-    // Matrix multiplication: ij,jk->ik
-    // A: 2x3, B: 3x2 -> C: 2x2
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let b = vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
+macro_rules! einsum_case {
+    ($name:ident, $cases:expr) => {
+        #[test]
+        fn $name() {
+            for dtype in supported_dtypes("cpu") {
+                test_einsum_parity($cases, dtype);
+            }
+        }
+    };
+}
 
-    test_einsum_parity(vec![EinsumTest::new(
+einsum_case!(
+    test_einsum_matmul_parity,
+    &[EinsumTest::new(
         "ij,jk->ik",
-        vec![(a, vec![2, 3]), (b, vec![3, 2])],
-    )]);
-}
+        vec![
+            (vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
+            (vec![1.0, 0.0, 0.0, 1.0, 1.0, 1.0], vec![3, 2])
+        ],
+    )]
+);
 
-#[test]
-fn test_einsum_batched_matmul_parity() {
-    // Batched matrix multiplication: bij,bjk->bik
-    let a = vec![
-        // Batch 0
-        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1
-        2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
-    ];
-    let b = vec![
-        // Batch 0
-        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1
-        2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
-    ];
-
-    test_einsum_parity(vec![EinsumTest::new(
+einsum_case!(
+    test_einsum_batched_matmul_parity,
+    &[EinsumTest::new(
         "bij,bjk->bik",
-        vec![(a, vec![2, 2, 3]), (b, vec![2, 3, 2])],
-    )]);
-}
+        vec![
+            (
+                vec![
+                    // Batch 0
+                    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1
+                    2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                ],
+                vec![2, 2, 3]
+            ),
+            (
+                vec![
+                    // Batch 0
+                    1.0, 2.0, 3.0, 4.0, 5.0, 6.0, // Batch 1
+                    2.0, 3.0, 4.0, 5.0, 6.0, 7.0,
+                ],
+                vec![2, 3, 2]
+            )
+        ],
+    )]
+);
 
-#[test]
-fn test_einsum_transpose_parity() {
-    // Transpose: ij->ji
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+einsum_case!(
+    test_einsum_transpose_parity,
+    &[EinsumTest::new(
+        "ij->ji",
+        vec![(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3])]
+    )]
+);
 
-    test_einsum_parity(vec![EinsumTest::new("ij->ji", vec![(a, vec![2, 3])])]);
-}
-
-#[test]
-fn test_einsum_outer_product_parity() {
-    // Outer product: i,j->ij
-    let a = vec![1.0, 2.0, 3.0];
-    let b = vec![4.0, 5.0, 6.0, 7.0];
-
-    test_einsum_parity(vec![EinsumTest::new(
+einsum_case!(
+    test_einsum_outer_product_parity,
+    &[EinsumTest::new(
         "i,j->ij",
-        vec![(a, vec![3]), (b, vec![4])],
-    )]);
-}
+        vec![
+            (vec![1.0, 2.0, 3.0], vec![3]),
+            (vec![4.0, 5.0, 6.0, 7.0], vec![4])
+        ],
+    )]
+);
 
-#[test]
-fn test_einsum_trace_parity() {
-    // Trace: ii->
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+einsum_case!(
+    test_einsum_trace_parity,
+    &[EinsumTest::new(
+        "ii->",
+        vec![(
+            vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+            vec![3, 3]
+        )]
+    )]
+);
 
-    test_einsum_parity(vec![EinsumTest::new("ii->", vec![(a, vec![3, 3])])]);
-}
-
-#[test]
-fn test_einsum_elementwise_parity() {
-    // Element-wise multiplication (Hadamard product): ij,ij->ij
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let b = vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
-
-    test_einsum_parity(vec![EinsumTest::new(
+einsum_case!(
+    test_einsum_elementwise_parity,
+    &[EinsumTest::new(
         "ij,ij->ij",
-        vec![(a, vec![2, 3]), (b, vec![2, 3])],
-    )]);
-}
+        vec![
+            (vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
+            (vec![2.0, 3.0, 4.0, 5.0, 6.0, 7.0], vec![2, 3])
+        ],
+    )]
+);
 
-#[test]
-fn test_einsum_sum_parity() {
-    // Sum all elements: ij->
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+einsum_case!(
+    test_einsum_sum_parity,
+    &[EinsumTest::new(
+        "ij->",
+        vec![(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3])]
+    )]
+);
 
-    test_einsum_parity(vec![EinsumTest::new("ij->", vec![(a, vec![2, 3])])]);
-}
-
-#[test]
-fn test_einsum_reduction_parity() {
-    // Row sum: ij->i
-    let a = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-
-    test_einsum_parity(vec![EinsumTest::new("ij->i", vec![(a, vec![2, 3])])]);
-}
+einsum_case!(
+    test_einsum_reduction_parity,
+    &[EinsumTest::new(
+        "ij->i",
+        vec![(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3])]
+    )]
+);

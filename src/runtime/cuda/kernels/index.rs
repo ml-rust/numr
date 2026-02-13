@@ -548,6 +548,10 @@ pub unsafe fn launch_masked_fill(
         DType::F16 => "masked_fill_f16",
         #[cfg(feature = "f16")]
         DType::BF16 => "masked_fill_bf16",
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 => "masked_fill_fp8_e4m3",
+        #[cfg(feature = "fp8")]
+        DType::FP8E5M2 => "masked_fill_fp8_e5m2",
         _ => {
             return Err(Error::UnsupportedDType {
                 dtype,
@@ -580,6 +584,10 @@ pub unsafe fn launch_masked_fill(
         let fill_f16 = half::f16::from_f64(fill_value).to_bits();
         #[cfg(feature = "f16")]
         let fill_bf16 = half::bf16::from_f64(fill_value).to_bits();
+        #[cfg(feature = "fp8")]
+        let fill_fp8_e4m3 = crate::dtype::fp8::FP8E4M3::from_f64(fill_value).to_bits();
+        #[cfg(feature = "fp8")]
+        let fill_fp8_e5m2 = crate::dtype::fp8::FP8E5M2::from_f64(fill_value).to_bits();
 
         // Pass fill_value with appropriate type
         match dtype {
@@ -591,6 +599,10 @@ pub unsafe fn launch_masked_fill(
             DType::F16 => builder.arg(&fill_f16),
             #[cfg(feature = "f16")]
             DType::BF16 => builder.arg(&fill_bf16),
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 => builder.arg(&fill_fp8_e4m3),
+            #[cfg(feature = "fp8")]
+            DType::FP8E5M2 => builder.arg(&fill_fp8_e5m2),
             _ => unreachable!(), // Already handled above
         };
 
@@ -815,6 +827,10 @@ pub unsafe fn launch_masked_fill_broadcast(
         DType::F16 => "masked_fill_broadcast_f16",
         #[cfg(feature = "f16")]
         DType::BF16 => "masked_fill_broadcast_bf16",
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 => "masked_fill_broadcast_fp8_e4m3",
+        #[cfg(feature = "fp8")]
+        DType::FP8E5M2 => "masked_fill_broadcast_fp8_e5m2",
         _ => {
             return Err(Error::UnsupportedDType {
                 dtype,
@@ -848,6 +864,10 @@ pub unsafe fn launch_masked_fill_broadcast(
         let fill_f16 = half::f16::from_f64(fill_value).to_bits();
         #[cfg(feature = "f16")]
         let fill_bf16 = half::bf16::from_f64(fill_value).to_bits();
+        #[cfg(feature = "fp8")]
+        let fill_fp8_e4m3 = crate::dtype::fp8::FP8E4M3::from_f64(fill_value).to_bits();
+        #[cfg(feature = "fp8")]
+        let fill_fp8_e5m2 = crate::dtype::fp8::FP8E5M2::from_f64(fill_value).to_bits();
 
         // Pass fill_value with appropriate type
         match dtype {
@@ -859,6 +879,10 @@ pub unsafe fn launch_masked_fill_broadcast(
             DType::F16 => builder.arg(&fill_f16),
             #[cfg(feature = "f16")]
             DType::BF16 => builder.arg(&fill_bf16),
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 => builder.arg(&fill_fp8_e4m3),
+            #[cfg(feature = "fp8")]
+            DType::FP8E5M2 => builder.arg(&fill_fp8_e5m2),
             _ => unreachable!(), // Already handled above
         };
 
@@ -889,6 +913,10 @@ fn dtype_suffix(dtype: DType) -> Result<&'static str> {
         DType::F16 => Ok("f16"),
         #[cfg(feature = "f16")]
         DType::BF16 => Ok("bf16"),
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 => Ok("fp8_e4m3"),
+        #[cfg(feature = "fp8")]
+        DType::FP8E5M2 => Ok("fp8_e5m2"),
         _ => Err(Error::UnsupportedDType {
             dtype,
             op: "masked_select_broadcast",

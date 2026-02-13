@@ -53,45 +53,30 @@ pub unsafe fn launch_cast(
     }
 
     // Validate supported types
-    let supported = matches!(
-        src_dtype,
-        DType::F32
-            | DType::F64
-            | DType::F16
-            | DType::BF16
-            | DType::FP8E4M3
-            | DType::FP8E5M2
-            | DType::I32
-            | DType::I64
-    ) && matches!(
-        dst_dtype,
-        DType::F32
-            | DType::F64
-            | DType::F16
-            | DType::BF16
-            | DType::FP8E4M3
-            | DType::FP8E5M2
-            | DType::I32
-            | DType::I64
-    );
+    let is_supported = |d: DType| {
+        matches!(
+            d,
+            DType::F32
+                | DType::F64
+                | DType::F16
+                | DType::BF16
+                | DType::FP8E4M3
+                | DType::FP8E5M2
+                | DType::I32
+                | DType::I64
+                | DType::Bool
+        )
+    };
 
-    if !supported {
+    if !is_supported(src_dtype) {
         return Err(Error::UnsupportedDType {
-            dtype: if !matches!(
-                src_dtype,
-                DType::F32
-                    | DType::F64
-                    | DType::F16
-                    | DType::BF16
-                    | DType::FP8E4M3
-                    | DType::FP8E5M2
-                    | DType::I32
-                    | DType::I64
-            ) {
-                src_dtype
-            } else {
-                dst_dtype
-            },
+            dtype: src_dtype,
+            op: "cast",
+        });
+    }
+    if !is_supported(dst_dtype) {
+        return Err(Error::UnsupportedDType {
+            dtype: dst_dtype,
             op: "cast",
         });
     }

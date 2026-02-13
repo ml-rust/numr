@@ -59,61 +59,15 @@ jobs:
 
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
-  lint:
-    name: Lint, Format & Docs
+  # Reuse benchmark workflow which includes the full test suite + regression check
+  ci:
+    name: CI + Benchmark
     needs: validate-version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: lint
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Run clippy (all CI-safe features)
-        run: cargo clippy --all-targets --features f16,sparse -- -D warnings
-
-      - name: Build docs
-        run: cargo doc --no-deps --features f16,sparse
-
-      - name: Run doctests
-        run: cargo test --doc --features f16,sparse
-
-  test:
-    name: Test (${{ matrix.os }})
-    needs: validate-version
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: test
-
-      - name: Run tests (default)
-        run: cargo test
-
-      - name: Run tests (f16 + sparse)
-        run: cargo test --features f16,sparse
+    uses: ./.github/workflows/benchmark.yml
 
   publish:
     name: Publish to crates.io
-    needs: [validate-version, lint, test]
+    needs: [validate-version, ci]
     runs-on: ubuntu-latest
     environment: crates-io
     steps:

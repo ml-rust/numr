@@ -31,6 +31,16 @@ macro_rules! dispatch_float_dtype {
                 type $T = half::bf16;
                 $body
             }
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 => {
+                type $T = crate::dtype::FP8E4M3;
+                $body
+            }
+            #[cfg(feature = "fp8")]
+            DType::FP8E5M2 => {
+                type $T = crate::dtype::FP8E5M2;
+                $body
+            }
             _ => {
                 return Err(Error::UnsupportedDType {
                     dtype: $dtype,

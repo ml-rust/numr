@@ -92,6 +92,8 @@ impl DTypeSupport {
         match dtype {
             DType::F32 if self.f32 => Ok(()),
             DType::F64 if self.f64 => Ok(()),
+            // F16, BF16, FP8 supported if F32 is supported (they convert to/from F32)
+            DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2 if self.f32 => Ok(()),
             DType::F32 | DType::F64 => Err(Error::UnsupportedDType { dtype, op }),
             _ => Err(Error::UnsupportedDType { dtype, op }),
         }

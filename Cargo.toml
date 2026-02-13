@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.89"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
@@ -20,8 +20,9 @@ cpu = []
 cuda = ["dep:cudarc"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
-f16 = ["dep:half", "cudarc?/f16"]
-sparse = []                         # Sparse tensor formats (CSR, CSC, COO) and operations
+f16 = ["dep:half", "cudarc?/f16"]   # Half-precision floats (F16, BF16) - optional reduced-precision support
+fp8 = []                             # 8-bit floats (FP8E4M3, FP8E5M2) - optional ultra-low-precision support
+sparse = []                          # Sparse tensor formats (CSR, CSC, COO) and operations
 
 [dependencies]
 # Core
@@ -60,6 +61,37 @@ paste = "1.0.15"
 [dev-dependencies]
 approx = "0.5"
 rand = "0.9"
+fluxbench = "0.1"
+ndarray = "0.16"
+nalgebra = "0.33"
+
+[[bench]]
+name = "matmul"
+harness = false
+
+[[bench]]
+name = "reduce"
+harness = false
+
+[[bench]]
+name = "fft"
+harness = false
+
+[[bench]]
+name = "indexing"
+harness = false
+
+[[bench]]
+name = "shape_ops"
+harness = false
+
+[[bench]]
+name = "parallelism"
+harness = false
+
+[[bench]]
+name = "ci_regression"
+harness = false
 
 [profile.release]
 lto = "thin"

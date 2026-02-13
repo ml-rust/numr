@@ -238,4 +238,332 @@ DEFINE_CONV1D_KERNEL(bf16, __nv_bfloat16)
 DEFINE_CONV2D_KERNEL(bf16, __nv_bfloat16)
 DEFINE_DEPTHWISE_CONV2D_KERNEL(bf16, __nv_bfloat16)
 
+// FP8 E4M3 kernels (compute in float, load/store as FP8)
+__global__ void conv1d_fp8_e4m3(
+    const numr_fp8_e4m3* __restrict__ input,
+    const numr_fp8_e4m3* __restrict__ weight,
+    const numr_fp8_e4m3* __restrict__ bias,
+    numr_fp8_e4m3* __restrict__ output,
+    unsigned int batch,
+    unsigned int c_in,
+    unsigned int length,
+    unsigned int c_out,
+    unsigned int kernel_size,
+    unsigned int output_length,
+    unsigned int stride,
+    unsigned int padding,
+    unsigned int dilation,
+    unsigned int groups,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * c_out * output_length;
+    if (idx >= total) return;
+
+    unsigned int ox = idx % output_length;
+    unsigned int oc = (idx / output_length) % c_out;
+    unsigned int b = idx / (c_out * output_length);
+
+    unsigned int c_in_per_group = c_in / groups;
+    unsigned int c_out_per_group = c_out / groups;
+    unsigned int g = oc / c_out_per_group;
+    unsigned int c_in_start = g * c_in_per_group;
+
+    float sum = 0.0f;
+
+    for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
+        unsigned int c_in_idx = c_in_start + ic;
+        for (unsigned int kx = 0; kx < kernel_size; kx++) {
+            int ix = (int)(ox * stride + kx * dilation) - (int)padding;
+            if (ix >= 0 && ix < (int)length) {
+                unsigned int input_idx = b * c_in * length + c_in_idx * length + (unsigned int)ix;
+                unsigned int weight_idx = oc * c_in_per_group * kernel_size + ic * kernel_size + kx;
+                sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e4m3_to_f32(bias[oc].data);
+    }
+
+    output[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sum));
+}
+
+__global__ void conv2d_fp8_e4m3(
+    const numr_fp8_e4m3* __restrict__ input,
+    const numr_fp8_e4m3* __restrict__ weight,
+    const numr_fp8_e4m3* __restrict__ bias,
+    numr_fp8_e4m3* __restrict__ output,
+    unsigned int batch,
+    unsigned int c_in,
+    unsigned int height,
+    unsigned int width,
+    unsigned int c_out,
+    unsigned int kh,
+    unsigned int kw,
+    unsigned int out_h,
+    unsigned int out_w,
+    unsigned int stride_h,
+    unsigned int stride_w,
+    unsigned int pad_h,
+    unsigned int pad_w,
+    unsigned int dilation_h,
+    unsigned int dilation_w,
+    unsigned int groups,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * c_out * out_h * out_w;
+    if (idx >= total) return;
+
+    unsigned int ow = idx % out_w;
+    unsigned int oh = (idx / out_w) % out_h;
+    unsigned int oc = (idx / (out_w * out_h)) % c_out;
+    unsigned int b = idx / (c_out * out_h * out_w);
+
+    unsigned int c_in_per_group = c_in / groups;
+    unsigned int c_out_per_group = c_out / groups;
+    unsigned int g = oc / c_out_per_group;
+    unsigned int c_in_start = g * c_in_per_group;
+
+    float sum = 0.0f;
+
+    for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
+        unsigned int c_in_idx = c_in_start + ic;
+        for (unsigned int ky = 0; ky < kh; ky++) {
+            for (unsigned int kx = 0; kx < kw; kx++) {
+                int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
+                int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
+                if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
+                    unsigned int input_idx = b * c_in * height * width + c_in_idx * height * width + (unsigned int)iy * width + (unsigned int)ix;
+                    unsigned int weight_idx = oc * c_in_per_group * kh * kw + ic * kh * kw + ky * kw + kx;
+                    sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
+                }
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e4m3_to_f32(bias[oc].data);
+    }
+
+    output[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sum));
+}
+
+__global__ void depthwise_conv2d_fp8_e4m3(
+    const numr_fp8_e4m3* __restrict__ input,
+    const numr_fp8_e4m3* __restrict__ weight,
+    const numr_fp8_e4m3* __restrict__ bias,
+    numr_fp8_e4m3* __restrict__ output,
+    unsigned int batch,
+    unsigned int channels,
+    unsigned int height,
+    unsigned int width,
+    unsigned int kh,
+    unsigned int kw,
+    unsigned int out_h,
+    unsigned int out_w,
+    unsigned int stride_h,
+    unsigned int stride_w,
+    unsigned int pad_h,
+    unsigned int pad_w,
+    unsigned int dilation_h,
+    unsigned int dilation_w,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * channels * out_h * out_w;
+    if (idx >= total) return;
+
+    unsigned int ow = idx % out_w;
+    unsigned int oh = (idx / out_w) % out_h;
+    unsigned int c = (idx / (out_w * out_h)) % channels;
+    unsigned int b = idx / (channels * out_h * out_w);
+
+    float sum = 0.0f;
+
+    for (unsigned int ky = 0; ky < kh; ky++) {
+        for (unsigned int kx = 0; kx < kw; kx++) {
+            int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
+            int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
+            if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
+                unsigned int input_idx = b * channels * height * width + c * height * width + (unsigned int)iy * width + (unsigned int)ix;
+                unsigned int weight_idx = c * kh * kw + ky * kw + kx;
+                sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e4m3_to_f32(bias[c].data);
+    }
+
+    output[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sum));
+}
+
+// FP8 E5M2 kernels (compute in float, load/store as FP8)
+__global__ void conv1d_fp8_e5m2(
+    const numr_fp8_e5m2* __restrict__ input,
+    const numr_fp8_e5m2* __restrict__ weight,
+    const numr_fp8_e5m2* __restrict__ bias,
+    numr_fp8_e5m2* __restrict__ output,
+    unsigned int batch,
+    unsigned int c_in,
+    unsigned int length,
+    unsigned int c_out,
+    unsigned int kernel_size,
+    unsigned int output_length,
+    unsigned int stride,
+    unsigned int padding,
+    unsigned int dilation,
+    unsigned int groups,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * c_out * output_length;
+    if (idx >= total) return;
+
+    unsigned int ox = idx % output_length;
+    unsigned int oc = (idx / output_length) % c_out;
+    unsigned int b = idx / (c_out * output_length);
+
+    unsigned int c_in_per_group = c_in / groups;
+    unsigned int c_out_per_group = c_out / groups;
+    unsigned int g = oc / c_out_per_group;
+    unsigned int c_in_start = g * c_in_per_group;
+
+    float sum = 0.0f;
+
+    for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
+        unsigned int c_in_idx = c_in_start + ic;
+        for (unsigned int kx = 0; kx < kernel_size; kx++) {
+            int ix = (int)(ox * stride + kx * dilation) - (int)padding;
+            if (ix >= 0 && ix < (int)length) {
+                unsigned int input_idx = b * c_in * length + c_in_idx * length + (unsigned int)ix;
+                unsigned int weight_idx = oc * c_in_per_group * kernel_size + ic * kernel_size + kx;
+                sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e5m2_to_f32(bias[oc].data);
+    }
+
+    output[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sum));
+}
+
+__global__ void conv2d_fp8_e5m2(
+    const numr_fp8_e5m2* __restrict__ input,
+    const numr_fp8_e5m2* __restrict__ weight,
+    const numr_fp8_e5m2* __restrict__ bias,
+    numr_fp8_e5m2* __restrict__ output,
+    unsigned int batch,
+    unsigned int c_in,
+    unsigned int height,
+    unsigned int width,
+    unsigned int c_out,
+    unsigned int kh,
+    unsigned int kw,
+    unsigned int out_h,
+    unsigned int out_w,
+    unsigned int stride_h,
+    unsigned int stride_w,
+    unsigned int pad_h,
+    unsigned int pad_w,
+    unsigned int dilation_h,
+    unsigned int dilation_w,
+    unsigned int groups,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * c_out * out_h * out_w;
+    if (idx >= total) return;
+
+    unsigned int ow = idx % out_w;
+    unsigned int oh = (idx / out_w) % out_h;
+    unsigned int oc = (idx / (out_w * out_h)) % c_out;
+    unsigned int b = idx / (c_out * out_h * out_w);
+
+    unsigned int c_in_per_group = c_in / groups;
+    unsigned int c_out_per_group = c_out / groups;
+    unsigned int g = oc / c_out_per_group;
+    unsigned int c_in_start = g * c_in_per_group;
+
+    float sum = 0.0f;
+
+    for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
+        unsigned int c_in_idx = c_in_start + ic;
+        for (unsigned int ky = 0; ky < kh; ky++) {
+            for (unsigned int kx = 0; kx < kw; kx++) {
+                int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
+                int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
+                if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
+                    unsigned int input_idx = b * c_in * height * width + c_in_idx * height * width + (unsigned int)iy * width + (unsigned int)ix;
+                    unsigned int weight_idx = oc * c_in_per_group * kh * kw + ic * kh * kw + ky * kw + kx;
+                    sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
+                }
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e5m2_to_f32(bias[oc].data);
+    }
+
+    output[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sum));
+}
+
+__global__ void depthwise_conv2d_fp8_e5m2(
+    const numr_fp8_e5m2* __restrict__ input,
+    const numr_fp8_e5m2* __restrict__ weight,
+    const numr_fp8_e5m2* __restrict__ bias,
+    numr_fp8_e5m2* __restrict__ output,
+    unsigned int batch,
+    unsigned int channels,
+    unsigned int height,
+    unsigned int width,
+    unsigned int kh,
+    unsigned int kw,
+    unsigned int out_h,
+    unsigned int out_w,
+    unsigned int stride_h,
+    unsigned int stride_w,
+    unsigned int pad_h,
+    unsigned int pad_w,
+    unsigned int dilation_h,
+    unsigned int dilation_w,
+    unsigned int has_bias
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = batch * channels * out_h * out_w;
+    if (idx >= total) return;
+
+    unsigned int ow = idx % out_w;
+    unsigned int oh = (idx / out_w) % out_h;
+    unsigned int c = (idx / (out_w * out_h)) % channels;
+    unsigned int b = idx / (channels * out_h * out_w);
+
+    float sum = 0.0f;
+
+    for (unsigned int ky = 0; ky < kh; ky++) {
+        for (unsigned int kx = 0; kx < kw; kx++) {
+            int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
+            int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
+            if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
+                unsigned int input_idx = b * channels * height * width + c * height * width + (unsigned int)iy * width + (unsigned int)ix;
+                unsigned int weight_idx = c * kh * kw + ky * kw + kx;
+                sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
+            }
+        }
+    }
+
+    if (has_bias != 0u && bias != nullptr) {
+        sum += fp8_e5m2_to_f32(bias[c].data);
+    }
+
+    output[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sum));
+}
+
 } // extern "C"

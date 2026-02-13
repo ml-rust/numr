@@ -5,9 +5,12 @@ use super::super::jacobi::{
     argsort_by_magnitude_desc, identity_matrix, permute_columns,
 };
 use super::super::{CpuClient, CpuRuntime};
-use crate::algorithm::linalg::{EigenDecomposition, validate_linalg_dtype, validate_square_matrix};
+use crate::algorithm::linalg::{
+    EigenDecomposition, linalg_demote, linalg_promote, validate_linalg_dtype,
+    validate_square_matrix,
+};
 use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -17,16 +20,19 @@ pub fn eig_decompose_symmetric_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<EigenDecomposition<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => eig_decompose_symmetric_typed::<f32>(client, a, n),
-        DType::F64 => eig_decompose_symmetric_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "eig_decompose_symmetric",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => eig_decompose_symmetric_typed::<f32>(client, &a, n),
+        DType::F64 => eig_decompose_symmetric_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(EigenDecomposition {
+        eigenvalues: linalg_demote(client, result.eigenvalues, original_dtype)?,
+        eigenvectors: linalg_demote(client, result.eigenvectors, original_dtype)?,
+    })
 }
 
 /// Eigendecomposition for symmetric matrices using Jacobi algorithm

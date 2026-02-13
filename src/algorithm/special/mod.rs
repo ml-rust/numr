@@ -580,10 +580,12 @@ pub fn validate_special_dtype(dtype: crate::dtype::DType) -> Result<()> {
     use crate::error::Error;
 
     match dtype {
-        DType::F32 | DType::F64 => Ok(()),
+        DType::F32 | DType::F64 | DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2 => {
+            Ok(())
+        }
         _ => Err(Error::UnsupportedDType {
             dtype,
-            op: "special function (requires F32 or F64)",
+            op: "special function",
         }),
     }
 }

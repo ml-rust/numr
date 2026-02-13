@@ -59,7 +59,7 @@ mod fft;
 mod index;
 mod linalg;
 pub mod linalg_launchers;
-mod loader;
+pub(in crate::runtime::cuda) mod loader;
 mod norm;
 mod quasirandom;
 mod reduce;

@@ -1,6 +1,8 @@
 //! Banded linear system solver (Thomas algorithm + general banded LU)
 
-use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
+use crate::algorithm::linalg::{
+    linalg_demote, linalg_promote, validate_linalg_dtype, validate_matrix_2d,
+};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
@@ -75,17 +77,18 @@ pub fn solve_banded_impl(
             rhs: b.dtype(),
         });
     }
+    let (ab, original_dtype) = linalg_promote(client, ab)?;
+    let (b, _) = linalg_promote(client, b)?;
 
     let (n, nrhs) = validate_banded(ab.shape(), b.shape(), kl, ku)?;
 
-    match ab.dtype() {
-        DType::F32 => solve_banded_typed::<f32>(client, ab, b, kl, ku, n, nrhs),
-        DType::F64 => solve_banded_typed::<f64>(client, ab, b, kl, ku, n, nrhs),
-        _ => Err(Error::UnsupportedDType {
-            dtype: ab.dtype(),
-            op: "solve_banded",
-        }),
-    }
+    let result = match ab.dtype() {
+        DType::F32 => solve_banded_typed::<f32>(client, &ab, &b, kl, ku, n, nrhs),
+        DType::F64 => solve_banded_typed::<f64>(client, &ab, &b, kl, ku, n, nrhs),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn solve_banded_typed<T: Element + LinalgElement>(

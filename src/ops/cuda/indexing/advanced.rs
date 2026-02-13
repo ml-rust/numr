@@ -1,5 +1,6 @@
 //! Advanced indexing operations for CUDA runtime
 
+use crate::algorithm::linalg::helpers::{linalg_demote, linalg_promote};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{ReduceOps, ScatterReduceOp, TypeConversionOps};
@@ -74,6 +75,23 @@ pub fn scatter_reduce(
     include_self: bool,
 ) -> Result<Tensor<CudaRuntime>> {
     let dtype = dst.dtype();
+
+    // Scatter_reduce kernels use atomicAdd which only supports F32/F64/I32.
+    // For other float types (F16, BF16, FP8), promote to F32, compute, and demote back.
+    if dtype.is_float() && !matches!(dtype, DType::F32 | DType::F64) {
+        let (dst_promoted, orig_dtype) = linalg_promote(client, dst)?;
+        let (src_promoted, _) = linalg_promote(client, src)?;
+        let result = scatter_reduce(
+            client,
+            &dst_promoted,
+            dim,
+            index,
+            &src_promoted,
+            op,
+            include_self,
+        )?;
+        return linalg_demote(client, result, orig_dtype);
+    }
     let shape = dst.shape();
     let ndim = shape.len();
 

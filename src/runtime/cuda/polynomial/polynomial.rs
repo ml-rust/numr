@@ -4,12 +4,11 @@
 //! All algorithms delegate to the shared core implementations to ensure
 //! backend parity with CPU/WebGPU.
 //!
-//! # Supported DTypes
-//!
-//! CUDA supports both F32 and F64 for polynomial operations.
+//! Uses dtype promotion for reduced-precision types (F16, BF16, FP8).
 
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
+use crate::algorithm::linalg::helpers::{linalg_demote, linalg_promote};
 use crate::algorithm::polynomial::PolynomialAlgorithms;
 use crate::algorithm::polynomial::core::{self, DTypeSupport};
 use crate::algorithm::polynomial::types::PolynomialRoots;
@@ -18,7 +17,12 @@ use crate::tensor::Tensor;
 
 impl PolynomialAlgorithms<CudaRuntime> for CudaClient {
     fn polyroots(&self, coeffs: &Tensor<CudaRuntime>) -> Result<PolynomialRoots<CudaRuntime>> {
-        core::polyroots_impl(self, coeffs, DTypeSupport::FULL)
+        let (coeffs_p, orig_dtype) = linalg_promote(self, coeffs)?;
+        let roots = core::polyroots_impl(self, &coeffs_p, DTypeSupport::FULL)?;
+        Ok(PolynomialRoots {
+            roots_real: linalg_demote(self, roots.roots_real, orig_dtype)?,
+            roots_imag: linalg_demote(self, roots.roots_imag, orig_dtype)?,
+        })
     }
 
     fn polyval(
@@ -26,7 +30,10 @@ impl PolynomialAlgorithms<CudaRuntime> for CudaClient {
         coeffs: &Tensor<CudaRuntime>,
         x: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        core::polyval_impl(self, coeffs, x, DTypeSupport::FULL)
+        let (coeffs_p, orig_dtype) = linalg_promote(self, coeffs)?;
+        let (x_p, _) = linalg_promote(self, x)?;
+        let result = core::polyval_impl(self, &coeffs_p, &x_p, DTypeSupport::FULL)?;
+        linalg_demote(self, result, orig_dtype)
     }
 
     fn polyfromroots(
@@ -34,7 +41,10 @@ impl PolynomialAlgorithms<CudaRuntime> for CudaClient {
         roots_real: &Tensor<CudaRuntime>,
         roots_imag: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        core::polyfromroots_impl(self, roots_real, roots_imag, DTypeSupport::FULL)
+        let (rr_p, orig_dtype) = linalg_promote(self, roots_real)?;
+        let (ri_p, _) = linalg_promote(self, roots_imag)?;
+        let result = core::polyfromroots_impl(self, &rr_p, &ri_p, DTypeSupport::FULL)?;
+        linalg_demote(self, result, orig_dtype)
     }
 
     fn polymul(
@@ -42,7 +52,10 @@ impl PolynomialAlgorithms<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        core::polymul_impl(self, a, b, DTypeSupport::FULL)
+        let (a_p, orig_dtype) = linalg_promote(self, a)?;
+        let (b_p, _) = linalg_promote(self, b)?;
+        let result = core::polymul_impl(self, &a_p, &b_p, DTypeSupport::FULL)?;
+        linalg_demote(self, result, orig_dtype)
     }
 }
 

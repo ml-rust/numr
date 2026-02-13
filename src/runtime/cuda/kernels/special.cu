@@ -12,6 +12,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <math_constants.h>
+#include "dtype_traits.cuh"
 
 // NaN constants (fallback if not defined)
 #ifndef CUDART_NAN_F
@@ -469,6 +470,294 @@ __global__ void gammaincc_f64(const double* a, const double* x, double* out, uns
         } else {
             out[idx] = gammaincc_cf_f64(aa, xx);
         }
+    }
+}
+
+// ============================================================================
+// F16 Special Functions
+// ============================================================================
+
+__global__ void erf_f16(const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __half2float(x[idx]);
+        out[idx] = __float2half(erff(fx));
+    }
+}
+
+__global__ void erfc_f16(const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __half2float(x[idx]);
+        out[idx] = __float2half(erfcf(fx));
+    }
+}
+
+__global__ void gamma_f16(const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __half2float(x[idx]);
+        out[idx] = __float2half(tgammaf(fx));
+    }
+}
+
+__global__ void lgamma_f16(const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __half2float(x[idx]);
+        out[idx] = __float2half(lgammaf(fx));
+    }
+}
+
+__global__ void digamma_f16(const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __half2float(x[idx]);
+        out[idx] = __float2half(digamma_f32(fx));
+    }
+}
+
+__global__ void gammainc_f16(const __half* a, const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = __half2float(a[idx]);
+        float xx = __half2float(x[idx]);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = CUDART_NAN_F;
+        } else if (xx == 0.0f) {
+            result = 0.0f;
+        } else if (xx < aa + 1.0f) {
+            result = gammainc_series_f32(aa, xx);
+        } else {
+            result = 1.0f - gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = __float2half(result);
+    }
+}
+
+__global__ void gammaincc_f16(const __half* a, const __half* x, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = __half2float(a[idx]);
+        float xx = __half2float(x[idx]);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = CUDART_NAN_F;
+        } else if (xx == 0.0f) {
+            result = 1.0f;
+        } else if (xx < aa + 1.0f) {
+            result = 1.0f - gammainc_series_f32(aa, xx);
+        } else {
+            result = gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = __float2half(result);
+    }
+}
+
+// ============================================================================
+// BF16 Special Functions
+// ============================================================================
+
+__global__ void erf_bf16(const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __bfloat162float(x[idx]);
+        out[idx] = __float2bfloat16(erff(fx));
+    }
+}
+
+__global__ void erfc_bf16(const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __bfloat162float(x[idx]);
+        out[idx] = __float2bfloat16(erfcf(fx));
+    }
+}
+
+__global__ void gamma_bf16(const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __bfloat162float(x[idx]);
+        out[idx] = __float2bfloat16(tgammaf(fx));
+    }
+}
+
+__global__ void lgamma_bf16(const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __bfloat162float(x[idx]);
+        out[idx] = __float2bfloat16(lgammaf(fx));
+    }
+}
+
+__global__ void digamma_bf16(const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = __bfloat162float(x[idx]);
+        out[idx] = __float2bfloat16(digamma_f32(fx));
+    }
+}
+
+__global__ void gammainc_bf16(const __nv_bfloat16* a, const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = __bfloat162float(a[idx]);
+        float xx = __bfloat162float(x[idx]);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = CUDART_NAN_F;
+        } else if (xx == 0.0f) {
+            result = 0.0f;
+        } else if (xx < aa + 1.0f) {
+            result = gammainc_series_f32(aa, xx);
+        } else {
+            result = 1.0f - gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = __float2bfloat16(result);
+    }
+}
+
+__global__ void gammaincc_bf16(const __nv_bfloat16* a, const __nv_bfloat16* x, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = __bfloat162float(a[idx]);
+        float xx = __bfloat162float(x[idx]);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = CUDART_NAN_F;
+        } else if (xx == 0.0f) {
+            result = 1.0f;
+        } else if (xx < aa + 1.0f) {
+            result = 1.0f - gammainc_series_f32(aa, xx);
+        } else {
+            result = gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = __float2bfloat16(result);
+    }
+}
+
+// ============================================================================
+// FP8E4M3 Special Functions
+// ============================================================================
+
+__global__ void erf_fp8_e4m3(const numr_fp8_e4m3* x, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = fp8_e4m3_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(erff(fx)));
+    }
+}
+
+__global__ void gamma_fp8_e4m3(const numr_fp8_e4m3* x, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = fp8_e4m3_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(tgammaf(fx)));
+    }
+}
+
+__global__ void gammainc_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* x, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = fp8_e4m3_to_f32(a[idx].data);
+        float xx = fp8_e4m3_to_f32(x[idx].data);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = NAN;
+        } else if (xx == 0.0f) {
+            result = 0.0f;
+        } else if (xx < aa + 1.0f) {
+            result = gammainc_series_f32(aa, xx);
+        } else {
+            result = 1.0f - gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(result));
+    }
+}
+
+__global__ void gammaincc_fp8_e4m3(const numr_fp8_e4m3* a, const numr_fp8_e4m3* x, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = fp8_e4m3_to_f32(a[idx].data);
+        float xx = fp8_e4m3_to_f32(x[idx].data);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = NAN;
+        } else if (xx == 0.0f) {
+            result = 1.0f;
+        } else if (xx < aa + 1.0f) {
+            result = 1.0f - gammainc_series_f32(aa, xx);
+        } else {
+            result = gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(result));
+    }
+}
+
+// ============================================================================
+// FP8E5M2 Special Functions
+// ============================================================================
+
+__global__ void erf_fp8_e5m2(const numr_fp8_e5m2* x, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = fp8_e5m2_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(erff(fx)));
+    }
+}
+
+__global__ void gamma_fp8_e5m2(const numr_fp8_e5m2* x, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float fx = fp8_e5m2_to_f32(x[idx].data);
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(tgammaf(fx)));
+    }
+}
+
+__global__ void gammainc_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* x, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = fp8_e5m2_to_f32(a[idx].data);
+        float xx = fp8_e5m2_to_f32(x[idx].data);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = NAN;
+        } else if (xx == 0.0f) {
+            result = 0.0f;
+        } else if (xx < aa + 1.0f) {
+            result = gammainc_series_f32(aa, xx);
+        } else {
+            result = 1.0f - gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(result));
+    }
+}
+
+__global__ void gammaincc_fp8_e5m2(const numr_fp8_e5m2* a, const numr_fp8_e5m2* x, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        float aa = fp8_e5m2_to_f32(a[idx].data);
+        float xx = fp8_e5m2_to_f32(x[idx].data);
+        float result;
+
+        if (xx < 0.0f || aa <= 0.0f) {
+            result = NAN;
+        } else if (xx == 0.0f) {
+            result = 1.0f;
+        } else if (xx < aa + 1.0f) {
+            result = 1.0f - gammainc_series_f32(aa, xx);
+        } else {
+            result = gammaincc_cf_f32(aa, xx);
+        }
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(result));
     }
 }
 

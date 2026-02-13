@@ -436,4 +436,138 @@ __global__ void cast_i64_i32(const long long* a, int* out, unsigned int n) {
     }
 }
 
+// ============================================================================
+// Bool (u8) -> Other Types
+// ============================================================================
+
+__global__ void cast_bool_f32(const unsigned char* a, float* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (float)(a[idx] != 0);
+    }
+}
+
+__global__ void cast_bool_f64(const unsigned char* a, double* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (double)(a[idx] != 0);
+    }
+}
+
+__global__ void cast_bool_f16(const unsigned char* a, __half* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2half((float)(a[idx] != 0));
+    }
+}
+
+__global__ void cast_bool_bf16(const unsigned char* a, __nv_bfloat16* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = __float2bfloat16((float)(a[idx] != 0));
+    }
+}
+
+__global__ void cast_bool_i32(const unsigned char* a, int* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (int)(a[idx] != 0);
+    }
+}
+
+__global__ void cast_bool_i64(const unsigned char* a, long long* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (long long)(a[idx] != 0);
+    }
+}
+
+__global__ void cast_bool_u32(const unsigned char* a, unsigned int* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (unsigned int)(a[idx] != 0);
+    }
+}
+
+__global__ void cast_bool_fp8_e4m3(const unsigned char* a, numr_fp8_e4m3* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3((float)(a[idx] != 0)));
+    }
+}
+
+__global__ void cast_bool_fp8_e5m2(const unsigned char* a, numr_fp8_e5m2* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2((float)(a[idx] != 0)));
+    }
+}
+
+// ============================================================================
+// Other Types -> Bool (u8): nonzero = 1, zero = 0
+// ============================================================================
+
+__global__ void cast_f32_bool(const float* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx] != 0.0f) ? 1 : 0;
+    }
+}
+
+__global__ void cast_f64_bool(const double* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx] != 0.0) ? 1 : 0;
+    }
+}
+
+__global__ void cast_f16_bool(const __half* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (__half2float(a[idx]) != 0.0f) ? 1 : 0;
+    }
+}
+
+__global__ void cast_bf16_bool(const __nv_bfloat16* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (__bfloat162float(a[idx]) != 0.0f) ? 1 : 0;
+    }
+}
+
+__global__ void cast_fp8_e4m3_bool(const numr_fp8_e4m3* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx].data != 0) ? 1 : 0;
+    }
+}
+
+__global__ void cast_fp8_e5m2_bool(const numr_fp8_e5m2* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx].data != 0) ? 1 : 0;
+    }
+}
+
+__global__ void cast_i32_bool(const int* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx] != 0) ? 1 : 0;
+    }
+}
+
+__global__ void cast_i64_bool(const long long* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx] != 0) ? 1 : 0;
+    }
+}
+
+__global__ void cast_u32_bool(const unsigned int* a, unsigned char* out, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = (a[idx] != 0) ? 1 : 0;
+    }
+}
+
 } // extern "C"

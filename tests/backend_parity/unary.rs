@@ -1,35 +1,36 @@
 #![allow(clippy::approx_constant, clippy::excessive_precision)]
 // Backend parity tests for UnaryOps trait
 //
-// Tests verify that all UnaryOps operations produce identical results across
-// CPU, CUDA, and WebGPU backends.
+// Dtype-parameterized: each test runs for all supported dtypes across all backends.
+// Comparison reads back in native dtype via assert_tensor_allclose.
 
+use numr::dtype::DType;
 use numr::ops::UnaryOps;
 use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 use crate::backend_parity::helpers::assert_parity_u32;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
 // ============================================================================
 // Test Utilities
 // ============================================================================
 
-/// Test data helper: creates input data and shapes for testing
 #[derive(Clone)]
 struct TestInput {
-    data: Vec<f32>,
+    data: Vec<f64>,
     shape: Vec<usize>,
 }
 
 impl TestInput {
-    fn new(data: Vec<f32>, shape: Vec<usize>) -> Self {
+    fn new(data: Vec<f64>, shape: Vec<usize>) -> Self {
         TestInput { data, shape }
     }
 }
@@ -72,399 +73,368 @@ fn apply_unary_op<R: Runtime>(
         "ceil" => client.ceil(x),
         "round" => client.round(x),
         "trunc" => client.trunc(x),
-        "isnan" => client.isnan(x),
-        "isinf" => client.isinf(x),
         _ => panic!("Unknown unary op: {}", op),
     }
 }
 
-/// Helper to test parity for a unary operation
-fn test_unary_parity_impl(op: &str, test_inputs: Vec<TestInput>) {
-    // CPU baseline (always runs)
-    let cpu_results: Vec<Vec<f32>> = test_inputs
+fn test_unary_parity(op: &str, test_inputs: &[TestInput], dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = test_inputs
         .iter()
         .map(|input| {
-            let (client, device) = create_cpu_client();
-            let tensor = Tensor::from_slice(&input.data, &input.shape, &device);
-            apply_unary_op(&client, op, &tensor)
-                .expect("CPU operation failed")
-                .to_vec::<f32>()
+            let tensor =
+                tensor_from_f64(&input.data, &input.shape, dtype, &cpu_device, &cpu_client)
+                    .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            apply_unary_op(&cpu_client, op, &tensor)
+                .unwrap_or_else(|e| panic!("CPU {op} failed for {dtype:?}: {e}"))
         })
         .collect();
 
-    // CUDA parity test (if available)
     #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        for (idx, input) in test_inputs.iter().enumerate() {
-            let tensor = Tensor::from_slice(&input.data, &input.shape, &cuda_device);
-            let cuda_result = apply_unary_op(&cuda_client, op, &tensor)
-                .expect("CUDA operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &cuda_result, op, "cuda");
-        }
-    });
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, input) in test_inputs.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&input.data, &input.shape, dtype, &cuda_device, &cuda_client)
+                        .unwrap_or_else(|e| {
+                            panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_unary_op(&cuda_client, op, &tensor)
+                    .unwrap_or_else(|e| panic!("CUDA {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
 
-    // WebGPU parity test (if available)
     #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        for (idx, input) in test_inputs.iter().enumerate() {
-            let tensor = Tensor::from_slice(&input.data, &input.shape, &wgpu_device);
-            let wgpu_result = apply_unary_op(&wgpu_client, op, &tensor)
-                .expect("WebGPU operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &wgpu_result, op, "wgpu");
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, input) in test_inputs.iter().enumerate() {
+                let tensor =
+                    tensor_from_f64(&input.data, &input.shape, dtype, &wgpu_device, &wgpu_client)
+                        .unwrap_or_else(|e| {
+                            panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+                let result = apply_unary_op(&wgpu_client, op, &tensor)
+                    .unwrap_or_else(|e| panic!("WebGPU {op} failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op} WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+macro_rules! unary_case {
+    ($name:ident, $op:expr, $inputs:expr) => {
+        #[test]
+        fn $name() {
+            for dtype in supported_dtypes("cpu") {
+                test_unary_parity($op, $inputs, dtype);
+            }
         }
-    });
+    };
 }
 
 // ============================================================================
 // Unary Operation Parity Tests
 // ============================================================================
 
-#[test]
-fn test_neg_parity() {
-    test_unary_parity_impl(
-        "neg",
-        vec![
-            TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
-            TestInput::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
-        ],
-    );
-}
+unary_case!(
+    test_neg_parity,
+    "neg",
+    &[
+        TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
+        TestInput::new(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0], vec![2, 3]),
+    ]
+);
 
-#[test]
-fn test_abs_parity() {
-    test_unary_parity_impl(
-        "abs",
-        vec![
-            TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
-            TestInput::new(vec![-1.0, -2.0, -3.0, -4.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_abs_parity,
+    "abs",
+    &[
+        TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
+        TestInput::new(vec![-1.0, -2.0, -3.0, -4.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_sign_parity() {
-    test_unary_parity_impl(
-        "sign",
-        vec![
-            TestInput::new(vec![1.0, -2.0, 0.0, -4.0], vec![4]),
-            TestInput::new(vec![-5.0, 0.0, 5.0, 0.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_sign_parity,
+    "sign",
+    &[
+        TestInput::new(vec![1.0, -2.0, 0.0, -4.0], vec![4]),
+        TestInput::new(vec![-5.0, 0.0, 5.0, 0.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_sqrt_parity() {
-    test_unary_parity_impl(
-        "sqrt",
-        vec![
-            TestInput::new(vec![1.0, 4.0, 9.0, 16.0], vec![4]),
-            TestInput::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_sqrt_parity,
+    "sqrt",
+    &[
+        TestInput::new(vec![1.0, 4.0, 9.0, 16.0], vec![4]),
+        TestInput::new(vec![1.0, 2.0, 3.0, 4.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_rsqrt_parity() {
-    test_unary_parity_impl(
-        "rsqrt",
-        vec![
-            TestInput::new(vec![1.0, 4.0, 9.0, 16.0], vec![4]),
-            TestInput::new(vec![2.0, 4.0, 8.0, 16.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_rsqrt_parity,
+    "rsqrt",
+    &[
+        TestInput::new(vec![1.0, 4.0, 9.0, 16.0], vec![4]),
+        TestInput::new(vec![2.0, 4.0, 8.0, 16.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_square_parity() {
-    test_unary_parity_impl(
-        "square",
-        vec![
-            TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
-            TestInput::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_square_parity,
+    "square",
+    &[
+        TestInput::new(vec![1.0, -2.0, 3.0, -4.0], vec![4]),
+        TestInput::new(vec![2.0, 3.0, 4.0, 5.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_cbrt_parity() {
-    test_unary_parity_impl(
-        "cbrt",
-        vec![
-            TestInput::new(vec![1.0, 8.0, 27.0, 64.0], vec![4]),
-            TestInput::new(vec![-8.0, 0.0, 8.0, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_cbrt_parity,
+    "cbrt",
+    &[
+        TestInput::new(vec![1.0, 8.0, 27.0, 64.0], vec![4]),
+        TestInput::new(vec![-8.0, 0.0, 8.0, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_recip_parity() {
-    test_unary_parity_impl(
-        "recip",
-        vec![
-            TestInput::new(vec![1.0, 2.0, 4.0, 5.0], vec![4]),
-            TestInput::new(vec![2.0, 4.0, 5.0, 10.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_recip_parity,
+    "recip",
+    &[
+        TestInput::new(vec![1.0, 2.0, 4.0, 5.0], vec![4]),
+        TestInput::new(vec![2.0, 4.0, 5.0, 10.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_exp_parity() {
-    test_unary_parity_impl(
-        "exp",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
-            TestInput::new(vec![0.5, -0.5, 1.0, -1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_exp_parity,
+    "exp",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
+        TestInput::new(vec![0.5, -0.5, 1.0, -1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_exp2_parity() {
-    test_unary_parity_impl(
-        "exp2",
-        vec![
-            TestInput::new(vec![0.0, 1.0, 2.0, 3.0], vec![4]),
-            TestInput::new(vec![-1.0, 0.0, 1.0, 2.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_exp2_parity,
+    "exp2",
+    &[
+        TestInput::new(vec![0.0, 1.0, 2.0, 3.0], vec![4]),
+        TestInput::new(vec![-1.0, 0.0, 1.0, 2.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_expm1_parity() {
-    test_unary_parity_impl(
-        "expm1",
-        vec![
-            TestInput::new(vec![0.0, 0.1, -0.1, 0.5], vec![4]),
-            TestInput::new(vec![0.0, 0.01, -0.01, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_expm1_parity,
+    "expm1",
+    &[
+        TestInput::new(vec![0.0, 0.1, -0.1, 0.5], vec![4]),
+        TestInput::new(vec![0.0, 0.01, -0.01, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_log_parity() {
-    test_unary_parity_impl(
-        "log",
-        vec![
-            TestInput::new(vec![1.0, 2.0, 4.0, 10.0], vec![4]),
-            TestInput::new(vec![1.0, 2.0, 5.0, 10.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_log_parity,
+    "log",
+    &[
+        TestInput::new(vec![1.0, 2.0, 4.0, 10.0], vec![4]),
+        TestInput::new(vec![1.0, 2.0, 5.0, 10.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_log2_parity() {
-    test_unary_parity_impl(
-        "log2",
-        vec![
-            TestInput::new(vec![1.0, 2.0, 4.0, 8.0], vec![4]),
-            TestInput::new(vec![2.0, 4.0, 8.0, 16.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_log2_parity,
+    "log2",
+    &[
+        TestInput::new(vec![1.0, 2.0, 4.0, 8.0], vec![4]),
+        TestInput::new(vec![2.0, 4.0, 8.0, 16.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_log10_parity() {
-    test_unary_parity_impl(
-        "log10",
-        vec![
-            TestInput::new(vec![1.0, 10.0, 100.0, 1000.0], vec![4]),
-            TestInput::new(vec![10.0, 100.0, 1000.0, 10000.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_log10_parity,
+    "log10",
+    &[
+        TestInput::new(vec![1.0, 10.0, 100.0, 1000.0], vec![4]),
+        TestInput::new(vec![10.0, 100.0, 1000.0, 10000.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_log1p_parity() {
-    test_unary_parity_impl(
-        "log1p",
-        vec![
-            TestInput::new(vec![0.0, 0.1, 1.0, 9.0], vec![4]),
-            TestInput::new(vec![0.0, 0.01, 1.0, 99.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_log1p_parity,
+    "log1p",
+    &[
+        TestInput::new(vec![0.0, 0.1, 1.0, 9.0], vec![4]),
+        TestInput::new(vec![0.0, 0.01, 1.0, 99.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_sin_parity() {
-    test_unary_parity_impl(
-        "sin",
-        vec![
-            TestInput::new(vec![0.0, 1.57079633, 3.14159265, -1.57079633], vec![4]),
-            TestInput::new(vec![0.5, 1.0, -0.5, -1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_sin_parity,
+    "sin",
+    &[
+        TestInput::new(vec![0.0, 1.57079633, 3.14159265, -1.57079633], vec![4]),
+        TestInput::new(vec![0.5, 1.0, -0.5, -1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_cos_parity() {
-    test_unary_parity_impl(
-        "cos",
-        vec![
-            TestInput::new(vec![0.0, 1.57079633, 3.14159265, -1.57079633], vec![4]),
-            TestInput::new(vec![0.5, 1.0, -0.5, -1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_cos_parity,
+    "cos",
+    &[
+        TestInput::new(vec![0.0, 1.57079633, 3.14159265, -1.57079633], vec![4]),
+        TestInput::new(vec![0.5, 1.0, -0.5, -1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_tan_parity() {
-    test_unary_parity_impl(
-        "tan",
-        vec![
-            TestInput::new(vec![0.0, 0.4, -0.4, 0.785398163], vec![4]),
-            TestInput::new(vec![0.1, -0.1, 0.2, -0.2], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_tan_parity,
+    "tan",
+    &[
+        TestInput::new(vec![0.0, 0.4, -0.4, 0.785398163], vec![4]),
+        TestInput::new(vec![0.1, -0.1, 0.2, -0.2], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_asin_parity() {
-    test_unary_parity_impl(
-        "asin",
-        vec![
-            TestInput::new(vec![0.0, 0.5, -0.5, 1.0], vec![4]),
-            TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_asin_parity,
+    "asin",
+    &[
+        TestInput::new(vec![0.0, 0.5, -0.5, 1.0], vec![4]),
+        TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_acos_parity() {
-    test_unary_parity_impl(
-        "acos",
-        vec![
-            TestInput::new(vec![0.0, 0.5, -0.5, 1.0], vec![4]),
-            TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_acos_parity,
+    "acos",
+    &[
+        TestInput::new(vec![0.0, 0.5, -0.5, 1.0], vec![4]),
+        TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_atan_parity() {
-    test_unary_parity_impl(
-        "atan",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 10.0], vec![4]),
-            TestInput::new(vec![-10.0, -1.0, 1.0, 10.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_atan_parity,
+    "atan",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 10.0], vec![4]),
+        TestInput::new(vec![-10.0, -1.0, 1.0, 10.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_sinh_parity() {
-    test_unary_parity_impl(
-        "sinh",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
-            TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_sinh_parity,
+    "sinh",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
+        TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_cosh_parity() {
-    test_unary_parity_impl(
-        "cosh",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
-            TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_cosh_parity,
+    "cosh",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
+        TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_tanh_parity() {
-    test_unary_parity_impl(
-        "tanh",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
-            TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_tanh_parity,
+    "tanh",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 2.0], vec![4]),
+        TestInput::new(vec![-1.0, -0.5, 0.5, 1.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_asinh_parity() {
-    test_unary_parity_impl(
-        "asinh",
-        vec![
-            TestInput::new(vec![0.0, 1.0, -1.0, 10.0], vec![4]),
-            TestInput::new(vec![-10.0, -1.0, 1.0, 10.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_asinh_parity,
+    "asinh",
+    &[
+        TestInput::new(vec![0.0, 1.0, -1.0, 10.0], vec![4]),
+        TestInput::new(vec![-10.0, -1.0, 1.0, 10.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_acosh_parity() {
-    test_unary_parity_impl(
-        "acosh",
-        vec![
-            TestInput::new(vec![1.0, 2.0, 5.0, 10.0], vec![4]),
-            TestInput::new(vec![1.0, 1.5, 2.5, 10.0], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_acosh_parity,
+    "acosh",
+    &[
+        TestInput::new(vec![1.0, 2.0, 5.0, 10.0], vec![4]),
+        TestInput::new(vec![1.0, 1.5, 2.5, 10.0], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_atanh_parity() {
-    test_unary_parity_impl(
-        "atanh",
-        vec![
-            TestInput::new(vec![0.0, 0.5, -0.5, 0.9], vec![4]),
-            TestInput::new(vec![-0.5, -0.1, 0.1, 0.5], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_atanh_parity,
+    "atanh",
+    &[
+        TestInput::new(vec![0.0, 0.5, -0.5, 0.9], vec![4]),
+        TestInput::new(vec![-0.5, -0.1, 0.1, 0.5], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_floor_parity() {
-    test_unary_parity_impl(
-        "floor",
-        vec![
-            TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
-            TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_floor_parity,
+    "floor",
+    &[
+        TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
+        TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_ceil_parity() {
-    test_unary_parity_impl(
-        "ceil",
-        vec![
-            TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
-            TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_ceil_parity,
+    "ceil",
+    &[
+        TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
+        TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_round_parity() {
-    test_unary_parity_impl(
-        "round",
-        vec![
-            TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
-            TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_round_parity,
+    "round",
+    &[
+        TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
+        TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
+    ]
+);
 
-#[test]
-fn test_trunc_parity() {
-    test_unary_parity_impl(
-        "trunc",
-        vec![
-            TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
-            TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
-        ],
-    );
-}
+unary_case!(
+    test_trunc_parity,
+    "trunc",
+    &[
+        TestInput::new(vec![1.1, -2.3, 3.9, -4.7], vec![4]),
+        TestInput::new(vec![0.5, 1.5, -0.5, -1.5], vec![2, 2]),
+    ]
+);
+
+// ============================================================================
+// isnan / isinf - boolean output, F32-only input (NaN/Inf are float concepts)
+// ============================================================================
 
 #[test]
 fn test_isnan_parity() {
-    let data = vec![0.0, f32::NAN, 1.0, f32::NAN];
+    let data = vec![0.0f32, f32::NAN, 1.0, f32::NAN];
     let shape = vec![4];
     let (cpu_client, cpu_device) = create_cpu_client();
     let cpu_tensor = Tensor::from_slice(&data, &shape, &cpu_device);
@@ -492,7 +462,7 @@ fn test_isnan_parity() {
 
 #[test]
 fn test_isinf_parity() {
-    let data = vec![0.0, f32::INFINITY, 1.0, f32::NEG_INFINITY];
+    let data = vec![0.0f32, f32::INFINITY, 1.0, f32::NEG_INFINITY];
     let shape = vec![4];
     let (cpu_client, cpu_device) = create_cpu_client();
     let cpu_tensor = Tensor::from_slice(&data, &shape, &cpu_device);

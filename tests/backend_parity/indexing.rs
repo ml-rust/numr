@@ -1,262 +1,571 @@
-// Backend parity tests migrated from tests/index_ops/masked.rs
+// Backend parity tests for IndexingOps trait
+//
+// Dtype-parameterized: each test runs for all supported dtypes across all backends.
+// Index tensors remain as I32/I64 (not parameterized), only data tensors vary by dtype.
 
+use numr::dtype::DType;
+use numr::error::Error;
+use numr::ops::IndexingOps;
+use numr::runtime::Runtime;
+use numr::tensor::Tensor;
+
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
-use numr::error::Error;
-use numr::ops::IndexingOps;
-#[cfg(feature = "cuda")]
-use numr::runtime::Runtime;
-#[cfg(feature = "cuda")]
-use numr::runtime::cpu::{CpuDevice, CpuRuntime};
-use numr::tensor::Tensor;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
+
+// ============================================================================
+// masked_select / masked_fill tests
+// ============================================================================
 
 #[test]
-fn test_masked_ops_parity() {
-    #[cfg(feature = "cuda")]
-    let cpu_device = CpuDevice::new();
-    #[cfg(feature = "cuda")]
-    let cpu_client = CpuRuntime::default_client(&cpu_device);
+fn test_masked_select_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
 
-    #[cfg(feature = "cuda")]
-    let a_cpu =
-        Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &cpu_device);
-    #[cfg(feature = "cuda")]
-    let mask_row_cpu = Tensor::<CpuRuntime>::from_slice(&[1u8, 0, 1], &[1, 3], &cpu_device);
-    #[cfg(feature = "cuda")]
-    let cpu_select_row: Vec<f32> = cpu_client
-        .masked_select(&a_cpu, &mask_row_cpu)
-        .unwrap()
-        .to_vec();
-    #[cfg(feature = "cuda")]
-    let cpu_fill_row: Vec<f32> = cpu_client
-        .masked_fill(&a_cpu, &mask_row_cpu, -1.0)
-        .unwrap()
-        .to_vec();
+        // Test case 1: 2D tensor with row mask
+        let a_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let mask_row_cpu = Tensor::from_slice(&[1u8, 0, 1], &[1, 3], &cpu_device);
 
-    #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        let a = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0],
-            &[2, 3],
-            &cuda_device,
-        );
-        let mask_row = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1u8, 0, 1],
-            &[1, 3],
-            &cuda_device,
-        );
-        let select_row: Vec<f32> = cuda_client.masked_select(&a, &mask_row).unwrap().to_vec();
-        assert_eq!(cpu_select_row, select_row);
-        let fill_row: Vec<f32> = cuda_client
-            .masked_fill(&a, &mask_row, -1.0)
-            .unwrap()
-            .to_vec();
-        assert_eq!(cpu_fill_row, fill_row);
+        let cpu_result = cpu_client
+            .masked_select(&a_cpu, &mask_row_cpu)
+            .unwrap_or_else(|e| panic!("CPU masked_select failed for {dtype:?}: {e}"));
 
-        let mask_col = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1u8, 0],
-            &[2, 1],
-            &cuda_device,
-        );
-        let select_col: Vec<f32> = cuda_client.masked_select(&a, &mask_col).unwrap().to_vec();
-        assert_eq!(select_col, vec![1.0, 2.0, 3.0]);
-        let fill_col: Vec<f32> = cuda_client
-            .masked_fill(&a, &mask_col, 99.0)
-            .unwrap()
-            .to_vec();
-        assert_eq!(fill_col, vec![99.0, 99.0, 99.0, 4.0, 5.0, 6.0]);
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask_row = Tensor::from_slice(&[1u8, 0, 1], &[1, 3], &cuda_device);
 
-        let a3 = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[2, 2, 2],
-            &cuda_device,
-        );
-        let m3 = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1u8, 0],
-            &[1, 2, 1],
-            &cuda_device,
-        );
-        let d3: Vec<f32> = cuda_client.masked_select(&a3, &m3).unwrap().to_vec();
-        assert_eq!(d3, vec![1.0, 2.0, 5.0, 6.0]);
+                let result = cuda_client
+                    .masked_select(&a, &mask_row)
+                    .unwrap_or_else(|e| panic!("CUDA masked_select failed for {dtype:?}: {e}"));
 
-        let a64 = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1.0f64, 2.0, 3.0, 4.0],
-            &[2, 2],
-            &cuda_device,
-        );
-        let m64 = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1u8, 0],
-            &[2, 1],
-            &cuda_device,
-        );
-        let d64: Vec<f64> = cuda_client
-            .masked_fill(&a64, &m64, -999.0)
-            .unwrap()
-            .to_vec();
-        assert_eq!(d64, vec![-999.0, -999.0, 3.0, 4.0]);
-    });
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select row CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
 
-    #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        let a = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
-            &[2, 4],
-            &wgpu_device,
-        );
-        let mask = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[1u32, 0, 1, 0, 0, 1, 0, 1],
-            &[2, 4],
-            &wgpu_device,
-        );
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask_row = Tensor::from_slice(&[1u32, 0, 1], &[1, 3], &wgpu_device);
 
-        let selected: Vec<f32> = wgpu_client.masked_select(&a, &mask).unwrap().to_vec();
-        assert_eq!(selected, vec![1.0, 3.0, 6.0, 8.0]);
+                let result = wgpu_client
+                    .masked_select(&a, &mask_row)
+                    .unwrap_or_else(|e| panic!("WebGPU masked_select failed for {dtype:?}: {e}"));
 
-        let filled: Vec<f32> = wgpu_client.masked_fill(&a, &mask, -1.0).unwrap().to_vec();
-        assert_eq!(filled, vec![-1.0, 2.0, -1.0, 4.0, 5.0, -1.0, 7.0, -1.0]);
-    });
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select row WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
 }
 
 #[test]
-fn test_take_put_parity() {
-    let (cpu_client, cpu_device) = create_cpu_client();
-    let a_cpu = Tensor::from_slice(
-        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-        &[2, 3],
-        &cpu_device,
-    );
-    let idx_cpu = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cpu_device);
-    let put_values_cpu = Tensor::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &cpu_device);
-    let cpu_take: Vec<f32> = cpu_client.take(&a_cpu, &idx_cpu).unwrap().to_vec();
-    let cpu_put: Vec<f32> = cpu_client
-        .put(&a_cpu, &idx_cpu, &put_values_cpu)
-        .unwrap()
-        .to_vec();
-    assert_eq!(cpu_take, vec![60.0, 10.0, 30.0, 50.0]);
-    assert_eq!(cpu_put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+fn test_masked_select_column_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
 
-    #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        let a = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-            &[2, 3],
-            &cuda_device,
-        );
-        let idx = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[5i32, 0, 2, 4],
-            &[2, 2],
-            &cuda_device,
-        );
-        let put_values = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0],
-            &[2, 2],
-            &cuda_device,
-        );
+        let a_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let mask_col_cpu = Tensor::from_slice(&[1u8, 0], &[2, 1], &cpu_device);
 
-        let take: Vec<f32> = cuda_client.take(&a, &idx).unwrap().to_vec();
-        assert_eq!(cpu_take, take);
+        let cpu_result = cpu_client
+            .masked_select(&a_cpu, &mask_col_cpu)
+            .unwrap_or_else(|e| panic!("CPU masked_select failed for {dtype:?}: {e}"));
 
-        let put: Vec<f32> = cuda_client.put(&a, &idx, &put_values).unwrap().to_vec();
-        assert_eq!(cpu_put, put);
-    });
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask_col = Tensor::from_slice(&[1u8, 0], &[2, 1], &cuda_device);
 
-    #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        let a = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-            &[2, 3],
-            &wgpu_device,
-        );
-        let idx = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[5i32, 0, 2, 4],
-            &[2, 2],
-            &wgpu_device,
-        );
-        let put_values = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0],
-            &[2, 2],
-            &wgpu_device,
-        );
+                let result = cuda_client
+                    .masked_select(&a, &mask_col)
+                    .unwrap_or_else(|e| panic!("CUDA masked_select failed for {dtype:?}: {e}"));
 
-        let take: Vec<f32> = wgpu_client.take(&a, &idx).unwrap().to_vec();
-        assert_eq!(take, vec![60.0, 10.0, 30.0, 50.0]);
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select column CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
 
-        let put: Vec<f32> = wgpu_client.put(&a, &idx, &put_values).unwrap().to_vec();
-        assert_eq!(put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
-    });
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask_col = Tensor::from_slice(&[1u32, 0], &[2, 1], &wgpu_device);
+
+                let result = wgpu_client
+                    .masked_select(&a, &mask_col)
+                    .unwrap_or_else(|e| panic!("WebGPU masked_select failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select column WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
 }
 
 #[test]
-fn test_take_put_i64_indices_parity() {
-    let (cpu_client, cpu_device) = create_cpu_client();
-    let a_cpu = Tensor::from_slice(
-        &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-        &[2, 3],
-        &cpu_device,
-    );
-    let idx_cpu = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cpu_device);
-    let put_values_cpu = Tensor::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &cpu_device);
-    let cpu_take: Vec<f32> = cpu_client.take(&a_cpu, &idx_cpu).unwrap().to_vec();
-    let cpu_put: Vec<f32> = cpu_client
-        .put(&a_cpu, &idx_cpu, &put_values_cpu)
-        .unwrap()
-        .to_vec();
-    assert_eq!(cpu_take, vec![60.0, 10.0, 30.0, 50.0]);
-    assert_eq!(cpu_put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
+fn test_masked_select_3d_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
 
-    #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        let a = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-            &[2, 3],
-            &cuda_device,
-        );
-        let idx = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[5i64, 0, 2, 4],
-            &[2, 2],
-            &cuda_device,
-        );
-        let put_values = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0],
-            &[2, 2],
-            &cuda_device,
-        );
+        let a_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 2, 2], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let mask_cpu = Tensor::from_slice(&[1u8, 0], &[1, 2, 1], &cpu_device);
 
-        let take: Vec<f32> = cuda_client.take(&a, &idx).unwrap().to_vec();
-        assert_eq!(cpu_take, take);
+        let cpu_result = cpu_client
+            .masked_select(&a_cpu, &mask_cpu)
+            .unwrap_or_else(|e| panic!("CPU masked_select failed for {dtype:?}: {e}"));
 
-        let put: Vec<f32> = cuda_client.put(&a, &idx, &put_values).unwrap().to_vec();
-        assert_eq!(cpu_put, put);
-    });
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 2, 2], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u8, 0], &[1, 2, 1], &cuda_device);
 
-    #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        let a = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[10.0f32, 20.0, 30.0, 40.0, 50.0, 60.0],
-            &[2, 3],
-            &wgpu_device,
-        );
-        let idx = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[5i64, 0, 2, 4],
-            &[2, 2],
-            &wgpu_device,
-        );
-        let put_values = Tensor::<numr::runtime::wgpu::WgpuRuntime>::from_slice(
-            &[1.0f32, 2.0, 3.0, 4.0],
-            &[2, 2],
-            &wgpu_device,
-        );
+                let result = cuda_client
+                    .masked_select(&a, &mask)
+                    .unwrap_or_else(|e| panic!("CUDA masked_select failed for {dtype:?}: {e}"));
 
-        let take: Vec<f32> = wgpu_client.take(&a, &idx).unwrap().to_vec();
-        assert_eq!(take, vec![60.0, 10.0, 30.0, 50.0]);
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select 3D CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
 
-        let put: Vec<f32> = wgpu_client.put(&a, &idx, &put_values).unwrap().to_vec();
-        assert_eq!(put, vec![2.0, 20.0, 3.0, 40.0, 4.0, 1.0]);
-    });
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 2, 2], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u32, 0], &[1, 2, 1], &wgpu_device);
+
+                let result = wgpu_client
+                    .masked_select(&a, &mask)
+                    .unwrap_or_else(|e| panic!("WebGPU masked_select failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_select 3D WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
 }
+
+#[test]
+fn test_masked_fill_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let mask_cpu = Tensor::from_slice(&[1u8, 0, 1], &[1, 3], &cpu_device);
+
+        let cpu_result = cpu_client
+            .masked_fill(&a_cpu, &mask_cpu, -1.0)
+            .unwrap_or_else(|e| panic!("CPU masked_fill failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u8, 0, 1], &[1, 3], &cuda_device);
+
+                let result = cuda_client
+                    .masked_fill(&a, &mask, -1.0)
+                    .unwrap_or_else(|e| panic!("CUDA masked_fill failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_fill CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u32, 0, 1], &[1, 3], &wgpu_device);
+
+                let result = wgpu_client
+                    .masked_fill(&a, &mask, -1.0)
+                    .unwrap_or_else(|e| panic!("WebGPU masked_fill failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_fill WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn test_masked_fill_column_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let mask_cpu = Tensor::from_slice(&[1u8, 0], &[2, 1], &cpu_device);
+
+        let cpu_result = cpu_client
+            .masked_fill(&a_cpu, &mask_cpu, 99.0)
+            .unwrap_or_else(|e| panic!("CPU masked_fill failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u8, 0], &[2, 1], &cuda_device);
+
+                let result = cuda_client
+                    .masked_fill(&a, &mask, 99.0)
+                    .unwrap_or_else(|e| panic!("CUDA masked_fill failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_fill column CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let mask = Tensor::from_slice(&[1u32, 0], &[2, 1], &wgpu_device);
+
+                let result = wgpu_client
+                    .masked_fill(&a, &mask, 99.0)
+                    .unwrap_or_else(|e| panic!("WebGPU masked_fill failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("masked_fill column WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+// ============================================================================
+// take / put tests (I32 indices)
+// ============================================================================
+
+#[test]
+fn test_take_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let idx_cpu = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cpu_device);
+
+        let cpu_result = cpu_client
+            .take(&a_cpu, &idx_cpu)
+            .unwrap_or_else(|e| panic!("CPU take failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cuda_device);
+
+                let result = cuda_client
+                    .take(&a, &idx)
+                    .unwrap_or_else(|e| panic!("CUDA take failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("take CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &wgpu_device);
+
+                let result = wgpu_client
+                    .take(&a, &idx)
+                    .unwrap_or_else(|e| panic!("WebGPU take failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("take WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn test_put_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let idx_cpu = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cpu_device);
+        let put_values_data = vec![1.0, 2.0, 3.0, 4.0];
+        let put_values_cpu =
+            tensor_from_f64(&put_values_data, &[2, 2], dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+
+        let cpu_result = cpu_client
+            .put(&a_cpu, &idx_cpu, &put_values_cpu)
+            .unwrap_or_else(|e| panic!("CPU put failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &cuda_device);
+                let put_values =
+                    tensor_from_f64(&put_values_data, &[2, 2], dtype, &cuda_device, &cuda_client)
+                        .unwrap_or_else(|e| {
+                            panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+
+                let result = cuda_client
+                    .put(&a, &idx, &put_values)
+                    .unwrap_or_else(|e| panic!("CUDA put failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("put CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i32, 0, 2, 4], &[2, 2], &wgpu_device);
+                let put_values =
+                    tensor_from_f64(&put_values_data, &[2, 2], dtype, &wgpu_device, &wgpu_client)
+                        .unwrap_or_else(|e| {
+                            panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+
+                let result = wgpu_client
+                    .put(&a, &idx, &put_values)
+                    .unwrap_or_else(|e| panic!("WebGPU put failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("put WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+// ============================================================================
+// take / put tests (I64 indices)
+// ============================================================================
+
+#[test]
+fn test_take_i64_indices_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let idx_cpu = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cpu_device);
+
+        let cpu_result = cpu_client
+            .take(&a_cpu, &idx_cpu)
+            .unwrap_or_else(|e| panic!("CPU take failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cuda_device);
+
+                let result = cuda_client
+                    .take(&a, &idx)
+                    .unwrap_or_else(|e| panic!("CUDA take failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("take I64 indices CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &wgpu_device);
+
+                let result = wgpu_client
+                    .take(&a, &idx)
+                    .unwrap_or_else(|e| panic!("WebGPU take failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("take I64 indices WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn test_put_i64_indices_parity() {
+    for dtype in supported_dtypes("cpu") {
+        let (cpu_client, cpu_device) = create_cpu_client();
+
+        let a_data = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0];
+        let a_cpu = tensor_from_f64(&a_data, &[2, 3], dtype, &cpu_device, &cpu_client)
+            .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+        let idx_cpu = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cpu_device);
+        let put_values_data = vec![1.0, 2.0, 3.0, 4.0];
+        let put_values_cpu =
+            tensor_from_f64(&put_values_data, &[2, 2], dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+
+        let cpu_result = cpu_client
+            .put(&a_cpu, &idx_cpu, &put_values_cpu)
+            .unwrap_or_else(|e| panic!("CPU put failed for {dtype:?}: {e}"));
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &cuda_device);
+                let put_values =
+                    tensor_from_f64(&put_values_data, &[2, 2], dtype, &cuda_device, &cuda_client)
+                        .unwrap_or_else(|e| {
+                            panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+
+                let result = cuda_client
+                    .put(&a, &idx, &put_values)
+                    .unwrap_or_else(|e| panic!("CUDA put failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("put I64 indices CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a = tensor_from_f64(&a_data, &[2, 3], dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let idx = Tensor::from_slice(&[5i64, 0, 2, 4], &[2, 2], &wgpu_device);
+                let put_values =
+                    tensor_from_f64(&put_values_data, &[2, 2], dtype, &wgpu_device, &wgpu_client)
+                        .unwrap_or_else(|e| {
+                            panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}")
+                        });
+
+                let result = wgpu_client
+                    .put(&a, &idx, &put_values)
+                    .unwrap_or_else(|e| panic!("WebGPU put failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_result,
+                    dtype,
+                    &format!("put I64 indices WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+// ============================================================================
+// Error handling tests (not dtype-parameterized)
+// ============================================================================
 
 #[test]
 fn test_take_put_reject_non_integer_indices() {

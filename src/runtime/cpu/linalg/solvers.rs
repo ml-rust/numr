@@ -3,7 +3,10 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
-use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d, validate_square_matrix};
+use crate::algorithm::linalg::{
+    linalg_demote, linalg_promote, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
+};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
@@ -22,16 +25,17 @@ pub fn solve_impl(
             rhs: b.dtype(),
         });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (b, _) = linalg_promote(client, b)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => solve_typed::<f32>(client, a, b, n),
-        DType::F64 => solve_typed::<f64>(client, a, b, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "solve",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => solve_typed::<f32>(client, &a, &b, n),
+        DType::F64 => solve_typed::<f64>(client, &a, &b, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn solve_typed<T: Element + LinalgElement>(
@@ -133,16 +137,17 @@ pub fn solve_triangular_lower_impl(
             rhs: b.dtype(),
         });
     }
+    let (l, original_dtype) = linalg_promote(client, l)?;
+    let (b, _) = linalg_promote(client, b)?;
     let n = validate_square_matrix(l.shape())?;
 
-    match l.dtype() {
-        DType::F32 => solve_triangular_lower_typed::<f32>(client, l, b, n, unit_diagonal),
-        DType::F64 => solve_triangular_lower_typed::<f64>(client, l, b, n, unit_diagonal),
-        _ => Err(Error::UnsupportedDType {
-            dtype: l.dtype(),
-            op: "solve_triangular_lower",
-        }),
-    }
+    let result = match l.dtype() {
+        DType::F32 => solve_triangular_lower_typed::<f32>(client, &l, &b, n, unit_diagonal),
+        DType::F64 => solve_triangular_lower_typed::<f64>(client, &l, &b, n, unit_diagonal),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn solve_triangular_lower_typed<T: Element + LinalgElement>(
@@ -217,16 +222,17 @@ pub fn solve_triangular_upper_impl(
             rhs: b.dtype(),
         });
     }
+    let (u, original_dtype) = linalg_promote(client, u)?;
+    let (b, _) = linalg_promote(client, b)?;
     let n = validate_square_matrix(u.shape())?;
 
-    match u.dtype() {
-        DType::F32 => solve_triangular_upper_typed::<f32>(client, u, b, n),
-        DType::F64 => solve_triangular_upper_typed::<f64>(client, u, b, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: u.dtype(),
-            op: "solve_triangular_upper",
-        }),
-    }
+    let result = match u.dtype() {
+        DType::F32 => solve_triangular_upper_typed::<f32>(client, &u, &b, n),
+        DType::F64 => solve_triangular_upper_typed::<f64>(client, &u, &b, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn solve_triangular_upper_typed<T: Element + LinalgElement>(
@@ -295,16 +301,17 @@ pub fn lstsq_impl(
             rhs: b.dtype(),
         });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (b, _) = linalg_promote(client, b)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => lstsq_typed::<f32>(client, a, b, m, n),
-        DType::F64 => lstsq_typed::<f64>(client, a, b, m, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "lstsq",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => lstsq_typed::<f32>(client, &a, &b, m, n),
+        DType::F64 => lstsq_typed::<f64>(client, &a, &b, m, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn lstsq_typed<T: Element + LinalgElement>(

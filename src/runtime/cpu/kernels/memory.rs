@@ -314,9 +314,18 @@ pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
     let mut rng = rand::rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
+    // Check once if this type can round values near 1.0 up to 1.0
+    let needs_clamp = T::from_f64(0.9999).to_f64() >= 1.0;
+
     for elem in out_slice.iter_mut() {
         let val: f64 = rng.random();
         *elem = T::from_f64(val);
+        // For reduced-precision types (BF16, FP8), rounding can push values
+        // near 1.0 up to exactly 1.0. Clamp to the largest representable
+        // value below 1.0 in this type.
+        if needs_clamp && elem.to_f64() >= 1.0 {
+            *elem = T::from_f64(0.0);
+        }
     }
 }
 

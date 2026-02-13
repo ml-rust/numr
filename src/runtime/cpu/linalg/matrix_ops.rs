@@ -6,7 +6,8 @@ use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
 use super::solvers::solve_impl;
 use super::svd::svd_decompose_impl;
 use crate::algorithm::linalg::{
-    MatrixNormOrder, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
+    MatrixNormOrder, linalg_demote, linalg_promote, validate_linalg_dtype, validate_matrix_2d,
+    validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -16,16 +17,16 @@ use crate::tensor::Tensor;
 /// Matrix inverse via LU decomposition
 pub fn inverse_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => inverse_typed::<f32>(client, a, n),
-        DType::F64 => inverse_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "inverse",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => inverse_typed::<f32>(client, &a, n),
+        DType::F64 => inverse_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn inverse_typed<T: Element + LinalgElement>(
@@ -49,16 +50,16 @@ fn inverse_typed<T: Element + LinalgElement>(
 /// Determinant via LU decomposition
 pub fn det_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => det_typed::<f32>(client, a, n),
-        DType::F64 => det_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "det",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => det_typed::<f32>(client, &a, n),
+        DType::F64 => det_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn det_typed<T: Element + LinalgElement>(
@@ -94,16 +95,16 @@ fn det_typed<T: Element + LinalgElement>(
 /// Trace: sum of diagonal elements
 pub fn trace_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => trace_typed::<f32>(client, a, m, n),
-        DType::F64 => trace_typed::<f64>(client, a, m, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "trace",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => trace_typed::<f32>(client, &a, m, n),
+        DType::F64 => trace_typed::<f64>(client, &a, m, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn trace_typed<T: Element + LinalgElement>(
@@ -127,16 +128,16 @@ fn trace_typed<T: Element + LinalgElement>(
 /// Extract diagonal
 pub fn diag_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => diag_typed::<f32>(client, a, m, n),
-        DType::F64 => diag_typed::<f64>(client, a, m, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "diag",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => diag_typed::<f32>(client, &a, m, n),
+        DType::F64 => diag_typed::<f64>(client, &a, m, n),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn diag_typed<T: Element + LinalgElement>(
@@ -166,15 +167,15 @@ pub fn diagflat_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tenso
             a.ndim()
         )));
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
 
-    match a.dtype() {
-        DType::F32 => diagflat_typed::<f32>(client, a),
-        DType::F64 => diagflat_typed::<f64>(client, a),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "diagflat",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => diagflat_typed::<f32>(client, &a),
+        DType::F64 => diagflat_typed::<f64>(client, &a),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn diagflat_typed<T: Element + LinalgElement>(
@@ -211,17 +212,18 @@ pub fn kron_impl(
             rhs: b.dtype(),
         });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (b, _) = linalg_promote(client, b)?;
     let (m_a, n_a) = validate_matrix_2d(a.shape())?;
     let (m_b, n_b) = validate_matrix_2d(b.shape())?;
 
-    match a.dtype() {
-        DType::F32 => kron_typed::<f32>(client, a, b, m_a, n_a, m_b, n_b),
-        DType::F64 => kron_typed::<f64>(client, a, b, m_a, n_a, m_b, n_b),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "kron",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => kron_typed::<f32>(client, &a, &b, m_a, n_a, m_b, n_b),
+        DType::F64 => kron_typed::<f64>(client, &a, &b, m_a, n_a, m_b, n_b),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn kron_typed<T: Element + LinalgElement>(
@@ -281,6 +283,8 @@ pub fn khatri_rao_impl(
             rhs: b.dtype(),
         });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (b, _) = linalg_promote(client, b)?;
     let (m, k_a) = validate_matrix_2d(a.shape())?;
     let (n, k_b) = validate_matrix_2d(b.shape())?;
 
@@ -294,14 +298,13 @@ pub fn khatri_rao_impl(
 
     let k = k_a;
 
-    match a.dtype() {
-        DType::F32 => khatri_rao_typed::<f32>(client, a, b, m, n, k),
-        DType::F64 => khatri_rao_typed::<f64>(client, a, b, m, n, k),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "khatri_rao",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => khatri_rao_typed::<f32>(client, &a, &b, m, n, k),
+        DType::F64 => khatri_rao_typed::<f64>(client, &a, &b, m, n, k),
+        _ => unreachable!(),
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 fn khatri_rao_typed<T: Element + LinalgElement>(
@@ -420,16 +423,19 @@ pub fn slogdet_impl(
     a: &Tensor<CpuRuntime>,
 ) -> Result<crate::algorithm::linalg::SlogdetResult<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let n = validate_square_matrix(a.shape())?;
 
-    match a.dtype() {
-        DType::F32 => slogdet_typed::<f32>(client, a, n),
-        DType::F64 => slogdet_typed::<f64>(client, a, n),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "slogdet",
-        }),
-    }
+    let result = match a.dtype() {
+        DType::F32 => slogdet_typed::<f32>(client, &a, n),
+        DType::F64 => slogdet_typed::<f64>(client, &a, n),
+        _ => unreachable!(),
+    }?;
+
+    Ok(crate::algorithm::linalg::SlogdetResult {
+        sign: linalg_demote(client, result.sign, original_dtype)?,
+        logabsdet: linalg_demote(client, result.logabsdet, original_dtype)?,
+    })
 }
 
 fn slogdet_typed<T: Element + LinalgElement>(
@@ -492,15 +498,14 @@ pub fn matrix_rank_impl(
     tol: Option<f64>,
 ) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, _original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
 
+    // matrix_rank returns I64 (integer rank) - no demotion needed
     match a.dtype() {
-        DType::F32 => matrix_rank_typed::<f32>(client, a, m, n, tol),
-        DType::F64 => matrix_rank_typed::<f64>(client, a, m, n, tol),
-        _ => Err(Error::UnsupportedDType {
-            dtype: a.dtype(),
-            op: "matrix_rank",
-        }),
+        DType::F32 => matrix_rank_typed::<f32>(client, &a, m, n, tol),
+        DType::F64 => matrix_rank_typed::<f64>(client, &a, m, n, tol),
+        _ => unreachable!(),
     }
 }
 
@@ -554,34 +559,28 @@ pub fn matrix_norm_impl(
     ord: MatrixNormOrder,
 ) -> Result<Tensor<CpuRuntime>> {
     validate_linalg_dtype(a.dtype())?;
+    let (a, original_dtype) = linalg_promote(client, a)?;
     let (_m, _n) = validate_matrix_2d(a.shape())?;
 
-    match ord {
+    let result = match ord {
         MatrixNormOrder::Frobenius => match a.dtype() {
-            DType::F32 => frobenius_norm_typed::<f32>(client, a),
-            DType::F64 => frobenius_norm_typed::<f64>(client, a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "matrix_norm",
-            }),
+            DType::F32 => frobenius_norm_typed::<f32>(client, &a),
+            DType::F64 => frobenius_norm_typed::<f64>(client, &a),
+            _ => unreachable!(),
         },
         MatrixNormOrder::Spectral => match a.dtype() {
-            DType::F32 => spectral_norm_typed::<f32>(client, a),
-            DType::F64 => spectral_norm_typed::<f64>(client, a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "spectral_norm",
-            }),
+            DType::F32 => spectral_norm_typed::<f32>(client, &a),
+            DType::F64 => spectral_norm_typed::<f64>(client, &a),
+            _ => unreachable!(),
         },
         MatrixNormOrder::Nuclear => match a.dtype() {
-            DType::F32 => nuclear_norm_typed::<f32>(client, a),
-            DType::F64 => nuclear_norm_typed::<f64>(client, a),
-            _ => Err(Error::UnsupportedDType {
-                dtype: a.dtype(),
-                op: "nuclear_norm",
-            }),
+            DType::F32 => nuclear_norm_typed::<f32>(client, &a),
+            DType::F64 => nuclear_norm_typed::<f64>(client, &a),
+            _ => unreachable!(),
         },
-    }
+    }?;
+
+    linalg_demote(client, result, original_dtype)
 }
 
 /// Frobenius norm: ||A||_F = sqrt(sum_{i,j} |A[i,j]|^2)

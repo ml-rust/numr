@@ -280,6 +280,10 @@ pub unsafe fn launch_pad(
     let fill_f16 = half::f16::from_f64(fill_value);
     #[cfg(feature = "f16")]
     let fill_bf16 = half::bf16::from_f64(fill_value);
+    #[cfg(feature = "fp8")]
+    let fill_fp8_e4m3 = crate::dtype::FP8E4M3::from_f32(fill_value as f32);
+    #[cfg(feature = "fp8")]
+    let fill_fp8_e5m2 = crate::dtype::FP8E5M2::from_f32(fill_value as f32);
 
     // Use closure to capture result, ensuring cleanup always runs even if kernel launch fails
     let result: Result<()> = (|| unsafe {
@@ -314,6 +318,10 @@ pub unsafe fn launch_pad(
             DType::F16 => builder.arg(&fill_f16),
             #[cfg(feature = "f16")]
             DType::BF16 => builder.arg(&fill_bf16),
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 => builder.arg(&fill_fp8_e4m3),
+            #[cfg(feature = "fp8")]
+            DType::FP8E5M2 => builder.arg(&fill_fp8_e5m2),
             _ => {
                 return Err(Error::UnsupportedDType { dtype, op: "pad" });
             }

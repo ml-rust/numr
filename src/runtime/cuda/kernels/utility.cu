@@ -221,7 +221,12 @@ __global__ void rand_f16(__half* out, unsigned long long seed, unsigned int n) {
     if (idx < n) {
         XorShift128PlusState state;
         xorshift128plus_init(&state, seed, idx);
-        out[idx] = __float2half((float)xorshift128plus_uniform(&state));
+        __half val = __float2half((float)xorshift128plus_uniform(&state));
+        // Clamp: reduced-precision types can round values near 1.0 up to exactly 1.0
+        if (__hge(val, __float2half(1.0f))) {
+            val = __float2half(0.0f);
+        }
+        out[idx] = val;
     }
 }
 
@@ -249,7 +254,13 @@ __global__ void rand_bf16(__nv_bfloat16* out, unsigned long long seed, unsigned 
     if (idx < n) {
         XorShift128PlusState state;
         xorshift128plus_init(&state, seed, idx);
-        out[idx] = __float2bfloat16((float)xorshift128plus_uniform(&state));
+        float fval = (float)xorshift128plus_uniform(&state);
+        __nv_bfloat16 val = __float2bfloat16(fval);
+        // Clamp: reduced-precision types can round values near 1.0 up to exactly 1.0
+        if (__bfloat162float(val) >= 1.0f) {
+            val = __float2bfloat16(0.0f);
+        }
+        out[idx] = val;
     }
 }
 

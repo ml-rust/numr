@@ -1,7 +1,8 @@
 //! CUDA runtime implementation
 
 use super::cache::{
-    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, try_get_cached_stream,
+    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, reset_client,
+    try_get_cached_stream,
 };
 use super::client::CudaAllocator;
 use super::client::CudaClient;
@@ -48,11 +49,39 @@ impl Runtime for CudaRuntime {
                 client.stream.cu_stream(),
             );
 
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(crate::error::Error::OutOfMemory { size: size_bytes });
+            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Ok(ptr);
             }
 
-            Ok(ptr)
+            // First attempt failed - try syncing the stream to flush pending frees
+            let _ = client.stream.synchronize();
+
+            let result = cudarc::driver::sys::cuMemAllocAsync(
+                &mut ptr,
+                size_bytes,
+                client.stream.cu_stream(),
+            );
+
+            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Ok(ptr);
+            }
+
+            // Stream is likely in a sticky error state (e.g., CUDA_ERROR_MISALIGNED_ADDRESS
+            // from a previous kernel). Reset the client with a fresh context/stream.
+            drop(client);
+            if let Some(new_client) = reset_client(device) {
+                let result = cudarc::driver::sys::cuMemAllocAsync(
+                    &mut ptr,
+                    size_bytes,
+                    new_client.stream.cu_stream(),
+                );
+
+                if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                    return Ok(ptr);
+                }
+            }
+
+            Err(crate::error::Error::OutOfMemory { size: size_bytes })
         }
     }
 

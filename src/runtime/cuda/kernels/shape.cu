@@ -73,6 +73,8 @@ DEFINE_CAT_KERNEL(u16, unsigned short)
 DEFINE_CAT_KERNEL(u8, unsigned char)
 DEFINE_CAT_KERNEL(c64, numr_complex64)
 DEFINE_CAT_KERNEL(c128, numr_complex128)
+DEFINE_CAT_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_CAT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 } // extern "C"
 
@@ -137,6 +139,8 @@ DEFINE_REPEAT_KERNEL(u16, unsigned short)
 DEFINE_REPEAT_KERNEL(u8, unsigned char)
 DEFINE_REPEAT_KERNEL(c64, numr_complex64)
 DEFINE_REPEAT_KERNEL(c128, numr_complex128)
+DEFINE_REPEAT_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_REPEAT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 } // extern "C"
 
@@ -217,6 +221,8 @@ DEFINE_PAD_KERNEL(u16, unsigned short)
 DEFINE_PAD_KERNEL(u8, unsigned char)
 DEFINE_PAD_KERNEL(c64, numr_complex64)
 DEFINE_PAD_KERNEL(c128, numr_complex128)
+DEFINE_PAD_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_PAD_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 } // extern "C"
 
@@ -279,5 +285,7 @@ DEFINE_ROLL_KERNEL(u16, unsigned short)
 DEFINE_ROLL_KERNEL(u8, unsigned char)
 DEFINE_ROLL_KERNEL(c64, numr_complex64)
 DEFINE_ROLL_KERNEL(c128, numr_complex128)
+DEFINE_ROLL_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_ROLL_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 
 } // extern "C"

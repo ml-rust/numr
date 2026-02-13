@@ -1,22 +1,22 @@
 // Backend parity tests for BinaryOps trait
 //
-// Canonical pattern:
-// - BinaryOp enum
-// - apply_binary_op dispatcher
-// - shared test_binary_parity runner
-// - tiny per-op tests via macro
+// Dtype-parameterized: each test runs for all supported dtypes (F32, F64, F16, BF16, FP8).
+// Tensors are created in f64 then cast to target dtype via tensor_from_f64().
+// Comparison reads back in native dtype - no unnecessary f64 conversion.
 
+use numr::dtype::DType;
 use numr::ops::BinaryOps;
 use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-use crate::backend_parity::helpers::assert_case_parity_f32;
+use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
-use crate::common::create_cpu_client;
+use crate::common::{
+    assert_tensor_allclose, create_cpu_client, is_dtype_supported, supported_dtypes,
+};
 
 #[derive(Clone, Copy, Debug)]
 enum BinaryOp {
@@ -32,14 +32,14 @@ enum BinaryOp {
 
 #[derive(Clone)]
 struct TestCase {
-    a: Vec<f32>,
+    a: Vec<f64>,
     a_shape: Vec<usize>,
-    b: Vec<f32>,
+    b: Vec<f64>,
     b_shape: Vec<usize>,
 }
 
 impl TestCase {
-    fn new(a: Vec<f32>, a_shape: Vec<usize>, b: Vec<f32>, b_shape: Vec<usize>) -> Self {
+    fn new(a: Vec<f64>, a_shape: Vec<usize>, b: Vec<f64>, b_shape: Vec<usize>) -> Self {
         Self {
             a,
             a_shape,
@@ -67,49 +67,75 @@ fn apply_binary_op<R: Runtime>(
     }
 }
 
-fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase]) {
+fn test_binary_parity(op: BinaryOp, test_cases: &[TestCase], dtype: DType) {
     let (cpu_client, cpu_device) = create_cpu_client();
-    let cpu_results: Vec<Vec<f32>> = test_cases
+
+    // Compute CPU baseline results (kept as tensors for native comparison)
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = test_cases
         .iter()
         .map(|tc| {
-            let a = Tensor::from_slice(&tc.a, &tc.a_shape, &cpu_device);
-            let b = Tensor::from_slice(&tc.b, &tc.b_shape, &cpu_device);
+            let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+
             apply_binary_op(&cpu_client, op, &a, &b)
-                .expect("CPU operation failed")
-                .to_vec::<f32>()
+                .unwrap_or_else(|e| panic!("CPU {op:?} failed for {dtype:?}: {e}"))
         })
         .collect();
 
     #[cfg(feature = "cuda")]
-    with_cuda_backend(|cuda_client, cuda_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let a = Tensor::from_slice(&tc.a, &tc.a_shape, &cuda_device);
-            let b = Tensor::from_slice(&tc.b, &tc.b_shape, &cuda_device);
-            let cuda_result = apply_binary_op(&cuda_client, op, &a, &b)
-                .expect("CUDA operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &cuda_result, &format!("{op:?}"), "cuda");
-        }
-    });
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+
+                let result = apply_binary_op(&cuda_client, op, &a, &b)
+                    .unwrap_or_else(|e| panic!("CUDA {op:?} failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op:?} CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
 
     #[cfg(feature = "wgpu")]
-    with_wgpu_backend(|wgpu_client, wgpu_device| {
-        for (idx, tc) in test_cases.iter().enumerate() {
-            let a = Tensor::from_slice(&tc.a, &tc.a_shape, &wgpu_device);
-            let b = Tensor::from_slice(&tc.b, &tc.b_shape, &wgpu_device);
-            let wgpu_result = apply_binary_op(&wgpu_client, op, &a, &b)
-                .expect("WebGPU operation failed")
-                .to_vec::<f32>();
-            assert_case_parity_f32(&cpu_results, idx, &wgpu_result, &format!("{op:?}"), "wgpu");
-        }
-    });
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+
+                let result = apply_binary_op(&wgpu_client, op, &a, &b)
+                    .unwrap_or_else(|e| panic!("WebGPU {op:?} failed for {dtype:?}: {e}"));
+
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("{op:?} WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
 }
 
 macro_rules! binary_case {
     ($name:ident, $op:expr, $cases:expr) => {
         #[test]
         fn $name() {
-            test_binary_parity($op, $cases);
+            for dtype in supported_dtypes("cpu") {
+                test_binary_parity($op, $cases, dtype);
+            }
         }
     };
 }

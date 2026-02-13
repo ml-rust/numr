@@ -3,7 +3,7 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::svd::svd_decompose_impl;
-use crate::algorithm::linalg::{validate_linalg_dtype, validate_matrix_2d};
+use crate::algorithm::linalg::{linalg_demote, linalg_promote, validate_matrix_2d};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
@@ -15,17 +15,21 @@ pub fn pinverse_impl(
     a: &Tensor<CpuRuntime>,
     rcond: Option<f64>,
 ) -> Result<Tensor<CpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (m, n) = validate_matrix_2d(a.shape())?;
-
-    match a.dtype() {
-        DType::F32 => pinverse_typed::<f32>(client, a, m, n, rcond),
-        DType::F64 => pinverse_typed::<f64>(client, a, m, n, rcond),
-        _ => Err(Error::UnsupportedDType {
+    if !a.dtype().is_float() {
+        return Err(Error::UnsupportedDType {
             dtype: a.dtype(),
             op: "pinverse",
-        }),
+        });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    let result = match a.dtype() {
+        DType::F32 => pinverse_typed::<f32>(client, &a, m, n, rcond),
+        DType::F64 => pinverse_typed::<f64>(client, &a, m, n, rcond),
+        _ => unreachable!(),
+    }?;
+    linalg_demote(client, result, original_dtype)
 }
 
 fn pinverse_typed<T: Element + LinalgElement>(
@@ -98,17 +102,21 @@ fn pinverse_typed<T: Element + LinalgElement>(
 
 /// Condition number via SVD: cond(A) = σ_max / σ_min
 pub fn cond_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (m, n) = validate_matrix_2d(a.shape())?;
-
-    match a.dtype() {
-        DType::F32 => cond_typed::<f32>(client, a, m, n),
-        DType::F64 => cond_typed::<f64>(client, a, m, n),
-        _ => Err(Error::UnsupportedDType {
+    if !a.dtype().is_float() {
+        return Err(Error::UnsupportedDType {
             dtype: a.dtype(),
             op: "cond",
-        }),
+        });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (m, n) = validate_matrix_2d(a.shape())?;
+
+    let result = match a.dtype() {
+        DType::F32 => cond_typed::<f32>(client, &a, m, n),
+        DType::F64 => cond_typed::<f64>(client, &a, m, n),
+        _ => unreachable!(),
+    }?;
+    linalg_demote(client, result, original_dtype)
 }
 
 fn cond_typed<T: Element + LinalgElement>(
@@ -164,17 +172,21 @@ pub fn cov_impl(
     a: &Tensor<CpuRuntime>,
     ddof: Option<usize>,
 ) -> Result<Tensor<CpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
-
-    match a.dtype() {
-        DType::F32 => cov_typed::<f32>(client, a, n_samples, n_features, ddof),
-        DType::F64 => cov_typed::<f64>(client, a, n_samples, n_features, ddof),
-        _ => Err(Error::UnsupportedDType {
+    if !a.dtype().is_float() {
+        return Err(Error::UnsupportedDType {
             dtype: a.dtype(),
             op: "cov",
-        }),
+        });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
+
+    let result = match a.dtype() {
+        DType::F32 => cov_typed::<f32>(client, &a, n_samples, n_features, ddof),
+        DType::F64 => cov_typed::<f64>(client, &a, n_samples, n_features, ddof),
+        _ => unreachable!(),
+    }?;
+    linalg_demote(client, result, original_dtype)
 }
 
 fn cov_typed<T: Element + LinalgElement>(
@@ -243,17 +255,21 @@ fn cov_typed<T: Element + LinalgElement>(
 /// Correlation coefficient matrix
 /// corr[i,j] = cov[i,j] / (std[i] * std[j])
 pub fn corrcoef_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
-
-    match a.dtype() {
-        DType::F32 => corrcoef_typed::<f32>(client, a, n_samples, n_features),
-        DType::F64 => corrcoef_typed::<f64>(client, a, n_samples, n_features),
-        _ => Err(Error::UnsupportedDType {
+    if !a.dtype().is_float() {
+        return Err(Error::UnsupportedDType {
             dtype: a.dtype(),
             op: "corrcoef",
-        }),
+        });
     }
+    let (a, original_dtype) = linalg_promote(client, a)?;
+    let (n_samples, n_features) = validate_matrix_2d(a.shape())?;
+
+    let result = match a.dtype() {
+        DType::F32 => corrcoef_typed::<f32>(client, &a, n_samples, n_features),
+        DType::F64 => corrcoef_typed::<f64>(client, &a, n_samples, n_features),
+        _ => unreachable!(),
+    }?;
+    linalg_demote(client, result, original_dtype)
 }
 
 fn corrcoef_typed<T: Element + LinalgElement>(
