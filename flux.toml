@@ -14,5 +14,5 @@ save_baseline = true
 
 [ci]
 regression_threshold = 10.0
-github_annotations = false
-fail_on_critical = false
+github_annotations = true
+fail_on_critical = true

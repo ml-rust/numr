@@ -89,6 +89,10 @@ harness = false
 name = "parallelism"
 harness = false
 
+[[bench]]
+name = "ci_regression"
+harness = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

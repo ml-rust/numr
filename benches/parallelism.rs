@@ -446,12 +446,17 @@ struct VerifyReduceOverhead;
 )]
 struct VerifyFFTOverhead;
 
+fn main() {
+    fluxbench::run().unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Unit Tests: Numerical Parity
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    #[allow(unused_imports)]
     use numr::prelude::*;
 
     /// Matmul must produce bit-identical results regardless of thread count.
@@ -601,8 +606,4 @@ mod tests {
             "Sum results differ between chunk_size=1024 and chunk_size=4096"
         );
     }
-}
-
-fn main() {
-    fluxbench::run().unwrap();
 }
