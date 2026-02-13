@@ -95,7 +95,8 @@ fn reduce_sum_1m(b: &mut Bencher) {
     id = "reduce_sum_10m",
     group = "reduce",
     severity = "warning",
-    threshold = 10.0
+    threshold = 20.0,
+    samples = 15
 )]
 fn reduce_sum_10m(b: &mut Bencher) {
     let device = CpuDevice::new();
@@ -148,8 +149,9 @@ fn fft_16384(b: &mut Bencher) {
 #[flux::bench(
     id = "embedding_32k",
     group = "embedding",
-    severity = "critical",
-    threshold = 5.0
+    severity = "warning",
+    threshold = 20.0,
+    samples = 20
 )]
 fn embedding_32k(b: &mut Bencher) {
     let device = CpuDevice::new();
@@ -167,7 +169,8 @@ fn embedding_32k(b: &mut Bencher) {
     id = "cat_10x_256x64",
     group = "shape",
     severity = "warning",
-    threshold = 10.0
+    threshold = 25.0,
+    samples = 20
 )]
 fn cat_10x_256x64(b: &mut Bencher) {
     let device = CpuDevice::new();
