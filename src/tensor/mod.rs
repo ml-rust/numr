@@ -4,13 +4,14 @@
 //! array stored on a compute device (CPU, GPU, etc.).
 
 mod core;
-pub(crate) mod id;
+pub mod id;
 mod layout;
+mod ops;
 pub(crate) mod shape;
 mod storage;
 mod strides;
 
 pub use core::Tensor;
-pub(crate) use id::TensorId;
+pub use id::TensorId;
 pub use layout::{Layout, Shape, Strides};
 pub use storage::Storage;

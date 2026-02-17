@@ -25,6 +25,12 @@ impl TensorId {
         self.0
     }
 
+    /// Get the raw ID value as u64 (alias for raw)
+    #[inline]
+    pub fn as_u64(self) -> u64 {
+        self.0
+    }
+
     /// Create from raw value (for testing/serialization only)
     #[inline]
     pub const fn from_raw(id: u64) -> Self {
