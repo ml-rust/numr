@@ -92,7 +92,10 @@ impl<R: Runtime> DualTensor<R> {
     ///
     /// The tangent is initialized to all ones with the same shape as the primal.
     /// This is useful when computing the derivative of a scalar function.
-    pub fn with_unit_tangent(primal: Tensor<R>, device: &R::Device) -> Self {
+    pub fn with_unit_tangent(primal: Tensor<R>, device: &R::Device) -> Self
+    where
+        R: Runtime<DType = DType>,
+    {
         let tangent = Tensor::ones(primal.shape(), primal.dtype(), device);
         Self {
             primal,
@@ -144,7 +147,10 @@ impl<R: Runtime> DualTensor<R> {
 
     /// Get the data type
     #[inline]
-    pub fn dtype(&self) -> DType {
+    pub fn dtype(&self) -> DType
+    where
+        R: Runtime<DType = DType>,
+    {
         self.primal.dtype()
     }
 
@@ -178,7 +184,10 @@ impl<R: Runtime> DualTensor<R> {
     ///
     /// This is useful when we need an explicit zero tangent for operations
     /// that can't handle `Option<Tensor>` directly.
-    pub fn zero_tangent(&self, device: &R::Device) -> Tensor<R> {
+    pub fn zero_tangent(&self, device: &R::Device) -> Tensor<R>
+    where
+        R: Runtime<DType = DType>,
+    {
         Tensor::zeros(self.primal.shape(), self.primal.dtype(), device)
     }
 }

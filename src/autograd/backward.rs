@@ -14,6 +14,7 @@
 //!   `Var`s that retain their computation history, enabling Hessians and HVPs.
 
 use super::{GradFn, GradStore, Var, VarGradStore, var_add};
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TensorOps;
 use crate::runtime::{Runtime, RuntimeClient};
@@ -51,7 +52,7 @@ fn validate_loss<R: Runtime>(loss: &Var<R>, fn_name: &str) -> Result<()> {
 
 /// Create the initial gradient tensor for the loss (dL/dL = 1)
 #[inline]
-fn create_loss_gradient<R: Runtime>(loss: &Var<R>) -> Tensor<R> {
+fn create_loss_gradient<R: Runtime<DType = DType>>(loss: &Var<R>) -> Tensor<R> {
     Tensor::<R>::ones(loss.shape(), loss.tensor().dtype(), loss.tensor().device())
 }
 
@@ -93,7 +94,7 @@ fn create_loss_gradient<R: Runtime>(loss: &Var<R>) -> Tensor<R> {
 /// ```
 pub fn backward<R, C>(loss: &Var<R>, client: &C) -> Result<GradStore<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
 {
     validate_loss(loss, "backward")?;
@@ -183,7 +184,7 @@ where
 /// when you actually need second-order derivatives.
 pub fn backward_with_graph<R, C>(loss: &Var<R>, client: &C) -> Result<VarGradStore<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     R::Client: TensorOps<R>,
 {

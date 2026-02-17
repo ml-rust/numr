@@ -2,6 +2,7 @@
 
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::IndexingOps;
 use crate::runtime::Runtime;
@@ -42,7 +43,7 @@ impl<R: Runtime> GatherBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for GatherBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for GatherBackward<R>
 where
     R::Client: IndexingOps<R>,
 {

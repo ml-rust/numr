@@ -2,6 +2,7 @@
 
 use super::ops::*;
 use crate::autograd::Var;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{CompareOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -12,7 +13,7 @@ use std::sync::Arc;
 /// Creates ClampBackward for gradient computation.
 pub fn var_clamp<R, C>(a: &Var<R>, min_val: f64, max_val: f64, client: &C) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
 {

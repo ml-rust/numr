@@ -6,6 +6,7 @@ use crate::autograd::{
     GradFn, Var, var_abs, var_cos, var_div, var_mul, var_mul_scalar, var_neg, var_sin, var_square,
     var_sub,
 };
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{BinaryOps, CompareOps, ScalarOps, TensorOps, UnaryOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -363,7 +364,7 @@ impl<R: Runtime> TanhBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for TanhBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for TanhBackward<R>
 where
     R::Client: TensorOps<R> + ScalarOps<R>,
 {
@@ -685,7 +686,7 @@ impl<R: Runtime> ClampBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for ClampBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for ClampBackward<R>
 where
     R::Client: TensorOps<R> + ScalarOps<R> + CompareOps<R>,
 {

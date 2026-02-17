@@ -53,6 +53,7 @@
 //! ```
 
 use super::DualTensor;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::TensorOps;
 use crate::runtime::{Runtime, RuntimeClient};
@@ -116,7 +117,7 @@ pub fn jvp<R, C, F>(
     client: &C,
 ) -> Result<(Tensor<R>, Tensor<R>)>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     F: FnOnce(&[DualTensor<R>], &C) -> Result<DualTensor<R>>,
 {
@@ -175,7 +176,7 @@ pub fn jvp_multi<R, C, F>(
     client: &C,
 ) -> Result<(Vec<Tensor<R>>, Vec<Tensor<R>>)>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     F: FnOnce(&[DualTensor<R>], &C) -> Result<Vec<DualTensor<R>>>,
 {
@@ -246,7 +247,7 @@ where
 /// ```
 pub fn jacobian_forward<R, C, F>(f: F, x: &Tensor<R>, client: &C) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     F: Fn(&DualTensor<R>, &C) -> Result<DualTensor<R>>,
 {
@@ -323,7 +324,7 @@ where
 /// second-order derivatives through the existing reverse-mode infrastructure.
 pub fn hvp<R, C, F>(grad_f: F, x: &Tensor<R>, v: &Tensor<R>, client: &C) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     F: Fn(&DualTensor<R>, &C) -> Result<DualTensor<R>>,
 {

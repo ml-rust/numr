@@ -2,6 +2,7 @@
 
 use super::ops::*;
 use crate::autograd::Var;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::IndexingOps;
 use crate::runtime::{Runtime, RuntimeClient};
@@ -15,7 +16,7 @@ pub fn var_gather<R, C>(
     client: &C,
 ) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + IndexingOps<R>,
     R::Client: IndexingOps<R>,
 {

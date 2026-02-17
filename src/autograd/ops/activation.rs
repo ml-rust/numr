@@ -5,6 +5,7 @@
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
 use crate::autograd::var_ops::{var_mul, var_sub, var_sum};
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -43,7 +44,7 @@ impl<R: Runtime> ReluBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for ReluBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for ReluBackward<R>
 where
     R::Client: TensorOps<R> + CompareOps<R>,
 {
@@ -134,7 +135,7 @@ impl<R: Runtime> SigmoidBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for SigmoidBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for SigmoidBackward<R>
 where
     R::Client: TensorOps<R>,
 {

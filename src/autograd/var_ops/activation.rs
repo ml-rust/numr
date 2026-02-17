@@ -2,6 +2,7 @@
 
 use super::ops::*;
 use crate::autograd::Var;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{CompareOps, ReduceOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -10,7 +11,7 @@ use std::sync::Arc;
 /// ReLU: z = max(0, a)
 pub fn var_relu<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R> + CompareOps<R>,
     R::Client: TensorOps<R> + CompareOps<R>,
 {
@@ -27,7 +28,7 @@ where
 /// Sigmoid: z = 1 / (1 + exp(-a))
 pub fn var_sigmoid<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
     R::Client: TensorOps<R>,
 {
