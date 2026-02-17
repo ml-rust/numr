@@ -94,7 +94,7 @@ pub mod tensor;
 /// - Backend runtimes: `CpuRuntime`, `CudaRuntime`, `WgpuRuntime` (feature-gated)
 pub mod prelude {
     // Core types
-    pub use crate::dtype::DType;
+    pub use crate::dtype::{DType, DataType};
     pub use crate::error::{Error, Result};
     pub use crate::tensor::{Layout, Shape, Strides, Tensor};
 

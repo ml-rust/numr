@@ -333,7 +333,7 @@ impl ToF64 for numr::dtype::FP8E5M2 {
 /// This function normalizes all of them to Vec<bool> for uniform comparison.
 ///
 /// Nonzero = true, zero = false.
-pub fn readback_as_bool<R: Runtime>(tensor: &numr::tensor::Tensor<R>) -> Vec<bool> {
+pub fn readback_as_bool<R: Runtime<DType = DType>>(tensor: &numr::tensor::Tensor<R>) -> Vec<bool> {
     macro_rules! nonzero {
         ($T:ty) => {
             tensor

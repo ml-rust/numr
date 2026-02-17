@@ -42,6 +42,7 @@ impl Runtime for MockRuntime {
     type Client = MockClient;
     type Allocator = MockAllocator;
     type RawHandle = ();
+    type DType = numr::dtype::DType;
 
     fn name() -> &'static str {
         "mock"
