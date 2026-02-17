@@ -44,7 +44,7 @@ impl DTypeSupport {
 // Validation Helpers (parameter extraction is OK - these are small user inputs)
 // ============================================================================
 
-fn validate_multivariate_normal_inputs<R: Runtime>(
+fn validate_multivariate_normal_inputs<R: Runtime<DType = DType>>(
     mean: &Tensor<R>,
     cov: &Tensor<R>,
     n_samples: usize,
@@ -109,7 +109,7 @@ fn validate_multivariate_normal_inputs<R: Runtime>(
     Ok(d)
 }
 
-fn validate_wishart_inputs<R: Runtime>(
+fn validate_wishart_inputs<R: Runtime<DType = DType>>(
     scale: &Tensor<R>,
     df: usize,
     n_samples: usize,
@@ -164,7 +164,7 @@ fn validate_wishart_inputs<R: Runtime>(
 }
 
 /// Validate dirichlet inputs. Extracts alpha values (small parameter vector).
-fn validate_dirichlet_inputs<R: Runtime>(
+fn validate_dirichlet_inputs<R: Runtime<DType = DType>>(
     alpha: &Tensor<R>,
     n_samples: usize,
 ) -> Result<(usize, Vec<f64>)> {
@@ -213,7 +213,7 @@ fn validate_dirichlet_inputs<R: Runtime>(
 }
 
 /// Validate multinomial inputs. Extracts probs and computes CDF (small parameter vector).
-fn validate_multinomial_inputs<R: Runtime>(
+fn validate_multinomial_inputs<R: Runtime<DType = DType>>(
     probs: &Tensor<R>,
     n_trials: usize,
     n_samples: usize,
@@ -280,7 +280,7 @@ pub fn multivariate_normal_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + MatmulOps<R> + BinaryOps<R> + RandomOps<R>,
 {
     let d = validate_multivariate_normal_inputs(mean, cov, n_samples, dtype_support)?;
@@ -318,7 +318,7 @@ pub fn wishart_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R>
         + MatmulOps<R>
         + BinaryOps<R>
@@ -398,7 +398,7 @@ fn construct_bartlett_matrices<R, C>(
     device: &R::Device,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + ShapeOps<R>,
 {
     // We need to place values at specific positions.
@@ -465,7 +465,7 @@ where
 /// ALL OPERATIONS ON GPU - only alpha parameters extracted (small user input).
 pub fn dirichlet_impl<R, C>(client: &C, alpha: &Tensor<R>, n_samples: usize) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RandomOps<R> + ReduceOps<R> + BinaryOps<R> + ShapeOps<R>,
 {
     let (k, alpha_data) = validate_dirichlet_inputs(alpha, n_samples)?;
@@ -511,7 +511,7 @@ pub fn multinomial_samples_impl<R, C>(
     n_samples: usize,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: MultinomialSamplingOps<R>,
 {
     let k = validate_multinomial_inputs(probs, n_trials, n_samples)?;
@@ -536,7 +536,7 @@ where
 ///
 /// This requires a GPU kernel because CDF lookup + counting cannot be
 /// efficiently expressed with standard tensor operations.
-pub trait MultinomialSamplingOps<R: Runtime> {
+pub trait MultinomialSamplingOps<R: Runtime<DType = DType>> {
     /// Multinomial sampling kernel.
     ///
     /// Given probability vector, generates n_samples where each sample

@@ -141,7 +141,7 @@ pub fn validate_eye(n: usize, m: Option<usize>) -> (usize, usize) {
 /// A new tensor that is guaranteed to be contiguous. If the input was already
 /// contiguous, this is zero-copy (just clones the Arc). Otherwise, data is copied.
 #[inline]
-pub fn ensure_contiguous<R: Runtime>(tensor: &Tensor<R>) -> Tensor<R> {
+pub fn ensure_contiguous<R: Runtime<DType = DType>>(tensor: &Tensor<R>) -> Tensor<R> {
     if tensor.is_contiguous() {
         tensor.clone()
     } else {
@@ -171,7 +171,10 @@ pub fn ensure_contiguous<R: Runtime>(tensor: &Tensor<R>) -> Tensor<R> {
 ///
 /// Returns `Error::DTypeMismatch` if the tensors have different dtypes.
 #[inline]
-pub fn validate_binary_dtypes<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Result<DType> {
+pub fn validate_binary_dtypes<R: Runtime<DType = DType>>(
+    a: &Tensor<R>,
+    b: &Tensor<R>,
+) -> Result<DType> {
     if a.dtype() != b.dtype() {
         return Err(Error::DTypeMismatch {
             lhs: a.dtype(),
@@ -202,7 +205,10 @@ pub fn validate_binary_dtypes<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Resul
 ///
 /// Returns `Error::BroadcastError` if shapes cannot be broadcast together.
 #[inline]
-pub fn compute_broadcast_shape<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Result<Vec<usize>> {
+pub fn compute_broadcast_shape<R: Runtime<DType = DType>>(
+    a: &Tensor<R>,
+    b: &Tensor<R>,
+) -> Result<Vec<usize>> {
     broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
         lhs: a.shape().to_vec(),
         rhs: b.shape().to_vec(),

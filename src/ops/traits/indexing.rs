@@ -24,7 +24,7 @@ pub enum ScatterReduceOp {
 }
 
 /// Validate that indices tensor has an integer dtype (I32 or I64).
-fn validate_index_dtype<R: Runtime>(indices: &Tensor<R>) -> Result<()> {
+fn validate_index_dtype<R: Runtime<DType = DType>>(indices: &Tensor<R>) -> Result<()> {
     match indices.dtype() {
         DType::I32 | DType::I64 => Ok(()),
         other => Err(Error::InvalidArgument {
@@ -228,7 +228,10 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor of shape `indices.shape()` with gathered values
-    fn take(&self, tensor: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>> {
+    fn take(&self, tensor: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>
+    where
+        R: Runtime<DType = DType>,
+    {
         validate_index_dtype(indices)?;
         let flat = tensor.contiguous().flatten()?;
         let indices_flat = indices.contiguous().flatten()?;
@@ -250,12 +253,10 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// New tensor with the same shape as `tensor` and updated values
-    fn put(
-        &self,
-        tensor: &Tensor<R>,
-        indices: &Tensor<R>,
-        values: &Tensor<R>,
-    ) -> Result<Tensor<R>> {
+    fn put(&self, tensor: &Tensor<R>, indices: &Tensor<R>, values: &Tensor<R>) -> Result<Tensor<R>>
+    where
+        R: Runtime<DType = DType>,
+    {
         validate_index_dtype(indices)?;
         let flat = tensor.contiguous().flatten()?;
         let indices_flat = indices.contiguous().flatten()?;

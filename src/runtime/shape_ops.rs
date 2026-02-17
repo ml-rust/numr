@@ -82,7 +82,10 @@ pub struct CatParams {
 /// Validate inputs for cat operation and compute output parameters.
 ///
 /// This is the single source of truth for cat validation, used by all backends.
-pub fn validate_cat<R: Runtime>(tensors: &[&Tensor<R>], dim: isize) -> Result<CatParams> {
+pub fn validate_cat<R: Runtime<DType = DType>>(
+    tensors: &[&Tensor<R>],
+    dim: isize,
+) -> Result<CatParams> {
     // Validate: need at least one tensor
     if tensors.is_empty() {
         return Err(Error::InvalidArgument {
@@ -159,7 +162,10 @@ pub fn validate_cat<R: Runtime>(tensors: &[&Tensor<R>], dim: isize) -> Result<Ca
 /// Validate inputs for stack operation.
 ///
 /// Returns the normalized dimension index for the new dimension.
-pub fn validate_stack<R: Runtime>(tensors: &[&Tensor<R>], dim: isize) -> Result<usize> {
+pub fn validate_stack<R: Runtime<DType = DType>>(
+    tensors: &[&Tensor<R>],
+    dim: isize,
+) -> Result<usize> {
     // Validate: need at least one tensor
     if tensors.is_empty() {
         return Err(Error::InvalidArgument {
