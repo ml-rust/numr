@@ -112,6 +112,10 @@ pub enum Error {
     #[error("CUDA error: {0}")]
     Cuda(#[from] cudarc::driver::DriverError),
 
+    /// Generic message error
+    #[error("{0}")]
+    Msg(String),
+
     /// Generic internal error
     #[error("Internal error: {0}")]
     Internal(String),
