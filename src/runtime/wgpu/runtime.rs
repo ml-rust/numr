@@ -24,6 +24,7 @@ impl Runtime for WgpuRuntime {
     type Client = WgpuClient;
     type Allocator = super::WgpuAllocator;
     type RawHandle = super::WgpuRawHandle;
+    type DType = crate::dtype::DType;
 
     fn name() -> &'static str {
         "wgpu"

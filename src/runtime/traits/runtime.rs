@@ -37,6 +37,12 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// For WGPU: Access to wgpu::Device/Queue
     type RawHandle: Send + Sync;
 
+    /// Data type enum for tensor elements.
+    ///
+    /// numr runtimes use `numr::DType`. Downstream runtimes (e.g. boostr)
+    /// can specify their own dtype enum with quantized variants.
+    type DType: crate::dtype::DataType;
+
     /// Human-readable name of this runtime
     fn name() -> &'static str;
 

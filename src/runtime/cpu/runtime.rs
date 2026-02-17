@@ -16,7 +16,8 @@ impl Runtime for CpuRuntime {
     type Device = CpuDevice;
     type Client = CpuClient;
     type Allocator = CpuAllocator;
-    type RawHandle = (); // CPU has no special handle needed
+    type RawHandle = ();
+    type DType = crate::dtype::DType;
 
     fn name() -> &'static str {
         "cpu"

@@ -22,6 +22,7 @@ impl Runtime for CudaRuntime {
     type Client = CudaClient;
     type Allocator = CudaAllocator;
     type RawHandle = super::CudaRawHandle;
+    type DType = crate::dtype::DType;
 
     fn name() -> &'static str {
         "cuda"
