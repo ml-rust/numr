@@ -4,6 +4,7 @@ use super::{DTypeSupport, create_index_tensor};
 use crate::algorithm::polynomial::helpers::{
     validate_polynomial_coeffs, validate_polynomial_dtype,
 };
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{BinaryOps, IndexingOps, ScalarOps, ShapeOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -34,7 +35,7 @@ pub fn polyval_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + BinaryOps<R> + ScalarOps<R> + IndexingOps<R> + ShapeOps<R>,
 {
     validate_polynomial_dtype(coeffs.dtype())?;
