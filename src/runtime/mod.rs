@@ -14,6 +14,7 @@
 //! ```
 
 mod allocator;
+mod communicator;
 mod graph;
 pub(crate) mod helpers;
 pub(crate) mod shape_ops;
@@ -38,6 +39,7 @@ pub(crate) mod fallback;
 pub(crate) use allocator::AllocGuard;
 pub(crate) use allocator::DefaultAllocator;
 pub use allocator::{AllocationStats, Allocator, TrackingAllocator};
+pub use communicator::{Communicator, NoOpCommunicator, ReduceOp};
 pub use graph::{Graph, NoOpGraph};
 pub(crate) use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
