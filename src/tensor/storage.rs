@@ -255,7 +255,7 @@ impl<R: Runtime> Storage<R> {
     /// - The storage must be uniquely owned (no other references)
     /// - The caller must ensure no aliasing
     #[inline]
-    pub unsafe fn as_host_slice_mut<T: bytemuck::Pod>(&self) -> &mut [T] {
+    pub unsafe fn as_host_slice_mut<T: bytemuck::Pod>(&mut self) -> &mut [T] {
         if self.inner.len == 0 {
             return &mut [];
         }

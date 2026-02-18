@@ -68,7 +68,7 @@ impl CudaGraph {
 
 impl crate::runtime::Graph for CudaGraph {
     fn launch(&self) -> crate::error::Result<()> {
-        let guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
         guard
             .0
             .launch()
