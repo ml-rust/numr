@@ -137,6 +137,17 @@ pub enum Error {
         /// The cargo feature name to enable
         feature: &'static str,
     },
+
+    /// Allocator cannot reset while allocations are still live
+    #[error("Allocator busy: {active_allocations} allocations still active")]
+    AllocatorBusy {
+        /// Number of allocations that are still live
+        active_allocations: usize,
+    },
+
+    /// Allocator is frozen — no new allocations permitted
+    #[error("Allocator frozen: allocation rejected while frozen")]
+    AllocatorFrozen,
 }
 
 impl Error {

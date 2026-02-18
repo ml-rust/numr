@@ -35,8 +35,8 @@ pub(crate) mod fallback;
 
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub(crate) use allocator::AllocGuard;
-pub use allocator::Allocator;
 pub(crate) use allocator::DefaultAllocator;
+pub use allocator::{AllocationStats, Allocator, TrackingAllocator};
 pub(crate) use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
     validate_binary_dtypes, validate_eye,
