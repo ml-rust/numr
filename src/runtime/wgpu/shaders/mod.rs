@@ -120,6 +120,7 @@ pub use generator::{generate_csr_spmm_shader, generate_csr_spmv_shader};
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
     launch_scatter_reduce_count, launch_scatter_reduce_mean_div, launch_scatter_reduce_prod,
+    launch_slice_assign,
 };
 pub use logical::{launch_logical_and, launch_logical_not, launch_logical_or, launch_logical_xor};
 pub use matrix_funcs_launcher::{

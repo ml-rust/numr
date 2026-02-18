@@ -563,4 +563,33 @@ pub trait IndexingOps<R: Runtime> {
             feature: "IndexingOps::gather_2d",
         })
     }
+
+    /// Assign `src` into a slice of `dst` along dimension `dim` starting at `start`.
+    ///
+    /// Returns a new tensor equal to `dst` except that the region
+    /// `dst[..., start..start+src.shape[dim], ...]` is replaced by `src`.
+    ///
+    /// # Arguments
+    ///
+    /// * `dst` - Destination tensor
+    /// * `src` - Source tensor. Must have same shape as `dst` except at `dim`,
+    ///   where `src.shape[dim] + start <= dst.shape[dim]`
+    /// * `dim` - Dimension along which to assign
+    /// * `start` - Starting index in `dst` along `dim`
+    ///
+    /// # Returns
+    ///
+    /// New tensor with the slice replaced
+    fn slice_assign(
+        &self,
+        dst: &Tensor<R>,
+        src: &Tensor<R>,
+        dim: usize,
+        start: usize,
+    ) -> Result<Tensor<R>> {
+        let _ = (dst, src, dim, start);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::slice_assign",
+        })
+    }
 }

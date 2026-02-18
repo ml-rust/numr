@@ -343,6 +343,14 @@ where
         let client = R::default_client(self.device());
         client.masked_fill(self, mask, value)
     }
+
+    /// Assign `src` into a slice of `self` along `dim` starting at `start`.
+    ///
+    /// Returns a new tensor with the slice region replaced by `src`.
+    pub fn slice_assign(&self, src: &Tensor<R>, dim: usize, start: usize) -> Result<Tensor<R>> {
+        let client = R::default_client(self.device());
+        client.slice_assign(self, src, dim, start)
+    }
 }
 
 // ============================================================================

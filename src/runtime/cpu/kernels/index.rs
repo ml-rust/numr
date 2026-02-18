@@ -871,3 +871,35 @@ pub unsafe fn gather_2d_kernel<T: Element>(
 
     true
 }
+
+/// Slice assign kernel: copies src into a slice of dst along a dimension.
+///
+/// dst is first fully copied to output, then src overwrites the slice region.
+///
+/// # Safety
+///
+/// All pointers must be valid with the correct element counts.
+pub unsafe fn slice_assign_kernel<T: Copy>(
+    dst: *const T,
+    src: *const T,
+    out: *mut T,
+    outer_size: usize,
+    dst_dim_size: usize,
+    src_dim_size: usize,
+    inner_size: usize,
+    start: usize,
+) {
+    let dst_total = outer_size * dst_dim_size * inner_size;
+
+    // Copy entire dst to output
+    std::ptr::copy_nonoverlapping(dst, out, dst_total);
+
+    // Overwrite the slice region with src
+    for o in 0..outer_size {
+        for s in 0..src_dim_size {
+            let src_offset = o * src_dim_size * inner_size + s * inner_size;
+            let dst_offset = o * dst_dim_size * inner_size + (start + s) * inner_size;
+            std::ptr::copy_nonoverlapping(src.add(src_offset), out.add(dst_offset), inner_size);
+        }
+    }
+}

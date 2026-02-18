@@ -721,6 +721,20 @@ pub(crate) struct Gather2dParams {
     pub(crate) _pad: u32,
 }
 
+/// Params for slice_assign operations
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct SliceAssignParams {
+    pub(crate) outer_size: u32,
+    pub(crate) dst_dim_size: u32,
+    pub(crate) src_dim_size: u32,
+    pub(crate) inner_size: u32,
+    pub(crate) start: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) _pad2: u32,
+}
+
 /// Params for unique_with_counts operations
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

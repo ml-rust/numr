@@ -906,3 +906,87 @@ pub fn bincount_impl(
 
     Ok(out)
 }
+
+/// Slice assign implementation: copies src into a slice of dst along dim starting at start.
+pub fn slice_assign_impl(
+    client: &CpuClient,
+    dst: &Tensor<CpuRuntime>,
+    src: &Tensor<CpuRuntime>,
+    dim: usize,
+    start: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let ndim = dst.ndim();
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate shapes match except at dim
+    if src.ndim() != ndim {
+        return Err(Error::ShapeMismatch {
+            expected: dst.shape().to_vec(),
+            got: src.shape().to_vec(),
+        });
+    }
+    for d in 0..ndim {
+        if d != dim && src.shape()[d] != dst.shape()[d] {
+            return Err(Error::ShapeMismatch {
+                expected: dst.shape().to_vec(),
+                got: src.shape().to_vec(),
+            });
+        }
+    }
+
+    let src_dim_size = src.shape()[dim];
+    let dst_dim_size = dst.shape()[dim];
+    if start + src_dim_size > dst_dim_size {
+        return Err(Error::InvalidArgument {
+            arg: "start",
+            reason: format!(
+                "start ({}) + src dim size ({}) exceeds dst dim size ({})",
+                start, src_dim_size, dst_dim_size
+            ),
+        });
+    }
+
+    let dtype = dst.dtype();
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    // Compute outer/inner sizes
+    let outer_size: usize = dst.shape()[..dim].iter().product();
+    let outer_size = if outer_size == 0 { 1 } else { outer_size };
+    let inner_size: usize = dst.shape()[dim + 1..].iter().product();
+    let inner_size = if inner_size == 0 { 1 } else { inner_size };
+
+    let dst_c = ensure_contiguous(dst);
+    let src_c = ensure_contiguous(src);
+    let out = Tensor::<CpuRuntime>::empty(dst.shape(), dtype, &client.device);
+
+    let dst_ptr = dst_c.storage().ptr();
+    let src_ptr = src_c.storage().ptr();
+    let out_ptr = out.storage().ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::slice_assign_kernel::<T>(
+                dst_ptr as *const T,
+                src_ptr as *const T,
+                out_ptr as *mut T,
+                outer_size,
+                dst_dim_size,
+                src_dim_size,
+                inner_size,
+                start,
+            );
+        }
+    }, "slice_assign");
+
+    Ok(out)
+}

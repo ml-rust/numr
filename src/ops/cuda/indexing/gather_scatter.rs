@@ -4,7 +4,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::kernels::{
     launch_copy, launch_fill_with_f64, launch_gather, launch_gather_2d, launch_index_put,
-    launch_index_select, launch_scatter, launch_validate_indices,
+    launch_index_select, launch_scatter, launch_slice_assign, launch_validate_indices,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
@@ -525,6 +525,98 @@ pub fn index_put(
             dim_size,
             inner_size,
             index_len,
+        )?;
+    }
+
+    Ok(out)
+}
+
+/// Execute slice_assign operation: assign src into a slice of dst along dim.
+pub fn slice_assign(
+    client: &CudaClient,
+    dst: &Tensor<CudaRuntime>,
+    src: &Tensor<CudaRuntime>,
+    dim: usize,
+    start: usize,
+) -> Result<Tensor<CudaRuntime>> {
+    let ndim = dst.ndim();
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    if src.ndim() != ndim {
+        return Err(Error::ShapeMismatch {
+            expected: dst.shape().to_vec(),
+            got: src.shape().to_vec(),
+        });
+    }
+    for d in 0..ndim {
+        if d != dim && src.shape()[d] != dst.shape()[d] {
+            return Err(Error::ShapeMismatch {
+                expected: dst.shape().to_vec(),
+                got: src.shape().to_vec(),
+            });
+        }
+    }
+
+    let src_dim_size = src.shape()[dim];
+    let dst_dim_size = dst.shape()[dim];
+    if start + src_dim_size > dst_dim_size {
+        return Err(Error::InvalidArgument {
+            arg: "start",
+            reason: format!(
+                "start ({}) + src dim size ({}) exceeds dst dim size ({})",
+                start, src_dim_size, dst_dim_size
+            ),
+        });
+    }
+
+    let dtype = dst.dtype();
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    let outer_size: usize = dst.shape()[..dim].iter().product();
+    let outer_size = outer_size.max(1);
+    let inner_size: usize = dst.shape()[dim + 1..].iter().product();
+    let inner_size = inner_size.max(1);
+
+    let dst_contig = ensure_contiguous(dst);
+    let src_contig = ensure_contiguous(src);
+
+    let out = Tensor::<CudaRuntime>::empty(dst.shape(), dtype, &client.device);
+
+    unsafe {
+        // Copy dst → output
+        launch_copy(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            dst_contig.storage().ptr(),
+            out.storage().ptr(),
+            dst_contig.numel(),
+        )?;
+
+        // Overwrite the slice with src
+        launch_slice_assign(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            src_contig.storage().ptr(),
+            out.storage().ptr(),
+            outer_size,
+            dst_dim_size,
+            src_dim_size,
+            inner_size,
+            start,
         )?;
     }
 

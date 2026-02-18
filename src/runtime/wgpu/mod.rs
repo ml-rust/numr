@@ -40,6 +40,6 @@ mod special;
 mod statistics;
 
 pub use crate::tensor::Tensor;
-pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle};
+pub use client::{WgpuAllocator, WgpuClient, WgpuRawHandle, get_buffer};
 pub use device::{WgpuDevice, WgpuError};
 pub use runtime::{WgpuRuntime, is_wgpu_available, wgpu_device, wgpu_device_id};

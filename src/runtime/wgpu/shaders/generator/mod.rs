@@ -98,7 +98,8 @@ pub use index::{
     generate_gather_nd_shader, generate_gather_shader, generate_index_put_shader,
     generate_index_select_shader, generate_scatter_reduce_count_shader,
     generate_scatter_reduce_mean_div_shader, generate_scatter_reduce_prod_shader,
-    generate_scatter_reduce_shader, generate_scatter_shader, generate_validate_indices_shader,
+    generate_scatter_reduce_shader, generate_scatter_shader, generate_slice_assign_shader,
+    generate_validate_indices_shader,
 };
 pub use masked::{generate_masked_fill_shader, generate_masked_select_shader};
 pub use matmul::{generate_matmul_bias_shader, generate_matmul_shader};

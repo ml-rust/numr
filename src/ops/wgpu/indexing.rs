@@ -14,6 +14,7 @@ use crate::runtime::wgpu::ops::helpers::{
 use crate::runtime::wgpu::ops::native::{
     native_argreduce_op, native_embedding_lookup, native_gather, native_index_put,
     native_index_select, native_masked_fill, native_masked_select, native_scatter,
+    native_slice_assign,
 };
 use crate::runtime::wgpu::shaders::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
@@ -601,5 +602,15 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         )?;
 
         Ok(output)
+    }
+
+    fn slice_assign(
+        &self,
+        dst: &Tensor<WgpuRuntime>,
+        src: &Tensor<WgpuRuntime>,
+        dim: usize,
+        start: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_slice_assign(self, dst, src, dim, start)
     }
 }

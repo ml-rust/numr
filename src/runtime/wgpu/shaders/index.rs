@@ -14,7 +14,7 @@ use wgpu::{Buffer, Queue};
 use super::generator::{
     generate_embedding_lookup_shader, generate_gather_shader, generate_index_put_shader,
     generate_index_select_shader, generate_masked_fill_shader, generate_masked_select_shader,
-    generate_scatter_shader, generate_validate_indices_shader,
+    generate_scatter_shader, generate_slice_assign_shader, generate_validate_indices_shader,
 };
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
@@ -83,6 +83,9 @@ fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
         ("scatter_reduce_prod", DType::U32) => Ok("scatter_reduce_prod_u32"),
         ("scatter_reduce_count", DType::F32) => Ok("scatter_reduce_count_f32"),
         ("scatter_reduce_mean_div", DType::F32) => Ok("scatter_reduce_mean_div_f32"),
+        ("slice_assign", DType::F32) => Ok("slice_assign_f32"),
+        ("slice_assign", DType::I32) => Ok("slice_assign_i32"),
+        ("slice_assign", DType::U32) => Ok("slice_assign_u32"),
         ("gather_2d", DType::F32) => Ok("gather_2d_f32"),
         ("gather_2d", DType::I32) => Ok("gather_2d_i32"),
         ("gather_2d", DType::U32) => Ok("gather_2d_u32"),
@@ -989,6 +992,57 @@ pub fn launch_embedding_lookup(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Slice Assign Operation
+// ============================================================================
+
+/// Launch a slice_assign operation kernel.
+///
+/// Overwrites a slice of the output tensor with src values along a dimension.
+/// Output should already contain a copy of dst data.
+pub fn launch_slice_assign(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+) -> Result<()> {
+    check_dtype_supported(dtype, "slice_assign")?;
+
+    let name = kernel_name("slice_assign", dtype)?;
+    let shader_source = generate_slice_assign_shader(dtype)?;
+    let module = cache.get_or_create_module(name, &shader_source);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("slice_assign"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("slice_assign"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
