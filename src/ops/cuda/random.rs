@@ -2,7 +2,8 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::RandomOps;
-use crate::ops::TypeConversionOps; // Required for self.cast() method resolution
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::runtime::cuda::kernels::{
     launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
     launch_f_distribution, launch_gamma_dist, launch_laplace, launch_multinomial_with_replacement,

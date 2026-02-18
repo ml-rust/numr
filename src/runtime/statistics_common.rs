@@ -245,7 +245,7 @@ pub fn skew_composite<R, C>(
     correction: usize,
 ) -> Result<crate::tensor::Tensor<R>>
 where
-    R: crate::runtime::Runtime,
+    R: crate::runtime::Runtime<DType = crate::dtype::DType>,
     C: crate::ops::BinaryOps<R>
         + crate::ops::ReduceOps<R>
         + crate::ops::StatisticalOps<R>
@@ -294,7 +294,7 @@ pub fn kurtosis_composite<R, C>(
     correction: usize,
 ) -> Result<crate::tensor::Tensor<R>>
 where
-    R: crate::runtime::Runtime,
+    R: crate::runtime::Runtime<DType = crate::dtype::DType>,
     C: crate::ops::BinaryOps<R>
         + crate::ops::ReduceOps<R>
         + crate::ops::StatisticalOps<R>

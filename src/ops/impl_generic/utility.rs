@@ -23,7 +23,7 @@ use crate::tensor::Tensor;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn one_hot_impl<R, C>(client: &C, indices: &Tensor<R>, num_classes: usize) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: UtilityOps<R> + TypeConversionOps<R> + CompareOps<R>,
 {
     if num_classes == 0 {

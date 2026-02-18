@@ -40,7 +40,7 @@ fn triangular_mask_impl<R, C>(
     triangle: Triangle,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: UtilityOps<R> + ScalarOps<R> + CompareOps<R> + TypeConversionOps<R> + BinaryOps<R>,
 {
     let (m, n) = validate_matrix_2d(a.shape())?;
@@ -74,7 +74,7 @@ where
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn triu_impl<R, C>(client: &C, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: UtilityOps<R> + ScalarOps<R> + CompareOps<R> + TypeConversionOps<R> + BinaryOps<R>,
 {
     triangular_mask_impl(client, a, diagonal, Triangle::Upper)
@@ -86,7 +86,7 @@ where
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn tril_impl<R, C>(client: &C, a: &Tensor<R>, diagonal: i64) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: UtilityOps<R> + ScalarOps<R> + CompareOps<R> + TypeConversionOps<R> + BinaryOps<R>,
 {
     triangular_mask_impl(client, a, diagonal, Triangle::Lower)
@@ -100,7 +100,7 @@ where
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub fn slogdet_impl<R, C>(client: &C, a: &Tensor<R>) -> Result<SlogdetResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R>
         + UtilityOps<R>
         + BinaryOps<R>
