@@ -9,7 +9,7 @@ fn wgpu_err(e: super::device::WgpuError) -> crate::error::Error {
 use super::client::WgpuClient;
 use super::device::WgpuDevice;
 use super::shaders;
-use crate::runtime::{Allocator, Runtime, RuntimeClient};
+use crate::runtime::{Allocator, NoOpGraph, Runtime, RuntimeClient};
 use std::time::Duration;
 
 /// WebGPU Runtime adapter
@@ -23,6 +23,7 @@ impl Runtime for WgpuRuntime {
     type Device = WgpuDevice;
     type Client = WgpuClient;
     type Allocator = super::WgpuAllocator;
+    type Graph = NoOpGraph;
     type RawHandle = super::WgpuRawHandle;
     type DType = crate::dtype::DType;
 
@@ -32,6 +33,15 @@ impl Runtime for WgpuRuntime {
 
     fn supports_graph_capture() -> bool {
         false // WebGPU doesn't have CUDA-style graph capture
+    }
+
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
+    {
+        // WebGPU: execute eagerly, return NoOpGraph
+        let result = f(client)?;
+        Ok((NoOpGraph, result))
     }
 
     /// Allocate GPU memory (storage buffer).

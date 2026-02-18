@@ -21,6 +21,7 @@ impl Runtime for CudaRuntime {
     type Device = CudaDevice;
     type Client = CudaClient;
     type Allocator = CudaAllocator;
+    type Graph = super::CudaGraph;
     type RawHandle = super::CudaRawHandle;
     type DType = crate::dtype::DType;
 
@@ -30,6 +31,41 @@ impl Runtime for CudaRuntime {
 
     fn supports_graph_capture() -> bool {
         true // CUDA supports graph capture
+    }
+
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
+    {
+        use cudarc::driver::sys::CUstreamCaptureMode;
+
+        // Begin stream capture — all ops on this stream are recorded, not executed
+        client
+            .stream
+            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
+
+        // Execute the closure — ops are recorded into the graph
+        let result = f(client);
+
+        // End capture — MUST happen even if the closure failed, otherwise the
+        // stream is left in capture mode and all subsequent operations fail
+        let graph_result = client.stream.end_capture(
+            cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH,
+        );
+
+        // Handle closure error: propagate after restoring stream
+        let closure_result = result?;
+
+        // Handle capture error
+        let graph_opt = graph_result?;
+
+        let cudarc_graph = graph_opt.ok_or_else(|| {
+            crate::error::Error::Backend(
+                "CUDA graph capture produced no operations — closure recorded nothing".into(),
+            )
+        })?;
+
+        Ok((super::CudaGraph::new(cudarc_graph), closure_result))
     }
 
     /// Allocate GPU memory.

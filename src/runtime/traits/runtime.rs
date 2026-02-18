@@ -10,6 +10,7 @@
 /// - `Device`: Identifies a specific compute unit (e.g., GPU 0, GPU 1)
 /// - `Client`: Handles operation dispatch and synchronization
 /// - `Allocator`: Memory management with optional freeze support
+/// - `Graph`: Captured computation sequence for replay (CUDA Graphs, etc.)
 /// - `RawHandle`: Escape hatch for custom kernel launching
 ///
 /// # Example
@@ -30,6 +31,12 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// Memory allocator type
     type Allocator: crate::runtime::Allocator;
 
+    /// Captured computation graph for replay
+    ///
+    /// For CPU/WebGPU: `NoOpGraph` (operations execute eagerly, launch is no-op)
+    /// For CUDA: `CudaGraph` wrapping cudarc's graph types
+    type Graph: crate::runtime::Graph;
+
     /// Raw handle for custom kernel launching (escape hatch)
     ///
     /// For CPU: `()` (no raw handle needed)
@@ -47,9 +54,24 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     fn name() -> &'static str;
 
     /// Does this backend support graph capture (e.g., CUDA Graphs)?
+    ///
+    /// Check this BEFORE calling `capture_graph` to avoid unnecessary
+    /// eager execution on non-capture backends.
     fn supports_graph_capture() -> bool {
         false
     }
+
+    /// Capture a sequence of operations as a replayable graph.
+    ///
+    /// The closure receives the client so operations are issued on the correct
+    /// stream/queue. On capture-capable backends (CUDA), ops submitted inside
+    /// the closure are recorded into a graph. On non-capture backends (CPU, WebGPU),
+    /// the closure executes eagerly and returns `NoOpGraph`.
+    ///
+    /// Returns `(graph, closure_result)`.
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>;
 
     /// Allocate device memory
     ///
