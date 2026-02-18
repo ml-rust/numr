@@ -230,6 +230,39 @@ impl<R: Runtime> Storage<R> {
         }
     }
 
+    /// View storage as a host slice without copying.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure:
+    /// - The storage pointer is a valid host (CPU) pointer
+    /// - This is only safe for CPU-backed storage; calling on GPU storage is UB
+    /// - The returned slice borrows the storage, preventing deallocation
+    #[inline]
+    pub unsafe fn as_host_slice<T: bytemuck::Pod>(&self) -> &[T] {
+        if self.inner.len == 0 {
+            return &[];
+        }
+        let ptr = self.inner.ptr as *const T;
+        unsafe { std::slice::from_raw_parts(ptr, self.inner.len) }
+    }
+
+    /// View storage as a mutable host slice without copying.
+    ///
+    /// # Safety
+    ///
+    /// Same as [`as_host_slice`], plus:
+    /// - The storage must be uniquely owned (no other references)
+    /// - The caller must ensure no aliasing
+    #[inline]
+    pub unsafe fn as_host_slice_mut<T: bytemuck::Pod>(&self) -> &mut [T] {
+        if self.inner.len == 0 {
+            return &mut [];
+        }
+        let ptr = self.inner.ptr as *mut T;
+        unsafe { std::slice::from_raw_parts_mut(ptr, self.inner.len) }
+    }
+
     /// Copy data from device to host
     pub fn to_vec<T: bytemuck::Pod>(&self) -> Vec<T> {
         // Allocate with correct alignment for T, then cast to bytes for copy.
