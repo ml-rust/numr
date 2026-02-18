@@ -151,6 +151,163 @@ impl<R: Runtime> Tensor<R> {
         self.layout.dim(dim)
     }
 
+    /// Get size along a dimension, returning error on invalid index
+    pub fn dim(&self, index: isize) -> Result<usize> {
+        self.layout.dim(index).ok_or(Error::InvalidDimension {
+            dim: index,
+            ndim: self.ndim(),
+        })
+    }
+
+    // ===== Aliases (common across tensor libraries) =====
+
+    /// Number of dimensions (alias for `ndim`)
+    #[inline]
+    pub fn rank(&self) -> usize {
+        self.layout.ndim()
+    }
+
+    /// Total number of elements (alias for `numel`)
+    #[inline]
+    pub fn elem_count(&self) -> usize {
+        self.layout.elem_count()
+    }
+
+    /// Shape as slice (alias for `shape`)
+    #[inline]
+    pub fn dims(&self) -> &[usize] {
+        self.layout.shape()
+    }
+
+    /// Total number of elements (alias for `numel`)
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.layout.elem_count()
+    }
+
+    /// Whether the tensor has zero elements
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.layout.elem_count() == 0
+    }
+
+    /// Layout offset into storage (in elements)
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.layout.offset()
+    }
+
+    /// Raw storage pointer (base address, not offset-adjusted)
+    #[inline]
+    pub fn ptr(&self) -> u64 {
+        self.storage.ptr()
+    }
+
+    /// Whether the underlying storage is owned (will deallocate on drop)
+    #[inline]
+    pub fn owns_memory(&self) -> bool {
+        self.storage.is_owned()
+    }
+
+    /// Check if two tensors share the same storage
+    pub fn shares_storage_with(&self, other: &Tensor<R>) -> bool {
+        self.storage.ptr() == other.storage.ptr()
+    }
+
+    /// Storage reference count
+    pub fn ref_count(&self) -> usize {
+        self.storage.ref_count()
+    }
+
+    // ===== Dimension Unpacking =====
+
+    /// Unpack shape of a 1D tensor
+    pub fn dims1(&self) -> Result<usize> {
+        let s = self.shape();
+        if s.len() == 1 {
+            Ok(s[0])
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 2D tensor
+    pub fn dims2(&self) -> Result<(usize, usize)> {
+        let s = self.shape();
+        if s.len() == 2 {
+            Ok((s[0], s[1]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 3D tensor
+    pub fn dims3(&self) -> Result<(usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 3 {
+            Ok((s[0], s[1], s[2]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 4D tensor
+    pub fn dims4(&self) -> Result<(usize, usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 4 {
+            Ok((s[0], s[1], s[2], s[3]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 5D tensor
+    pub fn dims5(&self) -> Result<(usize, usize, usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 5 {
+            Ok((s[0], s[1], s[2], s[3], s[4]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    // ===== Low-level Pointer Access =====
+
+    /// Effective device pointer: base + offset * dtype_size
+    ///
+    /// This is the pointer to the first element of this tensor's view,
+    /// accounting for the layout offset into shared storage.
+    #[inline]
+    pub fn data_ptr(&self) -> u64 {
+        self.storage.ptr() + (self.layout.offset() * self.dtype().size_in_bytes()) as u64
+    }
+
+    // ===== Construction Helpers =====
+
+    /// Create tensor from storage and contiguous layout
+    pub fn from_storage_contiguous(storage: Storage<R>, shape: &[usize]) -> Self {
+        Self {
+            id: TensorId::new(),
+            storage,
+            layout: Layout::contiguous(shape),
+        }
+    }
+
     // ===== View Operations (Zero-Copy) =====
 
     /// Transpose two dimensions (zero-copy)
@@ -758,6 +915,34 @@ impl<R: Runtime<DType = DType>> Tensor<R> {
             storage,
             layout,
         })
+    }
+}
+
+// ============================================================================
+// Foundational ops (generic — work with any R::DType)
+// ============================================================================
+
+impl<R: Runtime> Tensor<R> {
+    /// Serialize tensor data to raw bytes
+    ///
+    /// Makes tensor contiguous first if needed, then copies raw bytes from device.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let tensor = if self.is_contiguous() && self.offset() == 0 {
+            std::borrow::Cow::Borrowed(self)
+        } else {
+            std::borrow::Cow::Owned(self.contiguous())
+        };
+        let size = tensor.numel() * tensor.dtype().size_in_bytes();
+        let mut data = vec![0u8; size];
+        R::copy_from_device(tensor.storage().ptr(), &mut data, tensor.storage().device())
+            .map_err(|e| Error::Msg(format!("to_bytes copy failed: {}", e)))?;
+        Ok(data)
+    }
+
+    /// Clone tensor with new storage (deep copy)
+    pub fn clone_deep(&self) -> Result<Self> {
+        let bytes = self.to_bytes()?;
+        Self::try_from_bytes(&bytes, self.shape(), self.dtype(), self.device())
     }
 }
 
