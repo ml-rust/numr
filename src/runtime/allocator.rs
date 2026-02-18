@@ -170,6 +170,17 @@ impl<A: Allocator> Clone for TrackingAllocator<A> {
 }
 
 impl<A: Allocator> TrackingAllocator<A> {
+    /// Acquire the inner lock, recovering from poison if another thread panicked.
+    ///
+    /// Poisoning means a thread panicked while holding the lock. The tracking
+    /// counters may be inconsistent, but the inner allocator is still usable.
+    /// Recovering is safer than panicking the caller.
+    fn lock(&self) -> std::sync::MutexGuard<'_, TrackingState<A>> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     /// Create a new tracking allocator wrapping `inner`.
     pub fn new(inner: A) -> Self {
         Self {
@@ -187,14 +198,14 @@ impl<A: Allocator> TrackingAllocator<A> {
 
     /// Get the current number of live bytes (convenience for active_bytes in stats)
     pub fn active_bytes(&self) -> usize {
-        let s = self.state.lock().unwrap();
+        let s = self.lock();
         s.active_bytes
     }
 }
 
 impl<A: Allocator> Allocator for TrackingAllocator<A> {
     fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock();
         if s.frozen {
             return Err(crate::error::Error::AllocatorFrozen);
         }
@@ -210,35 +221,35 @@ impl<A: Allocator> Allocator for TrackingAllocator<A> {
     }
 
     fn deallocate(&self, ptr: u64, size_bytes: usize) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock();
         s.inner.deallocate(ptr, size_bytes);
         s.active_allocations = s.active_allocations.saturating_sub(1);
         s.active_bytes = s.active_bytes.saturating_sub(size_bytes);
     }
 
     fn freeze(&self) -> bool {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock();
         s.frozen = true;
         true
     }
 
     fn unfreeze(&self) {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock();
         s.frozen = false;
     }
 
     fn is_frozen(&self) -> bool {
-        let s = self.state.lock().unwrap();
+        let s = self.lock();
         s.frozen
     }
 
     fn allocated_bytes(&self) -> usize {
-        let s = self.state.lock().unwrap();
+        let s = self.lock();
         s.active_bytes
     }
 
     fn stats(&self) -> AllocationStats {
-        let s = self.state.lock().unwrap();
+        let s = self.lock();
         AllocationStats {
             total_allocations: s.total_allocations,
             total_bytes: s.total_bytes,
@@ -249,7 +260,7 @@ impl<A: Allocator> Allocator for TrackingAllocator<A> {
     }
 
     fn reset(&self) -> crate::error::Result<()> {
-        let mut s = self.state.lock().unwrap();
+        let mut s = self.lock();
         if s.active_allocations > 0 {
             return Err(crate::error::Error::AllocatorBusy {
                 active_allocations: s.active_allocations,
