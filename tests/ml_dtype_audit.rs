@@ -1,16 +1,26 @@
-//! DType Audit for ML Workloads (boostr plan Step 2)
+//! DType Audit for ML Workloads
 //!
 //! Tests F16, BF16, FP8E4M3, FP8E5M2 support across ML-critical operations.
+//! All helpers are feature-gated so they only compile when the relevant dtype
+//! features are enabled.
 
+#[cfg(any(feature = "f16", feature = "fp8"))]
 mod common;
 
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use common::create_cpu_client;
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use numr::dtype::DType;
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use numr::error::Result;
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use numr::ops::*;
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use numr::runtime::cpu::CpuRuntime;
+#[cfg(any(feature = "f16", feature = "fp8"))]
 use numr::tensor::Tensor;
 
+#[cfg(any(feature = "f16", feature = "fp8"))]
 fn make_tensor(
     data: &[f32],
     shape: &[usize],
@@ -26,6 +36,7 @@ fn make_tensor(
     }
 }
 
+#[cfg(any(feature = "f16", feature = "fp8"))]
 macro_rules! audit_op {
     ($name:expr, $body:expr) => {{
         let result: Result<()> = (|| {
@@ -40,6 +51,7 @@ macro_rules! audit_op {
     }};
 }
 
+#[cfg(any(feature = "f16", feature = "fp8"))]
 fn audit_dtype(dtype: DType) {
     println!("\n=== Auditing {:?} ===", dtype);
     let (client, device) = create_cpu_client();
