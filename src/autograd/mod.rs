@@ -135,6 +135,11 @@ pub use var_ops::{
     var_std, var_sub, var_sub_scalar, var_sum, var_tan, var_tanh, var_trace, var_var,
 };
 
+// Shape operation exports (re-exported via autograd::ops::*)
+pub use self::ops::{
+    var_broadcast_to, var_cat, var_narrow, var_permute, var_reshape, var_transpose,
+};
+
 // Forward-mode exports
 pub use dual::DualTensor;
 pub use forward::{hvp, jacobian_forward, jvp, jvp_multi};
