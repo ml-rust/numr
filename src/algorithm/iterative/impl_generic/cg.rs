@@ -38,7 +38,7 @@ pub fn cg_impl<R, C>(
     options: CgOptions,
 ) -> Result<CgResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

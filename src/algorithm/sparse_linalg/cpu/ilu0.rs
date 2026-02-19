@@ -31,7 +31,10 @@ use crate::tensor::Tensor;
 /// # Returns
 ///
 /// ILU decomposition with L (unit lower triangular) and U (upper triangular)
-pub fn ilu0_cpu<R: Runtime>(a: &CsrData<R>, options: IluOptions) -> Result<IluDecomposition<R>> {
+pub fn ilu0_cpu<R: Runtime<DType = DType>>(
+    a: &CsrData<R>,
+    options: IluOptions,
+) -> Result<IluDecomposition<R>> {
     let n = validate_square_sparse(a.shape)?;
     let dtype = a.values().dtype();
     validate_cpu_dtype(dtype)?;
@@ -148,7 +151,7 @@ pub fn ilu0_cpu<R: Runtime>(a: &CsrData<R>, options: IluOptions) -> Result<IluDe
 }
 
 /// Split combined LU values into separate L and U matrices
-fn split_lu<R: Runtime>(
+fn split_lu<R: Runtime<DType = DType>>(
     n: usize,
     row_ptrs: &[i64],
     col_indices: &[i64],
@@ -243,7 +246,7 @@ fn split_lu<R: Runtime>(
 /// Analyzes the sparsity pattern to create an efficient update schedule
 /// for numeric factorization. This avoids hash map lookups during the
 /// numeric phase.
-pub fn ilu0_symbolic_cpu<R: Runtime>(pattern: &CsrData<R>) -> Result<SymbolicIlu0> {
+pub fn ilu0_symbolic_cpu<R: Runtime<DType = DType>>(pattern: &CsrData<R>) -> Result<SymbolicIlu0> {
     let n = validate_square_sparse(pattern.shape)?;
 
     // Extract CSR structure for CPU-based symbolic analysis
@@ -258,7 +261,7 @@ pub fn ilu0_symbolic_cpu<R: Runtime>(pattern: &CsrData<R>) -> Result<SymbolicIlu
 ///
 /// Uses the precomputed update schedule to perform factorization efficiently
 /// without hash map lookups.
-pub fn ilu0_numeric_cpu<R: Runtime>(
+pub fn ilu0_numeric_cpu<R: Runtime<DType = DType>>(
     a: &CsrData<R>,
     symbolic: &SymbolicIlu0,
     options: IluOptions,

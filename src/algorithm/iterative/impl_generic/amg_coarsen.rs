@@ -5,6 +5,7 @@
 //! - PMIS (Parallel Modified Independent Set) coarsening
 //! - Classical interpolation with truncation
 
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::sparse::CsrData;
@@ -125,7 +126,7 @@ pub fn pmis_coarsening(strong_connections: &[Vec<usize>], n: usize) -> CfSplitti
 /// For coarse points: P[i, coarse_map[i]] = 1
 /// For fine points: P[i, j] = -a_ij / a_ii for strongly connected coarse j,
 /// normalized to sum to 1
-pub fn build_interpolation<R: Runtime>(
+pub fn build_interpolation<R: Runtime<DType = DType>>(
     row_ptrs: &[i64],
     col_indices: &[i64],
     values: &[f64],
@@ -229,7 +230,7 @@ pub fn build_interpolation<R: Runtime>(
 }
 
 /// Build restriction operator R = P^T (transpose of interpolation)
-pub fn build_restriction<R: Runtime>(p: &CsrData<R>) -> Result<CsrData<R>> {
+pub fn build_restriction<R: Runtime<DType = DType>>(p: &CsrData<R>) -> Result<CsrData<R>> {
     // P^T: CsrData::transpose() returns CscData, then to_csr() gives CSR of P^T
     let pt = p.transpose().to_csr()?;
     Ok(pt)
@@ -239,7 +240,7 @@ pub fn build_restriction<R: Runtime>(p: &CsrData<R>) -> Result<CsrData<R>> {
 ///
 /// This is done via sparse matrix multiplication.
 /// For simplicity, we compute it via explicit SpMM on CPU.
-pub fn galerkin_coarse_operator<R: Runtime>(
+pub fn galerkin_coarse_operator<R: Runtime<DType = DType>>(
     row_ptrs: &[i64],
     col_indices: &[i64],
     values: &[f64],

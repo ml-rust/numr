@@ -26,7 +26,7 @@ pub fn bicgstab_impl<R, C>(
     options: BiCgStabOptions,
 ) -> Result<BiCgStabResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

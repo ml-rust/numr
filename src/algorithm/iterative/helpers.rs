@@ -29,7 +29,7 @@ pub const REORTH_TOL: f64 = 1e-15;
 /// Uses optimized `item()` for scalar extraction (single element copy, no Vec allocation).
 pub fn vector_norm<R, C>(client: &C, v: &Tensor<R>) -> Result<f64>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + UnaryOps<R> + ReduceOps<R>,
 {
     // v^2
@@ -57,7 +57,7 @@ where
 /// Uses optimized `item()` for scalar extraction (single element copy, no Vec allocation).
 pub fn vector_dot<R, C>(client: &C, u: &Tensor<R>, v: &Tensor<R>) -> Result<f64>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + ReduceOps<R>,
 {
     // u * v
@@ -176,7 +176,7 @@ pub fn update_solution<R, C>(
     y: &[f64],
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + ScalarOps<R>,
 {
     let m = y.len();
@@ -227,7 +227,7 @@ pub fn accumulate_basis_combination<R, C>(
     device: &R::Device,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + ScalarOps<R>,
 {
     let mut result = Tensor::<R>::zeros(&[n], dtype, device);
@@ -249,7 +249,7 @@ where
 /// Used by Jacobi, SOR, and AMG V-cycle smoothing.
 pub fn extract_diagonal_inv<R, C>(client: &C, a: &crate::sparse::CsrData<R>) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: UnaryOps<R> + BinaryOps<R> + ScalarOps<R> + crate::sparse::SparseOps<R>,
 {
     let n = a.shape[0];

@@ -24,7 +24,10 @@ use crate::tensor::Tensor;
 /// - `level[i,j]` = min over all paths i→k→j of: `level[i,k]` + `level[k,j]` + 1
 ///
 /// Positions with `level[i,j]` ≤ k are included in the fill pattern.
-pub fn iluk_symbolic_cpu<R: Runtime>(a: &CsrData<R>, level: IluFillLevel) -> Result<IlukSymbolic> {
+pub fn iluk_symbolic_cpu<R: Runtime<DType = DType>>(
+    a: &CsrData<R>,
+    level: IluFillLevel,
+) -> Result<IlukSymbolic> {
     let n = validate_square_sparse(a.shape)?;
 
     // Extract CSR structure for CPU-based symbolic analysis
@@ -36,7 +39,7 @@ pub fn iluk_symbolic_cpu<R: Runtime>(a: &CsrData<R>, level: IluFillLevel) -> Res
 }
 
 /// ILU(k) numeric factorization on CPU using precomputed symbolic data
-pub fn iluk_numeric_cpu<R: Runtime>(
+pub fn iluk_numeric_cpu<R: Runtime<DType = DType>>(
     a: &CsrData<R>,
     symbolic: &IlukSymbolic,
     opts: &IlukOptions,
@@ -251,7 +254,10 @@ pub fn iluk_numeric_cpu<R: Runtime>(
 }
 
 /// Combined ILU(k) factorization (symbolic + numeric)
-pub fn iluk_cpu<R: Runtime>(a: &CsrData<R>, opts: IlukOptions) -> Result<IlukDecomposition<R>> {
+pub fn iluk_cpu<R: Runtime<DType = DType>>(
+    a: &CsrData<R>,
+    opts: IlukOptions,
+) -> Result<IlukDecomposition<R>> {
     let symbolic = iluk_symbolic_cpu(a, opts.fill_level)?;
     iluk_numeric_cpu(a, &symbolic, &opts)
 }

@@ -33,7 +33,7 @@ pub fn lanczos_eig_impl<R, C>(
     options: SparseEigOptions,
 ) -> Result<SparseEigResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>
@@ -214,7 +214,7 @@ where
 /// Each column vector is transferred once from device to host, then the
 /// complete matrix is transferred back. This is O(k) transfers for final
 /// output assembly — not used in any iterative loop.
-fn assemble_column_matrix<R: Runtime>(
+fn assemble_column_matrix<R: Runtime<DType = DType>>(
     columns: &[Tensor<R>],
     n: usize,
     k: usize,

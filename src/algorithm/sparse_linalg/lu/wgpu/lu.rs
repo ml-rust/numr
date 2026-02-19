@@ -209,19 +209,19 @@ fn run_factorization_f32(
     let wgpu_device = &client.wgpu_device;
 
     // Get buffer references
-    let a_values_buf = get_buffer(a_values_gpu.storage().ptr())
+    let a_values_buf = get_buffer(a_values_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid A values buffer".to_string()))?;
-    let a_row_indices_buf = get_buffer(a_row_indices_gpu.storage().ptr())
+    let a_row_indices_buf = get_buffer(a_row_indices_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid A row_indices buffer".to_string()))?;
-    let l_values_buf = get_buffer(l_values_gpu.storage().ptr())
+    let l_values_buf = get_buffer(l_values_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L values buffer".to_string()))?;
-    let l_row_indices_buf = get_buffer(l_row_indices_gpu.storage().ptr())
+    let l_row_indices_buf = get_buffer(l_row_indices_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L row_indices buffer".to_string()))?;
-    let u_values_buf = get_buffer(u_values_gpu.storage().ptr())
+    let u_values_buf = get_buffer(u_values_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U values buffer".to_string()))?;
-    let u_row_indices_buf = get_buffer(u_row_indices_gpu.storage().ptr())
+    let u_row_indices_buf = get_buffer(u_row_indices_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U row_indices buffer".to_string()))?;
-    let work_buf = get_buffer(work_gpu.storage().ptr())
+    let work_buf = get_buffer(work_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid work buffer".to_string()))?;
 
     // Create reusable uniform buffers for parameters
@@ -802,31 +802,31 @@ pub fn sparse_lu_solve_wgpu(
         Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, &device);
 
     // Get buffer references
-    let l_col_ptrs_buf = get_buffer(l_col_ptrs_gpu.storage().ptr())
+    let l_col_ptrs_buf = get_buffer(l_col_ptrs_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L col_ptrs buffer".to_string()))?;
-    let l_row_indices_buf = get_buffer(l_row_indices_gpu.storage().ptr())
+    let l_row_indices_buf = get_buffer(l_row_indices_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L row_indices buffer".to_string()))?;
-    let l_values_buf = get_buffer(factors.l.values().storage().ptr())
+    let l_values_buf = get_buffer(factors.l.values().ptr())
         .ok_or_else(|| Error::Internal("Invalid L values buffer".to_string()))?;
-    let l_diag_ptr_buf = get_buffer(l_diag_ptr_gpu.storage().ptr())
+    let l_diag_ptr_buf = get_buffer(l_diag_ptr_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L diag_ptr buffer".to_string()))?;
-    let l_level_cols_buf = get_buffer(l_level_cols_gpu.storage().ptr())
+    let l_level_cols_buf = get_buffer(l_level_cols_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid L level_cols buffer".to_string()))?;
 
-    let u_col_ptrs_buf = get_buffer(u_col_ptrs_gpu.storage().ptr())
+    let u_col_ptrs_buf = get_buffer(u_col_ptrs_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U col_ptrs buffer".to_string()))?;
-    let u_row_indices_buf = get_buffer(u_row_indices_gpu.storage().ptr())
+    let u_row_indices_buf = get_buffer(u_row_indices_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U row_indices buffer".to_string()))?;
-    let u_values_buf = get_buffer(factors.u.values().storage().ptr())
+    let u_values_buf = get_buffer(factors.u.values().ptr())
         .ok_or_else(|| Error::Internal("Invalid U values buffer".to_string()))?;
-    let u_diag_ptr_buf = get_buffer(u_diag_ptr_gpu.storage().ptr())
+    let u_diag_ptr_buf = get_buffer(u_diag_ptr_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U diag_ptr buffer".to_string()))?;
-    let u_level_cols_buf = get_buffer(u_level_cols_gpu.storage().ptr())
+    let u_level_cols_buf = get_buffer(u_level_cols_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid U level_cols buffer".to_string()))?;
 
-    let b_buf = get_buffer(b.storage().ptr())
-        .ok_or_else(|| Error::Internal("Invalid b buffer".to_string()))?;
-    let row_perm_buf = get_buffer(row_perm_gpu.storage().ptr())
+    let b_buf =
+        get_buffer(b.ptr()).ok_or_else(|| Error::Internal("Invalid b buffer".to_string()))?;
+    let row_perm_buf = get_buffer(row_perm_gpu.ptr())
         .ok_or_else(|| Error::Internal("Invalid row_perm buffer".to_string()))?;
 
     // Load shader
@@ -954,8 +954,8 @@ pub fn sparse_lu_solve_wgpu(
     // ==========================================================================
 
     let y_gpu: Tensor<WgpuRuntime> = Tensor::<WgpuRuntime>::zeros(&[n], dtype, &device);
-    let y_buf = get_buffer(y_gpu.storage().ptr())
-        .ok_or_else(|| Error::Internal("Invalid y buffer".to_string()))?;
+    let y_buf =
+        get_buffer(y_gpu.ptr()).ok_or_else(|| Error::Internal("Invalid y buffer".to_string()))?;
 
     let perm_module = cache.get_or_create_module_from_source("sparse_apply_perm", shader_source);
     let perm_layout = cache.get_or_create_layout(LayoutKey {

@@ -16,7 +16,7 @@ use crate::tensor::Tensor;
 /// Sparse LU factorization with full symbolic information (CPU)
 ///
 /// Uses Gilbert-Peierls left-looking algorithm with partial pivoting.
-pub fn sparse_lu_cpu<R: Runtime>(
+pub fn sparse_lu_cpu<R: Runtime<DType = DType>>(
     a: &CscData<R>,
     symbolic: &LuSymbolic,
     options: &LuOptions,
@@ -26,7 +26,7 @@ pub fn sparse_lu_cpu<R: Runtime>(
 }
 
 /// Sparse LU factorization with metrics (CPU)
-pub fn sparse_lu_cpu_with_metrics<R: Runtime>(
+pub fn sparse_lu_cpu_with_metrics<R: Runtime<DType = DType>>(
     a: &CscData<R>,
     symbolic: &LuSymbolic,
     options: &LuOptions,
@@ -101,7 +101,7 @@ pub fn sparse_lu_cpu_with_metrics<R: Runtime>(
 /// - Matrix dimensions don't match symbolic structure
 /// - Workspace dimension doesn't match matrix
 /// - Zero pivot encountered (unless diagonal shift is enabled)
-pub fn sparse_lu_cpu_with_workspace<R: Runtime>(
+pub fn sparse_lu_cpu_with_workspace<R: Runtime<DType = DType>>(
     a: &CscData<R>,
     symbolic: &LuSymbolic,
     options: &LuOptions,
@@ -113,7 +113,7 @@ pub fn sparse_lu_cpu_with_workspace<R: Runtime>(
 }
 
 /// Sparse LU factorization with workspace reuse and metrics (CPU)
-pub fn sparse_lu_cpu_with_workspace_and_metrics<R: Runtime>(
+pub fn sparse_lu_cpu_with_workspace_and_metrics<R: Runtime<DType = DType>>(
     a: &CscData<R>,
     symbolic: &LuSymbolic,
     options: &LuOptions,
@@ -194,7 +194,7 @@ pub fn sparse_lu_cpu_with_workspace_and_metrics<R: Runtime>(
 ///
 /// This version doesn't require full symbolic analysis from solvr.
 /// Fill-in is discovered dynamically, which is less efficient.
-pub fn sparse_lu_simple_cpu<R: Runtime>(
+pub fn sparse_lu_simple_cpu<R: Runtime<DType = DType>>(
     a: &CscData<R>,
     options: &LuOptions,
 ) -> Result<LuFactors<R>> {
@@ -237,7 +237,10 @@ pub fn sparse_lu_simple_cpu<R: Runtime>(
 /// Solve Ax = b using precomputed LU factors (CPU)
 ///
 /// Solves by: x = U⁻¹ L⁻¹ P b
-pub fn sparse_lu_solve_cpu<R: Runtime>(factors: &LuFactors<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+pub fn sparse_lu_solve_cpu<R: Runtime<DType = DType>>(
+    factors: &LuFactors<R>,
+    b: &Tensor<R>,
+) -> Result<Tensor<R>> {
     let n = factors.row_perm.len();
     let b_shape = b.shape();
 
@@ -853,7 +856,7 @@ fn dfs_reach(
 // ============================================================================
 
 /// Extract values as f64 from CSC matrix
-fn extract_values_f64<R: Runtime>(a: &CscData<R>) -> Result<Vec<f64>> {
+fn extract_values_f64<R: Runtime<DType = DType>>(a: &CscData<R>) -> Result<Vec<f64>> {
     let dtype = a.values().dtype();
     match dtype {
         DType::F32 => Ok(a
@@ -871,7 +874,7 @@ fn extract_values_f64<R: Runtime>(a: &CscData<R>) -> Result<Vec<f64>> {
 }
 
 /// Extract values as f64 from tensor
-fn extract_values_f64_tensor<R: Runtime>(t: &Tensor<R>) -> Result<Vec<f64>> {
+fn extract_values_f64_tensor<R: Runtime<DType = DType>>(t: &Tensor<R>) -> Result<Vec<f64>> {
     let dtype = t.dtype();
     match dtype {
         DType::F32 => Ok(t.to_vec::<f32>().iter().map(|&x| x as f64).collect()),
@@ -884,7 +887,7 @@ fn extract_values_f64_tensor<R: Runtime>(t: &Tensor<R>) -> Result<Vec<f64>> {
 }
 
 /// Create L and U tensors from computed values
-fn create_lu_tensors<R: Runtime>(
+fn create_lu_tensors<R: Runtime<DType = DType>>(
     n: usize,
     l_col_ptrs: &[i64],
     l_row_indices: &[i64],

@@ -34,7 +34,7 @@ pub fn arnoldi_eig_impl<R, C>(
     options: SparseEigOptions,
 ) -> Result<SparseEigComplexResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>
@@ -223,7 +223,7 @@ fn build_result<R, C>(
     nconv: usize,
 ) -> Result<SparseEigComplexResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R> + ScalarOps<R>,
 {
     let k_actual = k.min(indices.len());
@@ -289,7 +289,7 @@ fn thick_restart<R, C>(
     device: &R::Device,
 ) -> Result<()>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

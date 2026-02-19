@@ -36,7 +36,7 @@ use super::amg_coarsen::{
 /// The setup is done once and the hierarchy is reused for many V-cycles.
 pub fn amg_setup<R, C>(client: &C, a: &CsrData<R>, options: AmgOptions) -> Result<AmgHierarchy<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
@@ -161,7 +161,7 @@ pub fn amg_vcycle<R, C>(
     level: usize,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
@@ -242,7 +242,7 @@ pub fn amg_preconditioned_cg<R, C>(
     atol: f64,
 ) -> Result<(Tensor<R>, usize, f64, bool)>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {

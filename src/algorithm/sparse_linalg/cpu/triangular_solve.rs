@@ -36,7 +36,7 @@ use crate::tensor::Tensor;
 /// # Returns
 ///
 /// Solution vector x `[n]` or matrix `[n, k]`
-pub fn sparse_solve_triangular_cpu<R: Runtime>(
+pub fn sparse_solve_triangular_cpu<R: Runtime<DType = DType>>(
     l_or_u: &CsrData<R>,
     b: &Tensor<R>,
     lower: bool,

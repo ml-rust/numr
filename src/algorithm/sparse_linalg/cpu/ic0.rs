@@ -36,7 +36,10 @@ use crate::tensor::Tensor;
 /// # Returns
 ///
 /// IC decomposition with lower triangular factor L
-pub fn ic0_cpu<R: Runtime>(a: &CsrData<R>, options: IcOptions) -> Result<IcDecomposition<R>> {
+pub fn ic0_cpu<R: Runtime<DType = DType>>(
+    a: &CsrData<R>,
+    options: IcOptions,
+) -> Result<IcDecomposition<R>> {
     let n = validate_square_sparse(a.shape)?;
     let dtype = a.values().dtype();
     validate_cpu_dtype(dtype)?;
@@ -174,7 +177,7 @@ pub fn ic0_cpu<R: Runtime>(a: &CsrData<R>, options: IcOptions) -> Result<IcDecom
 }
 
 /// Extract lower triangular matrix from full CSR
-fn extract_lower_triangle<R: Runtime>(
+fn extract_lower_triangle<R: Runtime<DType = DType>>(
     n: usize,
     row_ptrs: &[i64],
     col_indices: &[i64],
