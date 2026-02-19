@@ -34,7 +34,7 @@
 //!            let out = Tensor::empty(&out_shape, a.dtype(), self.device());
 //!
 //!            // 3. Dispatch kernel
-//!            cuda_add_kernel(a.storage().ptr(), b.storage().ptr(), out.storage().ptr(), ...);
+//!            cuda_add_kernel(a.ptr(), b.ptr(), out.ptr(), ...);
 //!
 //!            Ok(out)
 //!        }

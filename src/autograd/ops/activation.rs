@@ -7,7 +7,7 @@ use crate::autograd::var::Var;
 use crate::autograd::var_ops::{var_mul, var_sub, var_sum};
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps};
+use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps, UnaryOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -308,6 +308,102 @@ where
     }
 }
 
+// ============================================================================
+// LogSoftmaxBackward
+// ============================================================================
+
+/// Backward for log_softmax: z = log(softmax(a, dim))
+///
+/// Gradient: dL/da = dL/dz - softmax(a) * sum(dL/dz, dim)
+///         = dL/dz - exp(z) * sum(dL/dz, dim)
+pub struct LogSoftmaxBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_output: Tensor<R>, // log_softmax(a)
+    dim: isize,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> LogSoftmaxBackward<R> {
+    /// Create a new LogSoftmaxBackward
+    pub fn new(
+        input_id: TensorId,
+        output: Tensor<R>,
+        dim: isize,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            saved_output: output,
+            dim,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime<DType = DType>> GradFn<R> for LogSoftmaxBackward<R>
+where
+    R::Client: TensorOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        let ndim = self.saved_output.ndim();
+        let dim_idx = if self.dim < 0 {
+            (ndim as isize + self.dim) as usize
+        } else {
+            self.dim as usize
+        };
+
+        // log_softmax gradient: grad_input = grad_output - exp(output) * sum(grad_output, dim)
+        let softmax_output = client.exp(&self.saved_output)?;
+        let sum_grad = client.sum(grad_output, &[dim_idx], true)?;
+        let softmax_sum = client.mul(&softmax_output, &sum_grad)?;
+        let grad = client.sub(grad_output, &softmax_sum)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        let ndim = self.saved_output.ndim();
+        let dim_idx = if self.dim < 0 {
+            (ndim as isize + self.dim) as usize
+        } else {
+            self.dim as usize
+        };
+
+        // exp(log_softmax(x)) = softmax(x), treated as constant
+        let softmax_output = client.exp(&self.saved_output)?;
+        let softmax_var = Var::new(softmax_output, false);
+
+        let sum_grad = var_sum(grad_output, &[dim_idx], true, &client)?;
+        let softmax_sum = var_mul(&softmax_var, &sum_grad, &client)?;
+        let grad = var_sub(grad_output, &softmax_sum, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        std::slice::from_ref(&self.saved_output)
+    }
+
+    fn name(&self) -> &'static str {
+        "LogSoftmaxBackward"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +490,34 @@ mod tests {
         // grad[1] = 0.5 * (0 - 0.5) = -0.25
         assert!((grad_data[0] - 0.25).abs() < 1e-6);
         assert!((grad_data[1] - (-0.25)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_log_softmax_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Simple 2-element log_softmax
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0], &[2], &device);
+        let output = client.log_softmax(&input, -1).unwrap(); // [ln(0.5), ln(0.5)]
+
+        let output_data: Vec<f32> = output.to_vec();
+        let expected_log = (0.5f32).ln();
+        assert!((output_data[0] - expected_log).abs() < 1e-6);
+        assert!((output_data[1] - expected_log).abs() < 1e-6);
+
+        // dL/dz = [1, 0]
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0], &[2], &device);
+
+        let backward = LogSoftmaxBackward::<CpuRuntime>::new(input.id(), output, -1, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        // log_softmax gradient: grad = dy - exp(z) * sum(dy, dim)
+        // exp(z) = [0.5, 0.5], sum(dy) = 1.0
+        // grad[0] = 1.0 - 0.5 * 1.0 = 0.5
+        // grad[1] = 0.0 - 0.5 * 1.0 = -0.5
+        assert!((grad_data[0] - 0.5).abs() < 1e-6);
+        assert!((grad_data[1] - (-0.5)).abs() < 1e-6);
     }
 }

@@ -71,4 +71,30 @@ pub trait ActivationOps<R: Runtime> {
             feature: "ActivationOps::softmax",
         })
     }
+
+    /// Log-softmax along a dimension: log(softmax(x, dim))
+    ///
+    /// Computed as `x - logsumexp(x, dim)` for numerical stability.
+    /// Used in log-probability calculations, Bayesian inference,
+    /// categorical distributions, and information theory.
+    fn log_softmax(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (a, dim);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::log_softmax",
+        })
+    }
+
+    /// Dropout: randomly zero elements with probability `p` during training.
+    ///
+    /// When `training` is true, each element is independently zeroed with probability `p`,
+    /// and remaining elements are scaled by `1/(1-p)` to maintain expected values.
+    /// When `training` is false, returns the input unchanged.
+    ///
+    /// Used in regularization, Monte Carlo dropout, and Bayesian approximation.
+    fn dropout(&self, a: &Tensor<R>, p: f64, training: bool) -> Result<Tensor<R>> {
+        let _ = (a, p, training);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::dropout",
+        })
+    }
 }

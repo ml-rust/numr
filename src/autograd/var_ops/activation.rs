@@ -4,7 +4,7 @@ use super::ops::*;
 use crate::autograd::Var;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{CompareOps, ReduceOps, ScalarOps, TensorOps};
+use crate::ops::{ActivationOps, CompareOps, ReduceOps, ScalarOps, TensorOps, UnaryOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use std::sync::Arc;
 
@@ -53,6 +53,24 @@ where
 
     if a.requires_grad() {
         let grad_fn = SoftmaxBackward::<R>::new(a.id(), output.clone(), dim, a.grad_fn().cloned());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Log-softmax along dimension: z = log(softmax(a, dim))
+pub fn var_log_softmax<R, C>(a: &Var<R>, dim: isize, client: &C) -> Result<Var<R>>
+where
+    R: Runtime<DType = DType>,
+    C: RuntimeClient<R> + TensorOps<R> + ActivationOps<R>,
+    R::Client: TensorOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
+{
+    let output = client.log_softmax(a.tensor(), dim)?;
+
+    if a.requires_grad() {
+        let grad_fn =
+            LogSoftmaxBackward::<R>::new(a.id(), output.clone(), dim, a.grad_fn().cloned());
         Ok(Var::from_op(output, Arc::new(grad_fn)))
     } else {
         Ok(Var::new(output, false))
