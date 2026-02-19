@@ -33,11 +33,11 @@ impl CudaClient {
         let y = Tensor::<CudaRuntime>::zeros(&[nrows], dtype, device);
 
         // Get device pointers (no data transfer!)
-        let row_ptrs_ptr = row_ptrs.storage().ptr();
-        let col_indices_ptr = col_indices.storage().ptr();
-        let values_ptr = values.storage().ptr();
-        let x_ptr = x.storage().ptr();
-        let y_ptr = y.storage().ptr();
+        let row_ptrs_ptr = row_ptrs.ptr();
+        let col_indices_ptr = col_indices.ptr();
+        let values_ptr = values.ptr();
+        let x_ptr = x.ptr();
+        let y_ptr = y.ptr();
 
         // Choose optimal kernel based on sparsity
         let nnz = values.numel();
@@ -206,11 +206,11 @@ impl CudaClient {
         let c = Tensor::<CudaRuntime>::zeros(&[m, n], dtype, device);
 
         // Get device pointers (no data transfer!)
-        let row_ptrs_ptr = row_ptrs.storage().ptr();
-        let col_indices_ptr = col_indices.storage().ptr();
-        let values_ptr = values.storage().ptr();
-        let b_ptr = b.storage().ptr();
-        let c_ptr = c.storage().ptr();
+        let row_ptrs_ptr = row_ptrs.ptr();
+        let col_indices_ptr = col_indices.ptr();
+        let values_ptr = values.ptr();
+        let b_ptr = b.ptr();
+        let c_ptr = c.ptr();
 
         // Dispatch based on dtype (only F32/F64/F16/BF16 supported on CUDA)
         use crate::dtype::DType;

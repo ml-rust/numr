@@ -1,10 +1,11 @@
 //! Element-wise addition operation for sparse tensors
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseTensor};
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     /// Element-wise addition: C = A + B
     ///
     /// Computes the sum of two sparse tensors with the same shape.

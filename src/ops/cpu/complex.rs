@@ -27,8 +27,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match dtype {
@@ -82,8 +82,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match dtype {
@@ -137,8 +137,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match dtype {
@@ -185,8 +185,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
                 return Ok(out);
             }
 
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
+            let a_ptr = a_contig.ptr();
+            let out_ptr = out.ptr();
 
             match dtype {
                 DType::F32 => {
@@ -230,8 +230,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
 
         match dtype {
             DType::Complex64 => {
@@ -287,9 +287,9 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let real_ptr = real_contig.storage().ptr();
-        let imag_ptr = imag_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let real_ptr = real_contig.ptr();
+        let imag_ptr = imag_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match input_dtype {
@@ -341,9 +341,9 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let complex_ptr = complex_contig.storage().ptr();
-        let real_ptr = real_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let complex_ptr = complex_contig.ptr();
+        let real_ptr = real_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match dtype {
@@ -395,9 +395,9 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let complex_ptr = complex_contig.storage().ptr();
-        let real_ptr = real_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let complex_ptr = complex_contig.ptr();
+        let real_ptr = real_contig.ptr();
+        let out_ptr = out.ptr();
         let chunk_size = self.chunk_size_hint();
 
         match dtype {

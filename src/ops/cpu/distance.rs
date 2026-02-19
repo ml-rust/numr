@@ -72,9 +72,9 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let y = ensure_contiguous(y);
 
         let out = Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device);
-        let x_ptr = x.storage().ptr();
-        let y_ptr = y.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let x_ptr = x.ptr();
+        let y_ptr = y.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -112,8 +112,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let x = ensure_contiguous(x);
 
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
-        let x_ptr = x.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let x_ptr = x.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -151,8 +151,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let condensed = ensure_contiguous(condensed);
 
         let out = Tensor::<CpuRuntime>::empty(&[n, n], dtype, &self.device);
-        let cond_ptr = condensed.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let cond_ptr = condensed.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -191,8 +191,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
-        let sq_ptr = square.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let sq_ptr = square.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {

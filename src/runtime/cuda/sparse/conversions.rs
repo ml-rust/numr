@@ -49,7 +49,7 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                perm_indices.storage().ptr(),
+                perm_indices.ptr(),
                 nnz,
             )?;
         }
@@ -59,8 +59,8 @@ impl CudaClient {
         unsafe {
             // Copy row_indices to sorted_rows for in-place sorting
             CudaRuntime::copy_within_device(
-                row_indices.storage().ptr(),
-                sorted_rows.storage().ptr(),
+                row_indices.ptr(),
+                sorted_rows.ptr(),
                 row_indices.storage().size_in_bytes(),
                 device,
             )?;
@@ -69,8 +69,8 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                sorted_rows.storage().ptr(),
-                perm_indices.storage().ptr(),
+                sorted_rows.ptr(),
+                perm_indices.ptr(),
                 nnz_u32,
             )?;
         }
@@ -82,18 +82,18 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 DType::F64 => kernels::launch_coo_gather::<f64>(
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 #[cfg(feature = "f16")]
@@ -101,9 +101,9 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 #[cfg(feature = "f16")]
@@ -111,9 +111,9 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 _ => {
@@ -128,9 +128,9 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                col_indices.storage().ptr(),
-                perm_indices.storage().ptr(),
-                sorted_cols.storage().ptr(),
+                col_indices.ptr(),
+                perm_indices.ptr(),
+                sorted_cols.ptr(),
                 nnz,
             )?;
         }
@@ -142,8 +142,8 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                sorted_rows.storage().ptr(),
-                row_ptrs.storage().ptr(),
+                sorted_rows.ptr(),
+                row_ptrs.ptr(),
                 nnz,
                 nrows,
             )?;
@@ -196,7 +196,7 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                perm_indices.storage().ptr(),
+                perm_indices.ptr(),
                 nnz,
             )?;
         }
@@ -204,8 +204,8 @@ impl CudaClient {
         // Step 3: Sort by column indices using Thrust
         unsafe {
             CudaRuntime::copy_within_device(
-                col_indices.storage().ptr(),
-                sorted_cols.storage().ptr(),
+                col_indices.ptr(),
+                sorted_cols.ptr(),
                 col_indices.storage().size_in_bytes(),
                 device,
             )?;
@@ -214,8 +214,8 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                sorted_cols.storage().ptr(),
-                perm_indices.storage().ptr(),
+                sorted_cols.ptr(),
+                perm_indices.ptr(),
                 nnz_u32,
             )?;
         }
@@ -227,18 +227,18 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 DType::F64 => kernels::launch_coo_gather::<f64>(
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 #[cfg(feature = "f16")]
@@ -246,9 +246,9 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 #[cfg(feature = "f16")]
@@ -256,9 +256,9 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    values.storage().ptr(),
-                    perm_indices.storage().ptr(),
-                    sorted_values.storage().ptr(),
+                    values.ptr(),
+                    perm_indices.ptr(),
+                    sorted_values.ptr(),
                     nnz,
                 )?,
                 _ => {
@@ -273,9 +273,9 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                row_indices.storage().ptr(),
-                perm_indices.storage().ptr(),
-                sorted_rows.storage().ptr(),
+                row_indices.ptr(),
+                perm_indices.ptr(),
+                sorted_rows.ptr(),
                 nnz,
             )?;
         }
@@ -287,8 +287,8 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                sorted_cols.storage().ptr(),
-                col_ptrs.storage().ptr(),
+                sorted_cols.ptr(),
+                col_ptrs.ptr(),
                 nnz,
                 ncols,
             )?;
@@ -323,8 +323,8 @@ impl CudaClient {
         let row_indices = Tensor::<CudaRuntime>::zeros(&[nnz], crate::dtype::DType::I64, device);
 
         // Get device pointers (no data transfer!)
-        let row_ptrs_ptr = row_ptrs.storage().ptr();
-        let row_indices_ptr = row_indices.storage().ptr();
+        let row_ptrs_ptr = row_ptrs.ptr();
+        let row_indices_ptr = row_indices.ptr();
 
         // Launch pointer expansion kernel
         unsafe {
@@ -369,8 +369,8 @@ impl CudaClient {
         let col_indices = Tensor::<CudaRuntime>::zeros(&[nnz], crate::dtype::DType::I64, device);
 
         // Get device pointers (no data transfer!)
-        let col_ptrs_ptr = col_ptrs.storage().ptr();
-        let col_indices_ptr = col_indices.storage().ptr();
+        let col_ptrs_ptr = col_ptrs.ptr();
+        let col_indices_ptr = col_indices.ptr();
 
         // Launch pointer expansion kernel
         unsafe {
@@ -419,9 +419,9 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                row_ptrs.storage().ptr(),
-                col_indices.storage().ptr(),
-                col_counts.storage().ptr(),
+                row_ptrs.ptr(),
+                col_indices.ptr(),
+                col_counts.ptr(),
                 nrows,
             )?;
         }
@@ -453,12 +453,12 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    row_ptrs.storage().ptr(),
-                    col_indices.storage().ptr(),
-                    values.storage().ptr(),
-                    col_ptrs_working.storage().ptr(),
-                    row_indices_out.storage().ptr(),
-                    values_out.storage().ptr(),
+                    row_ptrs.ptr(),
+                    col_indices.ptr(),
+                    values.ptr(),
+                    col_ptrs_working.ptr(),
+                    row_indices_out.ptr(),
+                    values_out.ptr(),
                     nrows,
                     ncols,
                 )?;
@@ -468,12 +468,12 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    row_ptrs.storage().ptr(),
-                    col_indices.storage().ptr(),
-                    values.storage().ptr(),
-                    col_ptrs_working.storage().ptr(),
-                    row_indices_out.storage().ptr(),
-                    values_out.storage().ptr(),
+                    row_ptrs.ptr(),
+                    col_indices.ptr(),
+                    values.ptr(),
+                    col_ptrs_working.ptr(),
+                    row_indices_out.ptr(),
+                    values_out.ptr(),
                     nrows,
                     ncols,
                 )?;
@@ -518,9 +518,9 @@ impl CudaClient {
                 &self.context,
                 &self.stream,
                 self.device.index,
-                col_ptrs.storage().ptr(),
-                row_indices.storage().ptr(),
-                row_counts.storage().ptr(),
+                col_ptrs.ptr(),
+                row_indices.ptr(),
+                row_counts.ptr(),
                 ncols,
             )?;
         }
@@ -552,12 +552,12 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    col_ptrs.storage().ptr(),
-                    row_indices.storage().ptr(),
-                    values.storage().ptr(),
-                    row_ptrs_working.storage().ptr(),
-                    col_indices_out.storage().ptr(),
-                    values_out.storage().ptr(),
+                    col_ptrs.ptr(),
+                    row_indices.ptr(),
+                    values.ptr(),
+                    row_ptrs_working.ptr(),
+                    col_indices_out.ptr(),
+                    values_out.ptr(),
                     nrows,
                     ncols,
                 )?;
@@ -567,12 +567,12 @@ impl CudaClient {
                     &self.context,
                     &self.stream,
                     self.device.index,
-                    col_ptrs.storage().ptr(),
-                    row_indices.storage().ptr(),
-                    values.storage().ptr(),
-                    row_ptrs_working.storage().ptr(),
-                    col_indices_out.storage().ptr(),
-                    values_out.storage().ptr(),
+                    col_ptrs.ptr(),
+                    row_indices.ptr(),
+                    values.ptr(),
+                    row_ptrs_working.ptr(),
+                    col_indices_out.ptr(),
+                    values_out.ptr(),
                     nrows,
                     ncols,
                 )?;

@@ -57,10 +57,10 @@ impl ConvOps<CudaRuntime> for CudaClient {
         );
 
         // Get device pointers
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         // Launch CUDA kernel
         unsafe {
@@ -137,10 +137,10 @@ impl ConvOps<CudaRuntime> for CudaClient {
         );
 
         // Get device pointers
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         // Launch CUDA kernel
         unsafe {
@@ -221,10 +221,10 @@ impl ConvOps<CudaRuntime> for CudaClient {
         );
 
         // Get device pointers
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         // Launch CUDA kernel
         unsafe {

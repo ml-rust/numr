@@ -1,12 +1,13 @@
 //! CSC format conversion: to_coo, to_csr
 
 use super::CscData;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::sparse::{CooData, CsrData, SparseStorage};
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Convert to COO format
     ///
     /// Expands the compressed column pointers into explicit column indices.

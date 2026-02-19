@@ -19,7 +19,7 @@ use crate::tensor::Tensor;
 
 /// Helper to get buffer from tensor, with proper error handling.
 fn get_tensor_buffer(tensor: &Tensor<WgpuRuntime>) -> Result<Arc<wgpu::Buffer>> {
-    let ptr = tensor.storage().ptr();
+    let ptr = tensor.ptr();
     get_buffer(ptr).ok_or_else(|| Error::Internal("Failed to get buffer from tensor".to_string()))
 }
 

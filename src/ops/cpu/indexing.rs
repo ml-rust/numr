@@ -43,8 +43,8 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -85,8 +85,8 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {

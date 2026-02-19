@@ -16,7 +16,7 @@ pub fn cat_impl(
     let params = shape_ops::validate_cat(tensors, dim)?;
 
     let out = Tensor::<CpuRuntime>::empty(&params.out_shape, params.dtype, &client.device);
-    let out_ptr = out.storage().ptr();
+    let out_ptr = out.ptr();
     let elem_size = params.dtype.size_in_bytes();
 
     // Byte-level copies — memcpy doesn't need type dispatch, and dispatch_dtype!
@@ -26,10 +26,10 @@ pub fn cat_impl(
         for &tensor in tensors {
             let contig_tmp;
             let src_ptr = if tensor.is_contiguous() {
-                tensor.storage().ptr() as *const u8
+                tensor.ptr() as *const u8
             } else {
                 contig_tmp = tensor.contiguous();
-                contig_tmp.storage().ptr() as *const u8
+                contig_tmp.ptr() as *const u8
             };
             let src_cat_size = tensor.shape()[params.dim_idx];
             let src_bytes = src_cat_size * params.inner_size * elem_size;
@@ -119,8 +119,8 @@ pub fn repeat_impl(
 
     // Make input contiguous
     let tensor_contig = ensure_contiguous(tensor);
-    let src_ptr = tensor_contig.storage().ptr();
-    let dst_ptr = out.storage().ptr();
+    let src_ptr = tensor_contig.ptr();
+    let dst_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -200,8 +200,8 @@ pub fn pad_impl(
 
     // Make input contiguous
     let tensor_contig = ensure_contiguous(tensor);
-    let src_ptr = tensor_contig.storage().ptr();
-    let dst_ptr = out.storage().ptr();
+    let src_ptr = tensor_contig.ptr();
+    let dst_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -278,8 +278,8 @@ pub fn roll_impl(
 
     // Make input contiguous
     let tensor_contig = ensure_contiguous(tensor);
-    let src_ptr = tensor_contig.storage().ptr();
-    let dst_ptr = out.storage().ptr();
+    let src_ptr = tensor_contig.ptr();
+    let dst_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {

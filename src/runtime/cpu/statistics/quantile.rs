@@ -93,8 +93,8 @@ pub fn quantile_impl(
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
 
     let sorted_contig = ensure_contiguous(&sorted);
-    let sorted_ptr = sorted_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let sorted_ptr = sorted_contig.ptr();
+    let out_ptr = out.ptr();
 
     // Dispatch to typed kernel
     dispatch_dtype!(dtype, T => {

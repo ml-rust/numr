@@ -93,7 +93,7 @@ pub(crate) fn read_scalar_f64(t: &Tensor<CudaRuntime>) -> Result<f64> {
     };
 
     // Get GPU buffer pointer
-    let ptr = tensor.storage().ptr();
+    let ptr = tensor.ptr();
 
     // Allocate host memory and copy from GPU based on dtype
     let result = match dtype {

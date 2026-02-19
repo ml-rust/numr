@@ -2,6 +2,7 @@
 use crate::error::{Error, Result};
 use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
+use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl};
 use crate::runtime::cuda::kernels::{
     launch_elu, launch_gelu, launch_leaky_relu, launch_relu, launch_sigmoid, launch_silu,
     launch_softmax, launch_softmax_dim,
@@ -22,8 +23,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }
@@ -42,8 +43,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }
@@ -62,8 +63,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }
@@ -82,8 +83,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }
@@ -106,8 +107,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
                 negative_slope as f32,
             )?;
@@ -127,8 +128,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
                 alpha as f32,
             )?;
@@ -163,8 +164,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
+                    a_contig.ptr(),
+                    out.ptr(),
                     outer_size,
                     dim_size,
                 )?;
@@ -175,8 +176,8 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    a_contig.storage().ptr(),
-                    out.storage().ptr(),
+                    a_contig.ptr(),
+                    out.ptr(),
                     outer_size,
                     dim_size,
                     inner_size,
@@ -185,5 +186,18 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn log_softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {
+        log_softmax_impl(self, a, dim)
+    }
+
+    fn dropout(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        p: f64,
+        training: bool,
+    ) -> Result<Tensor<CudaRuntime>> {
+        dropout_impl(self, a, p, training)
     }
 }

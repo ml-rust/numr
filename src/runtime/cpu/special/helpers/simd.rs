@@ -38,7 +38,7 @@ macro_rules! impl_simd_special_fn {
                     {
                         let len = x.numel();
                         let mut result = vec![0.0f32; len];
-                        let input_ptr = x.storage().ptr() as *const f32;
+                        let input_ptr = x.ptr() as *const f32;
                         unsafe {
                             simd_special::$simd_f32(input_ptr, result.as_mut_ptr(), len);
                         }
@@ -53,7 +53,7 @@ macro_rules! impl_simd_special_fn {
                     {
                         let len = x.numel();
                         let mut result = vec![0.0f64; len];
-                        let input_ptr = x.storage().ptr() as *const f64;
+                        let input_ptr = x.ptr() as *const f64;
                         unsafe {
                             simd_special::$simd_f64(input_ptr, result.as_mut_ptr(), len);
                         }

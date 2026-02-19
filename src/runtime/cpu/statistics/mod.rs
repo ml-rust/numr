@@ -170,7 +170,7 @@ pub(crate) fn create_bin_edges(
 
     // Create tensor and copy data based on dtype
     let edges = Tensor::<CpuRuntime>::empty(&[bins + 1], dtype, &client.device);
-    let edges_ptr = edges.storage().ptr();
+    let edges_ptr = edges.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -187,7 +187,7 @@ pub(crate) fn create_bin_edges(
 /// Extract scalar f64 value from tensor.
 pub(crate) fn tensor_to_f64(t: &Tensor<CpuRuntime>) -> Result<f64> {
     let dtype = t.dtype();
-    let ptr = t.storage().ptr();
+    let ptr = t.ptr();
 
     let val = dispatch_dtype!(dtype, T => {
         unsafe { (*(ptr as *const T)).to_f64() }

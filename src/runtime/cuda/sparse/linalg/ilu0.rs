@@ -50,9 +50,9 @@ pub fn ilu0_cuda(
             &client.context,
             &client.stream,
             client.device.index,
-            row_ptrs_gpu.storage().ptr(),
-            col_indices_gpu.storage().ptr(),
-            diag_indices_gpu.storage().ptr(),
+            row_ptrs_gpu.ptr(),
+            col_indices_gpu.ptr(),
+            diag_indices_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -69,7 +69,7 @@ pub fn ilu0_cuda(
 
         // Get pointer to this level's rows
         let level_rows_ptr =
-            level_rows_gpu.storage().ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
+            level_rows_gpu.ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
 
         match dtype {
             DType::F32 => unsafe {
@@ -79,10 +79,10 @@ pub fn ilu0_cuda(
                     client.device.index,
                     level_rows_ptr,
                     level_size,
-                    row_ptrs_gpu.storage().ptr(),
-                    col_indices_gpu.storage().ptr(),
-                    values_gpu.storage().ptr(),
-                    diag_indices_gpu.storage().ptr(),
+                    row_ptrs_gpu.ptr(),
+                    col_indices_gpu.ptr(),
+                    values_gpu.ptr(),
+                    diag_indices_gpu.ptr(),
                     n as i32,
                     options.diagonal_shift as f32,
                 )?;
@@ -94,10 +94,10 @@ pub fn ilu0_cuda(
                     client.device.index,
                     level_rows_ptr,
                     level_size,
-                    row_ptrs_gpu.storage().ptr(),
-                    col_indices_gpu.storage().ptr(),
-                    values_gpu.storage().ptr(),
-                    diag_indices_gpu.storage().ptr(),
+                    row_ptrs_gpu.ptr(),
+                    col_indices_gpu.ptr(),
+                    values_gpu.ptr(),
+                    diag_indices_gpu.ptr(),
                     n as i32,
                     options.diagonal_shift,
                 )?;
@@ -181,9 +181,9 @@ pub fn ilu0_numeric_cuda(
             &client.context,
             &client.stream,
             client.device.index,
-            row_ptrs_gpu.storage().ptr(),
-            col_indices_gpu.storage().ptr(),
-            diag_indices_gpu.storage().ptr(),
+            row_ptrs_gpu.ptr(),
+            col_indices_gpu.ptr(),
+            diag_indices_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -199,7 +199,7 @@ pub fn ilu0_numeric_cuda(
         }
 
         let level_rows_ptr =
-            level_rows_gpu.storage().ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
+            level_rows_gpu.ptr() + (level_start * std::mem::size_of::<i32>()) as u64;
 
         match dtype {
             DType::F32 => unsafe {
@@ -209,10 +209,10 @@ pub fn ilu0_numeric_cuda(
                     client.device.index,
                     level_rows_ptr,
                     level_size,
-                    row_ptrs_gpu.storage().ptr(),
-                    col_indices_gpu.storage().ptr(),
-                    values_gpu.storage().ptr(),
-                    diag_indices_gpu.storage().ptr(),
+                    row_ptrs_gpu.ptr(),
+                    col_indices_gpu.ptr(),
+                    values_gpu.ptr(),
+                    diag_indices_gpu.ptr(),
                     n as i32,
                     options.diagonal_shift as f32,
                 )?;
@@ -224,10 +224,10 @@ pub fn ilu0_numeric_cuda(
                     client.device.index,
                     level_rows_ptr,
                     level_size,
-                    row_ptrs_gpu.storage().ptr(),
-                    col_indices_gpu.storage().ptr(),
-                    values_gpu.storage().ptr(),
-                    diag_indices_gpu.storage().ptr(),
+                    row_ptrs_gpu.ptr(),
+                    col_indices_gpu.ptr(),
+                    values_gpu.ptr(),
+                    diag_indices_gpu.ptr(),
                     n as i32,
                     options.diagonal_shift,
                 )?;

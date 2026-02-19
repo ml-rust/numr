@@ -146,9 +146,9 @@ pub unsafe fn launch_broadcast_compare_op(
     let shape_tensor = Tensor::<CudaRuntime>::from_slice(&shape_u32, &[ndim], device);
 
     // Get device pointers
-    let a_strides_ptr = a_strides_tensor.storage().ptr();
-    let b_strides_ptr = b_strides_tensor.storage().ptr();
-    let shape_ptr = shape_tensor.storage().ptr();
+    let a_strides_ptr = a_strides_tensor.ptr();
+    let b_strides_ptr = b_strides_tensor.ptr();
+    let shape_ptr = shape_tensor.ptr();
 
     // Get kernel function
     let module = get_or_load_module(context, device_index, kernel_names::COMPARE_MODULE)?;

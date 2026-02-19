@@ -73,9 +73,9 @@ pub fn solve(
     let lu_result = lu_decompose(client, a)?;
 
     // Get LU and pivots buffers (both already on GPU, no transfers needed)
-    let lu_buffer = get_buffer(lu_result.lu.storage().ptr())
+    let lu_buffer = get_buffer(lu_result.lu.ptr())
         .ok_or_else(|| Error::Internal("Failed to get lu buffer".to_string()))?;
-    let pivots_buffer = get_buffer(lu_result.pivots.storage().ptr())
+    let pivots_buffer = get_buffer(lu_result.pivots.ptr())
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     // Allocate temporary buffers for single column operations
@@ -95,7 +95,7 @@ pub fn solve(
 
     // Get b buffer for GPU column extraction
     let b_contig = b.contiguous();
-    let b_buffer = get_buffer(b_contig.storage().ptr())
+    let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     // Allocate output buffer for all RHS (column-major: each solved column stored contiguously)

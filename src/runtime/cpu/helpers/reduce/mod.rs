@@ -49,8 +49,8 @@ pub fn reduce_impl(
         let out_shape = reduce_output_shape(shape, dims, keepdim);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-        let a_ptr = a.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {

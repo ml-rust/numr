@@ -56,8 +56,8 @@ pub fn rsf2csf_impl(
             client.stream(),
             device.index,
             dtype,
-            schur.z.storage().ptr(),
-            schur.t.storage().ptr(),
+            schur.z.ptr(),
+            schur.t.ptr(),
             z_real_ptr,
             z_imag_ptr,
             t_real_ptr,
@@ -135,8 +135,8 @@ pub fn qz_decompose_impl(
     let flag_ptr = flag_guard.ptr();
 
     // Copy input matrices to S and T (will be modified in-place)
-    CudaRuntime::copy_within_device(a.storage().ptr(), s_ptr, matrix_size, device)?;
-    CudaRuntime::copy_within_device(b.storage().ptr(), t_ptr, matrix_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), s_ptr, matrix_size, device)?;
+    CudaRuntime::copy_within_device(b.ptr(), t_ptr, matrix_size, device)?;
 
     // Initialize converged flag to 0
     let zero_flag = [0i32];

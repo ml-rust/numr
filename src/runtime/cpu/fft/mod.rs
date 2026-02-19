@@ -211,8 +211,8 @@ impl CpuClient {
         let batch_size = batch_size.max(1);
         let min_len = self.chunk_size_hint();
 
-        let input_ptr = input.storage().ptr();
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let output_ptr = output.ptr();
 
         match dtype {
             DType::Complex64 => {

@@ -49,7 +49,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -90,7 +90,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -158,7 +158,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 low,
                 range,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -244,8 +244,8 @@ impl RandomOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    probs.storage().ptr(),
-                    out.storage().ptr(),
+                    probs.ptr(),
+                    out.ptr(),
                     seed,
                     num_distributions,
                     num_categories,
@@ -257,8 +257,8 @@ impl RandomOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    probs.storage().ptr(),
-                    out.storage().ptr(),
+                    probs.ptr(),
+                    out.ptr(),
                     seed,
                     num_distributions,
                     num_categories,
@@ -300,7 +300,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 p,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -348,7 +348,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 alpha,
                 beta,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -396,7 +396,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 shape_param,
                 scale,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -434,7 +434,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 rate,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -472,7 +472,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 lambda,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -523,7 +523,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 n,
                 p,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -568,7 +568,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 loc,
                 scale,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -606,7 +606,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 df,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -644,7 +644,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 df,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -695,7 +695,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 df1,
                 df2,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }

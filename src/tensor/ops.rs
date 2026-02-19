@@ -214,6 +214,18 @@ where
         let client = R::default_client(self.device());
         client.softmax(self, dim)
     }
+
+    /// Log-softmax along dimension: log(softmax(x, dim))
+    pub fn log_softmax(&self, dim: isize) -> Result<Tensor<R>> {
+        let client = R::default_client(self.device());
+        client.log_softmax(self, dim)
+    }
+
+    /// Dropout: randomly zero elements with probability `p` during training
+    pub fn dropout(&self, p: f64, training: bool) -> Result<Tensor<R>> {
+        let client = R::default_client(self.device());
+        client.dropout(self, p, training)
+    }
 }
 
 // ============================================================================
@@ -398,6 +410,21 @@ where
     pub fn cumsum(&self, dim: isize) -> Result<Tensor<R>> {
         let client = R::default_client(self.device());
         client.cumsum(self, dim)
+    }
+
+    /// Cumulative product along a dimension
+    pub fn cumprod(&self, dim: isize) -> Result<Tensor<R>> {
+        let client = R::default_client(self.device());
+        client.cumprod(self, dim)
+    }
+
+    /// Log-sum-exp along specified dimensions (numerically stable)
+    ///
+    /// Computes `log(sum(exp(x)))` in a numerically stable way:
+    /// `logsumexp(x) = max(x) + log(sum(exp(x - max(x))))`
+    pub fn logsumexp(&self, dims: &[usize], keepdim: bool) -> Result<Tensor<R>> {
+        let client = R::default_client(self.device());
+        client.logsumexp(self, dims, keepdim)
     }
 }
 

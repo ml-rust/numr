@@ -62,8 +62,8 @@ unsafe fn cast_i32_to_i64_gpu(
     // Use cast kernel from cast.rs
     use super::cast::launch_cast;
 
-    let input_ptr = input.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input.ptr();
+    let output_ptr = output.ptr();
 
     unsafe {
         launch_cast(
@@ -201,9 +201,9 @@ pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::Dev
             context,
             stream,
             device_index,
-            row_ptrs.storage().ptr(),
-            values.storage().ptr(),
-            row_counts.storage().ptr(),
+            row_ptrs.ptr(),
+            values.ptr(),
+            row_counts.ptr(),
             nrows,
             threshold,
         )?;
@@ -231,12 +231,12 @@ pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::Dev
             context,
             stream,
             device_index,
-            row_ptrs.storage().ptr(),
-            col_indices.storage().ptr(),
-            values.storage().ptr(),
-            out_row_ptrs.storage().ptr(),
-            out_col_indices.storage().ptr(),
-            out_values.storage().ptr(),
+            row_ptrs.ptr(),
+            col_indices.ptr(),
+            values.ptr(),
+            out_row_ptrs.ptr(),
+            out_col_indices.ptr(),
+            out_values.ptr(),
             nrows,
             threshold,
         )?;
@@ -274,9 +274,9 @@ pub unsafe fn csr_sum_rows_gpu<T: CudaTypeName>(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
 
-    let row_ptrs_ptr = row_ptrs.storage().ptr();
-    let values_ptr = values.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let row_ptrs_ptr = row_ptrs.ptr();
+    let values_ptr = values.ptr();
+    let out_ptr = out.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&row_ptrs_ptr);
@@ -316,9 +316,9 @@ pub unsafe fn csc_sum_cols_gpu<T: CudaTypeName>(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
 
-    let col_ptrs_ptr = col_ptrs.storage().ptr();
-    let values_ptr = values.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let col_ptrs_ptr = col_ptrs.ptr();
+    let values_ptr = values.ptr();
+    let out_ptr = out.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&col_ptrs_ptr);
@@ -357,8 +357,8 @@ pub unsafe fn csr_nnz_per_row_gpu(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
 
-    let row_ptrs_ptr = row_ptrs.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let row_ptrs_ptr = row_ptrs.ptr();
+    let out_ptr = out.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&row_ptrs_ptr);
@@ -395,8 +395,8 @@ pub unsafe fn csc_nnz_per_col_gpu(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
 
-    let col_ptrs_ptr = col_ptrs.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let col_ptrs_ptr = col_ptrs.ptr();
+    let out_ptr = out.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&col_ptrs_ptr);
@@ -446,10 +446,10 @@ pub unsafe fn csr_to_dense_gpu<T: CudaTypeName>(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), 0);
 
-    let row_ptrs_ptr = row_ptrs.storage().ptr();
-    let col_indices_ptr = col_indices.storage().ptr();
-    let values_ptr = values.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let row_ptrs_ptr = row_ptrs.ptr();
+    let col_indices_ptr = col_indices.ptr();
+    let values_ptr = values.ptr();
+    let out_ptr = out.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&row_ptrs_ptr);
@@ -589,8 +589,8 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
             context,
             stream,
             device_index,
-            input.storage().ptr(),
-            row_counts.storage().ptr(),
+            input.ptr(),
+            row_counts.ptr(),
             nrows,
             ncols,
             threshold,
@@ -619,11 +619,11 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
             context,
             stream,
             device_index,
-            input.storage().ptr(),
-            offsets.storage().ptr(),
-            row_indices.storage().ptr(),
-            col_indices.storage().ptr(),
-            values.storage().ptr(),
+            input.ptr(),
+            offsets.ptr(),
+            row_indices.ptr(),
+            col_indices.ptr(),
+            values.ptr(),
             nrows,
             ncols,
             threshold,

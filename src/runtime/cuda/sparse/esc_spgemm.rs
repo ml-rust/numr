@@ -109,8 +109,8 @@ impl CudaClient {
                 self.device.index,
                 DType::I32,
                 DType::I64,
-                c_row_ptrs_i32.storage().ptr(),
-                output.storage().ptr(),
+                c_row_ptrs_i32.ptr(),
+                output.ptr(),
                 m + 1,
             )?;
             output

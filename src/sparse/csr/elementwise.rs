@@ -4,13 +4,13 @@
 //! via the SparseOps trait, enabling GPU acceleration when available.
 
 use super::CsrData;
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::ops::ScalarOps;
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseStorage};
 
-impl<R: Runtime> CsrData<R> {
+impl<R: Runtime<DType = DType>> CsrData<R> {
     /// Element-wise addition: C = A + B
     ///
     /// Computes the sum of two sparse matrices with the same shape.

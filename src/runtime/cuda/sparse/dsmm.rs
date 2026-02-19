@@ -44,11 +44,11 @@ pub(super) fn column_parallel_dsmm(
     let output = Tensor::<CudaRuntime>::zeros(&[m, n], dtype, device);
 
     // Get raw pointers
-    let a_ptr = a_contig.storage().ptr();
-    let col_ptrs_ptr = sparse_b_csc.col_ptrs.storage().ptr();
-    let row_indices_ptr = sparse_b_csc.row_indices.storage().ptr();
-    let values_ptr = sparse_b_csc.values.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let col_ptrs_ptr = sparse_b_csc.col_ptrs.ptr();
+    let row_indices_ptr = sparse_b_csc.row_indices.ptr();
+    let values_ptr = sparse_b_csc.values.ptr();
+    let output_ptr = output.ptr();
 
     // Launch CUDA kernel
     unsafe {

@@ -37,7 +37,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 key,
                 counter,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -74,7 +74,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 key,
                 counter,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -111,7 +111,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 key,
                 counter,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -148,7 +148,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 key,
                 counter,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -185,7 +185,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 seed,
                 stream,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -222,7 +222,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 seed,
                 stream,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -257,7 +257,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -292,7 +292,7 @@ impl AdvancedRandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }

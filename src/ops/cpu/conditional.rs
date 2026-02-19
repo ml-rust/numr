@@ -43,7 +43,7 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
             })?;
 
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         // Fast path: all same shape, use simple kernel
         if cond.shape() == x.shape() && x.shape() == y.shape() {
@@ -51,9 +51,9 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
             let x_contig = ensure_contiguous(x);
             let y_contig = ensure_contiguous(y);
 
-            let cond_ptr = cond_contig.storage().ptr();
-            let x_ptr = x_contig.storage().ptr();
-            let y_ptr = y_contig.storage().ptr();
+            let cond_ptr = cond_contig.ptr();
+            let x_ptr = x_contig.ptr();
+            let y_ptr = y_contig.ptr();
             let numel = x.numel();
 
             // Double dispatch: cond dtype and value dtype
@@ -93,9 +93,9 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
             let x_broadcast = x.broadcast_to(&out_shape)?;
             let y_broadcast = y.broadcast_to(&out_shape)?;
 
-            let cond_ptr = cond_broadcast.storage().ptr();
-            let x_ptr = x_broadcast.storage().ptr();
-            let y_ptr = y_broadcast.storage().ptr();
+            let cond_ptr = cond_broadcast.ptr();
+            let x_ptr = x_broadcast.ptr();
+            let y_ptr = y_broadcast.ptr();
 
             // Get strides from broadcast layouts
             let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();

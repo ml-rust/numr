@@ -41,8 +41,8 @@ pub(super) fn reduce_single_dim(
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     if dim == ndim - 1 {
-        let a_ptr = a.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -57,8 +57,8 @@ pub(super) fn reduce_single_dim(
             }
         }, op_name);
     } else {
-        let a_ptr = a.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {

@@ -94,7 +94,7 @@ pub(crate) fn tensor_to_f64(client: &WgpuClient, t: &Tensor<WgpuRuntime>) -> Res
     }
 
     // Get buffer from tensor
-    let src_buffer = get_buffer(t.storage().ptr())
+    let src_buffer = get_buffer(t.ptr())
         .ok_or_else(|| Error::Internal("Failed to get tensor buffer".to_string()))?;
 
     // Create staging buffer and copy

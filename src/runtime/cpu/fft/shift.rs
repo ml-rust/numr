@@ -47,8 +47,8 @@ fn shift_impl(
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
 
-    let input_ptr = input_contig.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input_contig.ptr();
+    let output_ptr = output.ptr();
 
     let op_name = if inverse { "ifftshift" } else { "fftshift" };
 
@@ -158,7 +158,7 @@ pub(super) fn fftfreq_impl(
 
     let output = Tensor::<CpuRuntime>::empty(&[n], dtype, device);
     let scale = 1.0 / (d * n as f64);
-    let output_ptr = output.storage().ptr();
+    let output_ptr = output.ptr();
 
     match dtype {
         DType::F32 => {
@@ -216,7 +216,7 @@ pub(super) fn rfftfreq_impl(
     let output_len = n / 2 + 1;
     let output = Tensor::<CpuRuntime>::empty(&[output_len], dtype, device);
     let scale = 1.0 / (d * n as f64);
-    let output_ptr = output.storage().ptr();
+    let output_ptr = output.ptr();
 
     match dtype {
         DType::F32 => {

@@ -1,11 +1,12 @@
 //! Element-wise addition for COO matrices
 
 use super::super::CooData;
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseStorage};
 
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Element-wise addition: C = A + B
     ///
     /// Computes the sum of two sparse matrices with the same shape.

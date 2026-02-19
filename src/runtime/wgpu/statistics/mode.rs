@@ -88,11 +88,11 @@ pub fn mode_impl(
     let mode_counts = Tensor::<WgpuRuntime>::empty(&out_shape, DType::I32, client.device());
 
     // Get wgpu buffers
-    let sorted_buf = get_buffer(sorted_contig.storage().ptr())
+    let sorted_buf = get_buffer(sorted_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get sorted buffer".to_string()))?;
-    let values_buf = get_buffer(mode_values.storage().ptr())
+    let values_buf = get_buffer(mode_values.ptr())
         .ok_or_else(|| Error::Internal("Failed to get mode_values buffer".to_string()))?;
-    let counts_buf = get_buffer(mode_counts.storage().ptr())
+    let counts_buf = get_buffer(mode_counts.ptr())
         .ok_or_else(|| Error::Internal("Failed to get mode_counts buffer".to_string()))?;
 
     // Create params buffer: [outer_size, reduce_size, inner_size, pad]

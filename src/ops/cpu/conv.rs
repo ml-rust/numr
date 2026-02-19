@@ -144,10 +144,10 @@ impl ConvOps<CpuRuntime> for CpuClient {
             &self.device,
         );
 
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         dispatch_conv!(
             dtype, conv1d, input_ptr, weight_ptr, bias_ptr, output_ptr, params
@@ -203,10 +203,10 @@ impl ConvOps<CpuRuntime> for CpuClient {
             &self.device,
         );
 
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         dispatch_conv!(
             dtype, conv2d, input_ptr, weight_ptr, bias_ptr, output_ptr, params
@@ -260,10 +260,10 @@ impl ConvOps<CpuRuntime> for CpuClient {
             &self.device,
         );
 
-        let input_ptr = input.storage().ptr();
-        let weight_ptr = weight.storage().ptr();
-        let bias_ptr = bias.as_ref().map(|b| b.storage().ptr());
-        let output_ptr = output.storage().ptr();
+        let input_ptr = input.ptr();
+        let weight_ptr = weight.ptr();
+        let bias_ptr = bias.as_ref().map(|b| b.ptr());
+        let output_ptr = output.ptr();
 
         dispatch_conv!(
             dtype,

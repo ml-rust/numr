@@ -26,8 +26,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -46,8 +46,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -66,8 +66,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -86,8 +86,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -106,8 +106,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -126,8 +126,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -163,9 +163,9 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                b.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                b.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -202,10 +202,10 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                b.storage().ptr(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                b.ptr(),
+                x.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -241,9 +241,9 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                x.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -279,9 +279,9 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                x.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -317,9 +317,9 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                p.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                p.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -356,10 +356,10 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 a.dtype(),
-                a.storage().ptr(),
-                b.storage().ptr(),
-                p.storage().ptr(),
-                out.storage().ptr(),
+                a.ptr(),
+                b.ptr(),
+                p.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -378,8 +378,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -398,8 +398,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -418,8 +418,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -438,8 +438,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -458,8 +458,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -478,8 +478,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -498,8 +498,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -518,8 +518,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -542,8 +542,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 m.dtype(),
-                m.storage().ptr(),
-                out.storage().ptr(),
+                m.ptr(),
+                out.ptr(),
                 m.numel(),
             )?;
         }
@@ -562,8 +562,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 m.dtype(),
-                m.storage().ptr(),
-                out.storage().ptr(),
+                m.ptr(),
+                out.ptr(),
                 m.numel(),
             )?;
         }
@@ -591,8 +591,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 a,
                 b,
                 c,
-                z.storage().ptr(),
-                out.storage().ptr(),
+                z.ptr(),
+                out.ptr(),
                 z.numel(),
             )?;
         }
@@ -613,8 +613,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 z.dtype(),
                 a,
                 b,
-                z.storage().ptr(),
-                out.storage().ptr(),
+                z.ptr(),
+                out.ptr(),
                 z.numel(),
             )?;
         }
@@ -633,8 +633,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -653,8 +653,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -674,8 +674,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 device.index,
                 x.dtype(),
                 n,
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -701,8 +701,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 x.dtype(),
                 n,
                 m,
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -742,9 +742,9 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 theta.dtype(),
                 n,
                 m,
-                theta.storage().ptr(),
-                phi.storage().ptr(),
-                out.storage().ptr(),
+                theta.ptr(),
+                phi.ptr(),
+                out.ptr(),
                 theta.numel(),
             )?;
         }
@@ -763,8 +763,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }
@@ -783,8 +783,8 @@ impl SpecialFunctions<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 x.dtype(),
-                x.storage().ptr(),
-                out.storage().ptr(),
+                x.ptr(),
+                out.ptr(),
                 x.numel(),
             )?;
         }

@@ -1,11 +1,12 @@
 //! Element-wise subtraction operation for sparse tensors
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ScalarOps;
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseTensor};
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     /// Element-wise subtraction: C = A - B
     ///
     /// Computes the difference of two sparse tensors with the same shape.

@@ -37,7 +37,7 @@ pub(super) fn create_params_buffer<T: bytemuck::Pod>(
 pub(crate) fn get_tensor_buffer(
     tensor: &Tensor<WgpuRuntime>,
 ) -> Result<std::sync::Arc<wgpu::Buffer>> {
-    let ptr = tensor.storage().ptr();
+    let ptr = tensor.ptr();
     get_buffer(ptr).ok_or_else(|| Error::Internal("Buffer not found in registry".to_string()))
 }
 

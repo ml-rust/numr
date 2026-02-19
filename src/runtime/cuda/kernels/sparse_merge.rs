@@ -1046,11 +1046,11 @@ pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
     let mut builder = stream.launch_builder(&function);
 
     // Store pointers to avoid temporary value issues
-    let row_ptrs_a_ptr = row_ptrs_a.storage().ptr();
-    let col_indices_a_ptr = col_indices_a.storage().ptr();
-    let row_ptrs_b_ptr = row_ptrs_b.storage().ptr();
-    let col_indices_b_ptr = col_indices_b.storage().ptr();
-    let row_counts_ptr = row_counts.storage().ptr();
+    let row_ptrs_a_ptr = row_ptrs_a.ptr();
+    let col_indices_a_ptr = col_indices_a.ptr();
+    let row_ptrs_b_ptr = row_ptrs_b.ptr();
+    let col_indices_b_ptr = col_indices_b.ptr();
+    let row_counts_ptr = row_counts.ptr();
 
     builder.arg(&row_ptrs_a_ptr);
     builder.arg(&col_indices_a_ptr);
@@ -1099,15 +1099,15 @@ pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
     let mut builder = stream.launch_builder(&function);
 
     // Store pointers to avoid temporary value issues
-    let row_ptrs_a_ptr = row_ptrs_a.storage().ptr();
-    let col_indices_a_ptr = col_indices_a.storage().ptr();
-    let values_a_ptr = values_a.storage().ptr();
-    let row_ptrs_b_ptr = row_ptrs_b.storage().ptr();
-    let col_indices_b_ptr = col_indices_b.storage().ptr();
-    let values_b_ptr = values_b.storage().ptr();
-    let out_row_ptrs_ptr = out_row_ptrs.storage().ptr();
-    let out_col_indices_ptr = out_col_indices.storage().ptr();
-    let out_values_ptr = out_values.storage().ptr();
+    let row_ptrs_a_ptr = row_ptrs_a.ptr();
+    let col_indices_a_ptr = col_indices_a.ptr();
+    let values_a_ptr = values_a.ptr();
+    let row_ptrs_b_ptr = row_ptrs_b.ptr();
+    let col_indices_b_ptr = col_indices_b.ptr();
+    let values_b_ptr = values_b.ptr();
+    let out_row_ptrs_ptr = out_row_ptrs.ptr();
+    let out_col_indices_ptr = out_col_indices.ptr();
+    let out_values_ptr = out_values.ptr();
 
     builder.arg(&row_ptrs_a_ptr);
     builder.arg(&col_indices_a_ptr);
@@ -1181,11 +1181,11 @@ pub unsafe fn generic_csc_merge<T: CudaTypeName, S: MergeStrategy>(
     let mut builder = stream.launch_builder(&function);
 
     // Store pointers to avoid temporary value issues
-    let col_ptrs_a_ptr = col_ptrs_a.storage().ptr();
-    let row_indices_a_ptr = row_indices_a.storage().ptr();
-    let col_ptrs_b_ptr = col_ptrs_b.storage().ptr();
-    let row_indices_b_ptr = row_indices_b.storage().ptr();
-    let col_counts_ptr = col_counts.storage().ptr();
+    let col_ptrs_a_ptr = col_ptrs_a.ptr();
+    let row_indices_a_ptr = row_indices_a.ptr();
+    let col_ptrs_b_ptr = col_ptrs_b.ptr();
+    let row_indices_b_ptr = row_indices_b.ptr();
+    let col_counts_ptr = col_counts.ptr();
 
     builder.arg(&col_ptrs_a_ptr);
     builder.arg(&row_indices_a_ptr);
@@ -1234,15 +1234,15 @@ pub unsafe fn generic_csc_merge<T: CudaTypeName, S: MergeStrategy>(
     let mut builder = stream.launch_builder(&function);
 
     // Store pointers to avoid temporary value issues
-    let col_ptrs_a_ptr = col_ptrs_a.storage().ptr();
-    let row_indices_a_ptr = row_indices_a.storage().ptr();
-    let values_a_ptr = values_a.storage().ptr();
-    let col_ptrs_b_ptr = col_ptrs_b.storage().ptr();
-    let row_indices_b_ptr = row_indices_b.storage().ptr();
-    let values_b_ptr = values_b.storage().ptr();
-    let out_col_ptrs_ptr = out_col_ptrs.storage().ptr();
-    let out_row_indices_ptr = out_row_indices.storage().ptr();
-    let out_values_ptr = out_values.storage().ptr();
+    let col_ptrs_a_ptr = col_ptrs_a.ptr();
+    let row_indices_a_ptr = row_indices_a.ptr();
+    let values_a_ptr = values_a.ptr();
+    let col_ptrs_b_ptr = col_ptrs_b.ptr();
+    let row_indices_b_ptr = row_indices_b.ptr();
+    let values_b_ptr = values_b.ptr();
+    let out_col_ptrs_ptr = out_col_ptrs.ptr();
+    let out_row_indices_ptr = out_row_indices.ptr();
+    let out_values_ptr = out_values.ptr();
 
     builder.arg(&col_ptrs_a_ptr);
     builder.arg(&row_indices_a_ptr);

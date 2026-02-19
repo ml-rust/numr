@@ -28,8 +28,8 @@ pub fn sort_impl(
     let a_contig = ensure_contiguous(a);
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -69,9 +69,9 @@ pub fn sort_with_indices_impl(
     let out_values = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
     let out_indices = Tensor::<CpuRuntime>::empty(shape, DType::I64, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let values_ptr = out_values.storage().ptr();
-    let indices_ptr = out_indices.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let values_ptr = out_values.ptr();
+    let indices_ptr = out_indices.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -114,8 +114,8 @@ pub fn argsort_impl(
     let a_contig = ensure_contiguous(a);
     let out = Tensor::<CpuRuntime>::empty(shape, DType::I64, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -186,9 +186,9 @@ pub fn topk_impl(
     let out_values = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
     let out_indices = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let values_ptr = out_values.storage().ptr();
-    let indices_ptr = out_indices.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let values_ptr = out_values.ptr();
+    let indices_ptr = out_indices.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -227,7 +227,7 @@ pub fn unique_impl(
 
     // Sort first
     let sorted_tensor = sort_impl(client, &a_contig, 0, false)?;
-    let sorted_ptr = sorted_tensor.storage().ptr();
+    let sorted_ptr = sorted_tensor.ptr();
 
     // Count unique
     let unique_count = dispatch_dtype!(dtype, T => {
@@ -236,7 +236,7 @@ pub fn unique_impl(
 
     // Extract unique
     let out = Tensor::<CpuRuntime>::empty(&[unique_count], dtype, &client.device);
-    let out_ptr = out.storage().ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -275,7 +275,7 @@ pub fn unique_with_counts_impl(
 
     // Gather sorted data
     let sorted_tensor = client.gather(&a_contig, 0, &sort_indices)?;
-    let sorted_ptr = sorted_tensor.storage().ptr();
+    let sorted_ptr = sorted_tensor.ptr();
 
     // Count unique
     let unique_count = dispatch_dtype!(dtype, T => {
@@ -287,11 +287,11 @@ pub fn unique_with_counts_impl(
     let out_inverse = Tensor::<CpuRuntime>::empty(&[numel], DType::I64, &client.device);
     let out_counts = Tensor::<CpuRuntime>::empty(&[unique_count], DType::I64, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let sort_indices_ptr = sort_indices.storage().ptr();
-    let unique_ptr = out_unique.storage().ptr();
-    let inverse_ptr = out_inverse.storage().ptr();
-    let counts_ptr = out_counts.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let sort_indices_ptr = sort_indices.ptr();
+    let unique_ptr = out_unique.ptr();
+    let inverse_ptr = out_inverse.ptr();
+    let counts_ptr = out_counts.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -327,7 +327,7 @@ pub fn nonzero_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor
     }
 
     let a_contig = ensure_contiguous(a);
-    let a_ptr = a_contig.storage().ptr();
+    let a_ptr = a_contig.ptr();
 
     // Count nonzero
     let nnz = dispatch_dtype!(dtype, T => {
@@ -352,7 +352,7 @@ pub fn nonzero_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor
 
     // Get flat indices
     let flat_indices = Tensor::<CpuRuntime>::empty(&[nnz], DType::I64, &client.device);
-    let flat_ptr = flat_indices.storage().ptr() as *mut i64;
+    let flat_ptr = flat_indices.ptr() as *mut i64;
 
     dispatch_dtype!(dtype, T => {
         unsafe { kernels::nonzero_flat_kernel::<T>(a_ptr as *const T, flat_ptr, numel); }
@@ -360,7 +360,7 @@ pub fn nonzero_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor
 
     // Convert to multi-index
     let out = Tensor::<CpuRuntime>::empty(&[nnz, ndim], DType::I64, &client.device);
-    let out_ptr = out.storage().ptr() as *mut i64;
+    let out_ptr = out.ptr() as *mut i64;
 
     unsafe {
         kernels::flat_to_multi_index_kernel(flat_ptr, out_ptr, nnz, shape);
@@ -406,9 +406,9 @@ pub fn searchsorted_impl(
     let values_contig = ensure_contiguous(values);
     let out = Tensor::<CpuRuntime>::empty(values.shape(), DType::I64, &client.device);
 
-    let seq_ptr = seq_contig.storage().ptr();
-    let values_ptr = values_contig.storage().ptr();
-    let out_ptr = out.storage().ptr() as *mut i64;
+    let seq_ptr = seq_contig.ptr();
+    let values_ptr = values_contig.ptr();
+    let out_ptr = out.ptr() as *mut i64;
 
     dispatch_dtype!(dtype, T => {
         unsafe {

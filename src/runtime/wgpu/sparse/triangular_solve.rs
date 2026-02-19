@@ -72,12 +72,7 @@ pub fn sparse_solve_triangular_wgpu(
     // Allocate output and copy b into it on GPU (must be separate buffer)
     let x = Tensor::<WgpuRuntime>::zeros(b.shape(), dtype, &client.device_id);
     let copy_size = b.numel() * dtype.size_in_bytes();
-    WgpuRuntime::copy_within_device(
-        b.storage().ptr(),
-        x.storage().ptr(),
-        copy_size,
-        &client.device_id,
-    )?;
+    WgpuRuntime::copy_within_device(b.ptr(), x.ptr(), copy_size, &client.device_id)?;
 
     // Process each level
     for level in 0..schedule.num_levels {

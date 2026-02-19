@@ -55,9 +55,9 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         // Create output tensor
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let b_ptr = b_contig.ptr();
+        let out_ptr = out.ptr();
 
         // Leading dimensions for contiguous row-major matrices
         let lda = k;
@@ -188,10 +188,10 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         // Create output tensor
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let bias_ptr = bias_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let b_ptr = b_contig.ptr();
+        let bias_ptr = bias_contig.ptr();
+        let out_ptr = out.ptr();
 
         // Leading dimensions for contiguous row-major matrices
         let lda = k;

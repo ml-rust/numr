@@ -43,12 +43,7 @@ pub fn eig_decompose_symmetric_impl(
         let eigenvectors_ptr = client.allocator().allocate(eigenvectors_size)?;
 
         // Copy the single element as eigenvalue
-        CudaRuntime::copy_within_device(
-            a.storage().ptr(),
-            eigenvalues_ptr,
-            eigenvalues_size,
-            device,
-        )?;
+        CudaRuntime::copy_within_device(a.ptr(), eigenvalues_ptr, eigenvalues_size, device)?;
 
         // Eigenvector is [1.0]
         match dtype {
@@ -92,7 +87,7 @@ pub fn eig_decompose_symmetric_impl(
     let converged_flag_ptr = converged_flag_guard.ptr();
 
     // Copy input to working buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), work_ptr, work_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), work_ptr, work_size, device)?;
 
     // Zero-initialize converged flag
     let zero_i32: [u8; 4] = [0; 4];

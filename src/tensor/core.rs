@@ -197,10 +197,11 @@ impl<R: Runtime> Tensor<R> {
         self.layout.offset()
     }
 
-    /// Raw storage pointer (base address, not offset-adjusted)
+    /// Data pointer adjusted for layout offset.
+    /// This is the pointer to the first element of this tensor's view.
     #[inline]
     pub fn ptr(&self) -> u64 {
-        self.storage.ptr()
+        self.storage.ptr() + (self.layout.offset() * self.dtype().size_in_bytes()) as u64
     }
 
     /// Whether the underlying storage is owned (will deallocate on drop)
@@ -284,17 +285,6 @@ impl<R: Runtime> Tensor<R> {
                 got: s.to_vec(),
             })
         }
-    }
-
-    // ===== Low-level Pointer Access =====
-
-    /// Effective device pointer: base + offset * dtype_size
-    ///
-    /// This is the pointer to the first element of this tensor's view,
-    /// accounting for the layout offset into shared storage.
-    #[inline]
-    pub fn data_ptr(&self) -> u64 {
-        self.storage.ptr() + (self.layout.offset() * self.dtype().size_in_bytes()) as u64
     }
 
     // ===== Construction Helpers =====

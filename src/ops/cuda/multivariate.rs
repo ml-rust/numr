@@ -78,9 +78,9 @@ impl MultinomialSamplingOps<CudaRuntime> for CudaClient {
         let output = Tensor::<CudaRuntime>::zeros(&[n_samples, k], dtype, &self.device);
 
         // Get device pointers
-        let cdf_ptr = cdf.storage().ptr();
-        let uniforms_ptr = uniforms.storage().ptr();
-        let output_ptr = output.storage().ptr();
+        let cdf_ptr = cdf.ptr();
+        let uniforms_ptr = uniforms.ptr();
+        let output_ptr = output.ptr();
 
         // Launch kernel
         unsafe {

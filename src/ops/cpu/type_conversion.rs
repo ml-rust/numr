@@ -21,8 +21,8 @@ impl TypeConversionOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(shape, target_dtype, &self.device);
 
-        let src_ptr = a_contig.storage().ptr() as *const u8;
-        let dst_ptr = out.storage().ptr() as *mut u8;
+        let src_ptr = a_contig.ptr() as *const u8;
+        let dst_ptr = out.ptr() as *mut u8;
 
         unsafe {
             kernels::cast_kernel(src_ptr, dst_ptr, numel, src_dtype, target_dtype)?;

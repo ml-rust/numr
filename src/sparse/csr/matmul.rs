@@ -1,13 +1,13 @@
 //! CSR matrix multiplication: spmv, spmm
 
 use super::CsrData;
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::{CscData, SparseStorage};
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CsrData<R> {
+impl<R: Runtime<DType = DType>> CsrData<R> {
     /// Sparse matrix-vector multiplication: y = A * x
     ///
     /// Computes the product of this sparse matrix with a dense vector.

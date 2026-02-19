@@ -40,7 +40,7 @@ pub fn lu_decompose_impl(
     let singular_flag_ptr = singular_flag_guard.ptr();
 
     // Copy input to LU buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), lu_ptr, lu_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), lu_ptr, lu_size, device)?;
 
     // Zero-initialize flags
     let zero_i32: [u8; 4] = [0; 4];
@@ -114,7 +114,7 @@ pub fn cholesky_decompose_impl(
     let not_pd_flag_ptr = not_pd_flag_guard.ptr();
 
     // Copy input to L buffer
-    CudaRuntime::copy_within_device(a.storage().ptr(), l_ptr, l_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), l_ptr, l_size, device)?;
 
     // Zero-initialize flag
     let zero_i32: [u8; 4] = [0; 4];
@@ -179,7 +179,7 @@ pub fn qr_decompose_internal(
     let workspace_ptr = workspace_guard.ptr();
 
     // Copy A to R (will be modified in place)
-    CudaRuntime::copy_within_device(a.storage().ptr(), r_ptr, r_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), r_ptr, r_size, device)?;
 
     let result = unsafe {
         kernels::launch_qr_decompose(

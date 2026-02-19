@@ -109,11 +109,11 @@ fn dispatch_multinomial_count_shader(
     let output = Tensor::<WgpuRuntime>::empty(&[n_samples, k], DType::F32, client.device());
 
     // Get buffers
-    let cdf_buf = get_buffer(cdf.storage().ptr())
-        .ok_or_else(|| Error::Internal("CDF buffer not found".to_string()))?;
-    let uniforms_buf = get_buffer(uniforms.storage().ptr())
+    let cdf_buf =
+        get_buffer(cdf.ptr()).ok_or_else(|| Error::Internal("CDF buffer not found".to_string()))?;
+    let uniforms_buf = get_buffer(uniforms.ptr())
         .ok_or_else(|| Error::Internal("Uniforms buffer not found".to_string()))?;
-    let output_buf = get_buffer(output.storage().ptr())
+    let output_buf = get_buffer(output.ptr())
         .ok_or_else(|| Error::Internal("Output buffer not found".to_string()))?;
 
     // Create params buffer

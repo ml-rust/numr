@@ -49,8 +49,8 @@ pub(super) fn rfft_impl(
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
 
-    let input_ptr = input_contig.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input_contig.ptr();
+    let output_ptr = output.ptr();
 
     match dtype {
         DType::F32 => {
@@ -199,8 +199,8 @@ pub(super) fn irfft_impl(
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
 
-    let input_ptr = input_contig.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input_contig.ptr();
+    let output_ptr = output.ptr();
 
     match dtype {
         DType::Complex64 => {

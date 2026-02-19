@@ -26,7 +26,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -51,7 +51,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -107,7 +107,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -186,17 +186,15 @@ impl RandomOps<CpuRuntime> for CpuClient {
         // Check the max value - if all values are <= 0, we cannot sample
         let max_prob: f64 = match dtype {
             DType::F32 => {
-                let data: &[f32] = unsafe {
-                    std::slice::from_raw_parts(probs.storage().ptr() as *const f32, probs.numel())
-                };
+                let data: &[f32] =
+                    unsafe { std::slice::from_raw_parts(probs.ptr() as *const f32, probs.numel()) };
                 data.iter()
                     .cloned()
                     .fold(f64::NEG_INFINITY, |a, b| a.max(b as f64))
             }
             DType::F64 => {
-                let data: &[f64] = unsafe {
-                    std::slice::from_raw_parts(probs.storage().ptr() as *const f64, probs.numel())
-                };
+                let data: &[f64] =
+                    unsafe { std::slice::from_raw_parts(probs.ptr() as *const f64, probs.numel()) };
                 data.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
             }
             _ => {
@@ -220,8 +218,8 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
-        let out_ptr = out.storage().ptr() as *mut i64;
-        let probs_ptr = probs.storage().ptr();
+        let out_ptr = out.ptr() as *mut i64;
+        let probs_ptr = probs.ptr();
 
         // Dispatch based on input dtype
         dispatch_dtype!(dtype, T => {
@@ -272,7 +270,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::bernoulli_kernel::<T>(out_ptr as *mut T, p, numel); }
         }, "bernoulli");
@@ -312,7 +310,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::beta_kernel::<T>(out_ptr as *mut T, alpha, beta, numel); }
         }, "beta");
@@ -352,7 +350,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::gamma_kernel::<T>(out_ptr as *mut T, shape_param, scale, numel); }
         }, "gamma");
@@ -383,7 +381,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::exponential_kernel::<T>(out_ptr as *mut T, rate, numel); }
         }, "exponential");
@@ -414,7 +412,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::poisson_kernel::<T>(out_ptr as *mut T, lambda, numel); }
         }, "poisson");
@@ -457,7 +455,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::binomial_kernel::<T>(out_ptr as *mut T, n, p, numel); }
         }, "binomial");
@@ -494,7 +492,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::laplace_kernel::<T>(out_ptr as *mut T, loc, scale, numel); }
         }, "laplace");
@@ -525,7 +523,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::chi_squared_kernel::<T>(out_ptr as *mut T, df, numel); }
         }, "chi_squared");
@@ -556,7 +554,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::student_t_kernel::<T>(out_ptr as *mut T, df, numel); }
         }, "student_t");
@@ -573,7 +571,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(&[n], DType::I64, &self.device);
-        let out_ptr = out.storage().ptr() as *mut i64;
+        let out_ptr = out.ptr() as *mut i64;
 
         unsafe {
             kernels::randperm_kernel(out_ptr, n);
@@ -617,7 +615,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         dispatch_dtype!(dtype, T => {
             unsafe { kernels::f_distribution_kernel::<T>(out_ptr as *mut T, df1, df2, numel); }
         }, "f_distribution");

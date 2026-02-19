@@ -45,9 +45,9 @@ impl NormalizationOps<CpuRuntime> for CpuClient {
         let weight_contig = ensure_contiguous(weight);
         let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
 
-        let input_ptr = input_contig.storage().ptr();
-        let weight_ptr = weight_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let input_ptr = input_contig.ptr();
+        let weight_ptr = weight_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -111,10 +111,10 @@ impl NormalizationOps<CpuRuntime> for CpuClient {
         let bias_contig = ensure_contiguous(bias);
         let out = Tensor::<CpuRuntime>::empty(input_shape, dtype, &self.device);
 
-        let input_ptr = input_contig.storage().ptr();
-        let weight_ptr = weight_contig.storage().ptr();
-        let bias_ptr = bias_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let input_ptr = input_contig.ptr();
+        let weight_ptr = weight_contig.ptr();
+        let bias_ptr = bias_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {

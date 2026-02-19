@@ -17,7 +17,7 @@ pub struct CooData<R: Runtime> {
     pub(crate) sorted: bool,
 }
 
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Create a new COO matrix from components
     ///
     /// # Arguments
@@ -122,7 +122,7 @@ impl<R: Runtime> CooData<R> {
         self.sorted = sorted;
     }
 }
-impl<R: Runtime> SparseStorage for CooData<R> {
+impl<R: Runtime<DType = DType>> SparseStorage for CooData<R> {
     fn format(&self) -> SparseFormat {
         SparseFormat::Coo
     }
@@ -148,7 +148,7 @@ impl<R: Runtime> SparseStorage for CooData<R> {
 }
 
 /// Create COO data from host arrays (CPU)
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Create COO matrix from host slices
     ///
     /// # Arguments

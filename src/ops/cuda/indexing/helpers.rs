@@ -112,10 +112,7 @@ impl BroadcastContext {
             self.needs_broadcast,
             "strides_ptr() called on non-broadcast context"
         );
-        self.strides_tensor
-            .as_ref()
-            .map(|t| t.storage().ptr())
-            .unwrap_or(0)
+        self.strides_tensor.as_ref().map(|t| t.ptr()).unwrap_or(0)
     }
 
     /// Get shape pointer.
@@ -130,9 +127,6 @@ impl BroadcastContext {
             self.needs_broadcast,
             "shape_ptr() called on non-broadcast context"
         );
-        self.shape_tensor
-            .as_ref()
-            .map(|t| t.storage().ptr())
-            .unwrap_or(0)
+        self.shape_tensor.as_ref().map(|t| t.ptr()).unwrap_or(0)
     }
 }

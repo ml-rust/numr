@@ -33,7 +33,7 @@ impl StatisticalOps<CpuRuntime> for CpuClient {
             // Reduce over all dimensions - return scalar variance
             let numel = a.numel();
             let a_contig = ensure_contiguous(a);
-            let a_ptr = a_contig.storage().ptr();
+            let a_ptr = a_contig.ptr();
 
             let variance = dispatch_dtype!(dtype, T => {
                 unsafe {
@@ -58,7 +58,7 @@ impl StatisticalOps<CpuRuntime> for CpuClient {
 
             let out_shape = if keepdim { vec![1; ndim] } else { vec![] };
             let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-            let out_ptr = out.storage().ptr();
+            let out_ptr = out.ptr();
 
             dispatch_dtype!(dtype, T => {
                 unsafe {
@@ -85,8 +85,8 @@ impl StatisticalOps<CpuRuntime> for CpuClient {
             let a_contig = ensure_contiguous(a);
             let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
 
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
+            let a_ptr = a_contig.ptr();
+            let out_ptr = out.ptr();
 
             dispatch_dtype!(dtype, T => {
                 unsafe {

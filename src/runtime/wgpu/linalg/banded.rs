@@ -96,9 +96,9 @@ pub fn solve_banded_impl(
     let ab_contig = ab.contiguous();
     let b_contig = b.contiguous();
 
-    let ab_buffer = get_buffer(ab_contig.storage().ptr())
+    let ab_buffer = get_buffer(ab_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get ab buffer".to_string()))?;
-    let b_buffer = get_buffer(b_contig.storage().ptr())
+    let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     // Allocate output buffer for all RHS columns stored contiguously

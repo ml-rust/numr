@@ -1,11 +1,12 @@
 //! Scalar operations for sparse tensors
 
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::ScalarOps;
 use crate::runtime::Runtime;
 use crate::sparse::SparseTensor;
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     /// Scalar multiplication: C = A * scalar
     ///
     /// Multiplies all non-zero values by a scalar constant.

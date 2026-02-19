@@ -1,6 +1,7 @@
 //! CPU implementation of activation operations.
 
 use crate::error::{Error, Result};
+use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl};
 use crate::ops::{ActivationOps, activation::normalize_softmax_dim};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
@@ -68,8 +69,8 @@ impl ActivationOps<CpuRuntime> for CpuClient {
 
         if dim_idx == ndim - 1 {
             // Simple case: softmax over last dimension
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
+            let a_ptr = a_contig.ptr();
+            let out_ptr = out.ptr();
 
             dispatch_dtype!(dtype, T => {
                 unsafe {
@@ -84,8 +85,8 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         } else {
             // General case: softmax over non-last dimension
             // Pre-allocate buffer outside loops to avoid repeated allocations
-            let a_ptr = a_contig.storage().ptr();
-            let out_ptr = out.storage().ptr();
+            let a_ptr = a_contig.ptr();
+            let out_ptr = out.ptr();
 
             dispatch_dtype!(dtype, T => {
                 unsafe {
@@ -101,6 +102,127 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         }
 
         Ok(out)
+    }
+
+    fn log_softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
+        log_softmax_impl(self, a, dim)
+    }
+
+    fn dropout(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        p: f64,
+        training: bool,
+    ) -> Result<Tensor<CpuRuntime>> {
+        dropout_impl(self, a, p, training)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ops::ActivationOps;
+    use crate::runtime::cpu::CpuDevice;
+
+    #[test]
+    fn test_log_softmax_basic() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let result = client.log_softmax(&input, -1).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // log_softmax should sum to something reasonable
+        // exp(log_softmax) should sum to 1
+        let exp_sum: f32 = data.iter().map(|x| x.exp()).sum();
+        assert!((exp_sum - 1.0).abs() < 1e-5);
+
+        // Values should be negative (log of probability)
+        for &v in &data {
+            assert!(v < 0.0);
+        }
+    }
+
+    #[test]
+    fn test_log_softmax_2d() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device);
+        let result = client.log_softmax(&input, -1).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // Each row should independently sum (in exp space) to 1
+        let row1_sum: f32 = data[0..3].iter().map(|x| x.exp()).sum();
+        let row2_sum: f32 = data[3..6].iter().map(|x| x.exp()).sum();
+        assert!((row1_sum - 1.0).abs() < 1e-5);
+        assert!((row2_sum - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_dropout_training() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input = Tensor::<CpuRuntime>::ones(&[1000], crate::dtype::DType::F32, &device);
+        let result = client.dropout(&input, 0.5, true).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // Some values should be 0 (dropped), others should be 2.0 (scaled by 1/(1-0.5))
+        let zeros = data.iter().filter(|&&v| v == 0.0).count();
+        let scaled = data.iter().filter(|&&v| (v - 2.0).abs() < 1e-5).count();
+
+        // With p=0.5, roughly half should be dropped (allow wide margin for randomness)
+        assert!(zeros > 200, "too few zeros: {zeros}");
+        assert!(zeros < 800, "too many zeros: {zeros}");
+        assert_eq!(zeros + scaled, 1000);
+    }
+
+    #[test]
+    fn test_dropout_inference() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let result = client.dropout(&input, 0.5, false).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // During inference, dropout is identity
+        assert!((data[0] - 1.0).abs() < 1e-6);
+        assert!((data[1] - 2.0).abs() < 1e-6);
+        assert!((data[2] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_dropout_p_zero() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let result = client.dropout(&input, 0.0, true).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // p=0 means no dropout
+        assert!((data[0] - 1.0).abs() < 1e-6);
+        assert!((data[1] - 2.0).abs() < 1e-6);
+        assert!((data[2] - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_dropout_p_one() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device);
+        let result = client.dropout(&input, 1.0, true).unwrap();
+        let data: Vec<f32> = result.to_vec();
+
+        // p=1 means all dropped
+        for &v in &data {
+            assert!((v).abs() < 1e-6);
+        }
     }
 }
 
