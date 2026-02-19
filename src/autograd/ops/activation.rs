@@ -1,19 +1,16 @@
 //! Backward implementations for activation functions
 //!
-//! Implements gradient computation for relu, sigmoid, and softmax.
+//! Implements gradient computation for relu, sigmoid, silu, softmax, and log_softmax.
 
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
 use crate::autograd::var_ops::{var_mul, var_sub, var_sum};
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps, UnaryOps};
+use crate::ops::{ActivationOps, BinaryOps, CompareOps, ReduceOps, ScalarOps, TensorOps, UnaryOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
-
-#[cfg(test)]
-use crate::ops::ActivationOps;
 
 // ============================================================================
 // ReluBackward
@@ -196,6 +193,96 @@ where
 
     fn name(&self) -> &'static str {
         "SigmoidBackward"
+    }
+}
+
+// ============================================================================
+// SiluBackward
+// ============================================================================
+
+/// Backward for SiLU (Swish): z = a * sigmoid(a)
+///
+/// Gradient: dL/da = dL/dz * (sigmoid(a) + a * sigmoid(a) * (1 - sigmoid(a)))
+///         = dL/dz * (sigmoid(a) * (1 + a * (1 - sigmoid(a))))
+///         = dL/dz * (z/a * (1 + a - z))  [numerically: use saved input + output]
+pub struct SiluBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+    saved_output: Tensor<R>, // silu(a)
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> SiluBackward<R> {
+    /// Create a new SiluBackward
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        output: Tensor<R>,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+            saved_output: output,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime<DType = DType>> GradFn<R> for SiluBackward<R>
+where
+    R::Client: TensorOps<R> + ActivationOps<R> + ScalarOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // silu'(x) = sigmoid(x) + x * sigmoid(x) * (1 - sigmoid(x))
+        //          = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+        //          = sigmoid(x) * (1 + x - x*sigmoid(x))
+        //          = sigmoid(x) * (1 + x - silu(x))
+        let sigmoid = client.sigmoid(&self.saved_input)?;
+        let one_plus_x = client.add_scalar(&self.saved_input, 1.0)?;
+        let one_plus_x_minus_silu = client.sub(&one_plus_x, &self.saved_output)?;
+        let deriv = client.mul(&sigmoid, &one_plus_x_minus_silu)?;
+        let grad = client.mul(grad_output, &deriv)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ActivationOps<R> + ScalarOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        let sigmoid = client.sigmoid(&self.saved_input)?;
+        let one_plus_x = client.add_scalar(&self.saved_input, 1.0)?;
+        let one_plus_x_minus_silu = client.sub(&one_plus_x, &self.saved_output)?;
+        let deriv = client.mul(&sigmoid, &one_plus_x_minus_silu)?;
+
+        let deriv_var = Var::new(deriv, false);
+        let grad = var_mul(grad_output, &deriv_var, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        // Both saved_input and saved_output are stored internally for gradient computation.
+        // The trait returns a slice, so we expose only the input here; saved_output is
+        // accessed directly during backward() and backward_var().
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "SiluBackward"
     }
 }
 
@@ -465,6 +552,109 @@ mod tests {
 
         let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
         assert!((grad_data[0] - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_silu_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // silu(0) = 0 * sigmoid(0) = 0 * 0.5 = 0
+        // silu'(0) = sigmoid(0) * (1 + 0 * (1 - sigmoid(0))) = 0.5 * 1 = 0.5
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32], &[1], &device);
+        let output = client.silu(&input).unwrap();
+
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = SiluBackward::<CpuRuntime>::new(input.id(), input.clone(), output, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!((grad_data[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_silu_backward_nonzero() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // silu(1) = 1 * sigmoid(1) ≈ 0.7311
+        // silu'(1) = sigmoid(1) * (1 + 1 * (1 - sigmoid(1)))
+        //          ≈ 0.7311 * (1 + 1 * 0.2689) ≈ 0.7311 * 1.2689 ≈ 0.9277
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32], &[1], &device);
+        let output = client.silu(&input).unwrap();
+
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = SiluBackward::<CpuRuntime>::new(input.id(), input.clone(), output, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        let sigmoid_1 = 1.0f32 / (1.0 + (-1.0f32).exp());
+        let expected = sigmoid_1 * (1.0 + 1.0 * (1.0 - sigmoid_1));
+        assert!((grad_data[0] - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_silu_backward_2d() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Shape [2, 3] — verifies element-wise gradient correctness on batched tensors.
+        // silu'(x) = sigmoid(x) * (1 + x - silu(x))
+        let data = [-1.0f32, 0.0, 1.0, 2.0, -2.0, 0.5];
+        let input = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &device);
+        let output = client.silu(&input).unwrap();
+        let grad_out = Tensor::<CpuRuntime>::ones(&[2, 3], DType::F32, &device);
+
+        let backward =
+            SiluBackward::<CpuRuntime>::new(input.id(), input.clone(), output.clone(), None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        let out_data: Vec<f32> = output.to_vec();
+
+        for (i, &x) in data.iter().enumerate() {
+            let sigmoid_x = 1.0f32 / (1.0 + (-x).exp());
+            let expected = sigmoid_x * (1.0 + x - out_data[i]);
+            assert!(
+                (grad_data[i] - expected).abs() < 1e-5,
+                "mismatch at index {i}: got {}, expected {expected}",
+                grad_data[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_silu_backward_negative_gradient() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Verify chain rule: grad_output scales the derivative correctly.
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, -1.0], &[2], &device);
+        let output = client.silu(&input).unwrap();
+
+        // grad_output = [2.0, 3.0] — non-unit upstream gradient
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0], &[2], &device);
+
+        let backward =
+            SiluBackward::<CpuRuntime>::new(input.id(), input.clone(), output.clone(), None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        let out_data: Vec<f32> = output.to_vec();
+        let upstream = [2.0f32, 3.0];
+
+        for (i, (&x, &up)) in [1.0f32, -1.0].iter().zip(upstream.iter()).enumerate() {
+            let sigmoid_x = 1.0f32 / (1.0 + (-x).exp());
+            let local_deriv = sigmoid_x * (1.0 + x - out_data[i]);
+            let expected = up * local_deriv;
+            assert!(
+                (grad_data[i] - expected).abs() < 1e-5,
+                "mismatch at index {i}: got {}, expected {expected}",
+                grad_data[i]
+            );
+        }
     }
 
     #[test]

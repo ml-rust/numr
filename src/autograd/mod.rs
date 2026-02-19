@@ -131,9 +131,9 @@ pub use var_ops::{
     var_abs, var_add, var_add_scalar, var_cholesky, var_clamp, var_cos, var_cumprod, var_cumsum,
     var_det, var_div, var_div_scalar, var_exp, var_gather, var_inverse, var_layer_norm, var_log,
     var_log_softmax, var_matmul, var_max, var_mean, var_min, var_mul, var_mul_scalar, var_neg,
-    var_pow, var_pow_scalar, var_recip, var_relu, var_rms_norm, var_sigmoid, var_sin, var_softmax,
-    var_solve, var_sqrt, var_square, var_std, var_sub, var_sub_scalar, var_sum, var_tan, var_tanh,
-    var_trace, var_var,
+    var_pow, var_pow_scalar, var_recip, var_relu, var_rms_norm, var_sigmoid, var_silu, var_sin,
+    var_softmax, var_solve, var_sqrt, var_square, var_std, var_sub, var_sub_scalar, var_sum,
+    var_tan, var_tanh, var_trace, var_var,
 };
 
 // Shape operation exports (re-exported via autograd::ops::*)

@@ -42,6 +42,34 @@ where
     }
 }
 
+/// SiLU (Swish) activation: `z = a * sigmoid(a)`
+///
+/// A smooth, non-monotonic activation function popular in modern architectures
+/// (e.g., SwiGLU in LLaMA). Often preferred over ReLU for its non-zero gradient
+/// at negative inputs.
+///
+/// Gradient: `dz/da = sigmoid(a) * (1 + a - silu(a))`
+pub fn var_silu<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+where
+    R: Runtime<DType = DType>,
+    C: RuntimeClient<R> + TensorOps<R> + ActivationOps<R> + ScalarOps<R>,
+    R::Client: TensorOps<R> + ActivationOps<R> + ScalarOps<R>,
+{
+    let output = client.silu(a.tensor())?;
+
+    if a.requires_grad() {
+        let grad_fn = SiluBackward::<R>::new(
+            a.id(),
+            a.tensor().clone(),
+            output.clone(),
+            a.grad_fn().cloned(),
+        );
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 /// Softmax along dimension: z_i = exp(a_i) / sum(exp(a))
 pub fn var_softmax<R, C>(a: &Var<R>, dim: isize, client: &C) -> Result<Var<R>>
 where
