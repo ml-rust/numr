@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::ops::ActivationOps;
-use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl};
+use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
@@ -41,6 +41,10 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
 
     fn elu(&self, a: &Tensor<WgpuRuntime>, alpha: f64) -> Result<Tensor<WgpuRuntime>> {
         native_parametric_activation(self, "elu", a, alpha)
+    }
+
+    fn softplus(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        softplus_impl(self, a)
     }
 
     fn log_softmax(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {

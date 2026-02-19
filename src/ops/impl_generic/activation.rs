@@ -4,10 +4,41 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::activation::normalize_softmax_dim;
 use crate::ops::traits::{
-    BinaryOps, CompareOps, ConditionalOps, CumulativeOps, RandomOps, ScalarOps,
+    ActivationOps, BinaryOps, CompareOps, ConditionalOps, CumulativeOps, RandomOps, ScalarOps,
+    UnaryOps,
 };
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::Tensor;
+
+/// Generic softplus implementation: softplus(x) = log(1 + exp(x))
+///
+/// Uses the numerically stable form: `relu(x) + log(1 + exp(-|x|))`
+///
+/// The naive formula `log(1 + exp(x))` overflows to `Inf` for large positive x
+/// (e.g., x = 100: `exp(100) = Inf`). The stable decomposition keeps all
+/// intermediate values bounded:
+/// - For large x > 0: `relu(x) ≈ x`, `log(1 + exp(-x)) ≈ 0` → result ≈ x  ✓
+/// - For large x < 0: `relu(x) = 0`, `log(1 + exp(-|x|)) ≈ exp(x)` → result ≈ exp(x)  ✓
+/// - At x = 0: `0 + log(2) ≈ 0.693`  ✓
+///
+/// All backends delegate here — guarantees identical numerical behaviour.
+pub fn softplus_impl<R, C>(client: &C, a: &Tensor<R>) -> Result<Tensor<R>>
+where
+    R: Runtime,
+    C: ActivationOps<R> + UnaryOps<R> + ScalarOps<R> + BinaryOps<R>,
+{
+    // relu(x) = max(0, x)
+    let relu_x = client.relu(a)?;
+
+    // log(1 + exp(-|x|))  — all values bounded: exp(-|x|) ∈ (0, 1]
+    let abs_x = client.abs(a)?;
+    let neg_abs = client.neg(&abs_x)?;
+    let exp_neg_abs = client.exp(&neg_abs)?;
+    let one_plus = client.add_scalar(&exp_neg_abs, 1.0)?;
+    let log_term = client.log(&one_plus)?;
+
+    client.add(&relu_x, &log_term)
+}
 
 /// Generic log_softmax implementation: log_softmax(x, dim) = x - logsumexp(x, dim, keepdim=true)
 ///

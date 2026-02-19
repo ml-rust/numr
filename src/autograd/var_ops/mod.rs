@@ -39,7 +39,7 @@ mod unary;
 mod utility;
 
 // Re-export all public functions
-pub use activation::{var_log_softmax, var_relu, var_sigmoid, var_silu, var_softmax};
+pub use activation::{var_log_softmax, var_relu, var_sigmoid, var_silu, var_softmax, var_softplus};
 pub use arithmetic::{var_add, var_div, var_mul, var_pow, var_sub};
 pub use cumulative::{var_cumprod, var_cumsum};
 pub use indexing::var_gather;

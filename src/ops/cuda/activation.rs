@@ -2,7 +2,7 @@
 use crate::error::{Error, Result};
 use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
-use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl};
+use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
 use crate::runtime::cuda::kernels::{
     launch_elu, launch_gelu, launch_leaky_relu, launch_relu, launch_sigmoid, launch_silu,
     launch_softmax, launch_softmax_dim,
@@ -186,6 +186,10 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn softplus(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        softplus_impl(self, a)
     }
 
     fn log_softmax(&self, a: &Tensor<CudaRuntime>, dim: isize) -> Result<Tensor<CudaRuntime>> {

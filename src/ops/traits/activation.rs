@@ -84,6 +84,19 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Softplus: `log(1 + exp(a))`
+    ///
+    /// A smooth approximation to ReLU that is always positive and differentiable.
+    /// Used in Mamba2 for dt (step size) processing via `softplus(dt_proj(x)) + dt_bias`.
+    ///
+    /// Gradient: `sigmoid(a)`
+    fn softplus(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::softplus",
+        })
+    }
+
     /// Dropout: randomly zero elements with probability `p` during training.
     ///
     /// When `training` is true, each element is independently zeroed with probability `p`,

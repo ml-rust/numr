@@ -1,6 +1,6 @@
 //! Backward implementations for activation functions
 //!
-//! Implements gradient computation for relu, sigmoid, silu, softmax, and log_softmax.
+//! Implements gradient computation for relu, sigmoid, silu, softplus, softmax, and log_softmax.
 
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
@@ -491,6 +491,85 @@ where
     }
 }
 
+// ============================================================================
+// SoftplusBackward
+// ============================================================================
+
+/// Backward for softplus: `z = log(1 + exp(a))`
+///
+/// Gradient: `dL/da = dL/dz * sigmoid(a)`
+///
+/// `d/da log(1 + exp(a)) = exp(a) / (1 + exp(a)) = sigmoid(a)`
+///
+/// The backward is numerically stable since `sigmoid` is bounded in `(0, 1)`.
+/// The forward must be computed via the stable form `relu(a) + log(1 + exp(-|a|))`
+/// (see `softplus_impl`) — never the naive `log(1 + exp(a))` which overflows for
+/// large positive inputs.
+pub struct SoftplusBackward<R: Runtime> {
+    input_id: TensorId,
+    saved_input: Tensor<R>,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> SoftplusBackward<R> {
+    /// Create a new SoftplusBackward
+    pub fn new(
+        input_id: TensorId,
+        input: Tensor<R>,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            saved_input: input,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime<DType = DType>> GradFn<R> for SoftplusBackward<R>
+where
+    R::Client: TensorOps<R> + ActivationOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // softplus'(x) = sigmoid(x)
+        let sigmoid = client.sigmoid(&self.saved_input)?;
+        let grad = client.mul(grad_output, &sigmoid)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>>
+    where
+        R::Client: RuntimeClient<R> + TensorOps<R> + ActivationOps<R>,
+    {
+        let client = R::default_client(grad_output.tensor().device());
+
+        let sigmoid = client.sigmoid(&self.saved_input)?;
+        let sigmoid_var = Var::new(sigmoid, false);
+        let grad = var_mul(grad_output, &sigmoid_var, &client)?;
+
+        Ok(vec![Some(grad)])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn saved_tensors(&self) -> &[Tensor<R>] {
+        std::slice::from_ref(&self.saved_input)
+    }
+
+    fn name(&self) -> &'static str {
+        "SoftplusBackward"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -649,6 +728,144 @@ mod tests {
             let sigmoid_x = 1.0f32 / (1.0 + (-x).exp());
             let local_deriv = sigmoid_x * (1.0 + x - out_data[i]);
             let expected = up * local_deriv;
+            assert!(
+                (grad_data[i] - expected).abs() < 1e-5,
+                "mismatch at index {i}: got {}, expected {expected}",
+                grad_data[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_softplus_backward() {
+        let device = CpuDevice::new();
+
+        // softplus(0) = log(1 + exp(0)) = log(2) ≈ 0.6931
+        // softplus'(0) = sigmoid(0) = 0.5
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32], &[1], &device);
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!((grad_data[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_softplus_backward_nonzero() {
+        let device = CpuDevice::new();
+
+        // softplus'(x) = sigmoid(x)
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, -1.0, 2.0], &[3], &device);
+        let grad_out = Tensor::<CpuRuntime>::ones(&[3], DType::F32, &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        for (i, &x) in [1.0f32, -1.0, 2.0].iter().enumerate() {
+            let expected = 1.0 / (1.0 + (-x).exp());
+            assert!(
+                (grad_data[i] - expected).abs() < 1e-5,
+                "mismatch at {i}: got {}, expected {expected}",
+                grad_data[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_softplus_backward_large_positive() {
+        let device = CpuDevice::new();
+
+        // For large positive x, sigmoid(x) → 1.0; must not produce NaN.
+        // This exercises the numerical stability of the stable softplus formula.
+        let input = Tensor::<CpuRuntime>::from_slice(&[100.0f32], &[1], &device);
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!(
+            !grad_data[0].is_nan(),
+            "gradient must not be NaN for large positive input"
+        );
+        assert!(
+            !grad_data[0].is_infinite(),
+            "gradient must not be Inf for large positive input"
+        );
+        // sigmoid(100) ≈ 1.0
+        assert!((grad_data[0] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softplus_backward_large_negative() {
+        let device = CpuDevice::new();
+
+        // For large negative x, sigmoid(x) → 0.0; must not produce NaN.
+        let input = Tensor::<CpuRuntime>::from_slice(&[-100.0f32], &[1], &device);
+        let grad_out = Tensor::<CpuRuntime>::ones(&[1], DType::F32, &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!(
+            !grad_data[0].is_nan(),
+            "gradient must not be NaN for large negative input"
+        );
+        assert!(
+            !grad_data[0].is_infinite(),
+            "gradient must not be Inf for large negative input"
+        );
+        // sigmoid(-100) ≈ 0.0
+        assert!(grad_data[0].abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_softplus_backward_2d() {
+        let device = CpuDevice::new();
+
+        // Shape [2, 3] — verifies element-wise gradient on batched tensors.
+        let data = [-2.0f32, -1.0, 0.0, 1.0, 2.0, 100.0];
+        let input = Tensor::<CpuRuntime>::from_slice(&data, &[2, 3], &device);
+        let grad_out = Tensor::<CpuRuntime>::ones(&[2, 3], DType::F32, &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        for (i, &x) in data.iter().enumerate() {
+            let expected = 1.0f32 / (1.0 + (-x).exp());
+            assert!(
+                !grad_data[i].is_nan(),
+                "gradient NaN at index {i} for x={x}"
+            );
+            assert!(
+                (grad_data[i] - expected).abs() < 1e-4,
+                "mismatch at index {i} for x={x}: got {}, expected {expected}",
+                grad_data[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_softplus_backward_non_unit_gradient() {
+        let device = CpuDevice::new();
+
+        // Verify chain rule: upstream gradient scales local derivative.
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32, 1.0], &[2], &device);
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0], &[2], &device);
+
+        let backward = SoftplusBackward::<CpuRuntime>::new(input.id(), input, None);
+        let grads = backward.backward(&grad_out).unwrap();
+
+        let grad_data: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        let upstream = [2.0f32, 3.0];
+        for (i, (&x, &up)) in [0.0f32, 1.0].iter().zip(upstream.iter()).enumerate() {
+            let sigmoid_x = 1.0f32 / (1.0 + (-x).exp());
+            let expected = up * sigmoid_x;
             assert!(
                 (grad_data[i] - expected).abs() < 1e-5,
                 "mismatch at index {i}: got {}, expected {expected}",

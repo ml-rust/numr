@@ -70,6 +70,31 @@ where
     }
 }
 
+/// Softplus: `z = log(1 + exp(a))`
+///
+/// A smooth, always-positive approximation to ReLU. Used in Mamba2 for dt
+/// (step size) processing via `softplus(dt_proj(x)) + dt_bias`.
+///
+/// Computed via the numerically stable form `relu(a) + log(1 + exp(-|a|))`
+/// to avoid overflow for large positive inputs.
+///
+/// Gradient: `dz/da = sigmoid(a)`
+pub fn var_softplus<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
+where
+    R: Runtime<DType = DType>,
+    C: RuntimeClient<R> + ActivationOps<R>,
+    R::Client: TensorOps<R> + ActivationOps<R>,
+{
+    let output = client.softplus(a.tensor())?;
+
+    if a.requires_grad() {
+        let grad_fn = SoftplusBackward::<R>::new(a.id(), a.tensor().clone(), a.grad_fn().cloned());
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 /// Softmax along dimension: z_i = exp(a_i) / sum(exp(a))
 pub fn var_softmax<R, C>(a: &Var<R>, dim: isize, client: &C) -> Result<Var<R>>
 where

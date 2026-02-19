@@ -1,7 +1,7 @@
 //! CPU implementation of activation operations.
 
 use crate::error::{Error, Result};
-use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl};
+use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
 use crate::ops::{ActivationOps, activation::normalize_softmax_dim};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
@@ -102,6 +102,10 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         }
 
         Ok(out)
+    }
+
+    fn softplus(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        softplus_impl(self, a)
     }
 
     fn log_softmax(&self, a: &Tensor<CpuRuntime>, dim: isize) -> Result<Tensor<CpuRuntime>> {
