@@ -18,6 +18,7 @@ features = ["f16", "sparse"]
 default = ["cpu", "rayon"]
 cpu = []
 cuda = ["dep:cudarc"]
+nccl = ["cuda", "cudarc?/nccl"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
 f16 = [

@@ -40,6 +40,8 @@ pub(crate) use allocator::AllocGuard;
 pub(crate) use allocator::DefaultAllocator;
 pub use allocator::{AllocationStats, Allocator, TrackingAllocator};
 pub use communicator::{Communicator, NoOpCommunicator, ReduceOp};
+#[cfg(feature = "nccl")]
+pub use cuda::NcclCommunicator;
 pub use graph::{Graph, NoOpGraph};
 pub(crate) use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
