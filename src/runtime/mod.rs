@@ -17,6 +17,8 @@ mod allocator;
 mod communicator;
 mod graph;
 pub(crate) mod helpers;
+#[cfg(feature = "nexar")]
+mod nexar_communicator;
 pub(crate) mod shape_ops;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse_utils;
@@ -47,6 +49,8 @@ pub(crate) use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
     validate_binary_dtypes, validate_eye,
 };
+#[cfg(feature = "nexar")]
+pub use nexar_communicator::NexarNetCommunicator;
 pub use traits::{Device, Runtime, RuntimeClient};
 
 // ============================================================================
