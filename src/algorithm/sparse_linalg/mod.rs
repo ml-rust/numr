@@ -53,6 +53,7 @@ pub mod levels;
 pub mod lu;
 pub mod matching;
 pub mod ordering;
+pub mod qr;
 pub mod symbolic;
 pub mod traits;
 pub mod types;
@@ -93,3 +94,18 @@ pub use ordering::{ColamdOptions, ColamdStats, SparseOrdering, colamd};
 
 // Re-export matching algorithms
 pub use matching::{BipartiteMatching, MatchingResult, hopcroft_karp, maximum_transversal};
+
+// Re-export sparse QR types and functions
+pub use qr::{
+    QrFactors, QrMetrics, QrOptions, QrOrdering, QrSymbolic, sparse_qr_cpu,
+    sparse_qr_cpu_with_metrics, sparse_qr_least_squares_cpu, sparse_qr_simple_cpu,
+    sparse_qr_solve_cpu, sparse_qr_symbolic,
+};
+
+// Re-export CUDA QR implementations
+#[cfg(feature = "cuda")]
+pub use qr::{sparse_qr_cuda, sparse_qr_simple_cuda, sparse_qr_solve_cuda};
+
+// Re-export WebGPU QR implementations
+#[cfg(feature = "wgpu")]
+pub use qr::{sparse_qr_simple_wgpu, sparse_qr_solve_wgpu, sparse_qr_wgpu};
