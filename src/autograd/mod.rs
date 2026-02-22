@@ -122,7 +122,7 @@ pub mod ops;
 
 // Reverse-mode exports
 pub use crate::tensor::id::TensorId;
-pub use backward::{backward, backward_with_graph};
+pub use backward::{BackwardHook, NoOpHook, backward, backward_with_graph, backward_with_hooks};
 pub use grad_fn::GradFn;
 pub use grad_store::GradStore;
 pub use var::Var;

@@ -23,6 +23,29 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 // ============================================================================
+// Backward Hooks
+// ============================================================================
+
+/// Hook called during backward when a leaf variable's gradient is fully accumulated.
+///
+/// This enables overlapping gradient communication with backward computation
+/// in distributed training scenarios (e.g., bucketed allreduce).
+pub trait BackwardHook<R: Runtime>: Send {
+    /// Called when a leaf variable's gradient is fully accumulated.
+    ///
+    /// At the point this is called, the gradient for `id` in the grad store
+    /// is complete — all upstream contributions have been accumulated.
+    fn on_leaf_grad_ready(&mut self, id: TensorId, grad: &Tensor<R>);
+}
+
+/// No-op backward hook for use when no hook behavior is needed.
+pub struct NoOpHook;
+
+impl<R: Runtime> BackwardHook<R> for NoOpHook {
+    fn on_leaf_grad_ready(&mut self, _id: TensorId, _grad: &Tensor<R>) {}
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -97,7 +120,40 @@ where
     R: Runtime<DType = DType>,
     C: RuntimeClient<R> + TensorOps<R>,
 {
-    validate_loss(loss, "backward")?;
+    backward_with_hooks(loss, client, &mut NoOpHook)
+}
+
+/// Compute gradients with hooks that fire when leaf gradients are ready.
+///
+/// Identical to [`backward`], but calls `hooks.on_leaf_grad_ready(id, grad)`
+/// after a leaf variable's gradient is fully accumulated. This enables
+/// overlapping gradient communication with backward computation (e.g.,
+/// bucketed allreduce in distributed training).
+///
+/// A leaf variable is one with no `grad_fn` (i.e., a model parameter or
+/// input created with `requires_grad = true`). By the time the hook fires,
+/// all upstream contributions to that leaf's gradient have been accumulated.
+///
+/// # Arguments
+///
+/// * `loss` - The scalar loss tensor to differentiate
+/// * `client` - The runtime client for tensor operations
+/// * `hooks` - Hook implementation called when each leaf gradient is ready
+///
+/// # Returns
+///
+/// A `GradStore` containing gradients for all tensors in the graph.
+pub fn backward_with_hooks<R, C, H>(
+    loss: &Var<R>,
+    client: &C,
+    hooks: &mut H,
+) -> Result<GradStore<R>>
+where
+    R: Runtime<DType = DType>,
+    C: RuntimeClient<R> + TensorOps<R>,
+    H: BackwardHook<R>,
+{
+    validate_loss(loss, "backward_with_hooks")?;
 
     // Initialize gradient store with dL/dL = 1
     let mut grad_store = GradStore::new();
@@ -130,6 +186,9 @@ where
                     })?;
                 }
             }
+        } else {
+            // Leaf node (no grad_fn) with a gradient — notify hook
+            hooks.on_leaf_grad_ready(var_id, &grad_output);
         }
     }
 
@@ -279,6 +338,97 @@ mod tests {
     use super::*;
     use crate::autograd::{var_mul, var_sum};
     use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// Test hook that records leaf gradient notifications
+    struct RecordingHook {
+        leaf_ids: Rc<RefCell<Vec<TensorId>>>,
+    }
+
+    impl RecordingHook {
+        fn new() -> (Self, Rc<RefCell<Vec<TensorId>>>) {
+            let ids = Rc::new(RefCell::new(Vec::new()));
+            (
+                Self {
+                    leaf_ids: ids.clone(),
+                },
+                ids,
+            )
+        }
+    }
+
+    // RecordingHook is not Send (due to Rc), so we wrap for single-threaded tests
+    unsafe impl Send for RecordingHook {}
+
+    impl BackwardHook<CpuRuntime> for RecordingHook {
+        fn on_leaf_grad_ready(&mut self, id: TensorId, _grad: &Tensor<CpuRuntime>) {
+            self.leaf_ids.borrow_mut().push(id);
+        }
+    }
+
+    #[test]
+    fn test_backward_with_hooks_matches_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device),
+            true,
+        );
+        let y = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[1], &device),
+            true,
+        );
+
+        // z = x * y
+        let z1 = var_mul(&x, &y, &client).unwrap();
+        let z2 = var_mul(&x, &y, &client).unwrap();
+
+        let grads1 = backward(&z1, &client).unwrap();
+
+        let (mut hook, leaf_ids) = RecordingHook::new();
+        let grads2 = backward_with_hooks(&z2, &client, &mut hook).unwrap();
+
+        // Gradients should match
+        let gx1: Vec<f32> = grads1.get(x.id()).unwrap().to_vec();
+        let gx2: Vec<f32> = grads2.get(x.id()).unwrap().to_vec();
+        assert!((gx1[0] - gx2[0]).abs() < 1e-6);
+
+        let gy1: Vec<f32> = grads1.get(y.id()).unwrap().to_vec();
+        let gy2: Vec<f32> = grads2.get(y.id()).unwrap().to_vec();
+        assert!((gy1[0] - gy2[0]).abs() < 1e-6);
+
+        // Hook should have been called for both leaf variables
+        let ids = leaf_ids.borrow();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&x.id()));
+        assert!(ids.contains(&y.id()));
+    }
+
+    #[test]
+    fn test_backward_with_hooks_no_hook_for_non_leaf() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0], &[2], &device),
+            true,
+        );
+
+        // y = sum(x * x) — intermediate x*x is NOT a leaf
+        let x_sq = var_mul(&x, &x, &client).unwrap();
+        let loss = var_sum(&x_sq, &[0], false, &client).unwrap();
+
+        let (mut hook, leaf_ids) = RecordingHook::new();
+        let _grads = backward_with_hooks(&loss, &client, &mut hook).unwrap();
+
+        // Only x is a leaf, not x_sq or loss
+        let ids = leaf_ids.borrow();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains(&x.id()));
+    }
 
     #[test]
     fn test_backward_requires_scalar() {
