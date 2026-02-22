@@ -282,6 +282,10 @@ impl RuntimeClient<CudaRuntime> for CudaClient {
     fn allocator(&self) -> &CudaAllocator {
         &self.allocator
     }
+
+    fn compute_stream_handle(&self) -> Option<u64> {
+        Some(self.stream.cu_stream() as u64)
+    }
 }
 
 // ============================================================================

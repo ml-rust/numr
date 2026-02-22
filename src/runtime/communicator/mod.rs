@@ -16,4 +16,4 @@ pub use group::{CommunicatorGroup, ParallelDim};
 #[cfg(feature = "distributed-gpu")]
 pub use hierarchical::HierarchicalCommunicator;
 pub use noop::NoOpCommunicator;
-pub use traits::{Communicator, ReduceOp};
+pub use traits::{Communicator, ReduceOp, StreamSyncOps};

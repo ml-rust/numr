@@ -11,7 +11,7 @@ use cudarc::nccl::{self, result as nccl_result, sys as nccl_sys};
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::communicator::{Communicator, ReduceOp};
+use crate::runtime::communicator::{Communicator, ReduceOp, StreamSyncOps};
 
 /// NCCL communicator wrapping a single `cudarc::nccl::Comm` (one per rank).
 pub struct NcclCommunicator {
@@ -244,6 +244,10 @@ impl Communicator for NcclCommunicator {
         Ok(())
     }
 
+    fn as_stream_sync(&self) -> Option<&dyn StreamSyncOps> {
+        Some(self)
+    }
+
     fn barrier(&self) -> Result<()> {
         // NCCL has no explicit barrier. Sync the stream first, then do a
         // zero-byte all_reduce as a collective synchronization point.
@@ -261,6 +265,102 @@ impl Communicator for NcclCommunicator {
             .map_err(nccl_err)?;
         }
         self.sync()
+    }
+}
+
+impl StreamSyncOps for NcclCommunicator {
+    fn create_event(&self) -> Result<u64> {
+        use cudarc::driver::sys::{CUevent_flags, cuEventCreate};
+        let mut event = std::ptr::null_mut();
+        let result =
+            unsafe { cuEventCreate(&mut event, CUevent_flags::CU_EVENT_DISABLE_TIMING as u32) };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!("cuEventCreate failed: {result:?}")));
+        }
+        Ok(event as u64)
+    }
+
+    fn destroy_event(&self, event: u64) -> Result<()> {
+        use cudarc::driver::sys::cuEventDestroy_v2;
+        let result = unsafe { cuEventDestroy_v2(event as cudarc::driver::sys::CUevent) };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!("cuEventDestroy failed: {result:?}")));
+        }
+        Ok(())
+    }
+
+    fn record_on_comm_stream(&self, event: u64) -> Result<()> {
+        use cudarc::driver::sys::cuEventRecord;
+        let result = unsafe {
+            cuEventRecord(
+                event as cudarc::driver::sys::CUevent,
+                self.raw_stream() as cudarc::driver::sys::CUstream,
+            )
+        };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!(
+                "cuEventRecord on comm stream failed: {result:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn record_on_stream(&self, event: u64, stream_handle: u64) -> Result<()> {
+        use cudarc::driver::sys::cuEventRecord;
+        let result = unsafe {
+            cuEventRecord(
+                event as cudarc::driver::sys::CUevent,
+                stream_handle as cudarc::driver::sys::CUstream,
+            )
+        };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!(
+                "cuEventRecord on stream failed: {result:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn comm_stream_wait_event(&self, event: u64) -> Result<()> {
+        use cudarc::driver::sys::cuStreamWaitEvent;
+        let result = unsafe {
+            cuStreamWaitEvent(
+                self.raw_stream() as cudarc::driver::sys::CUstream,
+                event as cudarc::driver::sys::CUevent,
+                0,
+            )
+        };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!(
+                "cuStreamWaitEvent on comm stream failed: {result:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn stream_wait_event(&self, stream_handle: u64, event: u64) -> Result<()> {
+        use cudarc::driver::sys::cuStreamWaitEvent;
+        let result = unsafe {
+            cuStreamWaitEvent(
+                stream_handle as cudarc::driver::sys::CUstream,
+                event as cudarc::driver::sys::CUevent,
+                0,
+            )
+        };
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(Error::Backend(format!(
+                "cuStreamWaitEvent on stream failed: {result:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn sync_comm_stream(&self) -> Result<()> {
+        self.comm
+            .stream()
+            .synchronize()
+            .map_err(|e| Error::Backend(format!("CUDA comm stream sync failed: {e}")))?;
+        Ok(())
     }
 }
 

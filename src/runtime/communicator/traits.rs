@@ -156,4 +156,54 @@ pub trait Communicator: Send + Sync {
     fn split(&self, _color: u32, _key: u32) -> Result<Option<Box<dyn Communicator>>> {
         Ok(None)
     }
+
+    /// Downcast to `StreamSyncOps` if this communicator supports CUDA
+    /// stream/event synchronization for compute-communication overlap.
+    ///
+    /// Returns `None` by default. Backends with separate communication
+    /// streams (e.g., NCCL) override this to return `Some(self)`.
+    fn as_stream_sync(&self) -> Option<&dyn StreamSyncOps> {
+        None
+    }
+}
+
+/// Stream/event synchronization for compute-communication overlap.
+///
+/// Enables launching allreduce on a separate communication stream while
+/// backward computation continues on the compute stream. Events provide
+/// GPU-side synchronization without blocking the CPU.
+///
+/// # Event Lifecycle
+///
+/// 1. Create event with [`create_event`]
+/// 2. Record on compute stream (gradient ready) with [`record_on_stream`]
+/// 3. Make comm stream wait with [`comm_stream_wait_event`]
+/// 4. Launch allreduce (runs on comm stream)
+/// 5. Record completion on comm stream with [`record_on_comm_stream`]
+/// 6. Make compute stream wait with [`stream_wait_event`]
+/// 7. Destroy event with [`destroy_event`]
+pub trait StreamSyncOps {
+    /// Create a CUDA event for synchronization.
+    ///
+    /// Returns an opaque event handle. Uses `CU_EVENT_DISABLE_TIMING` for
+    /// minimal overhead (only ordering semantics needed, not timing).
+    fn create_event(&self) -> Result<u64>;
+
+    /// Destroy a previously created event.
+    fn destroy_event(&self, event: u64) -> Result<()>;
+
+    /// Record an event on the communicator's internal stream.
+    fn record_on_comm_stream(&self, event: u64) -> Result<()>;
+
+    /// Record an event on an external stream (e.g., the compute stream).
+    fn record_on_stream(&self, event: u64, stream_handle: u64) -> Result<()>;
+
+    /// Make the communicator's internal stream wait for an event.
+    fn comm_stream_wait_event(&self, event: u64) -> Result<()>;
+
+    /// Make an external stream wait for an event.
+    fn stream_wait_event(&self, stream_handle: u64, event: u64) -> Result<()>;
+
+    /// Synchronize the communicator's internal stream (CPU-blocking).
+    fn sync_comm_stream(&self) -> Result<()>;
 }
