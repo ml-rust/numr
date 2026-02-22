@@ -17,8 +17,6 @@ mod allocator;
 mod communicator;
 mod graph;
 pub(crate) mod helpers;
-#[cfg(feature = "nexar")]
-mod nexar_communicator;
 pub(crate) mod shape_ops;
 #[cfg(feature = "sparse")]
 pub(crate) mod sparse_utils;
@@ -41,7 +39,11 @@ pub(crate) mod fallback;
 pub(crate) use allocator::AllocGuard;
 pub(crate) use allocator::DefaultAllocator;
 pub use allocator::{AllocationStats, Allocator, TrackingAllocator};
-pub use communicator::{Communicator, NoOpCommunicator, ReduceOp};
+#[cfg(feature = "distributed-gpu")]
+pub use communicator::HierarchicalCommunicator;
+#[cfg(feature = "distributed")]
+pub use communicator::NexarNetCommunicator;
+pub use communicator::{Communicator, CommunicatorGroup, NoOpCommunicator, ParallelDim, ReduceOp};
 #[cfg(feature = "nccl")]
 pub use cuda::NcclCommunicator;
 pub use graph::{Graph, NoOpGraph};
@@ -49,8 +51,6 @@ pub(crate) use helpers::{
     compute_broadcast_shape, ensure_contiguous, normalize_dim, validate_arange,
     validate_binary_dtypes, validate_eye,
 };
-#[cfg(feature = "nexar")]
-pub use nexar_communicator::NexarNetCommunicator;
 pub use traits::{Device, Runtime, RuntimeClient};
 
 // ============================================================================

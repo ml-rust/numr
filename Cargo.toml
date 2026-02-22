@@ -19,7 +19,8 @@ default = ["cpu", "rayon"]
 cpu = []
 cuda = ["dep:cudarc"]
 nccl = ["cuda", "cudarc?/nccl"]
-nexar = ["dep:nexar"]
+distributed = ["dep:nexar", "dep:tokio"]
+distributed-gpu = ["distributed", "nccl", "dep:nexar-nccl"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
 f16 = [
@@ -56,6 +57,8 @@ half = { version = "2.7", optional = true, features = [
 
 # Optional: Inter-node distributed communication
 nexar = { version = "0.1.0", optional = true }
+nexar-nccl = { version = "0.1.0", optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
 
 # Optional: CUDA backend
 cudarc = { version = "0.18", optional = true, features = [
