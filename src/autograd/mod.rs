@@ -107,6 +107,7 @@
 
 // Reverse-mode AD
 mod backward;
+mod checkpoint;
 mod grad_fn;
 mod grad_store;
 mod var;
@@ -123,6 +124,7 @@ pub mod ops;
 // Reverse-mode exports
 pub use crate::tensor::id::TensorId;
 pub use backward::{BackwardHook, NoOpHook, backward, backward_with_graph, backward_with_hooks};
+pub use checkpoint::checkpoint;
 pub use grad_fn::GradFn;
 pub use grad_store::GradStore;
 pub use var::Var;
