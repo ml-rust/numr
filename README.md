@@ -107,8 +107,9 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 ### Activation & Normalization Functions
 
 - **ActivationOps**: relu, sigmoid, silu, gelu, leaky_relu, elu, softmax
-- **NormalizationOps**: rms_norm, layer_norm
+- **NormalizationOps**: rms_norm, layer_norm, batch_norm, group_norm, instance_norm
 - **ConvOps**: conv1d, conv2d, depthwise_conv2d (with stride, padding, dilation, groups)
+- **EinsumOps**: Einstein summation notation
 
 _These are mathematical functions commonly used in ML, but numr itself is not an ML framework._
 
@@ -117,6 +118,14 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 - **MatmulOps**: matmul, matmul_bias (fused GEMM+bias)
 - **LinalgOps**: solve, lstsq, pinverse, inverse, det, trace, matrix_rank, diag, matrix_norm, kron, khatri_rao
 - **ComplexOps**: conj, real, imag, angle (for complex tensor support)
+
+### Automatic Differentiation
+
+- **Reverse-mode**: `Var<R>` tracked tensors, `backward()` for gradient computation
+- **Forward-mode**: `jvp()`, `jacobian_forward()` via dual numbers
+- **Second-order**: `hvp()` for Hessian-vector products, `backward_with_graph()` for higher-order gradients
+- **Activation checkpointing**: `checkpoint()` to trade compute for memory
+- **Backward hooks**: `BackwardHook` trait for gradient notifications (e.g., distributed allreduce)
 
 ### Statistics and Probability
 
@@ -165,10 +174,24 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 
 - polyroots, polyval, polyfromroots, polymul
 
+**Iterative Solvers (`numr::iterative`):**
+
+- **Linear solvers**: CG, MINRES, BiCGSTAB, GMRES, LGMRES, CGS, QMR, Jacobi, SOR, Adaptive GMRES
+- **Eigensolvers**: Lanczos (symmetric), Arnoldi/IRAM (non-symmetric)
+- **Sparse SVD**: via Lanczos bidiagonalization
+- **Preconditioners**: ILU(0), IC(0), Algebraic Multigrid (AMG) with V-cycles
+
 **Sparse Tensors (`numr::sparse`, feature-gated):**
 
 - Formats: CSR, CSC, COO
 - Operations: SpGEMM (sparse matrix multiplication), SpMV (sparse matrix-vector), DSMM (dense-sparse matrix)
+
+**Sparse Linear Algebra (`numr::sparse_linalg`):**
+
+- **Direct solvers**: Sparse LU (Gilbert-Peierls), sparse QR
+- **Incomplete factorizations**: ILU(0), ILU(k), IC(0)
+- **Preprocessing**: COLAMD ordering, maximum transversal
+- **Symbolic/numeric split**: Reuse sparsity structure for repeated solves
 
 ## Dtypes
 
@@ -443,6 +466,45 @@ fn main() -> Result<()> {
 }
 ```
 
+### Automatic Differentiation
+
+```rust
+use numr::prelude::*;
+use numr::autograd::*;
+
+fn main() -> Result<()> {
+    let client = CpuRuntime::client()?;
+
+    // Create tracked variables
+    let x = Var::new(Tensor::<CpuRuntime>::from_slice(&[2.0, 3.0], &[2])?, true);
+    let w = Var::new(Tensor::<CpuRuntime>::from_slice(&[0.5, -1.0], &[2])?, true);
+
+    // Forward pass (builds computation graph)
+    let y = var_mul(&x, &w, &client)?;
+    let loss = var_sum(&y, &client)?;
+
+    // Backward pass
+    let grads = backward(&loss, &client)?;
+    let dx = grads.get(x.tensor());  // gradients w.r.t. x
+    let dw = grads.get(w.tensor());  // gradients w.r.t. w
+
+    // Activation checkpointing (trade compute for memory)
+    let checkpointed = checkpoint(|inputs| {
+        let h = var_relu(&inputs[0], &client)?;
+        var_matmul(&h, &inputs[1], &client)
+    }, &[&x, &w])?;
+
+    // Forward-mode AD (Jacobian-vector products)
+    let tangent = Tensor::<CpuRuntime>::ones(&[2], &device)?;
+    let jvp_result = jvp(|x| client.mul(x, x), &x.tensor(), &tangent, &client)?;
+
+    // Hessian-vector product
+    let hvp_result = hvp(|x, c| c.mul(x, x), &x.tensor(), &tangent, &client)?;
+
+    Ok(())
+}
+```
+
 ## Installation
 
 ### CPU-only (default)
@@ -484,7 +546,9 @@ numr = { version = "*", features = [
 | `wgpu`   | Cross-platform GPU (WebGPU)                         | ✗       |
 | `rayon`  | Multi-threaded CPU via Rayon                        | ✓       |
 | `f16`    | Half-precision floats (F16, BF16)                   | ✗       |
+| `fp8`    | FP8 precision (E4M3, E5M2)                          | ✗       |
 | `sparse` | Sparse tensor support (CSR, CSC, COO)               | ✗       |
+| `nccl`   | Multi-GPU communication via NCCL                    | ✗       |
 
 ## Building from Source
 
