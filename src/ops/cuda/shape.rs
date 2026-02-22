@@ -4,12 +4,12 @@ use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
 use crate::runtime::cuda::kernels::{launch_cat_copy, launch_pad, launch_repeat, launch_roll};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{ensure_contiguous, shape_ops};
+use crate::runtime::{common::shape_ops, ensure_contiguous};
 use crate::tensor::Tensor;
 
 impl ShapeOps<CudaRuntime> for CudaClient {
     fn cat(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {
-        let params = crate::runtime::shape_ops::validate_cat(tensors, dim)?;
+        let params = crate::runtime::common::shape_ops::validate_cat(tensors, dim)?;
 
         // Allocate output
         let out = Tensor::<CudaRuntime>::empty(&params.out_shape, params.dtype, &self.device);
@@ -44,7 +44,7 @@ impl ShapeOps<CudaRuntime> for CudaClient {
 
     fn stack(&self, tensors: &[&Tensor<CudaRuntime>], dim: isize) -> Result<Tensor<CudaRuntime>> {
         // Validate tensors and get normalized dimension
-        let _ = crate::runtime::shape_ops::validate_stack(tensors, dim)?;
+        let _ = crate::runtime::common::shape_ops::validate_stack(tensors, dim)?;
 
         // stack(tensors, dim) = cat([t.unsqueeze(dim) for t in tensors], dim)
         let unsqueezed: Vec<Tensor<CudaRuntime>> = tensors

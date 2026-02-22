@@ -64,7 +64,7 @@ impl CudaClient {
         a_shape: [usize; 2],
         b_shape: [usize; 2],
     ) -> Result<crate::sparse::CsrData<CudaRuntime>> {
-        use crate::runtime::sparse_utils::zero_tolerance;
+        use crate::runtime::common::sparse_utils::zero_tolerance;
 
         let [m, _k] = a_shape;
         let [_, n] = b_shape;

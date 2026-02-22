@@ -889,7 +889,7 @@ mod tests {
     #[test]
     fn test_sparse_ops_trait_exists() {
         // Trait compiles correctly
-        fn _accepts_sparse_ops<R: Runtime, T: SparseOps<R>>(_: &T) {}
+        fn _accepts_sparse_ops<R: Runtime<DType = DType>, T: SparseOps<R>>(_: &T) {}
     }
 
     #[test]

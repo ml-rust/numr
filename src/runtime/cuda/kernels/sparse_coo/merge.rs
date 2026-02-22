@@ -201,7 +201,7 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_unique], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
@@ -443,7 +443,7 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_unique], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
@@ -682,7 +682,7 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_intersections], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
@@ -921,7 +921,7 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
     )?;
 
     // Step 9: Filter out zeros and non-finite values - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_intersections], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(

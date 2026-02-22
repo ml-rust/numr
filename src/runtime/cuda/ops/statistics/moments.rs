@@ -5,8 +5,8 @@
 
 use crate::algorithm::linalg::helpers::{linalg_demote, linalg_promote};
 use crate::error::Result;
+use crate::runtime::common::statistics_common;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::statistics_common;
 use crate::tensor::Tensor;
 
 /// Compute skewness (third standardized moment) using composition.

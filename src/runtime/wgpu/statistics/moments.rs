@@ -1,7 +1,7 @@
 //! Higher-order moment statistics for WebGPU runtime (skewness, kurtosis)
 
 use crate::error::Result;
-use crate::runtime::statistics_common;
+use crate::runtime::common::statistics_common;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 

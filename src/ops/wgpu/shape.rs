@@ -4,8 +4,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
-use crate::runtime::shape_ops;
-use crate::runtime::shape_ops::{validate_cat, validate_stack};
+use crate::runtime::common::shape_ops;
+use crate::runtime::common::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{

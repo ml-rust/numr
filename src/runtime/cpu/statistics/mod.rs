@@ -32,11 +32,11 @@ use super::helpers::dispatch_dtype;
 use super::{CpuClient, CpuRuntime};
 use crate::dtype::{DType, Element};
 use crate::error::Result;
-use crate::runtime::statistics_common::{self, compute_bin_edges_f64};
+use crate::runtime::common::statistics_common::{self, compute_bin_edges_f64};
 use crate::tensor::Tensor;
 
 // Re-export Interpolation for submodules
-pub(crate) use crate::runtime::statistics_common::Interpolation;
+pub(crate) use crate::runtime::common::statistics_common::Interpolation;
 
 // ============================================================================
 // Optimized CPU Kernels

@@ -5,7 +5,7 @@ use crate::error::{Error, Result};
 use crate::ops::{
     BinaryOps, IndexingOps, ScalarOps, SortingOps, TypeConversionOps, reduce_dim_output_shape,
 };
-use crate::runtime::statistics_common::Interpolation;
+use crate::runtime::common::statistics_common::Interpolation;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, normalize_dim};
 use crate::tensor::Tensor;
@@ -94,7 +94,7 @@ pub fn quantile_impl(
 
     // Calculate quantile indices using shared logic
     let (floor_idx, ceil_idx, frac) =
-        crate::runtime::statistics_common::compute_quantile_indices(q, dim_size);
+        crate::runtime::common::statistics_common::compute_quantile_indices(q, dim_size);
 
     // Check for empty output
     let out_numel = out_shape.iter().product::<usize>();

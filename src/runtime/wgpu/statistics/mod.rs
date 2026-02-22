@@ -36,7 +36,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TypeConversionOps;
 use crate::runtime::RuntimeClient;
-use crate::runtime::statistics_common::compute_bin_edges_f64;
+use crate::runtime::common::statistics_common::compute_bin_edges_f64;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 

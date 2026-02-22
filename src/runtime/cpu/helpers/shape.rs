@@ -4,7 +4,8 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::dtype::Element;
 use crate::error::Result;
-use crate::runtime::{ensure_contiguous, shape_ops};
+use crate::runtime::common::shape_ops;
+use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
 /// Concatenate tensors along a dimension

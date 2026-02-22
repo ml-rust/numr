@@ -5,7 +5,9 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::ops::{BinaryOps, ReduceOps, ScalarOps, StatisticalOps};
-use crate::runtime::statistics_common::{DIVISION_EPSILON, compute_kurtosis, compute_skewness};
+use crate::runtime::common::statistics_common::{
+    DIVISION_EPSILON, compute_kurtosis, compute_skewness,
+};
 use crate::tensor::Tensor;
 
 /// Compute skewness (third standardized moment) along dimensions.
