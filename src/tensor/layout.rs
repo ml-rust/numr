@@ -210,7 +210,14 @@ impl Layout {
             return None;
         }
 
-        Some(Self::contiguous(new_shape))
+        // Preserve offset for views (e.g., from narrow)
+        let shape: Shape = new_shape.iter().copied().collect();
+        let strides = Self::compute_contiguous_strides(&shape);
+        Some(Self {
+            shape,
+            strides,
+            offset: self.offset,
+        })
     }
 
     /// Create a squeezed layout (remove dimensions of size 1)
