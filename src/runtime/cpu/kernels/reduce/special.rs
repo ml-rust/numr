@@ -128,6 +128,26 @@ pub unsafe fn softmax_kernel<T: Element>(
                 softmax::softmax_f64(a as *const f64, out as *mut f64, outer_size, dim_size);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                softmax::softmax_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                softmax::softmax_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }

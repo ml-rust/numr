@@ -118,6 +118,8 @@ pub unsafe fn clamp_scalar_f64(
     }
 }
 
+half_clamp!(clamp, clamp_f32);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -162,6 +162,58 @@ pub unsafe fn logsumexp_scalar_f64(
     }
 }
 
+#[cfg(feature = "f16")]
+/// f16 wrapper for logsumexp: converts input to f32, runs f32 logsumexp, converts output back.
+///
+/// # Safety
+/// - `a` must point to `reduce_size * outer_size` elements
+/// - `out` must point to `outer_size` elements
+pub unsafe fn logsumexp_f16(
+    a: *const half::f16,
+    out: *mut half::f16,
+    reduce_size: usize,
+    outer_size: usize,
+) {
+    use super::half_convert_utils::*;
+    let input_len = outer_size * reduce_size;
+    let mut a_f32 = vec![0.0f32; input_len];
+    let mut out_f32 = vec![0.0f32; outer_size];
+    convert_f16_to_f32(a as *const u16, a_f32.as_mut_ptr(), input_len);
+    logsumexp_f32(
+        a_f32.as_ptr(),
+        out_f32.as_mut_ptr(),
+        reduce_size,
+        outer_size,
+    );
+    convert_f32_to_f16(out_f32.as_ptr(), out as *mut u16, outer_size);
+}
+
+#[cfg(feature = "f16")]
+/// bf16 wrapper for logsumexp: converts input to f32, runs f32 logsumexp, converts output back.
+///
+/// # Safety
+/// - `a` must point to `reduce_size * outer_size` elements
+/// - `out` must point to `outer_size` elements
+pub unsafe fn logsumexp_bf16(
+    a: *const half::bf16,
+    out: *mut half::bf16,
+    reduce_size: usize,
+    outer_size: usize,
+) {
+    use super::half_convert_utils::*;
+    let input_len = outer_size * reduce_size;
+    let mut a_f32 = vec![0.0f32; input_len];
+    let mut out_f32 = vec![0.0f32; outer_size];
+    convert_bf16_to_f32(a as *const u16, a_f32.as_mut_ptr(), input_len);
+    logsumexp_f32(
+        a_f32.as_ptr(),
+        out_f32.as_mut_ptr(),
+        reduce_size,
+        outer_size,
+    );
+    convert_f32_to_bf16(out_f32.as_ptr(), out as *mut u16, outer_size);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

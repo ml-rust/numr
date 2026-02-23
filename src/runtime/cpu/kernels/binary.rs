@@ -40,6 +40,28 @@ pub unsafe fn binary_op_kernel<T: Element>(
                 binary::binary_f64(op, a as *const f64, b as *const f64, out as *mut f64, len);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                binary::binary_f16(
+                    op,
+                    a as *const half::f16,
+                    b as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                binary::binary_bf16(
+                    op,
+                    a as *const half::bf16,
+                    b as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }

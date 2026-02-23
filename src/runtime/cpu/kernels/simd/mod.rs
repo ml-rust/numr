@@ -29,6 +29,15 @@
 //! | ARM64        | NEON            | 128 bits     | Supported |
 //! | Any          | Scalar          | N/A          | Fallback  |
 
+// Shared f16/bf16 ↔ f32 SIMD conversion utilities
+#[cfg(feature = "f16")]
+pub mod half_convert_utils;
+
+// Macros for generating f16/bf16 block-convert-compute wrappers (must come before users)
+// Always compiled - macros internally gate generated code with #[cfg(feature = "f16")]
+#[macro_use]
+mod half_macros;
+
 // Operation modules - available on all architectures
 // Each operation's mod.rs handles internal architecture dispatch
 pub mod activations;

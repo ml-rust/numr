@@ -37,6 +37,28 @@ pub unsafe fn scalar_op_kernel<T: Element>(
                 scalar::scalar_f64(op, a as *const f64, scalar, out as *mut f64, len);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                scalar::scalar_f16(
+                    op,
+                    a as *const half::f16,
+                    scalar as f32,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                scalar::scalar_bf16(
+                    op,
+                    a as *const half::bf16,
+                    scalar as f32,
+                    out as *mut half::bf16,
+                    len,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }
@@ -124,6 +146,26 @@ pub unsafe fn rsub_scalar_kernel<T: Element>(a: *const T, scalar: f64, out: *mut
             }
             DType::F64 => {
                 scalar::rsub_scalar_f64(a as *const f64, scalar, out as *mut f64, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                scalar::rsub_scalar_f16(
+                    a as *const half::f16,
+                    scalar as f32,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                scalar::rsub_scalar_bf16(
+                    a as *const half::bf16,
+                    scalar as f32,
+                    out as *mut half::bf16,
+                    len,
+                );
                 return;
             }
             _ => {} // Fall through to scalar

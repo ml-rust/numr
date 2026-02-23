@@ -36,6 +36,28 @@ pub unsafe fn compare_op_kernel<T: Element>(
                 compare::compare_f64(op, a as *const f64, b as *const f64, out as *mut f64, len);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                compare::compare_f16(
+                    op,
+                    a as *const half::f16,
+                    b as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                compare::compare_bf16(
+                    op,
+                    a as *const half::bf16,
+                    b as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }

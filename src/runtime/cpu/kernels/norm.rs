@@ -63,6 +63,30 @@ pub unsafe fn rms_norm_kernel<T: Element>(
                 );
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                norm::rms_norm_f16(
+                    input as *const half::f16,
+                    weight as *const half::f16,
+                    out as *mut half::f16,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                norm::rms_norm_bf16(
+                    input as *const half::bf16,
+                    weight as *const half::bf16,
+                    out as *mut half::bf16,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }
@@ -166,6 +190,32 @@ pub unsafe fn layer_norm_kernel<T: Element>(
                     batch_size,
                     hidden_size,
                     eps as f64,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                norm::layer_norm_f16(
+                    input as *const half::f16,
+                    weight as *const half::f16,
+                    bias as *const half::f16,
+                    out as *mut half::f16,
+                    batch_size,
+                    hidden_size,
+                    eps,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                norm::layer_norm_bf16(
+                    input as *const half::bf16,
+                    weight as *const half::bf16,
+                    bias as *const half::bf16,
+                    out as *mut half::bf16,
+                    batch_size,
+                    hidden_size,
+                    eps,
                 );
                 return;
             }

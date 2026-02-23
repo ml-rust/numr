@@ -53,6 +53,28 @@ pub unsafe fn where_kernel<T: Element>(
                 );
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                where_select::where_f16(
+                    cond,
+                    x as *const half::f16,
+                    y as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                where_select::where_bf16(
+                    cond,
+                    x as *const half::bf16,
+                    y as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }

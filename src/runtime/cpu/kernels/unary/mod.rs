@@ -50,6 +50,16 @@ pub unsafe fn unary_op_kernel<T: Element>(op: UnaryOp, a: *const T, out: *mut T,
                 unary::unary_f64(op, a as *const f64, out as *mut f64, len);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                unary::unary_f16(op, a as *const half::f16, out as *mut half::f16, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                unary::unary_bf16(op, a as *const half::bf16, out as *mut half::bf16, len);
+                return;
+            }
             _ => {}
         }
     }
@@ -279,6 +289,16 @@ pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
                 unary::relu_f64(a as *const f64, out as *mut f64, len);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                unary::relu_f16(a as *const half::f16, out as *mut half::f16, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                unary::relu_bf16(a as *const half::bf16, out as *mut half::bf16, len);
+                return;
+            }
             _ => {}
         }
     }
@@ -368,6 +388,28 @@ pub unsafe fn clamp_kernel<T: Element>(
             }
             DType::F64 => {
                 clamp::clamp_f64(a as *const f64, out as *mut f64, len, min_val, max_val);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                clamp::clamp_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                    min_val as f32,
+                    max_val as f32,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                clamp::clamp_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                    min_val as f32,
+                    max_val as f32,
+                );
                 return;
             }
             _ => {}

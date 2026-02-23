@@ -432,6 +432,12 @@ pub unsafe fn elu_scalar_f64(a: *const f64, out: *mut f64, len: usize, alpha: f6
     }
 }
 
+half_unary!(sigmoid, sigmoid_f32);
+half_unary!(silu, silu_f32);
+half_unary!(gelu, gelu_f32);
+half_unary_param!(leaky_relu, leaky_relu_f32);
+half_unary_param!(elu, elu_f32);
+
 #[cfg(test)]
 mod tests {
     use super::*;

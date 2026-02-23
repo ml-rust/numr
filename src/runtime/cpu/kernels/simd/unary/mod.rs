@@ -194,6 +194,13 @@ pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
     relu_scalar_f64(a, out, len);
 }
 
+// ---------------------------------------------------------------------------
+// f16/bf16 via f32 block-convert-compute
+// ---------------------------------------------------------------------------
+
+half_unary_op!(unary, unary_f32, UnaryOp);
+half_unary!(relu, relu_f32);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -122,6 +122,8 @@ pub unsafe fn where_scalar_f64(
     }
 }
 
+half_where!(r#where, where_f32);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -17,6 +17,11 @@ mod avx512;
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 
+#[cfg(feature = "f16")]
+mod half;
+#[cfg(feature = "f16")]
+pub use half::{layer_norm_bf16, layer_norm_f16, rms_norm_bf16, rms_norm_f16};
+
 use super::{SimdLevel, detect_simd};
 
 /// Minimum hidden_size to justify SIMD overhead

@@ -85,6 +85,8 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
     binary_scalar_f64(op, a, b, out, len);
 }
 
+half_binary_op!(binary, binary_f32, BinaryOp);
+
 #[cfg(test)]
 mod tests {
     use super::*;
