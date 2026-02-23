@@ -14,7 +14,10 @@ pub mod shape;
 pub mod unary;
 
 // Re-export all helper functions
-pub use activation::{ActivationOp, activation_op_impl, elu_impl, leaky_relu_impl};
+pub use activation::{
+    ActivationOp, FusedActivationMulOp, activation_op_impl, elu_impl, fused_activation_mul_impl,
+    leaky_relu_impl,
+};
 pub use binary::binary_op_impl;
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};

@@ -31,6 +31,7 @@ mod cast;
 mod conv;
 mod cumulative;
 mod dropout;
+mod fused_activation_mul;
 mod indexing;
 
 pub mod linalg;
@@ -50,6 +51,7 @@ pub use cast::var_cast;
 pub use conv::var_conv1d;
 pub use cumulative::{var_cumprod, var_cumsum};
 pub use dropout::var_dropout;
+pub use fused_activation_mul::{var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul};
 pub use indexing::var_gather;
 pub use linalg::{var_cholesky, var_det, var_inverse, var_solve, var_trace};
 pub use matmul::var_matmul;

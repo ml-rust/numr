@@ -70,6 +70,69 @@ pub fn activation_op_impl(
     Ok(out)
 }
 
+/// Fused activation-mul operation kind
+#[derive(Copy, Clone)]
+#[allow(clippy::enum_variant_names)]
+pub enum FusedActivationMulOp {
+    SiluMul,
+    GeluMul,
+    ReluMul,
+    SigmoidMul,
+}
+
+/// Helper for fused activation-mul operations: activation(a) * b
+pub fn fused_activation_mul_impl(
+    client: &CpuClient,
+    a: &Tensor<CpuRuntime>,
+    b: &Tensor<CpuRuntime>,
+    op: FusedActivationMulOp,
+    op_name: &'static str,
+) -> Result<Tensor<CpuRuntime>> {
+    let dtype = a.dtype();
+    if b.dtype() != dtype {
+        return Err(crate::error::Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: b.dtype(),
+        });
+    }
+    if a.shape() != b.shape() {
+        return Err(crate::error::Error::ShapeMismatch {
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        });
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
+    let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
+
+    let len = a.numel();
+    let a_ptr = a_contig.ptr();
+    let b_ptr = b_contig.ptr();
+    let out_ptr = out.ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            match op {
+                FusedActivationMulOp::SiluMul => kernels::silu_mul_kernel::<T>(
+                    a_ptr as *const T, b_ptr as *const T, out_ptr as *mut T, len,
+                ),
+                FusedActivationMulOp::GeluMul => kernels::gelu_mul_kernel::<T>(
+                    a_ptr as *const T, b_ptr as *const T, out_ptr as *mut T, len,
+                ),
+                FusedActivationMulOp::ReluMul => kernels::relu_mul_kernel::<T>(
+                    a_ptr as *const T, b_ptr as *const T, out_ptr as *mut T, len,
+                ),
+                FusedActivationMulOp::SigmoidMul => kernels::sigmoid_mul_kernel::<T>(
+                    a_ptr as *const T, b_ptr as *const T, out_ptr as *mut T, len,
+                ),
+            }
+        }
+    }, op_name);
+
+    Ok(out)
+}
+
 /// Helper for parametric activation operations (leaky_relu, elu)
 ///
 /// These activations take a single f64 parameter in addition to the input tensor.

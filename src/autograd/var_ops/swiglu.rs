@@ -31,9 +31,9 @@ where
     C: RuntimeClient<R> + TensorOps<R> + ActivationOps<R> + ScalarOps<R> + BinaryOps<R>,
     R::Client: TensorOps<R> + ActivationOps<R> + ScalarOps<R> + BinaryOps<R>,
 {
-    // Forward: output = silu(gate) * up
+    // Forward: output = silu(gate) * up (fused single-pass kernel)
     let silu_gate = client.silu(gate.tensor())?;
-    let output = client.mul(&silu_gate, up.tensor())?;
+    let output = client.silu_mul(gate.tensor(), up.tensor())?;
 
     if gate.requires_grad() || up.requires_grad() {
         let grad_fn = SwiGLUBackward::<R>::new(

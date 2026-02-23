@@ -86,8 +86,9 @@ pub use sort::{
     sort_values_kernel, topk_kernel, unique_with_counts_kernel,
 };
 pub use unary::{
-    clamp_kernel, elu_kernel, gelu_kernel, isinf_kernel, isnan_kernel, leaky_relu_kernel,
-    relu_kernel, sigmoid_kernel, silu_kernel, unary_op_kernel,
+    clamp_kernel, elu_kernel, gelu_kernel, gelu_mul_kernel, isinf_kernel, isnan_kernel,
+    leaky_relu_kernel, relu_kernel, relu_mul_kernel, sigmoid_kernel, sigmoid_mul_kernel,
+    silu_kernel, silu_mul_kernel, unary_op_kernel,
 };
 pub use where_select::{
     where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,

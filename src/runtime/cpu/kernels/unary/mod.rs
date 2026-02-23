@@ -5,9 +5,13 @@
 
 pub mod activations;
 mod complex;
+pub mod fused_activations;
 pub mod scalar;
 
 pub use activations::{elu_kernel, gelu_kernel, leaky_relu_kernel, sigmoid_kernel, silu_kernel};
+pub use fused_activations::{
+    gelu_mul_kernel, relu_mul_kernel, sigmoid_mul_kernel, silu_mul_kernel,
+};
 pub use scalar::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
 
 use crate::dtype::{DType, Element};

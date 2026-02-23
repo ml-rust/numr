@@ -97,6 +97,118 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Fused SiLU-Mul: `silu(a) * b` in a single pass.
+    ///
+    /// Computes `(a / (1 + exp(-a))) * b` element-wise with one memory pass
+    /// instead of two (activation + multiply). Used in SwiGLU and similar gated architectures.
+    fn silu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::silu_mul",
+        })
+    }
+
+    /// Fused GELU-Mul: `gelu(a) * b` in a single pass.
+    ///
+    /// Computes `(0.5 * a * (1 + tanh(sqrt(2/pi) * (a + 0.044715*a^3)))) * b` element-wise.
+    /// Used in GeGLU gated architectures.
+    fn gelu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_mul",
+        })
+    }
+
+    /// Fused ReLU-Mul: `relu(a) * b` in a single pass.
+    ///
+    /// Computes `max(0, a) * b` element-wise. Used in ReGLU gated architectures.
+    fn relu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::relu_mul",
+        })
+    }
+
+    /// Fused Sigmoid-Mul: `sigmoid(a) * b` in a single pass.
+    ///
+    /// Computes `(1 / (1 + exp(-a))) * b` element-wise. Used in SiGLU gated architectures.
+    fn sigmoid_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::sigmoid_mul",
+        })
+    }
+
+    /// Fused SiLU-Mul backward: computes gradients for `output = silu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * silu'(a)` with `silu'(x) = sigmoid(x) * (1 + x - silu(x))`
+    /// - `d_b = grad * silu(a)`
+    ///
+    /// Backends may implement this as a single fused kernel for better performance.
+    fn silu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::silu_mul_bwd",
+        })
+    }
+
+    /// Fused GELU-Mul backward: computes gradients for `output = gelu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * gelu'(a)`
+    /// - `d_b = grad * gelu(a)`
+    fn gelu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_mul_bwd",
+        })
+    }
+
+    /// Fused ReLU-Mul backward: computes gradients for `output = relu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * relu'(a)` with `relu'(x) = 1 if x > 0, else 0`
+    /// - `d_b = grad * relu(a)`
+    fn relu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::relu_mul_bwd",
+        })
+    }
+
+    /// Fused Sigmoid-Mul backward: computes gradients for `output = sigmoid(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * sigmoid'(a)` with `sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))`
+    /// - `d_b = grad * sigmoid(a)`
+    fn sigmoid_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::sigmoid_mul_bwd",
+        })
+    }
+
     /// Dropout: randomly zero elements with probability `p` during training.
     ///
     /// When `training` is true, each element is independently zeroed with probability `p`,

@@ -2,12 +2,15 @@
 
 use crate::error::{Error, Result};
 use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
-use crate::ops::{ActivationOps, activation::normalize_softmax_dim};
+use crate::ops::{
+    ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps,
+    activation::normalize_softmax_dim,
+};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
-        ActivationOp, activation_op_impl, dispatch_dtype, elu_impl, ensure_contiguous,
-        leaky_relu_impl,
+        ActivationOp, FusedActivationMulOp, activation_op_impl, dispatch_dtype, elu_impl,
+        ensure_contiguous, fused_activation_mul_impl, leaky_relu_impl,
     },
     kernels,
 };
@@ -29,6 +32,135 @@ impl ActivationOps<CpuRuntime> for CpuClient {
 
     fn gelu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
+    }
+
+    fn silu_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_activation_mul_impl(self, a, b, FusedActivationMulOp::SiluMul, "silu_mul")
+    }
+
+    fn gelu_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_activation_mul_impl(self, a, b, FusedActivationMulOp::GeluMul, "gelu_mul")
+    }
+
+    fn relu_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_activation_mul_impl(self, a, b, FusedActivationMulOp::ReluMul, "relu_mul")
+    }
+
+    fn sigmoid_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_activation_mul_impl(self, a, b, FusedActivationMulOp::SigmoidMul, "sigmoid_mul")
+    }
+
+    fn silu_mul_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        // silu(a) = a * sigmoid(a)
+        let silu_a = self.silu(a)?;
+        let d_b = self.mul(grad, &silu_a)?;
+        // silu'(x) = sigmoid(x) * (1 + x - silu(x))
+        let sigmoid_a = self.sigmoid(a)?;
+        let one_plus_a = self.add_scalar(a, 1.0)?;
+        let one_plus_a_minus_silu = self.sub(&one_plus_a, &silu_a)?;
+        let silu_deriv = self.mul(&sigmoid_a, &one_plus_a_minus_silu)?;
+        let grad_times_b = self.mul(grad, b)?;
+        let d_a = self.mul(&grad_times_b, &silu_deriv)?;
+        Ok((d_a, d_b))
+    }
+
+    fn gelu_mul_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        let gelu_a = self.gelu(a)?;
+        let d_b = self.mul(grad, &gelu_a)?;
+        // gelu'(x) = 0.5*(1+tanh(inner)) + 0.5*x*sech²(inner)*inner'
+        // inner = sqrt(2/π) * (x + 0.044715*x³), inner' = sqrt(2/π)*(1 + 3*0.044715*x²)
+        let x_sq = self.mul(a, a)?;
+        let x_cu = self.mul(&x_sq, a)?;
+        let coef_x_cu = self.mul_scalar(&x_cu, 0.044715)?;
+        let inner_arg = self.add(a, &coef_x_cu)?;
+        let sqrt_2_pi: f64 = 0.7978845608028654;
+        let inner = self.mul_scalar(&inner_arg, sqrt_2_pi)?;
+        // tanh(inner) via exp
+        let two_inner = self.mul_scalar(&inner, 2.0)?;
+        let exp_2 = self.exp(&two_inner)?;
+        let num = self.add_scalar(&exp_2, -1.0)?;
+        let den = self.add_scalar(&exp_2, 1.0)?;
+        let tanh_inner = self.div(&num, &den)?;
+        // term1 = 0.5*(1+tanh(inner))
+        let one_plus_tanh = self.add_scalar(&tanh_inner, 1.0)?;
+        let term1 = self.mul_scalar(&one_plus_tanh, 0.5)?;
+        // sech²(inner) = 1 - tanh²(inner)
+        let tanh_sq = self.mul(&tanh_inner, &tanh_inner)?;
+        let sech_sq = self.add_scalar(&tanh_sq, -1.0)?;
+        let sech_sq = self.neg(&sech_sq)?;
+        // inner' = sqrt(2/π) * (1 + 3*0.044715*x²)
+        let three_coef_x_sq = self.mul_scalar(&x_sq, 3.0 * 0.044715)?;
+        let inner_deriv_unscaled = self.add_scalar(&three_coef_x_sq, 1.0)?;
+        let inner_deriv = self.mul_scalar(&inner_deriv_unscaled, sqrt_2_pi)?;
+        // term2 = 0.5 * x * sech²(inner) * inner'
+        let x_sech_sq = self.mul(a, &sech_sq)?;
+        let x_sech_sq_inner_d = self.mul(&x_sech_sq, &inner_deriv)?;
+        let term2 = self.mul_scalar(&x_sech_sq_inner_d, 0.5)?;
+        let gelu_deriv = self.add(&term1, &term2)?;
+        let grad_times_b = self.mul(grad, b)?;
+        let d_a = self.mul(&grad_times_b, &gelu_deriv)?;
+        Ok((d_a, d_b))
+    }
+
+    fn relu_mul_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        let relu_a = self.relu(a)?;
+        let d_b = self.mul(grad, &relu_a)?;
+        // relu'(x) = 1 if x > 0, else 0
+        let zeros = Tensor::<CpuRuntime>::zeros(a.shape(), a.dtype(), a.device());
+        let ones = Tensor::<CpuRuntime>::ones(a.shape(), a.dtype(), a.device());
+        let mask = self.gt(a, &zeros)?;
+        let relu_deriv = self.where_cond(&mask, &ones, &zeros)?;
+        let grad_times_b = self.mul(grad, b)?;
+        let d_a = self.mul(&grad_times_b, &relu_deriv)?;
+        Ok((d_a, d_b))
+    }
+
+    fn sigmoid_mul_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        let sigmoid_a = self.sigmoid(a)?;
+        let d_b = self.mul(grad, &sigmoid_a)?;
+        // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
+        let one_minus_sig = self.add_scalar(&sigmoid_a, -1.0)?;
+        let one_minus_sig = self.neg(&one_minus_sig)?;
+        let sigmoid_deriv = self.mul(&sigmoid_a, &one_minus_sig)?;
+        let grad_times_b = self.mul(grad, b)?;
+        let d_a = self.mul(&grad_times_b, &sigmoid_deriv)?;
+        Ok((d_a, d_b))
     }
 
     fn leaky_relu(
