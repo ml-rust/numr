@@ -538,7 +538,7 @@ impl<R: Runtime> Tensor<R> {
     /// - CPU/CUDA: Uses pointer arithmetic (handles can be offset directly)
     /// - WGPU: Uses compute shader (buffer IDs don't support arithmetic)
     pub fn contiguous(&self) -> Self {
-        if self.is_contiguous() {
+        if self.is_contiguous() && self.layout.offset() == 0 {
             self.clone()
         } else {
             // Need to copy data to a new contiguous storage
