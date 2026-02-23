@@ -1,159 +1,36 @@
 //! Element-wise WGSL kernel launchers
 //!
-//! Provides launchers for element-wise operations including:
-//! - Binary operations (add, sub, mul, div, pow, max, min)
-//! - Unary operations (neg, abs, sqrt, exp, log, sin, cos, tan, tanh, etc.)
-//! - Scalar operations (add_scalar, sub_scalar, mul_scalar, div_scalar, pow_scalar)
-//! - Comparison operations (eq, ne, lt, le, gt, ge)
-//! - Activation functions (relu, sigmoid, silu, gelu)
-//! - Utility operations (clamp, isnan, isinf, where)
-//!
-//! Multi-dtype support: F32, I32, U32 (F16 requires shader-f16 extension)
-//! All operations run entirely on GPU with no CPU fallback.
-
-use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-// ============================================================================
-// Lock Helpers (Handle Poisoned Locks Gracefully)
-// ============================================================================
-
-/// Acquire read lock, recovering from poison if necessary.
-/// Cache data remains valid even after a panic in another thread.
-fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
-    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Acquire write lock, recovering from poison if necessary.
-/// Cache data remains valid even after a panic in another thread.
-fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
-    lock.write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+//! All operations are F32-only. WebGPU is a 32-bit compute backend by design.
+//! For other dtypes use the CPU or CUDA backends.
 
 use wgpu::{Buffer, Queue};
 
-use super::dtype_support;
-use super::generator::{
-    dtype_suffix, generate_binary_shader, generate_cast_shader, generate_compare_shader,
-    generate_scalar_shader, generate_unary_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
 // ============================================================================
-// Shader Module Cache
+// Static Shader Sources
 // ============================================================================
 
-/// Cache for leaked shader references (leaked once per dtype+op_type combination)
-/// Key: (DType, operation_type), Value: &'static str to leaked shader source
-static SHADER_CACHE: OnceLock<RwLock<HashMap<(DType, &'static str), &'static str>>> =
-    OnceLock::new();
+const BINARY_SHADER: &str = include_str!("binary.wgsl");
+const BINARY_BROADCAST_SHADER: &str = include_str!("binary_broadcast.wgsl");
+const UNARY_SHADER: &str = include_str!("unary.wgsl");
+const SCALAR_SHADER: &str = include_str!("scalar.wgsl");
+const COMPARE_SHADER: &str = include_str!("compare.wgsl");
 
-/// Cache for leaked module key references
-static MODULE_KEY_CACHE: OnceLock<RwLock<HashMap<(DType, &'static str), &'static str>>> =
-    OnceLock::new();
-
-/// Get or generate shader for a specific dtype and operation type.
-/// Generates shader once, leaks it once, caches the leaked reference.
-/// Subsequent calls return the cached &'static str without leaking.
-fn get_or_leak_shader(dtype: DType, op_type: &'static str) -> Result<&'static str> {
-    let cache = SHADER_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    // Check if already cached
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&shader_ref) = read_guard.get(&(dtype, op_type)) {
-            return Ok(shader_ref);
-        }
-    }
-
-    // Generate shader based on operation type
-    let shader = match op_type {
-        "binary" => generate_binary_shader(dtype)?,
-        "unary" => generate_unary_shader(dtype)?,
-        "scalar" => generate_scalar_shader(dtype)?,
-        "compare" => generate_compare_shader(dtype)?,
-        _ => return Err(Error::Internal(format!("Unknown op type: {}", op_type))),
-    };
-
-    // Leak ONCE and cache the reference
-    let leaked: &'static str = Box::leak(shader.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert((dtype, op_type), leaked);
-
-    Ok(leaked)
-}
-
-/// Get the module key for a dtype and operation type.
-/// Generates key once, leaks it once, caches the leaked reference.
-fn get_or_leak_module_key(dtype: DType, op_type: &'static str) -> Result<&'static str> {
-    let cache = MODULE_KEY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    // Check if already cached
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&key_ref) = read_guard.get(&(dtype, op_type)) {
-            return Ok(key_ref);
-        }
-    }
-
-    // Generate module key
-    let suffix = dtype_suffix(dtype)?;
-    let key = format!("{}_{}", op_type, suffix);
-
-    // Leak ONCE and cache the reference
-    let leaked: &'static str = Box::leak(key.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert((dtype, op_type), leaked);
-
-    Ok(leaked)
-}
-
-/// Cache for leaked entry point references
-static ENTRY_POINT_CACHE: OnceLock<RwLock<HashMap<(String, DType), &'static str>>> =
-    OnceLock::new();
-
-/// Get entry point name for an operation.
-/// Generates once per (op, dtype), leaks once, caches the leaked reference.
-fn get_or_leak_entry_point(op: &str, dtype: DType) -> Result<&'static str> {
-    let cache = ENTRY_POINT_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    let key = (op.to_string(), dtype);
-
-    // Check if already cached
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&entry_ref) = read_guard.get(&key) {
-            return Ok(entry_ref);
-        }
-    }
-
-    // Generate entry point
-    let suffix = dtype_suffix(dtype)?;
-    let entry = format!("{}_{}", op, suffix);
-
-    // Leak ONCE and cache the reference
-    let leaked: &'static str = Box::leak(entry.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert(key, leaked);
-
-    Ok(leaked)
-}
+const CAST_F32_TO_I32_SHADER: &str = include_str!("cast_f32_to_i32.wgsl");
+const CAST_F32_TO_U32_SHADER: &str = include_str!("cast_f32_to_u32.wgsl");
+const CAST_I32_TO_F32_SHADER: &str = include_str!("cast_i32_to_f32.wgsl");
+const CAST_I32_TO_U32_SHADER: &str = include_str!("cast_i32_to_u32.wgsl");
+const CAST_U32_TO_F32_SHADER: &str = include_str!("cast_u32_to_f32.wgsl");
+const CAST_U32_TO_I32_SHADER: &str = include_str!("cast_u32_to_i32.wgsl");
 
 // ============================================================================
 // Binary Operations
 // ============================================================================
 
-/// Launch a binary element-wise operation kernel.
-///
-/// Computes `out[i] = a[i] op b[i]` for all elements.
-///
-/// Supports F32, I32, U32 dtypes.
+/// Launch a binary element-wise operation: `out[i] = a[i] op b[i]`. F32 only.
 pub fn launch_binary_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -165,38 +42,40 @@ pub fn launch_binary_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Validate dtype support for this operation
-    dtype_support::check_binary_dtype_support(op, dtype)?;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op });
+    }
 
-    // Normalize operation name
     let op_name = match op {
         "maximum" => "max",
         "minimum" => "min",
         _ => op,
     };
 
-    // Get entry point name based on dtype (cached, leaked once per op+dtype)
-    let entry_point = get_or_leak_entry_point(op_name, dtype)?;
+    let entry_point: &'static str = match op_name {
+        "add" => "add_f32",
+        "sub" => "sub_f32",
+        "mul" => "mul_f32",
+        "div" => "div_f32",
+        "max" => "max_f32",
+        "min" => "min_f32",
+        "pow" => "pow_f32",
+        "atan2" => "atan2_f32",
+        _ => return Err(Error::Internal(format!("Unknown binary op: {}", op_name))),
+    };
 
-    // Use generated shader for all dtypes to keep op coverage consistent.
-    let shader = get_or_leak_shader(dtype, "binary")?;
-    let module_key = get_or_leak_module_key(dtype, "binary")?;
-    let (module_name, shader_source): (&str, &str) = (module_key, shader);
-
-    let module = cache.get_or_create_module(module_name, shader_source);
+    let module = cache.get_or_create_module("binary_f32", BINARY_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline("binary_f32", entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
 
     let mut encoder = cache
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(op),
@@ -206,17 +85,11 @@ pub fn launch_binary_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
 
-/// Launch a broadcast binary element-wise operation kernel.
-///
-/// Computes `out[i] = a[broadcast_idx_a] op b[broadcast_idx_b]` for all elements,
-/// where broadcast indices are computed from strides (0 for broadcast dimensions).
-///
-/// Supports F32, I32, U32 dtypes.
+/// Launch a broadcast binary operation. F32 only.
 #[allow(clippy::too_many_arguments)]
 pub fn launch_broadcast_binary_op(
     cache: &PipelineCache,
@@ -232,54 +105,40 @@ pub fn launch_broadcast_binary_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Validate dtype support for this operation
-    dtype_support::check_binary_dtype_support(op, dtype)?;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op });
+    }
 
-    // Normalize operation name
     let op_name = match op {
         "maximum" => "max",
         "minimum" => "min",
         _ => op,
     };
 
-    // Generate entry point name
-    let suffix = super::generator::dtype_suffix(dtype)?;
-    let entry_point_str = format!("broadcast_{}_{}", op_name, suffix);
-    let entry_point: &'static str = Box::leak(entry_point_str.into_boxed_str());
-
-    // Generate broadcast shader (cached per dtype)
-    let shader = {
-        use super::generator::generate_broadcast_binary_shader;
-        let shader_cache =
-            SHADER_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
-
-        let cache_key = (dtype, "broadcast_binary");
-        {
-            let read_guard = read_lock(shader_cache);
-            if let Some(&cached) = read_guard.get(&cache_key) {
-                cached
-            } else {
-                drop(read_guard);
-                let generated = generate_broadcast_binary_shader(dtype)?;
-                let leaked: &'static str = Box::leak(generated.into_boxed_str());
-                let mut write_guard = write_lock(shader_cache);
-                write_guard.insert(cache_key, leaked);
-                leaked
-            }
+    let entry_point: &'static str = match op_name {
+        "add" => "broadcast_add_f32",
+        "sub" => "broadcast_sub_f32",
+        "mul" => "broadcast_mul_f32",
+        "div" => "broadcast_div_f32",
+        "max" => "broadcast_max_f32",
+        "min" => "broadcast_min_f32",
+        "pow" => "broadcast_pow_f32",
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unknown broadcast binary op: {}",
+                op_name
+            )));
         }
     };
 
-    let module_key = format!("broadcast_binary_{}", suffix);
-    let module_key: &'static str = Box::leak(module_key.into_boxed_str());
-
-    let module = cache.get_or_create_module(module_key, shader);
+    let module = cache.get_or_create_module("binary_broadcast_f32", BINARY_BROADCAST_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
+    let pipeline =
+        cache.get_or_create_pipeline("binary_broadcast_f32", entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(
         &layout,
         &[a, b, out, a_strides, b_strides, out_strides, params_buffer],
@@ -290,7 +149,6 @@ pub fn launch_broadcast_binary_op(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("broadcast_binary"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("broadcast_binary"),
@@ -300,7 +158,6 @@ pub fn launch_broadcast_binary_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
@@ -309,11 +166,7 @@ pub fn launch_broadcast_binary_op(
 // Unary Operations
 // ============================================================================
 
-/// Launch a unary element-wise operation kernel.
-///
-/// Computes `out[i] = op(a[i])` for all elements.
-///
-/// Supports F32, I32, U32 dtypes (operation-dependent).
+/// Launch a unary operation: `out[i] = op(a[i])`. F32 only.
 pub fn launch_unary_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -324,31 +177,63 @@ pub fn launch_unary_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Validate dtype support for this operation
-    dtype_support::check_unary_dtype_support(op, dtype)?;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op });
+    }
 
-    // Get entry point name based on dtype (cached, leaked once per op+dtype)
-    let entry_point = get_or_leak_entry_point(op, dtype)?;
+    let entry_point: &'static str = match op {
+        "neg" => "neg_f32",
+        "abs" => "abs_f32",
+        "sqrt" => "sqrt_f32",
+        "exp" => "exp_f32",
+        "log" => "log_f32",
+        "sin" => "sin_f32",
+        "cos" => "cos_f32",
+        "tan" => "tan_f32",
+        "atan" => "atan_f32",
+        "tanh" => "tanh_f32",
+        "recip" => "recip_f32",
+        "floor" => "floor_f32",
+        "ceil" => "ceil_f32",
+        "round" => "round_f32",
+        "trunc" => "trunc_f32",
+        "rsqrt" => "rsqrt_f32",
+        "cbrt" => "cbrt_f32",
+        "exp2" => "exp2_f32",
+        "expm1" => "expm1_f32",
+        "log2" => "log2_f32",
+        "log10" => "log10_f32",
+        "log1p" => "log1p_f32",
+        "asin" => "asin_f32",
+        "acos" => "acos_f32",
+        "sinh" => "sinh_f32",
+        "cosh" => "cosh_f32",
+        "asinh" => "asinh_f32",
+        "acosh" => "acosh_f32",
+        "atanh" => "atanh_f32",
+        "square" => "square_f32",
+        "sign" => "sign_f32",
+        "relu" => "relu_f32",
+        "sigmoid" => "sigmoid_f32",
+        "silu" => "silu_f32",
+        "gelu" => "gelu_f32",
+        "isnan" => "isnan_f32",
+        "isinf" => "isinf_f32",
+        _ => return Err(Error::Internal(format!("Unknown unary op: {}", op))),
+    };
 
-    // Use generated shader for all dtypes to keep op coverage consistent.
-    let shader = get_or_leak_shader(dtype, "unary")?;
-    let module_key = get_or_leak_module_key(dtype, "unary")?;
-    let (module_name, shader_source): (&str, &str) = (module_key, shader);
-
-    let module = cache.get_or_create_module(module_name, shader_source);
+    let module = cache.get_or_create_module("unary_f32", UNARY_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline("unary_f32", entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
 
     let mut encoder = cache
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(op),
@@ -358,7 +243,6 @@ pub fn launch_unary_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
@@ -367,11 +251,7 @@ pub fn launch_unary_op(
 // Scalar Operations
 // ============================================================================
 
-/// Launch a scalar element-wise operation kernel.
-///
-/// Computes `out[i] = a[i] op scalar` for all elements.
-///
-/// Supports F32, I32, U32 dtypes.
+/// Launch a scalar operation: `out[i] = a[i] op scalar`. F32 only.
 pub fn launch_scalar_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -382,31 +262,32 @@ pub fn launch_scalar_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Validate dtype support for this operation
-    dtype_support::check_scalar_dtype_support(op, dtype)?;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op });
+    }
 
-    // Get entry point name based on dtype (cached, leaked once per op+dtype)
-    let entry_point = get_or_leak_entry_point(op, dtype)?;
+    let entry_point: &'static str = match op {
+        "add_scalar" => "add_scalar_f32",
+        "sub_scalar" => "sub_scalar_f32",
+        "rsub_scalar" => "rsub_scalar_f32",
+        "mul_scalar" => "mul_scalar_f32",
+        "div_scalar" => "div_scalar_f32",
+        "pow_scalar" => "pow_scalar_f32",
+        _ => return Err(Error::Internal(format!("Unknown scalar op: {}", op))),
+    };
 
-    // Use generated shader for all dtypes to keep op coverage consistent.
-    let shader = get_or_leak_shader(dtype, "scalar")?;
-    let module_key = get_or_leak_module_key(dtype, "scalar")?;
-    let (module_name, shader_source): (&str, &str) = (module_key, shader);
-
-    let module = cache.get_or_create_module(module_name, shader_source);
+    let module = cache.get_or_create_module("scalar_f32", SCALAR_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline("scalar_f32", entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
 
     let mut encoder = cache
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(op),
@@ -416,7 +297,6 @@ pub fn launch_scalar_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
@@ -425,11 +305,7 @@ pub fn launch_scalar_op(
 // Comparison Operations
 // ============================================================================
 
-/// Launch a comparison element-wise operation kernel.
-///
-/// Computes `out[i] = (a[i] op b[i]) ? 1.0 : 0.0` for all elements.
-///
-/// Supports F32, I32, U32 dtypes. Output is always F32.
+/// Launch a comparison operation: `out[i] = (a[i] op b[i]) ? 1.0 : 0.0`. F32 only.
 pub fn launch_compare_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -441,31 +317,32 @@ pub fn launch_compare_op(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Validate dtype support for this operation
-    dtype_support::check_compare_dtype_support(op, dtype)?;
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType { dtype, op });
+    }
 
-    // Get entry point name based on dtype (cached, leaked once per op+dtype)
-    let entry_point = get_or_leak_entry_point(op, dtype)?;
+    let entry_point: &'static str = match op {
+        "eq" => "eq_f32",
+        "ne" => "ne_f32",
+        "lt" => "lt_f32",
+        "le" => "le_f32",
+        "gt" => "gt_f32",
+        "ge" => "ge_f32",
+        _ => return Err(Error::Internal(format!("Unknown compare op: {}", op))),
+    };
 
-    // Use generated shader for all dtypes to keep op coverage consistent.
-    let shader = get_or_leak_shader(dtype, "compare")?;
-    let module_key = get_or_leak_module_key(dtype, "compare")?;
-    let (module_name, shader_source): (&str, &str) = (module_key, shader);
-
-    let module = cache.get_or_create_module(module_name, shader_source);
+    let module = cache.get_or_create_module("compare_f32", COMPARE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline("compare_f32", entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[a, b, out, params_buffer]);
 
     let mut encoder = cache
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some(op) });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some(op),
@@ -475,37 +352,15 @@ pub fn launch_compare_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
 
 // ============================================================================
-// Cast Operation (uses generator for DRY)
+// Cast Operations
 // ============================================================================
 
-/// Get static module name and entry point for a cast operation.
-///
-/// Returns (module_name, entry_point) for caching purposes.
-/// The shader source is generated dynamically via `generate_cast_shader()`.
-fn cast_info(src: DType, dst: DType) -> Option<(&'static str, &'static str)> {
-    match (src, dst) {
-        (DType::F32, DType::I32) => Some(("cast_f32_i32", "cast_f32_to_i32")),
-        (DType::F32, DType::U32) => Some(("cast_f32_u32", "cast_f32_to_u32")),
-        (DType::I32, DType::F32) => Some(("cast_i32_f32", "cast_i32_to_f32")),
-        (DType::I32, DType::U32) => Some(("cast_i32_u32", "cast_i32_to_u32")),
-        (DType::U32, DType::F32) => Some(("cast_u32_f32", "cast_u32_to_f32")),
-        (DType::U32, DType::I32) => Some(("cast_u32_i32", "cast_u32_to_i32")),
-        _ => None,
-    }
-}
-
-/// Launch cast operation kernel.
-///
-/// Converts `out[i] = dst_dtype(a[i])` for all elements.
-/// Supports F32 ↔ I32 ↔ U32 conversions.
-///
-/// Uses `generate_cast_shader()` from the generator module for DRY shader generation.
+/// Launch a cast operation: `out[i] = DstType(a[i])`. Supports F32 ↔ I32 ↔ U32.
 pub fn launch_cast_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -516,29 +371,33 @@ pub fn launch_cast_op(
     src_dtype: DType,
     dst_dtype: DType,
 ) -> Result<()> {
-    // Same-type cast is a no-op (should be caught earlier, but handle here too)
     if src_dtype == dst_dtype {
         return Ok(());
     }
 
-    // Get static names for caching
-    let (module_name, entry_point) =
-        cast_info(src_dtype, dst_dtype).ok_or_else(|| Error::UnsupportedDType {
-            dtype: src_dtype,
-            op: "cast (unsupported dtype combination)",
-        })?;
+    let (module_name, entry_point, shader_source): (&'static str, &'static str, &'static str) =
+        match (src_dtype, dst_dtype) {
+            (DType::F32, DType::I32) => ("cast_f32_i32", "cast_f32_to_i32", CAST_F32_TO_I32_SHADER),
+            (DType::F32, DType::U32) => ("cast_f32_u32", "cast_f32_to_u32", CAST_F32_TO_U32_SHADER),
+            (DType::I32, DType::F32) => ("cast_i32_f32", "cast_i32_to_f32", CAST_I32_TO_F32_SHADER),
+            (DType::I32, DType::U32) => ("cast_i32_u32", "cast_i32_to_u32", CAST_I32_TO_U32_SHADER),
+            (DType::U32, DType::F32) => ("cast_u32_f32", "cast_u32_to_f32", CAST_U32_TO_F32_SHADER),
+            (DType::U32, DType::I32) => ("cast_u32_i32", "cast_u32_to_i32", CAST_U32_TO_I32_SHADER),
+            _ => {
+                return Err(Error::UnsupportedDType {
+                    dtype: src_dtype,
+                    op: "cast",
+                });
+            }
+        };
 
-    // Generate shader source dynamically (DRY - single source of truth in generator.rs)
-    let shader_source = generate_cast_shader(src_dtype, dst_dtype)?;
-
-    let module = cache.get_or_create_module(module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader_source);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
-
     let bind_group = cache.create_bind_group(&layout, &[a, out, params_buffer]);
 
     let mut encoder = cache
@@ -546,7 +405,6 @@ pub fn launch_cast_op(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("cast"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("cast"),
@@ -556,7 +414,6 @@ pub fn launch_cast_op(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
