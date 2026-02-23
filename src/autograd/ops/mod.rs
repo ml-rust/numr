@@ -16,6 +16,7 @@
 
 mod activation;
 mod arithmetic;
+mod cast;
 mod cumulative;
 mod indexing;
 mod linalg;
@@ -28,6 +29,7 @@ mod unary;
 
 pub use activation::*;
 pub use arithmetic::*;
+pub use cast::*;
 pub use cumulative::*;
 pub use indexing::*;
 pub use linalg::*;
