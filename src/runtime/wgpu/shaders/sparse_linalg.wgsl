@@ -19,10 +19,10 @@ struct ScatterParams {
     count: u32,
 }
 
-@group(0) @binding(0) var<uniform> scatter_params: ScatterParams;
-@group(0) @binding(1) var<storage, read> scatter_values_f32: array<f32>;
-@group(0) @binding(2) var<storage, read> scatter_row_indices: array<i32>;
-@group(0) @binding(3) var<storage, read_write> scatter_work_f32: array<f32>;
+@group(0) @binding(0) var<storage, read> scatter_values_f32: array<f32>;
+@group(0) @binding(1) var<storage, read> scatter_row_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> scatter_work_f32: array<f32>;
+@group(0) @binding(3) var<uniform> scatter_params: ScatterParams;
 
 @compute @workgroup_size(256)
 fn sparse_scatter_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -315,13 +315,13 @@ struct TrsvCscUpperParams {
     _pad: u32,
 }
 
-@group(0) @binding(0) var<uniform> trsv_upper_params: TrsvCscUpperParams;
-@group(0) @binding(1) var<storage, read> trsv_upper_level_cols: array<i32>;
-@group(0) @binding(2) var<storage, read> trsv_upper_col_ptrs: array<i32>;
-@group(0) @binding(3) var<storage, read> trsv_upper_row_indices: array<i32>;
-@group(0) @binding(4) var<storage, read> trsv_upper_values: array<f32>;
-@group(0) @binding(5) var<storage, read> trsv_upper_diag_ptr: array<i32>;
-@group(0) @binding(6) var<storage, read_write> trsv_upper_b: array<f32>;
+@group(0) @binding(0) var<storage, read> trsv_upper_level_cols: array<i32>;
+@group(0) @binding(1) var<storage, read> trsv_upper_col_ptrs: array<i32>;
+@group(0) @binding(2) var<storage, read> trsv_upper_row_indices: array<i32>;
+@group(0) @binding(3) var<storage, read> trsv_upper_values: array<f32>;
+@group(0) @binding(4) var<storage, read> trsv_upper_diag_ptr: array<i32>;
+@group(0) @binding(5) var<storage, read_write> trsv_upper_b: array<f32>;
+@group(0) @binding(6) var<uniform> trsv_upper_params: TrsvCscUpperParams;
 
 @compute @workgroup_size(256)
 fn sparse_trsv_csc_upper_level_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -367,10 +367,10 @@ struct FindDiagCscParams {
     _pad3: u32,
 }
 
-@group(0) @binding(0) var<uniform> find_diag_csc_params: FindDiagCscParams;
-@group(0) @binding(1) var<storage, read> find_diag_csc_col_ptrs: array<i32>;
-@group(0) @binding(2) var<storage, read> find_diag_csc_row_indices: array<i32>;
-@group(0) @binding(3) var<storage, read_write> find_diag_csc_diag_ptr: array<i32>;
+@group(0) @binding(0) var<storage, read> find_diag_csc_col_ptrs: array<i32>;
+@group(0) @binding(1) var<storage, read> find_diag_csc_row_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> find_diag_csc_diag_ptr: array<i32>;
+@group(0) @binding(3) var<uniform> find_diag_csc_params: FindDiagCscParams;
 
 @compute @workgroup_size(256)
 fn find_diag_indices_csc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -400,10 +400,10 @@ struct ApplyPermParams {
     _pad3: u32,
 }
 
-@group(0) @binding(0) var<uniform> apply_perm_params: ApplyPermParams;
-@group(0) @binding(1) var<storage, read> apply_perm_b: array<f32>;
-@group(0) @binding(2) var<storage, read> apply_perm_perm: array<i32>;
-@group(0) @binding(3) var<storage, read_write> apply_perm_y: array<f32>;
+@group(0) @binding(0) var<storage, read> apply_perm_b: array<f32>;
+@group(0) @binding(1) var<storage, read> apply_perm_perm: array<i32>;
+@group(0) @binding(2) var<storage, read_write> apply_perm_y: array<f32>;
+@group(0) @binding(3) var<uniform> apply_perm_params: ApplyPermParams;
 
 @compute @workgroup_size(256)
 fn apply_row_perm_f32(@builtin(global_invocation_id) gid: vec3<u32>) {

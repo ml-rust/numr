@@ -241,24 +241,24 @@ fn create_pipelines(
     cache: &crate::runtime::wgpu::shaders::PipelineCache,
     shader_source: &str,
 ) -> Pipelines {
-    let make = |name: &str, entry: &str, num_storage: u32| {
+    let make = |name: &str, entry: &str, num_storage: u32, num_readonly: u32| {
         let module = cache.get_or_create_module_from_source(name, shader_source);
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: num_storage,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: num_readonly,
         });
         let pipeline = cache.get_or_create_dynamic_pipeline(name, entry, &module, &layout);
         (pipeline, layout)
     };
 
-    let (scatter, scatter_layout) = make("sparse_qr_scatter", "sparse_scatter_offset_f32", 3);
+    let (scatter, scatter_layout) = make("sparse_qr_scatter", "sparse_scatter_offset_f32", 3, 2);
     let (reflector, reflector_layout) =
-        make("sparse_qr_reflector", "sparse_qr_apply_reflector_f32", 3);
-    let (norm, norm_layout) = make("sparse_qr_norm", "sparse_qr_norm_f32", 2);
-    let (householder, hh_layout) = make("sparse_qr_householder", "sparse_qr_householder_f32", 5);
-    let (extract_r, extract_layout) = make("sparse_qr_extract", "sparse_qr_extract_r_f32", 2);
-    let (clear, clear_layout) = make("sparse_qr_clear", "sparse_qr_clear_f32", 1);
+        make("sparse_qr_reflector", "sparse_qr_apply_reflector_f32", 3, 2);
+    let (norm, norm_layout) = make("sparse_qr_norm", "sparse_qr_norm_f32", 2, 1);
+    let (householder, hh_layout) = make("sparse_qr_householder", "sparse_qr_householder_f32", 5, 2);
+    let (extract_r, extract_layout) = make("sparse_qr_extract", "sparse_qr_extract_r_f32", 2, 1);
+    let (clear, clear_layout) = make("sparse_qr_clear", "sparse_qr_clear_f32", 1, 0);
 
     Pipelines {
         scatter,

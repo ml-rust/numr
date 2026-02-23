@@ -94,19 +94,19 @@ pub fn sparse_qr_solve_wgpu(
     // ========================================================================
     // Step 1: Apply Q^T via Householder reflectors
     // ========================================================================
-    let make = |name: &str, entry: &str, num_storage: u32| {
+    let make = |name: &str, entry: &str, num_storage: u32, num_readonly: u32| {
         let module = cache.get_or_create_module_from_source(name, shader_source);
         let layout = cache.get_or_create_layout(LayoutKey {
             num_storage_buffers: num_storage,
             num_uniform_buffers: 1,
-            num_readonly_storage: 0,
+            num_readonly_storage: num_readonly,
         });
         let pipeline = cache.get_or_create_dynamic_pipeline(name, entry, &module, &layout);
         (pipeline, layout)
     };
 
     let (reflector_pipeline, reflector_layout) =
-        make("sparse_qr_reflector", "sparse_qr_apply_reflector_f32", 3);
+        make("sparse_qr_reflector", "sparse_qr_apply_reflector_f32", 3, 2);
 
     // Temp buffer for scalar tau value
     let tau_scalar_buf = wgpu_device.create_buffer(&BufferDescriptor {
@@ -231,7 +231,7 @@ pub fn sparse_qr_solve_wgpu(
     let find_diag_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
-        num_readonly_storage: 0,
+        num_readonly_storage: 2,
     });
     let find_diag_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_find_diag_csc",
@@ -305,7 +305,7 @@ pub fn sparse_qr_solve_wgpu(
     let upper_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
-        num_readonly_storage: 0,
+        num_readonly_storage: 5,
     });
     let upper_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_trsv_csc_upper",
@@ -412,7 +412,7 @@ pub fn sparse_qr_solve_wgpu(
     let perm_layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
-        num_readonly_storage: 0,
+        num_readonly_storage: 2,
     });
     let perm_pipeline = cache.get_or_create_dynamic_pipeline(
         "sparse_apply_perm",
