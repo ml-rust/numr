@@ -106,3 +106,81 @@ pub(crate) fn native_layer_norm(
 
     Ok(out)
 }
+
+pub(crate) fn native_group_norm(
+    client: &WgpuClient,
+    input: &Tensor<WgpuRuntime>,
+    weight: &Tensor<WgpuRuntime>,
+    bias: &Tensor<WgpuRuntime>,
+    num_groups: usize,
+    eps: f32,
+) -> Result<Tensor<WgpuRuntime>> {
+    let dtype = input.dtype();
+    let shape = input.shape();
+
+    if shape.len() < 2 {
+        return Err(Error::InvalidArgument {
+            arg: "input".into(),
+            reason: "group_norm requires at least 2D input [batch, channels, ...]".into(),
+        });
+    }
+
+    let batch = shape[0];
+    let channels = shape[1];
+    if channels % num_groups != 0 {
+        return Err(Error::InvalidArgument {
+            arg: "num_groups".into(),
+            reason: format!("channels {channels} not divisible by num_groups {num_groups}"),
+        });
+    }
+    let channels_per_group = channels / num_groups;
+    let spatial: usize = shape[2..].iter().product::<usize>().max(1);
+
+    if weight.shape() != [channels] || bias.shape() != [channels] {
+        return Err(Error::ShapeMismatch {
+            expected: vec![channels],
+            got: if weight.shape() != [channels] {
+                weight.shape().to_vec()
+            } else {
+                bias.shape().to_vec()
+            },
+        });
+    }
+
+    let input_contig = ensure_contiguous(input);
+    let weight_contig = ensure_contiguous(weight);
+    let bias_contig = ensure_contiguous(bias);
+    let out = alloc_output(client, shape, dtype);
+
+    let input_buf = get_tensor_buffer(&input_contig)?;
+    let weight_buf = get_tensor_buffer(&weight_contig)?;
+    let bias_buf = get_tensor_buffer(&bias_contig)?;
+    let out_buf = get_tensor_buffer(&out)?;
+
+    let params = GroupNormParams {
+        batch_size: batch as u32,
+        channels: channels as u32,
+        spatial: spatial as u32,
+        num_groups: num_groups as u32,
+        channels_per_group: channels_per_group as u32,
+        eps,
+        _pad0: 0,
+        _pad1: 0,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    norm::launch_group_norm(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &input_buf,
+        &weight_buf,
+        &bias_buf,
+        &out_buf,
+        &params_buf,
+        batch,
+        num_groups,
+        dtype,
+    )?;
+
+    Ok(out)
+}

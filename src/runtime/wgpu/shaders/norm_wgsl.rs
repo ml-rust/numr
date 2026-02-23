@@ -242,4 +242,123 @@ fn layer_norm_no_bias_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
         i = i + WORKGROUP_SIZE;
     }
 }
+
+// ============================================================================
+// Group Normalization
+// ============================================================================
+// group_norm(x, weight, bias, num_groups) normalizes over groups of channels
+// Each group is normalized independently over the spatial and channel dimensions
+
+struct GroupNormParams {
+    batch_size: u32,
+    channels: u32,
+    spatial: u32,
+    num_groups: u32,
+    channels_per_group: u32,
+    eps: f32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> gn_input: array<f32>;
+@group(0) @binding(1) var<storage, read_write> gn_weight: array<f32>;
+@group(0) @binding(2) var<storage, read_write> gn_bias: array<f32>;
+@group(0) @binding(3) var<storage, read_write> gn_output: array<f32>;
+@group(0) @binding(4) var<uniform> gn_params: GroupNormParams;
+
+var<workgroup> gn_shared_mean: array<f32, 256>;
+var<workgroup> gn_shared_var: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+                  @builtin(local_invocation_id) local_id: vec3<u32>,
+                  @builtin(workgroup_id) group_id: vec3<u32>) {
+    let tid = local_id.x;
+    let bg_id = group_id.x;  // batch_id * num_groups + group_id
+
+    let batch_size = gn_params.batch_size;
+    let channels = gn_params.channels;
+    let spatial = gn_params.spatial;
+    let num_groups = gn_params.num_groups;
+    let channels_per_group = gn_params.channels_per_group;
+    let eps = gn_params.eps;
+
+    if (bg_id >= batch_size * num_groups) {
+        return;
+    }
+
+    let batch_id = bg_id / num_groups;
+    let group_id_val = bg_id % num_groups;
+    let c_start = group_id_val * channels_per_group;
+    let group_size = channels_per_group * spatial;
+
+    // Compute base offset in flattened NCHW layout
+    // offset = batch_id * channels * spatial + group_id * channels_per_group * spatial
+    let batch_offset = batch_id * channels * spatial;
+    let group_offset = batch_offset + c_start * spatial;
+
+    // Step 1: Compute sum for mean
+    var sum: f32 = 0.0;
+    var i: u32 = tid;
+    while (i < group_size) {
+        let c_offset = i / spatial;
+        let s_offset = i % spatial;
+        let idx = group_offset + c_offset * spatial + s_offset;
+        sum = sum + gn_input[idx];
+        i = i + WORKGROUP_SIZE;
+    }
+
+    gn_shared_mean[tid] = sum;
+    workgroupBarrier();
+
+    // Reduce sum to compute mean
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            gn_shared_mean[tid] = gn_shared_mean[tid] + gn_shared_mean[tid + s];
+        }
+        workgroupBarrier();
+    }
+
+    let mean = gn_shared_mean[0] / f32(group_size);
+    workgroupBarrier();
+
+    // Step 2: Compute sum of squared differences for variance
+    var var_sum: f32 = 0.0;
+    i = tid;
+    while (i < group_size) {
+        let c_offset = i / spatial;
+        let s_offset = i % spatial;
+        let idx = group_offset + c_offset * spatial + s_offset;
+        let diff = gn_input[idx] - mean;
+        var_sum = var_sum + diff * diff;
+        i = i + WORKGROUP_SIZE;
+    }
+
+    gn_shared_var[tid] = var_sum;
+    workgroupBarrier();
+
+    // Reduce variance
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            gn_shared_var[tid] = gn_shared_var[tid] + gn_shared_var[tid + s];
+        }
+        workgroupBarrier();
+    }
+
+    let variance = gn_shared_var[0] / f32(group_size);
+    let inv_std = 1.0 / sqrt(variance + eps);
+    workgroupBarrier();
+
+    // Step 3: Normalize and apply per-channel weight and bias
+    i = tid;
+    while (i < group_size) {
+        let c_offset = i / spatial;
+        let s_offset = i % spatial;
+        let idx = group_offset + c_offset * spatial + s_offset;
+        let channel = c_start + c_offset;
+        let normalized = (gn_input[idx] - mean) * inv_std;
+        gn_output[idx] = normalized * gn_weight[channel] + gn_bias[channel];
+        i = i + WORKGROUP_SIZE;
+    }
+}
 "#;

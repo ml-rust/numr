@@ -224,3 +224,72 @@ unsafe fn layer_norm_kernel_scalar<T: Element>(
         }
     }
 }
+
+/// Group Normalization kernel.
+///
+/// Input layout: `[batch, channels, spatial]` (contiguous).
+/// For each (batch, group), computes mean/var over `channels_per_group * spatial` elements,
+/// then applies per-channel weight and bias.
+///
+/// # Safety
+/// - `input` and `out`: valid for `batch * channels * spatial` elements
+/// - `weight` and `bias`: valid for `channels` elements
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn group_norm_kernel<T: Element>(
+    input: *const T,
+    weight: *const T,
+    bias: *const T,
+    out: *mut T,
+    batch: usize,
+    channels: usize,
+    spatial: usize,
+    num_groups: usize,
+    channels_per_group: usize,
+    eps: f32,
+) {
+    let eps = eps as f64;
+    let group_size = channels_per_group * spatial;
+
+    for b in 0..batch {
+        for g in 0..num_groups {
+            let c_start = g * channels_per_group;
+
+            // Compute mean over group
+            let mut sum = 0.0f64;
+            for c in 0..channels_per_group {
+                let ch = c_start + c;
+                let offset = (b * channels + ch) * spatial;
+                for s in 0..spatial {
+                    sum += (*input.add(offset + s)).to_f64();
+                }
+            }
+            let mean = sum / group_size as f64;
+
+            // Compute variance over group
+            let mut var_sum = 0.0f64;
+            for c in 0..channels_per_group {
+                let ch = c_start + c;
+                let offset = (b * channels + ch) * spatial;
+                for s in 0..spatial {
+                    let diff = (*input.add(offset + s)).to_f64() - mean;
+                    var_sum += diff * diff;
+                }
+            }
+            let inv_std = 1.0 / (var_sum / group_size as f64 + eps).sqrt();
+
+            // Normalize and apply per-channel affine
+            for c in 0..channels_per_group {
+                let ch = c_start + c;
+                let w = (*weight.add(ch)).to_f64();
+                let bi = (*bias.add(ch)).to_f64();
+                let offset = (b * channels + ch) * spatial;
+                for s in 0..spatial {
+                    let x = (*input.add(offset + s)).to_f64();
+                    let result = (x - mean) * inv_std * w + bi;
+                    *out.add(offset + s) = T::from_f64(result);
+                }
+            }
+        }
+    }
+}

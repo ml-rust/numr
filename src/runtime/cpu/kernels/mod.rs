@@ -71,7 +71,7 @@ pub use memory::{
     multinomial_kernel_with_replacement, multinomial_kernel_without_replacement, one_hot_kernel,
     rand_normal_kernel, rand_uniform_kernel, randint_kernel, randperm_kernel,
 };
-pub use norm::{layer_norm_kernel, rms_norm_kernel};
+pub use norm::{group_norm_kernel, layer_norm_kernel, rms_norm_kernel};
 pub use quasirandom::{
     halton_f32, halton_f64, latin_hypercube_f32, latin_hypercube_f64, sobol_f32, sobol_f64,
 };

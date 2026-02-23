@@ -86,6 +86,58 @@ where
     }
 }
 
+/// Group Normalization with autograd support.
+///
+/// Input: `[batch, channels, *spatial]`
+/// Normalizes over groups of channels independently.
+///
+/// # Arguments
+/// * `input` - Input variable `[batch, channels, *spatial]`
+/// * `weight` - Gamma variable `[channels]`
+/// * `bias` - Beta variable `[channels]`
+/// * `num_groups` - Number of groups (must divide channels)
+/// * `eps` - Numerical stability constant
+/// * `client` - Runtime client
+pub fn var_group_norm<R, C>(
+    input: &Var<R>,
+    weight: &Var<R>,
+    bias: &Var<R>,
+    num_groups: usize,
+    eps: f32,
+    client: &C,
+) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + NormalizationOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    let output = client.group_norm(
+        input.tensor(),
+        weight.tensor(),
+        bias.tensor(),
+        num_groups,
+        eps,
+    )?;
+
+    if input.requires_grad() || weight.requires_grad() || bias.requires_grad() {
+        let grad_fn = GroupNormBackward::<R>::new(
+            input.id(),
+            weight.id(),
+            bias.id(),
+            input.tensor().clone(),
+            weight.tensor().clone(),
+            num_groups,
+            eps,
+            input.grad_fn().cloned(),
+            weight.grad_fn().cloned(),
+            bias.grad_fn().cloned(),
+        );
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +325,95 @@ mod tests {
         let result = var_rms_norm(&input, &weight, 1e-5, &client).unwrap();
         assert!(!result.requires_grad());
         assert!(result.grad_fn().is_none());
+    }
+
+    #[test]
+    fn test_var_group_norm_forward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [batch=1, channels=4, spatial=3], 2 groups
+        let input = Var::new(
+            Tensor::<CpuRuntime>::from_slice(
+                &[
+                    1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+                ],
+                &[1, 4, 3],
+                &device,
+            ),
+            false,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device),
+            false,
+        );
+        let bias = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4], &device),
+            false,
+        );
+
+        let result = var_group_norm(&input, &weight, &bias, 2, 1e-5, &client).unwrap();
+        assert_eq!(result.tensor().shape(), &[1, 4, 3]);
+
+        // Each group should have approximately zero mean
+        let data: Vec<f32> = result.tensor().to_vec();
+        // Group 0: channels 0,1 → indices 0..6
+        let group0_sum: f32 = data[0..6].iter().sum();
+        assert!(
+            group0_sum.abs() < 1e-4,
+            "group 0 mean should be ~0, sum={group0_sum}"
+        );
+        // Group 1: channels 2,3 → indices 6..12
+        let group1_sum: f32 = data[6..12].iter().sum();
+        assert!(
+            group1_sum.abs() < 1e-4,
+            "group 1 mean should be ~0, sum={group1_sum}"
+        );
+    }
+
+    #[test]
+    fn test_var_group_norm_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // [batch=1, channels=4, spatial=2], 2 groups
+        let input = Var::new(
+            Tensor::<CpuRuntime>::from_slice(
+                &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+                &[1, 4, 2],
+                &device,
+            ),
+            true,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device),
+            true,
+        );
+        let bias = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4], &device),
+            true,
+        );
+
+        let output = var_group_norm(&input, &weight, &bias, 2, 1e-5, &client).unwrap();
+        let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+        let grads = backward(&loss, &client).unwrap();
+
+        let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
+        let d_weight: Vec<f32> = grads.get(weight.id()).unwrap().to_vec();
+        let d_bias: Vec<f32> = grads.get(bias.id()).unwrap().to_vec();
+
+        assert_eq!(d_input.len(), 8);
+        assert_eq!(d_weight.len(), 4);
+        assert_eq!(d_bias.len(), 4);
+
+        // d_bias should be sum of grad_output over batch and spatial = [2, 2, 2, 2]
+        for &b in &d_bias {
+            assert!((b - 2.0).abs() < 1e-5, "d_bias should be 2.0, got {b}");
+        }
+
+        // All gradients should be finite
+        for v in d_input.iter().chain(d_weight.iter()) {
+            assert!(v.is_finite());
+        }
     }
 }

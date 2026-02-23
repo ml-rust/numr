@@ -45,4 +45,30 @@ pub trait NormalizationOps<R: Runtime> {
             feature: "NormalizationOps::layer_norm",
         })
     }
+
+    /// Group Normalization: normalize over groups of channels.
+    ///
+    /// Divides channels into `num_groups` groups and normalizes each group
+    /// independently. Used in some vision architectures and diffusion models.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape `[batch, channels, ...]`
+    /// * `weight` - Scale (gamma) of shape `[channels]`
+    /// * `bias` - Bias (beta) of shape `[channels]`
+    /// * `num_groups` - Number of groups (must divide channels evenly)
+    /// * `eps` - Small constant for numerical stability
+    fn group_norm(
+        &self,
+        input: &Tensor<R>,
+        weight: &Tensor<R>,
+        bias: &Tensor<R>,
+        num_groups: usize,
+        eps: f32,
+    ) -> Result<Tensor<R>> {
+        let _ = (input, weight, bias, num_groups, eps);
+        Err(Error::NotImplemented {
+            feature: "NormalizationOps::group_norm",
+        })
+    }
 }

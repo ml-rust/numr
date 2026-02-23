@@ -132,4 +132,80 @@ impl NormalizationOps<CpuRuntime> for CpuClient {
 
         Ok(out)
     }
+
+    fn group_norm(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        weight: &Tensor<CpuRuntime>,
+        bias: &Tensor<CpuRuntime>,
+        num_groups: usize,
+        eps: f32,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = input.dtype();
+
+        if weight.dtype() != dtype || bias.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: if weight.dtype() != dtype {
+                    weight.dtype()
+                } else {
+                    bias.dtype()
+                },
+            });
+        }
+
+        let shape = input.shape();
+        if shape.len() < 2 {
+            return Err(Error::InvalidArgument {
+                arg: "input".into(),
+                reason: "group_norm requires at least 2D input [batch, channels, ...]".into(),
+            });
+        }
+
+        let batch = shape[0];
+        let channels = shape[1];
+        if channels % num_groups != 0 {
+            return Err(Error::InvalidArgument {
+                arg: "num_groups".into(),
+                reason: format!("channels {channels} not divisible by num_groups {num_groups}"),
+            });
+        }
+        let channels_per_group = channels / num_groups;
+        let spatial: usize = shape[2..].iter().product::<usize>().max(1);
+
+        if weight.shape() != [channels] || bias.shape() != [channels] {
+            return Err(Error::ShapeMismatch {
+                expected: vec![channels],
+                got: if weight.shape() != [channels] {
+                    weight.shape().to_vec()
+                } else {
+                    bias.shape().to_vec()
+                },
+            });
+        }
+
+        let input_contig = ensure_contiguous(input);
+        let weight_contig = ensure_contiguous(weight);
+        let bias_contig = ensure_contiguous(bias);
+        let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
+
+        dispatch_dtype!(dtype, T => {
+            unsafe {
+                kernels::group_norm_kernel::<T>(
+                    input_contig.ptr() as *const T,
+                    weight_contig.ptr() as *const T,
+                    bias_contig.ptr() as *const T,
+                    out.ptr() as *mut T,
+                    batch,
+                    channels,
+                    spatial,
+                    num_groups,
+                    channels_per_group,
+                    eps,
+                );
+            }
+        }, "group_norm");
+
+        Ok(out)
+    }
 }

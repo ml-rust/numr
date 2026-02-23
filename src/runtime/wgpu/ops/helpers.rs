@@ -173,6 +173,19 @@ pub(super) struct LayerNormParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct GroupNormParams {
+    pub(super) batch_size: u32,
+    pub(super) channels: u32,
+    pub(super) spatial: u32,
+    pub(super) num_groups: u32,
+    pub(super) channels_per_group: u32,
+    pub(super) eps: f32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct CatShaderParams {
     pub(super) outer_size: u32,
     pub(super) src_cat_size: u32,
