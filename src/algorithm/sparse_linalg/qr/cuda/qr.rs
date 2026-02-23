@@ -6,7 +6,7 @@ use crate::algorithm::sparse_linalg::qr::symbolic::sparse_qr_symbolic;
 use crate::algorithm::sparse_linalg::qr::types::{QrFactors, QrOptions, QrSymbolic};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cuda::{CudaClient, CudaRuntime};
+use crate::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 use crate::sparse::CscData;
 
 use super::factorize::run_factorization;
@@ -77,7 +77,7 @@ mod tests {
     }
 
     fn get_cuda_client() -> CudaClient {
-        CudaClient::new(0).expect("CUDA device required")
+        CudaClient::new(CudaDevice::new(0)).expect("CUDA device required")
     }
 
     #[test]
