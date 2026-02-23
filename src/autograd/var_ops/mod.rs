@@ -29,6 +29,7 @@ mod activation;
 mod arithmetic;
 mod cast;
 mod cumulative;
+mod dropout;
 mod indexing;
 pub mod linalg;
 mod matmul;
@@ -44,6 +45,7 @@ pub use activation::{var_log_softmax, var_relu, var_sigmoid, var_silu, var_softm
 pub use arithmetic::{var_add, var_div, var_mul, var_pow, var_sub};
 pub use cast::var_cast;
 pub use cumulative::{var_cumprod, var_cumsum};
+pub use dropout::var_dropout;
 pub use indexing::var_gather;
 pub use linalg::{var_cholesky, var_det, var_inverse, var_solve, var_trace};
 pub use matmul::var_matmul;
