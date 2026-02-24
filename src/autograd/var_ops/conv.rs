@@ -52,9 +52,8 @@ where
         groups,
     )?;
 
-    let needs_grad = input.requires_grad()
-        || weight.requires_grad()
-        || bias.map_or(false, |b| b.requires_grad());
+    let needs_grad =
+        input.requires_grad() || weight.requires_grad() || bias.is_some_and(|b| b.requires_grad());
 
     if needs_grad {
         let grad_fn = Conv1dBackward::<R>::new(

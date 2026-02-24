@@ -55,7 +55,7 @@ where
 ///
 /// Gradients:
 /// - d_gate = grad_output * up * silu'(gate)
-///          = grad_output * up * (sigmoid(gate) * (1 + gate - silu(gate)))
+///   = grad_output * up * (sigmoid(gate) * (1 + gate - silu(gate)))
 /// - d_up   = grad_output * silu(gate)
 pub struct SwiGLUBackward<R: Runtime> {
     input_ids: [crate::tensor::TensorId; 2],
