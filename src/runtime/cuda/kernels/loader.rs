@@ -217,6 +217,8 @@ pub mod kernel_names {
     pub const ACTIVATION_MODULE: &str = "activation";
     /// Normalization operations (rms_norm, layer_norm)
     pub const NORM_MODULE: &str = "norm";
+    /// Fused add + normalization operations
+    pub const FUSED_ADD_NORM_MODULE: &str = "fused_add_norm";
     /// Type casting operations (cast between dtypes)
     pub const CAST_MODULE: &str = "cast";
     /// Utility operations (fill)

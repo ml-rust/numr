@@ -34,7 +34,10 @@ pub(crate) use indexing::{
 };
 pub(crate) use masking::{native_embedding_lookup, native_masked_fill, native_masked_select};
 pub(crate) use matmul::{native_matmul, native_matmul_bias};
-pub(crate) use normalization::{native_group_norm, native_layer_norm, native_rms_norm};
+pub(crate) use normalization::{
+    native_fused_add_layer_norm, native_fused_add_layer_norm_bwd, native_fused_add_rms_norm,
+    native_fused_add_rms_norm_bwd, native_group_norm, native_layer_norm, native_rms_norm,
+};
 pub(crate) use reduce::{native_argreduce_op, native_reduce_op, native_softmax};
 pub(crate) use semiring_matmul::native_semiring_matmul;
 pub(crate) use unary::native_unary_op;

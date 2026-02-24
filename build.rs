@@ -49,6 +49,7 @@ fn compile_cuda_kernels() {
         "fft.cu",
         "fused_activation_mul.cu",
         "fused_activation_mul_bwd.cu",
+        "fused_add_norm.cu",
         "index.cu",
         "linalg_advanced.cu",
         "linalg_banded.cu",

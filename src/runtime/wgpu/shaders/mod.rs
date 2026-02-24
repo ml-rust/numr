@@ -26,6 +26,7 @@ pub mod statistics;
 // Operation launchers
 pub mod activation_launcher;
 pub mod elementwise;
+pub mod fused_add_norm;
 pub mod matmul;
 pub mod matrix_funcs_launcher;
 pub mod norm;
@@ -86,6 +87,10 @@ pub use distributions::{
 pub use fused_activation_mul::{
     launch_gelu_mul, launch_gelu_mul_bwd, launch_relu_mul, launch_relu_mul_bwd, launch_sigmoid_mul,
     launch_sigmoid_mul_bwd, launch_silu_mul, launch_silu_mul_bwd,
+};
+pub use fused_add_norm::{
+    launch_fused_add_layer_norm, launch_fused_add_layer_norm_bwd, launch_fused_add_rms_norm,
+    launch_fused_add_rms_norm_bwd, launch_reduce_sum_rows,
 };
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,

@@ -14,6 +14,7 @@ pub mod cumulative;
 pub mod distance;
 pub mod distributions;
 pub mod fft;
+pub mod fused_add_norm;
 pub mod index;
 pub mod logical;
 pub mod matmul;
@@ -58,6 +59,10 @@ pub use distributions::{
 pub use fft::{
     fftshift_c64, fftshift_c128, ifftshift_c64, ifftshift_c128, irfft_c64, irfft_c128, rfft_c64,
     rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
+};
+pub use fused_add_norm::{
+    fused_add_layer_norm_bwd_kernel, fused_add_layer_norm_kernel, fused_add_rms_norm_bwd_kernel,
+    fused_add_rms_norm_kernel,
 };
 pub use index::{
     bincount_kernel, embedding_lookup_kernel, gather_2d_kernel, gather_kernel, gather_nd_kernel,
