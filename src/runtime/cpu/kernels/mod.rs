@@ -30,6 +30,8 @@ pub mod sobol_data;
 pub mod sort;
 #[cfg(feature = "sparse")]
 pub mod sparse;
+#[cfg(feature = "sparse")]
+pub mod sparse_24;
 pub mod unary;
 pub mod where_select;
 

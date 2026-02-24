@@ -99,3 +99,7 @@ mod einsum;
 #[cfg(feature = "fp8")]
 #[path = "../../../ops/cuda/fp8_matmul.rs"]
 mod fp8_matmul;
+
+#[cfg(feature = "sparse")]
+#[path = "../../../ops/cuda/sparse_24.rs"]
+mod sparse_24;

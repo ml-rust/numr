@@ -62,11 +62,14 @@ mod csc;
 mod csr;
 mod format;
 mod ops;
+pub mod structured;
 mod tensor;
 
+pub use crate::ops::traits::Sparse24Ops;
 pub use coo::CooData;
 pub use csc::CscData;
 pub use csr::CsrData;
 pub use format::{SparseFormat, SparseStorage};
 pub use ops::{NormType, SparseOps, SparseScaling};
+pub use structured::Sparse24Tensor;
 pub use tensor::SparseTensor;

@@ -74,6 +74,8 @@ mod scan;
 mod shape;
 mod sort;
 #[cfg(feature = "sparse")]
+mod sparse_24_launcher;
+#[cfg(feature = "sparse")]
 mod sparse_convert;
 #[cfg(feature = "sparse")]
 mod sparse_coo;
@@ -123,6 +125,8 @@ pub use scalar::*;
 pub use scan::*;
 pub use shape::*;
 pub use sort::*;
+#[cfg(feature = "sparse")]
+pub use sparse_24_launcher::*;
 #[cfg(feature = "sparse")]
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]

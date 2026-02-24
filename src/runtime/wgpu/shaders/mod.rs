@@ -34,6 +34,8 @@ pub mod norm;
 pub mod reduce;
 pub mod semiring_matmul;
 #[cfg(feature = "sparse")]
+pub mod sparse_24;
+#[cfg(feature = "sparse")]
 pub mod sparse_algorithms_launcher;
 #[cfg(feature = "sparse")]
 pub mod sparse_conversions_launcher;
@@ -105,6 +107,8 @@ pub use matrix_funcs_launcher::{
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
+#[cfg(feature = "sparse")]
+pub use sparse_24::{Sparse24Params, launch_sparse_24_decompress, launch_sparse_24_prune};
 #[cfg(feature = "sparse")]
 pub use sparse_algorithms_launcher::{
     launch_dsmm_csc, launch_spgemm_accumulate, launch_spgemm_scatter, launch_spgemm_symbolic,

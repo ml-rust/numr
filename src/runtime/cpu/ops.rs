@@ -99,3 +99,7 @@ mod gemm_epilogue;
 #[cfg(feature = "fp8")]
 #[path = "../../ops/cpu/fp8_matmul.rs"]
 mod fp8_matmul;
+
+#[cfg(feature = "sparse")]
+#[path = "../../ops/cpu/sparse_24.rs"]
+mod sparse_24;

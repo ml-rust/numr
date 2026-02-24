@@ -29,6 +29,8 @@ mod scalar;
 mod semiring_matmul;
 mod shape;
 mod sorting;
+#[cfg(feature = "sparse")]
+mod sparse_24;
 mod statistics;
 mod tensor_ops;
 mod type_conversion;
@@ -61,6 +63,8 @@ pub use scalar::ScalarOps;
 pub use semiring_matmul::SemiringMatmulOps;
 pub use shape::ShapeOps;
 pub use sorting::SortingOps;
+#[cfg(feature = "sparse")]
+pub use sparse_24::Sparse24Ops;
 pub use statistics::StatisticalOps;
 pub use tensor_ops::TensorOps;
 pub use type_conversion::TypeConversionOps;

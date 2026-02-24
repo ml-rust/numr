@@ -98,3 +98,7 @@ mod einsum;
 
 #[path = "../../../ops/wgpu/fp8_matmul.rs"]
 mod fp8_matmul;
+
+#[cfg(feature = "sparse")]
+#[path = "../../../ops/wgpu/sparse_24.rs"]
+mod sparse_24;

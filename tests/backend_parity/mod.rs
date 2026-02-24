@@ -40,6 +40,8 @@ pub mod sort;
 #[cfg(feature = "sparse")]
 pub mod sparse;
 #[cfg(feature = "sparse")]
+pub mod sparse_24;
+#[cfg(feature = "sparse")]
 pub mod sparse_ops;
 pub mod special;
 pub mod statistics;

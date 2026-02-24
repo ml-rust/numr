@@ -126,7 +126,9 @@ pub mod prelude {
 
     // Sparse tensors (feature-gated)
     #[cfg(feature = "sparse")]
-    pub use crate::sparse::{SparseFormat, SparseOps, SparseTensor};
+    pub use crate::sparse::Sparse24Ops;
+    #[cfg(feature = "sparse")]
+    pub use crate::sparse::{Sparse24Tensor, SparseFormat, SparseOps, SparseTensor};
 }
 
 /// Default runtime based on enabled features

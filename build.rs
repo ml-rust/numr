@@ -84,6 +84,7 @@ fn compile_cuda_kernels() {
     // Add sparse kernels if sparse feature is enabled
     #[cfg(feature = "sparse")]
     {
+        kernel_files.push("sparse_24.cu");
         kernel_files.push("sparse_spmv.cu");
         kernel_files.push("sparse_merge.cu");
         kernel_files.push("sparse_convert.cu");
