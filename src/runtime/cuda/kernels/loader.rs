@@ -213,8 +213,10 @@ pub mod kernel_names {
     pub const REDUCE_MODULE: &str = "reduce";
     /// Comparison operations (eq, ne, lt, le, gt, ge)
     pub const COMPARE_MODULE: &str = "compare";
-    /// Activation functions (relu, sigmoid, softmax, silu, gelu)
+    /// Element-wise activation functions (relu, sigmoid, silu, gelu, leaky_relu, elu)
     pub const ACTIVATION_MODULE: &str = "activation";
+    /// Softmax forward + backward kernels
+    pub const SOFTMAX_MODULE: &str = "softmax";
     /// Normalization operations (rms_norm, layer_norm)
     pub const NORM_MODULE: &str = "norm";
     /// Fused add + normalization operations

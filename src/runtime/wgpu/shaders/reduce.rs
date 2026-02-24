@@ -226,3 +226,51 @@ pub fn launch_softmax_op(
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
+
+/// Launch softmax backward kernel. F32 only.
+///
+/// d_input = output * (grad - sum(grad * output))
+pub fn launch_softmax_bwd_op(
+    cache: &PipelineCache,
+    queue: &Queue,
+    grad: &Buffer,
+    output: &Buffer,
+    d_input: &Buffer,
+    params_buffer: &Buffer,
+    batch_size: usize,
+    dtype: DType,
+) -> Result<()> {
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "softmax_bwd",
+        });
+    }
+
+    let module = cache.get_or_create_module("reduce_f32", REDUCE_F32_SHADER);
+    // 2 read-only storage (grad, output) + 1 read-write (d_input) + 1 uniform
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 2,
+    });
+    let pipeline = cache.get_or_create_pipeline("reduce_f32", "softmax_bwd_f32", &module, &layout);
+    let bind_group = cache.create_bind_group(&layout, &[grad, output, d_input, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("softmax_bwd"),
+        });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("softmax_bwd"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+    }
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}

@@ -84,6 +84,23 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Softmax backward pass: computes gradient w.r.t. input given output gradient and softmax output.
+    ///
+    /// Formula: `d_input = output * (grad - sum(grad * output, dim, keepdim=true))`
+    ///
+    /// This is the Jacobian-vector product for softmax, used in training backward passes.
+    ///
+    /// # Arguments
+    /// * `grad` - Upstream gradient (same shape as output)
+    /// * `output` - The softmax output from the forward pass
+    /// * `dim` - The dimension along which softmax was computed
+    fn softmax_bwd(&self, grad: &Tensor<R>, output: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (grad, output, dim);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::softmax_bwd",
+        })
+    }
+
     /// Softplus: `log(1 + exp(a))`
     ///
     /// A smooth approximation to ReLU that is always positive and differentiable.

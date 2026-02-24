@@ -7,7 +7,7 @@ use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
     native_fused_activation_mul_bwd, native_fused_activation_mul_fwd, native_parametric_activation,
-    native_softmax, native_unary_op,
+    native_softmax, native_softmax_bwd, native_unary_op,
 };
 use crate::tensor::Tensor;
 
@@ -22,6 +22,15 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
 
     fn softmax(&self, a: &Tensor<WgpuRuntime>, dim: isize) -> Result<Tensor<WgpuRuntime>> {
         native_softmax(self, a, dim)
+    }
+
+    fn softmax_bwd(
+        &self,
+        grad: &Tensor<WgpuRuntime>,
+        output: &Tensor<WgpuRuntime>,
+        dim: isize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_softmax_bwd(self, grad, output, dim)
     }
 
     fn silu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {

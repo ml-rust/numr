@@ -5,7 +5,9 @@
 
 mod special;
 
-pub use special::{argmax_kernel, argmin_kernel, softmax_kernel, variance_kernel};
+pub use special::{
+    argmax_kernel, argmin_kernel, softmax_bwd_kernel, softmax_kernel, variance_kernel,
+};
 
 use crate::dtype::{DType, Element};
 use crate::ops::{AccumulationPrecision, ReduceOp};

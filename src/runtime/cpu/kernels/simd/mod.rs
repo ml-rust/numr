@@ -55,6 +55,7 @@ pub mod norm;
 pub mod reduce;
 pub mod scalar;
 pub mod softmax;
+pub mod softmax_bwd;
 pub mod special;
 pub mod unary;
 pub mod where_select;

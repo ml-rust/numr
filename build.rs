@@ -37,6 +37,7 @@ fn compile_cuda_kernels() {
     #[allow(unused_mut)]
     let mut kernel_files = vec![
         "activation.cu",
+        "softmax.cu",
         "advanced_random.cu",
         "binary.cu",
         "cast.cu",

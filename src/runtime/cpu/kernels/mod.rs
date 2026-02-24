@@ -82,7 +82,7 @@ pub use quasirandom::{
 };
 pub use reduce::{
     Accumulator, argmax_kernel, argmin_kernel, reduce_kernel, reduce_kernel_with_precision,
-    softmax_kernel, variance_kernel,
+    softmax_bwd_kernel, softmax_kernel, variance_kernel,
 };
 pub use scalar::{rsub_scalar_kernel, scalar_op_kernel};
 pub use sort::{

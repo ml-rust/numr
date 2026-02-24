@@ -145,9 +145,8 @@ fn test_rand_invariants_all_backends() {
                     }};
                 }
 
-                match dtype {
-                    DType::F32 => check_wgpu!(f32), // WebGPU: F32 only
-                    _ => {}
+                if dtype == DType::F32 {
+                    check_wgpu!(f32); // WebGPU: F32 only
                 }
             });
         }
@@ -244,9 +243,8 @@ fn test_randn_invariants_all_backends() {
                     }};
                 }
 
-                match dtype {
-                    DType::F32 => check_wgpu!(f32), // WebGPU: F32 only
-                    _ => {}
+                if dtype == DType::F32 {
+                    check_wgpu!(f32); // WebGPU: F32 only
                 }
             });
         }

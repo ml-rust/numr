@@ -236,6 +236,66 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         Ok(out)
     }
 
+    fn softmax_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        output: &Tensor<CpuRuntime>,
+        dim: isize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let dtype = grad.dtype();
+        let ndim = grad.ndim();
+        let dim_idx =
+            normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
+
+        let grad_contig = ensure_contiguous(grad);
+        let output_contig = ensure_contiguous(output);
+        let d_input = Tensor::<CpuRuntime>::empty(grad.shape(), dtype, &self.device);
+
+        let shape = grad.shape();
+        let outer_size: usize = shape[..dim_idx].iter().product();
+        let dim_size = shape[dim_idx];
+        let inner_size: usize = shape[dim_idx + 1..].iter().product();
+
+        if dim_idx == ndim - 1 {
+            // Last dim: use fused SIMD kernel
+            let g_ptr = grad_contig.ptr();
+            let o_ptr = output_contig.ptr();
+            let d_ptr = d_input.ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    kernels::softmax_bwd_kernel::<T>(
+                        g_ptr as *const T,
+                        o_ptr as *const T,
+                        d_ptr as *mut T,
+                        outer_size,
+                        dim_size,
+                    );
+                }
+            }, "softmax_bwd");
+        } else {
+            // Non-last dim: strided access pattern
+            let g_ptr = grad_contig.ptr();
+            let o_ptr = output_contig.ptr();
+            let d_ptr = d_input.ptr();
+
+            dispatch_dtype!(dtype, T => {
+                unsafe {
+                    softmax_bwd_non_last_dim::<T>(
+                        g_ptr as *const T,
+                        o_ptr as *const T,
+                        d_ptr as *mut T,
+                        outer_size,
+                        dim_size,
+                        inner_size,
+                    );
+                }
+            }, "softmax_bwd");
+        }
+
+        Ok(d_input)
+    }
+
     fn softplus(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         softplus_impl(self, a)
     }
@@ -362,6 +422,42 @@ mod tests {
     }
 }
 
+/// Softmax backward for non-last dimension (strided access pattern).
+///
+/// d_input = output * (grad - dot), where dot = sum(grad * output) along dim.
+unsafe fn softmax_bwd_non_last_dim<T: crate::dtype::Element>(
+    grad: *const T,
+    output: *const T,
+    d_input: *mut T,
+    outer_size: usize,
+    dim_size: usize,
+    inner_size: usize,
+) {
+    unsafe {
+        for outer in 0..outer_size {
+            for inner in 0..inner_size {
+                let base_idx = outer * dim_size * inner_size + inner;
+                let stride = inner_size;
+
+                // Pass 1: dot = sum(grad * output) along dim
+                let mut dot = 0.0f64;
+                for d in 0..dim_size {
+                    let idx = base_idx + d * stride;
+                    dot += (*grad.add(idx)).to_f64() * (*output.add(idx)).to_f64();
+                }
+
+                // Pass 2: d_input = output * (grad - dot)
+                for d in 0..dim_size {
+                    let idx = base_idx + d * stride;
+                    let g = (*grad.add(idx)).to_f64();
+                    let o = (*output.add(idx)).to_f64();
+                    *d_input.add(idx) = T::from_f64(o * (g - dot));
+                }
+            }
+        }
+    }
+}
+
 unsafe fn softmax_non_last_dim<T: crate::dtype::Element>(
     a_ptr: *const T,
     out_ptr: *mut T,
@@ -370,36 +466,31 @@ unsafe fn softmax_non_last_dim<T: crate::dtype::Element>(
     inner_size: usize,
 ) {
     unsafe {
-        // Pre-allocate reusable buffer for softmax computation
-        let mut slice = vec![0.0f64; dim_size];
-
         for outer in 0..outer_size {
             for inner in 0..inner_size {
-                // Elements are at: outer * dim_size * inner_size + d * inner_size + inner
                 let base_idx = outer * dim_size * inner_size + inner;
                 let stride = inner_size;
 
-                // Read slice into buffer
-                for (d, slot) in slice.iter_mut().enumerate() {
+                // Pass 1: Online max + sum (reads strided input once)
+                let mut max_val = (*a_ptr.add(base_idx)).to_f64();
+                let mut sum = 1.0f64;
+                for d in 1..dim_size {
                     let idx = base_idx + d * stride;
-                    *slot = (*a_ptr.add(idx)).to_f64();
+                    let val = (*a_ptr.add(idx)).to_f64();
+                    if val > max_val {
+                        sum = sum * (max_val - val).exp() + 1.0;
+                        max_val = val;
+                    } else {
+                        sum += (val - max_val).exp();
+                    }
                 }
 
-                // Compute softmax with numerical stability
-                let max_val = slice.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-                let mut exp_sum = 0.0f64;
-                for val in &mut slice {
-                    *val = (*val - max_val).exp();
-                    exp_sum += *val;
-                }
-
-                // Handle edge case: avoid division by zero
-                let inv_sum = if exp_sum > 0.0 { 1.0 / exp_sum } else { 0.0 };
-
-                // Write normalized values back
-                for (d, &val) in slice.iter().enumerate() {
+                // Pass 2: exp(x - max) / sum (reads input, writes output)
+                let inv_sum = if sum > 0.0 { 1.0 / sum } else { 0.0 };
+                for d in 0..dim_size {
                     let idx = base_idx + d * stride;
-                    *out_ptr.add(idx) = T::from_f64(val * inv_sum);
+                    let val = (*a_ptr.add(idx)).to_f64();
+                    *out_ptr.add(idx) = T::from_f64((val - max_val).exp() * inv_sum);
                 }
             }
         }

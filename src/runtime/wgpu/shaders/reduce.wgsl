@@ -689,3 +689,61 @@ fn softmax_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
         i = i + WORKGROUP_SIZE;
     }
 }
+
+// ============================================================================
+// Softmax Backward
+// d_input = output * (grad - dot), where dot = sum(grad * output)
+// Uses same SoftmaxParams (batch_size, dim_size)
+// Bindings: 0=grad(read), 1=output(read), 2=d_input(write), 3=params
+// ============================================================================
+
+@group(0) @binding(0) var<storage, read> sbwd_grad: array<f32>;
+@group(0) @binding(1) var<storage, read> sbwd_output: array<f32>;
+@group(0) @binding(2) var<storage, read_write> sbwd_d_input: array<f32>;
+@group(0) @binding(3) var<uniform> sbwd_params: SoftmaxParams;
+
+var<workgroup> sbwd_shared: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn softmax_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+                   @builtin(local_invocation_id) local_id: vec3<u32>,
+                   @builtin(workgroup_id) group_id: vec3<u32>) {
+    let tid = local_id.x;
+    let batch_idx = group_id.x;
+
+    if (batch_idx >= sbwd_params.batch_size) {
+        return;
+    }
+
+    let dim_size = sbwd_params.dim_size;
+    let base_offset = batch_idx * dim_size;
+
+    // Pass 1: dot = sum(grad * output)
+    var dot: f32 = 0.0;
+    var i: u32 = tid;
+    while (i < dim_size) {
+        dot = dot + sbwd_grad[base_offset + i] * sbwd_output[base_offset + i];
+        i = i + WORKGROUP_SIZE;
+    }
+
+    sbwd_shared[tid] = dot;
+    workgroupBarrier();
+
+    for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
+        if (tid < s) {
+            sbwd_shared[tid] = sbwd_shared[tid] + sbwd_shared[tid + s];
+        }
+        workgroupBarrier();
+    }
+
+    let global_dot = sbwd_shared[0];
+    workgroupBarrier();
+
+    // Pass 2: d_input = output * (grad - dot)
+    i = tid;
+    while (i < dim_size) {
+        let idx = base_offset + i;
+        sbwd_d_input[idx] = sbwd_output[idx] * (sbwd_grad[idx] - global_dot);
+        i = i + WORKGROUP_SIZE;
+    }
+}
