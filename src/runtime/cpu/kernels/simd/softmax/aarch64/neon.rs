@@ -39,11 +39,19 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
             max_vec = vmaxq_f32(max_vec, v);
 
             // Rescale previous sum
+            // Guard: when old_max == max_vec == -inf, exp(-inf-(-inf)) = NaN.
+            // Use mask to zero out -inf lanes (their sum contribution is 0).
+            let neg_inf = vdupq_n_f32(f32::NEG_INFINITY);
+            let valid_old = vmvnq_u32(vceqq_f32(old_max, neg_inf)); // != -inf
             let rescale = exp_f32(vsubq_f32(old_max, max_vec));
+            let rescale =
+                vreinterpretq_f32_u32(vandq_u32(vreinterpretq_u32_f32(rescale), valid_old));
             sum_vec = vmulq_f32(sum_vec, rescale);
 
             // Add new contributions
+            let valid_new = vmvnq_u32(vceqq_f32(max_vec, neg_inf)); // != -inf
             let exp_v = exp_f32(vsubq_f32(v, max_vec));
+            let exp_v = vreinterpretq_f32_u32(vandq_u32(vreinterpretq_u32_f32(exp_v), valid_new));
             sum_vec = vaddq_f32(sum_vec, exp_v);
         }
 
@@ -55,16 +63,27 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
         for i in 0..remainder {
             let val = *base.add(chunks * F32_LANES + i);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f32::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f32::NEG_INFINITY {
+                // skip
             } else {
                 tail_sum += (val - max_val).exp();
             }
         }
 
         // Reconcile SIMD sum with global max
+        // Guard -inf lanes to avoid NaN from exp(-inf - (-inf))
+        let neg_inf = vdupq_n_f32(f32::NEG_INFINITY);
+        let valid_mask = vmvnq_u32(vceqq_f32(max_vec, neg_inf));
         let v_global_max = vdupq_n_f32(max_val);
         let rescale = exp_f32(vsubq_f32(max_vec, v_global_max));
+        let rescale = vreinterpretq_f32_u32(vandq_u32(vreinterpretq_u32_f32(rescale), valid_mask));
         let rescaled_sum = vmulq_f32(sum_vec, rescale);
         let sum = hsum_f32(rescaled_sum) + tail_sum;
 
@@ -114,10 +133,17 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
             let old_max = max_vec;
             max_vec = vmaxq_f64(max_vec, v);
 
+            // Guard -inf lanes
+            let neg_inf = vdupq_n_f64(f64::NEG_INFINITY);
+            let valid_old = vmvnq_u64(vceqq_f64(old_max, neg_inf));
             let rescale = exp_f64(vsubq_f64(old_max, max_vec));
+            let rescale =
+                vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(rescale), valid_old));
             sum_vec = vmulq_f64(sum_vec, rescale);
 
+            let valid_new = vmvnq_u64(vceqq_f64(max_vec, neg_inf));
             let exp_v = exp_f64(vsubq_f64(v, max_vec));
+            let exp_v = vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(exp_v), valid_new));
             sum_vec = vaddq_f64(sum_vec, exp_v);
         }
 
@@ -127,16 +153,26 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
         for i in 0..remainder {
             let val = *base.add(chunks * F64_LANES + i);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f64::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f64::NEG_INFINITY {
+                // skip
             } else {
                 tail_sum += (val - max_val).exp();
             }
         }
 
         // Reconcile SIMD sum with global max
+        let neg_inf = vdupq_n_f64(f64::NEG_INFINITY);
+        let valid_mask = vmvnq_u64(vceqq_f64(max_vec, neg_inf));
         let v_global_max = vdupq_n_f64(max_val);
         let rescale = exp_f64(vsubq_f64(max_vec, v_global_max));
+        let rescale = vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(rescale), valid_mask));
         let rescaled_sum = vmulq_f64(sum_vec, rescale);
         let sum = hsum_f64(rescaled_sum) + tail_sum;
 

@@ -32,11 +32,18 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
             max_vec = _mm256_max_ps(max_vec, v);
 
             // Rescale previous sum: sum *= exp(old_max - new_max)
+            // Guard: when old_max == new_max == -inf, exp(-inf-(-inf)) = NaN.
+            // Use a validity mask to zero out -inf lanes (their sum contribution is 0).
+            let neg_inf = _mm256_set1_ps(f32::NEG_INFINITY);
+            let valid_old = _mm256_cmp_ps(old_max, neg_inf, _CMP_GT_OQ);
             let rescale = exp_f32(_mm256_sub_ps(old_max, max_vec));
+            let rescale = _mm256_and_ps(rescale, valid_old);
             sum_vec = _mm256_mul_ps(sum_vec, rescale);
 
             // Add new contributions: sum += exp(v - new_max)
+            let valid_new = _mm256_cmp_ps(max_vec, neg_inf, _CMP_GT_OQ);
             let exp_v = exp_f32(_mm256_sub_ps(v, max_vec));
+            let exp_v = _mm256_and_ps(exp_v, valid_new);
             sum_vec = _mm256_add_ps(sum_vec, exp_v);
         }
 
@@ -49,8 +56,15 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
         for d in (chunks * F32_LANES)..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f32::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f32::NEG_INFINITY {
+                // skip: contribution is 0
             } else {
                 tail_sum += (val - max_val).exp();
             }
@@ -58,9 +72,14 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
 
         // Reconcile SIMD sum with scalar max: each lane's sum must be rescaled
         // sum_vec[i] was computed relative to max_vec[i], but we need it relative to max_val
+        // Guard: if a lane's max is -inf (all elements were -inf), its sum contribution is 0,
+        // not NaN. We zero out those lanes to avoid NaN from exp(-inf - (-inf)).
         let v_max_vec = max_vec; // per-lane max values
         let v_global_max = _mm256_set1_ps(max_val);
+        let neg_inf = _mm256_set1_ps(f32::NEG_INFINITY);
+        let valid_mask = _mm256_cmp_ps(v_max_vec, neg_inf, _CMP_GT_OQ);
         let rescale = exp_f32(_mm256_sub_ps(v_max_vec, v_global_max));
+        let rescale = _mm256_and_ps(rescale, valid_mask);
         let rescaled_sum = _mm256_mul_ps(sum_vec, rescale);
         let sum = hsum_f32(rescaled_sum) + tail_sum;
 
@@ -119,8 +138,15 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
         for d in (chunks * F64_LANES)..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f64::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f64::NEG_INFINITY {
+                // skip
             } else {
                 tail_sum += (val - max_val).exp();
             }

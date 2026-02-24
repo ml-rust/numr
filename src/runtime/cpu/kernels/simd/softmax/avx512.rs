@@ -30,11 +30,18 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
             let old_max = max_vec;
             max_vec = _mm512_max_ps(max_vec, v);
 
-            // Rescale previous sum and add new contributions
+            // Rescale previous sum and add new contributions.
+            // Guard: when old_max == max_vec == -inf, exp(-inf-(-inf)) = NaN.
+            // Use mask to zero out -inf lanes (their sum contribution is 0).
+            let neg_inf = _mm512_set1_ps(f32::NEG_INFINITY);
+            let valid_old = _mm512_cmp_ps_mask(old_max, neg_inf, _CMP_GT_OQ);
             let rescale = exp_f32(_mm512_sub_ps(old_max, max_vec));
+            let rescale = _mm512_maskz_mov_ps(valid_old, rescale);
             sum_vec = _mm512_mul_ps(sum_vec, rescale);
 
+            let valid_new = _mm512_cmp_ps_mask(max_vec, neg_inf, _CMP_GT_OQ);
             let exp_v = exp_f32(_mm512_sub_ps(v, max_vec));
+            let exp_v = _mm512_maskz_mov_ps(valid_new, exp_v);
             sum_vec = _mm512_add_ps(sum_vec, exp_v);
         }
 
@@ -45,16 +52,27 @@ pub unsafe fn softmax_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_s
         for d in (chunks * F32_LANES)..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f32::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f32::NEG_INFINITY {
+                // skip
             } else {
                 tail_sum += (val - max_val).exp();
             }
         }
 
         // Reconcile SIMD sum with global max
+        // Guard -inf lanes to avoid NaN from exp(-inf - (-inf))
         let v_global_max = _mm512_set1_ps(max_val);
+        let neg_inf = _mm512_set1_ps(f32::NEG_INFINITY);
+        let valid_mask = _mm512_cmp_ps_mask(max_vec, neg_inf, _CMP_GT_OQ);
         let rescale = exp_f32(_mm512_sub_ps(max_vec, v_global_max));
+        let rescale = _mm512_maskz_mov_ps(valid_mask, rescale);
         let rescaled_sum = _mm512_mul_ps(sum_vec, rescale);
         let sum = _mm512_reduce_add_ps(rescaled_sum) + tail_sum;
 
@@ -97,10 +115,17 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
             let old_max = max_vec;
             max_vec = _mm512_max_pd(max_vec, v);
 
+            // Guard: when old_max == max_vec == -inf, exp(-inf-(-inf)) = NaN.
+            // Use mask to zero out -inf lanes (their sum contribution is 0).
+            let neg_inf = _mm512_set1_pd(f64::NEG_INFINITY);
+            let valid_old = _mm512_cmp_pd_mask(old_max, neg_inf, _CMP_GT_OQ);
             let rescale = exp_f64(_mm512_sub_pd(old_max, max_vec));
+            let rescale = _mm512_maskz_mov_pd(valid_old, rescale);
             sum_vec = _mm512_mul_pd(sum_vec, rescale);
 
+            let valid_new = _mm512_cmp_pd_mask(max_vec, neg_inf, _CMP_GT_OQ);
             let exp_v = exp_f64(_mm512_sub_pd(v, max_vec));
+            let exp_v = _mm512_maskz_mov_pd(valid_new, exp_v);
             sum_vec = _mm512_add_pd(sum_vec, exp_v);
         }
 
@@ -111,16 +136,27 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
         for d in (chunks * F64_LANES)..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
-                tail_sum = tail_sum * (max_val - val).exp() + 1.0;
+                let rescale = if max_val == f64::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                tail_sum = tail_sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f64::NEG_INFINITY {
+                // skip
             } else {
                 tail_sum += (val - max_val).exp();
             }
         }
 
         // Reconcile SIMD sum with global max
+        // Guard -inf lanes to avoid NaN from exp(-inf - (-inf))
         let v_global_max = _mm512_set1_pd(max_val);
+        let neg_inf = _mm512_set1_pd(f64::NEG_INFINITY);
+        let valid_mask = _mm512_cmp_pd_mask(max_vec, neg_inf, _CMP_GT_OQ);
         let rescale = exp_f64(_mm512_sub_pd(max_vec, v_global_max));
+        let rescale = _mm512_maskz_mov_pd(valid_mask, rescale);
         let rescaled_sum = _mm512_mul_pd(sum_vec, rescale);
         let sum = _mm512_reduce_add_pd(rescaled_sum) + tail_sum;
 
