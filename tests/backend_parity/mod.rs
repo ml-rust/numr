@@ -1,6 +1,7 @@
 pub mod dtype_helpers;
 pub mod helpers;
 
+pub mod activation;
 pub mod advanced_random;
 pub mod binary;
 pub mod cast;

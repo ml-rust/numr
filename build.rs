@@ -47,6 +47,8 @@ fn compile_cuda_kernels() {
         "distance.cu",
         "distributions.cu",
         "fft.cu",
+        "fused_activation_mul.cu",
+        "fused_activation_mul_bwd.cu",
         "index.cu",
         "linalg_advanced.cu",
         "linalg_banded.cu",

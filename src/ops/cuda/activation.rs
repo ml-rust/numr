@@ -4,8 +4,10 @@ use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
 use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
 use crate::runtime::cuda::kernels::{
-    launch_elu, launch_gelu, launch_leaky_relu, launch_relu, launch_sigmoid, launch_silu,
-    launch_softmax, launch_softmax_dim,
+    launch_elu, launch_gelu, launch_gelu_mul, launch_gelu_mul_bwd, launch_leaky_relu, launch_relu,
+    launch_relu_mul, launch_relu_mul_bwd, launch_sigmoid, launch_sigmoid_mul,
+    launch_sigmoid_mul_bwd, launch_silu, launch_silu_mul, launch_silu_mul_bwd, launch_softmax,
+    launch_softmax_dim,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
@@ -90,6 +92,258 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn silu_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        if b.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: b.dtype(),
+            });
+        }
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_silu_mul(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.ptr(),
+                b_contig.ptr(),
+                out.ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn gelu_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        if b.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: b.dtype(),
+            });
+        }
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_gelu_mul(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.ptr(),
+                b_contig.ptr(),
+                out.ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn relu_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        if b.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: b.dtype(),
+            });
+        }
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_relu_mul(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.ptr(),
+                b_contig.ptr(),
+                out.ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn sigmoid_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        if b.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: b.dtype(),
+            });
+        }
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_sigmoid_mul(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.ptr(),
+                b_contig.ptr(),
+                out.ptr(),
+                out.numel(),
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn silu_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_silu_mul_bwd(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                grad_contig.ptr(),
+                a_contig.ptr(),
+                b_contig.ptr(),
+                d_a.ptr(),
+                d_b.ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok((d_a, d_b))
+    }
+
+    fn gelu_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_gelu_mul_bwd(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                grad_contig.ptr(),
+                a_contig.ptr(),
+                b_contig.ptr(),
+                d_a.ptr(),
+                d_b.ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok((d_a, d_b))
+    }
+
+    fn relu_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_relu_mul_bwd(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                grad_contig.ptr(),
+                a_contig.ptr(),
+                b_contig.ptr(),
+                d_a.ptr(),
+                d_b.ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok((d_a, d_b))
+    }
+
+    fn sigmoid_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
+        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device);
+
+        unsafe {
+            launch_sigmoid_mul_bwd(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                grad_contig.ptr(),
+                a_contig.ptr(),
+                b_contig.ptr(),
+                d_a.ptr(),
+                d_b.ptr(),
+                a.numel(),
+            )?;
+        }
+
+        Ok((d_a, d_b))
     }
 
     fn leaky_relu(
