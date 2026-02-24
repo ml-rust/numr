@@ -1,14 +1,19 @@
-//! SIMD-accelerated softmax operation
+//! SIMD-accelerated softmax operation using the online softmax algorithm.
 //!
 //! Softmax is critical for attention mechanisms in transformers.
 //! softmax(x)[i] = exp(x[i] - max(x)) / sum(exp(x - max(x)))
 //!
-//! # SIMD Optimizations
+//! # Online Softmax Algorithm (2-pass)
 //!
-//! - SIMD max-reduce for finding maximum
-//! - SIMD exp computation (vectorized)
-//! - SIMD sum-reduce for normalization
-//! - SIMD multiply for final division
+//! Instead of the traditional 3-pass approach (find max, compute exp+sum, normalize),
+//! we use a 2-pass online algorithm:
+//!
+//! **Pass 1 (online max + sum):** For each element x[i], maintain running max `m` and
+//! running sum `s`. When a new max is found, rescale the accumulated sum.
+//!
+//! **Pass 2 (normalize):** output[i] = exp(x[i] - m) / s
+//!
+//! This saves one full read+write pass over the output buffer compared to 3-pass.
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;
@@ -97,66 +102,58 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
 // Scalar fallbacks
 // ============================================================================
 
-/// Scalar softmax for f32
+/// Scalar softmax for f32 using online algorithm (2-pass).
 #[inline]
 pub unsafe fn softmax_scalar_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_size: usize) {
     for o in 0..outer_size {
         let base = o * dim_size;
 
-        // Find max
+        // Pass 1: Online max + sum — single read of input
         let mut max_val = *a.add(base);
+        let mut sum = 1.0f32;
         for d in 1..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
+                sum = sum * (max_val - val).exp() + 1.0;
                 max_val = val;
+            } else {
+                sum += (val - max_val).exp();
             }
         }
 
-        // Compute exp(x - max) and sum
-        let mut sum = 0.0f32;
-        for d in 0..dim_size {
-            let val = *a.add(base + d);
-            let exp_val = (val - max_val).exp();
-            *out.add(base + d) = exp_val;
-            sum += exp_val;
-        }
-
-        // Normalize
+        // Pass 2: Compute exp(x - max) / sum — one read of input, one write of output
         let inv_sum = 1.0 / sum;
         for d in 0..dim_size {
-            *out.add(base + d) *= inv_sum;
+            let val = *a.add(base + d);
+            *out.add(base + d) = (val - max_val).exp() * inv_sum;
         }
     }
 }
 
-/// Scalar softmax for f64
+/// Scalar softmax for f64 using online algorithm (2-pass).
 #[inline]
 pub unsafe fn softmax_scalar_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_size: usize) {
     for o in 0..outer_size {
         let base = o * dim_size;
 
-        // Find max
+        // Pass 1: Online max + sum
         let mut max_val = *a.add(base);
+        let mut sum = 1.0f64;
         for d in 1..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
+                sum = sum * (max_val - val).exp() + 1.0;
                 max_val = val;
+            } else {
+                sum += (val - max_val).exp();
             }
         }
 
-        // Compute exp(x - max) and sum
-        let mut sum = 0.0f64;
-        for d in 0..dim_size {
-            let val = *a.add(base + d);
-            let exp_val = (val - max_val).exp();
-            *out.add(base + d) = exp_val;
-            sum += exp_val;
-        }
-
-        // Normalize
+        // Pass 2: Compute exp(x - max) / sum
         let inv_sum = 1.0 / sum;
         for d in 0..dim_size {
-            *out.add(base + d) *= inv_sum;
+            let val = *a.add(base + d);
+            *out.add(base + d) = (val - max_val).exp() * inv_sum;
         }
     }
 }
