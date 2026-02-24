@@ -6,7 +6,6 @@
 use numr::dtype::DType;
 use numr::ops::SpecialFunctions;
 use numr::runtime::Runtime;
-use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 
 use crate::backend_parity::dtype_helpers::tensor_from_f64;

@@ -152,21 +152,3 @@ where
         .expect("WGPU feature is enabled but WGPU runtime is unavailable");
     f(client, device);
 }
-
-pub fn assert_case_parity_f32(
-    cpu_results: &[Vec<f32>],
-    idx: usize,
-    backend_result: &[f32],
-    op: &str,
-    backend: &str,
-) {
-    assert_parity_f32(
-        &cpu_results[idx],
-        backend_result,
-        &format!("{op}_{backend}_case_{idx}"),
-    );
-}
-
-pub fn assert_single_parity_f32(cpu: &[f32], backend_result: &[f32], op: &str, backend: &str) {
-    assert_parity_f32(cpu, backend_result, &format!("{op}_{backend}"));
-}
