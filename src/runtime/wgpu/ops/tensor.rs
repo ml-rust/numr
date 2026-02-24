@@ -95,3 +95,6 @@ mod scalar;
 
 #[path = "../../../ops/wgpu/einsum.rs"]
 mod einsum;
+
+#[path = "../../../ops/wgpu/fp8_matmul.rs"]
+mod fp8_matmul;

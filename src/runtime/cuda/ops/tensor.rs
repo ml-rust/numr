@@ -95,3 +95,7 @@ mod logical;
 
 #[path = "../../../ops/cuda/einsum.rs"]
 mod einsum;
+
+#[cfg(feature = "fp8")]
+#[path = "../../../ops/cuda/fp8_matmul.rs"]
+mod fp8_matmul;

@@ -208,6 +208,34 @@ impl Div for FP8E4M3 {
     }
 }
 
+impl std::ops::AddAssign for FP8E4M3 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() + rhs.to_f32());
+    }
+}
+
+impl std::ops::SubAssign for FP8E4M3 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() - rhs.to_f32());
+    }
+}
+
+impl std::ops::MulAssign for FP8E4M3 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() * rhs.to_f32());
+    }
+}
+
+impl std::ops::DivAssign for FP8E4M3 {
+    #[inline]
+    fn div_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() / rhs.to_f32());
+    }
+}
+
 // ============================================================================
 // FP8E5M2 Type
 // ============================================================================
@@ -386,6 +414,34 @@ impl Div for FP8E5M2 {
     #[inline]
     fn div(self, rhs: Self) -> Self {
         Self::from_f32(self.to_f32() / rhs.to_f32())
+    }
+}
+
+impl std::ops::AddAssign for FP8E5M2 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() + rhs.to_f32());
+    }
+}
+
+impl std::ops::SubAssign for FP8E5M2 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() - rhs.to_f32());
+    }
+}
+
+impl std::ops::MulAssign for FP8E5M2 {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() * rhs.to_f32());
+    }
+}
+
+impl std::ops::DivAssign for FP8E5M2 {
+    #[inline]
+    fn div_assign(&mut self, rhs: Self) {
+        *self = Self::from_f32(self.to_f32() / rhs.to_f32());
     }
 }
 

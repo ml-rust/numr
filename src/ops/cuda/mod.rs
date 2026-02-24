@@ -12,6 +12,8 @@ pub mod conv;
 pub mod cumulative;
 pub mod distance;
 pub mod einsum;
+#[cfg(feature = "fp8")]
+pub mod fp8_matmul;
 pub mod gemm_epilogue;
 pub mod indexing;
 pub mod linalg;

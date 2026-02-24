@@ -63,6 +63,7 @@ fn compile_cuda_kernels() {
         "linalg_schur.cu",
         "linalg_solvers.cu",
         "linalg_svd.cu",
+        "fp8_matmul.cu",
         "matmul.cu",
         "norm.cu",
         "semiring_matmul.cu",

@@ -99,6 +99,7 @@ pub(crate) use matmul::{
 pub(crate) use reduce::{
     AccumulationPrecision, compute_reduce_strides, reduce_dim_output_shape, reduce_output_shape,
 };
+pub use traits::Fp8MatmulOps;
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
     CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, GemmActivation, GemmEpilogueOps,

@@ -56,6 +56,8 @@ mod cumulative;
 mod distance;
 mod distributions;
 mod fft;
+#[cfg(feature = "fp8")]
+mod fp8_matmul;
 mod fused_activation_mul;
 mod fused_add_norm;
 mod gemm_epilogue;
@@ -105,6 +107,8 @@ pub use cumulative::*;
 pub use distance::*;
 pub use distributions::*;
 pub use fft::*;
+#[cfg(feature = "fp8")]
+pub use fp8_matmul::*;
 pub use fused_activation_mul::*;
 pub use fused_add_norm::*;
 pub use gemm_epilogue::*;

@@ -95,3 +95,7 @@ mod einsum;
 
 #[path = "../../ops/cpu/gemm_epilogue.rs"]
 mod gemm_epilogue;
+
+#[cfg(feature = "fp8")]
+#[path = "../../ops/cpu/fp8_matmul.rs"]
+mod fp8_matmul;

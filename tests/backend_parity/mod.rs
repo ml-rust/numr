@@ -12,6 +12,8 @@ pub mod cumulative;
 pub mod eigen;
 pub mod einsum;
 pub mod fft;
+#[cfg(feature = "fp8")]
+pub mod fp8_matmul;
 pub mod gemm_epilogue;
 pub mod indexing;
 pub mod indexing_advanced;
