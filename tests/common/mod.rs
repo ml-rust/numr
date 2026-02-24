@@ -345,7 +345,7 @@ pub fn readback_as_bool<R: Runtime<DType = DType>>(tensor: &numr::tensor::Tensor
     }
 
     match tensor.dtype() {
-        DType::Bool => tensor.to_vec::<u8>().iter().map(|&x| x != 0).collect(),
+        DType::Bool | DType::U8 => tensor.to_vec::<u8>().iter().map(|&x| x != 0).collect(),
         DType::U32 => tensor.to_vec::<u32>().iter().map(|&x| x != 0).collect(),
         DType::I32 => tensor.to_vec::<i32>().iter().map(|&x| x != 0).collect(),
         DType::F32 => nonzero!(f32),
