@@ -3,7 +3,6 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
-use super::super::shaders::generator::sparse_linalg::generate_ic0_level_shader;
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{
     WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_ilu_ic_layout, extract_lower_wgpu,
@@ -16,6 +15,8 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
+
+const IC0_LEVEL_F32: &str = include_str!("../shaders/sparse_ic0_level_f32.wgsl");
 
 /// IC(0) factorization for WebGPU.
 pub fn ic0_wgpu(
@@ -111,14 +112,13 @@ fn launch_ic0_level(
     n: usize,
     diagonal_shift: f32,
 ) -> Result<()> {
-    let shader_source = generate_ic0_level_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("ic0_level_f32", &shader_source);
+        .get_or_create_module("ic0_level_f32", IC0_LEVEL_F32);
 
     let layout = create_ilu_ic_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "ic0_level_f32",
         "ic0_level_f32",
         &module,

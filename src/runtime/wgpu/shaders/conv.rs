@@ -1,4 +1,4 @@
-//! Convolution WGSL kernel launchers
+//! Convolution WGSL kernel launchers (F32 only on WebGPU)
 //!
 //! Provides launchers for convolution operations:
 //! - 1D convolution (conv1d)
@@ -9,37 +9,22 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    generate_conv1d_shader, generate_conv2d_shader, generate_depthwise_conv2d_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
-// ============================================================================
-// Helper Macros
-// ============================================================================
+const CONV1D_SHADER: &str = include_str!("conv1d_f32.wgsl");
+// entry point: "conv1d_f32"
 
-macro_rules! check_dtype_float {
-    ($dtype:expr, $op:expr) => {
-        if $dtype != DType::F32 && $dtype != DType::F16 {
-            return Err(Error::UnsupportedDType {
-                dtype: $dtype,
-                op: $op,
-            });
-        }
-    };
-}
+const CONV2D_SHADER: &str = include_str!("conv2d_f32.wgsl");
+// entry point: "conv2d_f32"
 
-/// Get static kernel name for convolution operations.
-fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
-    match (op, dtype) {
-        ("conv1d", DType::F32) => Ok("conv1d_f32"),
-        ("conv1d", DType::F16) => Ok("conv1d_f16"),
-        ("conv2d", DType::F32) => Ok("conv2d_f32"),
-        ("conv2d", DType::F16) => Ok("conv2d_f16"),
-        ("depthwise_conv2d", DType::F32) => Ok("depthwise_conv2d_f32"),
-        ("depthwise_conv2d", DType::F16) => Ok("depthwise_conv2d_f16"),
+const DEPTHWISE_CONV2D_SHADER: &str = include_str!("depthwise_conv2d_f32.wgsl");
+// entry point: "depthwise_conv2d_f32"
+
+fn check_dtype_f32(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 => Ok(()),
         _ => Err(Error::UnsupportedDType { dtype, op }),
     }
 }
@@ -71,17 +56,15 @@ pub fn launch_conv1d(
     total_output: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_float!(dtype, "conv1d");
+    check_dtype_f32(dtype, "conv1d")?;
 
-    let name = kernel_name("conv1d", dtype)?;
-    let shader_source = generate_conv1d_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module("conv1d_f32", CONV1D_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 3,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("conv1d_f32", "conv1d_f32", &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
@@ -133,17 +116,15 @@ pub fn launch_conv2d(
     total_output: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_float!(dtype, "conv2d");
+    check_dtype_f32(dtype, "conv2d")?;
 
-    let name = kernel_name("conv2d", dtype)?;
-    let shader_source = generate_conv2d_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module("conv2d_f32", CONV2D_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 3,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("conv2d_f32", "conv2d_f32", &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);
@@ -195,17 +176,20 @@ pub fn launch_depthwise_conv2d(
     total_output: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_float!(dtype, "depthwise_conv2d");
+    check_dtype_f32(dtype, "depthwise_conv2d")?;
 
-    let name = kernel_name("depthwise_conv2d", dtype)?;
-    let shader_source = generate_depthwise_conv2d_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module("depthwise_conv2d_f32", DEPTHWISE_CONV2D_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 3,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "depthwise_conv2d_f32",
+        "depthwise_conv2d_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group =
         cache.create_bind_group(&layout, &[input, weight, bias, output, params_buffer]);

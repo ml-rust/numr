@@ -8,10 +8,11 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::norm_wgsl::NORM_SHADER;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+
+const NORM_SHADER: &str = include_str!("norm.wgsl");
 
 // ============================================================================
 // Helper Macros

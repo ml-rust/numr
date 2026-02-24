@@ -1,29 +1,58 @@
 //! Cumulative operation WGSL kernel launchers
 //!
-//! Provides launchers for cumulative operations:
-//! - `cumsum` - Cumulative sum along a dimension
-//! - `cumprod` - Cumulative product along a dimension
-//! - `logsumexp` - Numerically stable log-sum-exp reduction
+//! - `cumsum` - F32 and I32
+//! - `cumprod` - F32, I32, U32
+//! - `logsumexp` - F32 only
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    dtype_suffix, generate_cumprod_shader, generate_cumprod_strided_shader, generate_cumsum_shader,
-    generate_cumsum_strided_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+const CUMSUM_F32_SHADER: &str = include_str!("cumsum_f32.wgsl");
+const CUMSUM_I32_SHADER: &str = include_str!("cumsum_i32.wgsl");
+
+const CUMSUM_STRIDED_F32_SHADER: &str = include_str!("cumsum_strided_f32.wgsl");
+const CUMSUM_STRIDED_I32_SHADER: &str = include_str!("cumsum_strided_i32.wgsl");
+
+const CUMPROD_F32_SHADER: &str = include_str!("cumprod_f32.wgsl");
+const CUMPROD_I32_SHADER: &str = include_str!("cumprod_i32.wgsl");
+const CUMPROD_U32_SHADER: &str = include_str!("cumprod_u32.wgsl");
+
+const CUMPROD_STRIDED_F32_SHADER: &str = include_str!("cumprod_strided_f32.wgsl");
+const CUMPROD_STRIDED_I32_SHADER: &str = include_str!("cumprod_strided_i32.wgsl");
+const CUMPROD_STRIDED_U32_SHADER: &str = include_str!("cumprod_strided_u32.wgsl");
+
+const LOGSUMEXP_SHADER: &str = include_str!("logsumexp_f32.wgsl");
+const LOGSUMEXP_STRIDED_SHADER: &str = include_str!("logsumexp_strided_f32.wgsl");
+
+fn check_f32(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 => Ok(()),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
+
+fn check_f32_i32(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 | DType::I32 => Ok(()),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
+
+fn check_f32_i32_u32(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 | DType::I32 | DType::U32 => Ok(()),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
 
 // ============================================================================
 // Cumulative Sum
 // ============================================================================
 
-/// Launch cumsum operation kernel (contiguous data).
-///
-/// Parameters:
-/// - scan_size: Size of the dimension being scanned
-/// - outer_size: Number of independent scans
+/// Launch cumsum operation kernel (contiguous data). Supports F32 and I32.
 pub fn launch_cumsum(
     cache: &PipelineCache,
     queue: &Queue,
@@ -33,22 +62,21 @@ pub fn launch_cumsum(
     outer_size: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("cumsum_{}", suffix);
+    check_f32_i32(dtype, "cumsum")?;
 
-    // Generate shader on-demand
-    let shader_source = generate_cumsum_shader(dtype)?;
+    let (module_key, shader, entry_point) = match dtype {
+        DType::F32 => ("cumsum_f32", CUMSUM_F32_SHADER, "cumsum_f32"),
+        DType::I32 => ("cumsum_i32", CUMSUM_I32_SHADER, "cumsum_i32"),
+        _ => unreachable!(),
+    };
 
-    let module_name = format!("cumsum_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("cumsum", &entry_point_name, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
     let mut encoder = cache
@@ -56,7 +84,6 @@ pub fn launch_cumsum(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("cumsum"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("cumsum"),
@@ -66,12 +93,11 @@ pub fn launch_cumsum(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(outer_size), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
 
-/// Launch strided cumsum operation kernel.
+/// Launch strided cumsum operation kernel. Supports F32 and I32.
 pub fn launch_cumsum_strided(
     cache: &PipelineCache,
     queue: &Queue,
@@ -81,21 +107,29 @@ pub fn launch_cumsum_strided(
     total_inner: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("cumsum_strided_{}", suffix);
+    check_f32_i32(dtype, "cumsum_strided")?;
 
-    let shader_source = generate_cumsum_strided_shader(dtype)?;
+    let (module_key, shader, entry_point) = match dtype {
+        DType::F32 => (
+            "cumsum_strided_f32",
+            CUMSUM_STRIDED_F32_SHADER,
+            "cumsum_strided_f32",
+        ),
+        DType::I32 => (
+            "cumsum_strided_i32",
+            CUMSUM_STRIDED_I32_SHADER,
+            "cumsum_strided_i32",
+        ),
+        _ => unreachable!(),
+    };
 
-    let module = cache
-        .get_or_create_module_from_source(&format!("cumsum_strided_{}", suffix), &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("cumsum_strided", &entry_point_name, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
     let mut encoder = cache
@@ -103,7 +137,6 @@ pub fn launch_cumsum_strided(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("cumsum_strided"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("cumsum_strided"),
@@ -113,7 +146,6 @@ pub fn launch_cumsum_strided(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(total_inner), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
@@ -122,7 +154,7 @@ pub fn launch_cumsum_strided(
 // Cumulative Product
 // ============================================================================
 
-/// Launch cumprod operation kernel (contiguous data).
+/// Launch cumprod operation kernel (contiguous data). Supports F32, I32, U32.
 pub fn launch_cumprod(
     cache: &PipelineCache,
     queue: &Queue,
@@ -132,21 +164,22 @@ pub fn launch_cumprod(
     outer_size: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("cumprod_{}", suffix);
+    check_f32_i32_u32(dtype, "cumprod")?;
 
-    let shader_source = generate_cumprod_shader(dtype)?;
+    let (module_key, shader, entry_point) = match dtype {
+        DType::F32 => ("cumprod_f32", CUMPROD_F32_SHADER, "cumprod_f32"),
+        DType::I32 => ("cumprod_i32", CUMPROD_I32_SHADER, "cumprod_i32"),
+        DType::U32 => ("cumprod_u32", CUMPROD_U32_SHADER, "cumprod_u32"),
+        _ => unreachable!(),
+    };
 
-    let module =
-        cache.get_or_create_module_from_source(&format!("cumprod_{}", suffix), &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("cumprod", &entry_point_name, &module, &layout);
-
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
     let mut encoder = cache
@@ -154,7 +187,6 @@ pub fn launch_cumprod(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("cumprod"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("cumprod"),
@@ -164,12 +196,11 @@ pub fn launch_cumprod(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(outer_size), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
 
-/// Launch strided cumprod operation kernel.
+/// Launch strided cumprod operation kernel. Supports F32, I32, U32.
 pub fn launch_cumprod_strided(
     cache: &PipelineCache,
     queue: &Queue,
@@ -179,25 +210,34 @@ pub fn launch_cumprod_strided(
     total_inner: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("cumprod_strided_{}", suffix);
+    check_f32_i32_u32(dtype, "cumprod_strided")?;
 
-    let shader_source = generate_cumprod_strided_shader(dtype)?;
+    let (module_key, shader, entry_point) = match dtype {
+        DType::F32 => (
+            "cumprod_strided_f32",
+            CUMPROD_STRIDED_F32_SHADER,
+            "cumprod_strided_f32",
+        ),
+        DType::I32 => (
+            "cumprod_strided_i32",
+            CUMPROD_STRIDED_I32_SHADER,
+            "cumprod_strided_i32",
+        ),
+        DType::U32 => (
+            "cumprod_strided_u32",
+            CUMPROD_STRIDED_U32_SHADER,
+            "cumprod_strided_u32",
+        ),
+        _ => unreachable!(),
+    };
 
-    let module = cache
-        .get_or_create_module_from_source(&format!("cumprod_strided_{}", suffix), &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "cumprod_strided",
-        &entry_point_name,
-        &module,
-        &layout,
-    );
-
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
     let mut encoder = cache
@@ -205,7 +245,6 @@ pub fn launch_cumprod_strided(
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("cumprod_strided"),
         });
-
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("cumprod_strided"),
@@ -215,7 +254,6 @@ pub fn launch_cumprod_strided(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(total_inner), 1, 1);
     }
-
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }
@@ -234,20 +272,15 @@ pub fn launch_logsumexp(
     outer_size: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("logsumexp_{}", suffix);
+    check_f32(dtype, "logsumexp")?;
 
-    let shader_source = generate_logsumexp_shader(dtype)?;
-
-    let module =
-        cache.get_or_create_module_from_source(&format!("logsumexp_{}", suffix), &shader_source);
+    let module = cache.get_or_create_module("logsumexp_f32", LOGSUMEXP_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("logsumexp", &entry_point_name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("logsumexp_f32", "logsumexp_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
@@ -281,21 +314,17 @@ pub fn launch_logsumexp_strided(
     total_inner: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point_name = format!("logsumexp_strided_{}", suffix);
+    check_f32(dtype, "logsumexp_strided")?;
 
-    let shader_source = generate_logsumexp_strided_shader(dtype)?;
-
-    let module = cache
-        .get_or_create_module_from_source(&format!("logsumexp_strided_{}", suffix), &shader_source);
+    let module = cache.get_or_create_module("logsumexp_strided_f32", LOGSUMEXP_STRIDED_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "logsumexp_strided",
-        &entry_point_name,
+    let pipeline = cache.get_or_create_pipeline(
+        "logsumexp_strided_f32",
+        "logsumexp_strided_f32",
         &module,
         &layout,
     );

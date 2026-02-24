@@ -3,99 +3,20 @@
 //! Provides native GPU implementations for erf, erfc, erfinv, gamma,
 //! lgamma, digamma, beta, betainc, gammainc, gammaincc.
 
-use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-// ============================================================================
-// Lock Helpers (Handle Poisoned Locks Gracefully)
-// ============================================================================
-
-/// Acquire read lock, recovering from poison if necessary.
-fn read_lock<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
-    lock.read().unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
-/// Acquire write lock, recovering from poison if necessary.
-fn write_lock<T>(lock: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
-    lock.write()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
-
 use wgpu::util::DeviceExt;
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    dtype_suffix, generate_special_binary_shader, generate_special_ternary_shader,
-    generate_special_unary_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 // ============================================================================
-// Shader Module Cache
+// Static WGSL Shader Sources
 // ============================================================================
 
-static SPECIAL_UNARY_CACHE: OnceLock<RwLock<HashMap<DType, &'static str>>> = OnceLock::new();
-static SPECIAL_BINARY_CACHE: OnceLock<RwLock<HashMap<DType, &'static str>>> = OnceLock::new();
-static SPECIAL_TERNARY_CACHE: OnceLock<RwLock<HashMap<DType, &'static str>>> = OnceLock::new();
-
-fn get_or_leak_special_unary_shader(dtype: DType) -> Result<&'static str> {
-    let cache = SPECIAL_UNARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&shader_ref) = read_guard.get(&dtype) {
-            return Ok(shader_ref);
-        }
-    }
-
-    let shader = generate_special_unary_shader(dtype)?;
-    let leaked: &'static str = Box::leak(shader.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert(dtype, leaked);
-
-    Ok(leaked)
-}
-
-fn get_or_leak_special_binary_shader(dtype: DType) -> Result<&'static str> {
-    let cache = SPECIAL_BINARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&shader_ref) = read_guard.get(&dtype) {
-            return Ok(shader_ref);
-        }
-    }
-
-    let shader = generate_special_binary_shader(dtype)?;
-    let leaked: &'static str = Box::leak(shader.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert(dtype, leaked);
-
-    Ok(leaked)
-}
-
-fn get_or_leak_special_ternary_shader(dtype: DType) -> Result<&'static str> {
-    let cache = SPECIAL_TERNARY_CACHE.get_or_init(|| RwLock::new(HashMap::new()));
-
-    {
-        let read_guard = read_lock(cache);
-        if let Some(&shader_ref) = read_guard.get(&dtype) {
-            return Ok(shader_ref);
-        }
-    }
-
-    let shader = generate_special_ternary_shader(dtype)?;
-    let leaked: &'static str = Box::leak(shader.into_boxed_str());
-
-    let mut write_guard = write_lock(cache);
-    write_guard.insert(dtype, leaked);
-
-    Ok(leaked)
-}
+const SPECIAL_UNARY_F32: &str = include_str!("special_unary_f32.wgsl");
+const SPECIAL_BINARY_F32: &str = include_str!("special_binary_f32.wgsl");
+const SPECIAL_TERNARY_F32: &str = include_str!("special_ternary_f32.wgsl");
 
 // ============================================================================
 // Unary Special Functions (erf, erfc, erfinv, gamma, lgamma, digamma)
@@ -111,12 +32,16 @@ pub fn launch_special_unary(
     numel: u32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_unary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_unary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_unary",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_unary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_UNARY_F32);
 
     // Layout: 2 storage buffers (input, output) + 1 uniform (params)
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
@@ -126,7 +51,7 @@ pub fn launch_special_unary(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer
     let params_data = [numel];
@@ -180,12 +105,16 @@ pub fn launch_special_binary(
     numel: u32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_binary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_binary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_binary",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_binary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_BINARY_F32);
 
     // Layout: 3 storage buffers (input_a, input_b, output) + 1 uniform (params)
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
@@ -195,7 +124,7 @@ pub fn launch_special_binary(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer
     let params_data = [numel];
@@ -251,12 +180,16 @@ pub fn launch_special_ternary(
     numel: u32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_ternary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_ternary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_ternary",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_ternary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_TERNARY_F32);
 
     // Layout: 4 storage buffers (input_a, input_b, input_x, output) + 1 uniform (params)
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
@@ -266,7 +199,7 @@ pub fn launch_special_ternary(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer
     let params_data = [numel];
@@ -323,12 +256,16 @@ pub fn launch_special_unary_with_int(
     n: i32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_unary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_unary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_unary_with_int",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_unary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_UNARY_F32);
 
     // Layout: 2 storage buffers + 1 uniform (params with numel and n)
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
@@ -338,7 +275,7 @@ pub fn launch_special_unary_with_int(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer with numel and n
     let params_data = [numel, n as u32];
@@ -387,12 +324,16 @@ pub fn launch_special_unary_with_two_ints(
     m: i32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_unary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_unary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_unary_with_two_ints",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_unary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_UNARY_F32);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -401,7 +342,7 @@ pub fn launch_special_unary_with_two_ints(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer with numel, n, m
     let params_data = [numel, n as u32, m as u32, 0u32]; // Pad to 16 bytes
@@ -451,12 +392,16 @@ pub fn launch_special_binary_with_two_ints(
     m: i32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_binary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_binary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_binary_with_two_ints",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_binary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_BINARY_F32);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
@@ -465,7 +410,7 @@ pub fn launch_special_binary_with_two_ints(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer with numel, n, m
     let params_data = [numel, n as u32, m as u32, 0u32]; // Pad to 16 bytes
@@ -515,12 +460,16 @@ pub fn launch_special_unary_with_2f32(
     b: f32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_unary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_unary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_unary_with_2f32",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_unary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_UNARY_F32);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -529,7 +478,7 @@ pub fn launch_special_unary_with_2f32(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer with numel, a, b (use u32 + 2 f32s)
     let numel_bits = numel;
@@ -580,12 +529,16 @@ pub fn launch_special_unary_with_3f32(
     c: f32,
     dtype: DType,
 ) -> Result<()> {
-    let shader = get_or_leak_special_unary_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("{}_{}", op, suffix);
-    let module_key = format!("special_unary_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "special_unary_with_3f32",
+        });
+    }
+    let entry_point = format!("{}_f32", op);
+    let module_key = "special_unary_f32";
 
-    let module = pipeline_cache.get_or_create_module_from_source(&module_key, shader);
+    let module = pipeline_cache.get_or_create_module(module_key, SPECIAL_UNARY_F32);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -594,7 +547,7 @@ pub fn launch_special_unary_with_3f32(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline(&module_key, &entry_point, &module, &layout);
+        pipeline_cache.get_or_create_dynamic_pipeline(module_key, &entry_point, &module, &layout);
 
     // Create params buffer with numel, a, b, c
     let params_data: [u32; 6] = [numel, 0, a.to_bits(), b.to_bits(), c.to_bits(), 0];

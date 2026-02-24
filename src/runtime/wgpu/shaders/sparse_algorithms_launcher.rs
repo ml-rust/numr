@@ -6,14 +6,21 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::dtype_suffix;
-use super::generator::sparse_algorithms::{
-    generate_dsmm_csc_shader, generate_spgemm_accumulate_shader, generate_spgemm_scatter_shader,
-    generate_spgemm_symbolic_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+const SPARSE_ALGORITHMS_F32: &str = include_str!("sparse_algorithms_f32.wgsl");
+
+fn algorithms_shader_info(dtype: DType) -> Result<(&'static str, &'static str)> {
+    match dtype {
+        DType::F32 => Ok((SPARSE_ALGORITHMS_F32, "sparse_algorithms_f32")),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "sparse_algorithms (WebGPU)",
+        }),
+    }
+}
 
 /// Launch DSMM (Dense × Sparse) kernel: C = A * B
 ///
@@ -40,12 +47,9 @@ pub fn launch_dsmm_csc(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("dsmm_csc_{}", suffix);
+    let (shader, module_name) = algorithms_shader_info(dtype)?;
 
-    let shader_source = generate_dsmm_csc_shader(dtype)?;
-    let module_name = format!("dsmm_csc_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,  // a, col_ptrs, row_indices, b_values, c
@@ -53,7 +57,7 @@ pub fn launch_dsmm_csc(
         num_readonly_storage: 4, // a, col_ptrs, row_indices, b_values
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline("dsmm_csc", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, "dsmm_csc_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -106,12 +110,9 @@ pub fn launch_spgemm_symbolic(
     m: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("spgemm_symbolic_{}", suffix);
+    let (shader, module_name) = algorithms_shader_info(dtype)?;
 
-    let shader_source = generate_spgemm_symbolic_shader(dtype)?;
-    let module_name = format!("spgemm_symbolic_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_nnz, bitmap
@@ -120,7 +121,7 @@ pub fn launch_spgemm_symbolic(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("spgemm_symbolic", &entry_point, &module, &layout);
+        cache.get_or_create_pipeline(module_name, "spgemm_symbolic_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -183,12 +184,9 @@ pub fn launch_spgemm_accumulate(
     m: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("spgemm_accumulate_{}", suffix);
+    let (shader, module_name) = algorithms_shader_info(dtype)?;
 
-    let shader_source = generate_spgemm_accumulate_shader(dtype)?;
-    let module_name = format!("spgemm_accumulate_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 8, // a_row_ptrs, a_col_indices, a_values, b_row_ptrs, b_col_indices, b_values, accum, flags
@@ -197,7 +195,7 @@ pub fn launch_spgemm_accumulate(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("spgemm_accumulate", &entry_point, &module, &layout);
+        cache.get_or_create_pipeline(module_name, "spgemm_accumulate_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -247,12 +245,9 @@ pub fn launch_spgemm_scatter(
     m: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("spgemm_scatter_{}", suffix);
+    let (shader, module_name) = algorithms_shader_info(dtype)?;
 
-    let shader_source = generate_spgemm_scatter_shader(dtype)?;
-    let module_name = format!("spgemm_scatter_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,  // c_row_ptrs, accum, flags, c_col_indices, c_values
@@ -261,7 +256,7 @@ pub fn launch_spgemm_scatter(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("spgemm_scatter", &entry_point, &module, &layout);
+        cache.get_or_create_pipeline(module_name, "spgemm_scatter_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -293,46 +288,4 @@ pub fn launch_spgemm_scatter(
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::generator::sparse_algorithms::{
-        generate_dsmm_csc_shader, generate_spgemm_accumulate_shader,
-        generate_spgemm_scatter_shader, generate_spgemm_symbolic_shader,
-    };
-    use super::*;
-
-    fn validate_wgsl_syntax(source: &str) -> std::result::Result<(), String> {
-        use wgpu::naga::front::wgsl;
-        let mut frontend = wgsl::Frontend::new();
-        frontend
-            .parse(source)
-            .map(|_| ())
-            .map_err(|e| format!("WGSL parse error: {e}"))
-    }
-
-    #[test]
-    fn test_dsmm_csc_shader_syntax_f32() {
-        let shader = generate_dsmm_csc_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("DSMM shader should be valid WGSL");
-    }
-
-    #[test]
-    fn test_spgemm_symbolic_shader_syntax_f32() {
-        let shader = generate_spgemm_symbolic_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpGEMM symbolic shader should be valid WGSL");
-    }
-
-    #[test]
-    fn test_spgemm_accumulate_shader_syntax_f32() {
-        let shader = generate_spgemm_accumulate_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpGEMM accumulate shader should be valid WGSL");
-    }
-
-    #[test]
-    fn test_spgemm_scatter_shader_syntax_f32() {
-        let shader = generate_spgemm_scatter_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpGEMM scatter shader should be valid WGSL");
-    }
 }

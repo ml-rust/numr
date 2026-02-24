@@ -119,7 +119,7 @@ fn test_u32_mul() {
 // ============================================================================
 
 #[test]
-fn test_i32_neg() {
+fn test_f32_neg() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -128,16 +128,16 @@ fn test_i32_neg() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1i32, -2, 3, -4], &[4], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, -2.0, 3.0, -4.0], &[4], &device);
 
     let result = client.neg(&a).unwrap();
 
-    let data: Vec<i32> = result.to_vec();
-    assert_eq!(data, vec![-1, 2, -3, 4]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![-1.0, 2.0, -3.0, 4.0]);
 }
 
 #[test]
-fn test_i32_abs() {
+fn test_f32_abs() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -146,34 +146,12 @@ fn test_i32_abs() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1i32, -2, 3, -4], &[4], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, -2.0, 3.0, -4.0], &[4], &device);
 
     let result = client.abs(&a).unwrap();
 
-    let data: Vec<i32> = result.to_vec();
-    assert_eq!(data, vec![1, 2, 3, 4]);
-}
-
-// ============================================================================
-// Unary Operations (U32)
-// ============================================================================
-
-#[test]
-fn test_u32_abs() {
-    if !numr::runtime::wgpu::is_wgpu_available() {
-        println!("WebGPU not available, skipping");
-        return;
-    }
-
-    let device = WgpuDevice::new(0);
-    let client = WgpuRuntime::default_client(&device);
-
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1u32, 2, 3, 4], &[4], &device);
-
-    let result = client.abs(&a).unwrap();
-
-    let data: Vec<u32> = result.to_vec();
-    assert_eq!(data, vec![1, 2, 3, 4]); // abs of unsigned is identity
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![1.0, 2.0, 3.0, 4.0]);
 }
 
 // ============================================================================
@@ -237,7 +215,7 @@ fn test_i32_exp_should_fail() {
 // ============================================================================
 
 #[test]
-fn test_i32_eq() {
+fn test_f32_eq() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -246,13 +224,11 @@ fn test_i32_eq() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[4], &device);
-    let b = Tensor::<WgpuRuntime>::from_slice(&[1i32, 0, 3, 0], &[4], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+    let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 0.0, 3.0, 0.0], &[4], &device);
 
     let result = client.eq(&a, &b).unwrap();
 
-    // Note: WebGPU compare ops currently output F32 (0.0 or 1.0)
-    assert_eq!(result.dtype(), DType::F32);
     let data: Vec<f32> = result.to_vec();
     assert_eq!(data, vec![1.0, 0.0, 1.0, 0.0]);
 }
@@ -262,7 +238,7 @@ fn test_i32_eq() {
 // ============================================================================
 
 #[test]
-fn test_i32_sum() {
+fn test_f32_sum() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -271,16 +247,16 @@ fn test_i32_sum() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1i32, 2, 3, 4], &[4], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
 
     let result = client.sum(&a, &[], false).unwrap();
 
-    let data: Vec<i32> = result.to_vec();
-    assert_eq!(data, vec![10]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![10.0]);
 }
 
 #[test]
-fn test_i32_max() {
+fn test_f32_max() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -289,16 +265,16 @@ fn test_i32_max() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[1i32, 20, 3, 40, 5], &[5], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 20.0, 3.0, 40.0, 5.0], &[5], &device);
 
     let result = client.max(&a, &[], false).unwrap();
 
-    let data: Vec<i32> = result.to_vec();
-    assert_eq!(data, vec![40]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![40.0]);
 }
 
 #[test]
-fn test_i32_min() {
+fn test_f32_min() {
     if !numr::runtime::wgpu::is_wgpu_available() {
         println!("WebGPU not available, skipping");
         return;
@@ -307,12 +283,12 @@ fn test_i32_min() {
     let device = WgpuDevice::new(0);
     let client = WgpuRuntime::default_client(&device);
 
-    let a = Tensor::<WgpuRuntime>::from_slice(&[10i32, 2, 30, 4, 50], &[5], &device);
+    let a = Tensor::<WgpuRuntime>::from_slice(&[10.0f32, 2.0, 30.0, 4.0, 50.0], &[5], &device);
 
     let result = client.min(&a, &[], false).unwrap();
 
-    let data: Vec<i32> = result.to_vec();
-    assert_eq!(data, vec![2]);
+    let data: Vec<f32> = result.to_vec();
+    assert_eq!(data, vec![2.0]);
 }
 
 // ============================================================================

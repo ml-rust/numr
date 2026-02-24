@@ -2,23 +2,8 @@
 //!
 //! This module provides native WGSL compute shaders for tensor operations.
 //! All operations run entirely on the GPU without CPU fallback.
-//!
-//! # Multi-DType Support
-//!
-//! Shaders are generated per-dtype using the `generator` module:
-//! - F32, I32, U32 are always supported
-//! - F16 requires WebGPU f16 extension
-//!
-//! # Module Structure
-//!
-//! - `generator` - WGSL shader source generation per dtype
-//! - `pipeline` - Pipeline caching and dispatch utilities
-//! - `elementwise` - Element-wise operation launchers
-//! - `reduce` - Reduction operation launchers
-//! - `matmul` - Matrix multiplication launchers
-//! - `norm` - Normalization operation launchers
-//! - `linalg` - Linear algebra kernel launchers
-//! - `copy` - Copy operation shaders (strided to contiguous)
+//! Shaders are static `.wgsl` files embedded at compile time via `include_str!()`.
+//! WebGPU supports F32, I32, U32 only (no F64/F16/BF16).
 
 pub mod advanced_random;
 pub mod complex;
@@ -29,7 +14,6 @@ pub mod distance;
 pub mod distributions;
 pub mod dtype_support;
 pub mod fft;
-pub mod generator;
 pub mod index;
 pub mod linalg;
 pub mod logical;
@@ -63,11 +47,7 @@ pub mod where_launcher;
 
 mod linalg_launchers;
 mod linalg_shaders;
-mod linalg_wgsl;
-mod matmul_wgsl;
-mod norm_wgsl;
 mod pipeline;
-mod reduce_wgsl;
 
 #[cfg(feature = "sparse")]
 /// GPU-native level computation kernels for sparse factorization
@@ -102,21 +82,6 @@ pub use distributions::{
     launch_chi_squared, launch_exponential, launch_f_distribution, launch_gamma_dist,
     launch_laplace, launch_multinomial_count, launch_poisson, launch_student_t,
 };
-pub use generator::{
-    dtype_suffix, generate_all_casts_from, generate_arange_shader, generate_binary_shader,
-    generate_bincount_shader, generate_cast_shader, generate_cat_shader, generate_compare_shader,
-    generate_conv1d_shader, generate_conv2d_shader, generate_cumprod_shader,
-    generate_cumprod_strided_shader, generate_cumsum_shader, generate_cumsum_strided_shader,
-    generate_depthwise_conv2d_shader, generate_eye_shader, generate_fill_shader,
-    generate_gather_nd_shader, generate_gather_shader, generate_index_select_shader,
-    generate_linspace_shader, generate_logsumexp_shader, generate_logsumexp_strided_shader,
-    generate_masked_fill_shader, generate_masked_select_shader, generate_matmul_shader,
-    generate_norm_shader, generate_reduce_shader, generate_scalar_shader,
-    generate_scatter_reduce_shader, generate_scatter_shader, generate_unary_shader,
-    is_wgpu_supported, is_wgsl_float, is_wgsl_int, wgsl_type,
-};
-#[cfg(feature = "sparse")]
-pub use generator::{generate_csr_spmm_shader, generate_csr_spmv_shader};
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
     launch_scatter_reduce_count, launch_scatter_reduce_mean_div, launch_scatter_reduce_prod,

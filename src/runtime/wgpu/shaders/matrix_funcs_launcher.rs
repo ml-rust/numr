@@ -2,13 +2,31 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    dtype_suffix, generate_diagonal_func_shader, generate_parlett_column_shader,
-    generate_validate_eigenvalues_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+const VALIDATE_EIGENVALUES_SHADER: &str = include_str!("validate_eigenvalues_f32.wgsl");
+// entry point: "validate_eigenvalues_f32"
+
+const DIAGONAL_EXP_SHADER: &str = include_str!("diagonal_exp_f32.wgsl");
+// entry point: "diagonal_exp_f32"
+
+const DIAGONAL_LOG_SHADER: &str = include_str!("diagonal_log_f32.wgsl");
+// entry point: "diagonal_log_f32"
+
+const DIAGONAL_SQRT_SHADER: &str = include_str!("diagonal_sqrt_f32.wgsl");
+// entry point: "diagonal_sqrt_f32"
+
+const PARLETT_COLUMN_SHADER: &str = include_str!("parlett_column_f32.wgsl");
+// entry point: "parlett_column_f32"
+
+fn check_dtype_f32(dtype: DType, op: &'static str) -> Result<()> {
+    match dtype {
+        DType::F32 => Ok(()),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
 
 /// Launch eigenvalue validation on Schur form.
 ///
@@ -24,19 +42,21 @@ pub fn launch_validate_eigenvalues(
     eps: f32,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let shader_key = format!("validate_eigenvalues_{}", suffix);
-    let entry_point = format!("validate_eigenvalues_{}", suffix);
+    check_dtype_f32(dtype, "validate_eigenvalues")?;
 
-    let shader_source = generate_validate_eigenvalues_shader(dtype)?;
-    let module = cache.get_or_create_module_from_source(&shader_key, &shader_source);
+    let module =
+        cache.get_or_create_module("validate_eigenvalues_f32", VALIDATE_EIGENVALUES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "validate_eigenvalues_f32",
+        "validate_eigenvalues_f32",
+        &module,
+        &layout,
+    );
 
     // Create params buffer
     let params: [u32; 4] = [n as u32, eps.to_bits(), 0, 0];
@@ -83,19 +103,32 @@ pub fn launch_diagonal_func(
     func_type: &str,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let shader_key = format!("diagonal_{}_{}", func_type, suffix);
-    let entry_point = format!("diagonal_{}_{}", func_type, suffix);
+    check_dtype_f32(dtype, "diagonal_func")?;
 
-    let shader_source = generate_diagonal_func_shader(dtype, func_type)?;
-    let module = cache.get_or_create_module_from_source(&shader_key, &shader_source);
+    let (shader_src, module_name, entry_point): (&str, &'static str, &'static str) = match func_type
+    {
+        "exp" => (DIAGONAL_EXP_SHADER, "diagonal_exp_f32", "diagonal_exp_f32"),
+        "log" => (DIAGONAL_LOG_SHADER, "diagonal_log_f32", "diagonal_log_f32"),
+        "sqrt" => (
+            DIAGONAL_SQRT_SHADER,
+            "diagonal_sqrt_f32",
+            "diagonal_sqrt_f32",
+        ),
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unknown diagonal func type: {}",
+                func_type
+            )));
+        }
+    };
+
+    let module = cache.get_or_create_module(module_name, shader_src);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     // Create params buffer
     let params: [u32; 4] = [n as u32, eps.to_bits(), 0, 0];
@@ -142,19 +175,16 @@ pub fn launch_parlett_column(
     eps: f32,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let shader_key = format!("parlett_column_{}", suffix);
-    let entry_point = format!("parlett_column_{}", suffix);
+    check_dtype_f32(dtype, "parlett_column")?;
 
-    let shader_source = generate_parlett_column_shader(dtype)?;
-    let module = cache.get_or_create_module_from_source(&shader_key, &shader_source);
+    let module = cache.get_or_create_module("parlett_column_f32", PARLETT_COLUMN_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&shader_key, &entry_point, &module, &layout);
+        cache.get_or_create_pipeline("parlett_column_f32", "parlett_column_f32", &module, &layout);
 
     // Create params buffer
     let params: [u32; 4] = [n as u32, col as u32, eps.to_bits(), 0];

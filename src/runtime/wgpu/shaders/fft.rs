@@ -1,15 +1,35 @@
 //! FFT kernel launchers for WebGPU
 //!
-//! Provides dispatch functions for FFT compute shaders.
+//! Provides dispatch functions for FFT compute shaders (F32 only on WebGPU).
 
-use super::generator::{
-    MAX_WORKGROUP_FFT_SIZE, generate_fftshift_shader, generate_hermitian_extend_shader,
-    generate_irfft_unpack_shader, generate_rfft_pack_shader, generate_rfft_truncate_shader,
-    generate_stockham_fft_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::error::Result;
 use wgpu::{Buffer, Queue};
+
+/// Maximum FFT size for shared memory (workgroup) implementation.
+/// Matches the shared memory array size in stockham_fft.wgsl.
+pub const MAX_WORKGROUP_FFT_SIZE: usize = 256;
+
+const STOCKHAM_FFT_SHADER: &str = include_str!("stockham_fft.wgsl");
+// entry points: "stockham_fft_small", "stockham_fft_stage", "scale_complex"
+
+const FFTSHIFT_SHADER: &str = include_str!("fftshift.wgsl");
+// entry points: "fftshift", "ifftshift"
+
+const RFFT_PACK_SHADER: &str = include_str!("rfft_pack.wgsl");
+// entry point: "rfft_pack"
+
+const IRFFT_UNPACK_SHADER: &str = include_str!("irfft_unpack.wgsl");
+// entry point: "irfft_unpack"
+
+const HERMITIAN_EXTEND_SHADER: &str = include_str!("hermitian_extend.wgsl");
+// entry point: "hermitian_extend"
+
+const RFFT_TRUNCATE_SHADER: &str = include_str!("rfft_truncate.wgsl");
+// entry point: "rfft_truncate"
+
+const COPY_COMPLEX_SHADER: &str = include_str!("copy_complex.wgsl");
+// entry point: "copy_complex"
 
 /// Launch batched Stockham FFT for small transforms (N <= MAX_WORKGROUP_FFT_SIZE)
 ///
@@ -30,8 +50,7 @@ pub fn launch_stockham_fft_batched(
         )));
     }
 
-    let shader = generate_stockham_fft_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("stockham_fft", &shader);
+    let module = pipeline_cache.get_or_create_module("stockham_fft", STOCKHAM_FFT_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -39,7 +58,7 @@ pub fn launch_stockham_fft_batched(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = pipeline_cache.get_or_create_pipeline(
         "stockham_fft",
         "stockham_fft_small",
         &module,
@@ -80,8 +99,7 @@ pub fn launch_stockham_fft_stage(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_stockham_fft_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("stockham_fft", &shader);
+    let module = pipeline_cache.get_or_create_module("stockham_fft", STOCKHAM_FFT_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -89,7 +107,7 @@ pub fn launch_stockham_fft_stage(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = pipeline_cache.get_or_create_pipeline(
         "stockham_fft",
         "stockham_fft_stage",
         &module,
@@ -130,8 +148,7 @@ pub fn launch_scale_complex(
     params: &Buffer,
     n: usize,
 ) -> Result<()> {
-    let shader = generate_stockham_fft_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("stockham_fft", &shader);
+    let module = pipeline_cache.get_or_create_module("stockham_fft", STOCKHAM_FFT_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -139,12 +156,8 @@ pub fn launch_scale_complex(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
-        "stockham_fft",
-        "scale_complex",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        pipeline_cache.get_or_create_pipeline("stockham_fft", "scale_complex", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -179,8 +192,7 @@ pub fn launch_fftshift(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_fftshift_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("fftshift", &shader);
+    let module = pipeline_cache.get_or_create_module("fftshift", FFTSHIFT_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -188,8 +200,7 @@ pub fn launch_fftshift(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline("fftshift", "fftshift", &module, &layout);
+    let pipeline = pipeline_cache.get_or_create_pipeline("fftshift", "fftshift", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -224,8 +235,7 @@ pub fn launch_ifftshift(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_fftshift_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("fftshift", &shader);
+    let module = pipeline_cache.get_or_create_module("fftshift", FFTSHIFT_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -233,8 +243,7 @@ pub fn launch_ifftshift(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline("fftshift", "ifftshift", &module, &layout);
+    let pipeline = pipeline_cache.get_or_create_pipeline("fftshift", "ifftshift", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -269,8 +278,7 @@ pub fn launch_rfft_pack(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_rfft_pack_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("rfft_pack", &shader);
+    let module = pipeline_cache.get_or_create_module("rfft_pack", RFFT_PACK_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -279,7 +287,7 @@ pub fn launch_rfft_pack(
     });
 
     let pipeline =
-        pipeline_cache.get_or_create_dynamic_pipeline("rfft_pack", "rfft_pack", &module, &layout);
+        pipeline_cache.get_or_create_pipeline("rfft_pack", "rfft_pack", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -314,8 +322,7 @@ pub fn launch_irfft_unpack(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_irfft_unpack_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("irfft_unpack", &shader);
+    let module = pipeline_cache.get_or_create_module("irfft_unpack", IRFFT_UNPACK_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -323,12 +330,8 @@ pub fn launch_irfft_unpack(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
-        "irfft_unpack",
-        "irfft_unpack",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        pipeline_cache.get_or_create_pipeline("irfft_unpack", "irfft_unpack", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -363,8 +366,7 @@ pub fn launch_hermitian_extend(
     n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_hermitian_extend_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("hermitian_extend", &shader);
+    let module = pipeline_cache.get_or_create_module("hermitian_extend", HERMITIAN_EXTEND_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -372,7 +374,7 @@ pub fn launch_hermitian_extend(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = pipeline_cache.get_or_create_pipeline(
         "hermitian_extend",
         "hermitian_extend",
         &module,
@@ -412,8 +414,7 @@ pub fn launch_rfft_truncate(
     half_n: usize,
     batch_size: usize,
 ) -> Result<()> {
-    let shader = generate_rfft_truncate_shader()?;
-    let module = pipeline_cache.get_or_create_module_from_source("rfft_truncate", &shader);
+    let module = pipeline_cache.get_or_create_module("rfft_truncate", RFFT_TRUNCATE_SHADER);
 
     let layout = pipeline_cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -421,12 +422,8 @@ pub fn launch_rfft_truncate(
         num_readonly_storage: 0,
     });
 
-    let pipeline = pipeline_cache.get_or_create_dynamic_pipeline(
-        "rfft_truncate",
-        "rfft_truncate",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        pipeline_cache.get_or_create_pipeline("rfft_truncate", "rfft_truncate", &module, &layout);
 
     let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
 
@@ -445,6 +442,49 @@ pub fn launch_rfft_truncate(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(half_n), batch_size as u32, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+/// Launch copy_complex shader
+pub fn launch_copy_complex(
+    pipeline_cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    output: &Buffer,
+    params: &Buffer,
+    n: usize,
+) -> Result<()> {
+    let module = pipeline_cache.get_or_create_module("copy_complex", COPY_COMPLEX_SHADER);
+
+    let layout = pipeline_cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+
+    let pipeline =
+        pipeline_cache.get_or_create_pipeline("copy_complex", "copy_complex", &module, &layout);
+
+    let bind_group = pipeline_cache.create_bind_group(&layout, &[input, output, params]);
+
+    let mut encoder =
+        pipeline_cache
+            .device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("copy_complex_encoder"),
+            });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("copy_complex_pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

@@ -1,122 +1,69 @@
-//! Semiring matrix multiplication WGSL kernel launchers
+//! Semiring matrix multiplication WGSL kernel launchers. F32 only.
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::semiring_matmul::generate_semiring_matmul_shader;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::semiring::SemiringOp;
 
+const SR_MIN_PLUS_SHADER: &str = include_str!("semiring_matmul_min_plus_f32.wgsl");
+const SR_MAX_PLUS_SHADER: &str = include_str!("semiring_matmul_max_plus_f32.wgsl");
+const SR_MAX_MIN_SHADER: &str = include_str!("semiring_matmul_max_min_f32.wgsl");
+const SR_MIN_MAX_SHADER: &str = include_str!("semiring_matmul_min_max_f32.wgsl");
+const SR_OR_AND_SHADER: &str = include_str!("semiring_matmul_or_and_f32.wgsl");
+const SR_PLUS_MAX_SHADER: &str = include_str!("semiring_matmul_plus_max_f32.wgsl");
+
 const TILE_SIZE: u32 = 16;
 
-/// Returns (module_key, entry_point, batched_entry_point) as &'static str.
-/// The pipeline cache requires 'static lifetimes for keys.
-fn semiring_keys(
+fn semiring_shader_info(
     op: SemiringOp,
     dtype: DType,
-) -> Result<(&'static str, &'static str, &'static str)> {
-    use DType::*;
-    use SemiringOp::*;
-    match (op, dtype) {
-        (MinPlus, F32) => Ok((
+) -> Result<(&'static str, &'static str, &'static str, &'static str)> {
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "semiring_matmul (WebGPU)",
+        });
+    }
+    Ok(match op {
+        SemiringOp::MinPlus => (
+            SR_MIN_PLUS_SHADER,
             "sr_min_plus_f32",
             "semiring_matmul_min_plus_f32",
             "batched_semiring_matmul_min_plus_f32",
-        )),
-        (MaxPlus, F32) => Ok((
+        ),
+        SemiringOp::MaxPlus => (
+            SR_MAX_PLUS_SHADER,
             "sr_max_plus_f32",
             "semiring_matmul_max_plus_f32",
             "batched_semiring_matmul_max_plus_f32",
-        )),
-        (MaxMin, F32) => Ok((
+        ),
+        SemiringOp::MaxMin => (
+            SR_MAX_MIN_SHADER,
             "sr_max_min_f32",
             "semiring_matmul_max_min_f32",
             "batched_semiring_matmul_max_min_f32",
-        )),
-        (MinMax, F32) => Ok((
+        ),
+        SemiringOp::MinMax => (
+            SR_MIN_MAX_SHADER,
             "sr_min_max_f32",
             "semiring_matmul_min_max_f32",
             "batched_semiring_matmul_min_max_f32",
-        )),
-        (OrAnd, F32) => Ok((
+        ),
+        SemiringOp::OrAnd => (
+            SR_OR_AND_SHADER,
             "sr_or_and_f32",
             "semiring_matmul_or_and_f32",
             "batched_semiring_matmul_or_and_f32",
-        )),
-        (PlusMax, F32) => Ok((
+        ),
+        SemiringOp::PlusMax => (
+            SR_PLUS_MAX_SHADER,
             "sr_plus_max_f32",
             "semiring_matmul_plus_max_f32",
             "batched_semiring_matmul_plus_max_f32",
-        )),
-
-        (MinPlus, I32) => Ok((
-            "sr_min_plus_i32",
-            "semiring_matmul_min_plus_i32",
-            "batched_semiring_matmul_min_plus_i32",
-        )),
-        (MaxPlus, I32) => Ok((
-            "sr_max_plus_i32",
-            "semiring_matmul_max_plus_i32",
-            "batched_semiring_matmul_max_plus_i32",
-        )),
-        (MaxMin, I32) => Ok((
-            "sr_max_min_i32",
-            "semiring_matmul_max_min_i32",
-            "batched_semiring_matmul_max_min_i32",
-        )),
-        (MinMax, I32) => Ok((
-            "sr_min_max_i32",
-            "semiring_matmul_min_max_i32",
-            "batched_semiring_matmul_min_max_i32",
-        )),
-        (OrAnd, I32) => Ok((
-            "sr_or_and_i32",
-            "semiring_matmul_or_and_i32",
-            "batched_semiring_matmul_or_and_i32",
-        )),
-        (PlusMax, I32) => Ok((
-            "sr_plus_max_i32",
-            "semiring_matmul_plus_max_i32",
-            "batched_semiring_matmul_plus_max_i32",
-        )),
-
-        (MinPlus, U32) => Ok((
-            "sr_min_plus_u32",
-            "semiring_matmul_min_plus_u32",
-            "batched_semiring_matmul_min_plus_u32",
-        )),
-        (MaxPlus, U32) => Ok((
-            "sr_max_plus_u32",
-            "semiring_matmul_max_plus_u32",
-            "batched_semiring_matmul_max_plus_u32",
-        )),
-        (MaxMin, U32) => Ok((
-            "sr_max_min_u32",
-            "semiring_matmul_max_min_u32",
-            "batched_semiring_matmul_max_min_u32",
-        )),
-        (MinMax, U32) => Ok((
-            "sr_min_max_u32",
-            "semiring_matmul_min_max_u32",
-            "batched_semiring_matmul_min_max_u32",
-        )),
-        (OrAnd, U32) => Ok((
-            "sr_or_and_u32",
-            "semiring_matmul_or_and_u32",
-            "batched_semiring_matmul_or_and_u32",
-        )),
-        (PlusMax, U32) => Ok((
-            "sr_plus_max_u32",
-            "semiring_matmul_plus_max_u32",
-            "batched_semiring_matmul_plus_max_u32",
-        )),
-
-        _ => Err(Error::UnsupportedDType {
-            dtype,
-            op: "semiring_matmul (WebGPU)",
-        }),
-    }
+        ),
+    })
 }
 
 /// Launch semiring matrix multiplication kernel.
@@ -132,10 +79,9 @@ pub fn launch_semiring_matmul(
     op: SemiringOp,
     dtype: DType,
 ) -> Result<()> {
-    let (module_key, entry_point, _) = semiring_keys(op, dtype)?;
-    let shader_source = generate_semiring_matmul_shader(dtype, op)?;
+    let (shader, module_key, entry_point, _) = semiring_shader_info(op, dtype)?;
 
-    let module = cache.get_or_create_module(module_key, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
@@ -181,10 +127,9 @@ pub fn launch_batched_semiring_matmul(
     op: SemiringOp,
     dtype: DType,
 ) -> Result<()> {
-    let (module_key, _, batched_entry_point) = semiring_keys(op, dtype)?;
-    let shader_source = generate_semiring_matmul_shader(dtype, op)?;
+    let (shader, module_key, _, batched_entry_point) = semiring_shader_info(op, dtype)?;
 
-    let module = cache.get_or_create_module(module_key, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,

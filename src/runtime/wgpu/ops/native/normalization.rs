@@ -120,16 +120,16 @@ pub(crate) fn native_group_norm(
 
     if shape.len() < 2 {
         return Err(Error::InvalidArgument {
-            arg: "input".into(),
+            arg: "input",
             reason: "group_norm requires at least 2D input [batch, channels, ...]".into(),
         });
     }
 
     let batch = shape[0];
     let channels = shape[1];
-    if channels % num_groups != 0 {
+    if !channels.is_multiple_of(num_groups) {
         return Err(Error::InvalidArgument {
-            arg: "num_groups".into(),
+            arg: "num_groups",
             reason: format!("channels {channels} not divisible by num_groups {num_groups}"),
         });
     }

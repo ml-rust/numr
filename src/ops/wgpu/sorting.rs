@@ -1,5 +1,8 @@
 //! Sorting operations for WebGPU runtime
 
+/// Maximum sort dimension size supported by the WebGPU bitonic sort (shared memory limit).
+const MAX_SHARED_SORT_SIZE: usize = 512;
+
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{CumulativeOps, SortingOps, TypeConversionOps};
@@ -39,14 +42,13 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let sort_size = shape[dim_idx];
 
         // Check sort size limit (WebGPU bitonic sort in shared memory)
-        if sort_size > crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE {
+        if sort_size > MAX_SHARED_SORT_SIZE {
             return Err(Error::backend_limitation(
                 "WebGPU",
                 "sort",
                 format!(
                     "max {} elements per dimension, got {}",
-                    crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE,
-                    sort_size
+                    MAX_SHARED_SORT_SIZE, sort_size
                 ),
             ));
         }
@@ -123,14 +125,13 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let dim_idx = normalize_dim(dim, ndim)?;
         let sort_size = shape[dim_idx];
 
-        if sort_size > crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE {
+        if sort_size > MAX_SHARED_SORT_SIZE {
             return Err(Error::backend_limitation(
                 "WebGPU",
                 "sort_with_indices",
                 format!(
                     "max {} elements per dimension, got {}",
-                    crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE,
-                    sort_size
+                    MAX_SHARED_SORT_SIZE, sort_size
                 ),
             ));
         }
@@ -197,14 +198,13 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let dim_idx = normalize_dim(dim, ndim)?;
         let sort_size = shape[dim_idx];
 
-        if sort_size > crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE {
+        if sort_size > MAX_SHARED_SORT_SIZE {
             return Err(Error::backend_limitation(
                 "WebGPU",
                 "argsort",
                 format!(
                     "max {} elements per dimension, got {}",
-                    crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE,
-                    sort_size
+                    MAX_SHARED_SORT_SIZE, sort_size
                 ),
             ));
         }
@@ -277,14 +277,13 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             });
         }
 
-        if sort_size > crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE {
+        if sort_size > MAX_SHARED_SORT_SIZE {
             return Err(Error::backend_limitation(
                 "WebGPU",
                 "topk",
                 format!(
                     "max {} elements per dimension, got {}",
-                    crate::runtime::wgpu::shaders::generator::MAX_SHARED_SORT_SIZE,
-                    sort_size
+                    MAX_SHARED_SORT_SIZE, sort_size
                 ),
             ));
         }

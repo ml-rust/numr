@@ -14,7 +14,7 @@
 
 use super::client::get_buffer;
 use super::shaders::fft as kernels;
-use super::shaders::generator::MAX_WORKGROUP_FFT_SIZE;
+const MAX_WORKGROUP_FFT_SIZE: usize = 256;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::fft::{
     FftAlgorithms, FftDirection, FftNormalization, complex_dtype_for_real, real_dtype_for_complex,

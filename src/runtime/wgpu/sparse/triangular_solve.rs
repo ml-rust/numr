@@ -3,19 +3,21 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
-use super::super::shaders::generator::sparse_linalg::{
-    generate_sparse_trsv_lower_multi_rhs_shader, generate_sparse_trsv_lower_shader,
-    generate_sparse_trsv_upper_multi_rhs_shader, generate_sparse_trsv_upper_shader,
-};
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_trsv_layout, validate_wgpu_dtype};
 use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
 use crate::algorithm::sparse_linalg::{compute_levels_lower, compute_levels_upper, flatten_levels};
-use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
+
+const TRSV_LOWER_F32: &str = include_str!("../shaders/sparse_trsv_lower_f32.wgsl");
+const TRSV_UPPER_F32: &str = include_str!("../shaders/sparse_trsv_upper_f32.wgsl");
+const TRSV_LOWER_MULTI_RHS_F32: &str =
+    include_str!("../shaders/sparse_trsv_lower_multi_rhs_f32.wgsl");
+const TRSV_UPPER_MULTI_RHS_F32: &str =
+    include_str!("../shaders/sparse_trsv_upper_multi_rhs_f32.wgsl");
 
 /// Sparse triangular solve for WebGPU.
 /// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs]).
@@ -169,14 +171,13 @@ fn launch_sparse_trsv_lower(
     n: usize,
     unit_diagonal: bool,
 ) -> Result<()> {
-    let shader_source = generate_sparse_trsv_lower_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("sparse_trsv_lower_f32", &shader_source);
+        .get_or_create_module("sparse_trsv_lower_f32", TRSV_LOWER_F32);
 
     let layout = create_trsv_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "sparse_trsv_lower_f32",
         "sparse_trsv_lower_level_f32",
         &module,
@@ -274,14 +275,13 @@ fn launch_sparse_trsv_upper(
     x: &Tensor<WgpuRuntime>,
     n: usize,
 ) -> Result<()> {
-    let shader_source = generate_sparse_trsv_upper_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("sparse_trsv_upper_f32", &shader_source);
+        .get_or_create_module("sparse_trsv_upper_f32", TRSV_UPPER_F32);
 
     let layout = create_trsv_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "sparse_trsv_upper_f32",
         "sparse_trsv_upper_level_f32",
         &module,
@@ -376,14 +376,13 @@ fn launch_sparse_trsv_lower_multi_rhs(
     n: usize,
     unit_diagonal: bool,
 ) -> Result<()> {
-    let shader_source = generate_sparse_trsv_lower_multi_rhs_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("sparse_trsv_lower_multi_rhs_f32", &shader_source);
+        .get_or_create_module("sparse_trsv_lower_multi_rhs_f32", TRSV_LOWER_MULTI_RHS_F32);
 
     let layout = create_trsv_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "sparse_trsv_lower_multi_rhs_f32",
         "sparse_trsv_lower_level_multi_rhs_f32",
         &module,
@@ -488,14 +487,13 @@ fn launch_sparse_trsv_upper_multi_rhs(
     x: &Tensor<WgpuRuntime>,
     n: usize,
 ) -> Result<()> {
-    let shader_source = generate_sparse_trsv_upper_multi_rhs_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("sparse_trsv_upper_multi_rhs_f32", &shader_source);
+        .get_or_create_module("sparse_trsv_upper_multi_rhs_f32", TRSV_UPPER_MULTI_RHS_F32);
 
     let layout = create_trsv_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "sparse_trsv_upper_multi_rhs_f32",
         "sparse_trsv_upper_level_multi_rhs_f32",
         &module,
