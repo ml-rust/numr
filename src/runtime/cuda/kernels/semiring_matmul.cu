@@ -363,3 +363,107 @@ extern "C" __global__ void semiring_matmul_batched_i32(
 
     C[c_offset + row * N + col] = acc;
 }
+
+// ============================================================================
+// U8 (Bool) Kernels — primarily for OrAnd semiring
+// ============================================================================
+
+extern "C" __global__ void semiring_matmul_u8(
+    const unsigned char* __restrict__ A,
+    const unsigned char* __restrict__ B,
+    unsigned char* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K,
+    unsigned int op
+) {
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row >= M || col >= N) return;
+
+    unsigned char acc;
+    switch (op) {
+        case 0: case 3: acc = 255; break;
+        case 1: case 2: acc = 0; break;
+        default: acc = 0; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        unsigned char a_val = A[row * K + kk];
+        unsigned char b_val = B[kk * N + col];
+
+        unsigned char combined;
+        switch (op) {
+            case 0: case 1: combined = (unsigned char)(a_val + b_val); break;
+            case 2: combined = (a_val < b_val) ? a_val : b_val; break;
+            case 3: case 5: combined = (a_val > b_val) ? a_val : b_val; break;
+            case 4: combined = (a_val != 0 && b_val != 0) ? 1 : 0; break;
+            default: combined = (unsigned char)(a_val + b_val); break;
+        }
+
+        switch (op) {
+            case 0: case 3: acc = (acc < combined) ? acc : combined; break;
+            case 1: case 2: acc = (acc > combined) ? acc : combined; break;
+            case 4: if (combined != 0) acc = 1; break;
+            case 5: acc = acc + combined; break;
+            default: acc = (acc < combined) ? acc : combined; break;
+        }
+    }
+
+    C[row * N + col] = acc;
+}
+
+extern "C" __global__ void semiring_matmul_batched_u8(
+    const unsigned char* __restrict__ A,
+    const unsigned char* __restrict__ B,
+    unsigned char* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K,
+    unsigned int op,
+    unsigned int batch_size
+) {
+    unsigned int batch = blockIdx.z;
+    if (batch >= batch_size) return;
+
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (row >= M || col >= N) return;
+
+    unsigned int a_offset = batch * M * K;
+    unsigned int b_offset = batch * K * N;
+    unsigned int c_offset = batch * M * N;
+
+    unsigned char acc;
+    switch (op) {
+        case 0: case 3: acc = 255; break;
+        case 1: case 2: acc = 0; break;
+        default: acc = 0; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        unsigned char a_val = A[a_offset + row * K + kk];
+        unsigned char b_val = B[b_offset + kk * N + col];
+
+        unsigned char combined;
+        switch (op) {
+            case 0: case 1: combined = (unsigned char)(a_val + b_val); break;
+            case 2: combined = (a_val < b_val) ? a_val : b_val; break;
+            case 3: case 5: combined = (a_val > b_val) ? a_val : b_val; break;
+            case 4: combined = (a_val != 0 && b_val != 0) ? 1 : 0; break;
+            default: combined = (unsigned char)(a_val + b_val); break;
+        }
+
+        switch (op) {
+            case 0: case 3: acc = (acc < combined) ? acc : combined; break;
+            case 1: case 2: acc = (acc > combined) ? acc : combined; break;
+            case 4: if (combined != 0) acc = 1; break;
+            case 5: acc = acc + combined; break;
+            default: acc = (acc < combined) ? acc : combined; break;
+        }
+    }
+
+    C[c_offset + row * N + col] = acc;
+}
