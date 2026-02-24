@@ -51,6 +51,7 @@ fn compile_cuda_kernels() {
         "fused_activation_mul.cu",
         "fused_activation_mul_bwd.cu",
         "fused_add_norm.cu",
+        "fused_elementwise.cu",
         "index.cu",
         "linalg_advanced.cu",
         "linalg_banded.cu",

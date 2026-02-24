@@ -255,4 +255,31 @@ pub trait BinaryOps<R: Runtime> {
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn atan2(&self, y: &Tensor<R>, x: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Fused multiply-add: a * b + c
+    ///
+    /// Computes the element-wise fused multiply-add of three tensors in a single pass,
+    /// reducing memory bandwidth compared to separate multiply and add operations.
+    /// Uses hardware FMA instructions where available (AVX2/AVX-512/NEON).
+    ///
+    /// All three tensors must have the same shape (no broadcasting).
+    ///
+    /// # Arguments
+    /// * `a` - First multiplicand
+    /// * `b` - Second multiplicand
+    /// * `c` - Addend
+    fn fused_mul_add(&self, a: &Tensor<R>, b: &Tensor<R>, c: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Fused add-multiply: (a + b) * c
+    ///
+    /// Computes the element-wise fused add-multiply of three tensors in a single pass.
+    /// Common in residual + scaling patterns.
+    ///
+    /// All three tensors must have the same shape (no broadcasting).
+    ///
+    /// # Arguments
+    /// * `a` - First addend
+    /// * `b` - Second addend
+    /// * `c` - Multiplicand
+    fn fused_add_mul(&self, a: &Tensor<R>, b: &Tensor<R>, c: &Tensor<R>) -> Result<Tensor<R>>;
 }

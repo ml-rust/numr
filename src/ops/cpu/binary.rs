@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::ops::BinaryOps;
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
-    helpers::{BinaryOp, binary_op_impl},
+    helpers::{BinaryOp, binary_op_impl, fused_add_mul_impl, fused_mul_add_impl},
 };
 use crate::tensor::Tensor;
 
@@ -48,5 +48,23 @@ impl BinaryOps<CpuRuntime> for CpuClient {
 
     fn atan2(&self, y: &Tensor<CpuRuntime>, x: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         binary_op_impl(self, BinaryOp::Atan2, y, x, "atan2")
+    }
+
+    fn fused_mul_add(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        c: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_mul_add_impl(self, a, b, c)
+    }
+
+    fn fused_add_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        c: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_add_mul_impl(self, a, b, c)
     }
 }

@@ -47,6 +47,7 @@ pub mod compare;
 pub mod conv;
 pub mod cumulative;
 pub mod fused_activation_mul;
+pub mod fused_elementwise;
 pub mod index;
 pub mod logsumexp;
 pub mod math;

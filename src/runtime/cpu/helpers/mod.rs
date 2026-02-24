@@ -7,6 +7,7 @@ pub mod activation;
 pub mod binary;
 pub mod compare;
 pub mod cumulative;
+pub mod fused_elementwise;
 pub mod indexing;
 pub mod reduce;
 pub mod scalar;
@@ -21,6 +22,7 @@ pub use activation::{
 pub use binary::binary_op_impl;
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
+pub use fused_elementwise::{fused_add_mul_impl, fused_mul_add_impl, fused_mul_add_scalar_impl};
 pub use indexing::{
     bincount_impl, embedding_lookup_impl, gather_2d_impl, gather_impl, gather_nd_impl,
     index_put_impl, index_select_impl, masked_fill_impl, masked_select_impl, scatter_impl,

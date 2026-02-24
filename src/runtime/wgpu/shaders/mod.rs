@@ -64,6 +64,7 @@ pub mod sparse_level_compute {
 
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
 pub mod fused_activation_mul;
+pub mod fused_elementwise;
 pub use advanced_random::{
     launch_pcg64_randn, launch_pcg64_uniform, launch_philox_randn, launch_philox_uniform,
     launch_threefry_randn, launch_threefry_uniform, launch_xoshiro256_randn,
@@ -94,6 +95,9 @@ pub use fused_activation_mul::{
 pub use fused_add_norm::{
     launch_fused_add_layer_norm, launch_fused_add_layer_norm_bwd, launch_fused_add_rms_norm,
     launch_fused_add_rms_norm_bwd, launch_reduce_sum_rows,
+};
+pub use fused_elementwise::{
+    launch_fused_add_mul, launch_fused_mul_add, launch_fused_mul_add_scalar,
 };
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,

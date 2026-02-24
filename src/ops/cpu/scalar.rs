@@ -3,7 +3,8 @@
 use crate::error::Result;
 use crate::ops::{BinaryOp, ScalarOps};
 use crate::runtime::cpu::{
-    CpuClient, CpuRuntime, helpers::scalar::rsub_scalar_op_impl, helpers::scalar_op_impl,
+    CpuClient, CpuRuntime, helpers::fused_mul_add_scalar_impl,
+    helpers::scalar::rsub_scalar_op_impl, helpers::scalar_op_impl,
 };
 use crate::tensor::Tensor;
 
@@ -30,6 +31,15 @@ impl ScalarOps<CpuRuntime> for CpuClient {
 
     fn rsub_scalar(&self, a: &Tensor<CpuRuntime>, scalar: f64) -> Result<Tensor<CpuRuntime>> {
         rsub_scalar_op_impl(self, a, scalar)
+    }
+
+    fn fused_mul_add_scalar(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        scale: f64,
+        bias: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        fused_mul_add_scalar_impl(self, a, scale, bias)
     }
 }
 
