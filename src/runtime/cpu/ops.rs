@@ -92,3 +92,6 @@ mod semiring_matmul;
 
 #[path = "../../ops/cpu/einsum.rs"]
 mod einsum;
+
+#[path = "../../ops/cpu/gemm_epilogue.rs"]
+mod gemm_epilogue;

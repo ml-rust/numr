@@ -77,6 +77,7 @@ fn compile_cuda_kernels() {
         "ternary.cu",
         "unary.cu",
         "utility.cu",
+        "gemm_epilogue.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

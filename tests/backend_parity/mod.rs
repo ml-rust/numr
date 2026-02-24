@@ -12,6 +12,7 @@ pub mod cumulative;
 pub mod eigen;
 pub mod einsum;
 pub mod fft;
+pub mod gemm_epilogue;
 pub mod indexing;
 pub mod indexing_advanced;
 #[cfg(feature = "sparse")]

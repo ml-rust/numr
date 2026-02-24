@@ -101,8 +101,9 @@ pub(crate) use reduce::{
 };
 pub use traits::{
     ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
-    CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, IndexingOps, Kernel, LinalgOps,
-    LogicalOps, MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
-    QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps,
-    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, GemmActivation, GemmEpilogueOps,
+    IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, MultivariateRandomOps,
+    NormalizationOps, PaddingMode, QuasiRandomOps, RandomOps, ReduceOps, ScalarOps,
+    ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UnaryOps, UtilityOps,
 };

@@ -27,6 +27,7 @@ pub mod statistics;
 pub mod activation_launcher;
 pub mod elementwise;
 pub mod fused_add_norm;
+pub mod gemm_epilogue;
 pub mod matmul;
 pub mod matrix_funcs_launcher;
 pub mod norm;

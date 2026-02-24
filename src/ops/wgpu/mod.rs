@@ -30,3 +30,4 @@ pub mod statistics;
 pub mod type_conversion;
 pub mod unary;
 pub mod utility;
+pub mod gemm_epilogue;

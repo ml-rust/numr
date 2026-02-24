@@ -11,6 +11,7 @@ mod cast;
 mod compare;
 mod conditional;
 mod cumulative;
+mod gemm_epilogue;
 mod indexing;
 pub(crate) mod logical;
 mod masking;
@@ -29,6 +30,7 @@ pub(crate) use cast::native_cast_op;
 pub(crate) use compare::native_compare_op;
 pub(crate) use conditional::{native_clamp, native_where_cond};
 pub(crate) use cumulative::{native_cumprod, native_cumsum, native_logsumexp};
+pub(crate) use gemm_epilogue::{native_gemm_bias_activation, native_gemm_bias_residual};
 pub(crate) use indexing::{
     native_gather, native_index_put, native_index_select, native_scatter, native_slice_assign,
 };

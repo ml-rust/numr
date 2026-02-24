@@ -15,6 +15,7 @@ pub mod distance;
 pub mod distributions;
 pub mod fft;
 pub mod fused_add_norm;
+pub mod gemm_epilogue;
 pub mod index;
 pub mod logical;
 pub mod matmul;
@@ -63,6 +64,9 @@ pub use fft::{
 pub use fused_add_norm::{
     fused_add_layer_norm_bwd_kernel, fused_add_layer_norm_kernel, fused_add_rms_norm_bwd_kernel,
     fused_add_rms_norm_kernel,
+};
+pub use gemm_epilogue::{
+    matmul_bias_activation_bwd_kernel, matmul_bias_activation_kernel, matmul_bias_residual_kernel,
 };
 pub use index::{
     bincount_kernel, embedding_lookup_kernel, gather_2d_kernel, gather_kernel, gather_nd_kernel,
