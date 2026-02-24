@@ -59,6 +59,7 @@ pub mod sparse_level_compute {
 }
 
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
+pub mod fused_activation_mul;
 pub use advanced_random::{
     launch_pcg64_randn, launch_pcg64_uniform, launch_philox_randn, launch_philox_uniform,
     launch_threefry_randn, launch_threefry_uniform, launch_xoshiro256_randn,
@@ -81,6 +82,10 @@ pub use distributions::{
     MultinomialCountParams, launch_bernoulli, launch_beta_dist, launch_binomial,
     launch_chi_squared, launch_exponential, launch_f_distribution, launch_gamma_dist,
     launch_laplace, launch_multinomial_count, launch_poisson, launch_student_t,
+};
+pub use fused_activation_mul::{
+    launch_gelu_mul, launch_gelu_mul_bwd, launch_relu_mul, launch_relu_mul_bwd, launch_sigmoid_mul,
+    launch_sigmoid_mul_bwd, launch_silu_mul, launch_silu_mul_bwd,
 };
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
