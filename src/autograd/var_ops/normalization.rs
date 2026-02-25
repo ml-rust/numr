@@ -138,6 +138,108 @@ where
     }
 }
 
+/// Fused Add + RMS Normalization: pre_norm = x + residual, output = rms_norm(pre_norm, weight, eps)
+///
+/// Returns a single output variable. Both `x` and `residual` receive the same gradient.
+///
+/// # Arguments
+///
+/// * `x` - Input variable of shape `[..., hidden_size]`
+/// * `residual` - Residual variable of same shape as `x`
+/// * `weight` - Weight variable of shape `[hidden_size]`
+/// * `eps` - Small constant for numerical stability
+/// * `client` - Runtime client
+pub fn var_fused_add_rms_norm<R, C>(
+    x: &Var<R>,
+    residual: &Var<R>,
+    weight: &Var<R>,
+    eps: f32,
+    client: &C,
+) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + NormalizationOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    let (output, pre_norm) =
+        client.fused_add_rms_norm(x.tensor(), residual.tensor(), weight.tensor(), eps)?;
+
+    if x.requires_grad() || residual.requires_grad() || weight.requires_grad() {
+        let grad_fn = FusedAddRmsNormBackward::<R>::new(
+            x.id(),
+            residual.id(),
+            weight.id(),
+            pre_norm,
+            weight.tensor().clone(),
+            eps,
+            x.grad_fn().cloned(),
+            residual.grad_fn().cloned(),
+            weight.grad_fn().cloned(),
+        );
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Fused Add + Layer Normalization: pre_norm = x + residual, output = layer_norm(pre_norm, weight, bias, eps)
+///
+/// Returns a single output variable. Both `x` and `residual` receive the same gradient.
+///
+/// # Arguments
+///
+/// * `x` - Input variable of shape `[..., hidden_size]`
+/// * `residual` - Residual variable of same shape as `x`
+/// * `weight` - Weight (gamma) variable of shape `[hidden_size]`
+/// * `bias` - Bias (beta) variable of shape `[hidden_size]`
+/// * `eps` - Small constant for numerical stability
+/// * `client` - Runtime client
+pub fn var_fused_add_layer_norm<R, C>(
+    x: &Var<R>,
+    residual: &Var<R>,
+    weight: &Var<R>,
+    bias: &Var<R>,
+    eps: f32,
+    client: &C,
+) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + NormalizationOps<R>,
+    R::Client: TensorOps<R> + ScalarOps<R>,
+{
+    let (output, pre_norm) = client.fused_add_layer_norm(
+        x.tensor(),
+        residual.tensor(),
+        weight.tensor(),
+        bias.tensor(),
+        eps,
+    )?;
+
+    if x.requires_grad()
+        || residual.requires_grad()
+        || weight.requires_grad()
+        || bias.requires_grad()
+    {
+        let grad_fn = FusedAddLayerNormBackward::<R>::new(
+            x.id(),
+            residual.id(),
+            weight.id(),
+            bias.id(),
+            pre_norm,
+            weight.tensor().clone(),
+            bias.tensor().clone(),
+            eps,
+            x.grad_fn().cloned(),
+            residual.grad_fn().cloned(),
+            weight.grad_fn().cloned(),
+            bias.grad_fn().cloned(),
+        );
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,6 +516,181 @@ mod tests {
         // All gradients should be finite
         for v in d_input.iter().chain(d_weight.iter()) {
             assert!(v.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_var_fused_add_rms_norm_forward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[1, 4], &device),
+            true,
+        );
+        let residual = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3, 0.4], &[1, 4], &device),
+            true,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device),
+            true,
+        );
+
+        let result = var_fused_add_rms_norm(&x, &residual, &weight, 1e-5, &client).unwrap();
+        let data: Vec<f32> = result.tensor().to_vec();
+
+        assert_eq!(data.len(), 4);
+        for val in &data {
+            assert!(val.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_var_fused_add_rms_norm_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device),
+            true,
+        );
+        let residual = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3], &[1, 3], &device),
+            true,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[3], &device),
+            true,
+        );
+
+        let output = var_fused_add_rms_norm(&x, &residual, &weight, 1e-5, &client).unwrap();
+        let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+        let grads = backward(&loss, &client).unwrap();
+
+        let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        let gr: Vec<f32> = grads.get(residual.id()).unwrap().to_vec();
+        let gw: Vec<f32> = grads.get(weight.id()).unwrap().to_vec();
+
+        assert_eq!(gx.len(), 3);
+        assert_eq!(gr.len(), 3);
+        assert_eq!(gw.len(), 3);
+
+        // x and residual should get the same gradient
+        for (a, b) in gx.iter().zip(gr.iter()) {
+            assert!(
+                (a - b).abs() < 1e-5,
+                "x and residual grads must match: {a} vs {b}"
+            );
+        }
+        for val in gx.iter().chain(gw.iter()) {
+            assert!(val.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_var_fused_add_rms_norm_no_grad() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[1, 2], &device),
+            false,
+        );
+        let residual = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2], &[1, 2], &device),
+            false,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0], &[2], &device),
+            false,
+        );
+
+        let result = var_fused_add_rms_norm(&x, &residual, &weight, 1e-5, &client).unwrap();
+        assert!(!result.requires_grad());
+    }
+
+    #[test]
+    fn test_var_fused_add_layer_norm_forward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[1, 4], &device),
+            true,
+        );
+        let residual = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3, 0.4], &[1, 4], &device),
+            true,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0], &[4], &device),
+            true,
+        );
+        let bias = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0, 0.0], &[4], &device),
+            true,
+        );
+
+        let result =
+            var_fused_add_layer_norm(&x, &residual, &weight, &bias, 1e-5, &client).unwrap();
+        let data: Vec<f32> = result.tensor().to_vec();
+
+        // Layer norm output should have ~0 mean
+        let sum: f32 = data.iter().sum();
+        assert!(
+            sum.abs() < 1e-4,
+            "output should have ~0 mean, got sum={sum}"
+        );
+    }
+
+    #[test]
+    fn test_var_fused_add_layer_norm_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 3], &device),
+            true,
+        );
+        let residual = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.1f32, 0.2, 0.3], &[1, 3], &device),
+            true,
+        );
+        let weight = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[3], &device),
+            true,
+        );
+        let bias = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.0f32, 0.0, 0.0], &[3], &device),
+            true,
+        );
+
+        let output =
+            var_fused_add_layer_norm(&x, &residual, &weight, &bias, 1e-5, &client).unwrap();
+        let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+        let grads = backward(&loss, &client).unwrap();
+
+        let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        let gr: Vec<f32> = grads.get(residual.id()).unwrap().to_vec();
+        let gw: Vec<f32> = grads.get(weight.id()).unwrap().to_vec();
+        let gb: Vec<f32> = grads.get(bias.id()).unwrap().to_vec();
+
+        // x and residual should get the same gradient
+        for (a, b) in gx.iter().zip(gr.iter()) {
+            assert!((a - b).abs() < 1e-5, "x and residual grads must match");
+        }
+
+        // d_bias should be [1, 1, 1] for sum loss
+        for val in &gb {
+            assert!(
+                (*val - 1.0).abs() < 1e-5,
+                "bias gradient should be 1.0, got {val}"
+            );
+        }
+
+        for val in gx.iter().chain(gw.iter()) {
+            assert!(val.is_finite());
         }
     }
 }
