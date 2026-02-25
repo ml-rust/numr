@@ -160,7 +160,9 @@ pub fn reduce_dim_launch_config(outer: usize, inner: usize) -> ((u32, u32, u32),
 #[inline]
 pub fn softmax_launch_config(outer: usize, dim_size: usize) -> (u32, u32, u32) {
     // One block per row, threads handle the dimension
-    let block_size = BLOCK_SIZE.min(dim_size as u32);
+    // Block size must be a power of 2 for the shared-memory tree reduction to work correctly
+    let block_size = BLOCK_SIZE.min(dim_size as u32).next_power_of_two();
+    let block_size = block_size.min(BLOCK_SIZE);
     let grid_size = outer as u32;
     // Shared memory: 2 arrays of block_size floats (for max and sum reduction)
     let shared_mem = 2 * block_size * 4; // f32

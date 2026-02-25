@@ -269,7 +269,7 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         // Output gradients
         let d_a = Tensor::<CpuRuntime>::empty(a_shape, dtype, &self.device);
-        let d_b = Tensor::<CpuRuntime>::empty(b_shape, dtype, &self.device);
+        let d_b = Tensor::<CpuRuntime>::zeros(b_shape, dtype, &self.device);
 
         // d_bias is always [N] — we need to sum across batches
         let d_bias_full = Tensor::<CpuRuntime>::empty(&[n], dtype, &self.device);

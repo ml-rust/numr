@@ -251,6 +251,26 @@ fn test_gemm_bias_activation_bwd_relu_parity() {
     gemm_bias_activation_bwd_parity(GemmActivation::ReLU, "gemm_bias_act_bwd_relu");
 }
 
+#[test]
+fn test_gemm_bias_activation_bwd_sigmoid_parity() {
+    gemm_bias_activation_bwd_parity(GemmActivation::Sigmoid, "gemm_bias_act_bwd_sigmoid");
+}
+
+#[test]
+fn test_gemm_bias_activation_bwd_tanh_parity() {
+    gemm_bias_activation_bwd_parity(GemmActivation::Tanh, "gemm_bias_act_bwd_tanh");
+}
+
+#[test]
+fn test_gemm_bias_activation_bwd_silu_parity() {
+    gemm_bias_activation_bwd_parity(GemmActivation::SiLU, "gemm_bias_act_bwd_silu");
+}
+
+#[test]
+fn test_gemm_bias_activation_bwd_gelu_parity() {
+    gemm_bias_activation_bwd_parity(GemmActivation::GELU, "gemm_bias_act_bwd_gelu");
+}
+
 fn gemm_bias_activation_bwd_parity(activation: GemmActivation, label: &str) {
     let a = vec![1.0f64, 2.0, 3.0, 4.0];
     let b = vec![0.5f64, 0.3, -0.1, 0.7];
@@ -267,10 +287,307 @@ fn gemm_bias_activation_bwd_parity(activation: GemmActivation, label: &str) {
             .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
             .unwrap();
 
-        // CUDA and WebGPU backward are NotImplemented, so we only test CPU across dtypes.
-        // When GPU backward is implemented, add parity checks here.
-        let _ = (&cpu_da, &cpu_db, &cpu_dbias);
-        let _ = label;
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a_t = tensor_from_f64(&a, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let b_t = tensor_from_f64(&b, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &cuda_device, &cuda_client).unwrap();
+                let grad_t =
+                    tensor_from_f64(&grad, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                let (da, db, dbias) = cuda_client
+                    .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                    .unwrap();
+                assert_tensor_allclose(
+                    &da,
+                    &cpu_da,
+                    dtype,
+                    &format!("{label} d_a CUDA vs CPU [{dtype:?}]"),
+                );
+                assert_tensor_allclose(
+                    &db,
+                    &cpu_db,
+                    dtype,
+                    &format!("{label} d_b CUDA vs CPU [{dtype:?}]"),
+                );
+                assert_tensor_allclose(
+                    &dbias,
+                    &cpu_dbias,
+                    dtype,
+                    &format!("{label} d_bias CUDA vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+
+        #[cfg(feature = "wgpu")]
+        if is_dtype_supported("wgpu", dtype) {
+            with_wgpu_backend(|wgpu_client, wgpu_device| {
+                let a_t = tensor_from_f64(&a, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let b_t = tensor_from_f64(&b, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let grad_t =
+                    tensor_from_f64(&grad, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                let (da, db, dbias) = wgpu_client
+                    .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                    .unwrap();
+                assert_tensor_allclose(
+                    &da,
+                    &cpu_da,
+                    dtype,
+                    &format!("{label} d_a WebGPU vs CPU [{dtype:?}]"),
+                );
+                assert_tensor_allclose(
+                    &db,
+                    &cpu_db,
+                    dtype,
+                    &format!("{label} d_b WebGPU vs CPU [{dtype:?}]"),
+                );
+                assert_tensor_allclose(
+                    &dbias,
+                    &cpu_dbias,
+                    dtype,
+                    &format!("{label} d_bias WebGPU vs CPU [{dtype:?}]"),
+                );
+            });
+        }
+    }
+}
+
+// ============================================================================
+// matmul_bias_activation_bwd: batched 3D parity
+// ============================================================================
+
+#[test]
+fn test_gemm_bias_activation_bwd_batched_3d_parity() {
+    let a = vec![
+        1.0f64, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
+    ];
+    let b = vec![
+        0.1f64, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2,
+    ];
+    let bias = vec![0.01f64, 0.02];
+    let grad = vec![1.0f64; 8];
+
+    for activation in [
+        GemmActivation::None,
+        GemmActivation::ReLU,
+        GemmActivation::SiLU,
+    ] {
+        for dtype in supported_dtypes("cpu") {
+            let (cpu_client, cpu_device) = create_cpu_client();
+            let a_t = tensor_from_f64(&a, &[2, 2, 3], dtype, &cpu_device, &cpu_client).unwrap();
+            let b_t = tensor_from_f64(&b, &[2, 3, 2], dtype, &cpu_device, &cpu_client).unwrap();
+            let bias_t = tensor_from_f64(&bias, &[2], dtype, &cpu_device, &cpu_client).unwrap();
+            let grad_t =
+                tensor_from_f64(&grad, &[2, 2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+            let (cpu_da, cpu_db, cpu_dbias) = cpu_client
+                .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                .unwrap();
+
+            assert_eq!(cpu_da.shape(), &[2, 2, 3]);
+            assert_eq!(cpu_db.shape(), &[2, 3, 2]);
+            assert_eq!(cpu_dbias.shape(), &[2]);
+
+            #[cfg(feature = "cuda")]
+            if is_dtype_supported("cuda", dtype) {
+                with_cuda_backend(|cuda_client, cuda_device| {
+                    let a_t =
+                        tensor_from_f64(&a, &[2, 2, 3], dtype, &cuda_device, &cuda_client).unwrap();
+                    let b_t =
+                        tensor_from_f64(&b, &[2, 3, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let bias_t =
+                        tensor_from_f64(&bias, &[2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let grad_t =
+                        tensor_from_f64(&grad, &[2, 2, 2], dtype, &cuda_device, &cuda_client)
+                            .unwrap();
+                    let label = format!("bwd_batched_{activation:?}");
+                    let (da, db, dbias) = cuda_client
+                        .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                        .unwrap();
+                    assert_tensor_allclose(
+                        &da,
+                        &cpu_da,
+                        dtype,
+                        &format!("{label} d_a CUDA vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &db,
+                        &cpu_db,
+                        dtype,
+                        &format!("{label} d_b CUDA vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &dbias,
+                        &cpu_dbias,
+                        dtype,
+                        &format!("{label} d_bias CUDA vs CPU [{dtype:?}]"),
+                    );
+                });
+            }
+
+            #[cfg(feature = "wgpu")]
+            if is_dtype_supported("wgpu", dtype) {
+                with_wgpu_backend(|wgpu_client, wgpu_device| {
+                    let a_t =
+                        tensor_from_f64(&a, &[2, 2, 3], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let b_t =
+                        tensor_from_f64(&b, &[2, 3, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let bias_t =
+                        tensor_from_f64(&bias, &[2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let grad_t =
+                        tensor_from_f64(&grad, &[2, 2, 2], dtype, &wgpu_device, &wgpu_client)
+                            .unwrap();
+                    let label = format!("bwd_batched_{activation:?}");
+                    let (da, db, dbias) = wgpu_client
+                        .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                        .unwrap();
+                    assert_tensor_allclose(
+                        &da,
+                        &cpu_da,
+                        dtype,
+                        &format!("{label} d_a WebGPU vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &db,
+                        &cpu_db,
+                        dtype,
+                        &format!("{label} d_b WebGPU vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &dbias,
+                        &cpu_dbias,
+                        dtype,
+                        &format!("{label} d_bias WebGPU vs CPU [{dtype:?}]"),
+                    );
+                });
+            }
+        }
+    }
+}
+
+// ============================================================================
+// matmul_bias_activation_bwd: negative values / edge cases
+// ============================================================================
+
+#[test]
+fn test_gemm_bias_activation_bwd_negative_values_parity() {
+    let a = vec![-1.0f64, 2.0, 3.0, -4.0];
+    let b = vec![-1.0f64, 0.5, 0.5, -1.0];
+    let bias = vec![-0.5f64, 0.5];
+    let grad = vec![1.0f64, 1.0, 1.0, 1.0];
+
+    for activation in [
+        GemmActivation::None,
+        GemmActivation::ReLU,
+        GemmActivation::Sigmoid,
+        GemmActivation::Tanh,
+        GemmActivation::SiLU,
+        GemmActivation::GELU,
+    ] {
+        for dtype in supported_dtypes("cpu") {
+            let (cpu_client, cpu_device) = create_cpu_client();
+            let a_t = tensor_from_f64(&a, &[2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+            let b_t = tensor_from_f64(&b, &[2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+            let bias_t = tensor_from_f64(&bias, &[2], dtype, &cpu_device, &cpu_client).unwrap();
+            let grad_t = tensor_from_f64(&grad, &[2, 2], dtype, &cpu_device, &cpu_client).unwrap();
+            let (cpu_da, cpu_db, cpu_dbias) = cpu_client
+                .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                .unwrap();
+
+            // Verify finiteness on CPU reference
+            for val in cpu_da.to_vec::<f64>().iter() {
+                assert!(
+                    val.is_finite(),
+                    "non-finite d_a for {activation:?} [{dtype:?}]"
+                );
+            }
+            for val in cpu_db.to_vec::<f64>().iter() {
+                assert!(
+                    val.is_finite(),
+                    "non-finite d_b for {activation:?} [{dtype:?}]"
+                );
+            }
+            for val in cpu_dbias.to_vec::<f64>().iter() {
+                assert!(
+                    val.is_finite(),
+                    "non-finite d_bias for {activation:?} [{dtype:?}]"
+                );
+            }
+
+            #[cfg(feature = "cuda")]
+            if is_dtype_supported("cuda", dtype) {
+                with_cuda_backend(|cuda_client, cuda_device| {
+                    let a_t =
+                        tensor_from_f64(&a, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let b_t =
+                        tensor_from_f64(&b, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let bias_t =
+                        tensor_from_f64(&bias, &[2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let grad_t =
+                        tensor_from_f64(&grad, &[2, 2], dtype, &cuda_device, &cuda_client).unwrap();
+                    let label = format!("bwd_neg_{activation:?}");
+                    let (da, db, dbias) = cuda_client
+                        .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                        .unwrap();
+                    assert_tensor_allclose(
+                        &da,
+                        &cpu_da,
+                        dtype,
+                        &format!("{label} d_a CUDA vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &db,
+                        &cpu_db,
+                        dtype,
+                        &format!("{label} d_b CUDA vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &dbias,
+                        &cpu_dbias,
+                        dtype,
+                        &format!("{label} d_bias CUDA vs CPU [{dtype:?}]"),
+                    );
+                });
+            }
+
+            #[cfg(feature = "wgpu")]
+            if is_dtype_supported("wgpu", dtype) {
+                with_wgpu_backend(|wgpu_client, wgpu_device| {
+                    let a_t =
+                        tensor_from_f64(&a, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let b_t =
+                        tensor_from_f64(&b, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let bias_t =
+                        tensor_from_f64(&bias, &[2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let grad_t =
+                        tensor_from_f64(&grad, &[2, 2], dtype, &wgpu_device, &wgpu_client).unwrap();
+                    let label = format!("bwd_neg_{activation:?}");
+                    let (da, db, dbias) = wgpu_client
+                        .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                        .unwrap();
+                    assert_tensor_allclose(
+                        &da,
+                        &cpu_da,
+                        dtype,
+                        &format!("{label} d_a WebGPU vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &db,
+                        &cpu_db,
+                        dtype,
+                        &format!("{label} d_b WebGPU vs CPU [{dtype:?}]"),
+                    );
+                    assert_tensor_allclose(
+                        &dbias,
+                        &cpu_dbias,
+                        dtype,
+                        &format!("{label} d_bias WebGPU vs CPU [{dtype:?}]"),
+                    );
+                });
+            }
+        }
     }
 }
 

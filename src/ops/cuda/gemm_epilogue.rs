@@ -5,7 +5,8 @@ use crate::ops::{
     GemmActivation, GemmEpilogueOps, matmul_bias_output_shape, validate_matmul_bias_dtypes,
 };
 use crate::runtime::cuda::kernels::{
-    launch_gemm_bias_act_batched_kernel, launch_gemm_bias_act_kernel,
+    launch_gemm_bias_act_batched_kernel, launch_gemm_bias_act_bwd_batched_kernel,
+    launch_gemm_bias_act_bwd_kernel, launch_gemm_bias_act_kernel,
     launch_gemm_bias_residual_batched_kernel, launch_gemm_bias_residual_kernel,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
@@ -189,21 +190,95 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
 
     fn matmul_bias_activation_bwd(
         &self,
-        _grad: &Tensor<CudaRuntime>,
-        _a: &Tensor<CudaRuntime>,
-        _b: &Tensor<CudaRuntime>,
-        _bias: &Tensor<CudaRuntime>,
-        _activation: GemmActivation,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        bias: &Tensor<CudaRuntime>,
+        activation: GemmActivation,
     ) -> Result<(
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
         Tensor<CudaRuntime>,
     )> {
-        // Backward pass on CUDA uses decomposed approach for now:
-        // This is acceptable because backward passes are less latency-sensitive
-        // and the fused forward kernel provides the main performance benefit.
-        Err(Error::NotImplemented {
-            feature: "matmul_bias_activation_bwd on CUDA; use CPU backend for training",
-        })
+        let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
+        if grad.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: grad.dtype(),
+            });
+        }
+
+        let a_shape = a.shape();
+        let b_shape = b.shape();
+        let m = if a_shape.len() >= 2 {
+            a_shape[a_shape.len() - 2]
+        } else {
+            1
+        };
+        let k = a_shape[a_shape.len() - 1];
+        let n = b_shape[b_shape.len() - 1];
+
+        let batch_size: usize = a_shape
+            .iter()
+            .take(a_shape.len().saturating_sub(2))
+            .product::<usize>()
+            .max(1);
+
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+        let bias_contig = ensure_contiguous(bias);
+        let grad_contig = ensure_contiguous(grad);
+
+        let d_a = Tensor::<CudaRuntime>::empty(a_shape, dtype, &self.device);
+        let d_b = Tensor::<CudaRuntime>::zeros(b_shape, dtype, &self.device);
+        let d_bias = Tensor::<CudaRuntime>::zeros(&[n], dtype, &self.device);
+
+        // Temporary buffer for grad_pre (M * N elements, reused per batch)
+        let grad_pre = Tensor::<CudaRuntime>::empty(&[m, n], dtype, &self.device);
+
+        unsafe {
+            if batch_size > 1 {
+                launch_gemm_bias_act_bwd_batched_kernel(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    grad_contig.ptr(),
+                    a_contig.ptr(),
+                    b_contig.ptr(),
+                    bias_contig.ptr(),
+                    grad_pre.ptr(),
+                    d_a.ptr(),
+                    d_b.ptr(),
+                    d_bias.ptr(),
+                    batch_size,
+                    m,
+                    n,
+                    k,
+                    activation,
+                )?;
+            } else {
+                launch_gemm_bias_act_bwd_kernel(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    dtype,
+                    grad_contig.ptr(),
+                    a_contig.ptr(),
+                    b_contig.ptr(),
+                    bias_contig.ptr(),
+                    grad_pre.ptr(),
+                    d_a.ptr(),
+                    d_b.ptr(),
+                    d_bias.ptr(),
+                    m,
+                    n,
+                    k,
+                    activation,
+                )?;
+            }
+        }
+
+        Ok((d_a, d_b, d_bias))
     }
 }
