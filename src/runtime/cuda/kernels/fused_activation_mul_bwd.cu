@@ -7,6 +7,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "dtype_traits.cuh"
+#include "activation_deriv.cuh"
 
 extern "C" {
 
@@ -24,11 +25,8 @@ __global__ void silu_mul_bwd_f32(
         float x = a[idx];
         float g = grad[idx];
         float bv = b[idx];
-        float sig = 1.0f / (1.0f + expf(-x));
-        float silu_val = x * sig;
-        float silu_deriv = sig * (1.0f + x * (1.0f - sig));
-        d_b[idx] = g * silu_val;
-        d_a[idx] = g * bv * silu_deriv;
+        d_b[idx] = g * silu_fwd_f32(x);
+        d_a[idx] = g * bv * silu_deriv_f32(x);
     }
 }
 
@@ -42,15 +40,8 @@ __global__ void gelu_mul_bwd_f32(
         float x = a[idx];
         float g = grad[idx];
         float bv = b[idx];
-        float c = 0.7978845608f;
-        float k = 0.044715f;
-        float inner = c * (x + k * x * x * x);
-        float t = tanhf(inner);
-        float gelu_val = 0.5f * x * (1.0f + t);
-        // gelu'(x) = 0.5 * (1 + t) + 0.5 * x * (1 - t*t) * c * (1 + 3*k*x*x)
-        float gelu_deriv = 0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * c * (1.0f + 3.0f * k * x * x);
-        d_b[idx] = g * gelu_val;
-        d_a[idx] = g * bv * gelu_deriv;
+        d_b[idx] = g * gelu_fwd_f32(x);
+        d_a[idx] = g * bv * gelu_deriv_f32(x);
     }
 }
 
@@ -64,10 +55,8 @@ __global__ void relu_mul_bwd_f32(
         float x = a[idx];
         float g = grad[idx];
         float bv = b[idx];
-        float relu_val = fmaxf(0.0f, x);
-        float relu_deriv = x > 0.0f ? 1.0f : 0.0f;
-        d_b[idx] = g * relu_val;
-        d_a[idx] = g * bv * relu_deriv;
+        d_b[idx] = g * relu_fwd_f32(x);
+        d_a[idx] = g * bv * relu_deriv_f32(x);
     }
 }
 
@@ -81,10 +70,8 @@ __global__ void sigmoid_mul_bwd_f32(
         float x = a[idx];
         float g = grad[idx];
         float bv = b[idx];
-        float sig = 1.0f / (1.0f + expf(-x));
-        float sig_deriv = sig * (1.0f - sig);
-        d_b[idx] = g * sig;
-        d_a[idx] = g * bv * sig_deriv;
+        d_b[idx] = g * sigmoid_fwd_f32(x);
+        d_a[idx] = g * bv * sigmoid_deriv_f32(x);
     }
 }
 
@@ -101,11 +88,8 @@ __global__ void silu_mul_bwd_f64(
         double x = a[idx];
         double g = grad[idx];
         double bv = b[idx];
-        double sig = 1.0 / (1.0 + exp(-x));
-        double silu_val = x * sig;
-        double silu_deriv = sig * (1.0 + x * (1.0 - sig));
-        d_b[idx] = g * silu_val;
-        d_a[idx] = g * bv * silu_deriv;
+        d_b[idx] = g * silu_fwd_f64(x);
+        d_a[idx] = g * bv * silu_deriv_f64(x);
     }
 }
 
@@ -118,14 +102,8 @@ __global__ void gelu_mul_bwd_f64(
         double x = a[idx];
         double g = grad[idx];
         double bv = b[idx];
-        double c = 0.7978845608028654;
-        double k = 0.044715;
-        double inner = c * (x + k * x * x * x);
-        double t = tanh(inner);
-        double gelu_val = 0.5 * x * (1.0 + t);
-        double gelu_deriv = 0.5 * (1.0 + t) + 0.5 * x * (1.0 - t * t) * c * (1.0 + 3.0 * k * x * x);
-        d_b[idx] = g * gelu_val;
-        d_a[idx] = g * bv * gelu_deriv;
+        d_b[idx] = g * gelu_fwd_f64(x);
+        d_a[idx] = g * bv * gelu_deriv_f64(x);
     }
 }
 
@@ -138,10 +116,8 @@ __global__ void relu_mul_bwd_f64(
         double x = a[idx];
         double g = grad[idx];
         double bv = b[idx];
-        double relu_val = fmax(0.0, x);
-        double relu_deriv = x > 0.0 ? 1.0 : 0.0;
-        d_b[idx] = g * relu_val;
-        d_a[idx] = g * bv * relu_deriv;
+        d_b[idx] = g * relu_fwd_f64(x);
+        d_a[idx] = g * bv * relu_deriv_f64(x);
     }
 }
 
@@ -154,10 +130,8 @@ __global__ void sigmoid_mul_bwd_f64(
         double x = a[idx];
         double g = grad[idx];
         double bv = b[idx];
-        double sig = 1.0 / (1.0 + exp(-x));
-        double sig_deriv = sig * (1.0 - sig);
-        d_b[idx] = g * sig;
-        d_a[idx] = g * bv * sig_deriv;
+        d_b[idx] = g * sigmoid_fwd_f64(x);
+        d_a[idx] = g * bv * sigmoid_deriv_f64(x);
     }
 }
 
@@ -174,11 +148,8 @@ __global__ void silu_mul_bwd_f16(
         float x = __half2float(a[idx]);
         float g = __half2float(grad[idx]);
         float bv = __half2float(b[idx]);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float silu_val = x * sig;
-        float silu_deriv = sig * (1.0f + x * (1.0f - sig));
-        d_b[idx] = __float2half(g * silu_val);
-        d_a[idx] = __float2half(g * bv * silu_deriv);
+        d_b[idx] = __float2half(g * silu_fwd_f32(x));
+        d_a[idx] = __float2half(g * bv * silu_deriv_f32(x));
     }
 }
 
@@ -191,14 +162,8 @@ __global__ void gelu_mul_bwd_f16(
         float x = __half2float(a[idx]);
         float g = __half2float(grad[idx]);
         float bv = __half2float(b[idx]);
-        float c = 0.7978845608f;
-        float k = 0.044715f;
-        float inner = c * (x + k * x * x * x);
-        float t = tanhf(inner);
-        float gelu_val = 0.5f * x * (1.0f + t);
-        float gelu_deriv = 0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * c * (1.0f + 3.0f * k * x * x);
-        d_b[idx] = __float2half(g * gelu_val);
-        d_a[idx] = __float2half(g * bv * gelu_deriv);
+        d_b[idx] = __float2half(g * gelu_fwd_f32(x));
+        d_a[idx] = __float2half(g * bv * gelu_deriv_f32(x));
     }
 }
 
@@ -211,10 +176,8 @@ __global__ void relu_mul_bwd_f16(
         float x = __half2float(a[idx]);
         float g = __half2float(grad[idx]);
         float bv = __half2float(b[idx]);
-        float relu_val = fmaxf(0.0f, x);
-        float relu_deriv = x > 0.0f ? 1.0f : 0.0f;
-        d_b[idx] = __float2half(g * relu_val);
-        d_a[idx] = __float2half(g * bv * relu_deriv);
+        d_b[idx] = __float2half(g * relu_fwd_f32(x));
+        d_a[idx] = __float2half(g * bv * relu_deriv_f32(x));
     }
 }
 
@@ -227,10 +190,8 @@ __global__ void sigmoid_mul_bwd_f16(
         float x = __half2float(a[idx]);
         float g = __half2float(grad[idx]);
         float bv = __half2float(b[idx]);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float sig_deriv = sig * (1.0f - sig);
-        d_b[idx] = __float2half(g * sig);
-        d_a[idx] = __float2half(g * bv * sig_deriv);
+        d_b[idx] = __float2half(g * sigmoid_fwd_f32(x));
+        d_a[idx] = __float2half(g * bv * sigmoid_deriv_f32(x));
     }
 }
 
@@ -247,11 +208,8 @@ __global__ void silu_mul_bwd_bf16(
         float x = __bfloat162float(a[idx]);
         float g = __bfloat162float(grad[idx]);
         float bv = __bfloat162float(b[idx]);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float silu_val = x * sig;
-        float silu_deriv = sig * (1.0f + x * (1.0f - sig));
-        d_b[idx] = __float2bfloat16(g * silu_val);
-        d_a[idx] = __float2bfloat16(g * bv * silu_deriv);
+        d_b[idx] = __float2bfloat16(g * silu_fwd_f32(x));
+        d_a[idx] = __float2bfloat16(g * bv * silu_deriv_f32(x));
     }
 }
 
@@ -264,14 +222,8 @@ __global__ void gelu_mul_bwd_bf16(
         float x = __bfloat162float(a[idx]);
         float g = __bfloat162float(grad[idx]);
         float bv = __bfloat162float(b[idx]);
-        float c = 0.7978845608f;
-        float k = 0.044715f;
-        float inner = c * (x + k * x * x * x);
-        float t = tanhf(inner);
-        float gelu_val = 0.5f * x * (1.0f + t);
-        float gelu_deriv = 0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * c * (1.0f + 3.0f * k * x * x);
-        d_b[idx] = __float2bfloat16(g * gelu_val);
-        d_a[idx] = __float2bfloat16(g * bv * gelu_deriv);
+        d_b[idx] = __float2bfloat16(g * gelu_fwd_f32(x));
+        d_a[idx] = __float2bfloat16(g * bv * gelu_deriv_f32(x));
     }
 }
 
@@ -284,10 +236,8 @@ __global__ void relu_mul_bwd_bf16(
         float x = __bfloat162float(a[idx]);
         float g = __bfloat162float(grad[idx]);
         float bv = __bfloat162float(b[idx]);
-        float relu_val = fmaxf(0.0f, x);
-        float relu_deriv = x > 0.0f ? 1.0f : 0.0f;
-        d_b[idx] = __float2bfloat16(g * relu_val);
-        d_a[idx] = __float2bfloat16(g * bv * relu_deriv);
+        d_b[idx] = __float2bfloat16(g * relu_fwd_f32(x));
+        d_a[idx] = __float2bfloat16(g * bv * relu_deriv_f32(x));
     }
 }
 
@@ -300,10 +250,8 @@ __global__ void sigmoid_mul_bwd_bf16(
         float x = __bfloat162float(a[idx]);
         float g = __bfloat162float(grad[idx]);
         float bv = __bfloat162float(b[idx]);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float sig_deriv = sig * (1.0f - sig);
-        d_b[idx] = __float2bfloat16(g * sig);
-        d_a[idx] = __float2bfloat16(g * bv * sig_deriv);
+        d_b[idx] = __float2bfloat16(g * sigmoid_fwd_f32(x));
+        d_a[idx] = __float2bfloat16(g * bv * sigmoid_deriv_f32(x));
     }
 }
 
@@ -320,11 +268,8 @@ __global__ void silu_mul_bwd_fp8_e4m3(
         float x = fp8_e4m3_to_f32(a[idx].data);
         float g = fp8_e4m3_to_f32(grad[idx].data);
         float bv = fp8_e4m3_to_f32(b[idx].data);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float silu_val = x * sig;
-        float silu_deriv = sig * (1.0f + x * (1.0f - sig));
-        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * silu_val));
-        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * silu_deriv));
+        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * silu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * silu_deriv_f32(x)));
     }
 }
 
@@ -337,14 +282,8 @@ __global__ void gelu_mul_bwd_fp8_e4m3(
         float x = fp8_e4m3_to_f32(a[idx].data);
         float g = fp8_e4m3_to_f32(grad[idx].data);
         float bv = fp8_e4m3_to_f32(b[idx].data);
-        float c = 0.7978845608f;
-        float k = 0.044715f;
-        float inner = c * (x + k * x * x * x);
-        float t = tanhf(inner);
-        float gelu_val = 0.5f * x * (1.0f + t);
-        float gelu_deriv = 0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * c * (1.0f + 3.0f * k * x * x);
-        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * gelu_val));
-        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * gelu_deriv));
+        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * gelu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * gelu_deriv_f32(x)));
     }
 }
 
@@ -357,10 +296,8 @@ __global__ void relu_mul_bwd_fp8_e4m3(
         float x = fp8_e4m3_to_f32(a[idx].data);
         float g = fp8_e4m3_to_f32(grad[idx].data);
         float bv = fp8_e4m3_to_f32(b[idx].data);
-        float relu_val = fmaxf(0.0f, x);
-        float relu_deriv = x > 0.0f ? 1.0f : 0.0f;
-        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * relu_val));
-        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * relu_deriv));
+        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * relu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * relu_deriv_f32(x)));
     }
 }
 
@@ -373,10 +310,8 @@ __global__ void sigmoid_mul_bwd_fp8_e4m3(
         float x = fp8_e4m3_to_f32(a[idx].data);
         float g = fp8_e4m3_to_f32(grad[idx].data);
         float bv = fp8_e4m3_to_f32(b[idx].data);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float sig_deriv = sig * (1.0f - sig);
-        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * sig));
-        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * sig_deriv));
+        d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * sigmoid_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(g * bv * sigmoid_deriv_f32(x)));
     }
 }
 
@@ -393,11 +328,8 @@ __global__ void silu_mul_bwd_fp8_e5m2(
         float x = fp8_e5m2_to_f32(a[idx].data);
         float g = fp8_e5m2_to_f32(grad[idx].data);
         float bv = fp8_e5m2_to_f32(b[idx].data);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float silu_val = x * sig;
-        float silu_deriv = sig * (1.0f + x * (1.0f - sig));
-        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * silu_val));
-        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * silu_deriv));
+        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * silu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * silu_deriv_f32(x)));
     }
 }
 
@@ -410,14 +342,8 @@ __global__ void gelu_mul_bwd_fp8_e5m2(
         float x = fp8_e5m2_to_f32(a[idx].data);
         float g = fp8_e5m2_to_f32(grad[idx].data);
         float bv = fp8_e5m2_to_f32(b[idx].data);
-        float c = 0.7978845608f;
-        float k = 0.044715f;
-        float inner = c * (x + k * x * x * x);
-        float t = tanhf(inner);
-        float gelu_val = 0.5f * x * (1.0f + t);
-        float gelu_deriv = 0.5f * (1.0f + t) + 0.5f * x * (1.0f - t * t) * c * (1.0f + 3.0f * k * x * x);
-        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * gelu_val));
-        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * gelu_deriv));
+        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * gelu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * gelu_deriv_f32(x)));
     }
 }
 
@@ -430,10 +356,8 @@ __global__ void relu_mul_bwd_fp8_e5m2(
         float x = fp8_e5m2_to_f32(a[idx].data);
         float g = fp8_e5m2_to_f32(grad[idx].data);
         float bv = fp8_e5m2_to_f32(b[idx].data);
-        float relu_val = fmaxf(0.0f, x);
-        float relu_deriv = x > 0.0f ? 1.0f : 0.0f;
-        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * relu_val));
-        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * relu_deriv));
+        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * relu_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * relu_deriv_f32(x)));
     }
 }
 
@@ -446,10 +370,8 @@ __global__ void sigmoid_mul_bwd_fp8_e5m2(
         float x = fp8_e5m2_to_f32(a[idx].data);
         float g = fp8_e5m2_to_f32(grad[idx].data);
         float bv = fp8_e5m2_to_f32(b[idx].data);
-        float sig = 1.0f / (1.0f + expf(-x));
-        float sig_deriv = sig * (1.0f - sig);
-        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * sig));
-        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * sig_deriv));
+        d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * sigmoid_fwd_f32(x)));
+        d_a[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(g * bv * sigmoid_deriv_f32(x)));
     }
 }
 
