@@ -23,17 +23,26 @@ fn compare_less_i32(a: i32, b: i32) -> bool {
     return a < b;
 }
 
-// Bitonic compare and swap for sort with indices
+// Stable comparison: use original index as tiebreaker for equal values
+fn compare_less_stable_i32(a: i32, b: i32, idx_a: i32, idx_b: i32) -> bool {
+    if (a == b) {
+        return idx_a < idx_b;
+    }
+    return a < b;
+}
+
+// Bitonic compare and swap for sort with indices (stable)
 fn bitonic_cas_i32(i: u32, j: u32, dir: bool) {
     let vi = shared_vals[i];
     let vj = shared_vals[j];
-    let swap = select(compare_less_i32(vi, vj), compare_less_i32(vj, vi), dir);
+    let ii = shared_idxs[i];
+    let ij = shared_idxs[j];
+    let swap = select(compare_less_stable_i32(vi, vj, ii, ij), compare_less_stable_i32(vj, vi, ij, ii), dir);
     if (swap) {
         shared_vals[i] = vj;
         shared_vals[j] = vi;
-        let ti = shared_idxs[i];
-        shared_idxs[i] = shared_idxs[j];
-        shared_idxs[j] = ti;
+        shared_idxs[i] = ij;
+        shared_idxs[j] = ii;
     }
 }
 
@@ -85,7 +94,7 @@ fn sort_i32(
             shared_idxs[i] = i32(i);
         } else {
             // Pad with max/min based on sort direction
-            shared_vals[i] = select(2147483647i, -2147483648i, descending);
+            shared_vals[i] = select(2147483647i, (-2147483647i - 1i), descending);
             shared_idxs[i] = i32(i);
         }
     }
@@ -151,7 +160,7 @@ fn sort_values_only_i32(
             let idx = base_offset + i * inner_size;
             shared_vals[i] = sort_input[idx];
         } else {
-            shared_vals[i] = select(2147483647i, -2147483648i, descending);
+            shared_vals[i] = select(2147483647i, (-2147483647i - 1i), descending);
         }
     }
     workgroupBarrier();
@@ -215,7 +224,7 @@ fn argsort_i32(
             shared_vals[i] = sort_input[idx];
             shared_idxs[i] = i32(i);
         } else {
-            shared_vals[i] = select(2147483647i, -2147483648i, descending);
+            shared_vals[i] = select(2147483647i, (-2147483647i - 1i), descending);
             shared_idxs[i] = i32(i);
         }
     }

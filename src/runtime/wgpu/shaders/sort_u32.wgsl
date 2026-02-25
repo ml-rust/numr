@@ -23,17 +23,26 @@ fn compare_less_u32(a: u32, b: u32) -> bool {
     return a < b;
 }
 
-// Bitonic compare and swap for sort with indices
+// Stable comparison: use original index as tiebreaker for equal values
+fn compare_less_stable_u32(a: u32, b: u32, idx_a: i32, idx_b: i32) -> bool {
+    if (a == b) {
+        return idx_a < idx_b;
+    }
+    return a < b;
+}
+
+// Bitonic compare and swap for sort with indices (stable)
 fn bitonic_cas_u32(i: u32, j: u32, dir: bool) {
     let vi = shared_vals[i];
     let vj = shared_vals[j];
-    let swap = select(compare_less_u32(vi, vj), compare_less_u32(vj, vi), dir);
+    let ii = shared_idxs[i];
+    let ij = shared_idxs[j];
+    let swap = select(compare_less_stable_u32(vi, vj, ii, ij), compare_less_stable_u32(vj, vi, ij, ii), dir);
     if (swap) {
         shared_vals[i] = vj;
         shared_vals[j] = vi;
-        let ti = shared_idxs[i];
-        shared_idxs[i] = shared_idxs[j];
-        shared_idxs[j] = ti;
+        shared_idxs[i] = ij;
+        shared_idxs[j] = ii;
     }
 }
 
