@@ -65,7 +65,7 @@ fn reduce_max_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let inner = output_idx % inner_size;
     let base_offset = outer * reduce_size * inner_size + inner;
 
-    var max_val: i32 = -2147483648i;
+    var max_val: i32 = (-2147483647i - 1i);
     var i: u32 = tid;
     while (i < reduce_size) {
         max_val = max(max_val, reduce_input[base_offset + i * inner_size]);
@@ -255,7 +255,7 @@ fn full_reduce_max_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let wid = group_id.x;
     let numel = full_reduce_params.numel;
 
-    var max_val: i32 = -2147483648i;
+    var max_val: i32 = (-2147483647i - 1i);
     var i: u32 = wid * WORKGROUP_SIZE + tid;
     let stride = num_groups.x * WORKGROUP_SIZE;
     while (i < numel) { max_val = max(max_val, full_reduce_input[i]); i = i + stride; }
@@ -347,7 +347,7 @@ fn argmax_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let inner = output_idx % inner_size;
     let base_offset = outer * reduce_size * inner_size + inner;
 
-    var max_val: i32 = -2147483648i;
+    var max_val: i32 = (-2147483647i - 1i);
     var max_idx: u32 = 0u;
     var i: u32 = tid;
     while (i < reduce_size) {
