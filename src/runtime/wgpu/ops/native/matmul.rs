@@ -123,17 +123,90 @@ pub(crate) fn native_matmul(
         return Ok(out);
     }
 
-    // >3D tensors are not supported - return error instead of silent fallback
-    // (WebGPU shader dispatch is limited to 3D workgroups)
-    Err(Error::BackendLimitation {
-        backend: "WebGPU",
-        operation: "matmul",
-        reason: format!(
-            "only supports 2D and 3D tensors, got shapes {:?} and {:?}",
-            a.shape(),
-            b.shape()
-        ),
-    })
+    // >3D: flatten leading dims into batch, run 3D batched matmul, reshape back.
+    // Same strategy as CUDA backend (which computes batch_size = product of leading dims).
+    let ndim_a = a_shape.len();
+    let ndim_b = b_shape.len();
+
+    if ndim_a < 2 || ndim_b < 2 {
+        return Err(Error::BackendLimitation {
+            backend: "WebGPU",
+            operation: "matmul",
+            reason: format!(
+                "requires at least 2D tensors, got shapes {:?} and {:?}",
+                a_shape, b_shape
+            ),
+        });
+    }
+
+    let m = a_shape[ndim_a - 2];
+    let k = a_shape[ndim_a - 1];
+    let n = b_shape[ndim_b - 1];
+
+    let batch_a: usize = a_shape[..ndim_a - 2].iter().product();
+    let batch_b: usize = b_shape[..ndim_b - 2].iter().product();
+    let batch_size = batch_a.max(batch_b);
+
+    // Flatten to 3D
+    let a_3d = ensure_contiguous(a)
+        .reshape(&[batch_a, m, k])
+        .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?;
+    let b_3d = ensure_contiguous(b)
+        .reshape(&[batch_b, k, n])
+        .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?;
+
+    // Broadcast if batch dims differ (one must be 1)
+    let (a_batched, b_batched) = if batch_a == batch_b {
+        (a_3d, b_3d)
+    } else if batch_a == 1 {
+        (
+            a_3d.broadcast_to(&[batch_size, m, k])
+                .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?
+                .contiguous(),
+            b_3d,
+        )
+    } else if batch_b == 1 {
+        (
+            a_3d,
+            b_3d.broadcast_to(&[batch_size, k, n])
+                .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?
+                .contiguous(),
+        )
+    } else {
+        return Err(Error::shape_mismatch(a_shape, b_shape));
+    };
+
+    let a_buf = get_tensor_buffer(&a_batched)?;
+    let b_buf = get_tensor_buffer(&b_batched)?;
+    let out_flat = alloc_output(client, &[batch_size, m, n], dtype);
+    let out_buf = get_tensor_buffer(&out_flat)?;
+
+    let params = MatmulParams {
+        m: m as u32,
+        k: k as u32,
+        n: n as u32,
+        batch_size: batch_size as u32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    matmul::launch_batched_matmul(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &a_buf,
+        &b_buf,
+        &out_buf,
+        &params_buf,
+        m,
+        n,
+        batch_size,
+        dtype,
+    )?;
+
+    // Reshape back to original leading dims + [m, n]
+    let result = out_flat
+        .reshape(&out_shape)
+        .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?;
+    Ok(result)
 }
 
 /// Native WGPU implementation of fused matrix multiplication with bias.
