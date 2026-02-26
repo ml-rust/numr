@@ -190,7 +190,7 @@ mod tests {
             65504.0,
             -65504.0,
             0.000061035156,
-            3.14,
+            3.15,
         ];
         let f16_bits: Vec<u16> = values
             .iter()
@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn test_bf16_roundtrip() {
-        let values: Vec<f32> = vec![0.0, 1.0, -1.0, 0.5, -0.5, 100.0, -100.0, 3.14];
+        let values: Vec<f32> = vec![0.0, 1.0, -1.0, 0.5, -0.5, 100.0, -100.0, 3.15];
         let bf16_bits: Vec<u16> = values
             .iter()
             .map(|&v| half::bf16::from_f32(v).to_bits())

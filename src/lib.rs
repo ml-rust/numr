@@ -27,8 +27,9 @@
 //! ```rust,ignore
 //! use numr::prelude::*;
 //!
-//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2])?;
+//! let device = CpuDevice;
+//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2], &device);
 //!
 //! let c = &a + &b;
 //! let d = a.matmul(&b)?;

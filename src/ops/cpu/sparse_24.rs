@@ -23,7 +23,7 @@ impl Sparse24Ops<CpuRuntime> for CpuClient {
         let m = dense.shape()[0];
         let k = dense.shape()[1];
 
-        if k % 4 != 0 {
+        if !k.is_multiple_of(4) {
             return Err(Error::InvalidArgument {
                 arg: "dense",
                 reason: format!("K dimension ({k}) must be divisible by 4 for 2:4 sparsity"),
