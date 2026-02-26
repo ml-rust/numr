@@ -4,18 +4,23 @@ use super::super::CudaRuntime;
 use super::super::client::CudaClient;
 use crate::algorithm::linalg::LinearAlgebraAlgorithms;
 use crate::ops::MatmulOps;
-use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::{CudaDevice, is_cuda_available};
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
-fn create_client() -> CudaClient {
+fn create_client() -> Option<CudaClient> {
+    if !is_cuda_available() {
+        return None;
+    }
     let device = CudaDevice::new(0);
-    CudaRuntime::default_client(&device)
+    Some(CudaRuntime::default_client(&device))
 }
 
 #[test]
 fn test_trace() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // 2x2 matrix: [[1, 2], [3, 4]]
@@ -30,7 +35,9 @@ fn test_trace() {
 
 #[test]
 fn test_diag() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // 2x3 matrix
@@ -46,7 +53,9 @@ fn test_diag() {
 
 #[test]
 fn test_diagflat() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device);
@@ -64,7 +73,9 @@ fn test_diagflat() {
 
 #[test]
 fn test_lu_decomposition() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // 2x2 matrix: [[4, 3], [6, 3]]
@@ -78,7 +89,9 @@ fn test_lu_decomposition() {
 
 #[test]
 fn test_cholesky() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Symmetric positive definite: [[4, 2], [2, 5]]
@@ -95,7 +108,9 @@ fn test_cholesky() {
 
 #[test]
 fn test_det() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // 2x2 matrix: [[1, 2], [3, 4]]
@@ -110,7 +125,9 @@ fn test_det() {
 
 #[test]
 fn test_solve() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Solve [[2, 1], [1, 2]] @ x = [3, 3]
@@ -127,7 +144,9 @@ fn test_solve() {
 
 #[test]
 fn test_inverse() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Test 2x2 matrix: [[4, 7], [2, 6]]
@@ -147,7 +166,9 @@ fn test_inverse() {
 
 #[test]
 fn test_inverse_identity() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // A @ A^-1 should equal I
@@ -166,7 +187,9 @@ fn test_inverse_identity() {
 
 #[test]
 fn test_matrix_rank_full() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Full rank 2x2 matrix
@@ -180,7 +203,9 @@ fn test_matrix_rank_full() {
 
 #[test]
 fn test_matrix_rank_deficient() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Rank-deficient 2x2 matrix (rows are linearly dependent)
@@ -194,7 +219,9 @@ fn test_matrix_rank_deficient() {
 
 #[test]
 fn test_qr_decomposition() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Test QR: A = Q @ R
@@ -220,7 +247,9 @@ fn test_qr_decomposition() {
 
 #[test]
 fn test_solve_multi_rhs() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Solve A @ X = B where B has multiple columns
@@ -259,7 +288,9 @@ fn test_solve_multi_rhs() {
 
 #[test]
 fn test_lstsq_overdetermined() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Overdetermined system: A is 3x2, b is 3x1
@@ -283,7 +314,9 @@ fn test_lstsq_overdetermined() {
 
 #[test]
 fn test_lstsq_multi_rhs() {
-    let client = create_client();
+    let Some(client) = create_client() else {
+        return;
+    };
     let device = client.device();
 
     // Overdetermined system with multiple RHS

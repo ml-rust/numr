@@ -198,15 +198,20 @@ mod tests {
     use crate::runtime::Runtime;
     use crate::runtime::cuda::CudaDevice;
 
-    fn setup() -> (CudaDevice, CudaClient) {
+    fn setup() -> Option<(CudaDevice, CudaClient)> {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return None;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
-        (device, client)
+        Some((device, client))
     }
 
     #[test]
     fn test_sobol_basic() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         let points = client.sobol(10, 2, 0, DType::F32).unwrap();
         assert_eq!(points.shape(), &[10, 2]);
@@ -220,7 +225,9 @@ mod tests {
 
     #[test]
     fn test_halton_basic() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         let points = client.halton(10, 3, 0, DType::F32).unwrap();
         assert_eq!(points.shape(), &[10, 3]);
@@ -234,7 +241,9 @@ mod tests {
 
     #[test]
     fn test_latin_hypercube_basic() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         let samples = client.latin_hypercube(20, 4, DType::F32).unwrap();
         assert_eq!(samples.shape(), &[20, 4]);
@@ -248,7 +257,9 @@ mod tests {
 
     #[test]
     fn test_sobol_deterministic() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         let points1 = client.sobol(5, 2, 0, DType::F32).unwrap();
         let points2 = client.sobol(5, 2, 0, DType::F32).unwrap();
@@ -264,21 +275,27 @@ mod tests {
 
     #[test]
     fn test_error_zero_points() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
         let result = client.sobol(0, 2, 0, DType::F32);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_error_unsupported_dtype() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
         let result = client.sobol(10, 2, 0, DType::I32);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_sobol_dimension_limit() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         // Should work up to 21,201 dimensions (full Joe & Kuo dataset)
         let result = client.sobol(10, 100, 0, DType::F32);
@@ -294,7 +311,9 @@ mod tests {
 
     #[test]
     fn test_halton_dimension_limit() {
-        let (_device, client) = setup();
+        let Some((_device, client)) = setup() else {
+            return;
+        };
 
         // Should work up to 100 dimensions
         let result = client.halton(10, 100, 0, DType::F32);

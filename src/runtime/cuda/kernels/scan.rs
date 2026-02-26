@@ -580,6 +580,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_small() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -606,6 +609,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -640,6 +646,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_zeros() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -664,6 +673,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_single_element() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -688,6 +700,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_very_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test with 500,000 elements (requires recursive multi-level scan)
         // This exceeds 262,144 = 512^2 which was the previous limit
         let device = CudaDevice::new(0);
@@ -724,6 +739,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_boundary_size() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test at the boundary of single-level multi-block (512 * 512 = 262,144)
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
@@ -754,6 +772,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_i64_very_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test i64 with large values that would overflow i32
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);

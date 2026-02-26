@@ -6,7 +6,7 @@ use crate::algorithm::sparse_linalg::qr::symbolic::sparse_qr_symbolic;
 use crate::algorithm::sparse_linalg::qr::types::{QrFactors, QrOptions, QrSymbolic};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
+use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::sparse::CscData;
 
 use super::factorize::run_factorization;
@@ -70,20 +70,23 @@ pub fn sparse_qr_simple_cuda(
 mod tests {
     use super::super::sparse_qr_solve_cuda;
     use super::*;
+    use crate::runtime::cuda::CudaDevice;
     use crate::tensor::Tensor;
 
-    fn cuda_device() -> <CudaRuntime as crate::runtime::Runtime>::Device {
-        <CudaRuntime as crate::runtime::Runtime>::Device::new(0)
-    }
-
-    fn get_cuda_client() -> CudaClient {
-        CudaClient::new(CudaDevice::new(0)).expect("CUDA device required")
+    fn cuda_setup() -> Option<(<CudaRuntime as crate::runtime::Runtime>::Device, CudaClient)> {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return None;
+        }
+        let device = <CudaRuntime as crate::runtime::Runtime>::Device::new(0);
+        let client = CudaClient::new(CudaDevice::new(0)).expect("CUDA device required");
+        Some((device, client))
     }
 
     #[test]
     fn test_sparse_qr_cuda_simple_square() {
-        let device = cuda_device();
-        let client = get_cuda_client();
+        let Some((device, client)) = cuda_setup() else {
+            return;
+        };
 
         let col_ptrs = vec![0i64, 2, 5, 8, 10];
         let row_indices = vec![0i64, 1, 0, 1, 2, 1, 2, 3, 2, 3];
@@ -103,8 +106,9 @@ mod tests {
 
     #[test]
     fn test_sparse_qr_cuda_solve() {
-        let device = cuda_device();
-        let client = get_cuda_client();
+        let Some((device, client)) = cuda_setup() else {
+            return;
+        };
 
         let col_ptrs = vec![0i64, 2, 5, 8, 10];
         let row_indices = vec![0i64, 1, 0, 1, 2, 1, 2, 3, 2, 3];
@@ -145,8 +149,9 @@ mod tests {
 
     #[test]
     fn test_sparse_qr_cuda_f32() {
-        let device = cuda_device();
-        let client = get_cuda_client();
+        let Some((device, client)) = cuda_setup() else {
+            return;
+        };
 
         let col_ptrs = vec![0i64, 2, 5, 8, 10];
         let row_indices = vec![0i64, 1, 0, 1, 2, 1, 2, 3, 2, 3];

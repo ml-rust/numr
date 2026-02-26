@@ -572,9 +572,9 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
 )> {
     let shape = input.shape();
     if shape.len() != 2 {
-        return Err(Error::ShapeMismatch {
-            expected: vec![0, 0], // placeholder
-            got: shape.to_vec(),
+        return Err(Error::InvalidArgument {
+            arg: "input",
+            reason: format!("dense_to_coo requires a 2D tensor, got {}D", shape.len()),
         });
     }
 
