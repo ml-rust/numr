@@ -69,6 +69,7 @@ pub unsafe fn i8xi8_dot_i32(a: *const i8, b: *const i8, len: usize) -> i32 {
 /// # Safety
 /// - `a` and `b` must be valid pointers to `len` elements
 #[inline]
+#[allow(dead_code)] // Public API for downstream crates (e.g., boostr quantized ops)
 pub unsafe fn i8xi8_dot_f32(a: *const i8, b: *const i8, scale: f32, len: usize) -> f32 {
     (i8xi8_dot_i32(a, b, len) as f32) * scale
 }

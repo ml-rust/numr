@@ -36,6 +36,8 @@
 mod avx2;
 #[cfg(target_arch = "x86_64")]
 mod avx512;
+pub(crate) mod int32;
+pub(crate) mod int8;
 mod macros;
 mod packing;
 mod scalar;

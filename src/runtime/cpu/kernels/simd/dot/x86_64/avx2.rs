@@ -65,15 +65,3 @@ pub unsafe fn i8xi8_dot_i32(a: *const i8, b: *const i8, len: usize) -> i32 {
 
     result
 }
-
-/// Scaled dot product of signed i8 vectors, returning f32.
-///
-/// Computes scale * sum(a[i] * b[i]) for i in 0..len.
-///
-/// # Safety
-/// - CPU must support AVX2
-/// - Pointers must be valid for `len` elements
-#[target_feature(enable = "avx2")]
-pub unsafe fn i8xi8_dot_f32(a: *const i8, b: *const i8, scale: f32, len: usize) -> f32 {
-    (i8xi8_dot_i32(a, b, len) as f32) * scale
-}

@@ -1,5 +1,6 @@
 //! CPU implementation of matrix multiplication operations.
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{Kernel, MatmulOps};
 use crate::runtime::cpu::{
@@ -52,17 +53,93 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             .product();
         let batch_size = batch_size.max(1);
 
-        // Create output tensor
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
-
         let a_ptr = a_contig.ptr();
         let b_ptr = b_contig.ptr();
-        let out_ptr = out.ptr();
 
         // Leading dimensions for contiguous row-major matrices
         let lda = k;
         let ldb = n;
         let ldc = n;
+
+        // Special case: i8 × i8 → i32 matmul (quantized accumulation)
+        if dtype == DType::I8 {
+            use crate::runtime::cpu::kernels::matmul_i8_to_i32_kernel;
+
+            let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I32, &self.device);
+            let out_ptr = out.ptr();
+
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+
+                if batch_size > 1 {
+                    let min_len = self.rayon_min_len();
+                    self.install_parallelism(|| {
+                        (0..batch_size)
+                            .into_par_iter()
+                            .with_min_len(min_len)
+                            .for_each(|batch| unsafe {
+                                let a_offset = batch * m * k;
+                                let b_offset = batch * k * n;
+                                let out_offset = batch * m * n;
+
+                                matmul_i8_to_i32_kernel(
+                                    (a_ptr as *const i8).add(a_offset),
+                                    (b_ptr as *const i8).add(b_offset),
+                                    (out_ptr as *mut i32).add(out_offset),
+                                    m,
+                                    n,
+                                    k,
+                                    lda,
+                                    ldb,
+                                    ldc,
+                                );
+                            });
+                    });
+                } else {
+                    unsafe {
+                        matmul_i8_to_i32_kernel(
+                            a_ptr as *const i8,
+                            b_ptr as *const i8,
+                            out_ptr as *mut i32,
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "rayon"))]
+            unsafe {
+                for batch in 0..batch_size {
+                    let a_offset = batch * m * k;
+                    let b_offset = batch * k * n;
+                    let out_offset = batch * m * n;
+
+                    matmul_i8_to_i32_kernel(
+                        (a_ptr as *const i8).add(a_offset),
+                        (b_ptr as *const i8).add(b_offset),
+                        (out_ptr as *mut i32).add(out_offset),
+                        m,
+                        n,
+                        k,
+                        lda,
+                        ldb,
+                        ldc,
+                    );
+                }
+            }
+
+            return Ok(out);
+        }
+
+        // Create output tensor
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+        let out_ptr = out.ptr();
 
         // Dispatch based on dtype
         dispatch_dtype!(dtype, T => {

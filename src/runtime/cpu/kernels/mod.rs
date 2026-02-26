@@ -20,6 +20,7 @@ pub mod gemm_epilogue;
 pub mod index;
 pub mod logical;
 pub mod matmul;
+pub mod matmul_i8;
 pub mod memory;
 pub mod norm;
 pub mod quasirandom;
@@ -81,6 +82,7 @@ pub use index::{
 };
 pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{matmul_bias_kernel, matmul_kernel};
+pub use matmul_i8::matmul_i8_to_i32_kernel;
 pub use memory::{
     arange_kernel, cast_kernel, copy_kernel, eye_kernel, fill_kernel, linspace_kernel,
     multinomial_kernel_with_replacement, multinomial_kernel_without_replacement, one_hot_kernel,
@@ -108,6 +110,10 @@ pub use unary::{
 pub use where_select::{
     where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,
 };
+
+// Re-export SIMD dot product kernels for downstream crates (e.g., boostr quantized ops)
+#[allow(unused_imports)]
+pub use simd::dot::{i8xi8_dot_f32, i8xi8_dot_i32};
 
 // Re-export sparse kernel functions for external use
 #[cfg(feature = "sparse")]

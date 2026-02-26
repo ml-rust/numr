@@ -41,6 +41,20 @@ pub unsafe fn matmul_kernel<T: Element>(
         use super::simd::matmul;
 
         match T::DTYPE {
+            DType::I32 => {
+                matmul::int32::matmul_i32(
+                    a as *const i32,
+                    b as *const i32,
+                    out as *mut i32,
+                    m,
+                    n,
+                    k,
+                    lda,
+                    ldb,
+                    ldc,
+                );
+                return;
+            }
             DType::F32 => {
                 matmul::matmul_f32(
                     a as *const f32,
