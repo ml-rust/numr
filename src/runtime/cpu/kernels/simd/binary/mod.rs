@@ -20,7 +20,9 @@ use super::{SimdLevel, detect_simd};
 use crate::ops::BinaryOp;
 
 // Import scalar fallbacks from kernels module (single source of truth)
-pub use crate::runtime::cpu::kernels::binary::{binary_scalar_f32, binary_scalar_f64};
+pub use crate::runtime::cpu::kernels::binary::{
+    binary_scalar_f32, binary_scalar_f64, binary_scalar_i32,
+};
 
 /// Minimum elements to justify SIMD overhead
 const SIMD_THRESHOLD: usize = 32;
@@ -83,6 +85,36 @@ pub unsafe fn binary_f64(op: BinaryOp, a: *const f64, b: *const f64, out: *mut f
 
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     binary_scalar_f64(op, a, b, out, len);
+}
+
+/// SIMD binary operation for i32
+///
+/// # Safety
+/// - `a`, `b`, and `out` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn binary_i32(op: BinaryOp, a: *const i32, b: *const i32, out: *mut i32, len: usize) {
+    let level = detect_simd();
+
+    if len < SIMD_THRESHOLD || level == SimdLevel::Scalar {
+        binary_scalar_i32(op, a, b, out, len);
+        return;
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    match level {
+        SimdLevel::Avx512 => x86_64::avx512_int::binary_i32(op, a, b, out, len),
+        SimdLevel::Avx2Fma => x86_64::avx2_int::binary_i32(op, a, b, out, len),
+        _ => binary_scalar_i32(op, a, b, out, len),
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon_int::binary_i32(op, a, b, out, len),
+        _ => binary_scalar_i32(op, a, b, out, len),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    binary_scalar_i32(op, a, b, out, len);
 }
 
 half_binary_op!(binary, binary_f32, BinaryOp);
@@ -329,6 +361,142 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_binary_add_i32() {
+        let a: Vec<i32> = (0..100).collect();
+        let b: Vec<i32> = (0..100).map(|x| x * 2).collect();
+        let mut out = vec![0i32; 100];
+
+        unsafe { binary_i32(BinaryOp::Add, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            assert_eq!(out[i], a[i] + b[i], "i32 add mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_binary_all_ops_i32() {
+        let a: Vec<i32> = (1..101).collect();
+        let b: Vec<i32> = (1..101).map(|x| x * 2 + 1).collect();
+
+        for op in [
+            BinaryOp::Add,
+            BinaryOp::Sub,
+            BinaryOp::Mul,
+            BinaryOp::Max,
+            BinaryOp::Min,
+        ] {
+            let mut out = vec![0i32; 100];
+            unsafe { binary_i32(op, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 100) }
+
+            for i in 0..100 {
+                let expected = match op {
+                    BinaryOp::Add => a[i] + b[i],
+                    BinaryOp::Sub => a[i] - b[i],
+                    BinaryOp::Mul => a[i] * b[i],
+                    BinaryOp::Max => a[i].max(b[i]),
+                    BinaryOp::Min => a[i].min(b[i]),
+                    _ => unreachable!(),
+                };
+                assert_eq!(out[i], expected, "{:?} i32 mismatch at {}", op, i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_binary_i32_non_aligned_length() {
+        let a: Vec<i32> = (0..67).collect();
+        let b: Vec<i32> = (0..67).map(|x| x * 3).collect();
+        let mut out = vec![0i32; 67];
+
+        unsafe { binary_i32(BinaryOp::Add, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 67) }
+
+        for i in 0..67 {
+            assert_eq!(out[i], a[i] + b[i], "i32 add tail mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_binary_i32_small_array() {
+        let a = [1i32, 2, 3, 4];
+        let b = [5i32, 6, 7, 8];
+        let mut out = [0i32; 4];
+
+        unsafe { binary_i32(BinaryOp::Add, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 4) }
+
+        assert_eq!(out, [6, 8, 10, 12]);
+    }
+
+    #[test]
+    fn test_binary_div_i32() {
+        let a: Vec<i32> = (1..101).collect();
+        let b: Vec<i32> = (1..101).map(|x| x * 2 + 1).collect();
+        let mut out = vec![0i32; 100];
+
+        unsafe { binary_i32(BinaryOp::Div, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 100) }
+
+        for i in 0..100 {
+            assert_eq!(out[i], a[i] / b[i], "div mismatch at {}", i);
+        }
+    }
+
+    #[test]
+    fn test_binary_div_i32_by_zero() {
+        let a = [10i32, 20, 0, 30, -5, 100, i32::MAX, i32::MIN];
+        let b = [0i32, 2, 5, 0, 0, -3, 0, 0];
+        let mut out = [0i32; 8];
+
+        unsafe { binary_i32(BinaryOp::Div, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 8) }
+
+        // Division by zero must return 0, not panic or UB
+        assert_eq!(out[0], 0, "10 / 0 should be 0");
+        assert_eq!(out[1], 10, "20 / 2 should be 10");
+        assert_eq!(out[2], 0, "0 / 5 should be 0");
+        assert_eq!(out[3], 0, "30 / 0 should be 0");
+        assert_eq!(out[4], 0, "-5 / 0 should be 0");
+        assert_eq!(out[5], -33, "100 / -3 should be -33");
+        assert_eq!(out[6], 0, "i32::MAX / 0 should be 0");
+        assert_eq!(out[7], 0, "i32::MIN / 0 should be 0");
+    }
+
+    #[test]
+    fn test_binary_pow_i32() {
+        let a = [2i32, 3, 10, 0, -2, 1, 5, 100];
+        let b = [10i32, 5, 3, 5, 3, 100, 0, 1];
+        let mut out = [0i32; 8];
+
+        unsafe { binary_i32(BinaryOp::Pow, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 8) }
+
+        // pow via f64 conversion: (a as f64).powf(b as f64) as i32
+        assert_eq!(out[0], 1024, "2^10");
+        assert_eq!(out[1], 243, "3^5");
+        assert_eq!(out[2], 1000, "10^3");
+        assert_eq!(out[3], 0, "0^5");
+        assert_eq!(out[4], -8, "(-2)^3");
+        assert_eq!(out[5], 1, "1^100");
+        assert_eq!(out[6], 1, "5^0");
+        assert_eq!(out[7], 100, "100^1");
+    }
+
+    #[test]
+    fn test_binary_atan2_i32() {
+        let a = [0i32, 1, -1, 10, 0, 100];
+        let b = [1i32, 0, 0, 10, 0, 1];
+        let mut out = [0i32; 6];
+
+        unsafe { binary_i32(BinaryOp::Atan2, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 6) }
+
+        // atan2 returns radians as f64, then truncated to i32
+        // atan2(0, 1) = 0.0 -> 0
+        assert_eq!(out[0], 0, "atan2(0,1) = 0");
+        // atan2(1, 0) = pi/2 ≈ 1.57 -> 1
+        assert_eq!(out[1], 1, "atan2(1,0) truncates to 1");
+        // atan2(-1, 0) = -pi/2 ≈ -1.57 -> -1
+        assert_eq!(out[2], -1, "atan2(-1,0) truncates to -1");
+        // atan2(10, 10) = pi/4 ≈ 0.785 -> 0
+        assert_eq!(out[3], 0, "atan2(10,10) truncates to 0");
     }
 
     /// Test alignment check functions (x86-64 only)
