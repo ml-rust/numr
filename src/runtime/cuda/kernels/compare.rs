@@ -186,10 +186,7 @@ pub unsafe fn launch_broadcast_compare_op(
         })?;
     }
 
-    // Synchronize to ensure the kernel completes before freeing temporary allocations
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Stream sync failed: {:?}", e)))?;
+    // No sync needed: temporary GPU allocations freed via cuMemFreeAsync (stream-ordered).
 
     Ok(())
 }
