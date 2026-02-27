@@ -65,6 +65,7 @@ fn compile_cuda_kernels() {
         "linalg_solvers.cu",
         "linalg_svd.cu",
         "fp8_matmul.cu",
+        "gemv.cu",
         "matmul.cu",
         "norm.cu",
         "semiring_matmul.cu",
@@ -141,14 +142,18 @@ fn compile_cuda_kernels() {
         }
 
         // Compile to PTX
-        // Target: sm_75 (Turing) - supports CUDA 10.0+
-        // This provides good compatibility while enabling modern features
+        // Determine compute capability from NUMR_CUDA_ARCH env var, default sm_80 (Ampere)
+        // sm_80 enables tensor cores for F16/BF16, async copy, and other Ampere features
+        let cuda_arch = env::var("NUMR_CUDA_ARCH").unwrap_or_else(|_| "sm_80".to_string());
+        println!(
+            "cargo:warning=numr: compiling CUDA kernels for {cuda_arch} (set NUMR_CUDA_ARCH to override)"
+        );
         let output = Command::new(&nvcc)
             .args([
                 "-ptx",
                 "-O3",
                 "--use_fast_math",
-                "-arch=sm_75",
+                &format!("-arch={cuda_arch}"),
                 "-o",
                 ptx_path.to_str().unwrap(),
                 cu_path.to_str().unwrap(),

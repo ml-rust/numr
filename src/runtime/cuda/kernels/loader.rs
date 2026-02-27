@@ -271,6 +271,8 @@ pub mod kernel_names {
     pub const LINALG_MATRIX_FUNCS_MODULE: &str = "linalg_matrix_funcs";
     /// Matrix multiplication operations (native tiled GEMM)
     pub const MATMUL_MODULE: &str = "matmul";
+    /// GEMV operations (matrix-vector multiply for small M)
+    pub const GEMV_MODULE: &str = "gemv";
     /// Cumulative operations (cumsum, cumprod, logsumexp)
     pub const CUMULATIVE_MODULE: &str = "cumulative";
     /// Distribution sampling operations (bernoulli, beta, gamma, etc.)
@@ -550,6 +552,25 @@ pub unsafe fn launch_matmul_kernel(
     n: usize,
     k: usize,
 ) -> Result<()> {
+    // Use GEMV kernel for small M (single-token decode in LLM inference)
+    // The tiled GEMM wastes 99%+ compute when M < block_m (typically 128)
+    if m <= 16 {
+        unsafe {
+            return launch_gemv_kernel(
+                context,
+                stream,
+                device_index,
+                dtype,
+                a_ptr,
+                b_ptr,
+                c_ptr,
+                1,
+                m,
+                n,
+                k,
+            );
+        }
+    }
     unsafe {
         launch_matmul_kernel_with_config(
             context,
@@ -565,6 +586,59 @@ pub unsafe fn launch_matmul_kernel(
             &default_tile_config(dtype),
         )
     }
+}
+
+/// Launch GEMV kernel: C[batch,M,N] = A[batch,M,K] @ B[batch,K,N] for small M
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub unsafe fn launch_gemv_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::GEMV_MODULE)?;
+    let func_name = kernel_name("gemv", dtype);
+    let func = get_kernel_function(&module, &func_name)?;
+
+    // grid: (ceil(N/256), M, batch), block: (256, 1, 1)
+    // Each block handles 256 output columns (COLS_PER_BLOCK in kernel)
+    let grid_x = ((n as u32) + 255) / 256;
+    let grid_y = m as u32;
+    let grid_z = batch as u32;
+    let cfg = LaunchConfig {
+        grid_dim: (grid_x, grid_y, grid_z),
+        block_dim: (256, 1, 1),
+        shared_mem_bytes: 0, // uses static shared memory
+    };
+
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder
+            .launch(cfg)
+            .map_err(|e| Error::Internal(format!("CUDA GEMV kernel launch failed: {:?}", e)))?;
+    }
+
+    Ok(())
 }
 
 /// Launch native tiled matmul kernel with custom tile configuration.
@@ -649,6 +723,24 @@ pub unsafe fn launch_matmul_batched_kernel(
     n: usize,
     k: usize,
 ) -> Result<()> {
+    // Use GEMV kernel for small M (batched case)
+    if m <= 16 {
+        unsafe {
+            return launch_gemv_kernel(
+                context,
+                stream,
+                device_index,
+                dtype,
+                a_ptr,
+                b_ptr,
+                c_ptr,
+                batch,
+                m,
+                n,
+                k,
+            );
+        }
+    }
     unsafe {
         launch_matmul_batched_kernel_with_config(
             context,
