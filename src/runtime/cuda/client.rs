@@ -70,8 +70,11 @@ pub struct CudaClient {
     /// CUDA context for this device (owns GPU context)
     pub(crate) context: Arc<CudaContext>,
 
-    /// Stream on which all kernels launch
+    /// Stream on which all kernels launch (compute stream)
     pub(crate) stream: Arc<CudaStream>,
+
+    /// Dedicated stream for D2H copies (overlaps with compute stream)
+    pub(crate) copy_stream: Arc<CudaStream>,
 
     /// cuBLAS handle for GEMM operations
     pub(crate) cublas: Arc<CudaBlas>,
@@ -213,9 +216,14 @@ impl CudaClient {
             CudaError::ContextError(format!("Failed to bind CUDA context to thread: {:?}", e))
         })?;
 
-        // Create a stream in this context
+        // Create compute stream
         let stream = context.new_stream().map_err(|e| {
             CudaError::ContextError(format!("Failed to create CUDA stream: {:?}", e))
+        })?;
+
+        // Create dedicated copy stream for overlapped D2H transfers
+        let copy_stream = context.new_stream().map_err(|e| {
+            CudaError::ContextError(format!("Failed to create CUDA copy stream: {:?}", e))
         })?;
 
         // Initialize cuBLAS handle for GEMM operations
@@ -235,6 +243,7 @@ impl CudaClient {
             device,
             context,
             stream,
+            copy_stream,
             cublas: Arc::new(cublas),
             allocator,
             raw_handle,
@@ -261,10 +270,72 @@ impl CudaClient {
         &self.context
     }
 
+    /// Get reference to the copy stream (for overlapped D2H transfers).
+    #[inline]
+    pub fn copy_stream(&self) -> &CudaStream {
+        &self.copy_stream
+    }
+
     /// Get reference to the cuBLAS handle.
     #[inline]
     pub fn cublas(&self) -> &CudaBlas {
         &self.cublas
+    }
+
+    /// Record an event on the compute stream.
+    ///
+    /// Returns an event handle that can be passed to `copy_stream_wait_event`.
+    pub fn record_event_on_compute(&self) -> Result<u64, CudaError> {
+        use cudarc::driver::sys::{CUevent_flags, cuEventCreate, cuEventRecord};
+        unsafe {
+            let mut event = std::ptr::null_mut();
+            let r = cuEventCreate(&mut event, CUevent_flags::CU_EVENT_DISABLE_TIMING as u32);
+            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Err(CudaError::ContextError(format!(
+                    "cuEventCreate failed: {:?}",
+                    r
+                )));
+            }
+            let r = cuEventRecord(event, self.stream.cu_stream());
+            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                cudarc::driver::sys::cuEventDestroy_v2(event);
+                return Err(CudaError::ContextError(format!(
+                    "cuEventRecord failed: {:?}",
+                    r
+                )));
+            }
+            Ok(event as u64)
+        }
+    }
+
+    /// Make the copy stream wait for an event recorded on the compute stream.
+    pub fn copy_stream_wait_event(&self, event: u64) -> Result<(), CudaError> {
+        use cudarc::driver::sys::cuStreamWaitEvent;
+        unsafe {
+            let r = cuStreamWaitEvent(
+                self.copy_stream.cu_stream(),
+                event as cudarc::driver::sys::CUevent,
+                0,
+            );
+            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Err(CudaError::ContextError(format!(
+                    "cuStreamWaitEvent failed: {:?}",
+                    r
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Destroy a CUDA event handle returned by `record_event_on_compute`.
+    ///
+    /// Must be called after the copy stream has finished using the event
+    /// (i.e., after `copy_stream.synchronize()`). Passing an already-destroyed
+    /// or invalid handle is safe (CUDA ignores it).
+    pub fn destroy_event(&self, event: u64) {
+        unsafe {
+            cudarc::driver::sys::cuEventDestroy_v2(event as cudarc::driver::sys::CUevent);
+        }
     }
 }
 

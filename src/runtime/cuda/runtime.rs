@@ -178,8 +178,10 @@ impl Runtime for CudaRuntime {
                 )));
             }
 
-            // Synchronize to ensure data is available
-            let _ = client.stream.synchronize();
+            // No explicit sync needed: with pageable (non-pinned) host memory,
+            // cuMemcpyHtoDAsync is synchronous w.r.t. the host buffer — the call
+            // returns only after the copy is complete. An explicit stream.synchronize()
+            // here would also drain ALL pending GPU work, destroying pipeline throughput.
         }
         Ok(())
     }
@@ -214,8 +216,64 @@ impl Runtime for CudaRuntime {
                 )));
             }
 
-            // Synchronize to ensure data is available on host
+            // With pageable host memory, cuMemcpyDtoHAsync blocks the host until
+            // the copy completes. However, we still need to synchronize the stream
+            // to ensure all prior GPU kernels have finished producing the data.
             let _ = client.stream.synchronize();
+        }
+        Ok(())
+    }
+
+    /// Record an event on the compute stream.
+    fn record_compute_event(device: &Self::Device) -> crate::error::Result<u64> {
+        let client = get_or_create_client(device);
+        client
+            .record_event_on_compute()
+            .map_err(|e| crate::error::Error::Backend(format!("Event record failed: {}", e)))
+    }
+
+    /// Pipelined D2H copy: copy stream waits on the provided event, copies,
+    /// and syncs only the copy stream. Compute stream continues concurrently.
+    fn copy_from_device_pipelined(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+        event: u64,
+    ) -> crate::error::Result<()> {
+        if dst.is_empty() || src == 0 {
+            return Ok(());
+        }
+
+        let client = get_or_create_client(device);
+
+        unsafe {
+            // 1. Copy stream waits for event (waits for argmax to finish)
+            client.copy_stream_wait_event(event).map_err(|e| {
+                client.destroy_event(event);
+                crate::error::Error::Backend(format!("Stream wait event failed: {}", e))
+            })?;
+
+            // 2. Launch D2H copy on copy stream
+            let result = cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
+                dst.as_mut_ptr() as *mut std::ffi::c_void,
+                src,
+                dst.len(),
+                client.copy_stream.cu_stream(),
+            );
+
+            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                client.destroy_event(event);
+                return Err(crate::error::Error::Backend(format!(
+                    "[numr::cuda] Pipelined D2H copy failed: {} bytes ({:?})",
+                    dst.len(),
+                    result
+                )));
+            }
+
+            // 3. Sync ONLY the copy stream (compute stream keeps running)
+            let _ = client.copy_stream.synchronize();
+
+            client.destroy_event(event);
         }
         Ok(())
     }
@@ -373,8 +431,8 @@ impl Runtime for CudaRuntime {
                 )));
             }
 
-            // Synchronize to ensure copy is complete
-            let _ = client.stream.synchronize();
+            // No sync needed: same-stream ordering guarantees the copy
+            // completes before any subsequent kernel on this stream.
         }
         Ok(())
     }

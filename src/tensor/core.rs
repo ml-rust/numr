@@ -613,6 +613,39 @@ impl<R: Runtime> Tensor<R> {
         result
     }
 
+    /// Record an event on the compute stream for this tensor's device.
+    ///
+    /// Call this BEFORE launching additional compute work, then pass the event
+    /// to `to_vec_pipelined` AFTER launching the compute work. This allows the
+    /// copy to proceed as soon as the event fires, while compute continues.
+    pub fn record_event(&self) -> crate::error::Result<u64> {
+        R::record_compute_event(self.storage.device())
+    }
+
+    /// Copy tensor data to a Vec using the pipelined copy stream, synchronized
+    /// via a previously recorded event.
+    ///
+    /// On CUDA, syncs only the copy stream — compute stream keeps running.
+    pub fn to_vec_pipelined<T: bytemuck::Pod>(&self, event: u64) -> crate::error::Result<Vec<T>> {
+        if !self.is_contiguous() {
+            return Err(crate::error::Error::ShapeMismatch {
+                expected: vec![self.numel()],
+                got: self.shape().to_vec(),
+            });
+        }
+
+        let numel = self.numel();
+        let offset = self.layout.offset();
+        let elem_size = std::mem::size_of::<T>();
+        let byte_offset = offset * elem_size;
+
+        let mut result = vec![T::zeroed(); numel];
+        let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
+        let src_ptr = self.storage.ptr() as usize + byte_offset;
+        R::copy_from_device_pipelined(src_ptr as u64, bytes, self.storage.device(), event)?;
+        Ok(result)
+    }
+
     /// Extract the scalar value from a single-element tensor
     ///
     /// This is the idiomatic way to get a scalar value from a tensor for use

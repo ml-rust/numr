@@ -130,6 +130,29 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         device: &Self::Device,
     ) -> crate::error::Result<()>;
 
+    /// Record an event on the compute stream. Returns an opaque handle.
+    /// On non-CUDA backends, returns 0 (no-op).
+    fn record_compute_event(_device: &Self::Device) -> crate::error::Result<u64> {
+        Ok(0)
+    }
+
+    /// Copy data from device to host using a dedicated copy stream,
+    /// synchronized via a previously recorded event.
+    ///
+    /// On CUDA: copy stream waits on the event, performs D2H, syncs only copy stream.
+    /// The compute stream continues running concurrently.
+    ///
+    /// Default: ignores event, falls back to `copy_from_device`.
+    fn copy_from_device_pipelined(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+        event: u64,
+    ) -> crate::error::Result<()> {
+        let _ = event;
+        Self::copy_from_device(src, dst, device)
+    }
+
     /// Get the default device
     fn default_device() -> Self::Device;
 
