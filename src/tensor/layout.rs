@@ -122,6 +122,8 @@ impl Layout {
     /// Check if memory is contiguous (row-major order)
     ///
     /// A layout is contiguous if its strides match row-major order.
+    /// Size-1 dimensions are ignored since their stride doesn't affect
+    /// memory layout (only one element along that axis).
     /// The offset does not affect contiguity (a narrowed view can still
     /// be contiguous in its stride pattern).
     pub fn is_contiguous(&self) -> bool {
@@ -130,7 +132,15 @@ impl Layout {
         }
 
         let expected = Self::compute_contiguous_strides(&self.shape);
-        self.strides == expected
+        if self.strides == expected {
+            return true;
+        }
+
+        // Lenient check: strides for size-1 dims don't matter
+        self.shape
+            .iter()
+            .zip(self.strides.iter().zip(expected.iter()))
+            .all(|(&s, (&actual, &expect))| s == 1 || actual == expect)
     }
 
     /// Get size along a specific dimension
