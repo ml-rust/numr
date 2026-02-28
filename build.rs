@@ -124,6 +124,14 @@ fn compile_cuda_kernels() {
         panic!("nvcc not found - CUDA Toolkit must be installed for the 'cuda' feature");
     });
 
+    // Determine compute capability from NUMR_CUDA_ARCH env var, default sm_80 (Ampere)
+    // sm_80 enables tensor cores for F16/BF16, async copy, and other Ampere features
+    let cuda_arch = env::var("NUMR_CUDA_ARCH").unwrap_or_else(|_| "sm_80".to_string());
+    println!(
+        "cargo:warning=numr: compiling {} CUDA kernels for {cuda_arch} (set NUMR_CUDA_ARCH to override)",
+        kernel_files.len()
+    );
+
     for kernel_file in kernel_files {
         let cu_path = kernels_dir.join(kernel_file);
         let ptx_name = kernel_file.replace(".cu", ".ptx");
@@ -141,13 +149,6 @@ fn compile_cuda_kernels() {
             );
         }
 
-        // Compile to PTX
-        // Determine compute capability from NUMR_CUDA_ARCH env var, default sm_80 (Ampere)
-        // sm_80 enables tensor cores for F16/BF16, async copy, and other Ampere features
-        let cuda_arch = env::var("NUMR_CUDA_ARCH").unwrap_or_else(|_| "sm_80".to_string());
-        println!(
-            "cargo:warning=numr: compiling CUDA kernels for {cuda_arch} (set NUMR_CUDA_ARCH to override)"
-        );
         let output = Command::new(&nvcc)
             .args([
                 "-ptx",

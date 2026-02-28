@@ -1,23 +1,27 @@
 // GEMV (General Matrix-Vector Multiply) CUDA Kernels
-// Optimized for C[M,N] = A[M,K] @ B[K,N] when M is small (M <= 16)
+// C[M,N] = A[M,K] @ B[K,N] for small M (M <= 16, typically M=1 for LLM decode)
 //
-// For LLM inference decode: M=1, K=2048-8192, N=2048-8192
+// Two kernel families:
 //
-// Strategy: Each thread computes one output element C[m, col].
-// - A vector is broadcast (all threads in a warp read same a[k], hits L1 cache)
-// - B reads are coalesced: consecutive threads read consecutive columns
-// - K-loop is unrolled 4x for instruction-level parallelism
+// 1. gemv_* : B is [K,N] row-major (non-transposed)
+//    - One thread per output column, iterates K
+//    - Coalesced B reads: consecutive threads read B[k*N + col], B[k*N + col+1]
+//    - Grid: (ceil(N/256), M, batch), block: (256, 1, 1)
 //
-// Launch config: grid=(ceil(N/COLS_PER_BLOCK), M, batch), block=(256, 1, 1)
+// 2. gemv_bt_* : B is [N,K] row-major (transposed weight, the common case for nn.Linear)
+//    - Warp-cooperative: each warp reduces one output column along K
+//    - Coalesced B reads: lanes read B[col*K + lane], B[col*K + lane+1] (stride-1)
+//    - Grid: (ceil(N/WARPS_PER_BLOCK), M, batch), block: (256, 1, 1)
+//
+// The bt (B-transposed) variant avoids a 500MB contiguous copy when Linear
+// computes y = x @ W^T by passing the raw [N,K] weight pointer directly.
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 
-#define COLS_PER_BLOCK 256
-
 // ============================================================================
-// GEMV kernel for BF16 (compute in F32, store BF16)
-// This is the primary kernel for LLM inference (models stored in BF16)
+// Non-transposed B: one thread per output, iterate K
+// B layout: [K, N] row-major — B[k,n] = B_data[k*N + n]
 // ============================================================================
 
 extern "C" __global__ void gemv_bf16(
@@ -28,41 +32,21 @@ extern "C" __global__ void gemv_bf16(
     unsigned int N,
     unsigned int K
 ) {
+    const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
-    const unsigned int col = blockIdx.x * COLS_PER_BLOCK + threadIdx.x;
     const unsigned int batch = blockIdx.z;
-
     if (col >= N) return;
 
     const __nv_bfloat16* a_row = A + batch * M * K + m * K;
-    const __nv_bfloat16* b_base = B + batch * K * N + col;
+    const __nv_bfloat16* b_base = B + batch * K * N;
 
-    float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-
-    // Unroll 4x for ILP
-    unsigned int k = 0;
-    const unsigned int K4 = K & ~3u;
-    for (; k < K4; k += 4) {
-        float a0 = __bfloat162float(a_row[k]);
-        float a1 = __bfloat162float(a_row[k + 1]);
-        float a2 = __bfloat162float(a_row[k + 2]);
-        float a3 = __bfloat162float(a_row[k + 3]);
-        acc0 += a0 * __bfloat162float(b_base[k * N]);
-        acc1 += a1 * __bfloat162float(b_base[(k + 1) * N]);
-        acc2 += a2 * __bfloat162float(b_base[(k + 2) * N]);
-        acc3 += a3 * __bfloat162float(b_base[(k + 3) * N]);
-    }
-    // Handle remainder
-    for (; k < K; k++) {
-        acc0 += __bfloat162float(a_row[k]) * __bfloat162float(b_base[k * N]);
+    float acc = 0.0f;
+    for (unsigned int k = 0; k < K; k++) {
+        acc += __bfloat162float(a_row[k]) * __bfloat162float(b_base[k * N + col]);
     }
 
-    C[batch * M * N + m * N + col] = __float2bfloat16(acc0 + acc1 + acc2 + acc3);
+    C[batch * M * N + m * N + col] = __float2bfloat16(acc);
 }
-
-// ============================================================================
-// GEMV kernel for F32
-// ============================================================================
 
 extern "C" __global__ void gemv_f32(
     const float* __restrict__ A,
@@ -72,35 +56,21 @@ extern "C" __global__ void gemv_f32(
     unsigned int N,
     unsigned int K
 ) {
+    const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
-    const unsigned int col = blockIdx.x * COLS_PER_BLOCK + threadIdx.x;
     const unsigned int batch = blockIdx.z;
-
     if (col >= N) return;
 
     const float* a_row = A + batch * M * K + m * K;
-    const float* b_base = B + batch * K * N + col;
+    const float* b_base = B + batch * K * N;
 
-    float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-
-    unsigned int k = 0;
-    const unsigned int K4 = K & ~3u;
-    for (; k < K4; k += 4) {
-        acc0 += a_row[k]     * b_base[k * N];
-        acc1 += a_row[k + 1] * b_base[(k + 1) * N];
-        acc2 += a_row[k + 2] * b_base[(k + 2) * N];
-        acc3 += a_row[k + 3] * b_base[(k + 3) * N];
-    }
-    for (; k < K; k++) {
-        acc0 += a_row[k] * b_base[k * N];
+    float acc = 0.0f;
+    for (unsigned int k = 0; k < K; k++) {
+        acc += a_row[k] * b_base[k * N + col];
     }
 
-    C[batch * M * N + m * N + col] = acc0 + acc1 + acc2 + acc3;
+    C[batch * M * N + m * N + col] = acc;
 }
-
-// ============================================================================
-// GEMV kernel for F16 (compute in F32, store F16)
-// ============================================================================
 
 extern "C" __global__ void gemv_f16(
     const half* __restrict__ A,
@@ -110,35 +80,21 @@ extern "C" __global__ void gemv_f16(
     unsigned int N,
     unsigned int K
 ) {
+    const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
-    const unsigned int col = blockIdx.x * COLS_PER_BLOCK + threadIdx.x;
     const unsigned int batch = blockIdx.z;
-
     if (col >= N) return;
 
     const half* a_row = A + batch * M * K + m * K;
-    const half* b_base = B + batch * K * N + col;
+    const half* b_base = B + batch * K * N;
 
-    float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
-
-    unsigned int k = 0;
-    const unsigned int K4 = K & ~3u;
-    for (; k < K4; k += 4) {
-        acc0 += __half2float(a_row[k])     * __half2float(b_base[k * N]);
-        acc1 += __half2float(a_row[k + 1]) * __half2float(b_base[(k + 1) * N]);
-        acc2 += __half2float(a_row[k + 2]) * __half2float(b_base[(k + 2) * N]);
-        acc3 += __half2float(a_row[k + 3]) * __half2float(b_base[(k + 3) * N]);
-    }
-    for (; k < K; k++) {
-        acc0 += __half2float(a_row[k]) * __half2float(b_base[k * N]);
+    float acc = 0.0f;
+    for (unsigned int k = 0; k < K; k++) {
+        acc += __half2float(a_row[k]) * __half2float(b_base[k * N + col]);
     }
 
-    C[batch * M * N + m * N + col] = __float2half(acc0 + acc1 + acc2 + acc3);
+    C[batch * M * N + m * N + col] = __float2half(acc);
 }
-
-// ============================================================================
-// GEMV kernel for F64
-// ============================================================================
 
 extern "C" __global__ void gemv_f64(
     const double* __restrict__ A,
@@ -148,28 +104,163 @@ extern "C" __global__ void gemv_f64(
     unsigned int N,
     unsigned int K
 ) {
+    const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
-    const unsigned int col = blockIdx.x * COLS_PER_BLOCK + threadIdx.x;
     const unsigned int batch = blockIdx.z;
-
     if (col >= N) return;
 
     const double* a_row = A + batch * M * K + m * K;
-    const double* b_base = B + batch * K * N + col;
+    const double* b_base = B + batch * K * N;
 
-    double acc0 = 0.0, acc1 = 0.0, acc2 = 0.0, acc3 = 0.0;
-
-    unsigned int k = 0;
-    const unsigned int K4 = K & ~3u;
-    for (; k < K4; k += 4) {
-        acc0 += a_row[k]     * b_base[k * N];
-        acc1 += a_row[k + 1] * b_base[(k + 1) * N];
-        acc2 += a_row[k + 2] * b_base[(k + 2) * N];
-        acc3 += a_row[k + 3] * b_base[(k + 3) * N];
-    }
-    for (; k < K; k++) {
-        acc0 += a_row[k] * b_base[k * N];
+    double acc = 0.0;
+    for (unsigned int k = 0; k < K; k++) {
+        acc += a_row[k] * b_base[k * N + col];
     }
 
-    C[batch * M * N + m * N + col] = acc0 + acc1 + acc2 + acc3;
+    C[batch * M * N + m * N + col] = acc;
+}
+
+// ============================================================================
+// Transposed B: warp-cooperative K-reduction
+// B layout: [N, K] row-major (weight matrix) — B_logical[k,n] = B_data[n*K + k]
+//
+// Each warp handles one output column. Lanes cooperatively reduce along K.
+// B_data[col*K + lane_id] reads are stride-1 (coalesced within each warp).
+// ============================================================================
+
+#define WARP_SIZE 32
+#define WARPS_PER_BLOCK 8
+#define BLOCK_SIZE (WARP_SIZE * WARPS_PER_BLOCK)
+
+extern "C" __global__ void gemv_bt_bf16(
+    const __nv_bfloat16* __restrict__ A,
+    const __nv_bfloat16* __restrict__ B,   // stored [N, K] row-major
+    __nv_bfloat16* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    const unsigned int warp_id = threadIdx.x / WARP_SIZE;
+    const unsigned int lane_id = threadIdx.x % WARP_SIZE;
+    const unsigned int col = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+    const unsigned int m = blockIdx.y;
+    const unsigned int batch = blockIdx.z;
+    if (col >= N) return;
+
+    const __nv_bfloat16* a_row = A + batch * M * K + m * K;
+    const __nv_bfloat16* b_row = B + batch * N * K + col * K;  // B[col, 0..K]
+
+    float acc = 0.0f;
+    for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
+        acc += __bfloat162float(a_row[k]) * __bfloat162float(b_row[k]);
+    }
+
+    // Warp-level reduction
+    #pragma unroll
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        acc += __shfl_down_sync(0xFFFFFFFF, acc, offset);
+    }
+
+    if (lane_id == 0) {
+        C[batch * M * N + m * N + col] = __float2bfloat16(acc);
+    }
+}
+
+extern "C" __global__ void gemv_bt_f32(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    const unsigned int warp_id = threadIdx.x / WARP_SIZE;
+    const unsigned int lane_id = threadIdx.x % WARP_SIZE;
+    const unsigned int col = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+    const unsigned int m = blockIdx.y;
+    const unsigned int batch = blockIdx.z;
+    if (col >= N) return;
+
+    const float* a_row = A + batch * M * K + m * K;
+    const float* b_row = B + batch * N * K + col * K;
+
+    float acc = 0.0f;
+    for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
+        acc += a_row[k] * b_row[k];
+    }
+
+    #pragma unroll
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        acc += __shfl_down_sync(0xFFFFFFFF, acc, offset);
+    }
+
+    if (lane_id == 0) {
+        C[batch * M * N + m * N + col] = acc;
+    }
+}
+
+extern "C" __global__ void gemv_bt_f16(
+    const half* __restrict__ A,
+    const half* __restrict__ B,
+    half* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    const unsigned int warp_id = threadIdx.x / WARP_SIZE;
+    const unsigned int lane_id = threadIdx.x % WARP_SIZE;
+    const unsigned int col = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+    const unsigned int m = blockIdx.y;
+    const unsigned int batch = blockIdx.z;
+    if (col >= N) return;
+
+    const half* a_row = A + batch * M * K + m * K;
+    const half* b_row = B + batch * N * K + col * K;
+
+    float acc = 0.0f;
+    for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
+        acc += __half2float(a_row[k]) * __half2float(b_row[k]);
+    }
+
+    #pragma unroll
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        acc += __shfl_down_sync(0xFFFFFFFF, acc, offset);
+    }
+
+    if (lane_id == 0) {
+        C[batch * M * N + m * N + col] = __float2half(acc);
+    }
+}
+
+extern "C" __global__ void gemv_bt_f64(
+    const double* __restrict__ A,
+    const double* __restrict__ B,
+    double* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    const unsigned int warp_id = threadIdx.x / WARP_SIZE;
+    const unsigned int lane_id = threadIdx.x % WARP_SIZE;
+    const unsigned int col = blockIdx.x * WARPS_PER_BLOCK + warp_id;
+    const unsigned int m = blockIdx.y;
+    const unsigned int batch = blockIdx.z;
+    if (col >= N) return;
+
+    const double* a_row = A + batch * M * K + m * K;
+    const double* b_row = B + batch * N * K + col * K;
+
+    double acc = 0.0;
+    for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
+        acc += a_row[k] * b_row[k];
+    }
+
+    #pragma unroll
+    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
+        acc += __shfl_down_sync(0xFFFFFFFF, acc, offset);
+    }
+
+    if (lane_id == 0) {
+        C[batch * M * N + m * N + col] = acc;
+    }
 }

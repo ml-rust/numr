@@ -3,9 +3,9 @@
 use super::super::kernels::launch_scalar_op_half;
 use super::super::kernels::{
     AccumulationPrecision, launch_binary_op, launch_broadcast_binary_op,
-    launch_broadcast_compare_op, launch_compare_op, launch_matmul_batched_kernel,
-    launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel, launch_matmul_kernel,
-    launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64,
+    launch_broadcast_compare_op, launch_compare_op, launch_gemv_kernel_bt,
+    launch_matmul_batched_kernel, launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel,
+    launch_matmul_kernel, launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64,
     launch_semiring_matmul_batched_kernel, launch_semiring_matmul_kernel, launch_unary_op,
 };
 use super::super::kernels::{
@@ -26,6 +26,21 @@ use crate::tensor::Tensor;
 ///
 /// Uses shared memory tiling for cache efficiency. This is the default
 /// implementation that works without any vendor dependencies.
+/// Detect if a 2D tensor is a simple transpose of a contiguous [N,K] matrix.
+///
+/// A tensor with shape [K, N] and strides [1, K] is a transpose view of
+/// contiguous [N, K] data. We can pass the raw pointer directly to gemv_bt
+/// instead of materializing the transpose (which copies the entire matrix).
+fn is_simple_transpose_2d(tensor: &Tensor<CudaRuntime>) -> bool {
+    let shape = tensor.shape();
+    let strides = tensor.strides();
+    if shape.len() != 2 {
+        return false;
+    }
+    // shape=[K,N], strides=[1,K] means transpose of contiguous [N,K]
+    strides[0] == 1 && strides[1] == shape[0] as isize
+}
+
 pub(crate) fn matmul_native(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -35,13 +50,38 @@ pub(crate) fn matmul_native(
     k: usize,
     n: usize,
 ) -> Result<Tensor<CudaRuntime>> {
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-
     let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
         expected: a.shape().to_vec(),
         got: b.shape().to_vec(),
     })?;
+
+    // Fast path: if B is a transposed view of contiguous [N,K] and M is small,
+    // use gemv_bt kernel directly — avoids copying the entire weight matrix.
+    if m <= 16 && is_simple_transpose_2d(b) {
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+        unsafe {
+            launch_gemv_kernel_bt(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(), // raw [N,K] pointer — no copy!
+                out.ptr(),
+                1, // batch
+                m,
+                n,
+                k,
+            )?;
+        }
+
+        return Ok(out);
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
 
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
@@ -63,6 +103,21 @@ pub(crate) fn matmul_native(
     Ok(out)
 }
 
+/// Detect if the last two dims of a 3D tensor are a simple transpose.
+/// Shape [B, K, N] with strides [B_stride, 1, K] means each batch slice
+/// is a transpose of contiguous [N, K].
+fn is_batched_transpose_last2(tensor: &Tensor<CudaRuntime>) -> bool {
+    let shape = tensor.shape();
+    let strides = tensor.strides();
+    if shape.len() != 3 {
+        return false;
+    }
+    let k = shape[1];
+    let n = shape[2];
+    // strides: [n*k, 1, k] means transpose of contiguous [batch, N, K]
+    strides[1] == 1 && strides[2] == k as isize && strides[0] == (n * k) as isize
+}
+
 /// Native batched matrix multiplication using tiled CUDA kernel.
 pub(crate) fn matmul_batched_native(
     client: &CudaClient,
@@ -74,13 +129,37 @@ pub(crate) fn matmul_batched_native(
     k: usize,
     n: usize,
 ) -> Result<Tensor<CudaRuntime>> {
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-
     let out_shape = matmul_output_shape(a.shape(), b.shape()).ok_or(Error::ShapeMismatch {
         expected: a.shape().to_vec(),
         got: b.shape().to_vec(),
     })?;
+
+    // Fast path: transposed B with small M → gemv_bt
+    if m <= 16 && is_batched_transpose_last2(b) {
+        let a_contig = ensure_contiguous(a);
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
+
+        unsafe {
+            launch_gemv_kernel_bt(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(),
+                out.ptr(),
+                batch,
+                m,
+                n,
+                k,
+            )?;
+        }
+
+        return Ok(out);
+    }
+
+    let a_contig = ensure_contiguous(a);
+    let b_contig = ensure_contiguous(b);
 
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
