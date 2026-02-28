@@ -98,34 +98,39 @@ impl std::fmt::Debug for CudaClient {
 // CudaAllocator
 // ============================================================================
 
-/// CUDA allocator that uses stream-ordered allocation.
+/// CUDA caching allocator with Rust-side free lists.
 ///
-/// This allocator uses `cuMemAllocAsync` and `cuMemFreeAsync` for efficient
-/// stream-ordered memory management. Memory operations are synchronized with
-/// kernel execution on the associated stream.
+/// Maintains per-size free lists of GPU buffers. On deallocation, buffers are
+/// returned to the free list instead of calling `cuMemFreeAsync`. On allocation,
+/// the free list is checked first, bypassing the CUDA driver entirely for repeat
+/// allocations of the same size. This is critical for inference decode loops where
+/// the same buffer sizes are allocated every step.
 ///
-/// # Panics
-///
-/// The `allocate` method panics if CUDA memory allocation fails, following
-/// CUDA best practices where OOM is typically unrecoverable.
+/// Falls through to `cuMemAllocAsync` for sizes not in the cache.
 #[derive(Clone)]
 pub struct CudaAllocator {
     stream: Arc<CudaStream>,
+    /// Free list: size_bytes → Vec<device_ptr>
+    cache: Arc<std::sync::Mutex<std::collections::HashMap<usize, Vec<u64>>>>,
 }
 
 impl Allocator for CudaAllocator {
-    /// Allocate GPU memory using stream-ordered allocation.
-    ///
-    /// If the first allocation attempt fails, synchronizes the stream to flush
-    /// pending async frees, then retries once. This handles the common case where
-    /// `cuMemFreeAsync` calls haven't completed yet.
-    ///
-    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails even after retry.
     fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
         if size_bytes == 0 {
             return Ok(0);
         }
 
+        // Check free list first
+        {
+            let mut cache = self.cache.lock().unwrap();
+            if let Some(ptrs) = cache.get_mut(&size_bytes) {
+                if let Some(ptr) = ptrs.pop() {
+                    return Ok(ptr);
+                }
+            }
+        }
+
+        // Cache miss — allocate from CUDA driver
         unsafe {
             let mut ptr: u64 = 0;
             let result =
@@ -135,8 +140,7 @@ impl Allocator for CudaAllocator {
                 return Ok(ptr);
             }
 
-            // First attempt failed - synchronize stream to flush pending async frees,
-            // then retry.
+            // Sync stream to flush pending async frees, then retry
             let _ = self.stream.synchronize();
 
             let result =
@@ -150,40 +154,39 @@ impl Allocator for CudaAllocator {
         }
     }
 
-    fn deallocate(&self, ptr: u64, _size_bytes: usize) {
+    fn deallocate(&self, ptr: u64, size_bytes: usize) {
         if ptr == 0 {
             return;
         }
 
-        unsafe {
-            // Check if CUDA context is still valid before attempting free
-            if !is_cuda_context_valid() {
-                // Context is gone - memory will be reclaimed by driver
-                return;
-            }
-
-            let result = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
-
-            // Log failures but don't panic - deallocation errors are typically benign
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS
-                && result != cudarc::driver::sys::CUresult::CUDA_ERROR_ILLEGAL_ADDRESS
-            {
-                log_cuda_memory_error("cuMemFreeAsync", ptr, result);
-            }
-        }
+        // Return to free list for reuse
+        let mut cache = self.cache.lock().unwrap();
+        cache.entry(size_bytes).or_default().push(ptr);
     }
 
     fn is_frozen(&self) -> bool {
-        false // CUDA allocator doesn't support freeze
+        false
     }
 
     fn freeze(&self) -> bool {
-        // No-op for CUDA - always succeeds
         true
     }
 
-    fn unfreeze(&self) {
-        // No-op for CUDA
+    fn unfreeze(&self) {}
+
+    fn reset(&self) -> crate::error::Result<()> {
+        // Flush all cached buffers back to CUDA
+        let mut cache = self.cache.lock().unwrap();
+        for (_size, ptrs) in cache.drain() {
+            for ptr in ptrs {
+                unsafe {
+                    if is_cuda_context_valid() {
+                        let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -230,8 +233,26 @@ impl CudaClient {
         let cublas = CudaBlas::new(stream.clone())
             .map_err(|e| CudaError::CublasError(format!("Failed to initialize cuBLAS: {:?}", e)))?;
 
+        // Configure the default memory pool to cache freed allocations instead
+        // of returning them to the OS. This dramatically reduces allocation overhead
+        // for repetitive workloads (e.g. inference decode loops).
+        unsafe {
+            let mut pool: cudarc::driver::sys::CUmemoryPool = std::ptr::null_mut();
+            let result =
+                cudarc::driver::sys::cuDeviceGetDefaultMemPool(&mut pool, device.index as i32);
+            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS && !pool.is_null() {
+                let threshold: u64 = u64::MAX; // Keep all freed memory cached
+                let _ = cudarc::driver::sys::cuMemPoolSetAttribute(
+                    pool,
+                    cudarc::driver::sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+                    &threshold as *const u64 as *mut std::ffi::c_void,
+                );
+            }
+        }
+
         let allocator = CudaAllocator {
             stream: stream.clone(),
+            cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         };
 
         let raw_handle = CudaRawHandle {
