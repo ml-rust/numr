@@ -41,17 +41,60 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        // Require row-major contiguous tensors for SIMD-optimized packing
-        // Non-contiguous tensors (transposed, views) are copied to contiguous layout
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-
         // Calculate batch size
         let batch_size: usize = out_shape
             .iter()
             .take(out_shape.len().saturating_sub(2))
             .product();
         let batch_size = batch_size.max(1);
+
+        // GEMV-BT fast path: detect transposed B and use dot-product kernel
+        // When B has shape [K,N] with strides [1,K], it's a transpose of contiguous [N,K].
+        // For small M (decode), we can dot A rows against B's original [N,K] rows directly,
+        // avoiding the costly contiguous copy (e.g. 500MB for lm_head weights).
+        if m <= 16 && b_shape.len() >= 2 && dtype != DType::I8 {
+            let b_strides = b.strides();
+            let ndim = b_shape.len();
+            let stride_row = b_strides[ndim - 2]; // stride for K dimension
+            let stride_col = b_strides[ndim - 1]; // stride for N dimension
+
+            // Check if B is a simple transpose: shape [K,N], strides [1, K]
+            // meaning the underlying data is contiguous [N,K]
+            if stride_row == 1 && stride_col == k as isize {
+                let a_contig = ensure_contiguous(a);
+                let a_ptr = a_contig.ptr();
+                let b_ptr = b.ptr(); // Use original ptr - data is contiguous [N,K]
+
+                // Create output tensor
+                let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+                let out_ptr = out.ptr();
+                let ldc = n;
+
+                dispatch_dtype!(dtype, T => {
+                    for batch in 0..batch_size {
+                        let a_offset = batch * m * k;
+                        let b_offset = batch * n * k;
+                        let out_offset = batch * m * n;
+
+                        unsafe {
+                            crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                (a_ptr as *const T).add(a_offset),
+                                (b_ptr as *const T).add(b_offset),
+                                (out_ptr as *mut T).add(out_offset),
+                                m, n, k, ldc,
+                            );
+                        }
+                    }
+                }, "matmul_gemv_bt");
+
+                return Ok(out);
+            }
+        }
+
+        // Require row-major contiguous tensors for SIMD-optimized packing
+        // Non-contiguous tensors (transposed, views) are copied to contiguous layout
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
 
         let a_ptr = a_contig.ptr();
         let b_ptr = b_contig.ptr();

@@ -48,6 +48,8 @@ mod tiling;
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
 
+pub(crate) mod gemv_bt;
+
 #[cfg(all(feature = "f16", target_arch = "x86_64"))]
 pub(crate) mod half_convert;
 

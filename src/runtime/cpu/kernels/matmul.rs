@@ -5,6 +5,164 @@
 
 use crate::dtype::{DType, Element};
 
+/// GEMV-BT kernel: C[M,N] = A[M,K] @ B^T where B is stored as contiguous [N,K]
+///
+/// This avoids the costly contiguous copy of transposed weight matrices during
+/// decode (M=1). Both A rows and B rows are contiguous, making this ideal for
+/// SIMD dot products.
+///
+/// # Arguments
+/// * `a` - Pointer to matrix A (m × k), contiguous row-major
+/// * `b_nk` - Pointer to B in [N,K] layout (NOT the transposed view)
+/// * `out` - Pointer to output C (m × n), row-major with leading dimension ldc
+/// * `m`, `n`, `k` - Matrix dimensions
+/// * `ldc` - Leading dimension of output
+///
+/// # Safety
+/// - `a` must be valid for m*k contiguous reads
+/// - `b_nk` must be valid for n*k contiguous reads
+/// - `out` must be valid for m*ldc writes
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn gemv_bt_kernel<T: Element>(
+    a: *const T,
+    b_nk: *const T,
+    out: *mut T,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use super::simd::detect_simd;
+        use super::simd::matmul::gemv_bt;
+
+        match T::DTYPE {
+            DType::F32 => {
+                let level = detect_simd();
+                gemv_bt::gemv_bt_f32(
+                    a as *const f32,
+                    b_nk as *const f32,
+                    out as *mut f32,
+                    m,
+                    n,
+                    k,
+                    ldc,
+                    level,
+                );
+                return;
+            }
+            DType::F64 => {
+                let level = detect_simd();
+                gemv_bt::gemv_bt_f64(
+                    a as *const f64,
+                    b_nk as *const f64,
+                    out as *mut f64,
+                    m,
+                    n,
+                    k,
+                    ldc,
+                    level,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                gemv_bt_via_f32(a, b_nk, out, m, n, k, ldc);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        match T::DTYPE {
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {
+                gemv_bt_via_f32(a, b_nk, out, m, n, k, ldc);
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // Scalar fallback
+    gemv_bt_scalar(a, b_nk, out, m, n, k, ldc);
+}
+
+/// Scalar GEMV-BT fallback
+#[inline]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemv_bt_scalar<T: Element>(
+    a: *const T,
+    b_nk: *const T,
+    out: *mut T,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    for row in 0..m {
+        let a_row = a.add(row * k);
+        let out_row = out.add(row * ldc);
+        for col in 0..n {
+            let b_row = b_nk.add(col * k);
+            let mut sum = T::zero();
+            for i in 0..k {
+                sum = sum + *a_row.add(i) * *b_row.add(i);
+            }
+            *out_row.add(col) = sum;
+        }
+    }
+}
+
+/// GEMV-BT for f16/bf16 via f32 conversion
+///
+/// Converts A row to f32 once (small: K elements), then dots against B rows
+/// converting on-the-fly. Much cheaper than converting the entire B matrix.
+#[cfg(feature = "f16")]
+#[inline]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemv_bt_via_f32<T: Element>(
+    a: *const T,
+    b_nk: *const T,
+    out: *mut T,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    // Convert A row to f32 (small buffer, reused per row)
+    let mut a_f32 = vec![0.0f32; k];
+    let mut c_f32 = vec![0.0f32; n];
+
+    for row in 0..m {
+        let a_row = a.add(row * k);
+        // Convert A row once
+        for i in 0..k {
+            a_f32[i] = (*a_row.add(i)).to_f32();
+        }
+
+        // Dot against each B row, converting B on-the-fly
+        for col in 0..n {
+            let b_row = b_nk.add(col * k);
+            let mut sum = 0.0f32;
+            for i in 0..k {
+                sum += a_f32[i] * (*b_row.add(i)).to_f32();
+            }
+            c_f32[col] = sum;
+        }
+
+        // Convert output row back
+        let out_row = out.add(row * ldc);
+        for col in 0..n {
+            *out_row.add(col) = T::from_f32(c_f32[col]);
+        }
+    }
+}
+
 /// Matrix multiplication with automatic SIMD dispatch: C = A @ B
 ///
 /// On x86-64, dispatches to optimized SIMD implementations for f32/f64:
