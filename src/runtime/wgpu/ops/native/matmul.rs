@@ -5,9 +5,34 @@ use crate::error::Error;
 use crate::error::Result;
 use crate::ops::{matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes};
 use crate::runtime::ensure_contiguous;
-use crate::runtime::wgpu::shaders::matmul;
+use crate::runtime::wgpu::shaders::{gemv_bt, matmul};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
+
+/// Detect if a 2D tensor is a simple transpose of a contiguous [N,K] matrix.
+/// Shape [K, N] with strides [1, K] means it's a transpose view of contiguous [N, K].
+fn is_simple_transpose_2d(tensor: &Tensor<WgpuRuntime>) -> bool {
+    let shape = tensor.shape();
+    let strides = tensor.strides();
+    if shape.len() != 2 {
+        return false;
+    }
+    strides[0] == 1 && strides[1] == shape[0] as isize
+}
+
+/// Detect if the last two dims of a 3D tensor are a simple transpose.
+/// Shape [B, K, N] with strides [N*K, 1, K] means each batch slice
+/// is a transpose of contiguous [N, K].
+fn is_batched_transpose_last2(tensor: &Tensor<WgpuRuntime>) -> bool {
+    let shape = tensor.shape();
+    let strides = tensor.strides();
+    if shape.len() != 3 {
+        return false;
+    }
+    let k = shape[1];
+    let n = shape[2];
+    strides[1] == 1 && strides[2] == k as isize && strides[0] == (n * k) as isize
+}
 
 pub(crate) fn native_matmul(
     client: &WgpuClient,
@@ -27,6 +52,38 @@ pub(crate) fn native_matmul(
         let m = a_shape[0];
         let k = a_shape[1];
         let n = b_shape[1];
+
+        // GEMV-BT fast path: transposed B with small M
+        if m <= 16 && is_simple_transpose_2d(b) {
+            let a_contig = ensure_contiguous(a);
+            let out = alloc_output(client, &out_shape, dtype);
+
+            let a_buf = get_tensor_buffer(&a_contig)?;
+            let b_buf = get_tensor_buffer(b)?; // Use original [N,K] buffer directly
+            let out_buf = get_tensor_buffer(&out)?;
+
+            let params = MatmulParams {
+                m: m as u32,
+                k: k as u32,
+                n: n as u32,
+                batch_size: 1,
+            };
+            let params_buf = create_params_buffer(client, &params);
+
+            gemv_bt::launch_gemv_bt(
+                client.pipeline_cache(),
+                client.wgpu_queue(),
+                &a_buf,
+                &b_buf,
+                &out_buf,
+                &params_buf,
+                m,
+                n,
+                dtype,
+            )?;
+
+            return Ok(out);
+        }
 
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
@@ -88,6 +145,39 @@ pub(crate) fn native_matmul(
                 expected: vec![batch_size, m, k],
                 got: b_shape.to_vec(),
             });
+        }
+
+        // GEMV-BT fast path: transposed B with small M
+        if m <= 16 && is_batched_transpose_last2(b) {
+            let a_contig = ensure_contiguous(a);
+            let out = alloc_output(client, &out_shape, dtype);
+
+            let a_buf = get_tensor_buffer(&a_contig)?;
+            let b_buf = get_tensor_buffer(b)?;
+            let out_buf = get_tensor_buffer(&out)?;
+
+            let params = MatmulParams {
+                m: m as u32,
+                k: k as u32,
+                n: n as u32,
+                batch_size: batch_size as u32,
+            };
+            let params_buf = create_params_buffer(client, &params);
+
+            gemv_bt::launch_batched_gemv_bt(
+                client.pipeline_cache(),
+                client.wgpu_queue(),
+                &a_buf,
+                &b_buf,
+                &out_buf,
+                &params_buf,
+                m,
+                n,
+                batch_size,
+                dtype,
+            )?;
+
+            return Ok(out);
         }
 
         let a_contig = ensure_contiguous(a);
