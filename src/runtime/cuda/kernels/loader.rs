@@ -94,6 +94,21 @@ pub fn get_or_load_module(
     Ok(module)
 }
 
+/// Pre-load a list of CUDA modules to avoid JIT compilation latency on first use.
+///
+/// This is useful for inference warmup: call this once with all module names
+/// that will be used during inference to front-load all PTX→SASS compilation.
+pub fn preload_modules(
+    context: &Arc<CudaContext>,
+    device_index: usize,
+    module_names: &[&'static str],
+) -> Result<()> {
+    for name in module_names {
+        get_or_load_module(context, device_index, name)?;
+    }
+    Ok(())
+}
+
 /// Get a kernel function from a loaded module.
 ///
 /// # Arguments

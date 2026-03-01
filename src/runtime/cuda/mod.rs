@@ -29,7 +29,7 @@ mod communicator;
 mod device;
 mod fft;
 mod graph;
-pub(crate) mod kernels;
+pub mod kernels;
 mod linalg;
 mod ops;
 mod polynomial;

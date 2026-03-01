@@ -348,6 +348,18 @@ impl CudaClient {
         Ok(())
     }
 
+    /// Pre-load CUDA PTX modules to avoid JIT compilation latency on first use.
+    ///
+    /// Call this during warmup with the list of numr kernel module names
+    /// that will be used during inference.
+    pub fn preload_modules(&self, module_names: &[&'static str]) -> crate::error::Result<()> {
+        crate::runtime::cuda::kernels::preload_modules(
+            &self.context,
+            self.device.index,
+            module_names,
+        )
+    }
+
     /// Destroy a CUDA event handle returned by `record_event_on_compute`.
     ///
     /// Must be called after the copy stream has finished using the event
