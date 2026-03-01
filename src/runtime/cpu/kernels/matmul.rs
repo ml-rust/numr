@@ -120,8 +120,8 @@ unsafe fn gemv_bt_scalar<T: Element>(
 
 /// GEMV-BT for f16/bf16 via f32 conversion
 ///
-/// Converts A row to f32 once (small: K elements), then dots against B rows
-/// converting on-the-fly. Much cheaper than converting the entire B matrix.
+/// Converts A row to f32 (batch SIMD conversion), then converts each B row
+/// to f32 in SIMD chunks and uses the f32 AVX2/AVX-512 dot product.
 #[cfg(feature = "f16")]
 #[inline]
 #[allow(clippy::too_many_arguments)]
@@ -134,33 +134,189 @@ unsafe fn gemv_bt_via_f32<T: Element>(
     k: usize,
     ldc: usize,
 ) {
-    // Convert A row to f32 (small buffer, reused per row)
+    // Convert A row to f32 once (small buffer, reused per row)
     let mut a_f32 = vec![0.0f32; k];
-    let mut c_f32 = vec![0.0f32; n];
+    let mut b_f32 = vec![0.0f32; k];
+
+    #[cfg(target_arch = "x86_64")]
+    let level = super::simd::detect_simd();
 
     for row in 0..m {
         let a_row = a.add(row * k);
-        // Convert A row once
-        for i in 0..k {
-            a_f32[i] = (*a_row.add(i)).to_f32();
-        }
+        // Batch convert A row to f32
+        batch_half_to_f32::<T>(a_row, a_f32.as_mut_ptr(), k);
 
-        // Dot against each B row, converting B on-the-fly
+        let out_row = out.add(row * ldc);
+
         for col in 0..n {
             let b_row = b_nk.add(col * k);
-            let mut sum = 0.0f32;
-            for i in 0..k {
-                sum += a_f32[i] * (*b_row.add(i)).to_f32();
-            }
-            c_f32[col] = sum;
-        }
+            // Batch convert B row to f32
+            batch_half_to_f32::<T>(b_row, b_f32.as_mut_ptr(), k);
 
-        // Convert output row back
-        let out_row = out.add(row * ldc);
-        for col in 0..n {
-            *out_row.add(col) = T::from_f32(c_f32[col]);
+            // Use SIMD f32 dot product
+            #[cfg(target_arch = "x86_64")]
+            {
+                let dot = simd_dot_f32(a_f32.as_ptr(), b_f32.as_ptr(), k, level);
+                *out_row.add(col) = T::from_f32(dot);
+            }
+            #[cfg(not(target_arch = "x86_64"))]
+            {
+                let mut sum = 0.0f32;
+                for i in 0..k {
+                    sum += a_f32[i] * b_f32[i];
+                }
+                *out_row.add(col) = T::from_f32(sum);
+            }
         }
     }
+}
+
+/// Batch convert half-precision (f16/bf16) elements to f32 using SIMD when available.
+#[cfg(feature = "f16")]
+#[inline]
+unsafe fn batch_half_to_f32<T: Element>(src: *const T, dst: *mut f32, len: usize) {
+    match T::DTYPE {
+        #[cfg(target_arch = "x86_64")]
+        DType::BF16 => {
+            // BF16 → f32: shift left by 16 bits (bf16 is upper 16 bits of f32)
+            batch_bf16_to_f32(src as *const u16, dst, len);
+        }
+        #[cfg(target_arch = "x86_64")]
+        DType::F16 => {
+            // F16 → f32: use F16C instruction if available
+            batch_f16_to_f32(src as *const u16, dst, len);
+        }
+        _ => {
+            for i in 0..len {
+                *dst.add(i) = (*src.add(i)).to_f32();
+            }
+        }
+    }
+}
+
+/// BF16 → f32 conversion using SIMD bit-shift (bf16 is just f32 with lower 16 bits zeroed)
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+#[inline]
+unsafe fn batch_bf16_to_f32(src: *const u16, dst: *mut f32, len: usize) {
+    let mut i = 0usize;
+
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("avx2") {
+        while i + 8 <= len {
+            use std::arch::x86_64::*;
+            // Load 8 bf16 values (16-bit each)
+            let bf16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
+            // Zero-extend to 32-bit
+            let i32_vals = _mm256_cvtepu16_epi32(bf16_vals);
+            // Shift left by 16 to get f32 bit pattern
+            let f32_bits = _mm256_slli_epi32(i32_vals, 16);
+            // Store as f32
+            _mm256_storeu_ps(dst.add(i), _mm256_castsi256_ps(f32_bits));
+            i += 8;
+        }
+    }
+
+    // Scalar tail
+    while i < len {
+        let bits = (*src.add(i) as u32) << 16;
+        *dst.add(i) = f32::from_bits(bits);
+        i += 1;
+    }
+}
+
+/// F16 → f32 conversion using F16C instructions (vcvtph2ps)
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+#[inline]
+unsafe fn batch_f16_to_f32(src: *const u16, dst: *mut f32, len: usize) {
+    let mut i = 0usize;
+
+    #[cfg(target_arch = "x86_64")]
+    if is_x86_feature_detected!("f16c") {
+        while i + 8 <= len {
+            use std::arch::x86_64::*;
+            let f16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
+            let f32_vals = _mm256_cvtph_ps(f16_vals);
+            _mm256_storeu_ps(dst.add(i), f32_vals);
+            i += 8;
+        }
+    }
+
+    // Scalar tail
+    while i < len {
+        *dst.add(i) = half::f16::from_bits(*src.add(i)).to_f32();
+        i += 1;
+    }
+}
+
+/// SIMD f32 dot product
+#[cfg(target_arch = "x86_64")]
+#[inline]
+unsafe fn simd_dot_f32(
+    a: *const f32,
+    b: *const f32,
+    k: usize,
+    level: super::simd::SimdLevel,
+) -> f32 {
+    use super::simd::SimdLevel;
+
+    match level {
+        SimdLevel::Avx512 => simd_dot_f32_avx512(a, b, k),
+        SimdLevel::Avx2Fma => simd_dot_f32_avx2(a, b, k),
+        _ => {
+            let mut sum = 0.0f32;
+            for i in 0..k {
+                sum += *a.add(i) * *b.add(i);
+            }
+            sum
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma")]
+unsafe fn simd_dot_f32_avx2(a: *const f32, b: *const f32, k: usize) -> f32 {
+    use std::arch::x86_64::*;
+    let mut acc0 = _mm256_setzero_ps();
+    let mut acc1 = _mm256_setzero_ps();
+    let mut i = 0usize;
+    while i + 16 <= k {
+        acc0 = _mm256_fmadd_ps(_mm256_loadu_ps(a.add(i)), _mm256_loadu_ps(b.add(i)), acc0);
+        acc1 = _mm256_fmadd_ps(
+            _mm256_loadu_ps(a.add(i + 8)),
+            _mm256_loadu_ps(b.add(i + 8)),
+            acc1,
+        );
+        i += 16;
+    }
+    acc0 = _mm256_add_ps(acc0, acc1);
+    while i + 8 <= k {
+        acc0 = _mm256_fmadd_ps(_mm256_loadu_ps(a.add(i)), _mm256_loadu_ps(b.add(i)), acc0);
+        i += 8;
+    }
+    let mut s = super::simd::matmul::gemv_bt::hsum_avx2(acc0);
+    while i < k {
+        s += *a.add(i) * *b.add(i);
+        i += 1;
+    }
+    s
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+unsafe fn simd_dot_f32_avx512(a: *const f32, b: *const f32, k: usize) -> f32 {
+    use std::arch::x86_64::*;
+    let mut acc = _mm512_setzero_ps();
+    let mut i = 0usize;
+    while i + 16 <= k {
+        acc = _mm512_fmadd_ps(_mm512_loadu_ps(a.add(i)), _mm512_loadu_ps(b.add(i)), acc);
+        i += 16;
+    }
+    let mut s = _mm512_reduce_add_ps(acc);
+    while i < k {
+        s += *a.add(i) * *b.add(i);
+        i += 1;
+    }
+    s
 }
 
 /// Matrix multiplication with automatic SIMD dispatch: C = A @ B

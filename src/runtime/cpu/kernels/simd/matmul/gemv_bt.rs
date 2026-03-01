@@ -155,7 +155,7 @@ unsafe fn gemv_bt_f32_avx2(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[inline]
-unsafe fn hsum_avx2(v: std::arch::x86_64::__m256) -> f32 {
+pub unsafe fn hsum_avx2(v: std::arch::x86_64::__m256) -> f32 {
     use std::arch::x86_64::*;
     // [a0+a4, a1+a5, a2+a6, a3+a7] as 128-bit
     let hi = _mm256_extractf128_ps(v, 1);

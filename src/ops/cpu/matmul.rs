@@ -76,6 +76,55 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                         let b_offset = batch * n * k;
                         let out_offset = batch * m * n;
 
+                        #[cfg(feature = "rayon")]
+                        {
+                            use rayon::prelude::*;
+
+                            // Parallelize over output columns for large N
+                            // Each thread computes a chunk of columns independently
+                            let min_cols_per_thread = 64usize;
+                            let num_threads = rayon::current_num_threads();
+                            let chunk_size = ((n + num_threads - 1) / num_threads).max(min_cols_per_thread);
+
+                            if n > min_cols_per_thread && num_threads > 1 {
+                                // Convert to usize for Send safety - each thread
+                                // accesses disjoint memory regions
+                                let a_send = (a_ptr as usize) + a_offset * std::mem::size_of::<T>();
+                                let b_send = (b_ptr as usize) + b_offset * std::mem::size_of::<T>();
+                                let out_send = (out_ptr as usize) + out_offset * std::mem::size_of::<T>();
+                                let elem_size = std::mem::size_of::<T>();
+
+                                self.install_parallelism(|| {
+                                    (0..n).into_par_iter().step_by(chunk_size).for_each(|col_start| {
+                                        let col_end = (col_start + chunk_size).min(n);
+                                        let chunk_n = col_end - col_start;
+                                        unsafe {
+                                            let a_base = a_send as *const T;
+                                            let b_chunk = (b_send + col_start * k * elem_size) as *const T;
+                                            let out_chunk = (out_send + col_start * elem_size) as *mut T;
+
+                                            crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                                a_base,
+                                                b_chunk,
+                                                out_chunk,
+                                                m, chunk_n, k, n,
+                                            );
+                                        }
+                                    });
+                                });
+                            } else {
+                                unsafe {
+                                    crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                        (a_ptr as *const T).add(a_offset),
+                                        (b_ptr as *const T).add(b_offset),
+                                        (out_ptr as *mut T).add(out_offset),
+                                        m, n, k, ldc,
+                                    );
+                                }
+                            }
+                        }
+
+                        #[cfg(not(feature = "rayon"))]
                         unsafe {
                             crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
                                 (a_ptr as *const T).add(a_offset),
