@@ -130,12 +130,15 @@ pub fn with_cuda_backend<F>(mut f: F)
 where
     F: FnMut(numr::runtime::cuda::CudaClient, numr::runtime::cuda::CudaDevice),
 {
+    use numr::runtime::RuntimeClient;
     let _guard = CUDA_BACKEND_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let (client, device) = create_cuda_client_checked()
         .expect("CUDA feature is enabled but CUDA runtime is unavailable");
+    // Sync before test to clear any pending errors from a prior panicked test
+    client.synchronize();
     f(client, device);
 }
 

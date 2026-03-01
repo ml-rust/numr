@@ -3,7 +3,7 @@
 use super::super::kernels::launch_scalar_op_half;
 use super::super::kernels::{
     AccumulationPrecision, launch_binary_op, launch_broadcast_binary_op,
-    launch_broadcast_compare_op, launch_compare_op, launch_gemv_kernel_bt,
+    launch_broadcast_compare_op, launch_compare_op, launch_gemv_kernel_bt_mr,
     launch_matmul_batched_kernel, launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel,
     launch_matmul_kernel, launch_reduce_dim_op, launch_scalar_op_f32, launch_scalar_op_f64,
     launch_semiring_matmul_batched_kernel, launch_semiring_matmul_kernel, launch_unary_op,
@@ -62,7 +62,7 @@ pub(crate) fn matmul_native(
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
         unsafe {
-            launch_gemv_kernel_bt(
+            launch_gemv_kernel_bt_mr(
                 &client.context,
                 &client.stream,
                 client.device.index,
@@ -140,7 +140,7 @@ pub(crate) fn matmul_batched_native(
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
         unsafe {
-            launch_gemv_kernel_bt(
+            launch_gemv_kernel_bt_mr(
                 &client.context,
                 &client.stream,
                 client.device.index,
