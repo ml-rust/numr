@@ -40,6 +40,13 @@ impl Runtime for CudaRuntime {
     {
         use cudarc::driver::sys::CUstreamCaptureMode;
 
+        // Freeze the caching allocator so all alloc/free calls go directly
+        // through cuMemAllocAsync/cuMemFreeAsync, creating proper graph nodes.
+        // Without this, the free-list cache intercepts deallocations (no graph
+        // free node) and satisfies allocations from cache (no graph alloc node),
+        // corrupting the graph's internal memory management on replay.
+        client.allocator.freeze();
+
         // Begin stream capture — all ops on this stream are recorded, not executed
         client
             .stream
@@ -61,6 +68,9 @@ impl Runtime for CudaRuntime {
         let flags: cudarc::driver::sys::CUgraphInstantiate_flags =
             unsafe { std::mem::transmute(0u32) };
         let graph_result = client.stream.end_capture(flags);
+
+        // Restore caching allocator for normal (non-capture) operations
+        client.allocator.unfreeze();
 
         // Handle closure error: propagate after restoring stream
         let closure_result = result?;

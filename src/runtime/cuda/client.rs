@@ -113,6 +113,9 @@ pub struct CudaAllocator {
     stream: Arc<CudaStream>,
     /// Free list: size_bytes → Vec<device_ptr>
     cache: Arc<std::sync::Mutex<std::collections::HashMap<usize, Vec<u64>>>>,
+    /// When frozen, bypass the cache entirely. Used during CUDA graph capture
+    /// so that `cuMemAllocAsync`/`cuMemFreeAsync` create proper graph nodes.
+    frozen: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Allocator for CudaAllocator {
@@ -121,8 +124,10 @@ impl Allocator for CudaAllocator {
             return Ok(0);
         }
 
-        // Check free list first
-        {
+        // When frozen (graph capture), bypass cache — go straight to driver
+        // so cuMemAllocAsync creates a proper graph allocation node.
+        if !self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
+            // Check free list first
             let mut cache = self.cache.lock().unwrap();
             if let Some(ptrs) = cache.get_mut(&size_bytes) {
                 if let Some(ptr) = ptrs.pop() {
@@ -160,20 +165,34 @@ impl Allocator for CudaAllocator {
             return;
         }
 
+        // When frozen (graph capture), bypass cache — call cuMemFreeAsync
+        // so the driver creates a proper graph free node.
+        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
+            unsafe {
+                let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
+            }
+            return;
+        }
+
         // Return to free list for reuse
         let mut cache = self.cache.lock().unwrap();
         cache.entry(size_bytes).or_default().push(ptr);
     }
 
     fn is_frozen(&self) -> bool {
-        false
+        self.frozen.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn freeze(&self) -> bool {
+        self.frozen
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         true
     }
 
-    fn unfreeze(&self) {}
+    fn unfreeze(&self) {
+        self.frozen
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+    }
 
     fn reset(&self) -> crate::error::Result<()> {
         // Flush all cached buffers back to CUDA
@@ -254,6 +273,7 @@ impl CudaClient {
         let allocator = CudaAllocator {
             stream: stream.clone(),
             cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            frozen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
         let raw_handle = CudaRawHandle {
