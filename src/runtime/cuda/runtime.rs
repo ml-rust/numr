@@ -2,13 +2,14 @@
 
 use super::cache::{
     get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, reset_client,
-    try_get_cached_stream,
+    try_get_cached_client, try_get_cached_stream,
 };
 use super::client::CudaAllocator;
 use super::client::CudaClient;
 use super::device::CudaDevice;
 use super::kernels;
 use crate::runtime::Runtime;
+use crate::runtime::common::Allocator;
 
 /// CUDA Runtime adapter
 ///
@@ -78,80 +79,44 @@ impl Runtime for CudaRuntime {
 
     /// Allocate GPU memory.
     ///
-    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails.
+    /// Routes through the client's caching allocator (free-list pool) to avoid
+    /// cuMemAllocAsync driver round-trips for repeated same-size allocations.
     fn allocate(size_bytes: usize, device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
             return Ok(0);
         }
 
         let client = get_or_create_client(device);
-
-        unsafe {
-            let mut ptr: u64 = 0;
-            let result = cudarc::driver::sys::cuMemAllocAsync(
-                &mut ptr,
-                size_bytes,
-                client.stream.cu_stream(),
-            );
-
-            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Ok(ptr);
-            }
-
-            // First attempt failed - try syncing the stream to flush pending frees
-            let _ = client.stream.synchronize();
-
-            let result = cudarc::driver::sys::cuMemAllocAsync(
-                &mut ptr,
-                size_bytes,
-                client.stream.cu_stream(),
-            );
-
-            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Ok(ptr);
-            }
-
-            // Stream is likely in a sticky error state (e.g., CUDA_ERROR_MISALIGNED_ADDRESS
-            // from a previous kernel). Reset the client with a fresh context/stream.
-            drop(client);
-            if let Some(new_client) = reset_client(device) {
-                let result = cudarc::driver::sys::cuMemAllocAsync(
-                    &mut ptr,
-                    size_bytes,
-                    new_client.stream.cu_stream(),
-                );
-
-                if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                    return Ok(ptr);
-                }
-            }
-
-            Err(crate::error::Error::OutOfMemory { size: size_bytes })
-        }
+        client.allocator.allocate(size_bytes)
     }
 
-    fn deallocate(ptr: u64, _size_bytes: usize, device: &Self::Device) {
+    /// Deallocate GPU memory.
+    ///
+    /// Routes through the client's caching allocator — buffers are returned to
+    /// the free-list for reuse instead of calling cuMemFreeAsync.
+    fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
         if ptr == 0 {
             return;
         }
 
+        // Try to use the client's caching allocator (returns to free-list)
+        if let Some(client) = try_get_cached_client(device.index) {
+            client.allocator.deallocate(ptr, size_bytes);
+            return;
+        }
+
+        // Client not available (shutdown) — free directly
         unsafe {
-            // Check if CUDA context is still valid before attempting free
             if !is_cuda_context_valid() {
-                // Context is gone - memory will be reclaimed by driver on context destruction
                 return;
             }
 
-            // Try to use stream-ordered async free if client is available
             let result = if let Some(stream) = try_get_cached_stream(device.index) {
                 cudarc::driver::sys::cuMemFreeAsync(ptr, stream)
             } else {
-                // Fallback to synchronous free
                 cudarc::driver::sys::cuMemFree_v2(ptr)
             };
 
-            // Log failures but don't panic - deallocation errors are typically benign
-            // (e.g., double-free attempts, already-freed memory)
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS
                 && result != cudarc::driver::sys::CUresult::CUDA_ERROR_ILLEGAL_ADDRESS
             {

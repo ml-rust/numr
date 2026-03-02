@@ -81,6 +81,16 @@ pub(super) fn reset_client(device: &CudaDevice) -> Option<CudaClient> {
     }
 }
 
+/// Try to get a cached client for a device.
+///
+/// Returns `None` if no client is cached or if the cache lock is unavailable.
+#[inline]
+pub(super) fn try_get_cached_client(device_index: usize) -> Option<CudaClient> {
+    let cache = CLIENT_CACHE.get()?;
+    let guard = lock_client_cache(cache);
+    guard.get(&device_index).cloned()
+}
+
 /// Try to get the stream from a cached client for a device.
 ///
 /// Returns `None` if no client is cached or if the cache lock is unavailable.
