@@ -107,6 +107,7 @@ impl std::fmt::Debug for CudaClient {
 /// the same buffer sizes are allocated every step.
 ///
 /// Falls through to `cuMemAllocAsync` for sizes not in the cache.
+///
 #[derive(Clone)]
 pub struct CudaAllocator {
     stream: Arc<CudaStream>,
@@ -130,7 +131,7 @@ impl Allocator for CudaAllocator {
             }
         }
 
-        // Cache miss — allocate from CUDA driver
+        // Allocate from CUDA driver (stream-ordered)
         unsafe {
             let mut ptr: u64 = 0;
             let result =

@@ -48,10 +48,18 @@ impl Runtime for CudaRuntime {
         let result = f(client);
 
         // End capture — MUST happen even if the closure failed, otherwise the
-        // stream is left in capture mode and all subsequent operations fail
-        let graph_result = client.stream.end_capture(
-            cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH,
-        );
+        // stream is left in capture mode and all subsequent operations fail.
+        //
+        // Use flags=0 (no AUTO_FREE_ON_LAUNCH) so that graph-managed device
+        // memory — including the output tensor returned by the closure — persists
+        // with stable addresses across replays.  With AUTO_FREE_ON_LAUNCH, memory
+        // allocated inside the capture region (cuMemAllocAsync) is freed on each
+        // launch, which invalidates the output tensor's device pointer.
+        // SAFETY: CUgraphInstantiate_flags maps to unsigned int in C; 0 is valid
+        // and means "no flags" per CUDA docs.
+        let flags: cudarc::driver::sys::CUgraphInstantiate_flags =
+            unsafe { std::mem::transmute(0u32) };
+        let graph_result = client.stream.end_capture(flags);
 
         // Handle closure error: propagate after restoring stream
         let closure_result = result?;
@@ -331,93 +339,26 @@ impl Runtime for CudaRuntime {
 
         let ndim = shape.len();
         let client = get_or_create_client(device);
-        let cu_stream = client.stream.cu_stream();
 
-        // Convert shape and strides to device-compatible types
-        let shape_u64: Vec<u64> = shape.iter().map(|&s| s as u64).collect();
-        let strides_i64: Vec<i64> = strides.iter().map(|&s| s as i64).collect();
-
-        // Allocate temporary device memory for shape and strides arrays
-        let shape_bytes = ndim * std::mem::size_of::<u64>();
-        let strides_bytes = ndim * std::mem::size_of::<i64>();
-
+        // Shape and strides are passed as kernel arguments (by value), not device
+        // memory pointers.  This is critical for CUDA graph capture compatibility:
+        // H2D copies of temporary host data create graph memcpy nodes that re-read
+        // from stale host addresses on replay, causing CUDA_ERROR_ILLEGAL_ADDRESS.
         unsafe {
-            // Allocate device memory for shape array
-            let mut shape_ptr: u64 = 0;
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut shape_ptr, shape_bytes, cu_stream);
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to allocate shape array for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Allocate device memory for strides array
-            let mut strides_ptr: u64 = 0;
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut strides_ptr, strides_bytes, cu_stream);
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                // Free shape_ptr before returning error
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to allocate strides array for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Copy shape to device
-            let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                shape_ptr,
-                shape_u64.as_ptr() as *const std::ffi::c_void,
-                shape_bytes,
-                cu_stream,
-            );
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to copy shape to device for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Copy strides to device
-            let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                strides_ptr,
-                strides_i64.as_ptr() as *const std::ffi::c_void,
-                strides_bytes,
-                cu_stream,
-            );
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to copy strides to device for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Launch the strided copy kernel
             let kernel_result = kernels::launch_strided_copy(
                 &client.context,
                 &client.stream,
                 device.index,
                 src_handle,
                 dst_handle,
-                shape_ptr,
-                strides_ptr,
+                shape,
+                strides,
                 numel,
                 ndim,
                 elem_size,
                 src_byte_offset,
             );
 
-            // Free temporary device memory (async, will happen after kernel completes)
-            let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-            let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-
-            // Check kernel launch result
             if let Err(e) = kernel_result {
                 return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Strided copy kernel failed: {} bytes ({} elements × {} bytes/elem) from {} to {} on device {}: {:?}",
@@ -430,9 +371,6 @@ impl Runtime for CudaRuntime {
                     e
                 )));
             }
-
-            // No sync needed: same-stream ordering guarantees the copy
-            // completes before any subsequent kernel on this stream.
         }
         Ok(())
     }
