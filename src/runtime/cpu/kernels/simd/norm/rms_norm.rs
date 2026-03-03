@@ -104,15 +104,15 @@ pub unsafe fn rms_norm_scalar_f32(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        // Compute sum of squares
-        let mut sum_sq = 0.0f32;
+        // Compute sum of squares in f64 for precision (matches llama.cpp's ggml_float)
+        let mut sum_sq = 0.0f64;
         for i in 0..hidden_size {
-            let x = *input.add(row_start + i);
+            let x = *input.add(row_start + i) as f64;
             sum_sq += x * x;
         }
 
-        // Compute inverse RMS
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        // Compute inverse RMS in f64, then cast to f32
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
 
         // Apply normalization and weight
         for i in 0..hidden_size {

@@ -35,16 +35,16 @@ pub unsafe fn rms_norm_f32(
             let v = vld1q_f32(base.add(i * F32_LANES));
             ss_acc = vfmaq_f32(ss_acc, v, v);
         }
-        let mut sum_sq = hsum_f32(ss_acc);
+        let mut sum_sq = hsum_f32(ss_acc) as f64;
 
         // Scalar tail for sum of squares
         for i in 0..remainder {
-            let v = *base.add(chunks * F32_LANES + i);
+            let v = *base.add(chunks * F32_LANES + i) as f64;
             sum_sq += v * v;
         }
 
-        // Compute inverse RMS: 1 / sqrt(mean_sq + eps)
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        // Compute inverse RMS in f64 for precision (matches llama.cpp)
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = vdupq_n_f32(inv_rms);
 
         // Phase 2: Apply normalization and weight

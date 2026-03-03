@@ -28,16 +28,16 @@ pub unsafe fn rms_norm_f32(
             let v = _mm512_loadu_ps(input.add(offset));
             acc = _mm512_fmadd_ps(v, v, acc);
         }
-        let mut sum_sq = _mm512_reduce_add_ps(acc);
+        let mut sum_sq = _mm512_reduce_add_ps(acc) as f64;
 
         // Scalar tail for sum of squares
         for i in (chunks * F32_LANES)..hidden_size {
-            let x = *input.add(row_start + i);
+            let x = *input.add(row_start + i) as f64;
             sum_sq += x * x;
         }
 
-        // Compute inverse RMS
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        // Compute inverse RMS in f64 for precision (matches llama.cpp)
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = _mm512_set1_ps(inv_rms);
 
         // SIMD normalization with weight

@@ -20,21 +20,26 @@ pub unsafe fn rms_norm_f32(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        // SIMD sum of squares using FMA
-        let mut acc = _mm256_setzero_ps();
+        // Accumulate sum of squares in f64 for precision (matches llama.cpp)
+        let mut acc_lo = _mm256_setzero_pd();
+        let mut acc_hi = _mm256_setzero_pd();
         for c in 0..chunks {
             let offset = row_start + c * F32_LANES;
             let v = _mm256_loadu_ps(input.add(offset));
-            acc = _mm256_fmadd_ps(v, v, acc);
+            // Split 8xf32 into 2x4xf64
+            let lo = _mm256_cvtps_pd(_mm256_castps256_ps128(v));
+            let hi = _mm256_cvtps_pd(_mm256_extractf128_ps(v, 1));
+            acc_lo = _mm256_fmadd_pd(lo, lo, acc_lo);
+            acc_hi = _mm256_fmadd_pd(hi, hi, acc_hi);
         }
-        let mut sum_sq = hsum_f32(acc);
+        let mut sum_sq = hsum_f64(_mm256_add_pd(acc_lo, acc_hi));
 
         for i in (chunks * F32_LANES)..hidden_size {
-            let x = *input.add(row_start + i);
+            let x = *input.add(row_start + i) as f64;
             sum_sq += x * x;
         }
 
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = _mm256_set1_ps(inv_rms);
 
         for c in 0..chunks {

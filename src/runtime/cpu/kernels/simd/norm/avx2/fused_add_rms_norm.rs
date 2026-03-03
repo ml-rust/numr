@@ -26,27 +26,32 @@ pub unsafe fn fused_add_rms_norm_f32(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        // Phase 1: Add input + residual, store in pre_norm, accumulate sum of squares
-        let mut acc = _mm256_setzero_ps();
+        // Phase 1: Add input + residual, store in pre_norm, accumulate sum of squares in f64
+        let mut acc_lo = _mm256_setzero_pd();
+        let mut acc_hi = _mm256_setzero_pd();
         for c in 0..chunks {
             let offset = row_start + c * F32_LANES;
             let v_in = _mm256_loadu_ps(input.add(offset));
             let v_res = _mm256_loadu_ps(residual.add(offset));
             let pn = _mm256_add_ps(v_in, v_res);
             _mm256_storeu_ps(pre_norm.add(offset), pn);
-            acc = _mm256_fmadd_ps(pn, pn, acc);
+            let lo = _mm256_cvtps_pd(_mm256_castps256_ps128(pn));
+            let hi = _mm256_cvtps_pd(_mm256_extractf128_ps(pn, 1));
+            acc_lo = _mm256_fmadd_pd(lo, lo, acc_lo);
+            acc_hi = _mm256_fmadd_pd(hi, hi, acc_hi);
         }
-        let mut sum_sq = hsum_f32(acc);
+        let mut sum_sq = hsum_f64(_mm256_add_pd(acc_lo, acc_hi));
 
         // Scalar tail for add and sum of squares
         for i in (chunks * F32_LANES)..hidden_size {
             let pn = *input.add(row_start + i) + *residual.add(row_start + i);
             *pre_norm.add(row_start + i) = pn;
-            sum_sq += pn * pn;
+            let pn64 = pn as f64;
+            sum_sq += pn64 * pn64;
         }
 
-        // Compute inverse RMS
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        // Compute inverse RMS in f64 for precision (matches llama.cpp)
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = _mm256_set1_ps(inv_rms);
 
         // Phase 2: Normalize and apply weight

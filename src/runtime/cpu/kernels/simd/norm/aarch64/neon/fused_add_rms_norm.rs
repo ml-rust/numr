@@ -42,16 +42,17 @@ pub unsafe fn fused_add_rms_norm_f32(
             vst1q_f32(pn_base.add(offset), pn);
             ss_acc = vfmaq_f32(ss_acc, pn, pn);
         }
-        let mut sum_sq = hsum_f32(ss_acc);
+        let mut sum_sq = hsum_f32(ss_acc) as f64;
 
         for i in 0..remainder {
             let offset = chunks * F32_LANES + i;
             let pn = *base.add(offset) + *res_base.add(offset);
             *pn_base.add(offset) = pn;
-            sum_sq += pn * pn;
+            let pn64 = pn as f64;
+            sum_sq += pn64 * pn64;
         }
 
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = vdupq_n_f32(inv_rms);
 
         // Phase 2: Apply normalization and weight

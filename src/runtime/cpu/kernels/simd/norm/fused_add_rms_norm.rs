@@ -434,15 +434,16 @@ pub unsafe fn fused_add_rms_norm_scalar_f32(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        // Add and store pre_norm, compute sum of squares
-        let mut sum_sq = 0.0f32;
+        // Add and store pre_norm, compute sum of squares in f64 (matches llama.cpp)
+        let mut sum_sq = 0.0f64;
         for i in 0..hidden_size {
             let pn = *input.add(row_start + i) + *residual.add(row_start + i);
             *pre_norm.add(row_start + i) = pn;
-            sum_sq += pn * pn;
+            let pn64 = pn as f64;
+            sum_sq += pn64 * pn64;
         }
 
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
 
         for i in 0..hidden_size {
             let pn = *pre_norm.add(row_start + i);

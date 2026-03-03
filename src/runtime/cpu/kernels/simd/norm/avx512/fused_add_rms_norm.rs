@@ -35,15 +35,16 @@ pub unsafe fn fused_add_rms_norm_f32(
             _mm512_storeu_ps(pre_norm.add(offset), pn);
             acc = _mm512_fmadd_ps(pn, pn, acc);
         }
-        let mut sum_sq = _mm512_reduce_add_ps(acc);
+        let mut sum_sq = _mm512_reduce_add_ps(acc) as f64;
 
         for i in (chunks * F32_LANES)..hidden_size {
             let pn = *input.add(row_start + i) + *residual.add(row_start + i);
             *pre_norm.add(row_start + i) = pn;
-            sum_sq += pn * pn;
+            let pn64 = pn as f64;
+            sum_sq += pn64 * pn64;
         }
 
-        let inv_rms = 1.0 / (sum_sq / hidden_size as f32 + eps).sqrt();
+        let inv_rms = (1.0f64 / (sum_sq / hidden_size as f64 + eps as f64).sqrt()) as f32;
         let v_inv_rms = _mm512_set1_ps(inv_rms);
 
         for c in 0..chunks {
