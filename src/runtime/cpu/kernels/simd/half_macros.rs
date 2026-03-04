@@ -27,7 +27,7 @@ macro_rules! _half_variant {
         #[cfg(feature = "f16")]
         #[inline]
         pub unsafe fn $fn_name(input: *const $half_ty, output: *mut $half_ty, len: usize) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -50,7 +50,7 @@ macro_rules! _half_variant {
             output: *mut $half_ty,
             len: usize,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -73,7 +73,7 @@ macro_rules! _half_variant {
             len: usize,
             param: f32,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -97,7 +97,7 @@ macro_rules! _half_variant {
             out: *mut $half_ty,
             len: usize,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut b_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
@@ -129,7 +129,7 @@ macro_rules! _half_variant {
             out: *mut $half_ty,
             len: usize,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -147,7 +147,7 @@ macro_rules! _half_variant {
         #[cfg(feature = "f16")]
         #[inline]
         pub unsafe fn $fn_name(a: *const $half_ty, scalar: f32, out: *mut $half_ty, len: usize) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -171,7 +171,7 @@ macro_rules! _half_variant {
             out: *mut $half_ty,
             len: usize,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut x_buf = [0.0f32; HALF_BLOCK];
             let mut y_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
@@ -203,7 +203,7 @@ macro_rules! _half_variant {
             min_val: f32,
             max_val: f32,
         ) {
-            use super::half_convert_utils::HALF_BLOCK;
+            use crate::runtime::cpu::kernels::simd::half_convert_utils::HALF_BLOCK;
             let mut a_buf = [0.0f32; HALF_BLOCK];
             let mut out_buf = [0.0f32; HALF_BLOCK];
             let mut offset = 0;
@@ -229,11 +229,11 @@ macro_rules! half_unary {
     ($name:ident, $f32_fn:path) => {
         paste::paste! {
             _half_variant!(unary, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn);
             _half_variant!(unary, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn);
         }
     };
 }
@@ -243,11 +243,11 @@ macro_rules! half_unary_op {
     ($name:ident, $f32_fn:path, $op_ty:ty) => {
         paste::paste! {
             _half_variant!(unary_op, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
             _half_variant!(unary_op, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
         }
     };
 }
@@ -257,11 +257,11 @@ macro_rules! half_unary_param {
     ($name:ident, $f32_fn:path) => {
         paste::paste! {
             _half_variant!(unary_param, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn);
             _half_variant!(unary_param, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn);
         }
     };
 }
@@ -271,11 +271,11 @@ macro_rules! half_binary_op {
     ($name:ident, $f32_fn:path, $op_ty:ty) => {
         paste::paste! {
             _half_variant!(binary_op, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
             _half_variant!(binary_op, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
         }
     };
 }
@@ -285,11 +285,11 @@ macro_rules! half_scalar_op {
     ($name:ident, $f32_fn:path, $op_ty:ty) => {
         paste::paste! {
             _half_variant!(scalar_op, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn, $op_ty);
             _half_variant!(scalar_op, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn, $op_ty);
         }
     };
 }
@@ -299,11 +299,11 @@ macro_rules! half_unary_scalar {
     ($name:ident, $f32_fn:path) => {
         paste::paste! {
             _half_variant!(unary_scalar, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn);
             _half_variant!(unary_scalar, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn);
         }
     };
 }
@@ -313,11 +313,11 @@ macro_rules! half_where {
     ($name:ident, $f32_fn:path) => {
         paste::paste! {
             _half_variant!(where_select, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn);
             _half_variant!(where_select, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn);
         }
     };
 }
@@ -327,11 +327,11 @@ macro_rules! half_clamp {
     ($name:ident, $f32_fn:path) => {
         paste::paste! {
             _half_variant!(clamp, [<$name _f16>], half::f16,
-                super::half_convert_utils::convert_f16_to_f32,
-                super::half_convert_utils::convert_f32_to_f16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_f16, $f32_fn);
             _half_variant!(clamp, [<$name _bf16>], half::bf16,
-                super::half_convert_utils::convert_bf16_to_f32,
-                super::half_convert_utils::convert_f32_to_bf16, $f32_fn);
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_bf16_to_f32,
+                crate::runtime::cpu::kernels::simd::half_convert_utils::convert_f32_to_bf16, $f32_fn);
         }
     };
 }
