@@ -106,7 +106,7 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 
 ### Activation & Normalization Functions
 
-- **ActivationOps**: relu, sigmoid, silu, gelu, leaky_relu, elu, softmax
+- **ActivationOps**: relu, sigmoid, silu, gelu, swiglu, leaky_relu, elu, softmax, dropout
 - **NormalizationOps**: rms_norm, layer_norm, batch_norm, group_norm, instance_norm
 - **ConvOps**: conv1d, conv2d, depthwise_conv2d (with stride, padding, dilation, groups)
 - **EinsumOps**: Einstein summation notation
@@ -192,6 +192,19 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 - **Incomplete factorizations**: ILU(0), ILU(k), IC(0)
 - **Preprocessing**: COLAMD ordering, maximum transversal
 - **Symbolic/numeric split**: Reuse sparsity structure for repeated solves
+
+**Graph Capture (`numr::runtime`):**
+
+- **`Graph` trait**: Capture a sequence of operations and replay them with zero re-launch overhead
+- **CUDA Graphs**: Full capture support—fixed-address buffer replay for inference loops and training steps
+- **CPU / WebGPU**: Transparent no-op path; callers write backend-agnostic code using `R::supports_graph_capture()`
+
+**Distributed Computing (`numr::communicator`, feature `nccl`):**
+
+- **`CommunicatorGroup`**: Single-node multi-GPU all-reduce, broadcast, and allgather via NCCL
+- **`HierarchicalCommunicator`**: Two-level collective—NCCL intra-node, nexar inter-node
+- **`NexarNetCommunicator`**: Pure-Rust distributed transport (QUIC via nexar) for multi-machine tensor parallelism
+- **`BackwardHook`**: Autograd hook interface—trigger cross-node gradient synchronization during `backward()`
 
 ## Dtypes
 
