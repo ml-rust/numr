@@ -3,7 +3,7 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::{F32_LANES, F64_LANES, hsum_f32, hsum_f64};
+use super::{F32_LANES, F64_LANES, hsum_f64};
 
 /// AVX2 RMS normalization for f32
 #[target_feature(enable = "avx2", enable = "fma")]
