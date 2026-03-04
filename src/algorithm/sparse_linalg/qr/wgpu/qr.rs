@@ -50,17 +50,21 @@ pub fn sparse_qr_wgpu(
 }
 
 /// Sparse QR factorization without precomputed symbolic information (WebGPU)
+///
+/// `col_ptrs_host` and `row_indices_host` must be the CPU-resident structural
+/// data for `a` (the same values used to construct `a` via `CscData::from_slices`).
+/// These are kept CPU-side to avoid GPU→CPU transfers during symbolic analysis,
+/// which requires irregular graph traversal and runs on the CPU.
 #[cfg(feature = "wgpu")]
 pub fn sparse_qr_simple_wgpu(
     client: &WgpuClient,
     a: &CscData<WgpuRuntime>,
+    col_ptrs_host: &[i64],
+    row_indices_host: &[i64],
     options: &QrOptions,
 ) -> Result<QrFactors<WgpuRuntime>> {
     let [m, n] = a.shape;
-    let col_ptrs: Vec<i64> = a.col_ptrs().to_vec();
-    let row_indices: Vec<i64> = a.row_indices().to_vec();
-
-    let symbolic = sparse_qr_symbolic(&col_ptrs, &row_indices, m, n, options)?;
+    let symbolic = sparse_qr_symbolic(col_ptrs_host, row_indices_host, m, n, options)?;
     sparse_qr_wgpu(client, a, &symbolic, options)
 }
 
@@ -92,7 +96,8 @@ mod tests {
                 .unwrap();
 
         let options = QrOptions::no_ordering();
-        let factors = sparse_qr_simple_wgpu(&client, &a, &options).unwrap();
+        let factors =
+            sparse_qr_simple_wgpu(&client, &a, &col_ptrs, &row_indices, &options).unwrap();
 
         assert_eq!(factors.rank, 4);
         // GPU factorization keeps Householder data GPU-resident only
@@ -113,7 +118,8 @@ mod tests {
                 .unwrap();
 
         let options = QrOptions::no_ordering();
-        let factors = sparse_qr_simple_wgpu(&client, &a, &options).unwrap();
+        let factors =
+            sparse_qr_simple_wgpu(&client, &a, &col_ptrs, &row_indices, &options).unwrap();
 
         let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
         let x = sparse_qr_solve_wgpu(&client, &factors, &b).unwrap();
