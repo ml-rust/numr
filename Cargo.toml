@@ -15,8 +15,7 @@ features = ["f16", "sparse"]
 # cuda and wgpu require hardware SDKs not available on docs.rs
 
 [features]
-default = ["cpu", "rayon"]
-cpu = []
+default = ["rayon"]
 cuda = ["dep:cudarc"]
 nccl = ["cuda", "cudarc?/nccl"]
 distributed = ["dep:nexar", "dep:tokio"]

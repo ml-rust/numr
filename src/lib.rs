@@ -116,7 +116,6 @@ pub mod prelude {
     pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
 
     // Backend runtimes
-    #[cfg(feature = "cpu")]
     pub use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 
     #[cfg(feature = "cuda")]
