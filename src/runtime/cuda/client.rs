@@ -34,16 +34,6 @@ unsafe fn is_cuda_context_valid() -> bool {
     result == cudarc::driver::sys::CUresult::CUDA_SUCCESS && !ctx.is_null()
 }
 
-/// Log a CUDA memory operation failure.
-#[cold]
-#[inline(never)]
-fn log_cuda_memory_error(operation: &str, ptr: u64, result: cudarc::driver::sys::CUresult) {
-    eprintln!(
-        "[numr::cuda] {} failed for ptr 0x{:x}: {:?}",
-        operation, ptr, result
-    );
-}
-
 // ============================================================================
 // CudaClient
 // ============================================================================
@@ -129,10 +119,10 @@ impl Allocator for CudaAllocator {
         if !self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
             // Check free list first
             let mut cache = self.cache.lock().unwrap();
-            if let Some(ptrs) = cache.get_mut(&size_bytes) {
-                if let Some(ptr) = ptrs.pop() {
-                    return Ok(ptr);
-                }
+            if let Some(ptrs) = cache.get_mut(&size_bytes)
+                && let Some(ptr) = ptrs.pop()
+            {
+                return Ok(ptr);
             }
         }
 

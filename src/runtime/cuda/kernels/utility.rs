@@ -22,10 +22,15 @@ use crate::error::{Error, Result};
 /// while maintaining type safety at the kernel boundary.
 #[derive(Debug, Clone, Copy)]
 pub enum FillValue {
+    /// 32-bit float fill value.
     F32(f32),
+    /// 64-bit float fill value.
     F64(f64),
+    /// 32-bit signed integer fill value.
     I32(i32),
+    /// 64-bit signed integer fill value.
     I64(i64),
+    /// 8-bit unsigned integer fill value (also used for Bool).
     U8(u8),
 }
 

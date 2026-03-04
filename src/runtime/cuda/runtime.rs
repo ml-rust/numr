@@ -1,8 +1,8 @@
 //! CUDA runtime implementation
 
 use super::cache::{
-    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, reset_client,
-    try_get_cached_client, try_get_cached_stream,
+    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, try_get_cached_client,
+    try_get_cached_stream,
 };
 use super::client::CudaAllocator;
 use super::client::CudaClient;

@@ -209,6 +209,11 @@ pub unsafe fn launch_stockham_fft_stage(
 }
 
 /// Launch scale kernel for complex data
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_scale_complex(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -270,6 +275,11 @@ pub unsafe fn launch_scale_complex(
 }
 
 /// Launch rfft pack kernel (real -> complex with zero imaginary)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_rfft_pack(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -336,6 +346,11 @@ pub unsafe fn launch_rfft_pack(
 }
 
 /// Launch irfft unpack kernel (complex -> real, extracting real parts)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_irfft_unpack(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -406,6 +421,11 @@ pub unsafe fn launch_irfft_unpack(
 }
 
 /// Launch Hermitian extension kernel (N/2+1 complex -> N complex)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_hermitian_extend(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -483,6 +503,11 @@ pub unsafe fn launch_hermitian_extend(
 }
 
 /// Launch rfft truncation kernel (N complex -> N/2+1 complex)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_rfft_truncate(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -554,6 +579,11 @@ pub unsafe fn launch_rfft_truncate(
 }
 
 /// Launch fftshift kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_fftshift(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -620,6 +650,11 @@ pub unsafe fn launch_fftshift(
 }
 
 /// Launch ifftshift kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_ifftshift(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -686,6 +721,11 @@ pub unsafe fn launch_ifftshift(
 }
 
 /// Launch copy kernel for complex data
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 #[allow(dead_code)]
 pub unsafe fn launch_copy_complex(
     context: &Arc<CudaContext>,

@@ -45,11 +45,6 @@ fn load_ptx(name: &str) -> Ptx {
 static MODULE_CACHE: OnceLock<Mutex<HashMap<(usize, &'static str), Arc<CudaModule>>>> =
     OnceLock::new();
 
-/// Get a reference to the module cache (for cache invalidation during recovery).
-pub fn module_cache() -> Option<&'static Mutex<HashMap<(usize, &'static str), Arc<CudaModule>>>> {
-    MODULE_CACHE.get()
-}
-
 /// Get or load a CUDA module from PTX.
 ///
 /// Modules are cached per-device to avoid repeated loading. This is thread-safe

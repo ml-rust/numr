@@ -1159,9 +1159,13 @@ pub unsafe fn launch_bincount_weighted(
 /// Scatter reduce operation type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScatterReduceOpCuda {
+    /// Sum reduction: accumulate values by addition.
     Sum,
+    /// Max reduction: keep the maximum value.
     Max,
+    /// Min reduction: keep the minimum value.
     Min,
+    /// Product reduction: accumulate values by multiplication.
     Prod,
 }
 
