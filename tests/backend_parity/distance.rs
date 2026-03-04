@@ -288,7 +288,7 @@ fn test_cdist_cosine_parity() {
         tensor_from_f64(&x, &[3, 2], dtype, &cpu_device, &cpu_client).expect("tensor failed");
     let cpu_y =
         tensor_from_f64(&y, &[2, 2], dtype, &cpu_device, &cpu_client).expect("tensor failed");
-    let _cpu_result = cpu_client
+    let cpu_result = cpu_client
         .cdist(&cpu_x, &cpu_y, DistanceMetric::Cosine)
         .expect("CPU cosine cdist failed");
 
