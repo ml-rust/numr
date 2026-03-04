@@ -170,16 +170,16 @@ fn test_semiring_or_and_parity() {
 
     let cpu_a = Tensor::<numr::runtime::cpu::CpuRuntime>::from_slice(&a, &[3, 3], &cpu_device);
     let cpu_b = Tensor::<numr::runtime::cpu::CpuRuntime>::from_slice(&b, &[3, 3], &cpu_device);
+    #[allow(unused_variables)]
     let cpu_result = cpu_client
         .semiring_matmul(&cpu_a, &cpu_b, SemiringOp::OrAnd)
         .expect("CPU OrAnd failed");
-
-    let cpu_vals = cpu_result.to_vec::<u8>();
 
     // WebGPU skipped: OrAnd requires Bool dtype, WebGPU is 32-bit only
 
     #[cfg(feature = "cuda")]
     with_cuda_backend(|cuda_client, cuda_device| {
+        let cpu_vals = cpu_result.to_vec::<u8>();
         let ca = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(&a, &[3, 3], &cuda_device);
         let cb = Tensor::<numr::runtime::cuda::CudaRuntime>::from_slice(&b, &[3, 3], &cuda_device);
         let result = cuda_client
