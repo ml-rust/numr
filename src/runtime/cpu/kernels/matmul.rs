@@ -5,6 +5,75 @@
 
 use crate::dtype::{DType, Element};
 
+/// SIMD-accelerated f32 dot product for use in half-precision GEMV-BT.
+///
+/// Dispatches to AVX-512 or AVX2+FMA based on detected SIMD level.
+///
+/// # Safety
+/// - `a` and `b` must be valid pointers to `len` f32 elements
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+#[inline]
+unsafe fn simd_dot_f32(
+    a: *const f32,
+    b: *const f32,
+    len: usize,
+    level: super::simd::SimdLevel,
+) -> f32 {
+    use super::simd::SimdLevel;
+
+    match level {
+        SimdLevel::Avx512 => {
+            use std::arch::x86_64::*;
+            let mut offset = 0;
+            let mut acc = _mm512_setzero_ps();
+            while offset + 16 <= len {
+                let av = _mm512_loadu_ps(a.add(offset));
+                let bv = _mm512_loadu_ps(b.add(offset));
+                acc = _mm512_fmadd_ps(av, bv, acc);
+                offset += 16;
+            }
+            let mut sum = _mm512_reduce_add_ps(acc);
+            while offset < len {
+                sum += *a.add(offset) * *b.add(offset);
+                offset += 1;
+            }
+            sum
+        }
+        SimdLevel::Avx2Fma => {
+            use std::arch::x86_64::*;
+            let mut offset = 0;
+            let mut acc = _mm256_setzero_ps();
+            while offset + 8 <= len {
+                let av = _mm256_loadu_ps(a.add(offset));
+                let bv = _mm256_loadu_ps(b.add(offset));
+                acc = _mm256_fmadd_ps(av, bv, acc);
+                offset += 8;
+            }
+            // Horizontal sum of 256-bit accumulator
+            let hi = _mm256_extractf128_ps(acc, 1);
+            let lo = _mm256_castps256_ps128(acc);
+            let sum128 = _mm_add_ps(lo, hi);
+            let shuf = _mm_movehdup_ps(sum128);
+            let sums = _mm_add_ps(sum128, shuf);
+            let shuf2 = _mm_movehl_ps(sums, sums);
+            let sums2 = _mm_add_ss(sums, shuf2);
+            let mut sum = _mm_cvtss_f32(sums2);
+            while offset < len {
+                sum += *a.add(offset) * *b.add(offset);
+                offset += 1;
+            }
+            sum
+        }
+        _ => {
+            let mut sum = 0.0f32;
+            for i in 0..len {
+                sum += *a.add(i) * *b.add(i);
+            }
+            sum
+        }
+    }
+}
+
 /// GEMV-BT kernel: C[M,N] = A[M,K] @ B^T where B is stored as contiguous [N,K]
 ///
 /// This avoids the costly contiguous copy of transposed weight matrices during
