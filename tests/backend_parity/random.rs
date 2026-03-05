@@ -339,3 +339,75 @@ fn test_rand_shape_dtype_all_backends() {
         }
     }
 }
+
+// ============================================================
+// rand_seeded reproducibility tests
+// ============================================================
+
+#[test]
+fn test_rand_seeded_reproducibility_cpu() {
+    let (client, _device) = create_cpu_client();
+
+    // Same seed → same output
+    let a = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+    let b = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+    let a_vec: Vec<f32> = a.to_vec();
+    let b_vec: Vec<f32> = b.to_vec();
+    assert_eq!(a_vec, b_vec, "same seed must produce same output");
+
+    // Different seed → different output
+    let c = client.rand_seeded(&[100], DType::F32, 99).unwrap();
+    let c_vec: Vec<f32> = c.to_vec();
+    assert_ne!(
+        a_vec, c_vec,
+        "different seeds must produce different output"
+    );
+
+    // Values in [0, 1)
+    for &v in &a_vec {
+        assert!((0.0..1.0).contains(&v), "value out of range: {v}");
+    }
+}
+
+#[cfg(feature = "cuda")]
+#[test]
+fn test_rand_seeded_reproducibility_cuda() {
+    with_cuda_backend(|client, _device| {
+        let a = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+        let b = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+        let a_vec: Vec<f32> = a.to_vec();
+        let b_vec: Vec<f32> = b.to_vec();
+        assert_eq!(a_vec, b_vec, "same seed must produce same output on CUDA");
+
+        let c = client.rand_seeded(&[100], DType::F32, 99).unwrap();
+        let c_vec: Vec<f32> = c.to_vec();
+        assert_ne!(
+            a_vec, c_vec,
+            "different seeds must produce different output on CUDA"
+        );
+    });
+}
+
+#[cfg(feature = "wgpu")]
+#[test]
+fn test_rand_seeded_reproducibility_wgpu() {
+    with_wgpu_backend(|client, _device| {
+        let a = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+        let b = client.rand_seeded(&[100], DType::F32, 42).unwrap();
+        let a_vec: Vec<f32> = a.to_vec();
+        let b_vec: Vec<f32> = b.to_vec();
+        assert_eq!(a_vec, b_vec, "same seed must produce same output on WebGPU");
+
+        let c = client.rand_seeded(&[100], DType::F32, 99).unwrap();
+        let c_vec: Vec<f32> = c.to_vec();
+        assert_ne!(
+            a_vec, c_vec,
+            "different seeds must produce different output on WebGPU"
+        );
+
+        // Values in [0, 1)
+        for &v in &a_vec {
+            assert!((0.0..1.0).contains(&v), "value out of range: {v}");
+        }
+    });
+}
