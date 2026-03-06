@@ -42,12 +42,7 @@ pub unsafe fn i8xi8_dot_i32(a: *const i8, b: *const i8, len: usize) -> i32 {
 
     #[cfg(target_arch = "x86_64")]
     match level {
-        SimdLevel::Avx512 => {
-            if is_x86_feature_detected!("avx512bw") {
-                return x86_64::avx512::i8xi8_dot_i32(a, b, len);
-            }
-            return x86_64::avx2::i8xi8_dot_i32(a, b, len);
-        }
+        SimdLevel::Avx512 => return x86_64::avx512::i8xi8_dot_i32(a, b, len),
         SimdLevel::Avx2Fma => return x86_64::avx2::i8xi8_dot_i32(a, b, len),
         _ => return i8xi8_dot_scalar(a, b, len),
     }

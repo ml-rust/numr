@@ -37,7 +37,13 @@ pub unsafe fn gemv_bt_f32(
         _ => gemv_bt_f32_scalar(a, b, out, m, n, k, ldc),
     }
 
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => gemv_bt_f32_neon(a, b, out, m, n, k, ldc),
+        _ => gemv_bt_f32_scalar(a, b, out, m, n, k, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         let _ = level;
         gemv_bt_f32_scalar(a, b, out, m, n, k, ldc);
@@ -270,7 +276,13 @@ pub unsafe fn gemv_bt_f64(
         _ => gemv_bt_f64_scalar(a, b, out, m, n, k, ldc),
     }
 
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(target_arch = "aarch64")]
+    match level {
+        SimdLevel::Neon | SimdLevel::NeonFp16 => gemv_bt_f64_neon(a, b, out, m, n, k, ldc),
+        _ => gemv_bt_f64_scalar(a, b, out, m, n, k, ldc),
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         let _ = level;
         gemv_bt_f64_scalar(a, b, out, m, n, k, ldc);
@@ -400,6 +412,141 @@ unsafe fn gemv_bt_f64_avx512(
                 i += 8;
             }
             let mut s = _mm512_reduce_add_pd(acc);
+            while i < k {
+                s += *a_row.add(i) * *b_row.add(i);
+                i += 1;
+            }
+            *out_row.add(col) = s;
+        }
+    }
+}
+
+// ============================================================================
+// NEON implementations (aarch64)
+// ============================================================================
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemv_bt_f32_neon(
+    a: *const f32,
+    b: *const f32,
+    out: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    use std::arch::aarch64::*;
+
+    for row in 0..m {
+        let a_row = a.add(row * k);
+        let out_row = out.add(row * ldc);
+
+        // Process 4 output columns at a time
+        let mut col = 0usize;
+        while col + 4 <= n {
+            let b0 = b.add(col * k);
+            let b1 = b.add((col + 1) * k);
+            let b2 = b.add((col + 2) * k);
+            let b3 = b.add((col + 3) * k);
+
+            let mut acc0 = vdupq_n_f32(0.0);
+            let mut acc1 = vdupq_n_f32(0.0);
+            let mut acc2 = vdupq_n_f32(0.0);
+            let mut acc3 = vdupq_n_f32(0.0);
+
+            let mut i = 0usize;
+            while i + 4 <= k {
+                let av = vld1q_f32(a_row.add(i));
+                acc0 = vfmaq_f32(acc0, av, vld1q_f32(b0.add(i)));
+                acc1 = vfmaq_f32(acc1, av, vld1q_f32(b1.add(i)));
+                acc2 = vfmaq_f32(acc2, av, vld1q_f32(b2.add(i)));
+                acc3 = vfmaq_f32(acc3, av, vld1q_f32(b3.add(i)));
+                i += 4;
+            }
+
+            let mut s0 = vaddvq_f32(acc0);
+            let mut s1 = vaddvq_f32(acc1);
+            let mut s2 = vaddvq_f32(acc2);
+            let mut s3 = vaddvq_f32(acc3);
+
+            while i < k {
+                let av = *a_row.add(i);
+                s0 += av * *b0.add(i);
+                s1 += av * *b1.add(i);
+                s2 += av * *b2.add(i);
+                s3 += av * *b3.add(i);
+                i += 1;
+            }
+
+            *out_row.add(col) = s0;
+            *out_row.add(col + 1) = s1;
+            *out_row.add(col + 2) = s2;
+            *out_row.add(col + 3) = s3;
+            col += 4;
+        }
+
+        while col < n {
+            let b_row = b.add(col * k);
+            let mut acc = vdupq_n_f32(0.0);
+            let mut i = 0usize;
+            while i + 4 <= k {
+                acc = vfmaq_f32(acc, vld1q_f32(a_row.add(i)), vld1q_f32(b_row.add(i)));
+                i += 4;
+            }
+            let mut s = vaddvq_f32(acc);
+            while i < k {
+                s += *a_row.add(i) * *b_row.add(i);
+                i += 1;
+            }
+            *out_row.add(col) = s;
+            col += 1;
+        }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemv_bt_f64_neon(
+    a: *const f64,
+    b: *const f64,
+    out: *mut f64,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    use std::arch::aarch64::*;
+
+    for row in 0..m {
+        let a_row = a.add(row * k);
+        let out_row = out.add(row * ldc);
+
+        for col in 0..n {
+            let b_row = b.add(col * k);
+            let mut acc0 = vdupq_n_f64(0.0);
+            let mut acc1 = vdupq_n_f64(0.0);
+
+            let mut i = 0usize;
+            while i + 4 <= k {
+                acc0 = vfmaq_f64(acc0, vld1q_f64(a_row.add(i)), vld1q_f64(b_row.add(i)));
+                acc1 = vfmaq_f64(
+                    acc1,
+                    vld1q_f64(a_row.add(i + 2)),
+                    vld1q_f64(b_row.add(i + 2)),
+                );
+                i += 4;
+            }
+            let mut acc = vaddq_f64(acc0, acc1);
+
+            while i + 2 <= k {
+                acc = vfmaq_f64(acc, vld1q_f64(a_row.add(i)), vld1q_f64(b_row.add(i)));
+                i += 2;
+            }
+
+            let mut s = vaddvq_f64(acc);
             while i < k {
                 s += *a_row.add(i) * *b_row.add(i);
                 i += 1;

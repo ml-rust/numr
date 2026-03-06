@@ -302,24 +302,25 @@ unsafe fn batch_half_to_f32<T: Element>(src: *const T, dst: *mut f32, len: usize
 #[cfg(all(feature = "f16", target_arch = "x86_64"))]
 #[inline]
 unsafe fn batch_bf16_to_f32(src: *const u16, dst: *mut f32, len: usize) {
-    let mut i = 0usize;
-
-    #[cfg(target_arch = "x86_64")]
     if is_x86_feature_detected!("avx2") {
-        while i + 8 <= len {
-            use std::arch::x86_64::*;
-            // Load 8 bf16 values (16-bit each)
-            let bf16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
-            // Zero-extend to 32-bit
-            let i32_vals = _mm256_cvtepu16_epi32(bf16_vals);
-            // Shift left by 16 to get f32 bit pattern
-            let f32_bits = _mm256_slli_epi32(i32_vals, 16);
-            // Store as f32
-            _mm256_storeu_ps(dst.add(i), _mm256_castsi256_ps(f32_bits));
-            i += 8;
-        }
+        batch_bf16_to_f32_avx2(src, dst, len);
+    } else {
+        batch_bf16_to_f32_scalar(src, dst, len);
     }
+}
 
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn batch_bf16_to_f32_avx2(src: *const u16, dst: *mut f32, len: usize) {
+    use std::arch::x86_64::*;
+    let mut i = 0usize;
+    while i + 8 <= len {
+        let bf16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
+        let i32_vals = _mm256_cvtepu16_epi32(bf16_vals);
+        let f32_bits = _mm256_slli_epi32(i32_vals, 16);
+        _mm256_storeu_ps(dst.add(i), _mm256_castsi256_ps(f32_bits));
+        i += 8;
+    }
     // Scalar tail
     while i < len {
         let bits = (*src.add(i) as u32) << 16;
@@ -328,27 +329,47 @@ unsafe fn batch_bf16_to_f32(src: *const u16, dst: *mut f32, len: usize) {
     }
 }
 
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+unsafe fn batch_bf16_to_f32_scalar(src: *const u16, dst: *mut f32, len: usize) {
+    for i in 0..len {
+        let bits = (*src.add(i) as u32) << 16;
+        *dst.add(i) = f32::from_bits(bits);
+    }
+}
+
 /// F16 → f32 conversion using F16C instructions (vcvtph2ps)
 #[cfg(all(feature = "f16", target_arch = "x86_64"))]
 #[inline]
 unsafe fn batch_f16_to_f32(src: *const u16, dst: *mut f32, len: usize) {
-    let mut i = 0usize;
-
-    #[cfg(target_arch = "x86_64")]
     if is_x86_feature_detected!("f16c") {
-        while i + 8 <= len {
-            use std::arch::x86_64::*;
-            let f16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
-            let f32_vals = _mm256_cvtph_ps(f16_vals);
-            _mm256_storeu_ps(dst.add(i), f32_vals);
-            i += 8;
-        }
+        batch_f16_to_f32_f16c(src, dst, len);
+    } else {
+        batch_f16_to_f32_scalar(src, dst, len);
     }
+}
 
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+#[target_feature(enable = "f16c", enable = "avx")]
+unsafe fn batch_f16_to_f32_f16c(src: *const u16, dst: *mut f32, len: usize) {
+    use std::arch::x86_64::*;
+    let mut i = 0usize;
+    while i + 8 <= len {
+        let f16_vals = _mm_loadu_si128(src.add(i) as *const __m128i);
+        let f32_vals = _mm256_cvtph_ps(f16_vals);
+        _mm256_storeu_ps(dst.add(i), f32_vals);
+        i += 8;
+    }
     // Scalar tail
     while i < len {
         *dst.add(i) = half::f16::from_bits(*src.add(i)).to_f32();
         i += 1;
+    }
+}
+
+#[cfg(all(feature = "f16", target_arch = "x86_64"))]
+unsafe fn batch_f16_to_f32_scalar(src: *const u16, dst: *mut f32, len: usize) {
+    for i in 0..len {
+        *dst.add(i) = half::f16::from_bits(*src.add(i)).to_f32();
     }
 }
 
