@@ -91,16 +91,36 @@ pub unsafe fn fused_add_rms_norm_f64(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        let mut acc = _mm256_setzero_pd();
-        for c in 0..chunks {
+        let mut acc0 = _mm256_setzero_pd();
+        let mut acc1 = _mm256_setzero_pd();
+        let mut c = 0;
+        let chunk_pairs = chunks / 2 * 2;
+        while c < chunk_pairs {
+            let offset0 = row_start + c * F64_LANES;
+            let offset1 = row_start + (c + 1) * F64_LANES;
+            let v_in0 = _mm256_loadu_pd(input.add(offset0));
+            let v_res0 = _mm256_loadu_pd(residual.add(offset0));
+            let pn0 = _mm256_add_pd(v_in0, v_res0);
+            _mm256_storeu_pd(pre_norm.add(offset0), pn0);
+            acc0 = _mm256_fmadd_pd(pn0, pn0, acc0);
+
+            let v_in1 = _mm256_loadu_pd(input.add(offset1));
+            let v_res1 = _mm256_loadu_pd(residual.add(offset1));
+            let pn1 = _mm256_add_pd(v_in1, v_res1);
+            _mm256_storeu_pd(pre_norm.add(offset1), pn1);
+            acc1 = _mm256_fmadd_pd(pn1, pn1, acc1);
+            c += 2;
+        }
+        while c < chunks {
             let offset = row_start + c * F64_LANES;
             let v_in = _mm256_loadu_pd(input.add(offset));
             let v_res = _mm256_loadu_pd(residual.add(offset));
             let pn = _mm256_add_pd(v_in, v_res);
             _mm256_storeu_pd(pre_norm.add(offset), pn);
-            acc = _mm256_fmadd_pd(pn, pn, acc);
+            acc0 = _mm256_fmadd_pd(pn, pn, acc0);
+            c += 1;
         }
-        let mut sum_sq = hsum_f64(acc);
+        let mut sum_sq = hsum_f64(_mm256_add_pd(acc0, acc1));
 
         for i in (chunks * F64_LANES)..hidden_size {
             let pn = *input.add(row_start + i) + *residual.add(row_start + i);
@@ -149,14 +169,24 @@ pub unsafe fn fused_add_rms_norm_bwd_f32(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        // Recompute mean square from pre_norm
-        let mut acc_sq = _mm256_setzero_ps();
-        for c in 0..chunks {
-            let offset = row_start + c * F32_LANES;
-            let pn = _mm256_loadu_ps(pre_norm.add(offset));
-            acc_sq = _mm256_fmadd_ps(pn, pn, acc_sq);
+        // Recompute mean square from pre_norm (dual accumulators)
+        let mut acc_sq0 = _mm256_setzero_ps();
+        let mut acc_sq1 = _mm256_setzero_ps();
+        let mut c = 0;
+        let chunk_pairs = chunks / 2 * 2;
+        while c < chunk_pairs {
+            let pn0 = _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES));
+            acc_sq0 = _mm256_fmadd_ps(pn0, pn0, acc_sq0);
+            let pn1 = _mm256_loadu_ps(pre_norm.add(row_start + (c + 1) * F32_LANES));
+            acc_sq1 = _mm256_fmadd_ps(pn1, pn1, acc_sq1);
+            c += 2;
         }
-        let mut sum_sq = hsum_f32(acc_sq);
+        while c < chunks {
+            let pn = _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES));
+            acc_sq0 = _mm256_fmadd_ps(pn, pn, acc_sq0);
+            c += 1;
+        }
+        let mut sum_sq = hsum_f32(_mm256_add_ps(acc_sq0, acc_sq1));
 
         for i in (chunks * F32_LANES)..hidden_size {
             let pn = *pre_norm.add(row_start + i);
@@ -246,13 +276,23 @@ pub unsafe fn fused_add_rms_norm_bwd_f64(
     for batch in 0..batch_size {
         let row_start = batch * hidden_size;
 
-        let mut acc_sq = _mm256_setzero_pd();
-        for c in 0..chunks {
-            let offset = row_start + c * F64_LANES;
-            let pn = _mm256_loadu_pd(pre_norm.add(offset));
-            acc_sq = _mm256_fmadd_pd(pn, pn, acc_sq);
+        let mut acc_sq0 = _mm256_setzero_pd();
+        let mut acc_sq1 = _mm256_setzero_pd();
+        let mut c = 0;
+        let chunk_pairs = chunks / 2 * 2;
+        while c < chunk_pairs {
+            let pn0 = _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES));
+            acc_sq0 = _mm256_fmadd_pd(pn0, pn0, acc_sq0);
+            let pn1 = _mm256_loadu_pd(pre_norm.add(row_start + (c + 1) * F64_LANES));
+            acc_sq1 = _mm256_fmadd_pd(pn1, pn1, acc_sq1);
+            c += 2;
         }
-        let mut sum_sq = hsum_f64(acc_sq);
+        while c < chunks {
+            let pn = _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES));
+            acc_sq0 = _mm256_fmadd_pd(pn, pn, acc_sq0);
+            c += 1;
+        }
+        let mut sum_sq = hsum_f64(_mm256_add_pd(acc_sq0, acc_sq1));
 
         for i in (chunks * F64_LANES)..hidden_size {
             let pn = *pre_norm.add(row_start + i);

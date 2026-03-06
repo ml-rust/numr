@@ -48,15 +48,33 @@ pub unsafe fn fused_add_layer_norm_f32(
         let mean = sum / hidden_size as f32;
         let v_mean = _mm256_set1_ps(mean);
 
-        // Phase 2: Compute variance
-        let mut var_acc = _mm256_setzero_ps();
-        for c in 0..chunks {
-            let offset = row_start + c * F32_LANES;
-            let pn = _mm256_loadu_ps(pre_norm.add(offset));
-            let diff = _mm256_sub_ps(pn, v_mean);
-            var_acc = _mm256_fmadd_ps(diff, diff, var_acc);
+        // Phase 2: Compute variance (dual accumulators)
+        let mut var_acc0 = _mm256_setzero_ps();
+        let mut var_acc1 = _mm256_setzero_ps();
+        let mut c = 0;
+        let chunk_pairs = chunks / 2 * 2;
+        while c < chunk_pairs {
+            let diff0 = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_ps(diff0, diff0, var_acc0);
+            let diff1 = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + (c + 1) * F32_LANES)),
+                v_mean,
+            );
+            var_acc1 = _mm256_fmadd_ps(diff1, diff1, var_acc1);
+            c += 2;
         }
-        let mut var_sum = hsum_f32(var_acc);
+        while c < chunks {
+            let diff = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_ps(diff, diff, var_acc0);
+            c += 1;
+        }
+        let mut var_sum = hsum_f32(_mm256_add_ps(var_acc0, var_acc1));
 
         for i in (chunks * F32_LANES)..hidden_size {
             let diff = *pre_norm.add(row_start + i) - mean;
@@ -130,14 +148,32 @@ pub unsafe fn fused_add_layer_norm_f64(
         let mean = sum / hidden_size as f64;
         let v_mean = _mm256_set1_pd(mean);
 
-        let mut var_acc = _mm256_setzero_pd();
-        for c in 0..chunks {
-            let offset = row_start + c * F64_LANES;
-            let pn = _mm256_loadu_pd(pre_norm.add(offset));
-            let diff = _mm256_sub_pd(pn, v_mean);
-            var_acc = _mm256_fmadd_pd(diff, diff, var_acc);
+        let mut var_acc0 = _mm256_setzero_pd();
+        let mut var_acc1 = _mm256_setzero_pd();
+        let mut c = 0;
+        let chunk_pairs_v = chunks / 2 * 2;
+        while c < chunk_pairs_v {
+            let diff0 = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_pd(diff0, diff0, var_acc0);
+            let diff1 = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + (c + 1) * F64_LANES)),
+                v_mean,
+            );
+            var_acc1 = _mm256_fmadd_pd(diff1, diff1, var_acc1);
+            c += 2;
         }
-        let mut var_sum = hsum_f64(var_acc);
+        while c < chunks {
+            let diff = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_pd(diff, diff, var_acc0);
+            c += 1;
+        }
+        let mut var_sum = hsum_f64(_mm256_add_pd(var_acc0, var_acc1));
 
         for i in (chunks * F64_LANES)..hidden_size {
             let diff = *pre_norm.add(row_start + i) - mean;
@@ -208,15 +244,33 @@ pub unsafe fn fused_add_layer_norm_bwd_f32(
         let mean = sum / hidden_size as f32;
         let v_mean = _mm256_set1_ps(mean);
 
-        // Recompute variance
-        let mut var_acc = _mm256_setzero_ps();
-        for c in 0..chunks {
-            let offset = row_start + c * F32_LANES;
-            let pn = _mm256_loadu_ps(pre_norm.add(offset));
-            let diff = _mm256_sub_ps(pn, v_mean);
-            var_acc = _mm256_fmadd_ps(diff, diff, var_acc);
+        // Recompute variance (dual accumulators)
+        let mut var_acc0 = _mm256_setzero_ps();
+        let mut var_acc1 = _mm256_setzero_ps();
+        let mut c = 0;
+        let chunk_pairs_v = chunks / 2 * 2;
+        while c < chunk_pairs_v {
+            let diff0 = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_ps(diff0, diff0, var_acc0);
+            let diff1 = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + (c + 1) * F32_LANES)),
+                v_mean,
+            );
+            var_acc1 = _mm256_fmadd_ps(diff1, diff1, var_acc1);
+            c += 2;
         }
-        let mut var_sum = hsum_f32(var_acc);
+        while c < chunks {
+            let diff = _mm256_sub_ps(
+                _mm256_loadu_ps(pre_norm.add(row_start + c * F32_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_ps(diff, diff, var_acc0);
+            c += 1;
+        }
+        let mut var_sum = hsum_f32(_mm256_add_ps(var_acc0, var_acc1));
 
         for i in (chunks * F32_LANES)..hidden_size {
             let diff = *pre_norm.add(row_start + i) - mean;
@@ -345,14 +399,32 @@ pub unsafe fn fused_add_layer_norm_bwd_f64(
         let mean = sum / hidden_size as f64;
         let v_mean = _mm256_set1_pd(mean);
 
-        let mut var_acc = _mm256_setzero_pd();
-        for c in 0..chunks {
-            let offset = row_start + c * F64_LANES;
-            let pn = _mm256_loadu_pd(pre_norm.add(offset));
-            let diff = _mm256_sub_pd(pn, v_mean);
-            var_acc = _mm256_fmadd_pd(diff, diff, var_acc);
+        let mut var_acc0 = _mm256_setzero_pd();
+        let mut var_acc1 = _mm256_setzero_pd();
+        let mut c = 0;
+        let chunk_pairs_v = chunks / 2 * 2;
+        while c < chunk_pairs_v {
+            let diff0 = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_pd(diff0, diff0, var_acc0);
+            let diff1 = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + (c + 1) * F64_LANES)),
+                v_mean,
+            );
+            var_acc1 = _mm256_fmadd_pd(diff1, diff1, var_acc1);
+            c += 2;
         }
-        let mut var_sum = hsum_f64(var_acc);
+        while c < chunks {
+            let diff = _mm256_sub_pd(
+                _mm256_loadu_pd(pre_norm.add(row_start + c * F64_LANES)),
+                v_mean,
+            );
+            var_acc0 = _mm256_fmadd_pd(diff, diff, var_acc0);
+            c += 1;
+        }
+        let mut var_sum = hsum_f64(_mm256_add_pd(var_acc0, var_acc1));
 
         for i in (chunks * F64_LANES)..hidden_size {
             let diff = *pre_norm.add(row_start + i) - mean;
