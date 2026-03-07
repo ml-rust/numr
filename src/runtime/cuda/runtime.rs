@@ -58,15 +58,12 @@ impl Runtime for CudaRuntime {
         // End capture — MUST happen even if the closure failed, otherwise the
         // stream is left in capture mode and all subsequent operations fail.
         //
-        // Use flags=0 (no AUTO_FREE_ON_LAUNCH) so that graph-managed device
-        // memory — including the output tensor returned by the closure — persists
-        // with stable addresses across replays.  With AUTO_FREE_ON_LAUNCH, memory
-        // allocated inside the capture region (cuMemAllocAsync) is freed on each
-        // launch, which invalidates the output tensor's device pointer.
-        // SAFETY: CUgraphInstantiate_flags maps to unsigned int in C; 0 is valid
-        // and means "no flags" per CUDA docs.
-        let flags: cudarc::driver::sys::CUgraphInstantiate_flags =
-            unsafe { std::mem::transmute(0u32) };
+        // AUTO_FREE_ON_LAUNCH: graph-managed memory allocated during capture is
+        // freed on each launch. For graph capture in training (where we re-run
+        // the same graph), this is acceptable — each launch re-allocates.
+        // For inference with stable output pointers, the caller must copy the
+        // output tensor after each launch before the next launch frees it.
+        let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
         let graph_result = client.stream.end_capture(flags);
 
         // Restore caching allocator for normal (non-capture) operations
