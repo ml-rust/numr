@@ -130,8 +130,8 @@ pub use grad_store::GradStore;
 pub use var::Var;
 pub use var_grad_store::VarGradStore;
 pub use var_ops::{
-    var_abs, var_add, var_add_scalar, var_cast, var_cholesky, var_clamp, var_conv1d, var_cos,
-    var_cumprod, var_cumsum, var_det, var_div, var_div_scalar, var_dropout, var_exp,
+    var_abs, var_add, var_add_scalar, var_cast, var_cholesky, var_clamp, var_conv1d, var_conv2d,
+    var_cos, var_cumprod, var_cumsum, var_det, var_div, var_div_scalar, var_dropout, var_exp,
     var_fused_add_layer_norm, var_fused_add_rms_norm, var_gather, var_gelu_mul, var_group_norm,
     var_inverse, var_layer_norm, var_log, var_log_softmax, var_matmul, var_matmul_bias_activation,
     var_max, var_mean, var_min, var_mul, var_mul_scalar, var_neg, var_pow, var_pow_scalar,

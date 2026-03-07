@@ -3,9 +3,9 @@
 //! Wraps `ConvOps::conv1d` with gradient tracking.
 //!
 //! Backward computes:
-//! - d_input  = conv1d(grad_output, weight_flipped, ...) [full cross-correlation]
-//! - d_weight = conv1d(input^T, grad_output^T, ...)     [correlation of input with grad]
-//! - d_bias   = sum(grad_output, dims=[0, 2])           [sum over batch and length]
+//! - d_input  = transposed convolution of grad_output with weight
+//! - d_weight = cross-correlation of input with grad_output
+//! - d_bias   = sum(grad_output) over batch and spatial dims
 
 use crate::autograd::Var;
 use crate::dtype::DType;
@@ -13,6 +13,8 @@ use crate::error::Result;
 use crate::ops::{BinaryOps, ConvOps, PaddingMode, ReduceOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use std::sync::Arc;
+
+use super::conv_common::compute_padding;
 
 /// Differentiable 1D convolution.
 ///
@@ -135,24 +137,6 @@ impl<R: Runtime> Conv1dBackward<R> {
     }
 }
 
-/// Compute effective padding amounts for the forward pass.
-fn compute_padding(
-    padding: PaddingMode,
-    _input_len: usize,
-    kernel_size: usize,
-    dilation: usize,
-) -> (usize, usize) {
-    match padding {
-        PaddingMode::Valid => (0, 0),
-        PaddingMode::Same => {
-            let effective_k = dilation * (kernel_size - 1) + 1;
-            let total = effective_k.saturating_sub(1);
-            (total / 2, total - total / 2)
-        }
-        PaddingMode::Custom(left, right, _, _) => (left, right),
-    }
-}
-
 /// Compute conv1d backward for input using tensor operations.
 ///
 /// d_input[n, c_in, l] = sum over c_out, k of:
@@ -187,7 +171,7 @@ where
     let output_len = grad_output.shape()[2];
     let c_out_per_group = c_out / groups;
 
-    let (pad_left, _pad_right) = compute_padding(padding, input_len, kernel_size, dilation);
+    let (pad_left, _pad_right) = compute_padding(padding, kernel_size, dilation);
 
     let device = grad_output.device();
     let dtype = grad_output.dtype();
@@ -279,7 +263,7 @@ where
     let output_len = grad_output.shape()[2];
     let c_out_per_group = c_out / groups;
 
-    let (pad_left, _pad_right) = compute_padding(padding, input_len, kernel_size, dilation);
+    let (pad_left, _pad_right) = compute_padding(padding, kernel_size, dilation);
 
     let device = grad_output.device();
     let dtype = grad_output.dtype();
