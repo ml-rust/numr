@@ -19,7 +19,8 @@ use super::decompositions::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::traits::{BinaryOps, MatmulOps, RandomOps, ReduceOps, UnaryOps};
+use crate::ops::traits::RandomOps;
+use crate::ops::traits::{BinaryOps, MatmulOps, ReduceOps, UnaryOps};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 

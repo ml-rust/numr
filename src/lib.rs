@@ -104,12 +104,12 @@ pub mod prelude {
 
     // Operation traits (same API across all backends)
     pub use crate::ops::{
-        ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps,
-        ConvOps, CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, LinalgOps, LogicalOps,
-        MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
-        QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
-        TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+        ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
+        DistanceMetric, DistanceOps, IndexingOps, LinalgOps, LogicalOps, MatmulOps,
+        MeshgridIndexing, NormalizationOps, PaddingMode, ReduceOps, ScalarOps, ShapeOps,
+        SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
     };
+    pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 
     // Algorithm traits
     pub use crate::algorithm::SpecialFunctions;
