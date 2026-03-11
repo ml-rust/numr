@@ -1,8 +1,7 @@
 //! Memory operation kernels (fill, copy, cast, random)
 
+use super::rng;
 use crate::dtype::Element;
-use rand::Rng;
-use rand_distr::{Distribution, StandardNormal};
 
 /// Fill buffer with a constant value
 ///
@@ -311,14 +310,14 @@ pub unsafe fn cast_kernel(
 /// - `out` must be a valid pointer to `len` elements
 #[inline]
 pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     // Check once if this type can round values near 1.0 up to 1.0
     let needs_clamp = T::from_f64(0.9999).to_f64() >= 1.0;
 
     for elem in out_slice.iter_mut() {
-        let val: f64 = rng.random();
+        let val = rng::sample_uniform(&mut prng);
         *elem = T::from_f64(val);
         // For reduced-precision types (BF16, FP8), rounding can push values
         // near 1.0 up to exactly 1.0. Clamp to the largest representable
@@ -337,12 +336,11 @@ pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
 /// - `out` must be a valid pointer to `len` elements
 #[inline]
 pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
-    let mut rng = rand::rng();
-    let normal = StandardNormal;
+    let mut prng = rng::thread_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
-        let val: f64 = normal.sample(&mut rng);
+        let val = rng::sample_normal(&mut prng);
         *elem = T::from_f64(val);
     }
 }
@@ -356,15 +354,11 @@ pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
 /// - `low < high` must be satisfied
 #[inline]
 pub unsafe fn randint_kernel<T: Element>(out: *mut T, low: i64, high: i64, len: usize) {
-    use rand::distr::Uniform;
-    use rand::prelude::Distribution;
-
-    let mut rng = rand::rng();
-    let dist = Uniform::new(low, high).unwrap();
+    let mut prng = rng::thread_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
-        let val: i64 = dist.sample(&mut rng);
+        let val = rng::sample_uniform_int(&mut prng, low, high);
         *elem = T::from_f64(val as f64);
     }
 }
@@ -448,7 +442,7 @@ pub unsafe fn multinomial_kernel_with_replacement<T: Element>(
     num_categories: usize,
     num_samples: usize,
 ) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
 
     for dist in 0..num_distributions {
         let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
@@ -475,7 +469,7 @@ pub unsafe fn multinomial_kernel_with_replacement<T: Element>(
         let out_row = std::slice::from_raw_parts_mut(out.add(dist * num_samples), num_samples);
 
         for sample in out_row {
-            let u: f64 = rng.random();
+            let u = rng::sample_uniform(&mut prng);
             // Binary search: find first index where cdf[i] >= u
             let idx = cdf.partition_point(|&c| c < u);
             *sample = idx.min(num_categories - 1) as i64;
@@ -502,7 +496,7 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
     num_categories: usize,
     num_samples: usize,
 ) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
 
     for dist in 0..num_distributions {
         let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
@@ -527,7 +521,7 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
             }
 
             // Sample
-            let u: f64 = rng.random();
+            let u = rng::sample_uniform(&mut prng);
             let idx = cdf.partition_point(|&c| c < u).min(num_categories - 1);
             *sample = idx as i64;
 
@@ -542,7 +536,7 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
 /// # Safety
 /// - `out` must be a valid pointer to `n` elements of i64
 pub unsafe fn randperm_kernel(out: *mut i64, n: usize) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, n);
 
     // Initialize with [0, 1, 2, ..., n-1]
@@ -552,7 +546,7 @@ pub unsafe fn randperm_kernel(out: *mut i64, n: usize) {
 
     // Fisher-Yates shuffle
     for i in (1..n).rev() {
-        let j = rng.random_range(0..=i);
+        let j = (prng.next() % (i as u64 + 1)) as usize;
         out_slice.swap(i, j);
     }
 }

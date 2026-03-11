@@ -25,6 +25,7 @@ pub mod memory;
 pub mod norm;
 pub mod quasirandom;
 pub mod reduce;
+pub(crate) mod rng;
 pub mod scalar;
 pub mod semiring_matmul;
 pub mod simd;

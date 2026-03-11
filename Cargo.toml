@@ -41,11 +41,7 @@ parking_lot = "0.12"
 # Optional: Parallelism
 rayon = { version = "1.11", optional = true }
 
-# Random number generation (required for rand/randn operations)
-rand = "0.9"
-rand_distr = "0.5"
-
-# Zero-copy serialization for embedded data 
+# Zero-copy serialization for embedded data (used by sobol_data)
 rkyv = "0.8"
 
 # Optional: Half-precision floats
