@@ -16,7 +16,7 @@ use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
 use crate::tensor::Tensor;
 
-/// Perform COO add merge (A + B) on GPU
+/// Perform COO add merge (A + B) on GPU (union semantics)
 ///
 /// Uses the following algorithm:
 /// 1. Compute composite keys for both matrices
@@ -27,6 +27,13 @@ use crate::tensor::Tensor;
 /// 6. Merge duplicates with addition
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -261,7 +268,7 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     Ok((final_row_indices, final_col_indices, final_values))
 }
 
-/// Perform COO sub merge (A - B) on GPU
+/// Perform COO sub merge (A - B) on GPU (union semantics)
 ///
 /// Uses the following algorithm:
 /// 1. Compute composite keys for both matrices
@@ -272,6 +279,13 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
 /// 6. Merge duplicates with subtraction (union semantics)
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -514,6 +528,13 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
 /// 6. Merge intersections with multiplication
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -753,6 +774,13 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
 /// 6. Merge intersections with division
 /// 7. Filter out zeros and non-finite values
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

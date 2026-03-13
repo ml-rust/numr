@@ -590,8 +590,15 @@ pub(crate) unsafe fn launch_coo_compact<T: CudaTypeName>(
 // GPU Sort using Thrust
 // ============================================================================
 
-/// Sort (i64 keys, i32 indices) using Thrust stable_sort_by_key - FULLY ON GPU
-/// Sorts IN-PLACE, so keys and indices are both input and output
+/// Sort (i64 keys, i32 indices) using Thrust `stable_sort_by_key` - fully on GPU
+///
+/// Sorts in-place: both `keys` and `indices` serve as input and output after sorting.
+///
+/// # Safety
+///
+/// - `keys` must be a valid device memory pointer with at least `n` i64 elements.
+/// - `indices` must be a valid device memory pointer with at least `n` i32 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_thrust_sort_pairs_i64_i32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -629,7 +636,12 @@ pub unsafe fn launch_thrust_sort_pairs_i64_i32(
 // Index and Gather Kernel Launchers
 // ============================================================================
 
-/// Initialize indices array [0, 1, 2, ..., n-1]
+/// Initialize indices array `[0, 1, 2, ..., n-1]` on device
+///
+/// # Safety
+///
+/// - `indices` must be a valid device memory pointer with at least `n` i32 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_init_indices(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -659,7 +671,14 @@ pub unsafe fn launch_coo_init_indices(
     Ok(())
 }
 
-/// Gather values using indices (permutation)
+/// Gather values using a permutation index: `values_out[i] = values_in[indices[i]]`
+///
+/// # Safety
+///
+/// - `values_in`, `indices`, and `values_out` must be valid device memory pointers on the device
+///   associated with `context`, each with at least `n` elements of their respective types.
+/// - All values in `indices` must be valid indices into `values_in` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_gather<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -736,7 +755,16 @@ pub(crate) unsafe fn launch_coo_gather_i32(
     Ok(())
 }
 
-/// Gather i64 values using indices (for row/col indices)
+/// Gather i64 values using a permutation index: `values_out[i] = values_in[indices[i]]`
+///
+/// Used for permuting row/col index arrays in COO format.
+///
+/// # Safety
+///
+/// - `values_in`, `indices`, and `values_out` must be valid device memory pointers on the device
+///   associated with `context`, each with at least `n` elements of their respective types.
+/// - All values in `indices` (i32) must be valid indices into `values_in` (i64 array).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_gather_i64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

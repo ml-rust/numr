@@ -15,9 +15,21 @@ use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
 use crate::tensor::Tensor;
 
+/// CUDA module name for sparse matrix-matrix multiplication (SpGEMM) kernels.
 pub const SPGEMM_MODULE: &str = "spgemm";
 
-/// Phase 1: Symbolic - Count NNZ per output row
+/// Phase 1: Symbolic - Count NNZ per output row of C = A * B
+///
+/// Uses a bitmap approach per thread to count unique column indices produced by each output row.
+/// Allocates dynamic shared memory of `block_size * ceil(n / 8)` bytes.
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context` with consistent CSR structure.
+/// - `m` must equal the number of rows in `a`; `n` must equal the number of columns in `b`.
+/// - `m * ceil(n / 8)` bytes of shared memory must be available on the device.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_symbolic_phase(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -80,7 +92,19 @@ pub unsafe fn spgemm_symbolic_phase(
     Ok(row_nnz)
 }
 
-/// Phase 2: Numeric - Compute values
+/// Phase 2: Numeric - Compute values of C = A * B
+///
+/// Fills the pre-allocated output CSR arrays (`c_row_ptrs`, `c_col_indices`, `c_values`) with
+/// the computed product. Must be called after `spgemm_symbolic_phase` and exclusive scan.
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context` with consistent CSR structure.
+/// - `c_row_ptrs` and `c_col_indices` must be pre-allocated (from the symbolic phase and scan).
+/// - `c_values` must be pre-allocated to match the NNZ count from the symbolic phase.
+/// - `m` must equal the number of rows in `a`; `n` must equal the number of columns in `b`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_numeric_phase<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

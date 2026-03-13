@@ -59,6 +59,14 @@ const MAX_SCAN_RECURSION_DEPTH: usize = 10;
 /// # Returns
 ///
 /// `(output_tensor, total_sum)` where output has size n+1
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor of `DType::I32` on the device associated with
+///   `context`. Passing a tensor with a different dtype returns an error.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// - A single scalar GPU-to-CPU transfer is performed at the end to read the total sum; this is
+///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i32_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -316,6 +324,14 @@ unsafe fn launch_scan_multi_block_i32(
 /// # Returns
 ///
 /// `(output_tensor, total_sum)` where output has size n+1
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor of `DType::I64` on the device associated with
+///   `context`. Passing a tensor with a different dtype returns an error.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// - A single scalar GPU-to-CPU transfer is performed at the end to read the total sum; this is
+///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i64_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

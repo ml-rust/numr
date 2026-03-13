@@ -24,6 +24,14 @@ use crate::error::Result;
 ///
 /// For each row i, finds the index within that row's entries where col == i (diagonal).
 /// Stores -1 if no diagonal entry exists.
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, and `diag_indices` must be valid device memory pointers on the
+///   device associated with `context`.
+/// - `row_ptrs` must have at least `n + 1` elements; `diag_indices` must have at least `n`.
+/// - `col_indices` must have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_find_diag_indices(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -51,6 +59,14 @@ pub unsafe fn launch_find_diag_indices(
 ///
 /// For each column j, finds the index within that column's entries where row == j (diagonal).
 /// Stores -1 if no diagonal entry exists.
+///
+/// # Safety
+///
+/// - `col_ptrs`, `row_indices`, and `diag_ptr` must be valid device memory pointers on the
+///   device associated with `context`.
+/// - `col_ptrs` must have at least `n + 1` elements; `diag_ptr` must have at least `n`.
+/// - `row_indices` must have at least `nnz` elements (as encoded in `col_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_find_diag_indices_csc(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -78,7 +94,14 @@ pub unsafe fn launch_find_diag_indices_csc(
 // Copy Operations (may be unused but kept for potential future use)
 // ============================================================================
 
-/// Copy kernel - f32
+/// Copy `n` f32 elements from `src` to `dst` on device (GPU kernel)
+///
+/// # Safety
+///
+/// - `src` and `dst` must be valid device memory pointers on the device associated with `context`.
+/// - Both buffers must have at least `n` f32 elements.
+/// - `src` and `dst` must not alias.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(dead_code)]
 pub unsafe fn launch_copy_f32(
     context: &Arc<CudaContext>,
@@ -101,7 +124,14 @@ pub unsafe fn launch_copy_f32(
     Ok(())
 }
 
-/// Copy kernel - f64
+/// Copy `n` f64 elements from `src` to `dst` on device (GPU kernel)
+///
+/// # Safety
+///
+/// - `src` and `dst` must be valid device memory pointers on the device associated with `context`.
+/// - Both buffers must have at least `n` f64 elements.
+/// - `src` and `dst` must not alias.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(dead_code)]
 pub unsafe fn launch_copy_f64(
     context: &Arc<CudaContext>,
@@ -137,6 +167,14 @@ pub unsafe fn launch_copy_f64(
 /// * `l_map` - Mapping: l_map[i] = destination index in l_values, or -1 if not in L
 /// * `u_map` - Mapping: u_map[i] = destination index in u_values, or -1 if not in U
 /// * `nnz` - Number of non-zero elements in source
+///
+/// # Safety
+///
+/// - `src_values`, `l_values`, `u_values`, `l_map`, and `u_map` must be valid device memory
+///   pointers on the device associated with `context`, each with at least `nnz` elements.
+/// - All mapped indices in `l_map` and `u_map` (excluding -1) must be valid indices into their
+///   respective output arrays (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_split_lu_scatter_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -165,6 +203,14 @@ pub unsafe fn launch_split_lu_scatter_f32(
 }
 
 /// Scatter values from factored LU matrix to separate L and U arrays - f64
+///
+/// # Safety
+///
+/// - `src_values`, `l_values`, `u_values`, `l_map`, and `u_map` must be valid device memory
+///   pointers on the device associated with `context`, each with at least `nnz` elements.
+/// - All mapped indices in `l_map` and `u_map` (excluding -1) must be valid indices into their
+///   respective output arrays (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_split_lu_scatter_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -203,6 +249,14 @@ pub unsafe fn launch_split_lu_scatter_f64(
 /// * `dst_values` - Output values array (lower triangular)
 /// * `lower_map` - Mapping: lower_map[i] = destination index, or -1 if not in lower
 /// * `nnz` - Number of non-zero elements in source
+///
+/// # Safety
+///
+/// - `src_values`, `dst_values`, and `lower_map` must be valid device memory pointers on the
+///   device associated with `context`, each with at least `nnz` elements.
+/// - All mapped indices in `lower_map` (excluding -1) must be valid indices into `dst_values`
+///   (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_extract_lower_scatter_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -227,6 +281,14 @@ pub unsafe fn launch_extract_lower_scatter_f32(
 }
 
 /// Scatter values from source to lower triangular output - f64
+///
+/// # Safety
+///
+/// - `src_values`, `dst_values`, and `lower_map` must be valid device memory pointers on the
+///   device associated with `context`, each with at least `nnz` elements.
+/// - All mapped indices in `lower_map` (excluding -1) must be valid indices into `dst_values`
+///   (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_extract_lower_scatter_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

@@ -43,6 +43,13 @@ fn dtype_suffix<T: CudaTypeName>() -> Result<&'static str> {
 /// Generic launcher for kernels without dtype template (count kernels)
 ///
 /// Eliminates duplication across count kernel launchers
+///
+/// # Safety
+///
+/// - `row_ptrs_a`, `col_indices_a`, `row_ptrs_b`, `col_indices_b`, and `row_counts` must be
+///   valid device memory pointers on the device associated with `context`.
+/// - `nrows` must match the number of rows in both sparse matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_count_kernel(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -82,6 +89,15 @@ unsafe fn launch_count_kernel(
 /// Generic launcher for dtype-templated compute kernels (CSR format)
 ///
 /// Eliminates duplication across CSR add/sub/mul/div compute launchers
+///
+/// # Safety
+///
+/// - All pointer arguments (`row_ptrs_a`, `col_indices_a`, `values_a`, `row_ptrs_b`,
+///   `col_indices_b`, `values_b`, `out_row_ptrs`, `out_col_indices`, `out_values`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - Output buffers must be pre-allocated to the correct sizes (determined by a prior count pass).
+/// - `nrows` must match the number of rows in both input matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -132,6 +148,15 @@ unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
 /// Generic launcher for dtype-templated compute kernels (CSC format)
 ///
 /// Eliminates duplication across CSC add/sub/mul/div compute launchers
+///
+/// # Safety
+///
+/// - All pointer arguments (`col_ptrs_a`, `row_indices_a`, `values_a`, `col_ptrs_b`,
+///   `row_indices_b`, `values_b`, `out_col_ptrs`, `out_row_indices`, `out_values`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - Output buffers must be pre-allocated to the correct sizes (determined by a prior count pass).
+/// - `ncols` must match the number of columns in both input matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csc_compute_kernel<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -208,6 +233,13 @@ fn exclusive_scan_i32(
 /// Launch CSR merge count kernel (for add/sub operations)
 ///
 /// Counts output size per row using union semantics
+///
+/// # Safety
+///
+/// - `row_ptrs_a`, `col_indices_a`, `row_ptrs_b`, `col_indices_b`, and `row_counts` must be
+///   valid device memory pointers on the device associated with `context`.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_merge_count(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -235,6 +267,13 @@ unsafe fn launch_csr_merge_count(
 }
 
 /// Launch CSR mul count kernel (intersection semantics)
+///
+/// # Safety
+///
+/// - `row_ptrs_a`, `col_indices_a`, `row_ptrs_b`, `col_indices_b`, and `row_counts` must be
+///   valid device memory pointers on the device associated with `context`.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_mul_count(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -266,6 +305,13 @@ unsafe fn launch_csr_mul_count(
 // ============================================================================
 
 /// Launch CSR add compute kernel
+///
+/// # Safety
+///
+/// - All pointer arguments must be valid device memory pointers on the device associated
+///   with `context`. Output buffers must be pre-allocated to the correct sizes.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_add_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -301,6 +347,13 @@ unsafe fn launch_csr_add_compute<T: CudaTypeName>(
 }
 
 /// Launch CSR sub compute kernel
+///
+/// # Safety
+///
+/// - All pointer arguments must be valid device memory pointers on the device associated
+///   with `context`. Output buffers must be pre-allocated to the correct sizes.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_sub_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -336,6 +389,13 @@ unsafe fn launch_csr_sub_compute<T: CudaTypeName>(
 }
 
 /// Launch CSR mul compute kernel
+///
+/// # Safety
+///
+/// - All pointer arguments must be valid device memory pointers on the device associated
+///   with `context`. Output buffers must be pre-allocated to the correct sizes.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_mul_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -371,6 +431,13 @@ unsafe fn launch_csr_mul_compute<T: CudaTypeName>(
 }
 
 /// Launch CSR div compute kernel
+///
+/// # Safety
+///
+/// - All pointer arguments must be valid device memory pointers on the device associated
+///   with `context`. Output buffers must be pre-allocated to the correct sizes.
+/// - `nrows` must match the number of rows in both input CSR matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csr_div_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -406,6 +473,13 @@ unsafe fn launch_csr_div_compute<T: CudaTypeName>(
 }
 
 /// Launch CSC intersect count kernel (for mul/div)
+///
+/// # Safety
+///
+/// - `col_ptrs_a`, `row_indices_a`, `col_ptrs_b`, `row_indices_b`, and `col_counts` must be
+///   valid device memory pointers on the device associated with `context`.
+/// - `ncols` must match the number of columns in both input CSC matrices.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_csc_intersect_count(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -696,6 +770,11 @@ unsafe fn launch_csc_div_compute<T: CudaTypeName>(
 /// Two-pass CSR addition: C = A + B (union semantics)
 ///
 /// Now uses generic_csr_merge with AddMerge strategy to eliminate duplication.
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_add_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -734,6 +813,11 @@ pub unsafe fn csr_add_merge<T: CudaTypeName>(
 /// Two-pass CSR subtraction: C = A - B (union semantics)
 ///
 /// Now uses generic_csr_merge with SubMerge strategy to eliminate duplication.
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_sub_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -772,6 +856,11 @@ pub unsafe fn csr_sub_merge<T: CudaTypeName>(
 /// Two-pass CSR element-wise multiplication: C = A .* B (intersection semantics)
 ///
 /// Now uses generic_csr_merge with MulMerge strategy to eliminate duplication.
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_mul_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -808,6 +897,11 @@ pub unsafe fn csr_mul_merge<T: CudaTypeName>(
 }
 
 /// Two-pass CSR element-wise division: C = A ./ B (intersection semantics)
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_div_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -848,6 +942,11 @@ pub unsafe fn csr_div_merge<T: CudaTypeName>(
 // ============================================================================
 
 /// Two-pass CSC addition: C = A + B (union semantics)
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_add_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -884,6 +983,11 @@ pub unsafe fn csc_add_merge<T: CudaTypeName>(
 }
 
 /// Two-pass CSC subtraction: C = A - B (union semantics)
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_sub_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -920,6 +1024,11 @@ pub unsafe fn csc_sub_merge<T: CudaTypeName>(
 }
 
 /// Two-pass CSC element-wise multiplication: C = A .* B (intersection semantics)
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_mul_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -956,6 +1065,11 @@ pub unsafe fn csc_mul_merge<T: CudaTypeName>(
 }
 
 /// Two-pass CSC element-wise division: C = A ./ B (intersection semantics)
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_div_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -1012,6 +1126,12 @@ use super::sparse_strategy::{MergeStrategy, SparseFormat};
 /// 1. **Count**: Determine output size per row using strategy-specific semantics
 /// 2. **Scan**: Compute row_ptrs via exclusive prefix sum
 /// 3. **Compute**: Merge values using strategy-specific operation
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
+/// The CUDA stream and context must be valid and associated with the correct device.
 pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -1147,6 +1267,12 @@ pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
 /// Generic two-pass CSC merge using strategy pattern
 ///
 /// CSC variant of generic_csr_merge. See generic_csr_merge for details.
+///
+/// # Safety
+///
+/// All tensor arguments must contain valid CUDA device pointers with correct sizes
+/// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
+/// The CUDA stream and context must be valid and associated with the correct device.
 pub unsafe fn generic_csc_merge<T: CudaTypeName, S: MergeStrategy>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

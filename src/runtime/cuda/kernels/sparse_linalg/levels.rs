@@ -24,6 +24,13 @@ use crate::error::Result;
 // ============================================================================
 
 /// Cast i64 GPU tensor to i32 GPU tensor (no CPU transfer)
+///
+/// # Safety
+///
+/// - `input` and `output` must be valid device memory pointers on the device associated with
+///   `context`, each with at least `n` elements of their respective types.
+/// - Values in `input` that exceed `i32::MAX` or are below `i32::MIN` will be truncated.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_cast_i64_to_i32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -48,7 +55,16 @@ pub unsafe fn launch_cast_i64_to_i32(
 // Level Computation
 // ============================================================================
 
-/// Compute level schedule for lower triangular (iterative BFS on GPU)
+/// Compute level schedule for lower triangular matrix via iterative BFS on GPU
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, `levels`, and `changed` must be valid device memory pointers on
+///   the device associated with `context`.
+/// - `row_ptrs` must have at least `n + 1` i32 elements; `col_indices` has `nnz` elements.
+/// - `levels` must have at least `n` i32 elements (initialized by caller before first call).
+/// - `changed` must point to a single i32 flag in device memory.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_compute_levels_lower_iter(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -73,7 +89,16 @@ pub unsafe fn launch_compute_levels_lower_iter(
     Ok(())
 }
 
-/// Compute level schedule for upper triangular (iterative BFS on GPU)
+/// Compute level schedule for upper triangular matrix via iterative BFS on GPU
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, `levels`, and `changed` must be valid device memory pointers on
+///   the device associated with `context`.
+/// - `row_ptrs` must have at least `n + 1` i32 elements; `col_indices` has `nnz` elements.
+/// - `levels` must have at least `n` i32 elements (initialized by caller before first call).
+/// - `changed` must point to a single i32 flag in device memory.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_compute_levels_upper_iter(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -102,7 +127,13 @@ pub unsafe fn launch_compute_levels_upper_iter(
 // Reduction
 // ============================================================================
 
-/// Find maximum level value via reduction
+/// Find maximum level value via single-block parallel reduction
+///
+/// # Safety
+///
+/// - `data` must be a valid device memory pointer with at least `n` i32 elements.
+/// - `result` must point to a single i32 element in device memory where the result is written.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_reduce_max_i32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -128,7 +159,15 @@ pub unsafe fn launch_reduce_max_i32(
 // Histogram and Scatter
 // ============================================================================
 
-/// Count occurrences of each level
+/// Count occurrences of each level via atomic histogram
+///
+/// # Safety
+///
+/// - `levels` must be a valid device memory pointer with at least `n` i32 elements.
+/// - `counts` must be a valid device memory pointer pre-allocated to hold the histogram
+///   (size must be at least `max_level + 1` as determined by the caller).
+/// - All values in `levels` must be non-negative and within bounds of the `counts` array.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_histogram_levels(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -149,7 +188,16 @@ pub unsafe fn launch_histogram_levels(
     Ok(())
 }
 
-/// Scatter rows by level into level_rows array
+/// Scatter rows by level into the `level_rows` array using atomic counters
+///
+/// # Safety
+///
+/// - `levels`, `level_ptrs`, `level_rows`, and `level_counters` must be valid device memory
+///   pointers on the device associated with `context`.
+/// - `levels` and `level_counters` must have at least `n` elements.
+/// - `level_ptrs` must have at least `num_levels + 1` elements (prefix sums of level sizes).
+/// - `level_rows` must have at least `n` elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_scatter_by_level(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

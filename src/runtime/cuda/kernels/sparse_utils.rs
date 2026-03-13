@@ -25,6 +25,7 @@ use crate::tensor::Tensor;
 // Module name
 // ============================================================================
 
+/// CUDA module name for sparse utility kernels (filtering, sums, NNZ counting, conversions).
 pub const SPARSE_UTILS_MODULE: &str = "sparse_utils";
 
 // ============================================================================
@@ -49,6 +50,12 @@ fn dtype_suffix<T: CudaTypeName>() -> Result<&'static str> {
 // ============================================================================
 
 /// Cast I32 tensor to I64 (for row_ptrs after scan)
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor with `DType::I32` residing on the device
+///   associated with `context`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn cast_i32_to_i64_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -86,6 +93,14 @@ unsafe fn cast_i32_to_i64_gpu(
 // ============================================================================
 
 /// Pass 1: Count values above threshold per row
+///
+/// # Safety
+///
+/// - `row_ptrs`, `values`, and `row_counts` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `row_ptrs` must have at least `nrows + 1` elements; `row_counts` must have at least `nrows`.
+/// - `values` must have at least as many elements as indicated by `row_ptrs[nrows]`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_filter_csr_count<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -125,6 +140,14 @@ unsafe fn launch_filter_csr_count<T: CudaTypeName + Copy + cudarc::driver::Devic
 }
 
 /// Pass 2: Copy filtered values and indices
+///
+/// # Safety
+///
+/// - All pointer arguments must be valid device memory pointers on the device associated with
+///   `context`. Output buffers (`out_row_ptrs`, `out_col_indices`, `out_values`) must be
+///   pre-allocated to the correct sizes (determined by the count pass and exclusive scan).
+/// - `nrows` must match the number of rows in the input CSR matrix.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_filter_csr_compute<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -169,7 +192,17 @@ unsafe fn launch_filter_csr_compute<T: CudaTypeName + Copy + cudarc::driver::Dev
     Ok(())
 }
 
-/// High-level CSR filtering (GPU-only, no CPU transfer)
+/// Filter CSR values below a threshold (GPU-only, no CPU transfer)
+///
+/// Two-pass algorithm: count surviving values per row, exclusive scan to get output offsets,
+/// then copy filtered data. All operations remain on the GPU.
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, and `values` must be valid `CudaRuntime` tensors on the device
+///   associated with `context` with consistent CSR structure.
+/// - `shape` must match the actual matrix dimensions.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -249,7 +282,14 @@ pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::Dev
 // Row/Column Sums
 // ============================================================================
 
-/// CSR row-wise sum (GPU kernel)
+/// Compute row-wise sum of a CSR sparse matrix (GPU kernel)
+///
+/// # Safety
+///
+/// - `row_ptrs` and `values` must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with a consistent CSR structure where `row_ptrs` has `nrows + 1` elements.
+/// - `nrows` must match the actual number of rows.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_sum_rows_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -291,7 +331,14 @@ pub unsafe fn csr_sum_rows_gpu<T: CudaTypeName>(
     Ok(out)
 }
 
-/// CSC column-wise sum (GPU kernel)
+/// Compute column-wise sum of a CSC sparse matrix (GPU kernel)
+///
+/// # Safety
+///
+/// - `col_ptrs` and `values` must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with a consistent CSC structure where `col_ptrs` has `ncols + 1` elements.
+/// - `ncols` must match the actual number of columns.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csc_sum_cols_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -337,7 +384,14 @@ pub unsafe fn csc_sum_cols_gpu<T: CudaTypeName>(
 // NNZ Counting
 // ============================================================================
 
-/// Count non-zeros per row (pointer difference)
+/// Count non-zeros per row of a CSR matrix using pointer differences (GPU kernel)
+///
+/// # Safety
+///
+/// - `row_ptrs` must be a valid `CudaRuntime` tensor on the device associated with `context`,
+///   with at least `nrows + 1` elements of type I64.
+/// - `nrows` must match the actual number of rows.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_nnz_per_row_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -375,7 +429,14 @@ pub unsafe fn csr_nnz_per_row_gpu(
     Ok(out)
 }
 
-/// Count non-zeros per column (pointer difference)
+/// Count non-zeros per column of a CSC matrix using pointer differences (GPU kernel)
+///
+/// # Safety
+///
+/// - `col_ptrs` must be a valid `CudaRuntime` tensor on the device associated with `context`,
+///   with at least `ncols + 1` elements of type I64.
+/// - `ncols` must match the actual number of columns.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csc_nnz_per_col_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -417,7 +478,15 @@ pub unsafe fn csc_nnz_per_col_gpu(
 // Sparse to Dense Conversion
 // ============================================================================
 
-/// Expand CSR to dense matrix (GPU kernel)
+/// Expand CSR sparse matrix to a dense matrix (GPU kernel)
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, and `values` must be valid `CudaRuntime` tensors on the device
+///   associated with `context` with a consistent CSR structure.
+/// - `shape` must match the actual matrix dimensions: `row_ptrs` has `shape[0] + 1` elements,
+///   `col_indices` and `values` have `nnz` elements, all column indices are in `[0, shape[1])`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_to_dense_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -470,7 +539,14 @@ pub unsafe fn csr_to_dense_gpu<T: CudaTypeName>(
 // Dense to COO Conversion (two-pass)
 // ============================================================================
 
-/// Pass 1: Count non-zeros per row
+/// Pass 1: Count non-zeros per row for dense-to-COO conversion
+///
+/// # Safety
+///
+/// - `input` must be a valid device memory pointer for a 2D row-major array of at least
+///   `nrows * ncols` elements of type `T`.
+/// - `row_counts` must be a valid device memory pointer with at least `nrows` i32 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_dense_to_coo_count<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -510,7 +586,15 @@ unsafe fn launch_dense_to_coo_count<T: CudaTypeName + Copy + cudarc::driver::Dev
     Ok(())
 }
 
-/// Pass 2: Extract COO triplets
+/// Pass 2: Extract COO triplets from a dense matrix
+///
+/// # Safety
+///
+/// - `input` must be a valid device memory pointer for a 2D row-major array of at least
+///   `nrows * ncols` elements of type `T`.
+/// - `offsets`, `row_indices`, `col_indices`, and `values` must be valid device memory pointers
+///   pre-allocated to hold at least `total_nnz` elements (as determined by the count pass).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_dense_to_coo_extract<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -556,7 +640,16 @@ unsafe fn launch_dense_to_coo_extract<T: CudaTypeName + Copy + cudarc::driver::D
     Ok(())
 }
 
-/// High-level dense to COO conversion (GPU-only)
+/// Convert a dense matrix to COO sparse format (GPU-only, no CPU transfer)
+///
+/// Two-pass algorithm: count non-zeros per row, exclusive scan to get offsets, then extract
+/// COO triplets. All operations remain on the GPU.
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor on the device associated with `context`.
+/// - `input` must be a 2D tensor; calling with a tensor of any other rank returns an error.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -637,7 +730,15 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
 // CSR Diagonal Extraction
 // ============================================================================
 
-/// Extract diagonal elements from CSR matrix (GPU kernel)
+/// Extract diagonal elements from a CSR matrix (GPU kernel)
+///
+/// # Safety
+///
+/// - `row_ptrs`, `col_indices`, `values`, and `diag` must be valid device memory pointers on
+///   the device associated with `context`.
+/// - `row_ptrs` must have at least `n + 1` elements; `diag` must have at least `n` elements.
+/// - `col_indices` and `values` must have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_csr_extract_diagonal<T: CudaTypeName>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

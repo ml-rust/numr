@@ -27,8 +27,18 @@ use crate::error::Result;
 // ============================================================================
 
 /// Applies dense Householder reflector to work vector - f32
-/// work[v_start..] -= tau * (v^T * work[v_start..]) * v
+///
+/// Computes: `work[v_start..] -= tau * (v^T * work[v_start..]) * v`
 /// Single block of 256 threads with shared memory reduction.
+///
+/// # Safety
+///
+/// - `v`, `tau_ptr`, and `work` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `v` must have at least `v_len` elements starting from index `v_start`.
+/// - `work` must have at least `m` elements.
+/// - `tau_ptr` must point to a single f32 scalar in device memory.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_apply_reflector_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -56,6 +66,18 @@ pub unsafe fn launch_sparse_qr_apply_reflector_f32(
 }
 
 /// Applies dense Householder reflector to work vector - f64
+///
+/// Computes: `work[v_start..] -= tau * (v^T * work[v_start..]) * v`
+/// Single block of 256 threads with shared memory reduction.
+///
+/// # Safety
+///
+/// - `v`, `tau_ptr`, and `work` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `v` must have at least `v_len` elements starting from index `v_start`.
+/// - `work` must have at least `m` elements.
+/// - `tau_ptr` must point to a single f64 scalar in device memory.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_apply_reflector_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -86,7 +108,14 @@ pub unsafe fn launch_sparse_qr_apply_reflector_f64(
 // Norm (sum of squares reduction, single block)
 // ============================================================================
 
-/// Computes ||work[start..start+count]||^2 via parallel reduction - f32
+/// Computes `||work[start..start+count]||^2` via parallel reduction - f32
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer on the device associated with `context`,
+///   with at least `start + count` f32 elements.
+/// - `result` must point to a single f32 element in device memory where the result will be written.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_norm_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -109,7 +138,14 @@ pub unsafe fn launch_sparse_qr_norm_f32(
     Ok(())
 }
 
-/// Computes ||work[start..start+count]||^2 - f64
+/// Computes `||work[start..start+count]||^2` via parallel reduction - f64
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer on the device associated with `context`,
+///   with at least `start + count` f64 elements.
+/// - `result` must point to a single f64 element in device memory where the result will be written.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_norm_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -136,7 +172,14 @@ pub unsafe fn launch_sparse_qr_norm_f64(
 // Householder vector computation (single block)
 // ============================================================================
 
-/// Computes Householder vector from work[start..m] - f32
+/// Computes Householder vector from `work[start..m]` and stores results - f32
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `m` f32 elements.
+/// - `norm_sq_ptr` must point to a single f32 scalar in device memory (the precomputed norm²).
+/// - `out_v`, `out_tau`, and `out_diag` must be valid device memory pointers with sufficient space.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_householder_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -165,7 +208,14 @@ pub unsafe fn launch_sparse_qr_householder_f32(
     Ok(())
 }
 
-/// Computes Householder vector from work[start..m] - f64
+/// Computes Householder vector from `work[start..m]` and stores results - f64
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `m` f64 elements.
+/// - `norm_sq_ptr` must point to a single f64 scalar in device memory (the precomputed norm²).
+/// - `out_v`, `out_tau`, and `out_diag` must be valid device memory pointers with sufficient space.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_householder_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -198,7 +248,13 @@ pub unsafe fn launch_sparse_qr_householder_f64(
 // Extract R off-diagonal entries
 // ============================================================================
 
-/// Copies work[0..count] to output buffer - f32
+/// Copies `work[0..count]` to output buffer - f32
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `count` f32 elements.
+/// - `output` must be a valid device memory pointer with at least `count` f32 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_extract_r_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -219,7 +275,13 @@ pub unsafe fn launch_sparse_qr_extract_r_f32(
     Ok(())
 }
 
-/// Copies work[0..count] to output buffer - f64
+/// Copies `work[0..count]` to output buffer - f64
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `count` f64 elements.
+/// - `output` must be a valid device memory pointer with at least `count` f64 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_extract_r_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -244,7 +306,12 @@ pub unsafe fn launch_sparse_qr_extract_r_f64(
 // Clear work vector
 // ============================================================================
 
-/// Sets work[0..n] to zero - f32
+/// Sets `work[0..n]` to zero - f32
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `n` f32 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_clear_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -263,7 +330,12 @@ pub unsafe fn launch_sparse_qr_clear_f32(
     Ok(())
 }
 
-/// Sets work[0..n] to zero - f64
+/// Sets `work[0..n]` to zero - f64
+///
+/// # Safety
+///
+/// - `work` must be a valid device memory pointer with at least `n` f64 elements.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_clear_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
