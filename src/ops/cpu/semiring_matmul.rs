@@ -57,12 +57,23 @@ impl SemiringMatmulOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let b_contig = ensure_contiguous(b);
 
-        // Calculate batch size
+        // Calculate batch size from output shape and per-input batch counts
         let batch_size: usize = out_shape
             .iter()
             .take(out_shape.len().saturating_sub(2))
             .product();
         let batch_size = batch_size.max(1);
+
+        let a_batch_count: usize = a_shape
+            .iter()
+            .take(a_shape.len().saturating_sub(2))
+            .product();
+        let a_batch_count = a_batch_count.max(1);
+        let b_batch_count: usize = b_shape
+            .iter()
+            .take(b_shape.len().saturating_sub(2))
+            .product();
+        let b_batch_count = b_batch_count.max(1);
 
         // Create output tensor
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
@@ -80,8 +91,8 @@ impl SemiringMatmulOps<CpuRuntime> for CpuClient {
             // Bool is stored as u8 internally
             unsafe {
                 for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
+                    let a_offset = (batch % a_batch_count) * m * k;
+                    let b_offset = (batch % b_batch_count) * k * n;
                     let out_offset = batch * m * n;
 
                     or_and_kernel(
@@ -104,8 +115,8 @@ impl SemiringMatmulOps<CpuRuntime> for CpuClient {
         dispatch_dtype!(dtype, T => {
             unsafe {
                 for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
+                    let a_offset = (batch % a_batch_count) * m * k;
+                    let b_offset = (batch % b_batch_count) * k * n;
                     let out_offset = batch * m * n;
 
                     semiring_matmul_kernel::<T>(

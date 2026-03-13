@@ -30,15 +30,17 @@ extern "C" __global__ void gemv_bf16(
     __nv_bfloat16* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const __nv_bfloat16* a_row = A + batch * M * K + m * K;
-    const __nv_bfloat16* b_base = B + batch * K * N;
+    const __nv_bfloat16* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const __nv_bfloat16* b_base = B + (batch % b_batch_count) * K * N;
 
     float acc = 0.0f;
     for (unsigned int k = 0; k < K; k++) {
@@ -54,15 +56,17 @@ extern "C" __global__ void gemv_f32(
     float* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const float* a_row = A + batch * M * K + m * K;
-    const float* b_base = B + batch * K * N;
+    const float* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const float* b_base = B + (batch % b_batch_count) * K * N;
 
     float acc = 0.0f;
     for (unsigned int k = 0; k < K; k++) {
@@ -78,15 +82,17 @@ extern "C" __global__ void gemv_f16(
     half* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const half* a_row = A + batch * M * K + m * K;
-    const half* b_base = B + batch * K * N;
+    const half* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const half* b_base = B + (batch % b_batch_count) * K * N;
 
     float acc = 0.0f;
     for (unsigned int k = 0; k < K; k++) {
@@ -102,15 +108,17 @@ extern "C" __global__ void gemv_f64(
     double* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const double* a_row = A + batch * M * K + m * K;
-    const double* b_base = B + batch * K * N;
+    const double* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const double* b_base = B + (batch % b_batch_count) * K * N;
 
     double acc = 0.0;
     for (unsigned int k = 0; k < K; k++) {
@@ -138,7 +146,9 @@ extern "C" __global__ void gemv_bt_bf16(
     __nv_bfloat16* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
@@ -147,8 +157,8 @@ extern "C" __global__ void gemv_bt_bf16(
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const __nv_bfloat16* a_row = A + batch * M * K + m * K;
-    const __nv_bfloat16* b_row = B + batch * N * K + col * K;  // B[col, 0..K]
+    const __nv_bfloat16* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const __nv_bfloat16* b_row = B + (batch % b_batch_count) * N * K + col * K;  // B[col, 0..K]
 
     float acc = 0.0f;
     for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
@@ -172,7 +182,9 @@ extern "C" __global__ void gemv_bt_f32(
     float* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
@@ -181,8 +193,8 @@ extern "C" __global__ void gemv_bt_f32(
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const float* a_row = A + batch * M * K + m * K;
-    const float* b_row = B + batch * N * K + col * K;
+    const float* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const float* b_row = B + (batch % b_batch_count) * N * K + col * K;
 
     float acc = 0.0f;
     for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
@@ -205,7 +217,9 @@ extern "C" __global__ void gemv_bt_f16(
     half* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
@@ -214,8 +228,8 @@ extern "C" __global__ void gemv_bt_f16(
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const half* a_row = A + batch * M * K + m * K;
-    const half* b_row = B + batch * N * K + col * K;
+    const half* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const half* b_row = B + (batch % b_batch_count) * N * K + col * K;
 
     float acc = 0.0f;
     for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {
@@ -256,15 +270,19 @@ extern "C" __global__ void gemv_bt_mr_bf16(
     __nv_bfloat16* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
     const unsigned int col_base = (blockIdx.x * WARPS_PER_BLOCK + warp_id) * ROWS_PER_WARP;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
+    const unsigned int a_batch = batch % a_batch_count;
+    const unsigned int b_batch = batch % b_batch_count;
 
-    const __nv_bfloat16* a_row = A + batch * M * K + m * K;
+    const __nv_bfloat16* a_row = A + a_batch * M * K + m * K;
 
     float acc[ROWS_PER_WARP] = {0.0f, 0.0f};
 
@@ -285,7 +303,7 @@ extern "C" __global__ void gemv_bt_mr_bf16(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     const float4* b_vec = reinterpret_cast<const float4*>(
-                        B + batch * N * K + (col_base + r) * K);
+                        B + b_batch * N * K + (col_base + r) * K);
                     float4 bv = b_vec[vi];
                     const __nv_bfloat16* b8 = reinterpret_cast<const __nv_bfloat16*>(&bv);
 
@@ -303,7 +321,7 @@ extern "C" __global__ void gemv_bt_mr_bf16(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     acc[r] += a_val * __bfloat162float(
-                        B[batch * N * K + (col_base + r) * K + k]);
+                        B[b_batch * N * K + (col_base + r) * K + k]);
                 }
             }
         }
@@ -326,15 +344,19 @@ extern "C" __global__ void gemv_bt_mr_f32(
     float* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
     const unsigned int col_base = (blockIdx.x * WARPS_PER_BLOCK + warp_id) * ROWS_PER_WARP;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
+    const unsigned int a_batch = batch % a_batch_count;
+    const unsigned int b_batch = batch % b_batch_count;
 
-    const float* a_row = A + batch * M * K + m * K;
+    const float* a_row = A + a_batch * M * K + m * K;
 
     float acc[ROWS_PER_WARP] = {0.0f, 0.0f};
 
@@ -352,7 +374,7 @@ extern "C" __global__ void gemv_bt_mr_f32(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     const float4* b_vec = reinterpret_cast<const float4*>(
-                        B + batch * N * K + (col_base + r) * K);
+                        B + b_batch * N * K + (col_base + r) * K);
                     float4 bv = b_vec[vi];
                     acc[r] += av.x * bv.x + av.y * bv.y + av.z * bv.z + av.w * bv.w;
                 }
@@ -364,7 +386,7 @@ extern "C" __global__ void gemv_bt_mr_f32(
             #pragma unroll
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
-                    acc[r] += a_val * B[batch * N * K + (col_base + r) * K + k];
+                    acc[r] += a_val * B[b_batch * N * K + (col_base + r) * K + k];
                 }
             }
         }
@@ -387,15 +409,19 @@ extern "C" __global__ void gemv_bt_mr_f16(
     half* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
     const unsigned int col_base = (blockIdx.x * WARPS_PER_BLOCK + warp_id) * ROWS_PER_WARP;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
+    const unsigned int a_batch = batch % a_batch_count;
+    const unsigned int b_batch = batch % b_batch_count;
 
-    const half* a_row = A + batch * M * K + m * K;
+    const half* a_row = A + a_batch * M * K + m * K;
 
     float acc[ROWS_PER_WARP] = {0.0f, 0.0f};
 
@@ -414,7 +440,7 @@ extern "C" __global__ void gemv_bt_mr_f16(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     const float4* b_vec = reinterpret_cast<const float4*>(
-                        B + batch * N * K + (col_base + r) * K);
+                        B + b_batch * N * K + (col_base + r) * K);
                     float4 bv = b_vec[vi];
                     const half* b8 = reinterpret_cast<const half*>(&bv);
 
@@ -432,7 +458,7 @@ extern "C" __global__ void gemv_bt_mr_f16(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     acc[r] += a_val * __half2float(
-                        B[batch * N * K + (col_base + r) * K + k]);
+                        B[b_batch * N * K + (col_base + r) * K + k]);
                 }
             }
         }
@@ -455,15 +481,19 @@ extern "C" __global__ void gemv_bt_mr_f64(
     double* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
     const unsigned int col_base = (blockIdx.x * WARPS_PER_BLOCK + warp_id) * ROWS_PER_WARP;
     const unsigned int m = blockIdx.y;
     const unsigned int batch = blockIdx.z;
+    const unsigned int a_batch = batch % a_batch_count;
+    const unsigned int b_batch = batch % b_batch_count;
 
-    const double* a_row = A + batch * M * K + m * K;
+    const double* a_row = A + a_batch * M * K + m * K;
 
     double acc[ROWS_PER_WARP] = {0.0, 0.0};
 
@@ -481,7 +511,7 @@ extern "C" __global__ void gemv_bt_mr_f64(
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
                     const double2* b_vec = reinterpret_cast<const double2*>(
-                        B + batch * N * K + (col_base + r) * K);
+                        B + b_batch * N * K + (col_base + r) * K);
                     double2 bv = b_vec[vi];
                     acc[r] += av.x * bv.x + av.y * bv.y;
                 }
@@ -493,7 +523,7 @@ extern "C" __global__ void gemv_bt_mr_f64(
             #pragma unroll
             for (int r = 0; r < ROWS_PER_WARP; r++) {
                 if (col_base + r < N) {
-                    acc[r] += a_val * B[batch * N * K + (col_base + r) * K + k];
+                    acc[r] += a_val * B[b_batch * N * K + (col_base + r) * K + k];
                 }
             }
         }
@@ -514,7 +544,9 @@ extern "C" __global__ void gemv_bt_f64(
     double* __restrict__ C,
     unsigned int M,
     unsigned int N,
-    unsigned int K
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     const unsigned int warp_id = threadIdx.x / WARP_SIZE;
     const unsigned int lane_id = threadIdx.x % WARP_SIZE;
@@ -523,8 +555,8 @@ extern "C" __global__ void gemv_bt_f64(
     const unsigned int batch = blockIdx.z;
     if (col >= N) return;
 
-    const double* a_row = A + batch * M * K + m * K;
-    const double* b_row = B + batch * N * K + col * K;
+    const double* a_row = A + (batch % a_batch_count) * M * K + m * K;
+    const double* b_row = B + (batch % b_batch_count) * N * K + col * K;
 
     double acc = 0.0;
     for (unsigned int k = lane_id; k < K; k += WARP_SIZE) {

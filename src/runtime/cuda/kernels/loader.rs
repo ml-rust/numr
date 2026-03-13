@@ -578,6 +578,8 @@ pub unsafe fn launch_matmul_kernel(
                 m,
                 n,
                 k,
+                1,
+                1,
             );
         }
     }
@@ -617,6 +619,8 @@ pub unsafe fn launch_gemv_kernel(
     m: usize,
     n: usize,
     k: usize,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::GEMV_MODULE)?;
     let func_name = kernel_name("gemv", dtype);
@@ -637,6 +641,8 @@ pub unsafe fn launch_gemv_kernel(
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let k_u32 = k as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -646,6 +652,8 @@ pub unsafe fn launch_gemv_kernel(
         builder.arg(&m_u32);
         builder.arg(&n_u32);
         builder.arg(&k_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
         builder
             .launch(cfg)
             .map_err(|e| Error::Internal(format!("CUDA GEMV kernel launch failed: {:?}", e)))?;
@@ -675,6 +683,8 @@ pub unsafe fn launch_gemv_kernel_bt(
     m: usize,
     n: usize,
     k: usize,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::GEMV_MODULE)?;
     let func_name = kernel_name("gemv_bt", dtype);
@@ -695,6 +705,8 @@ pub unsafe fn launch_gemv_kernel_bt(
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let k_u32 = k as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -704,6 +716,8 @@ pub unsafe fn launch_gemv_kernel_bt(
         builder.arg(&m_u32);
         builder.arg(&n_u32);
         builder.arg(&k_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
         builder
             .launch(cfg)
             .map_err(|e| Error::Internal(format!("CUDA GEMV-BT kernel launch failed: {:?}", e)))?;
@@ -733,6 +747,8 @@ pub unsafe fn launch_gemv_kernel_bt_mr(
     m: usize,
     n: usize,
     k: usize,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::GEMV_MODULE)?;
     let func_name = kernel_name("gemv_bt_mr", dtype);
@@ -755,6 +771,8 @@ pub unsafe fn launch_gemv_kernel_bt_mr(
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let k_u32 = k as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -764,6 +782,8 @@ pub unsafe fn launch_gemv_kernel_bt_mr(
         builder.arg(&m_u32);
         builder.arg(&n_u32);
         builder.arg(&k_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA GEMV-BT-MR kernel launch failed: {:?}", e))
         })?;
@@ -853,6 +873,8 @@ pub unsafe fn launch_matmul_batched_kernel(
     m: usize,
     n: usize,
     k: usize,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     // Use GEMV kernel for small M (batched case)
     if m <= 16 {
@@ -869,6 +891,8 @@ pub unsafe fn launch_matmul_batched_kernel(
                 m,
                 n,
                 k,
+                a_batch,
+                b_batch,
             );
         }
     }
@@ -886,6 +910,8 @@ pub unsafe fn launch_matmul_batched_kernel(
             n,
             k,
             &default_tile_config(dtype),
+            a_batch,
+            b_batch,
         )
     }
 }
@@ -908,6 +934,8 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
     n: usize,
     k: usize,
     tile_cfg: &TileConfig,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
     let func_name = kernel_name("matmul_batched", dtype);
@@ -929,6 +957,8 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
     let block_k = tile_cfg.block_k as u32;
     let thread_m = tile_cfg.thread_m as u32;
     let thread_n = tile_cfg.thread_n as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -944,6 +974,8 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
         builder.arg(&block_k);
         builder.arg(&thread_m);
         builder.arg(&thread_n);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA batched matmul kernel launch failed: {:?}", e))
@@ -1086,6 +1118,8 @@ pub unsafe fn launch_matmul_bias_batched_kernel(
     m: usize,
     n: usize,
     k: usize,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     unsafe {
         launch_matmul_bias_batched_kernel_with_config(
@@ -1102,6 +1136,8 @@ pub unsafe fn launch_matmul_bias_batched_kernel(
             n,
             k,
             &default_tile_config(dtype),
+            a_batch,
+            b_batch,
         )
     }
 }
@@ -1125,6 +1161,8 @@ pub unsafe fn launch_matmul_bias_batched_kernel_with_config(
     n: usize,
     k: usize,
     tile_cfg: &TileConfig,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
     let func_name = kernel_name("matmul_bias_batched", dtype);
@@ -1146,6 +1184,8 @@ pub unsafe fn launch_matmul_bias_batched_kernel_with_config(
     let block_k = tile_cfg.block_k as u32;
     let thread_m = tile_cfg.thread_m as u32;
     let thread_n = tile_cfg.thread_n as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -1162,6 +1202,8 @@ pub unsafe fn launch_matmul_bias_batched_kernel_with_config(
         builder.arg(&block_k);
         builder.arg(&thread_m);
         builder.arg(&thread_n);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(
@@ -1257,6 +1299,8 @@ pub unsafe fn launch_semiring_matmul_batched_kernel(
     n: usize,
     k: usize,
     semiring_op: u32,
+    a_batch: usize,
+    b_batch: usize,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, kernel_names::SEMIRING_MATMUL_MODULE)?;
     let func_name = kernel_name("semiring_matmul_batched", dtype);
@@ -1278,6 +1322,8 @@ pub unsafe fn launch_semiring_matmul_batched_kernel(
     let n_u32 = n as u32;
     let k_u32 = k as u32;
     let batch_u32 = batch as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
 
     unsafe {
         let mut builder = stream.launch_builder(&func);
@@ -1289,6 +1335,8 @@ pub unsafe fn launch_semiring_matmul_batched_kernel(
         builder.arg(&k_u32);
         builder.arg(&semiring_op);
         builder.arg(&batch_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(

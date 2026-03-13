@@ -160,7 +160,9 @@ extern "C" __global__ void matmul_batched_f32(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -173,8 +175,8 @@ extern "C" __global__ void matmul_batched_f32(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const float* A_batch = A + b * stride_a;
-    const float* B_batch = B + b * stride_b;
+    const float* A_batch = A + (b % a_batch_count) * stride_a;
+    const float* B_batch = B + (b % b_batch_count) * stride_b;
     float* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -378,7 +380,9 @@ extern "C" __global__ void matmul_batched_f64(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ double shared_mem_f64[];
     double* As = shared_mem_f64;
@@ -391,8 +395,8 @@ extern "C" __global__ void matmul_batched_f64(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const double* A_batch = A + b * stride_a;
-    const double* B_batch = B + b * stride_b;
+    const double* A_batch = A + (b % a_batch_count) * stride_a;
+    const double* B_batch = B + (b % b_batch_count) * stride_b;
     double* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -597,7 +601,9 @@ extern "C" __global__ void matmul_batched_f16(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -610,8 +616,8 @@ extern "C" __global__ void matmul_batched_f16(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const __half* A_batch = A + b * stride_a;
-    const __half* B_batch = B + b * stride_b;
+    const __half* A_batch = A + (b % a_batch_count) * stride_a;
+    const __half* B_batch = B + (b % b_batch_count) * stride_b;
     __half* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -815,7 +821,9 @@ extern "C" __global__ void matmul_batched_bf16(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -828,8 +836,8 @@ extern "C" __global__ void matmul_batched_bf16(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const __nv_bfloat16* A_batch = A + b * stride_a;
-    const __nv_bfloat16* B_batch = B + b * stride_b;
+    const __nv_bfloat16* A_batch = A + (b % a_batch_count) * stride_a;
+    const __nv_bfloat16* B_batch = B + (b % b_batch_count) * stride_b;
     __nv_bfloat16* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -1042,7 +1050,9 @@ extern "C" __global__ void matmul_bias_batched_f32(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -1055,8 +1065,8 @@ extern "C" __global__ void matmul_bias_batched_f32(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const float* A_batch = A + b * stride_a;
-    const float* B_batch = B + b * stride_b;
+    const float* A_batch = A + (b % a_batch_count) * stride_a;
+    const float* B_batch = B + (b % b_batch_count) * stride_b;
     float* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -1264,7 +1274,9 @@ extern "C" __global__ void matmul_bias_batched_f64(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ double shared_mem_f64[];
     double* As = shared_mem_f64;
@@ -1277,8 +1289,8 @@ extern "C" __global__ void matmul_bias_batched_f64(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const double* A_batch = A + b * stride_a;
-    const double* B_batch = B + b * stride_b;
+    const double* A_batch = A + (b % a_batch_count) * stride_a;
+    const double* B_batch = B + (b % b_batch_count) * stride_b;
     double* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -1487,7 +1499,9 @@ extern "C" __global__ void matmul_bias_batched_f16(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -1500,8 +1514,8 @@ extern "C" __global__ void matmul_bias_batched_f16(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const __half* A_batch = A + b * stride_a;
-    const __half* B_batch = B + b * stride_b;
+    const __half* A_batch = A + (b % a_batch_count) * stride_a;
+    const __half* B_batch = B + (b % b_batch_count) * stride_b;
     __half* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;
@@ -1711,7 +1725,9 @@ extern "C" __global__ void matmul_bias_batched_bf16(
     unsigned int block_n,
     unsigned int block_k,
     unsigned int thread_m,
-    unsigned int thread_n
+    unsigned int thread_n,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     extern __shared__ float shared_mem[];
     float* As = shared_mem;
@@ -1724,8 +1740,8 @@ extern "C" __global__ void matmul_bias_batched_bf16(
     const unsigned int stride_b = K * N;
     const unsigned int stride_c = M * N;
 
-    const __nv_bfloat16* A_batch = A + b * stride_a;
-    const __nv_bfloat16* B_batch = B + b * stride_b;
+    const __nv_bfloat16* A_batch = A + (b % a_batch_count) * stride_a;
+    const __nv_bfloat16* B_batch = B + (b % b_batch_count) * stride_b;
     __nv_bfloat16* C_batch = C + b * stride_c;
 
     const unsigned int tx = threadIdx.x;

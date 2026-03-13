@@ -74,6 +74,8 @@ pub(crate) fn matmul_native(
                 m,
                 n,
                 k,
+                1, // a_batch
+                1, // b_batch
             )?;
         }
 
@@ -118,6 +120,22 @@ fn is_batched_transpose_last2(tensor: &Tensor<CudaRuntime>) -> bool {
     strides[1] == 1 && strides[2] == k as isize && strides[0] == (n * k) as isize
 }
 
+/// Compute batch count for A and B from their shapes.
+/// Returns (a_batch_count, b_batch_count) where each is the product of
+/// the leading dimensions (all dims except the last two).
+/// Returns 1 for 2D tensors (no batch dimension).
+fn compute_batch_counts(a_shape: &[usize], b_shape: &[usize]) -> (usize, usize) {
+    let a_batch: usize = a_shape
+        .iter()
+        .take(a_shape.len().saturating_sub(2))
+        .product();
+    let b_batch: usize = b_shape
+        .iter()
+        .take(b_shape.len().saturating_sub(2))
+        .product();
+    (a_batch.max(1), b_batch.max(1))
+}
+
 /// Native batched matrix multiplication using tiled CUDA kernel.
 pub(crate) fn matmul_batched_native(
     client: &CudaClient,
@@ -133,6 +151,8 @@ pub(crate) fn matmul_batched_native(
         expected: a.shape().to_vec(),
         got: b.shape().to_vec(),
     })?;
+
+    let (a_batch, b_batch) = compute_batch_counts(a.shape(), b.shape());
 
     // Fast path: transposed B with small M → gemv_bt
     if m <= 16 && is_batched_transpose_last2(b) {
@@ -152,6 +172,8 @@ pub(crate) fn matmul_batched_native(
                 m,
                 n,
                 k,
+                a_batch,
+                b_batch,
             )?;
         }
 
@@ -176,6 +198,8 @@ pub(crate) fn matmul_batched_native(
             m,
             n,
             k,
+            a_batch,
+            b_batch,
         )?;
     }
 
@@ -256,6 +280,8 @@ pub(crate) fn matmul_bias_batched_native(
         },
     )?;
 
+    let (a_batch, b_batch) = compute_batch_counts(a.shape(), b.shape());
+
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
@@ -272,6 +298,8 @@ pub(crate) fn matmul_bias_batched_native(
             m,
             n,
             k,
+            a_batch,
+            b_batch,
         )?;
     }
 
@@ -716,6 +744,8 @@ pub(crate) fn semiring_matmul_batched_native(
         got: b.shape().to_vec(),
     })?;
 
+    let (a_batch, b_batch) = compute_batch_counts(a.shape(), b.shape());
+
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
@@ -732,6 +762,8 @@ pub(crate) fn semiring_matmul_batched_native(
             n,
             k,
             semiring_op,
+            a_batch,
+            b_batch,
         )?;
     }
 

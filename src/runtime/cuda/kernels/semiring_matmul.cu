@@ -110,7 +110,9 @@ extern "C" __global__ void semiring_matmul_batched_f32(
     unsigned int N,
     unsigned int K,
     unsigned int op,
-    unsigned int batch_size
+    unsigned int batch_size,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     unsigned int batch = blockIdx.z;
     if (batch >= batch_size) return;
@@ -120,8 +122,8 @@ extern "C" __global__ void semiring_matmul_batched_f32(
 
     if (row >= M || col >= N) return;
 
-    unsigned int a_offset = batch * M * K;
-    unsigned int b_offset = batch * K * N;
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
     unsigned int c_offset = batch * M * N;
 
     float acc;
@@ -214,7 +216,9 @@ extern "C" __global__ void semiring_matmul_batched_f64(
     unsigned int N,
     unsigned int K,
     unsigned int op,
-    unsigned int batch_size
+    unsigned int batch_size,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     unsigned int batch = blockIdx.z;
     if (batch >= batch_size) return;
@@ -224,8 +228,8 @@ extern "C" __global__ void semiring_matmul_batched_f64(
 
     if (row >= M || col >= N) return;
 
-    unsigned int a_offset = batch * M * K;
-    unsigned int b_offset = batch * K * N;
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
     unsigned int c_offset = batch * M * N;
 
     double acc;
@@ -318,7 +322,9 @@ extern "C" __global__ void semiring_matmul_batched_i32(
     unsigned int N,
     unsigned int K,
     unsigned int op,
-    unsigned int batch_size
+    unsigned int batch_size,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     unsigned int batch = blockIdx.z;
     if (batch >= batch_size) return;
@@ -328,8 +334,8 @@ extern "C" __global__ void semiring_matmul_batched_i32(
 
     if (row >= M || col >= N) return;
 
-    unsigned int a_offset = batch * M * K;
-    unsigned int b_offset = batch * K * N;
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
     unsigned int c_offset = batch * M * N;
 
     int acc;
@@ -422,7 +428,9 @@ extern "C" __global__ void semiring_matmul_batched_u8(
     unsigned int N,
     unsigned int K,
     unsigned int op,
-    unsigned int batch_size
+    unsigned int batch_size,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
 ) {
     unsigned int batch = blockIdx.z;
     if (batch >= batch_size) return;
@@ -432,8 +440,8 @@ extern "C" __global__ void semiring_matmul_batched_u8(
 
     if (row >= M || col >= N) return;
 
-    unsigned int a_offset = batch * M * K;
-    unsigned int b_offset = batch * K * N;
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
     unsigned int c_offset = batch * M * N;
 
     unsigned char acc;
