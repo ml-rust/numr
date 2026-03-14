@@ -86,7 +86,7 @@ jobs:
 
       # Backend compile gates
       - name: "Compile: cpu-only (no default features)"
-        run: cargo check --no-default-features --features cpu
+        run: cargo check --no-default-features
 
       - name: "Compile: cpu + f16 + sparse"
         run: cargo check --features f16,sparse
@@ -95,7 +95,7 @@ jobs:
         run: cargo check --features wgpu,f16,sparse
 
       - name: "Compile tests: cpu-only"
-        run: cargo test --no-run --no-default-features --features cpu
+        run: cargo test --no-run --no-default-features
 
       - name: "Compile tests: wgpu"
         run: cargo test --no-run --features wgpu,f16,sparse
