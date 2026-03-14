@@ -250,7 +250,7 @@ fn test_where_cond_from_compare_parity() {
 
             assert_tensor_allclose(
                 &result,
-                &cpu_result,
+                &_cpu_result,
                 dtype,
                 "where_cond(gt mask) WebGPU vs CPU",
             );
