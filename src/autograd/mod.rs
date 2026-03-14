@@ -107,6 +107,7 @@
 
 // Reverse-mode AD
 mod backward;
+mod checkpoint;
 mod grad_fn;
 mod grad_store;
 mod var;
@@ -122,17 +123,27 @@ pub mod ops;
 
 // Reverse-mode exports
 pub use crate::tensor::id::TensorId;
-pub use backward::{backward, backward_with_graph};
+pub use backward::{BackwardHook, NoOpHook, backward, backward_with_graph, backward_with_hooks};
+pub use checkpoint::checkpoint;
 pub use grad_fn::GradFn;
 pub use grad_store::GradStore;
 pub use var::Var;
 pub use var_grad_store::VarGradStore;
+pub use var_ops::var_dropout;
 pub use var_ops::{
-    var_abs, var_add, var_add_scalar, var_cholesky, var_clamp, var_cos, var_cumprod, var_cumsum,
-    var_det, var_div, var_div_scalar, var_exp, var_gather, var_inverse, var_log, var_matmul,
+    var_abs, var_add, var_add_scalar, var_cast, var_cholesky, var_clamp, var_conv1d, var_conv2d,
+    var_cos, var_cumprod, var_cumsum, var_det, var_div, var_div_scalar, var_exp,
+    var_fused_add_layer_norm, var_fused_add_rms_norm, var_gather, var_gelu_mul, var_group_norm,
+    var_inverse, var_layer_norm, var_log, var_log_softmax, var_matmul, var_matmul_bias_activation,
     var_max, var_mean, var_min, var_mul, var_mul_scalar, var_neg, var_pow, var_pow_scalar,
-    var_recip, var_relu, var_sigmoid, var_sin, var_softmax, var_solve, var_sqrt, var_square,
-    var_std, var_sub, var_sub_scalar, var_sum, var_tan, var_tanh, var_trace, var_var,
+    var_recip, var_relu, var_relu_mul, var_rms_norm, var_sigmoid, var_sigmoid_mul, var_silu,
+    var_silu_mul, var_sin, var_softmax, var_softplus, var_solve, var_sqrt, var_square, var_std,
+    var_sub, var_sub_scalar, var_sum, var_swiglu, var_tan, var_tanh, var_trace, var_var,
+};
+
+// Shape operation exports (re-exported via autograd::ops::*)
+pub use self::ops::{
+    var_broadcast_to, var_cat, var_narrow, var_permute, var_reshape, var_transpose,
 };
 
 // Forward-mode exports

@@ -19,10 +19,10 @@ struct ScatterParams {
     count: u32,
 }
 
-@group(0) @binding(0) var<uniform> scatter_params: ScatterParams;
-@group(0) @binding(1) var<storage, read> scatter_values_f32: array<f32>;
-@group(0) @binding(2) var<storage, read> scatter_row_indices: array<i32>;
-@group(0) @binding(3) var<storage, read_write> scatter_work_f32: array<f32>;
+@group(0) @binding(0) var<storage, read> scatter_values_f32: array<f32>;
+@group(0) @binding(1) var<storage, read> scatter_row_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> scatter_work_f32: array<f32>;
+@group(0) @binding(3) var<uniform> scatter_params: ScatterParams;
 
 @compute @workgroup_size(256)
 fn sparse_scatter_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -315,13 +315,13 @@ struct TrsvCscUpperParams {
     _pad: u32,
 }
 
-@group(0) @binding(0) var<uniform> trsv_upper_params: TrsvCscUpperParams;
-@group(0) @binding(1) var<storage, read> trsv_upper_level_cols: array<i32>;
-@group(0) @binding(2) var<storage, read> trsv_upper_col_ptrs: array<i32>;
-@group(0) @binding(3) var<storage, read> trsv_upper_row_indices: array<i32>;
-@group(0) @binding(4) var<storage, read> trsv_upper_values: array<f32>;
-@group(0) @binding(5) var<storage, read> trsv_upper_diag_ptr: array<i32>;
-@group(0) @binding(6) var<storage, read_write> trsv_upper_b: array<f32>;
+@group(0) @binding(0) var<storage, read> trsv_upper_level_cols: array<i32>;
+@group(0) @binding(1) var<storage, read> trsv_upper_col_ptrs: array<i32>;
+@group(0) @binding(2) var<storage, read> trsv_upper_row_indices: array<i32>;
+@group(0) @binding(3) var<storage, read> trsv_upper_values: array<f32>;
+@group(0) @binding(4) var<storage, read> trsv_upper_diag_ptr: array<i32>;
+@group(0) @binding(5) var<storage, read_write> trsv_upper_b: array<f32>;
+@group(0) @binding(6) var<uniform> trsv_upper_params: TrsvCscUpperParams;
 
 @compute @workgroup_size(256)
 fn sparse_trsv_csc_upper_level_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -367,10 +367,10 @@ struct FindDiagCscParams {
     _pad3: u32,
 }
 
-@group(0) @binding(0) var<uniform> find_diag_csc_params: FindDiagCscParams;
-@group(0) @binding(1) var<storage, read> find_diag_csc_col_ptrs: array<i32>;
-@group(0) @binding(2) var<storage, read> find_diag_csc_row_indices: array<i32>;
-@group(0) @binding(3) var<storage, read_write> find_diag_csc_diag_ptr: array<i32>;
+@group(0) @binding(0) var<storage, read> find_diag_csc_col_ptrs: array<i32>;
+@group(0) @binding(1) var<storage, read> find_diag_csc_row_indices: array<i32>;
+@group(0) @binding(2) var<storage, read_write> find_diag_csc_diag_ptr: array<i32>;
+@group(0) @binding(3) var<uniform> find_diag_csc_params: FindDiagCscParams;
 
 @compute @workgroup_size(256)
 fn find_diag_indices_csc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -400,10 +400,10 @@ struct ApplyPermParams {
     _pad3: u32,
 }
 
-@group(0) @binding(0) var<uniform> apply_perm_params: ApplyPermParams;
-@group(0) @binding(1) var<storage, read> apply_perm_b: array<f32>;
-@group(0) @binding(2) var<storage, read> apply_perm_perm: array<i32>;
-@group(0) @binding(3) var<storage, read_write> apply_perm_y: array<f32>;
+@group(0) @binding(0) var<storage, read> apply_perm_b: array<f32>;
+@group(0) @binding(1) var<storage, read> apply_perm_perm: array<i32>;
+@group(0) @binding(2) var<storage, read_write> apply_perm_y: array<f32>;
+@group(0) @binding(3) var<uniform> apply_perm_params: ApplyPermParams;
 
 @compute @workgroup_size(256)
 fn apply_row_perm_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -495,5 +495,218 @@ fn sparse_swap_rows(@builtin(global_invocation_id) gid: vec3<u32>) {
         let tmp_perm = swap_perm[swap_params.row_a];
         swap_perm[swap_params.row_a] = swap_perm[swap_params.row_b];
         swap_perm[swap_params.row_b] = tmp_perm;
+    }
+}
+
+// ============================================================================
+// Sparse QR Factorization Kernels (F32 only)
+// ============================================================================
+
+// Apply Householder reflector: fused dot + axpy
+// work[v_start..v_start+v_len] -= tau * (v^T * work[v_start..]) * v
+// Single workgroup, shared memory reduction for dot product
+struct QrReflectorParams {
+    v_start: u32,
+    v_len: u32,
+}
+
+@group(0) @binding(0) var<storage, read> qr_reflector_v: array<f32>;
+@group(0) @binding(1) var<storage, read> qr_reflector_tau: array<f32>;
+@group(0) @binding(2) var<storage, read_write> qr_reflector_work: array<f32>;
+@group(0) @binding(3) var<uniform> qr_reflector_params: QrReflectorParams;
+
+var<workgroup> qr_dot_partial: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn sparse_qr_apply_reflector_f32(@builtin(local_invocation_id) lid: vec3<u32>) {
+    let tid = lid.x;
+    let v_start = qr_reflector_params.v_start;
+    let v_len = qr_reflector_params.v_len;
+    let tau = qr_reflector_tau[0];
+
+    if (tau == 0.0) { return; }
+
+    // Phase 1: dot product
+    var my_sum: f32 = 0.0;
+    var i = tid;
+    loop {
+        if (i >= v_len) { break; }
+        my_sum += qr_reflector_v[i] * qr_reflector_work[v_start + i];
+        i += 256u;
+    }
+    qr_dot_partial[tid] = my_sum;
+    workgroupBarrier();
+
+    // Reduction
+    var s = 128u;
+    loop {
+        if (s == 0u) { break; }
+        if (tid < s) {
+            qr_dot_partial[tid] += qr_dot_partial[tid + s];
+        }
+        workgroupBarrier();
+        s = s >> 1u;
+    }
+
+    let scale = tau * qr_dot_partial[0];
+
+    // Phase 2: axpy
+    i = tid;
+    loop {
+        if (i >= v_len) { break; }
+        qr_reflector_work[v_start + i] -= scale * qr_reflector_v[i];
+        i += 256u;
+    }
+}
+
+// Norm: compute ||work[start..start+count]||^2
+struct QrNormParams {
+    start: u32,
+    count: u32,
+}
+
+@group(0) @binding(0) var<storage, read> qr_norm_work: array<f32>;
+@group(0) @binding(1) var<storage, read_write> qr_norm_result: array<f32>;
+@group(0) @binding(2) var<uniform> qr_norm_params: QrNormParams;
+
+var<workgroup> qr_norm_partial: array<f32, 256>;
+
+@compute @workgroup_size(256)
+fn sparse_qr_norm_f32(@builtin(local_invocation_id) lid: vec3<u32>) {
+    let tid = lid.x;
+    let start = qr_norm_params.start;
+    let count = qr_norm_params.count;
+
+    var my_sum: f32 = 0.0;
+    var i = tid;
+    loop {
+        if (i >= count) { break; }
+        let val = qr_norm_work[start + i];
+        my_sum += val * val;
+        i += 256u;
+    }
+    qr_norm_partial[tid] = my_sum;
+    workgroupBarrier();
+
+    var s = 128u;
+    loop {
+        if (s == 0u) { break; }
+        if (tid < s) {
+            qr_norm_partial[tid] += qr_norm_partial[tid + s];
+        }
+        workgroupBarrier();
+        s = s >> 1u;
+    }
+
+    if (tid == 0u) {
+        qr_norm_result[0] = qr_norm_partial[0];
+    }
+}
+
+// Householder: compute Householder vector from work[start..m]
+//
+// Tolerance 1e-30: well below f32 machine epsilon (~1e-7). Matches CPU
+// implementation (algorithm.rs:226,238). Detects truly zero columns without
+// false positives from normal floating-point roundoff.
+struct QrHouseholderParams {
+    start: u32,
+    m: u32,
+}
+
+@group(0) @binding(0) var<storage, read> qr_hh_work: array<f32>;
+@group(0) @binding(1) var<storage, read> qr_hh_norm_sq: array<f32>;
+@group(0) @binding(2) var<storage, read_write> qr_hh_out_v: array<f32>;
+@group(0) @binding(3) var<storage, read_write> qr_hh_out_tau: array<f32>;
+@group(0) @binding(4) var<storage, read_write> qr_hh_out_diag: array<f32>;
+@group(0) @binding(5) var<uniform> qr_hh_params: QrHouseholderParams;
+
+var<workgroup> qr_hh_ctrl: array<f32, 4>; // [sigma, tau, diag, inv_v_start]
+
+@compute @workgroup_size(256)
+fn sparse_qr_householder_f32(@builtin(local_invocation_id) lid: vec3<u32>) {
+    let tid = lid.x;
+    let start = qr_hh_params.start;
+    let m = qr_hh_params.m;
+    let v_len = m - start;
+
+    if (tid == 0u) {
+        let norm_sq = qr_hh_norm_sq[0];
+        let norm = sqrt(norm_sq);
+
+        if (norm < 1e-30) {
+            qr_hh_ctrl[0] = 0.0; qr_hh_ctrl[1] = 0.0;
+            qr_hh_ctrl[2] = 0.0; qr_hh_ctrl[3] = 0.0;
+        } else {
+            let x0 = qr_hh_work[start];
+            var sigma: f32;
+            if (x0 >= 0.0) { sigma = -norm; } else { sigma = norm; }
+            let v_start_val = x0 - sigma;
+
+            if (abs(v_start_val) < 1e-30) {
+                qr_hh_ctrl[0] = sigma; qr_hh_ctrl[1] = 0.0;
+                qr_hh_ctrl[2] = sigma; qr_hh_ctrl[3] = 0.0;
+            } else {
+                qr_hh_ctrl[0] = sigma;
+                qr_hh_ctrl[1] = -v_start_val / sigma;
+                qr_hh_ctrl[2] = sigma;
+                qr_hh_ctrl[3] = 1.0 / v_start_val;
+            }
+        }
+    }
+    workgroupBarrier();
+
+    let tau = qr_hh_ctrl[1];
+    let inv_v_start = qr_hh_ctrl[3];
+
+    if (tid == 0u) {
+        qr_hh_out_tau[0] = tau;
+        qr_hh_out_diag[0] = qr_hh_ctrl[2];
+    }
+    workgroupBarrier(); // Ensure scalar writes complete before output loop
+
+    var i = tid;
+    loop {
+        if (i >= v_len) { break; }
+        if (tau == 0.0) {
+            if (i == 0u) { qr_hh_out_v[i] = 1.0; } else { qr_hh_out_v[i] = 0.0; }
+        } else {
+            if (i == 0u) { qr_hh_out_v[i] = 1.0; } else { qr_hh_out_v[i] = qr_hh_work[start + i] * inv_v_start; }
+        }
+        i += 256u;
+    }
+}
+
+// Extract R off-diagonal: copy work[0..count] to output
+struct QrExtractRParams {
+    count: u32,
+    _alignment: u32, // WGSL uniform buffer 8-byte minimum alignment
+}
+
+@group(0) @binding(0) var<storage, read> qr_extract_work: array<f32>;
+@group(0) @binding(1) var<storage, read_write> qr_extract_output: array<f32>;
+@group(0) @binding(2) var<uniform> qr_extract_params: QrExtractRParams;
+
+@compute @workgroup_size(256)
+fn sparse_qr_extract_r_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i < qr_extract_params.count) {
+        qr_extract_output[i] = qr_extract_work[i];
+    }
+}
+
+// Clear work vector: work[0..n] = 0
+struct QrClearParams {
+    n: u32,
+    _alignment: u32, // WGSL uniform buffer 8-byte minimum alignment
+}
+
+@group(0) @binding(0) var<storage, read_write> qr_clear_work: array<f32>;
+@group(0) @binding(1) var<uniform> qr_clear_params: QrClearParams;
+
+@compute @workgroup_size(256)
+fn sparse_qr_clear_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let i = gid.x;
+    if (i < qr_clear_params.n) {
+        qr_clear_work[i] = 0.0;
     }
 }

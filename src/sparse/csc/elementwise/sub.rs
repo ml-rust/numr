@@ -1,11 +1,12 @@
 //! Element-wise subtraction for CSC matrices
 
 use super::super::CscData;
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseStorage};
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Element-wise subtraction: C = A - B
     ///
     /// Computes the difference of two sparse matrices with the same shape.

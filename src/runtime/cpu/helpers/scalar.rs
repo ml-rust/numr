@@ -21,8 +21,8 @@ pub fn scalar_op_impl(
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let len = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -50,8 +50,8 @@ pub fn rsub_scalar_op_impl(
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let len = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {

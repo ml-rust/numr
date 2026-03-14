@@ -1,6 +1,7 @@
 //! Activation operations on dual tensors
 
 use crate::autograd::DualTensor;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{ActivationOps, BinaryOps, CompareOps, ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -9,7 +10,7 @@ use crate::tensor::Tensor;
 /// Dual ReLU: relu(a, ȧ) = (relu(a), ȧ * (a > 0))
 pub fn dual_relu<R, C>(a: &DualTensor<R>, client: &C) -> Result<DualTensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + ActivationOps<R> + CompareOps<R> + BinaryOps<R> + TensorOps<R>,
 {
     let primal = client.relu(a.primal())?;
@@ -30,7 +31,7 @@ where
 /// Dual sigmoid: sigmoid(a, ȧ) = (σ(a), σ(a) * (1 - σ(a)) * ȧ)
 pub fn dual_sigmoid<R, C>(a: &DualTensor<R>, client: &C) -> Result<DualTensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + ActivationOps<R> + BinaryOps<R> + ScalarOps<R>,
 {
     let primal = client.sigmoid(a.primal())?;

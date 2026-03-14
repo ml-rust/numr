@@ -26,6 +26,11 @@ fn sort_shared_mem_size(sort_size: usize, elem_size: usize) -> u32 {
 }
 
 /// Launch sort kernel with indices
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_sort(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -77,6 +82,11 @@ pub unsafe fn launch_sort(
 }
 
 /// Launch sort kernel (values only, no indices)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_sort_values_only(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -128,6 +138,11 @@ pub unsafe fn launch_sort_values_only(
 }
 
 /// Launch argsort kernel (indices only, no values)
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_argsort(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -176,6 +191,11 @@ pub unsafe fn launch_argsort(
 }
 
 /// Launch topk kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_topk(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -232,6 +252,11 @@ pub unsafe fn launch_topk(
 }
 
 /// Launch count_nonzero kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_count_nonzero(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -268,6 +293,11 @@ pub unsafe fn launch_count_nonzero(
 }
 
 /// Launch gather_nonzero kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_gather_nonzero(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -306,6 +336,11 @@ pub unsafe fn launch_gather_nonzero(
 }
 
 /// Launch flat_to_multi_index kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_flat_to_multi_index(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -346,6 +381,11 @@ pub unsafe fn launch_flat_to_multi_index(
 }
 
 /// Launch searchsorted kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_searchsorted(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -388,6 +428,11 @@ pub unsafe fn launch_searchsorted(
 }
 
 /// Launch count_unique kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_count_unique(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -422,6 +467,11 @@ pub unsafe fn launch_count_unique(
 }
 
 /// Launch extract_unique kernel
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_extract_unique(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -458,6 +508,11 @@ pub unsafe fn launch_extract_unique(
 }
 
 /// Launch bincount kernel - counts occurrences of each index
+///
+/// # Safety
+///
+/// Caller must ensure all raw pointer arguments (`*_ptr`) point to valid GPU memory
+/// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_bincount(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

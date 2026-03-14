@@ -308,6 +308,92 @@ fn native_softmax_last_dim(
     Ok(out)
 }
 
+/// Softmax backward with dedicated GPU kernel.
+///
+/// d_input = output * (grad - sum(grad * output))
+pub(crate) fn native_softmax_bwd(
+    client: &WgpuClient,
+    grad: &Tensor<WgpuRuntime>,
+    output: &Tensor<WgpuRuntime>,
+    dim: isize,
+) -> Result<Tensor<WgpuRuntime>> {
+    let shape = grad.shape();
+    let ndim = shape.len();
+
+    let dim = if dim < 0 {
+        (ndim as isize + dim) as usize
+    } else {
+        dim as usize
+    };
+
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // For non-last dimension, permute to last, compute, permute back
+    if dim != ndim - 1 {
+        let mut perm: Vec<usize> = (0..ndim).collect();
+        perm.remove(dim);
+        perm.push(dim);
+
+        let grad_p = grad.permute(&perm)?.contiguous();
+        let output_p = output.permute(&perm)?.contiguous();
+        let result = native_softmax_bwd_last_dim(client, &grad_p, &output_p)?;
+
+        let mut inv_perm = vec![0; ndim];
+        for (i, &p) in perm.iter().enumerate() {
+            inv_perm[p] = i;
+        }
+        return result.permute(&inv_perm);
+    }
+
+    native_softmax_bwd_last_dim(client, grad, output)
+}
+
+fn native_softmax_bwd_last_dim(
+    client: &WgpuClient,
+    grad: &Tensor<WgpuRuntime>,
+    output: &Tensor<WgpuRuntime>,
+) -> Result<Tensor<WgpuRuntime>> {
+    let shape = grad.shape();
+    let ndim = shape.len();
+    let dtype = grad.dtype();
+
+    let grad_contig = ensure_contiguous(grad);
+    let output_contig = ensure_contiguous(output);
+    let dim = ndim - 1;
+    let batch_size: usize = shape[..dim].iter().product();
+    let dim_size = shape[dim];
+
+    let d_input = alloc_output(client, shape, dtype);
+
+    let grad_buf = get_tensor_buffer(&grad_contig)?;
+    let output_buf = get_tensor_buffer(&output_contig)?;
+    let d_input_buf = get_tensor_buffer(&d_input)?;
+
+    let params = SoftmaxParams {
+        batch_size: batch_size.max(1) as u32,
+        dim_size: dim_size as u32,
+    };
+    let params_buf = create_params_buffer(client, &params);
+
+    reduce::launch_softmax_bwd_op(
+        client.pipeline_cache(),
+        client.wgpu_queue(),
+        &grad_buf,
+        &output_buf,
+        &d_input_buf,
+        &params_buf,
+        batch_size.max(1),
+        dtype,
+    )?;
+
+    Ok(d_input)
+}
+
 pub(crate) fn native_argreduce_op(
     client: &WgpuClient,
     op: &'static str,

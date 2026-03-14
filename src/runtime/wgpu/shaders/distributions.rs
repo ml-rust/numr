@@ -1,4 +1,4 @@
-//! Distribution sampling WGSL kernel launchers
+//! Distribution sampling WGSL kernel launchers (F32 only on WebGPU)
 //!
 //! Provides launchers for probability distribution sampling:
 //! - Bernoulli, Beta, Gamma, Exponential, Poisson
@@ -6,15 +6,42 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    generate_bernoulli_shader, generate_beta_dist_shader, generate_binomial_shader,
-    generate_chi_squared_shader, generate_exponential_shader, generate_f_distribution_shader,
-    generate_gamma_dist_shader, generate_laplace_shader, generate_multinomial_count_shader,
-    generate_poisson_shader, generate_student_t_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+
+const BERNOULLI_SHADER: &str = include_str!("bernoulli_f32.wgsl");
+// entry point: "bernoulli_f32"
+
+const BETA_DIST_SHADER: &str = include_str!("beta_dist_f32.wgsl");
+// entry point: "beta_dist_f32"
+
+const GAMMA_DIST_SHADER: &str = include_str!("gamma_dist_f32.wgsl");
+// entry point: "gamma_dist_f32"
+
+const EXPONENTIAL_SHADER: &str = include_str!("exponential_f32.wgsl");
+// entry point: "exponential_f32"
+
+const POISSON_SHADER: &str = include_str!("poisson_f32.wgsl");
+// entry point: "poisson_f32"
+
+const BINOMIAL_SHADER: &str = include_str!("binomial_f32.wgsl");
+// entry point: "binomial_f32"
+
+const LAPLACE_SHADER: &str = include_str!("laplace_f32.wgsl");
+// entry point: "laplace_f32"
+
+const CHI_SQUARED_SHADER: &str = include_str!("chi_squared_f32.wgsl");
+// entry point: "chi_squared_f32"
+
+const STUDENT_T_SHADER: &str = include_str!("student_t_f32.wgsl");
+// entry point: "student_t_f32"
+
+const F_DISTRIBUTION_SHADER: &str = include_str!("f_distribution_f32.wgsl");
+// entry point: "f_distribution_f32"
+
+const MULTINOMIAL_COUNT_SHADER: &str = include_str!("multinomial_count_f32.wgsl");
+// entry point: "multinomial_count_f32"
 
 fn check_float_dtype(dtype: DType, op: &'static str) -> Result<()> {
     match dtype {
@@ -37,15 +64,13 @@ pub fn launch_bernoulli(
     }
     check_float_dtype(dtype, "bernoulli")?;
 
-    let name = "bernoulli_f32";
-    let shader = generate_bernoulli_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("bernoulli_f32", BERNOULLI_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("bernoulli_f32", "bernoulli_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -80,15 +105,13 @@ pub fn launch_beta_dist(
     }
     check_float_dtype(dtype, "beta")?;
 
-    let name = "beta_dist_f32";
-    let shader = generate_beta_dist_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("beta_dist_f32", BETA_DIST_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("beta_dist_f32", "beta_dist_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -123,15 +146,14 @@ pub fn launch_gamma_dist(
     }
     check_float_dtype(dtype, "gamma")?;
 
-    let name = "gamma_dist_f32";
-    let shader = generate_gamma_dist_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("gamma_dist_f32", GAMMA_DIST_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("gamma_dist_f32", "gamma_dist_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -166,15 +188,14 @@ pub fn launch_exponential(
     }
     check_float_dtype(dtype, "exponential")?;
 
-    let name = "exponential_f32";
-    let shader = generate_exponential_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("exponential_f32", EXPONENTIAL_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("exponential_f32", "exponential_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -209,15 +230,13 @@ pub fn launch_poisson(
     }
     check_float_dtype(dtype, "poisson")?;
 
-    let name = "poisson_f32";
-    let shader = generate_poisson_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("poisson_f32", POISSON_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("poisson_f32", "poisson_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -252,15 +271,13 @@ pub fn launch_binomial(
     }
     check_float_dtype(dtype, "binomial")?;
 
-    let name = "binomial_f32";
-    let shader = generate_binomial_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("binomial_f32", BINOMIAL_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("binomial_f32", "binomial_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -295,15 +312,13 @@ pub fn launch_laplace(
     }
     check_float_dtype(dtype, "laplace")?;
 
-    let name = "laplace_f32";
-    let shader = generate_laplace_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("laplace_f32", LAPLACE_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("laplace_f32", "laplace_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -338,15 +353,14 @@ pub fn launch_chi_squared(
     }
     check_float_dtype(dtype, "chi_squared")?;
 
-    let name = "chi_squared_f32";
-    let shader = generate_chi_squared_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("chi_squared_f32", CHI_SQUARED_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("chi_squared_f32", "chi_squared_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -381,15 +395,13 @@ pub fn launch_student_t(
     }
     check_float_dtype(dtype, "student_t")?;
 
-    let name = "student_t_f32";
-    let shader = generate_student_t_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("student_t_f32", STUDENT_T_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline("student_t_f32", "student_t_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -424,15 +436,14 @@ pub fn launch_f_distribution(
     }
     check_float_dtype(dtype, "f_distribution")?;
 
-    let name = "f_distribution_f32";
-    let shader = generate_f_distribution_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("f_distribution_f32", F_DISTRIBUTION_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 1,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("f_distribution_f32", "f_distribution_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[out, params]);
 
     let mut encoder = cache
@@ -494,15 +505,18 @@ pub fn launch_multinomial_count(
     }
     check_float_dtype(dtype, "multinomial_count")?;
 
-    let name = "multinomial_count_f32";
-    let shader = generate_multinomial_count_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader);
+    let module = cache.get_or_create_module("multinomial_count_f32", MULTINOMIAL_COUNT_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "multinomial_count_f32",
+        "multinomial_count_f32",
+        &module,
+        &layout,
+    );
     let bind_group = cache.create_bind_group(&layout, &[cdf, uniforms, counts, params]);
 
     let mut encoder = cache

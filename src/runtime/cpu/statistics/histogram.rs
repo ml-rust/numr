@@ -51,7 +51,7 @@ pub fn histogram_impl(
     // Flatten input
     let flat = a.reshape(&[numel])?;
     let flat_contig = ensure_contiguous(&flat);
-    let flat_ptr = flat_contig.storage().ptr();
+    let flat_ptr = flat_contig.ptr();
 
     // Determine range
     let (min_val, max_val) = if let Some((min, max)) = range {
@@ -78,7 +78,7 @@ pub fn histogram_impl(
 
     // Create histogram counts tensor
     let hist = Tensor::<CpuRuntime>::zeros(&[bins], DType::I64, &client.device);
-    let hist_ptr = hist.storage().ptr() as *mut i64;
+    let hist_ptr = hist.ptr() as *mut i64;
 
     // Compute histogram using optimized kernel
     dispatch_dtype!(dtype, T => {

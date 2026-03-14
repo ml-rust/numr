@@ -300,6 +300,9 @@ pub unsafe fn rsub_scalar_f64(a: *const f64, scalar: f64, out: *mut f64, len: us
     }
 }
 
+half_scalar_op!(scalar, scalar_f32, BinaryOp);
+half_unary_scalar!(rsub_scalar, rsub_scalar_f32);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -16,7 +16,7 @@ use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
 use crate::tensor::Tensor;
 
-/// Perform COO add merge (A + B) on GPU
+/// Perform COO add merge (A + B) on GPU (union semantics)
 ///
 /// Uses the following algorithm:
 /// 1. Compute composite keys for both matrices
@@ -27,6 +27,13 @@ use crate::tensor::Tensor;
 /// 6. Merge duplicates with addition
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -68,9 +75,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            row_indices_a.storage().ptr(),
-            col_indices_a.storage().ptr(),
-            keys_a.storage().ptr(),
+            row_indices_a.ptr(),
+            col_indices_a.ptr(),
+            keys_a.ptr(),
             ncols as i64,
             nnz_a,
         )?;
@@ -81,9 +88,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            row_indices_b.storage().ptr(),
-            col_indices_b.storage().ptr(),
-            keys_b.storage().ptr(),
+            row_indices_b.ptr(),
+            col_indices_b.ptr(),
+            keys_b.ptr(),
             ncols as i64,
             nnz_b,
         )?;
@@ -98,9 +105,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        keys_a.storage().ptr(),
-        keys_b.storage().ptr(),
-        concat_keys.storage().ptr(),
+        keys_a.ptr(),
+        keys_b.ptr(),
+        concat_keys.ptr(),
         nnz_a,
         nnz_b,
     )?;
@@ -109,23 +116,17 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        values_a.storage().ptr(),
-        values_b.storage().ptr(),
-        concat_values.storage().ptr(),
-        concat_sources.storage().ptr(),
+        values_a.ptr(),
+        values_b.ptr(),
+        concat_values.ptr(),
+        concat_sources.ptr(),
         nnz_a,
         nnz_b,
     )?;
 
     // Step 3: Initialize indices array [0, 1, 2, ..., total-1] on GPU
     let indices = Tensor::<CudaRuntime>::zeros(&[total], DType::I32, device);
-    launch_coo_init_indices(
-        context,
-        stream,
-        device_index,
-        indices.storage().ptr(),
-        total,
-    )?;
+    launch_coo_init_indices(context, stream, device_index, indices.ptr(), total)?;
 
     // Step 4: Sort (keys, indices) using Thrust stable_sort_by_key - FULLY ON GPU
     // Thrust sorts IN-PLACE, so we sort concat_keys and indices directly
@@ -134,8 +135,8 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            concat_keys.storage().ptr(),
-            indices.storage().ptr(),
+            concat_keys.ptr(),
+            indices.ptr(),
             total as u32,
         )?;
     }
@@ -150,9 +151,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_values.storage().ptr(),
-        indices.storage().ptr(), // indices is now sorted
-        sorted_values.storage().ptr(),
+        concat_values.ptr(),
+        indices.ptr(), // indices is now sorted
+        sorted_values.ptr(),
         total,
     )?;
 
@@ -160,9 +161,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_sources.storage().ptr(),
-        indices.storage().ptr(), // indices is now sorted
-        sorted_sources.storage().ptr(),
+        concat_sources.ptr(),
+        indices.ptr(), // indices is now sorted
+        sorted_sources.ptr(),
         total,
     )?;
 
@@ -172,8 +173,8 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(), // concat_keys is now sorted
-        unique_flags.storage().ptr(),
+        concat_keys.ptr(), // concat_keys is now sorted
+        unique_flags.ptr(),
         total,
     )?;
 
@@ -196,26 +197,26 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(), // concat_keys is sorted
-        sorted_values.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        unique_flags.storage().ptr(),
-        output_positions.storage().ptr(),
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
+        concat_keys.ptr(), // concat_keys is sorted
+        sorted_values.ptr(),
+        sorted_sources.ptr(),
+        unique_flags.ptr(),
+        output_positions.ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
         total,
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_unique], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
         context,
         stream,
         device_index,
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
         threshold,
         num_unique,
     )?;
@@ -239,12 +240,12 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
-        compact_positions.storage().ptr(),
-        final_keys.storage().ptr(),
-        final_values.storage().ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
+        compact_positions.ptr(),
+        final_keys.ptr(),
+        final_values.ptr(),
         num_unique,
     )?;
 
@@ -256,9 +257,9 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        final_keys.storage().ptr(),
-        final_row_indices.storage().ptr(),
-        final_col_indices.storage().ptr(),
+        final_keys.ptr(),
+        final_row_indices.ptr(),
+        final_col_indices.ptr(),
         ncols as i64,
         nnz_out,
     )?;
@@ -267,7 +268,7 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     Ok((final_row_indices, final_col_indices, final_values))
 }
 
-/// Perform COO sub merge (A - B) on GPU
+/// Perform COO sub merge (A - B) on GPU (union semantics)
 ///
 /// Uses the following algorithm:
 /// 1. Compute composite keys for both matrices
@@ -278,6 +279,13 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
 /// 6. Merge duplicates with subtraction (union semantics)
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -319,9 +327,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            row_indices_a.storage().ptr(),
-            col_indices_a.storage().ptr(),
-            keys_a.storage().ptr(),
+            row_indices_a.ptr(),
+            col_indices_a.ptr(),
+            keys_a.ptr(),
             ncols as i64,
             nnz_a,
         )?;
@@ -332,9 +340,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            row_indices_b.storage().ptr(),
-            col_indices_b.storage().ptr(),
-            keys_b.storage().ptr(),
+            row_indices_b.ptr(),
+            col_indices_b.ptr(),
+            keys_b.ptr(),
             ncols as i64,
             nnz_b,
         )?;
@@ -349,9 +357,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        keys_a.storage().ptr(),
-        keys_b.storage().ptr(),
-        concat_keys.storage().ptr(),
+        keys_a.ptr(),
+        keys_b.ptr(),
+        concat_keys.ptr(),
         nnz_a,
         nnz_b,
     )?;
@@ -360,23 +368,17 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        values_a.storage().ptr(),
-        values_b.storage().ptr(),
-        concat_values.storage().ptr(),
-        concat_sources.storage().ptr(),
+        values_a.ptr(),
+        values_b.ptr(),
+        concat_values.ptr(),
+        concat_sources.ptr(),
         nnz_a,
         nnz_b,
     )?;
 
     // Step 3: Initialize indices array [0, 1, 2, ..., total-1] on GPU
     let indices = Tensor::<CudaRuntime>::zeros(&[total], DType::I32, device);
-    launch_coo_init_indices(
-        context,
-        stream,
-        device_index,
-        indices.storage().ptr(),
-        total,
-    )?;
+    launch_coo_init_indices(context, stream, device_index, indices.ptr(), total)?;
 
     // Step 4: Sort (keys, indices) using Thrust stable_sort_by_key - FULLY ON GPU
     unsafe {
@@ -384,8 +386,8 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            concat_keys.storage().ptr(),
-            indices.storage().ptr(),
+            concat_keys.ptr(),
+            indices.ptr(),
             total as u32,
         )?;
     }
@@ -398,9 +400,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_values.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_values.storage().ptr(),
+        concat_values.ptr(),
+        indices.ptr(),
+        sorted_values.ptr(),
         total,
     )?;
 
@@ -408,9 +410,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_sources.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_sources.storage().ptr(),
+        concat_sources.ptr(),
+        indices.ptr(),
+        sorted_sources.ptr(),
         total,
     )?;
 
@@ -420,8 +422,8 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        unique_flags.storage().ptr(),
+        concat_keys.ptr(),
+        unique_flags.ptr(),
         total,
     )?;
 
@@ -444,26 +446,26 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        sorted_values.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        output_positions.storage().ptr(),
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
+        concat_keys.ptr(),
+        sorted_values.ptr(),
+        sorted_sources.ptr(),
+        output_positions.ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
         total,
         num_unique,
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_unique], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
         context,
         stream,
         device_index,
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
         threshold,
         num_unique,
     )?;
@@ -487,12 +489,12 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
-        compact_positions.storage().ptr(),
-        final_keys.storage().ptr(),
-        final_values.storage().ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
+        compact_positions.ptr(),
+        final_keys.ptr(),
+        final_values.ptr(),
         num_unique,
     )?;
 
@@ -504,9 +506,9 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        final_keys.storage().ptr(),
-        final_row_indices.storage().ptr(),
-        final_col_indices.storage().ptr(),
+        final_keys.ptr(),
+        final_row_indices.ptr(),
+        final_col_indices.ptr(),
         ncols as i64,
         nnz_out,
     )?;
@@ -526,6 +528,13 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
 /// 6. Merge intersections with multiplication
 /// 7. Filter out zeros
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -566,9 +575,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        row_indices_a.storage().ptr(),
-        col_indices_a.storage().ptr(),
-        keys_a.storage().ptr(),
+        row_indices_a.ptr(),
+        col_indices_a.ptr(),
+        keys_a.ptr(),
         ncols as i64,
         nnz_a,
     )?;
@@ -577,9 +586,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        row_indices_b.storage().ptr(),
-        col_indices_b.storage().ptr(),
-        keys_b.storage().ptr(),
+        row_indices_b.ptr(),
+        col_indices_b.ptr(),
+        keys_b.ptr(),
         ncols as i64,
         nnz_b,
     )?;
@@ -593,9 +602,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        keys_a.storage().ptr(),
-        keys_b.storage().ptr(),
-        concat_keys.storage().ptr(),
+        keys_a.ptr(),
+        keys_b.ptr(),
+        concat_keys.ptr(),
         nnz_a,
         nnz_b,
     )?;
@@ -604,23 +613,17 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        values_a.storage().ptr(),
-        values_b.storage().ptr(),
-        concat_values.storage().ptr(),
-        concat_sources.storage().ptr(),
+        values_a.ptr(),
+        values_b.ptr(),
+        concat_values.ptr(),
+        concat_sources.ptr(),
         nnz_a,
         nnz_b,
     )?;
 
     // Step 3: Initialize indices array [0, 1, 2, ..., total-1] on GPU
     let indices = Tensor::<CudaRuntime>::zeros(&[total], DType::I32, device);
-    launch_coo_init_indices(
-        context,
-        stream,
-        device_index,
-        indices.storage().ptr(),
-        total,
-    )?;
+    launch_coo_init_indices(context, stream, device_index, indices.ptr(), total)?;
 
     // Step 4: Sort (keys, indices) using Thrust stable_sort_by_key - FULLY ON GPU
     unsafe {
@@ -628,8 +631,8 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            concat_keys.storage().ptr(),
-            indices.storage().ptr(),
+            concat_keys.ptr(),
+            indices.ptr(),
             total as u32,
         )?;
     }
@@ -642,9 +645,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_values.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_values.storage().ptr(),
+        concat_values.ptr(),
+        indices.ptr(),
+        sorted_values.ptr(),
         total,
     )?;
 
@@ -652,9 +655,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_sources.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_sources.storage().ptr(),
+        concat_sources.ptr(),
+        indices.ptr(),
+        sorted_sources.ptr(),
         total,
     )?;
 
@@ -664,9 +667,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        intersection_flags.storage().ptr(),
+        concat_keys.ptr(),
+        sorted_sources.ptr(),
+        intersection_flags.ptr(),
         total,
     )?;
 
@@ -689,26 +692,26 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        sorted_values.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        intersection_flags.storage().ptr(),
-        output_positions.storage().ptr(),
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
+        concat_keys.ptr(),
+        sorted_values.ptr(),
+        sorted_sources.ptr(),
+        intersection_flags.ptr(),
+        output_positions.ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
         total,
     )?;
 
     // Step 9: Filter out zeros - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_intersections], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
         context,
         stream,
         device_index,
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
         threshold,
         num_intersections,
     )?;
@@ -732,12 +735,12 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
-        compact_positions.storage().ptr(),
-        final_keys.storage().ptr(),
-        final_values.storage().ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
+        compact_positions.ptr(),
+        final_keys.ptr(),
+        final_values.ptr(),
         num_intersections,
     )?;
 
@@ -749,9 +752,9 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        final_keys.storage().ptr(),
-        final_row_indices.storage().ptr(),
-        final_col_indices.storage().ptr(),
+        final_keys.ptr(),
+        final_row_indices.ptr(),
+        final_col_indices.ptr(),
         ncols as i64,
         nnz_out,
     )?;
@@ -771,6 +774,13 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
 /// 6. Merge intersections with division
 /// 7. Filter out zeros and non-finite values
 /// 8. Extract row/col indices from keys
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context`, with consistent COO structure (matching lengths of row/col index and value arrays).
+/// - `shape` must match the logical matrix dimensions (`[nrows, ncols]`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -811,9 +821,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        row_indices_a.storage().ptr(),
-        col_indices_a.storage().ptr(),
-        keys_a.storage().ptr(),
+        row_indices_a.ptr(),
+        col_indices_a.ptr(),
+        keys_a.ptr(),
         ncols as i64,
         nnz_a,
     )?;
@@ -822,9 +832,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        row_indices_b.storage().ptr(),
-        col_indices_b.storage().ptr(),
-        keys_b.storage().ptr(),
+        row_indices_b.ptr(),
+        col_indices_b.ptr(),
+        keys_b.ptr(),
         ncols as i64,
         nnz_b,
     )?;
@@ -838,9 +848,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        keys_a.storage().ptr(),
-        keys_b.storage().ptr(),
-        concat_keys.storage().ptr(),
+        keys_a.ptr(),
+        keys_b.ptr(),
+        concat_keys.ptr(),
         nnz_a,
         nnz_b,
     )?;
@@ -849,23 +859,17 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        values_a.storage().ptr(),
-        values_b.storage().ptr(),
-        concat_values.storage().ptr(),
-        concat_sources.storage().ptr(),
+        values_a.ptr(),
+        values_b.ptr(),
+        concat_values.ptr(),
+        concat_sources.ptr(),
         nnz_a,
         nnz_b,
     )?;
 
     // Step 3: Initialize indices array [0, 1, 2, ..., total-1] on GPU
     let indices = Tensor::<CudaRuntime>::zeros(&[total], DType::I32, device);
-    launch_coo_init_indices(
-        context,
-        stream,
-        device_index,
-        indices.storage().ptr(),
-        total,
-    )?;
+    launch_coo_init_indices(context, stream, device_index, indices.ptr(), total)?;
 
     // Step 4: Sort (keys, indices) using Thrust stable_sort_by_key - FULLY ON GPU
     unsafe {
@@ -873,8 +877,8 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
             context,
             stream,
             device_index,
-            concat_keys.storage().ptr(),
-            indices.storage().ptr(),
+            concat_keys.ptr(),
+            indices.ptr(),
             total as u32,
         )?;
     }
@@ -887,9 +891,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_values.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_values.storage().ptr(),
+        concat_values.ptr(),
+        indices.ptr(),
+        sorted_values.ptr(),
         total,
     )?;
 
@@ -897,9 +901,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_sources.storage().ptr(),
-        indices.storage().ptr(),
-        sorted_sources.storage().ptr(),
+        concat_sources.ptr(),
+        indices.ptr(),
+        sorted_sources.ptr(),
         total,
     )?;
 
@@ -909,9 +913,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        intersection_flags.storage().ptr(),
+        concat_keys.ptr(),
+        sorted_sources.ptr(),
+        intersection_flags.ptr(),
         total,
     )?;
 
@@ -934,26 +938,26 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        concat_keys.storage().ptr(),
-        sorted_values.storage().ptr(),
-        sorted_sources.storage().ptr(),
-        intersection_flags.storage().ptr(),
-        output_positions.storage().ptr(),
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
+        concat_keys.ptr(),
+        sorted_values.ptr(),
+        sorted_sources.ptr(),
+        intersection_flags.ptr(),
+        output_positions.ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
         total,
     )?;
 
     // Step 9: Filter out zeros and non-finite values - ALL ON GPU (using CUB)
-    let threshold = crate::runtime::sparse_utils::zero_tolerance::<T>();
+    let threshold = crate::runtime::common::sparse_utils::zero_tolerance::<T>();
     let nonzero_flags = Tensor::<CudaRuntime>::zeros(&[num_intersections], DType::I32, device);
 
     launch_coo_mark_nonzero::<T>(
         context,
         stream,
         device_index,
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
         threshold,
         num_intersections,
     )?;
@@ -977,12 +981,12 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        merged_keys.storage().ptr(),
-        merged_values.storage().ptr(),
-        nonzero_flags.storage().ptr(),
-        compact_positions.storage().ptr(),
-        final_keys.storage().ptr(),
-        final_values.storage().ptr(),
+        merged_keys.ptr(),
+        merged_values.ptr(),
+        nonzero_flags.ptr(),
+        compact_positions.ptr(),
+        final_keys.ptr(),
+        final_values.ptr(),
         num_intersections,
     )?;
 
@@ -994,9 +998,9 @@ pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
         context,
         stream,
         device_index,
-        final_keys.storage().ptr(),
-        final_row_indices.storage().ptr(),
-        final_col_indices.storage().ptr(),
+        final_keys.ptr(),
+        final_row_indices.ptr(),
+        final_col_indices.ptr(),
         ncols as i64,
         nnz_out,
     )?;

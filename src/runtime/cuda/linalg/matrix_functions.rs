@@ -36,7 +36,7 @@ use crate::tensor::Tensor;
 
 /// Get the GPU buffer pointer from a tensor.
 fn get_tensor_ptr(tensor: &Tensor<CudaRuntime>) -> u64 {
-    tensor.storage().ptr()
+    tensor.ptr()
 }
 
 /// Read a single scalar f64 value from GPU tensor using cuMemcpyDtoH_v2.

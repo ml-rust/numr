@@ -60,7 +60,7 @@ fn apply_compare_op<R: Runtime>(
 /// Read back a compare result as Vec<u32> regardless of backend output dtype.
 /// Some backends return Bool (u8), some U32, some keep the input dtype
 /// where nonzero = true, zero = false.
-fn readback_as_u32<R: Runtime>(tensor: &Tensor<R>) -> Vec<u32> {
+fn readback_as_u32<R: Runtime<DType = DType>>(tensor: &Tensor<R>) -> Vec<u32> {
     use crate::common::ToF64;
 
     macro_rules! via_f64 {

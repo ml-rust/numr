@@ -1,13 +1,13 @@
 //! Element-wise division for CSC matrices
 
 use super::super::CscData;
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::SparseStorage;
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Element-wise division: C = A ./ B
     ///
     /// Computes the element-wise quotient of two sparse matrices with the same shape.

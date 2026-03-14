@@ -38,9 +38,9 @@ impl LogicalOps<CpuRuntime> for CpuClient {
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr() as *const u8;
-        let b_ptr = b_contig.storage().ptr() as *const u8;
-        let out_ptr = out.storage().ptr() as *mut u8;
+        let a_ptr = a_contig.ptr() as *const u8;
+        let b_ptr = b_contig.ptr() as *const u8;
+        let out_ptr = out.ptr() as *mut u8;
         let numel = a.numel();
 
         unsafe {
@@ -81,9 +81,9 @@ impl LogicalOps<CpuRuntime> for CpuClient {
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr() as *const u8;
-        let b_ptr = b_contig.storage().ptr() as *const u8;
-        let out_ptr = out.storage().ptr() as *mut u8;
+        let a_ptr = a_contig.ptr() as *const u8;
+        let b_ptr = b_contig.ptr() as *const u8;
+        let out_ptr = out.ptr() as *mut u8;
         let numel = a.numel();
 
         unsafe {
@@ -124,9 +124,9 @@ impl LogicalOps<CpuRuntime> for CpuClient {
         let b_contig = ensure_contiguous(b);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr() as *const u8;
-        let b_ptr = b_contig.storage().ptr() as *const u8;
-        let out_ptr = out.storage().ptr() as *mut u8;
+        let a_ptr = a_contig.ptr() as *const u8;
+        let b_ptr = b_contig.ptr() as *const u8;
+        let out_ptr = out.ptr() as *mut u8;
         let numel = a.numel();
 
         unsafe {
@@ -148,8 +148,8 @@ impl LogicalOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr() as *const u8;
-        let out_ptr = out.storage().ptr() as *mut u8;
+        let a_ptr = a_contig.ptr() as *const u8;
+        let out_ptr = out.ptr() as *mut u8;
         let numel = a.numel();
 
         unsafe {

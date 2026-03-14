@@ -29,8 +29,8 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -62,8 +62,8 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -97,7 +97,7 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                     self.device.index,
                     out_dtype,
                     0.0,
-                    out.storage().ptr(),
+                    out.ptr(),
                     out.numel(),
                 )?;
             }
@@ -113,8 +113,8 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -149,8 +149,8 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                         &self.stream,
                         self.device.index,
                         dtype,
-                        a_contig.storage().ptr(),
-                        out.storage().ptr(),
+                        a_contig.ptr(),
+                        out.ptr(),
                         a.numel(),
                     )?;
                 },
@@ -163,7 +163,7 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                             self.device.index,
                             out_dtype,
                             0.0,
-                            out.storage().ptr(),
+                            out.ptr(),
                             out.numel(),
                         )?;
                     }
@@ -179,8 +179,8 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 a.numel(),
             )?;
         }
@@ -221,9 +221,9 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 input_dtype,
-                real_contig.storage().ptr(),
-                imag_contig.storage().ptr(),
-                out.storage().ptr(),
+                real_contig.ptr(),
+                imag_contig.ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -257,9 +257,9 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                complex_contig.storage().ptr(),
-                real_contig.storage().ptr(),
-                out.storage().ptr(),
+                complex_contig.ptr(),
+                real_contig.ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -293,9 +293,9 @@ impl ComplexOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                complex_contig.storage().ptr(),
-                real_contig.storage().ptr(),
-                out.storage().ptr(),
+                complex_contig.ptr(),
+                real_contig.ptr(),
+                out.ptr(),
                 numel,
             )?;
         }

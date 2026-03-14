@@ -130,12 +130,15 @@ pub fn with_cuda_backend<F>(mut f: F)
 where
     F: FnMut(numr::runtime::cuda::CudaClient, numr::runtime::cuda::CudaDevice),
 {
+    use numr::runtime::RuntimeClient;
     let _guard = CUDA_BACKEND_LOCK
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let (client, device) = create_cuda_client_checked()
         .expect("CUDA feature is enabled but CUDA runtime is unavailable");
+    // Sync before test to clear any pending errors from a prior panicked test
+    client.synchronize();
     f(client, device);
 }
 
@@ -151,22 +154,4 @@ where
     let (client, device) = create_wgpu_client_checked()
         .expect("WGPU feature is enabled but WGPU runtime is unavailable");
     f(client, device);
-}
-
-pub fn assert_case_parity_f32(
-    cpu_results: &[Vec<f32>],
-    idx: usize,
-    backend_result: &[f32],
-    op: &str,
-    backend: &str,
-) {
-    assert_parity_f32(
-        &cpu_results[idx],
-        backend_result,
-        &format!("{op}_{backend}_case_{idx}"),
-    );
-}
-
-pub fn assert_single_parity_f32(cpu: &[f32], backend_result: &[f32], op: &str, backend: &str) {
-    assert_parity_f32(cpu, backend_result, &format!("{op}_{backend}"));
 }

@@ -2,6 +2,8 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::ops::distance_common::*;
 use crate::ops::{DistanceMetric, DistanceOps};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
@@ -72,9 +74,29 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let y = ensure_contiguous(y);
 
         let out = Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device);
-        let x_ptr = x.storage().ptr();
-        let y_ptr = y.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let x_ptr = x.ptr();
+        let y_ptr = y.ptr();
+        let out_ptr = out.ptr();
+
+        // FP8 types: compute in F32, then cast result back
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let x_f32 = self.cast(&x, DType::F32)?;
+            let y_f32 = self.cast(&y, DType::F32)?;
+            let out_f32 = Tensor::<CpuRuntime>::empty(&[n, m], DType::F32, &self.device);
+            unsafe {
+                kernels::cdist_kernel::<f32>(
+                    x_f32.ptr() as *const f32,
+                    y_f32.ptr() as *const f32,
+                    out_f32.ptr() as *mut f32,
+                    n,
+                    m,
+                    d,
+                    metric,
+                );
+            }
+            return self.cast(&out_f32, dtype);
+        }
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -112,8 +134,25 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let x = ensure_contiguous(x);
 
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
-        let x_ptr = x.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let x_ptr = x.ptr();
+        let out_ptr = out.ptr();
+
+        // FP8 types: compute in F32, then cast result back
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let x_f32 = self.cast(&x, DType::F32)?;
+            let out_f32 = Tensor::<CpuRuntime>::empty(&[out_size], DType::F32, &self.device);
+            unsafe {
+                kernels::pdist_kernel::<f32>(
+                    x_f32.ptr() as *const f32,
+                    out_f32.ptr() as *mut f32,
+                    n,
+                    d,
+                    metric,
+                );
+            }
+            return self.cast(&out_f32, dtype);
+        }
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -151,8 +190,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let condensed = ensure_contiguous(condensed);
 
         let out = Tensor::<CpuRuntime>::empty(&[n, n], dtype, &self.device);
-        let cond_ptr = condensed.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let cond_ptr = condensed.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
@@ -191,8 +230,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
-        let sq_ptr = square.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let sq_ptr = square.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {

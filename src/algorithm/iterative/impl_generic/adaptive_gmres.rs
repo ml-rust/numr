@@ -39,7 +39,7 @@ pub fn adaptive_gmres_impl<R, C>(
     adaptive_opts: AdaptivePreconditionerOptions,
 ) -> Result<AdaptiveGmresResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>
@@ -181,7 +181,7 @@ fn gmres_with_iluk<R, C>(
     residual_history: &mut Vec<f64>,
 ) -> Result<GmresInternalResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

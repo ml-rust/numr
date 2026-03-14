@@ -173,6 +173,8 @@ pub unsafe fn compare_scalar_f64(
     }
 }
 
+half_binary_op!(compare, compare_f32, CompareOp);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -50,8 +50,8 @@ pub fn cumsum_impl(
     let inner_size: usize = shape[dim_idx + 1..].iter().product();
     let inner_size = inner_size.max(1);
 
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -109,8 +109,8 @@ pub fn cumprod_impl(
     let inner_size: usize = shape[dim_idx + 1..].iter().product();
     let inner_size = inner_size.max(1);
 
-    let a_ptr = a_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -178,8 +178,8 @@ pub fn logsumexp_impl(
         let out_shape = reduce_output_shape(shape, dims, keepdim);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-        let a_ptr = a.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -256,8 +256,8 @@ fn logsumexp_single_dim(
 
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let a_ptr = a.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {

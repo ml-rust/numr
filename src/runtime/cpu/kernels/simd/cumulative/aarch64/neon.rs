@@ -35,7 +35,7 @@ pub unsafe fn cumsum_strided_f32(
 ) {
     let lanes = 4;
     let chunks = inner_size / lanes;
-    let remainder = inner_size % lanes;
+    let _remainder = inner_size % lanes;
 
     for o in 0..outer_size {
         let outer_offset = o * scan_size * inner_size;

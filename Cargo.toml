@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.89"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
@@ -15,14 +15,20 @@ features = ["f16", "sparse"]
 # cuda and wgpu require hardware SDKs not available on docs.rs
 
 [features]
-default = ["cpu", "rayon"]
-cpu = []
+default = ["rayon"]
 cuda = ["dep:cudarc"]
+nccl = ["cuda", "cudarc?/nccl"]
+distributed = ["dep:nexar", "dep:tokio"]
+distributed-gpu = ["distributed", "nccl", "dep:nexar-nccl"]
 wgpu = ["dep:wgpu", "dep:pollster"]
 rayon = ["dep:rayon"]
-f16 = ["dep:half", "cudarc?/f16"]   # Half-precision floats (F16, BF16) - optional reduced-precision support
-fp8 = []                             # 8-bit floats (FP8E4M3, FP8E5M2) - optional ultra-low-precision support
-sparse = []                          # Sparse tensor formats (CSR, CSC, COO) and operations
+f16 = [
+  "dep:half",
+  "cudarc?/f16",
+] # Half-precision floats (F16, BF16) - optional reduced-precision support
+fp8 = [
+] # 8-bit floats (FP8E4M3, FP8E5M2) - optional ultra-low-precision support
+sparse = [] # Sparse tensor formats (CSR, CSC, COO) and operations
 
 [dependencies]
 # Core
@@ -35,11 +41,7 @@ parking_lot = "0.12"
 # Optional: Parallelism
 rayon = { version = "1.11", optional = true }
 
-# Random number generation (required for rand/randn operations)
-rand = "0.9"
-rand_distr = "0.5"
-
-# Zero-copy serialization for embedded data 
+# Zero-copy serialization for embedded data (used by sobol_data)
 rkyv = "0.8"
 
 # Optional: Half-precision floats
@@ -48,15 +50,20 @@ half = { version = "2.7", optional = true, features = [
   "num-traits",
 ] }
 
+# Optional: Inter-node distributed communication
+nexar = { version = "0.1", optional = true }
+nexar-nccl = { version = "0.1", optional = true }
+tokio = { version = "1", features = ["rt"], optional = true }
+
 # Optional: CUDA backend
-cudarc = { version = "0.18", optional = true, features = [
+cudarc = { version = "0.19", optional = true, features = [
   "cuda-version-from-build-system",
 ] }
 
 # Optional: WebGPU backend
 wgpu = { version = "28.0", optional = true }
 pollster = { version = "0.4", optional = true }
-paste = "1.0.15"
+paste = "1.0"
 
 [dev-dependencies]
 approx = "0.5"

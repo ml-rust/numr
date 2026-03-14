@@ -139,10 +139,10 @@ pub unsafe fn launch_where_broadcast_op(
     let shape_tensor = Tensor::<CudaRuntime>::from_slice(&shape_u32, &[ndim], device);
 
     // Get device pointers
-    let cond_strides_ptr = cond_strides_tensor.storage().ptr();
-    let x_strides_ptr = x_strides_tensor.storage().ptr();
-    let y_strides_ptr = y_strides_tensor.storage().ptr();
-    let shape_ptr = shape_tensor.storage().ptr();
+    let cond_strides_ptr = cond_strides_tensor.ptr();
+    let x_strides_ptr = x_strides_tensor.ptr();
+    let y_strides_ptr = y_strides_tensor.ptr();
+    let shape_ptr = shape_tensor.ptr();
 
     // Get kernel function
     let module = get_or_load_module(context, device_index, kernel_names::TERNARY_MODULE)?;
@@ -178,10 +178,7 @@ pub unsafe fn launch_where_broadcast_op(
         })?;
     }
 
-    // Synchronize to ensure the kernel completes before freeing temporary allocations
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Stream sync failed: {:?}", e)))?;
+    // No sync needed: temporary GPU allocations freed via cuMemFreeAsync (stream-ordered).
 
     Ok(())
 }
@@ -319,10 +316,10 @@ pub unsafe fn launch_where_broadcast_generic_op(
     let shape_tensor = Tensor::<CudaRuntime>::from_slice(&shape_u32, &[ndim], device);
 
     // Get device pointers
-    let cond_strides_ptr = cond_strides_tensor.storage().ptr();
-    let x_strides_ptr = x_strides_tensor.storage().ptr();
-    let y_strides_ptr = y_strides_tensor.storage().ptr();
-    let shape_ptr = shape_tensor.storage().ptr();
+    let cond_strides_ptr = cond_strides_tensor.ptr();
+    let x_strides_ptr = x_strides_tensor.ptr();
+    let y_strides_ptr = y_strides_tensor.ptr();
+    let shape_ptr = shape_tensor.ptr();
 
     // Build kernel name: where_broadcast_cond_{cond_dtype}_{out_dtype}
     let cond_suffix = super::loader::dtype_suffix(cond_dtype);
@@ -365,10 +362,7 @@ pub unsafe fn launch_where_broadcast_generic_op(
         })?;
     }
 
-    // Synchronize to ensure the kernel completes before freeing temporary allocations
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Stream sync failed: {:?}", e)))?;
+    // No sync needed: temporary GPU allocations freed via cuMemFreeAsync (stream-ordered).
 
     Ok(())
 }

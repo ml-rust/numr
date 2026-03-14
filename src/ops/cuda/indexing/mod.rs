@@ -130,4 +130,14 @@ impl IndexingOps<CudaRuntime> for CudaClient {
     ) -> Result<Tensor<CudaRuntime>> {
         gather_scatter::gather_2d(self, input, rows, cols)
     }
+
+    fn slice_assign(
+        &self,
+        dst: &Tensor<CudaRuntime>,
+        src: &Tensor<CudaRuntime>,
+        dim: usize,
+        start: usize,
+    ) -> Result<Tensor<CudaRuntime>> {
+        gather_scatter::slice_assign(self, dst, src, dim, start)
+    }
 }

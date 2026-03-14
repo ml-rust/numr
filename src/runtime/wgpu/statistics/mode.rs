@@ -4,7 +4,6 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{SortingOps, TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::wgpu::client::get_buffer;
-use crate::runtime::wgpu::shaders::generator::is_wgpu_supported;
 use crate::runtime::wgpu::shaders::launch_mode_dim;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
@@ -27,7 +26,7 @@ pub fn mode_impl(
     let dtype = a.dtype();
 
     // Validate dtype is supported by native shader
-    let native_supported = is_wgpu_supported(dtype);
+    let native_supported = matches!(dtype, DType::F32 | DType::I32 | DType::U32);
 
     if !native_supported {
         // For unsupported dtypes (F64, F16, BF16, I64, etc.), cast to F32, compute, cast back
@@ -88,11 +87,11 @@ pub fn mode_impl(
     let mode_counts = Tensor::<WgpuRuntime>::empty(&out_shape, DType::I32, client.device());
 
     // Get wgpu buffers
-    let sorted_buf = get_buffer(sorted_contig.storage().ptr())
+    let sorted_buf = get_buffer(sorted_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get sorted buffer".to_string()))?;
-    let values_buf = get_buffer(mode_values.storage().ptr())
+    let values_buf = get_buffer(mode_values.ptr())
         .ok_or_else(|| Error::Internal("Failed to get mode_values buffer".to_string()))?;
-    let counts_buf = get_buffer(mode_counts.storage().ptr())
+    let counts_buf = get_buffer(mode_counts.ptr())
         .ok_or_else(|| Error::Internal("Failed to get mode_counts buffer".to_string()))?;
 
     // Create params buffer: [outer_size, reduce_size, inner_size, pad]

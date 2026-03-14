@@ -180,7 +180,7 @@ macro_rules! impl_var_unary_op_output_scalar {
         $(#[$meta])*
         pub fn $fn_name<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
         where
-            R: Runtime,
+            R: Runtime<DType = crate::dtype::DType>,
             C: RuntimeClient<R> + TensorOps<R>,
             R::Client: TensorOps<R> + ScalarOps<R>,
         {

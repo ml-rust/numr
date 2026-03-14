@@ -3,6 +3,7 @@
 use super::ops::*;
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::autograd::Var;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{ScalarOps, TensorOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -13,7 +14,7 @@ use std::sync::Arc;
 /// Creates TraceBackward for gradient computation.
 pub fn var_trace<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + LinearAlgebraAlgorithms<R>,
     R::Client: TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
 {
@@ -102,7 +103,7 @@ where
 /// Creates CholeskyBackward for gradient computation.
 pub fn var_cholesky<R, C>(a: &Var<R>, client: &C) -> Result<Var<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + LinearAlgebraAlgorithms<R>,
     R::Client: TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
 {

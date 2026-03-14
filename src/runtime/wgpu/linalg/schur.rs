@@ -39,7 +39,7 @@ pub fn schur_decompose(
         let elem = dtype.size_in_bytes();
         let t_guard = AllocGuard::new(client.allocator(), elem)?;
         let t_ptr = t_guard.ptr();
-        WgpuRuntime::copy_within_device(a.storage().ptr(), t_ptr, elem, device)?;
+        WgpuRuntime::copy_within_device(a.ptr(), t_ptr, elem, device)?;
         let t = unsafe { WgpuClient::tensor_from_raw(t_guard.release(), &[1, 1], dtype, device) };
         let z = Tensor::<WgpuRuntime>::from_slice(&[1.0f32], &[1, 1], device);
         return Ok(SchurDecomposition { z, t });
@@ -62,7 +62,7 @@ pub fn schur_decompose(
     let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "Schur convergence flag");
 
     // Copy input to T buffer
-    WgpuRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device)?;
+    WgpuRuntime::copy_within_device(a.ptr(), t_ptr, matrix_size, device)?;
 
     // Zero-initialize converged flag
     let zero_i32: [i32; 1] = [0];

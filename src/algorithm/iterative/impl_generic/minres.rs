@@ -31,7 +31,7 @@ pub fn minres_impl<R, C>(
     options: MinresOptions,
 ) -> Result<MinresResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

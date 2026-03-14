@@ -20,7 +20,10 @@ use crate::tensor::Tensor;
 /// - `ShapeMismatch` if real and imag have different shapes
 /// - `DTypeMismatch` if real and imag have different dtypes
 /// - `UnsupportedDType` if dtype is not F32 or F64
-pub fn validate_make_complex_inputs<R: Runtime>(real: &Tensor<R>, imag: &Tensor<R>) -> Result<()> {
+pub fn validate_make_complex_inputs<R: Runtime<DType = DType>>(
+    real: &Tensor<R>,
+    imag: &Tensor<R>,
+) -> Result<()> {
     // Check shapes match
     if real.shape() != imag.shape() {
         return Err(Error::ShapeMismatch {
@@ -57,7 +60,7 @@ pub fn validate_make_complex_inputs<R: Runtime>(real: &Tensor<R>, imag: &Tensor<
 /// - `DTypeMismatch` if real and imag have different dtypes
 /// - `UnsupportedDType` if dtype is not F32
 #[cfg(feature = "wgpu")]
-pub fn validate_make_complex_inputs_f32_only<R: Runtime>(
+pub fn validate_make_complex_inputs_f32_only<R: Runtime<DType = DType>>(
     real: &Tensor<R>,
     imag: &Tensor<R>,
 ) -> Result<()> {
@@ -103,7 +106,7 @@ pub fn validate_make_complex_inputs_f32_only<R: Runtime>(
 /// - `ShapeMismatch` if shapes don't match
 /// - `DTypeMismatch` if real dtype doesn't match complex component dtype
 /// - `UnsupportedDType` if complex is not Complex64/Complex128
-pub fn validate_complex_real_inputs<R: Runtime>(
+pub fn validate_complex_real_inputs<R: Runtime<DType = DType>>(
     complex: &Tensor<R>,
     real: &Tensor<R>,
     op: &'static str,
@@ -142,7 +145,7 @@ pub fn validate_complex_real_inputs<R: Runtime>(
 /// - `DTypeMismatch` if real dtype is not F32
 /// - `UnsupportedDType` if complex is not Complex64 or if Complex128 is used
 #[cfg(feature = "wgpu")]
-pub fn validate_complex_real_inputs_f32_only<R: Runtime>(
+pub fn validate_complex_real_inputs_f32_only<R: Runtime<DType = DType>>(
     complex: &Tensor<R>,
     real: &Tensor<R>,
     op: &'static str,

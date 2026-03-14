@@ -61,7 +61,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let output_guard = AllocGuard::new(self.allocator(), output_size)?;
         let output_ptr = output_guard.ptr();
 
-        let input_ptr = input_contig.storage().ptr();
+        let input_ptr = input_contig.ptr();
 
         // Choose small FFT (shared memory) or large FFT (multi-stage) based on size
         if n <= kernels::MAX_SHARED_MEM_FFT_SIZE {
@@ -238,7 +238,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 dtype,
-                input_contig.storage().ptr(),
+                input_contig.ptr(),
                 complex_ptr,
                 n,
                 batch_size,
@@ -389,7 +389,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 dtype,
-                input_contig.storage().ptr(),
+                input_contig.ptr(),
                 full_complex_ptr,
                 input_n,
                 output_n,
@@ -575,7 +575,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 dtype,
-                input_contig.storage().ptr(),
+                input_contig.ptr(),
                 output_ptr,
                 n,
                 batch_size,
@@ -622,7 +622,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 self.stream(),
                 device.index,
                 dtype,
-                input_contig.storage().ptr(),
+                input_contig.ptr(),
                 output_ptr,
                 n,
                 batch_size,

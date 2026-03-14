@@ -7,18 +7,41 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::dtype_suffix;
-use super::generator::sparse_merge::{
-    generate_csc_add_compute_shader, generate_csc_div_compute_shader,
-    generate_csc_merge_count_shader, generate_csc_mul_compute_shader,
-    generate_csc_mul_count_shader, generate_csc_sub_compute_shader,
-    generate_csr_add_compute_shader, generate_csr_div_compute_shader,
-    generate_csr_merge_count_shader, generate_csr_mul_compute_shader,
-    generate_csr_mul_count_shader, generate_csr_sub_compute_shader, generate_exclusive_scan_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+// Static WGSL shader sources
+const SPARSE_MERGE_COUNT: &str = include_str!("sparse_merge_count.wgsl");
+const SPARSE_MERGE_F32: &str = include_str!("sparse_merge_f32.wgsl");
+const SPARSE_MERGE_I32: &str = include_str!("sparse_merge_i32.wgsl");
+const SPARSE_MERGE_U32: &str = include_str!("sparse_merge_u32.wgsl");
+
+/// Return (module_key, shader_source) for a dtype-specific merge shader.
+fn typed_merge_shader(dtype: DType) -> Result<(&'static str, &'static str)> {
+    match dtype {
+        DType::F32 => Ok(("sparse_merge_f32", SPARSE_MERGE_F32)),
+        DType::I32 => Ok(("sparse_merge_i32", SPARSE_MERGE_I32)),
+        DType::U32 => Ok(("sparse_merge_u32", SPARSE_MERGE_U32)),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "sparse_merge (WebGPU)",
+        }),
+    }
+}
+
+/// Return the dtype suffix string for entry point names.
+fn dtype_suffix(dtype: DType) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("f32"),
+        DType::I32 => Ok("i32"),
+        DType::U32 => Ok("u32"),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "sparse_merge (WebGPU)",
+        }),
+    }
+}
 
 // ============================================================================
 // CSR Count Kernels
@@ -36,8 +59,7 @@ pub fn launch_csr_merge_count(
     params_buffer: &Buffer,
     nrows: usize,
 ) -> Result<()> {
-    let shader_source = generate_csr_merge_count_shader();
-    let module = cache.get_or_create_module_from_source("csr_merge_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_counts
@@ -45,12 +67,8 @@ pub fn launch_csr_merge_count(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "csr_merge_count",
-        "csr_merge_count",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_merge_count", "csr_merge_count", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -96,8 +114,7 @@ pub fn launch_csr_mul_count(
     params_buffer: &Buffer,
     nrows: usize,
 ) -> Result<()> {
-    let shader_source = generate_csr_mul_count_shader();
-    let module = cache.get_or_create_module_from_source("csr_mul_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
@@ -106,7 +123,7 @@ pub fn launch_csr_mul_count(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("csr_mul_count", "csr_mul_count", &module, &layout);
+        cache.get_or_create_pipeline("sparse_merge_count", "csr_mul_count", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -161,12 +178,16 @@ pub fn launch_csr_add_compute(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_add_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csr_add_compute_f32",
+        "i32" => "csr_add_compute_i32",
+        "u32" => "csr_add_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csr_add_compute_shader(dtype)?;
-    let module_name = format!("csr_add_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9, // 3 for A, 3 for B, 3 for output
@@ -174,8 +195,7 @@ pub fn launch_csr_add_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csr_add_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -230,12 +250,16 @@ pub fn launch_csr_sub_compute(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_sub_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csr_sub_compute_f32",
+        "i32" => "csr_sub_compute_i32",
+        "u32" => "csr_sub_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csr_sub_compute_shader(dtype)?;
-    let module_name = format!("csr_sub_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -243,8 +267,7 @@ pub fn launch_csr_sub_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csr_sub_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -299,12 +322,16 @@ pub fn launch_csr_mul_compute(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_mul_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csr_mul_compute_f32",
+        "i32" => "csr_mul_compute_i32",
+        "u32" => "csr_mul_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csr_mul_compute_shader(dtype)?;
-    let module_name = format!("csr_mul_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -312,8 +339,7 @@ pub fn launch_csr_mul_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csr_mul_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -368,12 +394,16 @@ pub fn launch_csr_div_compute(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_div_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csr_div_compute_f32",
+        "i32" => "csr_div_compute_i32",
+        "u32" => "csr_div_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csr_div_compute_shader(dtype)?;
-    let module_name = format!("csr_div_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -381,8 +411,7 @@ pub fn launch_csr_div_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csr_div_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -436,8 +465,7 @@ pub fn launch_csc_merge_count(
     params_buffer: &Buffer,
     ncols: usize,
 ) -> Result<()> {
-    let shader_source = generate_csc_merge_count_shader();
-    let module = cache.get_or_create_module_from_source("csc_merge_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
@@ -445,12 +473,8 @@ pub fn launch_csc_merge_count(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "csc_merge_count",
-        "csc_merge_count",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_merge_count", "csc_merge_count", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -496,8 +520,7 @@ pub fn launch_csc_mul_count(
     params_buffer: &Buffer,
     ncols: usize,
 ) -> Result<()> {
-    let shader_source = generate_csc_mul_count_shader();
-    let module = cache.get_or_create_module_from_source("csc_mul_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5,
@@ -506,7 +529,7 @@ pub fn launch_csc_mul_count(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline("csc_mul_count", "csc_mul_count", &module, &layout);
+        cache.get_or_create_pipeline("sparse_merge_count", "csc_mul_count", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -561,12 +584,16 @@ pub fn launch_csc_add_compute(
     ncols: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csc_add_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csc_add_compute_f32",
+        "i32" => "csc_add_compute_i32",
+        "u32" => "csc_add_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csc_add_compute_shader(dtype)?;
-    let module_name = format!("csc_add_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -574,8 +601,7 @@ pub fn launch_csc_add_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csc_add_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -630,12 +656,16 @@ pub fn launch_csc_sub_compute(
     ncols: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csc_sub_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csc_sub_compute_f32",
+        "i32" => "csc_sub_compute_i32",
+        "u32" => "csc_sub_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csc_sub_compute_shader(dtype)?;
-    let module_name = format!("csc_sub_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -643,8 +673,7 @@ pub fn launch_csc_sub_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csc_sub_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -699,12 +728,16 @@ pub fn launch_csc_mul_compute(
     ncols: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csc_mul_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csc_mul_compute_f32",
+        "i32" => "csc_mul_compute_i32",
+        "u32" => "csc_mul_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csc_mul_compute_shader(dtype)?;
-    let module_name = format!("csc_mul_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -712,8 +745,7 @@ pub fn launch_csc_mul_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csc_mul_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -768,12 +800,16 @@ pub fn launch_csc_div_compute(
     ncols: usize,
     dtype: DType,
 ) -> Result<()> {
+    let (module_key, shader) = typed_merge_shader(dtype)?;
     let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csc_div_compute_{}", suffix);
+    let entry_point: &'static str = match suffix {
+        "f32" => "csc_div_compute_f32",
+        "i32" => "csc_div_compute_i32",
+        "u32" => "csc_div_compute_u32",
+        _ => unreachable!(),
+    };
 
-    let shader_source = generate_csc_div_compute_shader(dtype)?;
-    let module_name = format!("csc_div_compute_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 9,
@@ -781,8 +817,7 @@ pub fn launch_csc_div_compute(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("csc_div_compute", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -835,8 +870,7 @@ pub fn launch_exclusive_scan_i32(
     output: &Buffer,
     params_buffer: &Buffer,
 ) -> Result<()> {
-    let shader_source = generate_exclusive_scan_shader();
-    let module = cache.get_or_create_module_from_source("exclusive_scan_i32", &shader_source);
+    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
@@ -844,12 +878,8 @@ pub fn launch_exclusive_scan_i32(
         num_readonly_storage: 1,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "exclusive_scan_i32",
-        "exclusive_scan_i32",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_merge_count", "exclusive_scan_i32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
 
@@ -872,45 +902,4 @@ pub fn launch_exclusive_scan_i32(
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn validate_wgsl_syntax(source: &str) -> std::result::Result<(), String> {
-        use wgpu::naga::front::wgsl;
-        let mut frontend = wgsl::Frontend::new();
-        frontend
-            .parse(source)
-            .map(|_| ())
-            .map_err(|e| format!("WGSL parse error: {e}"))
-    }
-
-    #[test]
-    fn test_generated_shaders_are_valid() {
-        // Test all generated shaders have valid syntax
-        validate_wgsl_syntax(&generate_csr_merge_count_shader())
-            .expect("CSR merge count should be valid");
-        validate_wgsl_syntax(&generate_csr_mul_count_shader())
-            .expect("CSR mul count should be valid");
-        validate_wgsl_syntax(&generate_csc_merge_count_shader())
-            .expect("CSC merge count should be valid");
-        validate_wgsl_syntax(&generate_csc_mul_count_shader())
-            .expect("CSC mul count should be valid");
-        validate_wgsl_syntax(&generate_exclusive_scan_shader())
-            .expect("Exclusive scan should be valid");
-
-        // Test compute shaders for F32
-        validate_wgsl_syntax(&generate_csr_add_compute_shader(DType::F32).unwrap())
-            .expect("CSR add compute should be valid");
-        validate_wgsl_syntax(&generate_csr_sub_compute_shader(DType::F32).unwrap())
-            .expect("CSR sub compute should be valid");
-        validate_wgsl_syntax(&generate_csr_mul_compute_shader(DType::F32).unwrap())
-            .expect("CSR mul compute should be valid");
-        validate_wgsl_syntax(&generate_csr_div_compute_shader(DType::F32).unwrap())
-            .expect("CSR div compute should be valid");
-        validate_wgsl_syntax(&generate_csc_add_compute_shader(DType::F32).unwrap())
-            .expect("CSC add compute should be valid");
-    }
 }

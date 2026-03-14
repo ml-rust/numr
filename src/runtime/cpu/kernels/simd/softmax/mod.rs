@@ -1,14 +1,19 @@
-//! SIMD-accelerated softmax operation
+//! SIMD-accelerated softmax operation using the online softmax algorithm.
 //!
 //! Softmax is critical for attention mechanisms in transformers.
 //! softmax(x)[i] = exp(x[i] - max(x)) / sum(exp(x - max(x)))
 //!
-//! # SIMD Optimizations
+//! # Online Softmax Algorithm (2-pass)
 //!
-//! - SIMD max-reduce for finding maximum
-//! - SIMD exp computation (vectorized)
-//! - SIMD sum-reduce for normalization
-//! - SIMD multiply for final division
+//! Instead of the traditional 3-pass approach (find max, compute exp+sum, normalize),
+//! we use a 2-pass online algorithm:
+//!
+//! **Pass 1 (online max + sum):** For each element x[i], maintain running max `m` and
+//! running sum `s`. When a new max is found, rescale the accumulated sum.
+//!
+//! **Pass 2 (normalize):** output[i] = exp(x[i] - m) / s
+//!
+//! This saves one full read+write pass over the output buffer compared to 3-pass.
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;
@@ -97,67 +102,128 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
 // Scalar fallbacks
 // ============================================================================
 
-/// Scalar softmax for f32
+/// Scalar softmax for f32 using online algorithm (2-pass).
 #[inline]
 pub unsafe fn softmax_scalar_f32(a: *const f32, out: *mut f32, outer_size: usize, dim_size: usize) {
     for o in 0..outer_size {
         let base = o * dim_size;
 
-        // Find max
+        // Pass 1: Online max + sum — single read of input
         let mut max_val = *a.add(base);
+        let mut sum = if max_val.is_finite() { 1.0f32 } else { 0.0f32 };
         for d in 1..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
+                // Guard: if max_val == -inf, rescale factor is 0 (not NaN)
+                let rescale = if max_val == f32::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                sum = sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f32::NEG_INFINITY {
+                // exp(-inf - anything) = 0, skip to avoid NaN from -inf - (-inf)
+            } else {
+                sum += (val - max_val).exp();
             }
         }
 
-        // Compute exp(x - max) and sum
-        let mut sum = 0.0f32;
-        for d in 0..dim_size {
-            let val = *a.add(base + d);
-            let exp_val = (val - max_val).exp();
-            *out.add(base + d) = exp_val;
-            sum += exp_val;
-        }
-
-        // Normalize
+        // Pass 2: Compute exp(x - max) / sum — one read of input, one write of output
         let inv_sum = 1.0 / sum;
         for d in 0..dim_size {
-            *out.add(base + d) *= inv_sum;
+            let val = *a.add(base + d);
+            *out.add(base + d) = if val == f32::NEG_INFINITY {
+                0.0
+            } else {
+                (val - max_val).exp() * inv_sum
+            };
         }
     }
 }
 
-/// Scalar softmax for f64
+/// Scalar softmax for f64 using online algorithm (2-pass).
 #[inline]
 pub unsafe fn softmax_scalar_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_size: usize) {
     for o in 0..outer_size {
         let base = o * dim_size;
 
-        // Find max
+        // Pass 1: Online max + sum
         let mut max_val = *a.add(base);
+        let mut sum = if max_val.is_finite() { 1.0f64 } else { 0.0f64 };
         for d in 1..dim_size {
             let val = *a.add(base + d);
             if val > max_val {
+                let rescale = if max_val == f64::NEG_INFINITY {
+                    0.0
+                } else {
+                    (max_val - val).exp()
+                };
+                sum = sum * rescale + 1.0;
                 max_val = val;
+            } else if val == f64::NEG_INFINITY {
+                // exp(-inf - anything) = 0, skip to avoid NaN from -inf - (-inf)
+            } else {
+                sum += (val - max_val).exp();
             }
         }
 
-        // Compute exp(x - max) and sum
-        let mut sum = 0.0f64;
-        for d in 0..dim_size {
-            let val = *a.add(base + d);
-            let exp_val = (val - max_val).exp();
-            *out.add(base + d) = exp_val;
-            sum += exp_val;
-        }
-
-        // Normalize
+        // Pass 2: Compute exp(x - max) / sum
         let inv_sum = 1.0 / sum;
         for d in 0..dim_size {
-            *out.add(base + d) *= inv_sum;
+            let val = *a.add(base + d);
+            *out.add(base + d) = if val == f64::NEG_INFINITY {
+                0.0
+            } else {
+                (val - max_val).exp() * inv_sum
+            };
         }
+    }
+}
+
+#[cfg(feature = "f16")]
+/// f16 wrapper for softmax: processes one row at a time via f32 conversion.
+///
+/// # Safety
+/// - `a` and `out` must point to `outer_size * dim_size` elements
+pub unsafe fn softmax_f16(
+    a: *const half::f16,
+    out: *mut half::f16,
+    outer_size: usize,
+    dim_size: usize,
+) {
+    use super::half_convert_utils::*;
+    let row_len = dim_size;
+    let mut a_buf = vec![0.0f32; row_len];
+    let mut out_buf = vec![0.0f32; row_len];
+    for i in 0..outer_size {
+        let offset = i * dim_size;
+        convert_f16_to_f32(a.add(offset) as *const u16, a_buf.as_mut_ptr(), row_len);
+        softmax_f32(a_buf.as_ptr(), out_buf.as_mut_ptr(), 1, dim_size);
+        convert_f32_to_f16(out_buf.as_ptr(), out.add(offset) as *mut u16, row_len);
+    }
+}
+
+#[cfg(feature = "f16")]
+/// bf16 wrapper for softmax: processes one row at a time via f32 conversion.
+///
+/// # Safety
+/// - `a` and `out` must point to `outer_size * dim_size` elements
+pub unsafe fn softmax_bf16(
+    a: *const half::bf16,
+    out: *mut half::bf16,
+    outer_size: usize,
+    dim_size: usize,
+) {
+    use super::half_convert_utils::*;
+    let row_len = dim_size;
+    let mut a_buf = vec![0.0f32; row_len];
+    let mut out_buf = vec![0.0f32; row_len];
+    for i in 0..outer_size {
+        let offset = i * dim_size;
+        convert_bf16_to_f32(a.add(offset) as *const u16, a_buf.as_mut_ptr(), row_len);
+        softmax_f32(a_buf.as_ptr(), out_buf.as_mut_ptr(), 1, dim_size);
+        convert_f32_to_bf16(out_buf.as_ptr(), out.add(offset) as *mut u16, row_len);
     }
 }
 

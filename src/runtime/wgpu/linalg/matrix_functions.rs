@@ -445,8 +445,7 @@ fn compute_norm(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<f64> {
 
 fn get_tensor_buffer(t: &Tensor<WgpuRuntime>) -> Result<std::sync::Arc<wgpu::Buffer>> {
     use super::super::client::get_buffer;
-    get_buffer(t.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get tensor buffer".to_string()))
+    get_buffer(t.ptr()).ok_or_else(|| Error::Internal("Failed to get tensor buffer".to_string()))
 }
 
 /// Compute exp(T) for quasi-triangular matrix T using GPU kernels.

@@ -6,8 +6,8 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{TypeConversionOps, compute_reduce_strides, reduce_dim_output_shape};
+use crate::runtime::common::statistics_common::compute_mode_strided;
 use crate::runtime::normalize_dim;
-use crate::runtime::statistics_common::compute_mode_strided;
 use crate::tensor::Tensor;
 
 /// Compute mode (most frequent value) along a dimension.

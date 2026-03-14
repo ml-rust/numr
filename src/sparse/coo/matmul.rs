@@ -1,11 +1,12 @@
 //! COO matrix multiplication: spmv, spmm, transpose
 
 use super::CooData;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Sparse matrix-vector multiplication: y = A * x
     ///
     /// Converts to CSR format (optimal for SpMV) and performs the multiplication.

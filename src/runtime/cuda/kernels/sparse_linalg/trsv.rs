@@ -54,7 +54,14 @@ pub unsafe fn launch_sparse_trsv_lower_level_f32(
     Ok(())
 }
 
-/// Launch level-scheduled lower triangular solve kernel - f64
+/// Launch level-scheduled lower triangular solve kernel (forward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers allocated on the device associated with `context`.
+/// - Buffer sizes must match the expected dimensions: `level_size` rows, matrix of size `n x n`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_f64(
     context: &Arc<CudaContext>,
@@ -91,6 +98,13 @@ pub unsafe fn launch_sparse_trsv_lower_level_f64(
 }
 
 /// Launch level-scheduled upper triangular solve kernel (backward substitution) - f32
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers allocated on the device associated with `context`.
+/// - Buffer sizes must match the expected dimensions: `level_size` rows, matrix of size `n x n`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_f32(
     context: &Arc<CudaContext>,
@@ -123,7 +137,14 @@ pub unsafe fn launch_sparse_trsv_upper_level_f32(
     Ok(())
 }
 
-/// Launch level-scheduled upper triangular solve kernel - f64
+/// Launch level-scheduled upper triangular solve kernel (backward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers allocated on the device associated with `context`.
+/// - Buffer sizes must match the expected dimensions: `level_size` rows, matrix of size `n x n`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_f64(
     context: &Arc<CudaContext>,
@@ -161,6 +182,14 @@ pub unsafe fn launch_sparse_trsv_upper_level_f64(
 // ============================================================================
 
 /// Launch multi-RHS lower triangular solve kernel (forward substitution) - f32
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - The `b` buffer must have at least `n * nrhs` elements; `x` must have at least `n * nrhs`.
+/// - `level_size * nrhs` must not overflow `u32` when computing the grid size.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f32(
     context: &Arc<CudaContext>,
@@ -200,7 +229,15 @@ pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f32(
     Ok(())
 }
 
-/// Launch multi-RHS lower triangular solve kernel - f64
+/// Launch multi-RHS lower triangular solve kernel (forward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - The `b` buffer must have at least `n * nrhs` elements; `x` must have at least `n * nrhs`.
+/// - `level_size * nrhs` must not overflow `u32` when computing the grid size.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f64(
     context: &Arc<CudaContext>,
@@ -241,6 +278,14 @@ pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f64(
 }
 
 /// Launch multi-RHS upper triangular solve kernel (backward substitution) - f32
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - The `b` buffer must have at least `n * nrhs` elements; `x` must have at least `n * nrhs`.
+/// - `level_size * nrhs` must not overflow `u32` when computing the grid size.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f32(
     context: &Arc<CudaContext>,
@@ -277,7 +322,15 @@ pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f32(
     Ok(())
 }
 
-/// Launch multi-RHS upper triangular solve kernel - f64
+/// Launch multi-RHS upper triangular solve kernel (backward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_rows`, `row_ptrs`, `col_indices`, `values`, `b`, `x`) must be
+///   valid device memory pointers on the device associated with `context`.
+/// - The `b` buffer must have at least `n * nrhs` elements; `x` must have at least `n * nrhs`.
+/// - `level_size * nrhs` must not overflow `u32` when computing the grid size.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f64(
     context: &Arc<CudaContext>,
@@ -318,7 +371,15 @@ pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f64(
 // CSC Format - Single RHS (for LU solve)
 // ============================================================================
 
-/// Launch CSC lower triangular solve kernel - f32
+/// Launch CSC lower triangular solve kernel (forward substitution) - f32
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_cols`, `col_ptrs`, `row_indices`, `values`, `diag_ptr`, `b`)
+///   must be valid device memory pointers on the device associated with `context`.
+/// - Buffer sizes must be consistent: `col_ptrs` has `n+1` entries, `row_indices` and `values`
+///   have `nnz` entries, `b` has `n` elements, `diag_ptr` has `n` entries.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_lower_level_f32(
     context: &Arc<CudaContext>,
@@ -355,7 +416,15 @@ pub unsafe fn launch_sparse_trsv_csc_lower_level_f32(
     Ok(())
 }
 
-/// Launch CSC lower triangular solve kernel - f64
+/// Launch CSC lower triangular solve kernel (forward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_cols`, `col_ptrs`, `row_indices`, `values`, `diag_ptr`, `b`)
+///   must be valid device memory pointers on the device associated with `context`.
+/// - Buffer sizes must be consistent: `col_ptrs` has `n+1` entries, `row_indices` and `values`
+///   have `nnz` entries, `b` has `n` elements, `diag_ptr` has `n` entries.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_lower_level_f64(
     context: &Arc<CudaContext>,
@@ -392,7 +461,15 @@ pub unsafe fn launch_sparse_trsv_csc_lower_level_f64(
     Ok(())
 }
 
-/// Launch CSC upper triangular solve kernel - f32
+/// Launch CSC upper triangular solve kernel (backward substitution) - f32
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_cols`, `col_ptrs`, `row_indices`, `values`, `diag_ptr`, `b`)
+///   must be valid device memory pointers on the device associated with `context`.
+/// - Buffer sizes must be consistent: `col_ptrs` has `n+1` entries, `row_indices` and `values`
+///   have `nnz` entries, `b` has `n` elements, `diag_ptr` has `n` entries.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_upper_level_f32(
     context: &Arc<CudaContext>,
@@ -426,7 +503,15 @@ pub unsafe fn launch_sparse_trsv_csc_upper_level_f32(
     Ok(())
 }
 
-/// Launch CSC upper triangular solve kernel - f64
+/// Launch CSC upper triangular solve kernel (backward substitution) - f64
+///
+/// # Safety
+///
+/// - All pointer arguments (`level_cols`, `col_ptrs`, `row_indices`, `values`, `diag_ptr`, `b`)
+///   must be valid device memory pointers on the device associated with `context`.
+/// - Buffer sizes must be consistent: `col_ptrs` has `n+1` entries, `row_indices` and `values`
+///   have `nnz` entries, `b` has `n` elements, `diag_ptr` has `n` entries.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_upper_level_f64(
     context: &Arc<CudaContext>,

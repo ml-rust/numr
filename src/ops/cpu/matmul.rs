@@ -1,5 +1,6 @@
 //! CPU implementation of matrix multiplication operations.
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{Kernel, MatmulOps};
 use crate::runtime::cpu::{
@@ -40,29 +41,208 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        // Require row-major contiguous tensors for SIMD-optimized packing
-        // Non-contiguous tensors (transposed, views) are copied to contiguous layout
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-
-        // Calculate batch size
+        // Calculate batch size from output shape, and per-operand batch sizes for broadcasting
         let batch_size: usize = out_shape
             .iter()
             .take(out_shape.len().saturating_sub(2))
             .product();
         let batch_size = batch_size.max(1);
 
-        // Create output tensor
-        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+        let a_batch: usize = a_shape
+            .iter()
+            .take(a_shape.len().saturating_sub(2))
+            .product::<usize>()
+            .max(1);
+        let b_batch: usize = b_shape
+            .iter()
+            .take(b_shape.len().saturating_sub(2))
+            .product::<usize>()
+            .max(1);
 
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        // GEMV-BT fast path: detect transposed B and use dot-product kernel
+        // When B has shape [K,N] with strides [1,K], it's a transpose of contiguous [N,K].
+        // For small M (decode), we can dot A rows against B's original [N,K] rows directly,
+        // avoiding the costly contiguous copy (e.g. 500MB for lm_head weights).
+        if m <= 16 && b_shape.len() >= 2 && dtype != DType::I8 {
+            let b_strides = b.strides();
+            let ndim = b_shape.len();
+            let stride_row = b_strides[ndim - 2]; // stride for K dimension
+            let stride_col = b_strides[ndim - 1]; // stride for N dimension
+
+            // Check if B is a simple transpose: shape [K,N], strides [1, K]
+            // meaning the underlying data is contiguous [N,K]
+            if stride_row == 1 && stride_col == k as isize {
+                let a_contig = ensure_contiguous(a);
+                let a_ptr = a_contig.ptr();
+                let b_ptr = b.ptr(); // Use original ptr - data is contiguous [N,K]
+
+                // Create output tensor
+                let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+                let out_ptr = out.ptr();
+                let ldc = n;
+
+                dispatch_dtype!(dtype, T => {
+                    for batch in 0..batch_size {
+                        let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                        let b_offset = if b_batch > 1 { batch * n * k } else { 0 };
+                        let out_offset = batch * m * n;
+
+                        #[cfg(feature = "rayon")]
+                        {
+                            use rayon::prelude::*;
+
+                            // Parallelize over output columns for large N
+                            // Each thread computes a chunk of columns independently
+                            let min_cols_per_thread = 64usize;
+                            let num_threads = rayon::current_num_threads();
+                            let chunk_size = ((n + num_threads - 1) / num_threads).max(min_cols_per_thread);
+
+                            if n > min_cols_per_thread && num_threads > 1 {
+                                // Convert to usize for Send safety - each thread
+                                // accesses disjoint memory regions
+                                let a_send = (a_ptr as usize) + a_offset * std::mem::size_of::<T>();
+                                let b_send = (b_ptr as usize) + b_offset * std::mem::size_of::<T>();
+                                let out_send = (out_ptr as usize) + out_offset * std::mem::size_of::<T>();
+                                let elem_size = std::mem::size_of::<T>();
+
+                                self.install_parallelism(|| {
+                                    (0..n).into_par_iter().step_by(chunk_size).for_each(|col_start| {
+                                        let col_end = (col_start + chunk_size).min(n);
+                                        let chunk_n = col_end - col_start;
+                                        unsafe {
+                                            let a_base = a_send as *const T;
+                                            let b_chunk = (b_send + col_start * k * elem_size) as *const T;
+                                            let out_chunk = (out_send + col_start * elem_size) as *mut T;
+
+                                            crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                                a_base,
+                                                b_chunk,
+                                                out_chunk,
+                                                m, chunk_n, k, n,
+                                            );
+                                        }
+                                    });
+                                });
+                            } else {
+                                unsafe {
+                                    crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                        (a_ptr as *const T).add(a_offset),
+                                        (b_ptr as *const T).add(b_offset),
+                                        (out_ptr as *mut T).add(out_offset),
+                                        m, n, k, ldc,
+                                    );
+                                }
+                            }
+                        }
+
+                        #[cfg(not(feature = "rayon"))]
+                        unsafe {
+                            crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                (a_ptr as *const T).add(a_offset),
+                                (b_ptr as *const T).add(b_offset),
+                                (out_ptr as *mut T).add(out_offset),
+                                m, n, k, ldc,
+                            );
+                        }
+                    }
+                }, "matmul_gemv_bt");
+
+                return Ok(out);
+            }
+        }
+
+        // Require row-major contiguous tensors for SIMD-optimized packing
+        // Non-contiguous tensors (transposed, views) are copied to contiguous layout
+        let a_contig = ensure_contiguous(a);
+        let b_contig = ensure_contiguous(b);
+
+        let a_ptr = a_contig.ptr();
+        let b_ptr = b_contig.ptr();
 
         // Leading dimensions for contiguous row-major matrices
         let lda = k;
         let ldb = n;
         let ldc = n;
+
+        // Special case: i8 × i8 → i32 matmul (quantized accumulation)
+        if dtype == DType::I8 {
+            use crate::runtime::cpu::kernels::matmul_i8_to_i32_kernel;
+
+            let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I32, &self.device);
+            let out_ptr = out.ptr();
+
+            #[cfg(feature = "rayon")]
+            {
+                use rayon::prelude::*;
+
+                if batch_size > 1 {
+                    let min_len = self.rayon_min_len();
+                    self.install_parallelism(|| {
+                        (0..batch_size)
+                            .into_par_iter()
+                            .with_min_len(min_len)
+                            .for_each(|batch| unsafe {
+                                let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                                let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
+                                let out_offset = batch * m * n;
+
+                                matmul_i8_to_i32_kernel(
+                                    (a_ptr as *const i8).add(a_offset),
+                                    (b_ptr as *const i8).add(b_offset),
+                                    (out_ptr as *mut i32).add(out_offset),
+                                    m,
+                                    n,
+                                    k,
+                                    lda,
+                                    ldb,
+                                    ldc,
+                                );
+                            });
+                    });
+                } else {
+                    unsafe {
+                        matmul_i8_to_i32_kernel(
+                            a_ptr as *const i8,
+                            b_ptr as *const i8,
+                            out_ptr as *mut i32,
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
+                    }
+                }
+            }
+
+            #[cfg(not(feature = "rayon"))]
+            unsafe {
+                for batch in 0..batch_size {
+                    let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                    let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
+                    let out_offset = batch * m * n;
+
+                    matmul_i8_to_i32_kernel(
+                        (a_ptr as *const i8).add(a_offset),
+                        (b_ptr as *const i8).add(b_offset),
+                        (out_ptr as *mut i32).add(out_offset),
+                        m,
+                        n,
+                        k,
+                        lda,
+                        ldb,
+                        ldc,
+                    );
+                }
+            }
+
+            return Ok(out);
+        }
+
+        // Create output tensor
+        let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
+        let out_ptr = out.ptr();
 
         // Dispatch based on dtype
         dispatch_dtype!(dtype, T => {
@@ -77,8 +257,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                             .into_par_iter()
                             .with_min_len(min_len)
                             .for_each(|batch| unsafe {
-                            let a_offset = batch * m * k;
-                            let b_offset = batch * k * n;
+                            let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                            let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
                             let out_offset = batch * m * n;
 
                             <Self as Kernel<CpuRuntime>>::matmul::<T>(
@@ -119,8 +299,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             #[cfg(not(feature = "rayon"))]
             unsafe {
                 for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
+                    let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                    let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
                     let out_offset = batch * m * n;
 
                     <Self as Kernel<CpuRuntime>>::matmul::<T>(
@@ -178,20 +358,31 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let b_contig = ensure_contiguous(b);
         let bias_contig = ensure_contiguous(bias);
 
-        // Calculate batch size
+        // Calculate batch size from output shape, and per-operand batch sizes for broadcasting
         let batch_size: usize = out_shape
             .iter()
             .take(out_shape.len().saturating_sub(2))
             .product();
         let batch_size = batch_size.max(1);
 
+        let a_batch: usize = a_shape
+            .iter()
+            .take(a_shape.len().saturating_sub(2))
+            .product::<usize>()
+            .max(1);
+        let b_batch: usize = b_shape
+            .iter()
+            .take(b_shape.len().saturating_sub(2))
+            .product::<usize>()
+            .max(1);
+
         // Create output tensor
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let b_ptr = b_contig.storage().ptr();
-        let bias_ptr = bias_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let b_ptr = b_contig.ptr();
+        let bias_ptr = bias_contig.ptr();
+        let out_ptr = out.ptr();
 
         // Leading dimensions for contiguous row-major matrices
         let lda = k;
@@ -211,8 +402,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                             .into_par_iter()
                             .with_min_len(min_len)
                             .for_each(|batch| unsafe {
-                            let a_offset = batch * m * k;
-                            let b_offset = batch * k * n;
+                            let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                            let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
                             let out_offset = batch * m * n;
 
                             matmul_bias_kernel::<T>(
@@ -254,8 +445,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             #[cfg(not(feature = "rayon"))]
             unsafe {
                 for batch in 0..batch_size {
-                    let a_offset = batch * m * k;
-                    let b_offset = batch * k * n;
+                    let a_offset = if a_batch > 1 { batch * m * k } else { 0 };
+                    let b_offset = if b_batch > 1 { batch * k * n } else { 0 };
                     let out_offset = batch * m * n;
 
                     matmul_bias_kernel::<T>(

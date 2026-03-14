@@ -1,12 +1,13 @@
 //! CSR format conversion: to_coo, to_csc
 
 use super::CsrData;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::sparse::{CooData, CscData, SparseStorage};
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CsrData<R> {
+impl<R: Runtime<DType = DType>> CsrData<R> {
     /// Convert to COO format
     ///
     /// Expands the compressed row pointers into explicit row indices.

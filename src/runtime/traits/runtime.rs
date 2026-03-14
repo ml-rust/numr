@@ -10,6 +10,7 @@
 /// - `Device`: Identifies a specific compute unit (e.g., GPU 0, GPU 1)
 /// - `Client`: Handles operation dispatch and synchronization
 /// - `Allocator`: Memory management with optional freeze support
+/// - `Graph`: Captured computation sequence for replay (CUDA Graphs, etc.)
 /// - `RawHandle`: Escape hatch for custom kernel launching
 ///
 /// # Example
@@ -30,6 +31,12 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// Memory allocator type
     type Allocator: crate::runtime::Allocator;
 
+    /// Captured computation graph for replay
+    ///
+    /// For CPU/WebGPU: `NoOpGraph` (operations execute eagerly, launch is no-op)
+    /// For CUDA: `CudaGraph` wrapping cudarc's graph types
+    type Graph: crate::runtime::Graph;
+
     /// Raw handle for custom kernel launching (escape hatch)
     ///
     /// For CPU: `()` (no raw handle needed)
@@ -37,13 +44,34 @@ pub trait Runtime: Clone + Send + Sync + 'static {
     /// For WGPU: Access to wgpu::Device/Queue
     type RawHandle: Send + Sync;
 
+    /// Data type enum for tensor elements.
+    ///
+    /// numr runtimes use `numr::DType`. Downstream runtimes (e.g. boostr)
+    /// can specify their own dtype enum with quantized variants.
+    type DType: crate::dtype::DataType;
+
     /// Human-readable name of this runtime
     fn name() -> &'static str;
 
     /// Does this backend support graph capture (e.g., CUDA Graphs)?
+    ///
+    /// Check this BEFORE calling `capture_graph` to avoid unnecessary
+    /// eager execution on non-capture backends.
     fn supports_graph_capture() -> bool {
         false
     }
+
+    /// Capture a sequence of operations as a replayable graph.
+    ///
+    /// The closure receives the client so operations are issued on the correct
+    /// stream/queue. On capture-capable backends (CUDA), ops submitted inside
+    /// the closure are recorded into a graph. On non-capture backends (CPU, WebGPU),
+    /// the closure executes eagerly and returns `NoOpGraph`.
+    ///
+    /// Returns `(graph, closure_result)`.
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>;
 
     /// Allocate device memory
     ///
@@ -101,6 +129,29 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         elem_size: usize,
         device: &Self::Device,
     ) -> crate::error::Result<()>;
+
+    /// Record an event on the compute stream. Returns an opaque handle.
+    /// On non-CUDA backends, returns 0 (no-op).
+    fn record_compute_event(_device: &Self::Device) -> crate::error::Result<u64> {
+        Ok(0)
+    }
+
+    /// Copy data from device to host using a dedicated copy stream,
+    /// synchronized via a previously recorded event.
+    ///
+    /// On CUDA: copy stream waits on the event, performs D2H, syncs only copy stream.
+    /// The compute stream continues running concurrently.
+    ///
+    /// Default: ignores event, falls back to `copy_from_device`.
+    fn copy_from_device_pipelined(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+        event: u64,
+    ) -> crate::error::Result<()> {
+        let _ = event;
+        Self::copy_from_device(src, dst, device)
+    }
 
     /// Get the default device
     fn default_device() -> Self::Device;

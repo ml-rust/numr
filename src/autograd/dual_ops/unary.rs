@@ -1,6 +1,7 @@
 //! Unary operations on dual tensors
 
 use crate::autograd::DualTensor;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{BinaryOps, ScalarOps, UnaryOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -138,7 +139,7 @@ where
 /// Dual hyperbolic tangent: tanh(a, ȧ) = (tanh(a), (1 - tanh²(a)) * ȧ)
 pub fn dual_tanh<R, C>(a: &DualTensor<R>, client: &C) -> Result<DualTensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R> + UnaryOps<R> + BinaryOps<R> + ScalarOps<R>,
 {
     let primal = client.tanh(a.primal())?;

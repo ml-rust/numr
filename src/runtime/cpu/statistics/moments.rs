@@ -5,7 +5,9 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::ops::{BinaryOps, ReduceOps, ScalarOps, StatisticalOps};
-use crate::runtime::statistics_common::{DIVISION_EPSILON, compute_kurtosis, compute_skewness};
+use crate::runtime::common::statistics_common::{
+    DIVISION_EPSILON, compute_kurtosis, compute_skewness,
+};
 use crate::tensor::Tensor;
 
 /// Compute skewness (third standardized moment) along dimensions.
@@ -44,7 +46,7 @@ pub fn skew_impl(
     if dims.is_empty() {
         let numel = a.numel();
         let a_contig = ensure_contiguous(a);
-        let a_ptr = a_contig.storage().ptr();
+        let a_ptr = a_contig.ptr();
 
         let skewness = dispatch_dtype!(dtype, T => {
             unsafe {
@@ -55,7 +57,7 @@ pub fn skew_impl(
 
         let out_shape = if keepdim { vec![1; ndim] } else { vec![] };
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe { *(out_ptr as *mut T) = T::from_f64(skewness); }
@@ -125,7 +127,7 @@ pub fn kurtosis_impl(
     if dims.is_empty() {
         let numel = a.numel();
         let a_contig = ensure_contiguous(a);
-        let a_ptr = a_contig.storage().ptr();
+        let a_ptr = a_contig.ptr();
 
         let kurtosis = dispatch_dtype!(dtype, T => {
             unsafe {
@@ -136,7 +138,7 @@ pub fn kurtosis_impl(
 
         let out_shape = if keepdim { vec![1; ndim] } else { vec![] };
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe { *(out_ptr as *mut T) = T::from_f64(kurtosis); }

@@ -3,10 +3,7 @@
 // Dtype-parameterized: each test runs for all supported dtypes across all backends.
 // Comparison reads back in native dtype via assert_tensor_allclose.
 
-use numr::dtype::DType;
 use numr::ops::{ConvOps, PaddingMode};
-use numr::runtime::cpu::CpuRuntime;
-use numr::tensor::Tensor;
 
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]

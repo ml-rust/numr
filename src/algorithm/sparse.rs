@@ -90,7 +90,7 @@ pub trait SparseAlgorithms<R: Runtime> {
 // ============================================================================
 
 /// Zero tolerance threshold for filtering small values
-pub use crate::runtime::sparse_utils::zero_tolerance;
+pub use crate::runtime::common::sparse_utils::zero_tolerance;
 
 /// Validate CSR matrix dimensions for SpGEMM
 pub fn validate_spgemm_shapes(

@@ -32,10 +32,18 @@ fn metric_to_index(metric: DistanceMetric) -> u32 {
     }
 }
 
-/// Get Minkowski p value from metric
-fn metric_p_value(metric: DistanceMetric) -> f32 {
+/// Get Minkowski p value from metric as f32 (for F32/F16/BF16 kernels)
+fn metric_p_value_f32(metric: DistanceMetric) -> f32 {
     match metric {
         DistanceMetric::Minkowski(p) => p as f32,
+        _ => 2.0, // Default (not used for non-Minkowski)
+    }
+}
+
+/// Get Minkowski p value from metric as f64 (for F64 kernel)
+fn metric_p_value_f64(metric: DistanceMetric) -> f64 {
+    match metric {
+        DistanceMetric::Minkowski(p) => p,
         _ => 2.0, // Default (not used for non-Minkowski)
     }
 }
@@ -85,10 +93,11 @@ pub unsafe fn launch_cdist(
         let cfg = launch_config(grid, block, 0);
 
         let metric_idx = metric_to_index(metric);
-        let p_value = metric_p_value(metric);
         let n_u32 = n as u32;
         let m_u32 = m as u32;
         let d_u32 = d as u32;
+        let p_f32 = metric_p_value_f32(metric);
+        let p_f64 = metric_p_value_f64(metric);
 
         let mut builder = stream.launch_builder(&func);
         builder.arg(&x_ptr);
@@ -98,7 +107,13 @@ pub unsafe fn launch_cdist(
         builder.arg(&m_u32);
         builder.arg(&d_u32);
         builder.arg(&metric_idx);
-        builder.arg(&p_value);
+
+        // AccT is f64 for F64 dtype, f32 for all others
+        if dtype == DType::F64 {
+            builder.arg(&p_f64);
+        } else {
+            builder.arg(&p_f32);
+        }
 
         builder
             .launch(cfg)
@@ -149,9 +164,10 @@ pub unsafe fn launch_pdist(
         let cfg = launch_config(grid, block, 0);
 
         let metric_idx = metric_to_index(metric);
-        let p_value = metric_p_value(metric);
         let n_u32 = n as u32;
         let d_u32 = d as u32;
+        let p_f32 = metric_p_value_f32(metric);
+        let p_f64 = metric_p_value_f64(metric);
 
         let mut builder = stream.launch_builder(&func);
         builder.arg(&x_ptr);
@@ -159,7 +175,12 @@ pub unsafe fn launch_pdist(
         builder.arg(&n_u32);
         builder.arg(&d_u32);
         builder.arg(&metric_idx);
-        builder.arg(&p_value);
+
+        if dtype == DType::F64 {
+            builder.arg(&p_f64);
+        } else {
+            builder.arg(&p_f32);
+        }
 
         builder
             .launch(cfg)

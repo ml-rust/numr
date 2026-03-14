@@ -29,7 +29,7 @@ pub fn qmr_impl<R, C>(
     options: QmrOptions,
 ) -> Result<QmrResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

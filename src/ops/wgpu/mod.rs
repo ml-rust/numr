@@ -25,8 +25,12 @@ pub mod random;
 pub mod reduce;
 pub mod scalar;
 pub mod shape;
+#[cfg(feature = "sparse")]
+pub mod sparse_24;
 pub mod sorting;
 pub mod statistics;
 pub mod type_conversion;
 pub mod unary;
 pub mod utility;
+pub mod fp8_matmul;
+pub mod gemm_epilogue;

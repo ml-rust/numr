@@ -78,6 +78,9 @@ mod distance;
 #[path = "../../../ops/cuda/multivariate.rs"]
 mod multivariate;
 
+#[path = "../../../ops/cuda/gemm_epilogue.rs"]
+mod gemm_epilogue;
+
 #[path = "../../../ops/cuda/semiring_matmul.rs"]
 mod semiring_matmul;
 
@@ -92,3 +95,11 @@ mod logical;
 
 #[path = "../../../ops/cuda/einsum.rs"]
 mod einsum;
+
+#[cfg(feature = "fp8")]
+#[path = "../../../ops/cuda/fp8_matmul.rs"]
+mod fp8_matmul;
+
+#[cfg(feature = "sparse")]
+#[path = "../../../ops/cuda/sparse_24.rs"]
+mod sparse_24;

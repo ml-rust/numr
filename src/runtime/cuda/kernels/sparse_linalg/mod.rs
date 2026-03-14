@@ -14,12 +14,14 @@
 mod ilu_ic;
 mod levels;
 mod primitives;
+mod qr;
 mod trsv;
 mod utils;
 
 pub use ilu_ic::*;
 pub use levels::*;
 pub use primitives::*;
+pub use qr::*;
 pub use trsv::*;
 pub use utils::*;
 

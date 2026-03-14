@@ -58,9 +58,9 @@ pub fn inverse(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wg
     )?;
 
     // Get LU and pivots buffers (both already on GPU, no transfers needed)
-    let lu_buffer = get_buffer(lu_result.lu.storage().ptr())
+    let lu_buffer = get_buffer(lu_result.lu.ptr())
         .ok_or_else(|| Error::Internal("Failed to get lu buffer".to_string()))?;
-    let pivots_buffer = get_buffer(lu_result.pivots.storage().ptr())
+    let pivots_buffer = get_buffer(lu_result.pivots.ptr())
         .ok_or_else(|| Error::Internal("Failed to get pivots buffer".to_string()))?;
 
     // Allocate temporary buffers
@@ -198,7 +198,7 @@ pub fn det(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRu
     let det_buffer = get_buffer(det_ptr)
         .ok_or_else(|| Error::Internal("Failed to get det buffer".to_string()))?;
 
-    let lu_buffer = get_buffer(lu_result.lu.storage().ptr())
+    let lu_buffer = get_buffer(lu_result.lu.ptr())
         .ok_or_else(|| Error::Internal("Failed to get lu buffer".to_string()))?;
 
     // Create params buffer with n and num_swaps
@@ -246,8 +246,8 @@ pub fn trace(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<Wgpu
     let zero: [f32; 1] = [0.0];
     client.write_buffer(&trace_buffer, &zero);
 
-    let a_buffer = get_buffer(a.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
 
     let params: [u32; 2] = [min_dim as u32, n as u32];
     let params_buffer = client.create_uniform_buffer("trace_params", 8);
@@ -290,8 +290,8 @@ pub fn diag(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuR
     let diag_buffer = get_buffer(diag_ptr)
         .ok_or_else(|| Error::Internal("Failed to get diag buffer".to_string()))?;
 
-    let a_buffer = get_buffer(a.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
 
     let params: [u32; 2] = [min_dim as u32, n as u32];
     let params_buffer = client.create_uniform_buffer("diag_params", 8);
@@ -343,8 +343,8 @@ pub fn diagflat(client: &WgpuClient, a: &Tensor<WgpuRuntime>) -> Result<Tensor<W
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
-    let a_buffer = get_buffer(a.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
 
     let params: [u32; 1] = [n as u32];
     let params_buffer = client.create_uniform_buffer("diagflat_params", 4);
@@ -503,11 +503,11 @@ pub fn kron(
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
-    let a_buffer = get_buffer(a.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
 
-    let b_buffer = get_buffer(b.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
+    let b_buffer =
+        get_buffer(b.ptr()).ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     let params: [u32; 4] = [m_a as u32, n_a as u32, m_b as u32, n_b as u32];
     let params_buffer = client.create_uniform_buffer("kron_params", 16);
@@ -580,11 +580,11 @@ pub fn khatri_rao(
     let out_buffer = get_buffer(out_ptr)
         .ok_or_else(|| Error::Internal("Failed to get out buffer".to_string()))?;
 
-    let a_buffer = get_buffer(a.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get a buffer".to_string()))?;
 
-    let b_buffer = get_buffer(b.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
+    let b_buffer =
+        get_buffer(b.ptr()).ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     // params: [m, n, k, _pad]
     let params: [u32; 4] = [m as u32, n as u32, k as u32, 0];

@@ -3,7 +3,7 @@
 //! Provides element-wise activation functions with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Sigmoid activation: 1 / (1 + exp(-x))
 ///
@@ -18,6 +18,7 @@ pub unsafe fn sigmoid_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -26,6 +27,16 @@ pub unsafe fn sigmoid_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
             }
             DType::F64 => {
                 activations::sigmoid_f64(a as *const f64, out as *mut f64, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                activations::sigmoid_f16(a as *const half::f16, out as *mut half::f16, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                activations::sigmoid_bf16(a as *const half::bf16, out as *mut half::bf16, len);
                 return;
             }
             _ => {}
@@ -59,6 +70,7 @@ pub unsafe fn silu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -67,6 +79,16 @@ pub unsafe fn silu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
             }
             DType::F64 => {
                 activations::silu_f64(a as *const f64, out as *mut f64, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                activations::silu_f16(a as *const half::f16, out as *mut half::f16, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                activations::silu_bf16(a as *const half::bf16, out as *mut half::bf16, len);
                 return;
             }
             _ => {}
@@ -102,6 +124,7 @@ pub unsafe fn gelu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -110,6 +133,16 @@ pub unsafe fn gelu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
             }
             DType::F64 => {
                 activations::gelu_f64(a as *const f64, out as *mut f64, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                activations::gelu_f16(a as *const half::f16, out as *mut half::f16, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                activations::gelu_bf16(a as *const half::bf16, out as *mut half::bf16, len);
                 return;
             }
             _ => {}
@@ -150,6 +183,7 @@ pub unsafe fn leaky_relu_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -163,6 +197,26 @@ pub unsafe fn leaky_relu_kernel<T: Element>(
             }
             DType::F64 => {
                 activations::leaky_relu_f64(a as *const f64, out as *mut f64, len, negative_slope);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                activations::leaky_relu_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                    negative_slope as f32,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                activations::leaky_relu_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                    negative_slope as f32,
+                );
                 return;
             }
             _ => {}
@@ -198,6 +252,7 @@ pub unsafe fn elu_kernel<T: Element>(a: *const T, out: *mut T, len: usize, alpha
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -206,6 +261,26 @@ pub unsafe fn elu_kernel<T: Element>(a: *const T, out: *mut T, len: usize, alpha
             }
             DType::F64 => {
                 activations::elu_f64(a as *const f64, out as *mut f64, len, alpha);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                activations::elu_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                    alpha as f32,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                activations::elu_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                    alpha as f32,
+                );
                 return;
             }
             _ => {}

@@ -3,9 +3,6 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
-use super::super::shaders::generator::sparse_linalg::{
-    generate_find_diag_indices_shader, generate_ilu0_level_shader,
-};
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{
     WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype,
@@ -18,6 +15,9 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
+
+const FIND_DIAG_INDICES: &str = include_str!("../shaders/sparse_find_diag_indices.wgsl");
+const ILU0_LEVEL_F32: &str = include_str!("../shaders/sparse_ilu0_level_f32.wgsl");
 
 /// ILU(0) factorization for WebGPU.
 pub fn ilu0_wgpu(
@@ -224,10 +224,9 @@ pub(super) fn launch_find_diag_indices(
     diag_indices: &Tensor<WgpuRuntime>,
     n: usize,
 ) -> Result<()> {
-    let shader_source = generate_find_diag_indices_shader();
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("find_diag_indices", &shader_source);
+        .get_or_create_module("find_diag_indices", FIND_DIAG_INDICES);
 
     // Create bind group layout
     let layout = client
@@ -281,7 +280,7 @@ pub(super) fn launch_find_diag_indices(
             ],
         });
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "find_diag_indices",
         "find_diag_indices",
         &module,
@@ -363,14 +362,13 @@ pub(super) fn launch_ilu0_level(
     n: usize,
     diagonal_shift: f32,
 ) -> Result<()> {
-    let shader_source = generate_ilu0_level_shader(DType::F32)?;
     let module = client
         .pipeline_cache
-        .get_or_create_module_from_source("ilu0_level_f32", &shader_source);
+        .get_or_create_module("ilu0_level_f32", ILU0_LEVEL_F32);
 
     let layout = create_ilu_ic_layout(&client.wgpu_device);
 
-    let pipeline = client.pipeline_cache.get_or_create_dynamic_pipeline(
+    let pipeline = client.pipeline_cache.get_or_create_pipeline(
         "ilu0_level_f32",
         "ilu0_level_f32",
         &module,

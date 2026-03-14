@@ -44,8 +44,8 @@ pub(super) fn reduce_multi_dim_fused(
     let numel = a.numel();
     let out_numel = out.numel();
 
-    let in_ptr = a.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let in_ptr = a.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(a.dtype(), T => {
         unsafe {

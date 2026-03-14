@@ -77,7 +77,7 @@ pub fn solve_impl(
     for rhs in 0..num_rhs {
         // Extract column from b (or use b directly if 1D)
         let b_ptr_for_solve = if b_is_vector {
-            b.storage().ptr()
+            b.ptr()
         } else {
             // Extract column rhs from B [n, num_rhs]
             let result = unsafe {
@@ -86,7 +86,7 @@ pub fn solve_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    b.storage().ptr(),
+                    b.ptr(),
                     b_col_ptr,
                     n,
                     num_rhs,
@@ -106,7 +106,7 @@ pub fn solve_impl(
                 dtype,
                 b_ptr_for_solve,
                 pb_ptr,
-                lu_result.pivots.storage().ptr(),
+                lu_result.pivots.ptr(),
                 n,
             )
         };
@@ -119,7 +119,7 @@ pub fn solve_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                lu_result.lu.storage().ptr(),
+                lu_result.lu.ptr(),
                 pb_ptr,
                 y_ptr,
                 n,
@@ -135,7 +135,7 @@ pub fn solve_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                lu_result.lu.storage().ptr(),
+                lu_result.lu.ptr(),
                 y_ptr,
                 x_col_ptr,
                 n,
@@ -235,8 +235,8 @@ pub fn solve_triangular_lower_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                l.storage().ptr(),
-                b.storage().ptr(),
+                l.ptr(),
+                b.ptr(),
                 x_ptr,
                 n,
                 unit_diagonal,
@@ -259,7 +259,7 @@ pub fn solve_triangular_lower_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    b.storage().ptr(),
+                    b.ptr(),
                     b_col_ptr,
                     n,
                     num_rhs,
@@ -274,7 +274,7 @@ pub fn solve_triangular_lower_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    l.storage().ptr(),
+                    l.ptr(),
                     b_col_ptr,
                     x_col_ptr,
                     n,
@@ -367,8 +367,8 @@ pub fn solve_triangular_upper_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                u.storage().ptr(),
-                b.storage().ptr(),
+                u.ptr(),
+                b.ptr(),
                 x_ptr,
                 n,
             )?;
@@ -390,7 +390,7 @@ pub fn solve_triangular_upper_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    b.storage().ptr(),
+                    b.ptr(),
                     b_col_ptr,
                     n,
                     num_rhs,
@@ -405,7 +405,7 @@ pub fn solve_triangular_upper_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    u.storage().ptr(),
+                    u.ptr(),
                     b_col_ptr,
                     x_col_ptr,
                     n,
@@ -519,7 +519,7 @@ pub fn lstsq_impl(
         if num_rhs == 1 {
             // Single RHS: qtb is already [m, 1], just use first n elements
             // Copy first n elements to qtb_col_ptr
-            CudaRuntime::copy_within_device(qtb.storage().ptr(), qtb_col_ptr, col_size, device)?;
+            CudaRuntime::copy_within_device(qtb.ptr(), qtb_col_ptr, col_size, device)?;
         } else {
             // Multi-RHS: extract column rhs from qtb [m, num_rhs]
             // But we only need first n elements
@@ -529,7 +529,7 @@ pub fn lstsq_impl(
                     client.stream(),
                     device.index,
                     dtype,
-                    qtb.storage().ptr(),
+                    qtb.ptr(),
                     qtb_col_ptr,
                     n, // only extract first n elements
                     num_rhs,
@@ -547,7 +547,7 @@ pub fn lstsq_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                qr.r.storage().ptr(),
+                qr.r.ptr(),
                 qtb_col_ptr,
                 x_col_ptr,
                 n,

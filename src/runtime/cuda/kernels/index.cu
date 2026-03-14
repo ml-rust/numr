@@ -1227,4 +1227,42 @@ __global__ void scatter_reduce_mean_div_##suffix( \
 DEFINE_SCATTER_REDUCE_MEAN_DIV_KERNEL(f32, float)
 DEFINE_SCATTER_REDUCE_MEAN_DIV_KERNEL(f64, double)
 
+// ============================================================================
+// Slice Assign - Copy src into a slice of dst along a dimension
+// dst: full destination tensor (outer_size * dst_dim_size * inner_size)
+// src: source tensor (outer_size * src_dim_size * inner_size)
+// output: pre-copied dst, then src overwrites the slice region
+// ============================================================================
+
+#define DEFINE_SLICE_ASSIGN_KERNEL(suffix, dtype) \
+__global__ void slice_assign_##suffix( \
+    const dtype* __restrict__ src, \
+    dtype* __restrict__ output, \
+    unsigned int outer_size, \
+    unsigned int dst_dim_size, \
+    unsigned int src_dim_size, \
+    unsigned int inner_size, \
+    unsigned int start \
+) { \
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
+    unsigned int total = outer_size * src_dim_size * inner_size; \
+    if (idx >= total) return; \
+    \
+    unsigned int inner = idx % inner_size; \
+    unsigned int s = (idx / inner_size) % src_dim_size; \
+    unsigned int o = idx / (src_dim_size * inner_size); \
+    \
+    unsigned int dst_offset = o * dst_dim_size * inner_size + (start + s) * inner_size + inner; \
+    output[dst_offset] = src[idx]; \
+}
+
+DEFINE_SLICE_ASSIGN_KERNEL(f32, float)
+DEFINE_SLICE_ASSIGN_KERNEL(f64, double)
+DEFINE_SLICE_ASSIGN_KERNEL(f16, __half)
+DEFINE_SLICE_ASSIGN_KERNEL(bf16, __nv_bfloat16)
+DEFINE_SLICE_ASSIGN_KERNEL(i32, int)
+DEFINE_SLICE_ASSIGN_KERNEL(i64, long long)
+DEFINE_SLICE_ASSIGN_KERNEL(fp8_e4m3, numr_fp8_e4m3)
+DEFINE_SLICE_ASSIGN_KERNEL(fp8_e5m2, numr_fp8_e5m2)
+
 } // extern "C"

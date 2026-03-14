@@ -20,6 +20,7 @@
 use crate::algorithm::LinearAlgebraAlgorithms;
 use crate::autograd::var_ops::{var_matmul, var_mul, var_neg};
 use crate::autograd::{GradFn, Var};
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{
     BinaryOps, LinalgOps, MatmulOps, ScalarOps, TensorOps, TypeConversionOps, UnaryOps,
@@ -44,7 +45,10 @@ use std::sync::Arc;
 /// # Returns
 /// A tensor where upper triangular elements are zero, lower triangular elements
 /// are unchanged, and diagonal elements are halved.
-fn tril_with_halved_diagonal<R: Runtime>(x: &Tensor<R>, client: &R::Client) -> Result<Tensor<R>>
+fn tril_with_halved_diagonal<R: Runtime<DType = DType>>(
+    x: &Tensor<R>,
+    client: &R::Client,
+) -> Result<Tensor<R>>
 where
     R::Client: TensorOps<R> + ScalarOps<R>,
 {
@@ -100,7 +104,7 @@ impl<R: Runtime> TraceBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for TraceBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for TraceBackward<R>
 where
     R::Client: TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
 {
@@ -523,7 +527,7 @@ impl<R: Runtime> CholeskyBackward<R> {
     }
 }
 
-impl<R: Runtime> GradFn<R> for CholeskyBackward<R>
+impl<R: Runtime<DType = DType>> GradFn<R> for CholeskyBackward<R>
 where
     R::Client: MatmulOps<R> + TensorOps<R> + ScalarOps<R> + LinearAlgebraAlgorithms<R>,
 {

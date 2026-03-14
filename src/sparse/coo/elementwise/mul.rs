@@ -1,11 +1,12 @@
 //! Element-wise multiplication (Hadamard product) for COO matrices
 
 use super::super::CooData;
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::{SparseOps, SparseStorage};
 
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Element-wise multiplication (Hadamard product): C = A .* B
     ///
     /// Computes the element-wise product of two sparse matrices with the same shape.

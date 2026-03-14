@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 use crate::ops::ScalarOps;
-use crate::runtime::wgpu::ops::native::native_scalar_op;
+use crate::runtime::wgpu::ops::native::{native_fused_mul_add_scalar, native_scalar_op};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
@@ -29,5 +29,14 @@ impl ScalarOps<WgpuRuntime> for WgpuClient {
 
     fn rsub_scalar(&self, a: &Tensor<WgpuRuntime>, scalar: f64) -> Result<Tensor<WgpuRuntime>> {
         native_scalar_op(self, "rsub_scalar", a, scalar)
+    }
+
+    fn fused_mul_add_scalar(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        scale: f64,
+        bias: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_fused_mul_add_scalar(self, a, scale, bias)
     }
 }

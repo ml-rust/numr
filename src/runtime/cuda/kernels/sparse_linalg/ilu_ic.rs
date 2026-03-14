@@ -14,7 +14,16 @@ use crate::error::Result;
 // ILU(0) Level Kernel Launchers
 // ============================================================================
 
-/// Launch ILU(0) level kernel - f32
+/// Launch ILU(0) factorization level kernel - f32
+///
+/// # Safety
+///
+/// - `level_rows`, `row_ptrs`, `col_indices`, `values`, and `diag_indices` must be valid device
+///   memory pointers on the device associated with `context`.
+/// - `level_rows` must have at least `level_size` elements with valid row indices in `[0, n)`.
+/// - `row_ptrs` must have at least `n + 1` elements; `col_indices`, `values`, and `diag_indices`
+///   must each have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ilu0_level_f32(
     context: &Arc<CudaContext>,
@@ -47,7 +56,16 @@ pub unsafe fn launch_ilu0_level_f32(
     Ok(())
 }
 
-/// Launch ILU(0) level kernel - f64
+/// Launch ILU(0) factorization level kernel - f64
+///
+/// # Safety
+///
+/// - `level_rows`, `row_ptrs`, `col_indices`, `values`, and `diag_indices` must be valid device
+///   memory pointers on the device associated with `context`.
+/// - `level_rows` must have at least `level_size` elements with valid row indices in `[0, n)`.
+/// - `row_ptrs` must have at least `n + 1` elements; `col_indices`, `values`, and `diag_indices`
+///   must each have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ilu0_level_f64(
     context: &Arc<CudaContext>,
@@ -84,7 +102,16 @@ pub unsafe fn launch_ilu0_level_f64(
 // IC(0) Level Kernel Launchers
 // ============================================================================
 
-/// Launch IC(0) level kernel - f32
+/// Launch IC(0) factorization level kernel - f32
+///
+/// # Safety
+///
+/// - `level_rows`, `row_ptrs`, `col_indices`, `values`, and `diag_indices` must be valid device
+///   memory pointers on the device associated with `context`.
+/// - `level_rows` must have at least `level_size` elements with valid row indices in `[0, n)`.
+/// - `row_ptrs` must have at least `n + 1` elements; `col_indices`, `values`, and `diag_indices`
+///   must each have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ic0_level_f32(
     context: &Arc<CudaContext>,
@@ -117,7 +144,16 @@ pub unsafe fn launch_ic0_level_f32(
     Ok(())
 }
 
-/// Launch IC(0) level kernel - f64
+/// Launch IC(0) factorization level kernel - f64
+///
+/// # Safety
+///
+/// - `level_rows`, `row_ptrs`, `col_indices`, `values`, and `diag_indices` must be valid device
+///   memory pointers on the device associated with `context`.
+/// - `level_rows` must have at least `level_size` elements with valid row indices in `[0, n)`.
+/// - `row_ptrs` must have at least `n + 1` elements; `col_indices`, `values`, and `diag_indices`
+///   must each have at least `nnz` elements (as encoded in `row_ptrs`).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ic0_level_f64(
     context: &Arc<CudaContext>,

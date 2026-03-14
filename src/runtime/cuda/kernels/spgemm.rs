@@ -15,9 +15,21 @@ use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
 use crate::tensor::Tensor;
 
+/// CUDA module name for sparse matrix-matrix multiplication (SpGEMM) kernels.
 pub const SPGEMM_MODULE: &str = "spgemm";
 
-/// Phase 1: Symbolic - Count NNZ per output row
+/// Phase 1: Symbolic - Count NNZ per output row of C = A * B
+///
+/// Uses a bitmap approach per thread to count unique column indices produced by each output row.
+/// Allocates dynamic shared memory of `block_size * ceil(n / 8)` bytes.
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context` with consistent CSR structure.
+/// - `m` must equal the number of rows in `a`; `n` must equal the number of columns in `b`.
+/// - `m * ceil(n / 8)` bytes of shared memory must be available on the device.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_symbolic_phase(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -50,11 +62,11 @@ pub unsafe fn spgemm_symbolic_phase(
 
     let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), shared_mem_bytes);
 
-    let a_row_ptrs_ptr = a_row_ptrs.storage().ptr();
-    let a_col_indices_ptr = a_col_indices.storage().ptr();
-    let b_row_ptrs_ptr = b_row_ptrs.storage().ptr();
-    let b_col_indices_ptr = b_col_indices.storage().ptr();
-    let row_nnz_ptr = row_nnz.storage().ptr();
+    let a_row_ptrs_ptr = a_row_ptrs.ptr();
+    let a_col_indices_ptr = a_col_indices.ptr();
+    let b_row_ptrs_ptr = b_row_ptrs.ptr();
+    let b_col_indices_ptr = b_col_indices.ptr();
+    let row_nnz_ptr = row_nnz.ptr();
 
     let mut builder = stream.launch_builder(&func);
     builder.arg(&a_row_ptrs_ptr);
@@ -80,7 +92,19 @@ pub unsafe fn spgemm_symbolic_phase(
     Ok(row_nnz)
 }
 
-/// Phase 2: Numeric - Compute values
+/// Phase 2: Numeric - Compute values of C = A * B
+///
+/// Fills the pre-allocated output CSR arrays (`c_row_ptrs`, `c_col_indices`, `c_values`) with
+/// the computed product. Must be called after `spgemm_symbolic_phase` and exclusive scan.
+///
+/// # Safety
+///
+/// - All tensor arguments must be valid `CudaRuntime` tensors on the device associated with
+///   `context` with consistent CSR structure.
+/// - `c_row_ptrs` and `c_col_indices` must be pre-allocated (from the symbolic phase and scan).
+/// - `c_values` must be pre-allocated to match the NNZ count from the symbolic phase.
+/// - `m` must equal the number of rows in `a`; `n` must equal the number of columns in `b`.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_numeric_phase<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -132,15 +156,15 @@ pub unsafe fn spgemm_numeric_phase<T: CudaTypeName + Copy + cudarc::driver::Devi
         shared_mem_bytes as u32,
     );
 
-    let a_row_ptrs_ptr = a_row_ptrs.storage().ptr();
-    let a_col_indices_ptr = a_col_indices.storage().ptr();
-    let a_values_ptr = a_values.storage().ptr();
-    let b_row_ptrs_ptr = b_row_ptrs.storage().ptr();
-    let b_col_indices_ptr = b_col_indices.storage().ptr();
-    let b_values_ptr = b_values.storage().ptr();
-    let c_row_ptrs_ptr = c_row_ptrs.storage().ptr();
-    let c_col_indices_ptr = c_col_indices.storage().ptr();
-    let c_values_ptr = c_values.storage().ptr();
+    let a_row_ptrs_ptr = a_row_ptrs.ptr();
+    let a_col_indices_ptr = a_col_indices.ptr();
+    let a_values_ptr = a_values.ptr();
+    let b_row_ptrs_ptr = b_row_ptrs.ptr();
+    let b_col_indices_ptr = b_col_indices.ptr();
+    let b_values_ptr = b_values.ptr();
+    let c_row_ptrs_ptr = c_row_ptrs.ptr();
+    let c_col_indices_ptr = c_col_indices.ptr();
+    let c_values_ptr = c_values.ptr();
 
     let m_u32 = m as u32;
     let n_u32 = n as u32;

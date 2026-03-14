@@ -11,7 +11,7 @@ use crate::algorithm::linalg::{
 };
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::{BinaryOps, MatmulOps, ReduceOps, TypeConversionOps, UnaryOps};
+use crate::ops::{BinaryOps, MatmulOps, ReduceOps, UnaryOps};
 use crate::runtime::{Allocator, RuntimeClient};
 use crate::tensor::Tensor;
 

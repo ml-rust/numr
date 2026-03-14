@@ -17,7 +17,15 @@ use crate::error::Result;
 // Scatter Operations
 // ============================================================================
 
-/// Scatters values into work vector: work[row_indices[i]] = values[i] - f32
+/// Scatters values into work vector: `work[row_indices[i]] = values[i]` - f32
+///
+/// # Safety
+///
+/// - `values`, `row_indices`, and `work` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `values` and `row_indices` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_scatter_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -41,7 +49,15 @@ pub unsafe fn launch_sparse_scatter_f32(
     Ok(())
 }
 
-/// Scatters values into work vector - f64
+/// Scatters values into work vector: `work[row_indices[i]] = values[i]` - f64
+///
+/// # Safety
+///
+/// - `values`, `row_indices`, and `work` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `values` and `row_indices` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_scatter_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -69,7 +85,15 @@ pub unsafe fn launch_sparse_scatter_f64(
 // AXPY Operations
 // ============================================================================
 
-/// Computes: work[row_indices[i]] -= scale * values[i] - f32
+/// Computes: `work[row_indices[i]] -= scale * values[i]` - f32
+///
+/// # Safety
+///
+/// - `values`, `row_indices`, and `work` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `values` and `row_indices` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_axpy_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -95,7 +119,15 @@ pub unsafe fn launch_sparse_axpy_f32(
     Ok(())
 }
 
-/// Computes: work[row_indices[i]] -= scale * values[i] - f64
+/// Computes: `work[row_indices[i]] -= scale * values[i]` - f64
+///
+/// # Safety
+///
+/// - `values`, `row_indices`, and `work` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `values` and `row_indices` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_axpy_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -125,7 +157,15 @@ pub unsafe fn launch_sparse_axpy_f64(
 // Gather and Clear Operations
 // ============================================================================
 
-/// Gathers: output[i] = work[row_indices[i]], then clears work[row_indices[i]] = 0 - f32
+/// Gathers and clears: `output[i] = work[row_indices[i]]`, then sets `work[row_indices[i]] = 0` - f32
+///
+/// # Safety
+///
+/// - `work`, `row_indices`, and `output` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `row_indices` and `output` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_gather_clear_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -149,7 +189,15 @@ pub unsafe fn launch_sparse_gather_clear_f32(
     Ok(())
 }
 
-/// Gathers and clears - f64
+/// Gathers and clears: `output[i] = work[row_indices[i]]`, then sets `work[row_indices[i]] = 0` - f64
+///
+/// # Safety
+///
+/// - `work`, `row_indices`, and `output` must be valid device memory pointers on the device
+///   associated with `context`.
+/// - `row_indices` and `output` must each have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_gather_clear_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -177,7 +225,15 @@ pub unsafe fn launch_sparse_gather_clear_f64(
 // Divide by Pivot Operations
 // ============================================================================
 
-/// Computes: work[row_indices[i]] *= inv_pivot - f32
+/// Computes: `work[row_indices[i]] *= inv_pivot` - f32
+///
+/// # Safety
+///
+/// - `work` and `row_indices` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `row_indices` must have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_divide_pivot_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -201,7 +257,15 @@ pub unsafe fn launch_sparse_divide_pivot_f32(
     Ok(())
 }
 
-/// Divide by pivot - f64
+/// Computes: `work[row_indices[i]] *= inv_pivot` - f64
+///
+/// # Safety
+///
+/// - `work` and `row_indices` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `row_indices` must have at least `nnz` elements.
+/// - All values in `row_indices` must be valid indices into `work` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_divide_pivot_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -229,7 +293,15 @@ pub unsafe fn launch_sparse_divide_pivot_f64(
 // Row Permutation Operations
 // ============================================================================
 
-/// Applies row permutation: y[i] = b[perm[i]] - f32
+/// Applies row permutation: `y[i] = b[perm[i]]` - f32
+///
+/// # Safety
+///
+/// - `b`, `perm`, and `y` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `b`, `perm`, and `y` must each have at least `n` elements.
+/// - All values in `perm` must be valid indices into `b` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_apply_row_perm_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -253,7 +325,15 @@ pub unsafe fn launch_apply_row_perm_f32(
     Ok(())
 }
 
-/// Applies row permutation - f64
+/// Applies row permutation: `y[i] = b[perm[i]]` - f64
+///
+/// # Safety
+///
+/// - `b`, `perm`, and `y` must be valid device memory pointers on the device associated
+///   with `context`.
+/// - `b`, `perm`, and `y` must each have at least `n` elements.
+/// - All values in `perm` must be valid indices into `b` (no out-of-bounds access).
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_apply_row_perm_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,

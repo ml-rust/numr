@@ -21,7 +21,7 @@ pub fn binary_op_impl(
 
     // Create output tensor
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
-    let out_ptr = out.storage().ptr();
+    let out_ptr = out.ptr();
 
     // Check if we can use the fast path (same shapes, both contiguous)
     let same_shapes = a.shape() == b.shape() && a.shape() == out_shape.as_slice();
@@ -30,8 +30,8 @@ pub fn binary_op_impl(
     if same_shapes && both_contiguous {
         // Fast path: no broadcasting needed, use contiguous kernel
         let len = a.numel();
-        let a_ptr = a.storage().ptr();
-        let b_ptr = b.storage().ptr();
+        let a_ptr = a.ptr();
+        let b_ptr = b.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -50,14 +50,12 @@ pub fn binary_op_impl(
         let a_broadcast = a.broadcast_to(&out_shape)?;
         let b_broadcast = b.broadcast_to(&out_shape)?;
 
-        let a_ptr = a_broadcast.storage().ptr();
-        let b_ptr = b_broadcast.storage().ptr();
+        let a_ptr = a_broadcast.ptr();
+        let b_ptr = b_broadcast.ptr();
 
         // Get strides from broadcast layouts
         let a_strides: Vec<isize> = a_broadcast.layout().strides().to_vec();
         let b_strides: Vec<isize> = b_broadcast.layout().strides().to_vec();
-        let a_offset = a_broadcast.layout().offset();
-        let b_offset = b_broadcast.layout().offset();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -69,8 +67,8 @@ pub fn binary_op_impl(
                     &out_shape,
                     &a_strides,
                     &b_strides,
-                    a_offset,
-                    b_offset,
+                    0,
+                    0,
                 );
             }
         }, op_name);

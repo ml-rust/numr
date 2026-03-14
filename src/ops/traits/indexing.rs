@@ -24,7 +24,7 @@ pub enum ScatterReduceOp {
 }
 
 /// Validate that indices tensor has an integer dtype (I32 or I64).
-fn validate_index_dtype<R: Runtime>(indices: &Tensor<R>) -> Result<()> {
+fn validate_index_dtype<R: Runtime<DType = DType>>(indices: &Tensor<R>) -> Result<()> {
     match indices.dtype() {
         DType::I32 | DType::I64 => Ok(()),
         other => Err(Error::InvalidArgument {
@@ -228,7 +228,10 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// Tensor of shape `indices.shape()` with gathered values
-    fn take(&self, tensor: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>> {
+    fn take(&self, tensor: &Tensor<R>, indices: &Tensor<R>) -> Result<Tensor<R>>
+    where
+        R: Runtime<DType = DType>,
+    {
         validate_index_dtype(indices)?;
         let flat = tensor.contiguous().flatten()?;
         let indices_flat = indices.contiguous().flatten()?;
@@ -250,12 +253,10 @@ pub trait IndexingOps<R: Runtime> {
     /// # Returns
     ///
     /// New tensor with the same shape as `tensor` and updated values
-    fn put(
-        &self,
-        tensor: &Tensor<R>,
-        indices: &Tensor<R>,
-        values: &Tensor<R>,
-    ) -> Result<Tensor<R>> {
+    fn put(&self, tensor: &Tensor<R>, indices: &Tensor<R>, values: &Tensor<R>) -> Result<Tensor<R>>
+    where
+        R: Runtime<DType = DType>,
+    {
         validate_index_dtype(indices)?;
         let flat = tensor.contiguous().flatten()?;
         let indices_flat = indices.contiguous().flatten()?;
@@ -560,6 +561,35 @@ pub trait IndexingOps<R: Runtime> {
         let _ = (input, rows, cols);
         Err(Error::NotImplemented {
             feature: "IndexingOps::gather_2d",
+        })
+    }
+
+    /// Assign `src` into a slice of `dst` along dimension `dim` starting at `start`.
+    ///
+    /// Returns a new tensor equal to `dst` except that the region
+    /// `dst[..., start..start+src.shape[dim], ...]` is replaced by `src`.
+    ///
+    /// # Arguments
+    ///
+    /// * `dst` - Destination tensor
+    /// * `src` - Source tensor. Must have same shape as `dst` except at `dim`,
+    ///   where `src.shape[dim] + start <= dst.shape[dim]`
+    /// * `dim` - Dimension along which to assign
+    /// * `start` - Starting index in `dst` along `dim`
+    ///
+    /// # Returns
+    ///
+    /// New tensor with the slice replaced
+    fn slice_assign(
+        &self,
+        dst: &Tensor<R>,
+        src: &Tensor<R>,
+        dim: usize,
+        start: usize,
+    ) -> Result<Tensor<R>> {
+        let _ = (dst, src, dim, start);
+        Err(Error::NotImplemented {
+            feature: "IndexingOps::slice_assign",
         })
     }
 }

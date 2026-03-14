@@ -50,10 +50,10 @@ pub fn rsf2csf(
         let elem = dtype.size_in_bytes();
         let t_real_guard = AllocGuard::new(client.allocator(), elem)?;
         let t_real_ptr = t_real_guard.ptr();
-        WgpuRuntime::copy_within_device(schur.t.storage().ptr(), t_real_ptr, elem, device)?;
+        WgpuRuntime::copy_within_device(schur.t.ptr(), t_real_ptr, elem, device)?;
         let z_real_guard = AllocGuard::new(client.allocator(), elem)?;
         let z_real_ptr = z_real_guard.ptr();
-        WgpuRuntime::copy_within_device(schur.z.storage().ptr(), z_real_ptr, elem, device)?;
+        WgpuRuntime::copy_within_device(schur.z.ptr(), z_real_ptr, elem, device)?;
         return Ok(ComplexSchurDecomposition {
             z_real: unsafe {
                 WgpuClient::tensor_from_raw(z_real_guard.release(), &[1, 1], dtype, device)
@@ -87,8 +87,8 @@ pub fn rsf2csf(
     let z_imag_buffer = get_buffer_or_err!(z_imag_ptr, "Z_imag");
 
     // Copy input T and Z to real buffers
-    WgpuRuntime::copy_within_device(schur.t.storage().ptr(), t_real_ptr, matrix_size, device)?;
-    WgpuRuntime::copy_within_device(schur.z.storage().ptr(), z_real_ptr, matrix_size, device)?;
+    WgpuRuntime::copy_within_device(schur.t.ptr(), t_real_ptr, matrix_size, device)?;
+    WgpuRuntime::copy_within_device(schur.z.ptr(), z_real_ptr, matrix_size, device)?;
 
     // Zero-initialize imaginary buffers
     let zeros = vec![0.0f32; n * n];
@@ -179,10 +179,10 @@ pub fn qz_decompose(
         let elem = dtype.size_in_bytes();
         let s_guard = AllocGuard::new(client.allocator(), elem)?;
         let s_ptr = s_guard.ptr();
-        WgpuRuntime::copy_within_device(a.storage().ptr(), s_ptr, elem, device)?;
+        WgpuRuntime::copy_within_device(a.ptr(), s_ptr, elem, device)?;
         let t_guard = AllocGuard::new(client.allocator(), elem)?;
         let t_ptr = t_guard.ptr();
-        WgpuRuntime::copy_within_device(b.storage().ptr(), t_ptr, elem, device)?;
+        WgpuRuntime::copy_within_device(b.ptr(), t_ptr, elem, device)?;
         let s_tensor =
             unsafe { WgpuClient::tensor_from_raw(s_guard.release(), &[1], dtype, device) };
         let t_tensor =
@@ -240,8 +240,8 @@ pub fn qz_decompose(
     let converged_flag_buffer = get_buffer_or_err!(converged_flag_ptr, "QZ convergence flag");
 
     // Copy input matrices
-    WgpuRuntime::copy_within_device(a.storage().ptr(), s_ptr, matrix_size, device)?;
-    WgpuRuntime::copy_within_device(b.storage().ptr(), t_ptr, matrix_size, device)?;
+    WgpuRuntime::copy_within_device(a.ptr(), s_ptr, matrix_size, device)?;
+    WgpuRuntime::copy_within_device(b.ptr(), t_ptr, matrix_size, device)?;
 
     // Zero-initialize converged flag
     let zero_i32: [i32; 1] = [0];

@@ -1,20 +1,16 @@
-//! Matrix multiplication WGSL kernel launchers
-//!
-//! Provides launchers for matrix multiplication operations:
-//! - 2D matrix multiplication (C = A @ B)
-//! - Batched matrix multiplication
-//! - Matrix-vector multiplication
-//! - Fused matmul with bias (C = A @ B + bias)
-//!
-//! All operations run entirely on GPU with no CPU fallback.
+//! Matrix multiplication WGSL kernel launchers. F32 only.
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::generate_matmul_bias_shader;
-use super::matmul_wgsl::MATMUL_SHADER;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+
+const MATMUL_SHADER: &str = include_str!("matmul.wgsl");
+const MATMUL_BIAS_SHADER: &str = include_str!("matmul_bias_f32.wgsl");
+
+/// Tile size for tiled matrix multiplication (must match shader constant)
+const TILE_SIZE: u32 = 16;
 
 // ============================================================================
 // Helper Macros
@@ -30,9 +26,6 @@ macro_rules! check_dtype_f32 {
         }
     };
 }
-
-/// Tile size for tiled matrix multiplication (must match shader constant)
-const TILE_SIZE: u32 = 16;
 
 // ============================================================================
 // 2D Matrix Multiplication
@@ -77,7 +70,6 @@ pub fn launch_matmul(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // Number of workgroups in x (columns) and y (rows) dimensions
         let num_groups_x = (n as u32 + TILE_SIZE - 1) / TILE_SIZE;
         let num_groups_y = (m as u32 + TILE_SIZE - 1) / TILE_SIZE;
         pass.dispatch_workgroups(num_groups_x, num_groups_y, 1);
@@ -126,7 +118,6 @@ pub fn launch_matmul_simple(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // One thread per output element
         let total = m * n;
         let num_groups = (total as u32 + 255) / 256;
         pass.dispatch_workgroups(num_groups, 1, 1);
@@ -231,7 +222,6 @@ pub fn launch_matvec(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // One workgroup per output row
         pass.dispatch_workgroups(m as u32, 1, 1);
     }
 
@@ -243,45 +233,9 @@ pub fn launch_matvec(
 // Fused Matrix Multiplication with Bias
 // ============================================================================
 
-/// Helper to get static module key and entry point for matmul_bias
-fn matmul_bias_keys(dtype: DType) -> Result<(&'static str, &'static str, &'static str)> {
-    match dtype {
-        DType::F32 => Ok((
-            "matmul_bias_f32",
-            "matmul_bias_f32",
-            "batched_matmul_bias_f32",
-        )),
-        DType::I32 => Ok((
-            "matmul_bias_i32",
-            "matmul_bias_i32",
-            "batched_matmul_bias_i32",
-        )),
-        DType::U32 => Ok((
-            "matmul_bias_u32",
-            "matmul_bias_u32",
-            "batched_matmul_bias_u32",
-        )),
-        DType::F16 => Ok((
-            "matmul_bias_f16",
-            "matmul_bias_f16",
-            "batched_matmul_bias_f16",
-        )),
-        _ => Err(Error::UnsupportedDType {
-            dtype,
-            op: "matmul_bias",
-        }),
-    }
-}
-
 /// Launch tiled matrix multiplication with fused bias addition.
 ///
-/// Computes C = A @ B + bias where:
-/// - A is `[M, K]`
-/// - B is `[K, N]`
-/// - bias is `[N]` (broadcast across rows)
-/// - C is `[M, N]`
-///
-/// The bias addition is fused into the GEMM epilogue for efficiency.
+/// Computes C = A @ B + bias where bias is `[N]` (broadcast across rows).
 pub fn launch_matmul_bias(
     cache: &PipelineCache,
     queue: &Queue,
@@ -294,19 +248,17 @@ pub fn launch_matmul_bias(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Get static keys and generate shader
-    let (module_key, entry_point, _) = matmul_bias_keys(dtype)?;
-    let shader_source = generate_matmul_bias_shader(dtype)?;
+    check_dtype_f32!(dtype, "matmul_bias");
 
-    let module = cache.get_or_create_module(module_key, &shader_source);
+    let module = cache.get_or_create_module("matmul_bias_f32", MATMUL_BIAS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // a, b, bias, c
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("matmul_bias_f32", "matmul_bias_f32", &module, &layout);
 
-    // Bind buffers: a, b, bias, c, params
     let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
 
     let mut encoder = cache
@@ -322,7 +274,6 @@ pub fn launch_matmul_bias(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // Number of workgroups in x (columns) and y (rows) dimensions
         let num_groups_x = (n as u32 + TILE_SIZE - 1) / TILE_SIZE;
         let num_groups_y = (m as u32 + TILE_SIZE - 1) / TILE_SIZE;
         pass.dispatch_workgroups(num_groups_x, num_groups_y, 1);
@@ -335,7 +286,6 @@ pub fn launch_matmul_bias(
 /// Launch batched matrix multiplication with fused bias addition.
 ///
 /// Computes `C[b] = A[b] @ B[b] + bias` for each batch b.
-/// The same bias vector is used for all batches.
 pub fn launch_batched_matmul_bias(
     cache: &PipelineCache,
     queue: &Queue,
@@ -349,19 +299,21 @@ pub fn launch_batched_matmul_bias(
     batch_size: usize,
     dtype: DType,
 ) -> Result<()> {
-    // Get static keys and generate shader
-    let (module_key, _, batched_entry_point) = matmul_bias_keys(dtype)?;
-    let shader_source = generate_matmul_bias_shader(dtype)?;
+    check_dtype_f32!(dtype, "batched_matmul_bias");
 
-    let module = cache.get_or_create_module(module_key, &shader_source);
+    let module = cache.get_or_create_module("matmul_bias_f32", MATMUL_BIAS_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // a, b, bias, c
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(module_key, batched_entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "matmul_bias_f32",
+        "batched_matmul_bias_f32",
+        &module,
+        &layout,
+    );
 
-    // Bind buffers: a, b, bias, c, params
     let bind_group = cache.create_bind_group(&layout, &[a, b, bias, c, params_buffer]);
 
     let mut encoder = cache

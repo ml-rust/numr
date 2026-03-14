@@ -1156,4 +1156,285 @@ __global__ void apply_row_perm_f64(
     y[i] = b[perm[i]];
 }
 
+// ============================================================================
+// Sparse QR Factorization Kernels
+// ============================================================================
+
+// Apply a dense Householder reflector to work vector (fused dot + axpy)
+// work[v_start..v_start+v_len] -= tau * (v^T * work[v_start..v_start+v_len]) * v
+// Single block launch, 256 threads, shared memory reduction for dot product
+__global__ void sparse_qr_apply_reflector_f32(
+    const float* v,       // Dense Householder vector, length v_len
+    int v_start,          // Starting row index in work
+    int v_len,            // Length of v
+    const float* tau_ptr, // Pointer to tau (single element on GPU)
+    float* work,          // Dense work vector
+    int m                 // Length of work (unused but for safety)
+) {
+    __shared__ float partial[256];
+
+    int tid = threadIdx.x;
+    float tau = *tau_ptr;
+
+    if (tau == 0.0f) return;
+
+    // Phase 1: dot = v^T * work[v_start..]
+    float my_sum = 0.0f;
+    for (int i = tid; i < v_len; i += blockDim.x) {
+        my_sum += v[i] * work[v_start + i];
+    }
+    partial[tid] = my_sum;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) partial[tid] += partial[tid + s];
+        __syncthreads();
+    }
+
+    float scale = tau * partial[0];
+
+    // Phase 2: work[v_start + i] -= scale * v[i]
+    for (int i = tid; i < v_len; i += blockDim.x) {
+        work[v_start + i] -= scale * v[i];
+    }
+}
+
+__global__ void sparse_qr_apply_reflector_f64(
+    const double* v,
+    int v_start,
+    int v_len,
+    const double* tau_ptr,
+    double* work,
+    int m
+) {
+    __shared__ double partial[256];
+
+    int tid = threadIdx.x;
+    double tau = *tau_ptr;
+
+    if (tau == 0.0) return;
+
+    double my_sum = 0.0;
+    for (int i = tid; i < v_len; i += blockDim.x) {
+        my_sum += v[i] * work[v_start + i];
+    }
+    partial[tid] = my_sum;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) partial[tid] += partial[tid + s];
+        __syncthreads();
+    }
+
+    double scale = tau * partial[0];
+
+    for (int i = tid; i < v_len; i += blockDim.x) {
+        work[v_start + i] -= scale * v[i];
+    }
+}
+
+// Compute ||work[start..start+count]||^2 via parallel reduction
+// Single block, result written to result[0]
+__global__ void sparse_qr_norm_f32(
+    const float* work,
+    int start,
+    int count,
+    float* result
+) {
+    __shared__ float partial[256];
+
+    int tid = threadIdx.x;
+
+    float my_sum = 0.0f;
+    for (int i = tid; i < count; i += blockDim.x) {
+        float val = work[start + i];
+        my_sum += val * val;
+    }
+    partial[tid] = my_sum;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) partial[tid] += partial[tid + s];
+        __syncthreads();
+    }
+
+    if (tid == 0) result[0] = partial[0];
+}
+
+__global__ void sparse_qr_norm_f64(
+    const double* work,
+    int start,
+    int count,
+    double* result
+) {
+    __shared__ double partial[256];
+
+    int tid = threadIdx.x;
+
+    double my_sum = 0.0;
+    for (int i = tid; i < count; i += blockDim.x) {
+        double val = work[start + i];
+        my_sum += val * val;
+    }
+    partial[tid] = my_sum;
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) partial[tid] += partial[tid + s];
+        __syncthreads();
+    }
+
+    if (tid == 0) result[0] = partial[0];
+}
+
+// Compute Householder vector from work[start..m]
+// Reads norm_sq from norm_sq_ptr (computed by norm kernel)
+// Writes dense v to out_v, tau to out_tau, R diagonal to out_diag
+// Single block, thread 0 computes control values, all threads compute v entries
+//
+// Tolerance 1e-30: well below machine epsilon for both f32 (~1e-7) and f64 (~2e-16).
+// Matches CPU implementation (algorithm.rs:226,238). This threshold detects truly zero
+// columns without false positives from normal floating-point roundoff.
+__global__ void sparse_qr_householder_f32(
+    const float* work,
+    int start,
+    int m,
+    const float* norm_sq_ptr,
+    float* out_v,
+    float* out_tau,
+    float* out_diag
+) {
+    __shared__ float ctrl[4]; // [sigma, tau, diag, inv_v_start]
+
+    int tid = threadIdx.x;
+    int v_len = m - start;
+
+    if (tid == 0) {
+        float norm_sq = *norm_sq_ptr;
+        float norm = sqrtf(norm_sq);
+
+        if (norm < 1e-30f) {
+            ctrl[0] = 0.0f; ctrl[1] = 0.0f; ctrl[2] = 0.0f; ctrl[3] = 0.0f;
+        } else {
+            float x0 = work[start];
+            float sigma = (x0 >= 0.0f) ? -norm : norm;
+            float v_start_val = x0 - sigma;
+
+            if (fabsf(v_start_val) < 1e-30f) {
+                ctrl[0] = sigma; ctrl[1] = 0.0f; ctrl[2] = sigma; ctrl[3] = 0.0f;
+            } else {
+                ctrl[0] = sigma;
+                ctrl[1] = -v_start_val / sigma;
+                ctrl[2] = sigma;
+                ctrl[3] = 1.0f / v_start_val;
+            }
+        }
+    }
+    __syncthreads();
+
+    float tau = ctrl[1];
+    float inv_v_start = ctrl[3];
+
+    if (tid == 0) {
+        *out_tau = tau;
+        *out_diag = ctrl[2];
+    }
+
+    if (tau == 0.0f) {
+        for (int i = tid; i < v_len; i += blockDim.x) {
+            out_v[i] = (i == 0) ? 1.0f : 0.0f;
+        }
+    } else {
+        for (int i = tid; i < v_len; i += blockDim.x) {
+            out_v[i] = (i == 0) ? 1.0f : work[start + i] * inv_v_start;
+        }
+    }
+}
+
+__global__ void sparse_qr_householder_f64(
+    const double* work,
+    int start,
+    int m,
+    const double* norm_sq_ptr,
+    double* out_v,
+    double* out_tau,
+    double* out_diag
+) {
+    __shared__ double ctrl[4];
+
+    int tid = threadIdx.x;
+    int v_len = m - start;
+
+    if (tid == 0) {
+        double norm_sq = *norm_sq_ptr;
+        double norm = sqrt(norm_sq);
+
+        if (norm < 1e-30) {
+            ctrl[0] = 0.0; ctrl[1] = 0.0; ctrl[2] = 0.0; ctrl[3] = 0.0;
+        } else {
+            double x0 = work[start];
+            double sigma = (x0 >= 0.0) ? -norm : norm;
+            double v_start_val = x0 - sigma;
+
+            if (fabs(v_start_val) < 1e-30) {
+                ctrl[0] = sigma; ctrl[1] = 0.0; ctrl[2] = sigma; ctrl[3] = 0.0;
+            } else {
+                ctrl[0] = sigma;
+                ctrl[1] = -v_start_val / sigma;
+                ctrl[2] = sigma;
+                ctrl[3] = 1.0 / v_start_val;
+            }
+        }
+    }
+    __syncthreads();
+
+    double tau = ctrl[1];
+    double inv_v_start = ctrl[3];
+
+    if (tid == 0) {
+        *out_tau = tau;
+        *out_diag = ctrl[2];
+    }
+
+    if (tau == 0.0) {
+        for (int i = tid; i < v_len; i += blockDim.x) {
+            out_v[i] = (i == 0) ? 1.0 : 0.0;
+        }
+    } else {
+        for (int i = tid; i < v_len; i += blockDim.x) {
+            out_v[i] = (i == 0) ? 1.0 : work[start + i] * inv_v_start;
+        }
+    }
+}
+
+// Extract R off-diagonal: copy work[0..count] to output buffer
+__global__ void sparse_qr_extract_r_f32(
+    const float* work,
+    int count,
+    float* output
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < count) output[i] = work[i];
+}
+
+__global__ void sparse_qr_extract_r_f64(
+    const double* work,
+    int count,
+    double* output
+) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < count) output[i] = work[i];
+}
+
+// Clear work vector: work[0..n] = 0
+__global__ void sparse_qr_clear_f32(float* work, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) work[i] = 0.0f;
+}
+
+__global__ void sparse_qr_clear_f64(double* work, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) work[i] = 0.0;
+}
+
 } // extern "C"

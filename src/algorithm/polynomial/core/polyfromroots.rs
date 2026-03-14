@@ -3,6 +3,7 @@
 use super::{DTypeSupport, convolve_impl, create_index_tensor};
 use crate::algorithm::fft::FftAlgorithms;
 use crate::algorithm::polynomial::helpers::{validate_polynomial_dtype, validate_polynomial_roots};
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{BinaryOps, ComplexOps, IndexingOps, ReduceOps, ShapeOps, UnaryOps, UtilityOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -36,7 +37,7 @@ pub fn polyfromroots_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + BinaryOps<R>
         + UnaryOps<R>

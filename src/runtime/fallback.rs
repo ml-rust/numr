@@ -150,7 +150,7 @@ impl CpuFallbackContext {
     ///
     /// This copies the tensor data from GPU memory to CPU memory.
     #[inline]
-    pub fn tensor_from_gpu<T: Element, R: Runtime>(
+    pub fn tensor_from_gpu<T: Element, R: Runtime<DType = DType>>(
         &self,
         tensor: &Tensor<R>,
     ) -> Tensor<cpu::CpuRuntime> {
@@ -171,7 +171,10 @@ impl Default for CpuFallbackContext {
 
 /// Validate that two tensors have matching dtypes for binary operations.
 #[inline]
-pub fn validate_binary_dtypes<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Result<DType> {
+pub fn validate_binary_dtypes<R: Runtime<DType = DType>>(
+    a: &Tensor<R>,
+    b: &Tensor<R>,
+) -> Result<DType> {
     if a.dtype() != b.dtype() {
         return Err(Error::DTypeMismatch {
             lhs: a.dtype(),
@@ -183,7 +186,10 @@ pub fn validate_binary_dtypes<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Resul
 
 /// Compute broadcast shape for binary operations.
 #[inline]
-pub fn compute_broadcast_shape<R: Runtime>(a: &Tensor<R>, b: &Tensor<R>) -> Result<Vec<usize>> {
+pub fn compute_broadcast_shape<R: Runtime<DType = DType>>(
+    a: &Tensor<R>,
+    b: &Tensor<R>,
+) -> Result<Vec<usize>> {
     broadcast_shape(a.shape(), b.shape()).ok_or_else(|| Error::BroadcastError {
         lhs: a.shape().to_vec(),
         rhs: b.shape().to_vec(),
@@ -216,7 +222,7 @@ pub fn binary_op_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = validate_binary_dtypes(a, b)?;
@@ -253,7 +259,7 @@ pub fn unary_op_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = a.dtype();
@@ -312,7 +318,7 @@ pub fn scalar_op_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = a.dtype();
@@ -347,7 +353,7 @@ pub fn reduce_op_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = a.dtype();
@@ -383,7 +389,7 @@ pub fn activation_fallback<R, D, F>(
     op_fn: F,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
     F: Fn(&cpu::CpuClient, &Tensor<cpu::CpuRuntime>) -> Result<Tensor<cpu::CpuRuntime>>,
 {
@@ -408,7 +414,7 @@ pub fn softmax_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = a.dtype();
@@ -433,7 +439,7 @@ pub fn matmul_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = validate_binary_dtypes(a, b)?;
@@ -461,7 +467,7 @@ pub fn compare_op_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     let dtype = validate_binary_dtypes(a, b)?;
@@ -492,7 +498,7 @@ where
 ///
 /// Returns the broadcasted shape of all three tensors.
 #[inline]
-pub fn compute_ternary_broadcast_shape<R: Runtime>(
+pub fn compute_ternary_broadcast_shape<R: Runtime<DType = DType>>(
     cond: &Tensor<R>,
     x: &Tensor<R>,
     y: &Tensor<R>,
@@ -529,7 +535,7 @@ pub fn where_cond_fallback<R, D>(
     op_name: &'static str,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime<Device = D>,
+    R: Runtime<Device = D, DType = DType>,
     D: Device + Clone,
 {
     // Validate dtypes (x and y must match, cond can be any dtype - non-zero = true)
@@ -566,7 +572,7 @@ where
 #[cfg(feature = "sparse")]
 /// CSC element-wise operation fallback (GPU → CPU → GPU)
 #[allow(private_interfaces)]
-pub fn csc_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
+pub fn csc_elementwise_fallback<T: Element, R: Runtime<DType = DType>, F, FA, FB>(
     a_col_ptrs: &Tensor<R>,
     a_row_indices: &Tensor<R>,
     a_values: &Tensor<R>,
@@ -631,7 +637,7 @@ where
 #[cfg(feature = "sparse")]
 /// COO element-wise operation fallback (GPU → CPU → GPU)
 #[allow(private_interfaces)]
-pub fn coo_elementwise_fallback<T: Element, R: Runtime, F, FA, FB>(
+pub fn coo_elementwise_fallback<T: Element, R: Runtime<DType = DType>, F, FA, FB>(
     a_row_indices: &Tensor<R>,
     a_col_indices: &Tensor<R>,
     a_values: &Tensor<R>,

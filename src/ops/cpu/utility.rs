@@ -25,8 +25,8 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let numel = a.numel();
 
         dispatch_dtype!(dtype, T => {
@@ -46,7 +46,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
 
     fn fill(&self, shape: &[usize], value: f64, dtype: DType) -> Result<Tensor<CpuRuntime>> {
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
         let numel = out.numel();
 
         dispatch_dtype!(dtype, T => {
@@ -72,7 +72,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(&[numel], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -100,7 +100,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
 
         if steps == 1 {
             let out = Tensor::<CpuRuntime>::empty(&[1], dtype, &self.device);
-            let out_ptr = out.storage().ptr();
+            let out_ptr = out.ptr();
 
             dispatch_dtype!(dtype, T => {
                 unsafe {
@@ -112,7 +112,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(&[steps], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -138,7 +138,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(&[rows, cols], dtype, &self.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -179,14 +179,14 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         out_shape.push(num_classes);
 
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::F32, &self.device);
-        let out_ptr = out.storage().ptr() as *mut f32;
+        let out_ptr = out.ptr() as *mut f32;
 
         // Zero-fill output
         unsafe {
             std::ptr::write_bytes(out_ptr, 0, numel * num_classes);
         }
 
-        let indices_ptr = indices.storage().ptr();
+        let indices_ptr = indices.ptr();
 
         // Dispatch on index dtype to read indices, write into f32 output
         dispatch_dtype!(dtype, T => {

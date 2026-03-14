@@ -29,7 +29,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -61,7 +61,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -93,7 +93,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -125,7 +125,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -157,7 +157,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -189,7 +189,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -220,7 +220,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -251,7 +251,7 @@ impl AdvancedRandomOps<CpuRuntime> for CpuClient {
             return Ok(out);
         }
 
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {

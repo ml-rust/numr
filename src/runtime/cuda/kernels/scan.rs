@@ -59,6 +59,14 @@ const MAX_SCAN_RECURSION_DEPTH: usize = 10;
 /// # Returns
 ///
 /// `(output_tensor, total_sum)` where output has size n+1
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor of `DType::I32` on the device associated with
+///   `context`. Passing a tensor with a different dtype returns an error.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// - A single scalar GPU-to-CPU transfer is performed at the end to read the total sum; this is
+///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i32_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -78,8 +86,8 @@ pub unsafe fn exclusive_scan_i32_gpu(
     // Allocate output tensor with size n+1
     let output = Tensor::<CudaRuntime>::zeros(&[n + 1], DType::I32, device);
 
-    let input_ptr = input.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input.ptr();
+    let output_ptr = output.ptr();
 
     if n <= SCAN_BLOCK_SIZE as usize {
         // Small array: use single-block scan
@@ -120,7 +128,7 @@ pub unsafe fn exclusive_scan_i32_gpu(
     unsafe {
         cudarc::driver::sys::cuMemcpyDtoH_v2(
             &mut total_i32 as *mut i32 as *mut std::ffi::c_void,
-            output.storage().ptr() + offset_bytes as u64,
+            output.ptr() + offset_bytes as u64,
             std::mem::size_of::<i32>(),
         );
     }
@@ -194,7 +202,7 @@ unsafe fn launch_scan_multi_block_i32(
 
     // Allocate temporary buffer for block sums
     let block_sums = Tensor::<CudaRuntime>::zeros(&[num_blocks as usize], DType::I32, device);
-    let block_sums_ptr = block_sums.storage().ptr();
+    let block_sums_ptr = block_sums.ptr();
 
     // Step 1: Scan each block independently
     let func_step1 = get_kernel_function(&module, "scan_blocks_i32_step1")?;
@@ -219,7 +227,7 @@ unsafe fn launch_scan_multi_block_i32(
     // Allocate buffer for scanned block sums (size num_blocks + 1)
     let scanned_block_sums =
         Tensor::<CudaRuntime>::zeros(&[num_blocks as usize + 1], DType::I32, device);
-    let scanned_block_sums_ptr = scanned_block_sums.storage().ptr();
+    let scanned_block_sums_ptr = scanned_block_sums.ptr();
 
     if num_blocks <= SCAN_BLOCK_SIZE {
         // Block sums fit in single block - use simple scan
@@ -316,6 +324,14 @@ unsafe fn launch_scan_multi_block_i32(
 /// # Returns
 ///
 /// `(output_tensor, total_sum)` where output has size n+1
+///
+/// # Safety
+///
+/// - `input` must be a valid `CudaRuntime` tensor of `DType::I64` on the device associated with
+///   `context`. Passing a tensor with a different dtype returns an error.
+/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// - A single scalar GPU-to-CPU transfer is performed at the end to read the total sum; this is
+///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i64_gpu(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -335,8 +351,8 @@ pub unsafe fn exclusive_scan_i64_gpu(
     // Allocate output tensor with size n+1
     let output = Tensor::<CudaRuntime>::zeros(&[n + 1], DType::I64, device);
 
-    let input_ptr = input.storage().ptr();
-    let output_ptr = output.storage().ptr();
+    let input_ptr = input.ptr();
+    let output_ptr = output.ptr();
 
     if n <= SCAN_BLOCK_SIZE as usize {
         // Small array: use single-block scan
@@ -377,7 +393,7 @@ pub unsafe fn exclusive_scan_i64_gpu(
     unsafe {
         cudarc::driver::sys::cuMemcpyDtoH_v2(
             &mut total_i64 as *mut i64 as *mut std::ffi::c_void,
-            output.storage().ptr() + offset_bytes as u64,
+            output.ptr() + offset_bytes as u64,
             std::mem::size_of::<i64>(),
         );
     }
@@ -451,7 +467,7 @@ unsafe fn launch_scan_multi_block_i64(
 
     // Allocate temporary buffer for block sums
     let block_sums = Tensor::<CudaRuntime>::zeros(&[num_blocks as usize], DType::I64, device);
-    let block_sums_ptr = block_sums.storage().ptr();
+    let block_sums_ptr = block_sums.ptr();
 
     // Step 1: Scan each block independently
     let func_step1 = get_kernel_function(&module, "scan_blocks_i64_step1")?;
@@ -483,7 +499,7 @@ unsafe fn launch_scan_multi_block_i64(
     // Allocate buffer for scanned block sums (size num_blocks + 1)
     let scanned_block_sums =
         Tensor::<CudaRuntime>::zeros(&[num_blocks as usize + 1], DType::I64, device);
-    let scanned_block_sums_ptr = scanned_block_sums.storage().ptr();
+    let scanned_block_sums_ptr = scanned_block_sums.ptr();
 
     if num_blocks <= SCAN_BLOCK_SIZE {
         // Block sums fit in single block - use simple scan
@@ -580,6 +596,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_small() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -606,6 +625,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -640,6 +662,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_zeros() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -664,6 +689,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_single_element() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -688,6 +716,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_very_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test with 500,000 elements (requires recursive multi-level scan)
         // This exceeds 262,144 = 512^2 which was the previous limit
         let device = CudaDevice::new(0);
@@ -724,6 +755,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_boundary_size() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test at the boundary of single-level multi-block (512 * 512 = 262,144)
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
@@ -754,6 +788,9 @@ mod tests {
     #[test]
     #[cfg(feature = "cuda")]
     fn test_exclusive_scan_i64_very_large() {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return;
+        }
         // Test i64 with large values that would overflow i32
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);

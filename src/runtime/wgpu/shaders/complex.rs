@@ -1,10 +1,33 @@
 //! Complex number operation compute shader launchers for WebGPU
 
-use super::generator::complex::get_complex_shader_generator;
-use super::pipeline::PipelineCache;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use wgpu::{Buffer, Queue};
+
+const CONJ_SHADER: &str = include_str!("conj_complex64.wgsl");
+// entry point: "conj_complex64"
+
+const REAL_SHADER: &str = include_str!("real_complex64.wgsl");
+// entry point: "real_complex64"
+
+const IMAG_SHADER: &str = include_str!("imag_complex64.wgsl");
+// entry point: "imag_complex64"
+
+const ANGLE_SHADER: &str = include_str!("angle_complex64.wgsl");
+// entry point: "angle_complex64"
+
+const ANGLE_REAL_SHADER: &str = include_str!("angle_real_f32.wgsl");
+// entry point: "angle_real_f32"
+
+const FROM_REAL_IMAG_SHADER: &str = include_str!("from_real_imag_f32.wgsl");
+// entry point: "from_real_imag_f32"
+
+const COMPLEX_MUL_REAL_SHADER: &str = include_str!("complex64_mul_real.wgsl");
+// entry point: "complex64_mul_real"
+
+const COMPLEX_DIV_REAL_SHADER: &str = include_str!("complex64_div_real.wgsl");
+// entry point: "complex64_div_real"
 
 /// Launch a complex operation on the GPU.
 ///
@@ -43,27 +66,31 @@ pub fn launch_complex_op(
         });
     }
 
-    // Get shader generator for this operation
-    let shader_gen = get_complex_shader_generator(op)?;
-    let shader_src = shader_gen()?;
-
-    // Entry point name: "conj_complex64", "real_complex64", etc.
-    let entry_point = format!("{}_{}", op, "complex64");
+    let (shader_src, module_name, entry_point): (&str, &'static str, &'static str) = match op {
+        "conj" => (CONJ_SHADER, "conj_complex64", "conj_complex64"),
+        "real" => (REAL_SHADER, "real_complex64", "real_complex64"),
+        "imag" => (IMAG_SHADER, "imag_complex64", "imag_complex64"),
+        "angle" => (ANGLE_SHADER, "angle_complex64", "angle_complex64"),
+        _ => {
+            return Err(Error::Internal(format!(
+                "Unknown complex operation: {}",
+                op
+            )));
+        }
+    };
 
     // Create shader module
-    let module_name = format!("complex_{}_{}", op, "complex64");
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
+    let module = cache.get_or_create_module(module_name, shader_src);
 
     // Create bind group layout (3 buffers: input storage, output storage, params uniform)
-    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+    let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
 
     // Get or create pipeline
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, entry_point, &module, &layout);
 
     // Create bind group
     let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf]);
@@ -118,19 +145,15 @@ pub fn launch_angle_real(
     params_buf: &Buffer,
     numel: usize,
 ) -> Result<()> {
-    let shader_src = super::generator::complex::generate_angle_real_shader()?;
-    let entry_point = "angle_real_f32";
-    let module_name = "angle_real_f32";
-
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
-    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+    let module = cache.get_or_create_module("angle_real_f32", ANGLE_REAL_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+        cache.get_or_create_pipeline("angle_real_f32", "angle_real_f32", &module, &layout);
     let bind_group = cache.create_bind_group(&layout, &[input_buf, output_buf, params_buf]);
 
     let mut encoder = cache
@@ -181,19 +204,15 @@ pub fn launch_from_real_imag(
     params_buf: &Buffer,
     numel: usize,
 ) -> Result<()> {
-    let shader_src = super::generator::complex::generate_from_real_imag_shader()?;
-    let entry_point = "from_real_imag_f32";
-    let module_name = "from_real_imag_f32";
-
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
-    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+    let module = cache.get_or_create_module("from_real_imag_f32", FROM_REAL_IMAG_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+        cache.get_or_create_pipeline("from_real_imag_f32", "from_real_imag_f32", &module, &layout);
     let bind_group =
         cache.create_bind_group(&layout, &[real_buf, imag_buf, output_buf, params_buf]);
 
@@ -245,19 +264,15 @@ pub fn launch_complex_mul_real(
     params_buf: &Buffer,
     numel: usize,
 ) -> Result<()> {
-    let shader_src = super::generator::complex::generate_complex_mul_real_shader()?;
-    let entry_point = "complex64_mul_real";
-    let module_name = "complex64_mul_real";
-
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
-    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+    let module = cache.get_or_create_module("complex64_mul_real", COMPLEX_MUL_REAL_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+        cache.get_or_create_pipeline("complex64_mul_real", "complex64_mul_real", &module, &layout);
     let bind_group =
         cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
 
@@ -309,19 +324,15 @@ pub fn launch_complex_div_real(
     params_buf: &Buffer,
     numel: usize,
 ) -> Result<()> {
-    let shader_src = super::generator::complex::generate_complex_div_real_shader()?;
-    let entry_point = "complex64_div_real";
-    let module_name = "complex64_div_real";
-
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_src);
-    let layout = cache.get_or_create_layout(super::pipeline::LayoutKey {
+    let module = cache.get_or_create_module("complex64_div_real", COMPLEX_DIV_REAL_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&module_name, &entry_point, &module, &layout);
+        cache.get_or_create_pipeline("complex64_div_real", "complex64_div_real", &module, &layout);
     let bind_group =
         cache.create_bind_group(&layout, &[complex_buf, real_buf, output_buf, params_buf]);
 

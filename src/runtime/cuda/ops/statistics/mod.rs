@@ -35,8 +35,8 @@ pub use quantile::{median_impl, percentile_impl, quantile_impl};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::TypeConversionOps;
+use crate::runtime::common::statistics_common::compute_bin_edges_f64;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::statistics_common::compute_bin_edges_f64;
 use crate::tensor::Tensor;
 
 /// Create bin edges tensor from computed f64 edges.
@@ -93,7 +93,7 @@ pub(crate) fn read_scalar_f64(t: &Tensor<CudaRuntime>) -> Result<f64> {
     };
 
     // Get GPU buffer pointer
-    let ptr = tensor.storage().ptr();
+    let ptr = tensor.ptr();
 
     // Allocate host memory and copy from GPU based on dtype
     let result = match dtype {

@@ -34,7 +34,7 @@
 //!            let out = Tensor::empty(&out_shape, a.dtype(), self.device());
 //!
 //!            // 3. Dispatch kernel
-//!            cuda_add_kernel(a.storage().ptr(), b.storage().ptr(), out.storage().ptr(), ...);
+//!            cuda_add_kernel(a.ptr(), b.ptr(), out.ptr(), ...);
 //!
 //!            Ok(out)
 //!        }
@@ -99,10 +99,12 @@ pub(crate) use matmul::{
 pub(crate) use reduce::{
     AccumulationPrecision, compute_reduce_strides, reduce_dim_output_shape, reduce_output_shape,
 };
+pub use traits::Fp8MatmulOps;
 pub use traits::{
-    ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps,
-    CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, IndexingOps, Kernel, LinalgOps,
-    LogicalOps, MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
-    QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps,
-    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
+    DistanceMetric, DistanceOps, EinsumOps, GemmActivation, GemmEpilogueOps, IndexingOps, Kernel,
+    LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NormalizationOps, PaddingMode, ReduceOps,
+    ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UnaryOps, UtilityOps,
 };
+pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

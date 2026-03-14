@@ -2,7 +2,7 @@
 
 use super::client::{CpuAllocator, CpuClient};
 use super::device::CpuDevice;
-use crate::runtime::Runtime;
+use crate::runtime::{NoOpGraph, Runtime};
 use std::alloc::{Layout as AllocLayout, alloc, dealloc};
 
 /// CPU compute runtime
@@ -16,10 +16,21 @@ impl Runtime for CpuRuntime {
     type Device = CpuDevice;
     type Client = CpuClient;
     type Allocator = CpuAllocator;
-    type RawHandle = (); // CPU has no special handle needed
+    type Graph = NoOpGraph;
+    type RawHandle = ();
+    type DType = crate::dtype::DType;
 
     fn name() -> &'static str {
         "cpu"
+    }
+
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
+    {
+        // CPU: execute eagerly, return NoOpGraph
+        let result = f(client)?;
+        Ok((NoOpGraph, result))
     }
 
     fn allocate(size_bytes: usize, _device: &Self::Device) -> crate::error::Result<u64> {
@@ -163,5 +174,50 @@ impl Runtime for CpuRuntime {
 
     fn raw_handle(_client: &Self::Client) -> &Self::RawHandle {
         &()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Graph;
+
+    #[test]
+    fn test_cpu_supports_graph_capture() {
+        assert!(!CpuRuntime::supports_graph_capture());
+    }
+
+    #[test]
+    fn test_cpu_capture_graph_executes_eagerly() {
+        let device = CpuRuntime::default_device();
+        let client = CpuRuntime::default_client(&device);
+
+        let mut executed = false;
+        let (graph, result) = CpuRuntime::capture_graph(&client, |_c| {
+            executed = true;
+            Ok(42)
+        })
+        .unwrap();
+
+        // Closure executed eagerly
+        assert!(executed);
+        assert_eq!(result, 42);
+
+        // Graph is NoOp
+        assert!(!graph.is_replay_capable());
+        assert!(graph.launch().is_ok());
+    }
+
+    #[test]
+    fn test_cpu_capture_graph_propagates_error() {
+        let device = CpuRuntime::default_device();
+        let client = CpuRuntime::default_client(&device);
+
+        let result: crate::error::Result<(NoOpGraph, ())> =
+            CpuRuntime::capture_graph(&client, |_c| {
+                Err(crate::error::Error::Internal("test error".into()))
+            });
+
+        assert!(result.is_err());
     }
 }

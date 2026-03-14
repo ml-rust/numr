@@ -45,6 +45,26 @@ __device__ __forceinline__ bool is_nonzero<unsigned int>(unsigned int val) {
     return val != 0;
 }
 
+template<>
+__device__ __forceinline__ bool is_nonzero<__half>(__half val) {
+    return __half2float(val) != 0.0f;
+}
+
+template<>
+__device__ __forceinline__ bool is_nonzero<__nv_bfloat16>(__nv_bfloat16 val) {
+    return __bfloat162float(val) != 0.0f;
+}
+
+template<>
+__device__ __forceinline__ bool is_nonzero<numr_fp8_e4m3>(numr_fp8_e4m3 val) {
+    return fp8_e4m3_to_f32(val.data) != 0.0f;
+}
+
+template<>
+__device__ __forceinline__ bool is_nonzero<numr_fp8_e5m2>(numr_fp8_e5m2 val) {
+    return fp8_e5m2_to_f32(val.data) != 0.0f;
+}
+
 // ============================================================================
 // Where Template (must be outside extern "C")
 // ============================================================================
@@ -310,6 +330,98 @@ __global__ void where_cond_u32_f64(
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         out[idx] = where_impl_generic<unsigned int, double>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+// ============================================================================
+// F16 condition type
+// ============================================================================
+
+__global__ void where_cond_f16_f16(
+    const __half* cond, const __half* x, const __half* y,
+    __half* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__half, __half>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+__global__ void where_cond_f16_f32(
+    const __half* cond, const float* x, const float* y,
+    float* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__half, float>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+__global__ void where_cond_f16_f64(
+    const __half* cond, const double* x, const double* y,
+    double* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__half, double>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+// ============================================================================
+// BF16 condition type
+// ============================================================================
+
+__global__ void where_cond_bf16_bf16(
+    const __nv_bfloat16* cond, const __nv_bfloat16* x, const __nv_bfloat16* y,
+    __nv_bfloat16* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__nv_bfloat16, __nv_bfloat16>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+__global__ void where_cond_bf16_f32(
+    const __nv_bfloat16* cond, const float* x, const float* y,
+    float* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__nv_bfloat16, float>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+__global__ void where_cond_bf16_f64(
+    const __nv_bfloat16* cond, const double* x, const double* y,
+    double* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<__nv_bfloat16, double>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+// ============================================================================
+// FP8 condition types
+// ============================================================================
+
+__global__ void where_cond_fp8_e4m3_fp8_e4m3(
+    const numr_fp8_e4m3* cond, const numr_fp8_e4m3* x, const numr_fp8_e4m3* y,
+    numr_fp8_e4m3* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<numr_fp8_e4m3, numr_fp8_e4m3>(cond[idx], x[idx], y[idx]);
+    }
+}
+
+__global__ void where_cond_fp8_e5m2_fp8_e5m2(
+    const numr_fp8_e5m2* cond, const numr_fp8_e5m2* x, const numr_fp8_e5m2* y,
+    numr_fp8_e5m2* out, unsigned int n
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx] = where_impl_generic<numr_fp8_e5m2, numr_fp8_e5m2>(cond[idx], x[idx], y[idx]);
     }
 }
 

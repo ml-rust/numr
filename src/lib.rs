@@ -27,8 +27,9 @@
 //! ```rust,ignore
 //! use numr::prelude::*;
 //!
-//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2])?;
-//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2])?;
+//! let device = CpuDevice;
+//! let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 2.0, 3.0, 4.0], &[2, 2], &device);
+//! let b = Tensor::<CpuRuntime>::from_slice(&[5.0, 6.0, 7.0, 8.0], &[2, 2], &device);
 //!
 //! let c = &a + &b;
 //! let d = a.matmul(&b)?;
@@ -94,7 +95,7 @@ pub mod tensor;
 /// - Backend runtimes: `CpuRuntime`, `CudaRuntime`, `WgpuRuntime` (feature-gated)
 pub mod prelude {
     // Core types
-    pub use crate::dtype::DType;
+    pub use crate::dtype::{DType, DataType};
     pub use crate::error::{Error, Result};
     pub use crate::tensor::{Layout, Shape, Strides, Tensor};
 
@@ -103,19 +104,18 @@ pub mod prelude {
 
     // Operation traits (same API across all backends)
     pub use crate::ops::{
-        ActivationOps, AdvancedRandomOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps,
-        ConvOps, CumulativeOps, DistanceMetric, DistanceOps, IndexingOps, LinalgOps, LogicalOps,
-        MatmulOps, MeshgridIndexing, MultivariateRandomOps, NormalizationOps, PaddingMode,
-        QuasiRandomOps, RandomOps, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
-        TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+        ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
+        DistanceMetric, DistanceOps, IndexingOps, LinalgOps, LogicalOps, MatmulOps,
+        MeshgridIndexing, NormalizationOps, PaddingMode, ReduceOps, ScalarOps, ShapeOps,
+        SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
     };
+    pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 
     // Algorithm traits
     pub use crate::algorithm::SpecialFunctions;
     pub use crate::algorithm::fft::{FftAlgorithms, FftDirection, FftNormalization};
 
     // Backend runtimes
-    #[cfg(feature = "cpu")]
     pub use crate::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime, ParallelismConfig};
 
     #[cfg(feature = "cuda")]
@@ -126,7 +126,9 @@ pub mod prelude {
 
     // Sparse tensors (feature-gated)
     #[cfg(feature = "sparse")]
-    pub use crate::sparse::{SparseFormat, SparseOps, SparseTensor};
+    pub use crate::sparse::Sparse24Ops;
+    #[cfg(feature = "sparse")]
+    pub use crate::sparse::{Sparse24Tensor, SparseFormat, SparseOps, SparseTensor};
 }
 
 /// Default runtime based on enabled features

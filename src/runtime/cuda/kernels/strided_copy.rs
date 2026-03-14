@@ -3,6 +3,10 @@
 //! Provides GPU-accelerated strided-to-contiguous tensor copy operations.
 //! This replaces the inefficient per-element cuMemcpy approach with a
 //! parallel CUDA kernel.
+//!
+//! Shape and strides are passed as kernel arguments (by value), NOT as device
+//! memory pointers. This is critical for CUDA graph capture compatibility:
+//! device pointers to temporary host-allocated data become stale on graph replay.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -24,12 +28,13 @@ pub const MAX_DIMS: usize = 8;
 /// Copies non-contiguous (strided) tensor data to a contiguous destination buffer
 /// using parallel GPU threads. Each thread handles one element.
 ///
+/// Shape and strides are passed as individual kernel arguments (up to MAX_DIMS=8),
+/// making this safe for CUDA graph capture/replay.
+///
 /// # Safety
 ///
 /// - `src_ptr` must be valid device memory
 /// - `dst_ptr` must be valid device memory with space for `numel * elem_size` bytes
-/// - `shape_ptr` must point to device memory containing `ndim` u64 values
-/// - `strides_ptr` must point to device memory containing `ndim` i64 values
 /// - All device memory must be allocated on the same device as the stream
 ///
 /// # Arguments
@@ -39,8 +44,8 @@ pub const MAX_DIMS: usize = 8;
 /// * `device_index` - Device index for module caching
 /// * `src_ptr` - Source buffer device pointer
 /// * `dst_ptr` - Destination buffer device pointer (contiguous)
-/// * `shape_ptr` - Device pointer to shape array (u64[ndim])
-/// * `strides_ptr` - Device pointer to strides array (i64[ndim])
+/// * `shape` - Shape array (up to MAX_DIMS elements)
+/// * `strides` - Strides array (up to MAX_DIMS elements, in elements)
 /// * `numel` - Total number of elements
 /// * `ndim` - Number of dimensions
 /// * `elem_size` - Size of each element in bytes
@@ -51,8 +56,8 @@ pub unsafe fn launch_strided_copy(
     device_index: usize,
     src_ptr: u64,
     dst_ptr: u64,
-    shape_ptr: u64,
-    strides_ptr: u64,
+    shape: &[usize],
+    strides: &[isize],
     numel: usize,
     ndim: usize,
     elem_size: usize,
@@ -67,6 +72,14 @@ pub unsafe fn launch_strided_copy(
             "strided_copy supports at most {} dimensions, got {}",
             MAX_DIMS, ndim
         )));
+    }
+
+    // Pad shape and strides to MAX_DIMS with zeros
+    let mut shape_args = [0u64; MAX_DIMS];
+    let mut stride_args = [0i64; MAX_DIMS];
+    for i in 0..ndim {
+        shape_args[i] = shape[i] as u64;
+        stride_args[i] = strides[i] as i64;
     }
 
     unsafe {
@@ -85,8 +98,14 @@ pub unsafe fn launch_strided_copy(
         let mut builder = stream.launch_builder(&func);
         builder.arg(&src_ptr);
         builder.arg(&dst_ptr);
-        builder.arg(&shape_ptr);
-        builder.arg(&strides_ptr);
+        // Pass shape as 8 individual u64 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&shape_args[i]);
+        }
+        // Pass strides as 8 individual i64 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&stride_args[i]);
+        }
         builder.arg(&numel_u32);
         builder.arg(&ndim_u32);
         builder.arg(&elem_size_u32);
@@ -109,19 +128,6 @@ pub unsafe fn launch_strided_copy(
 /// # Safety
 ///
 /// Same requirements as [`launch_strided_copy`].
-///
-/// # Arguments
-///
-/// * `context` - CUDA context
-/// * `stream` - CUDA stream for async execution
-/// * `device_index` - Device index for module caching
-/// * `src_ptr` - Source buffer device pointer
-/// * `dst_ptr` - Destination buffer device pointer (contiguous)
-/// * `outer_size` - Size of outer dimension
-/// * `inner_size` - Size of inner (contiguous) dimension
-/// * `outer_stride` - Stride of outer dimension (in elements)
-/// * `elem_size` - Size of each element in bytes
-/// * `src_byte_offset` - Byte offset into source buffer
 #[allow(dead_code)] // Available for future optimization
 pub unsafe fn launch_strided_copy_2d(
     context: &Arc<CudaContext>,

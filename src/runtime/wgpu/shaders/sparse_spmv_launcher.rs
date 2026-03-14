@@ -3,16 +3,25 @@
 //! Provides launchers for CSR format SpMV and SpMM operations:
 //! - `launch_csr_spmv` - Sparse matrix-vector multiplication: y = A * x
 //! - `launch_csr_spmm` - Sparse matrix-dense matrix multiplication: C = A * B
+//! - `launch_csr_extract_diagonal` - Extract diagonal: diag[i] = A[i,i]
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::dtype_suffix;
-use super::generator::spmv::{
-    generate_csr_extract_diagonal_shader, generate_csr_spmm_shader, generate_csr_spmv_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+const SPARSE_SPMV_F32: &str = include_str!("sparse_spmv_f32.wgsl");
+
+fn spmv_shader_info(dtype: DType) -> Result<(&'static str, &'static str)> {
+    match dtype {
+        DType::F32 => Ok((SPARSE_SPMV_F32, "sparse_spmv_f32")),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "csr_spmv (WebGPU)",
+        }),
+    }
+}
 
 /// Launch CSR SpMV kernel: y = A * x
 ///
@@ -38,12 +47,9 @@ pub fn launch_csr_spmv(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_spmv_{}", suffix);
+    let (shader, module_name) = spmv_shader_info(dtype)?;
 
-    let shader_source = generate_csr_spmv_shader(dtype)?;
-    let module_name = format!("csr_spmv_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // row_ptrs, col_indices, values, x, y
@@ -51,7 +57,7 @@ pub fn launch_csr_spmv(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline("csr_spmv", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, "csr_spmv_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -103,12 +109,9 @@ pub fn launch_csr_spmm(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_spmm_{}", suffix);
+    let (shader, module_name) = spmv_shader_info(dtype)?;
 
-    let shader_source = generate_csr_spmm_shader(dtype)?;
-    let module_name = format!("csr_spmm_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // row_ptrs, col_indices, a_values, b, c
@@ -116,7 +119,7 @@ pub fn launch_csr_spmm(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline("csr_spmm", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_name, "csr_spmm_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -165,12 +168,9 @@ pub fn launch_csr_extract_diagonal(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("csr_extract_diagonal_{}", suffix);
+    let (shader, module_name) = spmv_shader_info(dtype)?;
 
-    let shader_source = generate_csr_extract_diagonal_shader(dtype)?;
-    let module_name = format!("csr_extract_diagonal_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // row_ptrs, col_indices, values, diag
@@ -178,12 +178,8 @@ pub fn launch_csr_extract_diagonal(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "csr_extract_diagonal",
-        &entry_point,
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline(module_name, "csr_extract_diagonal_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -208,30 +204,4 @@ pub fn launch_csr_extract_diagonal(
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn validate_wgsl_syntax(source: &str) -> std::result::Result<(), String> {
-        use wgpu::naga::front::wgsl;
-        let mut frontend = wgsl::Frontend::new();
-        frontend
-            .parse(source)
-            .map(|_| ())
-            .map_err(|e| format!("WGSL parse error: {e}"))
-    }
-
-    #[test]
-    fn test_csr_spmv_shader_syntax_f32() {
-        let shader = generate_csr_spmv_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpMV shader should be valid WGSL");
-    }
-
-    #[test]
-    fn test_csr_spmm_shader_syntax_f32() {
-        let shader = generate_csr_spmm_shader(DType::F32).unwrap();
-        validate_wgsl_syntax(&shader).expect("SpMM shader should be valid WGSL");
-    }
 }

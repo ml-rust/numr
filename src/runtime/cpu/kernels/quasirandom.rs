@@ -2,12 +2,11 @@
 //!
 //! Implements Sobol, Halton, and Latin Hypercube Sampling sequences.
 
+use super::rng;
 use super::sobol_data::{MAX_SOBOL_DIMENSION, get_polynomial};
 use crate::ops::common::quasirandom::{
     SOBOL_BITS, compute_direction_vectors, dimension_zero_vectors,
 };
-use rand::Rng;
-use rand::seq::SliceRandom;
 
 /// Generate Sobol sequence points (F32 version).
 ///
@@ -237,20 +236,20 @@ fn van_der_corput_single_f64(mut index: usize, base: u32) -> f64 {
 /// - `out` must point to valid memory of length `n_samples * dimension`
 #[inline]
 pub unsafe fn latin_hypercube_f32(out: *mut f32, n_samples: usize, dimension: usize) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
 
     for d in 0..dimension {
         // Create stratified intervals
         let mut intervals: Vec<usize> = (0..n_samples).collect();
 
         // Shuffle intervals
-        intervals.shuffle(&mut rng);
+        rng::shuffle(&mut prng, &mut intervals);
 
         // Generate random point within each interval
         for (i, &interval) in intervals.iter().enumerate() {
             let lower = interval as f32 / n_samples as f32;
             let upper = (interval + 1) as f32 / n_samples as f32;
-            let random_offset: f32 = rng.random_range(0.0..1.0);
+            let random_offset = rng::sample_uniform(&mut prng) as f32;
 
             *out.add(i * dimension + d) = lower + random_offset * (upper - lower);
         }
@@ -260,16 +259,16 @@ pub unsafe fn latin_hypercube_f32(out: *mut f32, n_samples: usize, dimension: us
 /// Generate Latin Hypercube samples (F64 version).
 #[inline]
 pub unsafe fn latin_hypercube_f64(out: *mut f64, n_samples: usize, dimension: usize) {
-    let mut rng = rand::rng();
+    let mut prng = rng::thread_rng();
 
     for d in 0..dimension {
         let mut intervals: Vec<usize> = (0..n_samples).collect();
-        intervals.shuffle(&mut rng);
+        rng::shuffle(&mut prng, &mut intervals);
 
         for (i, &interval) in intervals.iter().enumerate() {
             let lower = interval as f64 / n_samples as f64;
             let upper = (interval + 1) as f64 / n_samples as f64;
-            let random_offset: f64 = rng.random_range(0.0..1.0);
+            let random_offset = rng::sample_uniform(&mut prng);
 
             *out.add(i * dimension + d) = lower + random_offset * (upper - lower);
         }

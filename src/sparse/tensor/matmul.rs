@@ -1,11 +1,12 @@
 //! SparseTensor matrix multiplication: spmv, spmm
 
 use super::SparseTensor;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     /// Sparse matrix-vector multiplication: y = A * x
     ///
     /// Computes the product of this sparse matrix with a dense vector.

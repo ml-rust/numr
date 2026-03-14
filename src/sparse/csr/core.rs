@@ -16,7 +16,7 @@ pub struct CsrData<R: Runtime> {
     pub(crate) shape: [usize; 2],
 }
 
-impl<R: Runtime> CsrData<R> {
+impl<R: Runtime<DType = DType>> CsrData<R> {
     /// Create a new CSR matrix from components
     ///
     /// # Arguments
@@ -288,7 +288,7 @@ impl<R: Runtime> CsrData<R> {
     }
 }
 
-impl<R: Runtime> SparseStorage for CsrData<R> {
+impl<R: Runtime<DType = DType>> SparseStorage for CsrData<R> {
     fn format(&self) -> SparseFormat {
         SparseFormat::Csr
     }
@@ -315,7 +315,7 @@ impl<R: Runtime> SparseStorage for CsrData<R> {
 }
 
 /// Create CSR data from host arrays
-impl<R: Runtime> CsrData<R> {
+impl<R: Runtime<DType = DType>> CsrData<R> {
     /// Create CSR matrix from host slices
     ///
     /// # Arguments

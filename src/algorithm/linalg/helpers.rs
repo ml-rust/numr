@@ -66,7 +66,7 @@ pub fn linalg_promote<'a, R, C>(
     tensor: &'a Tensor<R>,
 ) -> Result<(std::borrow::Cow<'a, Tensor<R>>, DType)>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: TypeConversionOps<R>,
 {
     let original_dtype = tensor.dtype();
@@ -90,7 +90,7 @@ pub fn linalg_demote<R, C>(
     original_dtype: DType,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: TypeConversionOps<R>,
 {
     if result.dtype() != original_dtype {

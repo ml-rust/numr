@@ -1,12 +1,13 @@
 //! CSC matrix multiplication: spmv, spmm
 
 use super::CscData;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Sparse matrix-vector multiplication: y = A * x
     ///
     /// Converts to CSR format (optimal for SpMV) and performs the multiplication.

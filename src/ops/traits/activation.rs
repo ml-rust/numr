@@ -71,4 +71,172 @@ pub trait ActivationOps<R: Runtime> {
             feature: "ActivationOps::softmax",
         })
     }
+
+    /// Log-softmax along a dimension: log(softmax(x, dim))
+    ///
+    /// Computed as `x - logsumexp(x, dim)` for numerical stability.
+    /// Used in log-probability calculations, Bayesian inference,
+    /// categorical distributions, and information theory.
+    fn log_softmax(&self, a: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (a, dim);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::log_softmax",
+        })
+    }
+
+    /// Softmax backward pass: computes gradient w.r.t. input given output gradient and softmax output.
+    ///
+    /// Formula: `d_input = output * (grad - sum(grad * output, dim, keepdim=true))`
+    ///
+    /// This is the Jacobian-vector product for softmax, used in training backward passes.
+    ///
+    /// # Arguments
+    /// * `grad` - Upstream gradient (same shape as output)
+    /// * `output` - The softmax output from the forward pass
+    /// * `dim` - The dimension along which softmax was computed
+    fn softmax_bwd(&self, grad: &Tensor<R>, output: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (grad, output, dim);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::softmax_bwd",
+        })
+    }
+
+    /// Softplus: `log(1 + exp(a))`
+    ///
+    /// A smooth approximation to ReLU that is always positive and differentiable.
+    /// Used in Mamba2 for dt (step size) processing via `softplus(dt_proj(x)) + dt_bias`.
+    ///
+    /// Gradient: `sigmoid(a)`
+    fn softplus(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::softplus",
+        })
+    }
+
+    /// Fused SiLU-Mul: `silu(a) * b` in a single pass.
+    ///
+    /// Computes `(a / (1 + exp(-a))) * b` element-wise with one memory pass
+    /// instead of two (activation + multiply). Used in SwiGLU and similar gated architectures.
+    fn silu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::silu_mul",
+        })
+    }
+
+    /// Fused GELU-Mul: `gelu(a) * b` in a single pass.
+    ///
+    /// Computes `(0.5 * a * (1 + tanh(sqrt(2/pi) * (a + 0.044715*a^3)))) * b` element-wise.
+    /// Used in GeGLU gated architectures.
+    fn gelu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_mul",
+        })
+    }
+
+    /// Fused ReLU-Mul: `relu(a) * b` in a single pass.
+    ///
+    /// Computes `max(0, a) * b` element-wise. Used in ReGLU gated architectures.
+    fn relu_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::relu_mul",
+        })
+    }
+
+    /// Fused Sigmoid-Mul: `sigmoid(a) * b` in a single pass.
+    ///
+    /// Computes `(1 / (1 + exp(-a))) * b` element-wise. Used in SiGLU gated architectures.
+    fn sigmoid_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::sigmoid_mul",
+        })
+    }
+
+    /// Fused SiLU-Mul backward: computes gradients for `output = silu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * silu'(a)` with `silu'(x) = sigmoid(x) * (1 + x - silu(x))`
+    /// - `d_b = grad * silu(a)`
+    ///
+    /// Backends may implement this as a single fused kernel for better performance.
+    fn silu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::silu_mul_bwd",
+        })
+    }
+
+    /// Fused GELU-Mul backward: computes gradients for `output = gelu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * gelu'(a)`
+    /// - `d_b = grad * gelu(a)`
+    fn gelu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_mul_bwd",
+        })
+    }
+
+    /// Fused ReLU-Mul backward: computes gradients for `output = relu(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * relu'(a)` with `relu'(x) = 1 if x > 0, else 0`
+    /// - `d_b = grad * relu(a)`
+    fn relu_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::relu_mul_bwd",
+        })
+    }
+
+    /// Fused Sigmoid-Mul backward: computes gradients for `output = sigmoid(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * sigmoid'(a)` with `sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))`
+    /// - `d_b = grad * sigmoid(a)`
+    fn sigmoid_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::sigmoid_mul_bwd",
+        })
+    }
+
+    /// Dropout: randomly zero elements with probability `p` during training.
+    ///
+    /// When `training` is true, each element is independently zeroed with probability `p`,
+    /// and remaining elements are scaled by `1/(1-p)` to maintain expected values.
+    /// When `training` is false, returns the input unchanged.
+    ///
+    /// Used in regularization, Monte Carlo dropout, and Bayesian approximation.
+    fn dropout(&self, a: &Tensor<R>, p: f64, training: bool) -> Result<Tensor<R>> {
+        let _ = (a, p, training);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::dropout",
+        })
+    }
 }

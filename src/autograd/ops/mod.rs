@@ -16,10 +16,13 @@
 
 mod activation;
 mod arithmetic;
+mod cast;
 mod cumulative;
+mod gemm_epilogue;
 mod indexing;
 mod linalg;
 mod matmul;
+mod normalization;
 mod reduce;
 mod scalar;
 mod shape;
@@ -27,10 +30,13 @@ mod unary;
 
 pub use activation::*;
 pub use arithmetic::*;
+pub use cast::*;
 pub use cumulative::*;
+pub use gemm_epilogue::*;
 pub use indexing::*;
 pub use linalg::*;
 pub use matmul::*;
+pub use normalization::*;
 pub use reduce::*;
 pub use scalar::*;
 pub use shape::*;

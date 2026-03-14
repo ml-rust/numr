@@ -1,6 +1,6 @@
 //! Cumulative operation kernels (cumsum, cumprod, logsumexp)
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Cumulative sum along a contiguous dimension
 ///
@@ -53,6 +53,7 @@ pub unsafe fn cumsum_strided_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::cumulative;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -69,6 +70,28 @@ pub unsafe fn cumsum_strided_kernel<T: Element>(
                 cumulative::cumsum_strided_f64(
                     a as *const f64,
                     out as *mut f64,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                cumulative::cumsum_strided_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                cumulative::cumsum_strided_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
                     scan_size,
                     outer_size,
                     inner_size,
@@ -144,6 +167,7 @@ pub unsafe fn cumprod_strided_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::cumulative;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -160,6 +184,28 @@ pub unsafe fn cumprod_strided_kernel<T: Element>(
                 cumulative::cumprod_strided_f64(
                     a as *const f64,
                     out as *mut f64,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                cumulative::cumprod_strided_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    scan_size,
+                    outer_size,
+                    inner_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                cumulative::cumprod_strided_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
                     scan_size,
                     outer_size,
                     inner_size,
@@ -212,6 +258,7 @@ pub unsafe fn logsumexp_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::logsumexp;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -220,6 +267,26 @@ pub unsafe fn logsumexp_kernel<T: Element>(
             }
             DType::F64 => {
                 logsumexp::logsumexp_f64(a as *const f64, out as *mut f64, reduce_size, outer_size);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                logsumexp::logsumexp_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    reduce_size,
+                    outer_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                logsumexp::logsumexp_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    reduce_size,
+                    outer_size,
+                );
                 return;
             }
             _ => {} // Fall through to scalar

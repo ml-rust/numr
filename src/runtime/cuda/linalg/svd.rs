@@ -63,7 +63,7 @@ pub fn svd_decompose_impl(
                 client.stream(),
                 device.index,
                 dtype,
-                a.storage().ptr(),
+                a.ptr(),
                 b_ptr,
                 m, // rows of input
                 n, // cols of input
@@ -71,7 +71,7 @@ pub fn svd_decompose_impl(
         };
         result?
     } else {
-        CudaRuntime::copy_within_device(a.storage().ptr(), b_ptr, b_size, device)?;
+        CudaRuntime::copy_within_device(a.ptr(), b_ptr, b_size, device)?;
     }
 
     // Zero-initialize converged flag

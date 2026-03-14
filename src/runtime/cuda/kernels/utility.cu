@@ -587,6 +587,68 @@ __global__ void eye_u64(unsigned long long* out, unsigned int n, unsigned int m)
     }
 }
 
+// ============================================================================
+// FP8 Arange
+// ============================================================================
+
+__global__ void arange_fp8_e4m3(numr_fp8_e4m3* out, float start, float step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx].data = f32_to_fp8_e4m3(start + step * (float)idx);
+    }
+}
+
+__global__ void arange_fp8_e5m2(numr_fp8_e5m2* out, float start, float step, unsigned int n) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < n) {
+        out[idx].data = f32_to_fp8_e5m2(start + step * (float)idx);
+    }
+}
+
+// ============================================================================
+// FP8 Linspace
+// ============================================================================
+
+__global__ void linspace_fp8_e4m3(numr_fp8_e4m3* out, float start, float stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        float t = (float)idx / (float)(steps - 1);
+        out[idx].data = f32_to_fp8_e4m3(start + (stop - start) * t);
+    }
+}
+
+__global__ void linspace_fp8_e5m2(numr_fp8_e5m2* out, float start, float stop, unsigned int steps) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < steps) {
+        float t = (float)idx / (float)(steps - 1);
+        out[idx].data = f32_to_fp8_e5m2(start + (stop - start) * t);
+    }
+}
+
+// ============================================================================
+// FP8 Eye
+// ============================================================================
+
+__global__ void eye_fp8_e4m3(numr_fp8_e4m3* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx].data = (row == col) ? f32_to_fp8_e4m3(1.0f) : f32_to_fp8_e4m3(0.0f);
+    }
+}
+
+__global__ void eye_fp8_e5m2(numr_fp8_e5m2* out, unsigned int n, unsigned int m) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total = n * m;
+    if (idx < total) {
+        unsigned int row = idx / m;
+        unsigned int col = idx % m;
+        out[idx].data = (row == col) ? f32_to_fp8_e5m2(1.0f) : f32_to_fp8_e5m2(0.0f);
+    }
+}
+
 } // extern "C" - close before template functions
 
 // ============================================================================

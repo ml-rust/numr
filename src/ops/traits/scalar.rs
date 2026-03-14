@@ -25,4 +25,10 @@ pub trait ScalarOps<R: Runtime>: TensorOps<R> {
 
     /// Reverse subtract: scalar - a
     fn rsub_scalar(&self, a: &Tensor<R>, scalar: f64) -> Result<Tensor<R>>;
+
+    /// Fused multiply-add scalar: a * scale + bias
+    ///
+    /// Applies an affine transform to each element in a single pass.
+    /// Common in normalization (scale + shift) and quantization.
+    fn fused_mul_add_scalar(&self, a: &Tensor<R>, scale: f64, bias: f64) -> Result<Tensor<R>>;
 }

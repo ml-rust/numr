@@ -37,7 +37,7 @@ pub fn sor_impl<R, C>(
     options: SorOptions,
 ) -> Result<SorResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>
@@ -125,7 +125,7 @@ where
 /// - j < i:  omega * a_ij  (scaled strict lower triangle)
 /// - j == i: a_ii           (diagonal, unscaled)
 /// - j > i:  excluded       (upper triangle)
-fn build_sor_lower_triangular<R: Runtime>(
+fn build_sor_lower_triangular<R: Runtime<DType = DType>>(
     a: &CsrData<R>,
     omega: f64,
     device: &R::Device,

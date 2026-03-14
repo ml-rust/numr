@@ -145,8 +145,8 @@ impl UnaryOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }
@@ -166,8 +166,8 @@ impl UnaryOps<CudaRuntime> for CudaClient {
                 &self.stream,
                 self.device.index,
                 dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 out.numel(),
             )?;
         }

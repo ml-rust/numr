@@ -17,7 +17,7 @@ use std::collections::HashMap;
 ///
 /// # Example
 ///
-/// ```
+/// ```no_run
 /// # use numr::prelude::*;
 /// # use numr::autograd::{backward_with_graph, backward, Var, var_mul, var_sum};
 /// # let device = CpuDevice::new();

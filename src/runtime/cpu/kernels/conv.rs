@@ -2,6 +2,8 @@
 //!
 //! Direct convolution implementations without im2col transformation.
 
+#[cfg(feature = "f16")]
+use crate::dtype::DType;
 use crate::dtype::Element;
 use crate::ops::conv_common::{Conv1dParams, Conv2dParams};
 
@@ -20,6 +22,36 @@ pub unsafe fn conv1d_kernel<T: Element>(
     output: *mut T,
     params: Conv1dParams,
 ) {
+    // Dispatch to SIMD for f16/bf16 on x86-64 and aarch64
+    #[cfg(all(feature = "f16", any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        use super::simd::conv as simd_conv;
+
+        match T::DTYPE {
+            DType::F16 => {
+                simd_conv::conv1d_f16(
+                    input as *const half::f16,
+                    weight as *const half::f16,
+                    bias.map(|b| b as *const half::f16),
+                    output as *mut half::f16,
+                    params,
+                );
+                return;
+            }
+            DType::BF16 => {
+                simd_conv::conv1d_bf16(
+                    input as *const half::bf16,
+                    weight as *const half::bf16,
+                    bias.map(|b| b as *const half::bf16),
+                    output as *mut half::bf16,
+                    params,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     let Conv1dParams {
         batch,
         c_in,
@@ -106,6 +138,36 @@ pub unsafe fn conv2d_kernel<T: Element>(
     output: *mut T,
     params: Conv2dParams,
 ) {
+    // Dispatch to SIMD for f16/bf16 on x86-64 and aarch64
+    #[cfg(all(feature = "f16", any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        use super::simd::conv as simd_conv;
+
+        match T::DTYPE {
+            DType::F16 => {
+                simd_conv::conv2d_f16(
+                    input as *const half::f16,
+                    weight as *const half::f16,
+                    bias.map(|b| b as *const half::f16),
+                    output as *mut half::f16,
+                    params,
+                );
+                return;
+            }
+            DType::BF16 => {
+                simd_conv::conv2d_bf16(
+                    input as *const half::bf16,
+                    weight as *const half::bf16,
+                    bias.map(|b| b as *const half::bf16),
+                    output as *mut half::bf16,
+                    params,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     let Conv2dParams {
         batch,
         c_in,
@@ -222,6 +284,36 @@ pub unsafe fn depthwise_conv2d_kernel<T: Element>(
     output: *mut T,
     params: Conv2dParams,
 ) {
+    // Dispatch to SIMD for f16/bf16 on x86-64 and aarch64
+    #[cfg(all(feature = "f16", any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        use super::simd::conv as simd_conv;
+
+        match T::DTYPE {
+            DType::F16 => {
+                simd_conv::depthwise_conv2d_f16(
+                    input as *const half::f16,
+                    weight as *const half::f16,
+                    bias.map(|b| b as *const half::f16),
+                    output as *mut half::f16,
+                    params,
+                );
+                return;
+            }
+            DType::BF16 => {
+                simd_conv::depthwise_conv2d_bf16(
+                    input as *const half::bf16,
+                    weight as *const half::bf16,
+                    bias.map(|b| b as *const half::bf16),
+                    output as *mut half::bf16,
+                    params,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
     let Conv2dParams {
         batch,
         c_in,

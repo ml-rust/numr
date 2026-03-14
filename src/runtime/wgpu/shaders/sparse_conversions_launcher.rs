@@ -7,16 +7,28 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::dtype_suffix;
-use super::generator::sparse_conversions::{
-    generate_coo_to_csc_scatter_shader, generate_coo_to_csr_scatter_shader,
-    generate_copy_ptrs_shader, generate_csc_to_csr_scatter_shader,
-    generate_csr_to_csc_scatter_shader, generate_expand_col_ptrs_shader,
-    generate_expand_row_ptrs_shader, generate_histogram_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+// Static WGSL shader sources
+const SPARSE_CONVERSIONS_INDICES: &str = include_str!("sparse_conversions_indices.wgsl");
+const SPARSE_CONVERSIONS_F32: &str = include_str!("sparse_conversions_f32.wgsl");
+const SPARSE_CONVERSIONS_I32: &str = include_str!("sparse_conversions_i32.wgsl");
+const SPARSE_CONVERSIONS_U32: &str = include_str!("sparse_conversions_u32.wgsl");
+
+/// Return (module_key, shader_source) for a dtype-specific conversions shader.
+fn typed_shader(dtype: DType) -> Result<(&'static str, &'static str)> {
+    match dtype {
+        DType::F32 => Ok(("sparse_conversions_f32", SPARSE_CONVERSIONS_F32)),
+        DType::I32 => Ok(("sparse_conversions_i32", SPARSE_CONVERSIONS_I32)),
+        DType::U32 => Ok(("sparse_conversions_u32", SPARSE_CONVERSIONS_U32)),
+        _ => Err(Error::UnsupportedDType {
+            dtype,
+            op: "sparse_conversions (WebGPU)",
+        }),
+    }
+}
 
 /// Launch kernel to expand CSR row_ptrs to explicit row_indices.
 pub fn launch_expand_row_ptrs(
@@ -27,8 +39,8 @@ pub fn launch_expand_row_ptrs(
     params: &Buffer,
     nrows: usize,
 ) -> Result<()> {
-    let source = generate_expand_row_ptrs_shader()?;
-    let module = cache.get_or_create_module_from_source("expand_row_ptrs", &source);
+    let module =
+        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // row_ptrs, row_indices
@@ -36,8 +48,8 @@ pub fn launch_expand_row_ptrs(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "expand_row_ptrs",
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_conversions_indices",
         "expand_row_ptrs",
         &module,
         &layout,
@@ -74,8 +86,8 @@ pub fn launch_expand_col_ptrs(
     params: &Buffer,
     ncols: usize,
 ) -> Result<()> {
-    let source = generate_expand_col_ptrs_shader()?;
-    let module = cache.get_or_create_module_from_source("expand_col_ptrs", &source);
+    let module =
+        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // col_ptrs, col_indices
@@ -83,8 +95,8 @@ pub fn launch_expand_col_ptrs(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "expand_col_ptrs",
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_conversions_indices",
         "expand_col_ptrs",
         &module,
         &layout,
@@ -121,8 +133,8 @@ pub fn launch_histogram(
     params: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let source = generate_histogram_shader()?;
-    let module = cache.get_or_create_module_from_source("histogram", &source);
+    let module =
+        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // indices, counts
@@ -130,7 +142,8 @@ pub fn launch_histogram(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline("histogram", "histogram", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_conversions_indices", "histogram", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[indices, counts, params]);
 
@@ -168,9 +181,8 @@ pub fn launch_coo_to_csr_scatter(
     nnz: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = generate_coo_to_csr_scatter_shader(dtype)?;
-    let key = format!("coo_to_csr_scatter_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6, // in_row, in_col, in_val, row_ptrs_atomic, out_col, out_val
@@ -178,8 +190,7 @@ pub fn launch_coo_to_csr_scatter(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&key, "coo_to_csr_scatter", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "coo_to_csr_scatter", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -228,9 +239,8 @@ pub fn launch_coo_to_csc_scatter(
     nnz: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = generate_coo_to_csc_scatter_shader(dtype)?;
-    let key = format!("coo_to_csc_scatter_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
@@ -238,8 +248,7 @@ pub fn launch_coo_to_csc_scatter(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&key, "coo_to_csc_scatter", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "coo_to_csc_scatter", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -288,9 +297,8 @@ pub fn launch_csr_to_csc_scatter(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = generate_csr_to_csc_scatter_shader(dtype)?;
-    let key = format!("csr_to_csc_scatter_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
@@ -298,8 +306,7 @@ pub fn launch_csr_to_csc_scatter(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&key, "csr_to_csc_scatter", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "csr_to_csc_scatter", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -348,9 +355,8 @@ pub fn launch_csc_to_csr_scatter(
     ncols: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = generate_csc_to_csr_scatter_shader(dtype)?;
-    let key = format!("csc_to_csr_scatter_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
@@ -358,8 +364,7 @@ pub fn launch_csc_to_csr_scatter(
         num_readonly_storage: 0,
     });
 
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline(&key, "csc_to_csr_scatter", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "csc_to_csr_scatter", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -403,8 +408,8 @@ pub fn launch_copy_ptrs(
     params: &Buffer,
     n: usize,
 ) -> Result<()> {
-    let source = generate_copy_ptrs_shader()?;
-    let module = cache.get_or_create_module_from_source("copy_ptrs", &source);
+    let module =
+        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // src, dst
@@ -412,7 +417,8 @@ pub fn launch_copy_ptrs(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline("copy_ptrs", "copy_ptrs", &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_conversions_indices", "copy_ptrs", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, dst, params]);
 
@@ -448,9 +454,8 @@ pub fn launch_csr_to_dense(
     nrows: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = super::generator::generate_csr_to_dense_shader(dtype)?;
-    let key = format!("csr_to_dense_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4, // row_ptrs, col_indices, values, dense
@@ -458,7 +463,7 @@ pub fn launch_csr_to_dense(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(&key, "csr_to_dense", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "csr_to_dense", &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[row_ptrs, col_indices, values, dense, params]);
@@ -493,9 +498,8 @@ pub fn launch_count_nonzeros(
     total_elems: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = super::generator::generate_count_nonzeros_shader(dtype)?;
-    let key = format!("count_nonzeros_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2, // dense, count
@@ -503,7 +507,7 @@ pub fn launch_count_nonzeros(
         num_readonly_storage: 0,
     });
 
-    let pipeline = cache.get_or_create_dynamic_pipeline(&key, "count_nonzeros", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, "count_nonzeros", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[dense, count, params]);
 
@@ -540,9 +544,8 @@ pub fn launch_dense_to_coo_scatter(
     total_elems: usize,
     dtype: DType,
 ) -> Result<()> {
-    let source = super::generator::generate_dense_to_coo_scatter_shader(dtype)?;
-    let key = format!("dense_to_coo_scatter_{}", dtype_suffix(dtype)?);
-    let module = cache.get_or_create_module_from_source(&key, &source);
+    let (module_key, shader) = typed_shader(dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 5, // dense, row_indices, col_indices, values, write_pos
@@ -551,7 +554,7 @@ pub fn launch_dense_to_coo_scatter(
     });
 
     let pipeline =
-        cache.get_or_create_dynamic_pipeline(&key, "dense_to_coo_scatter", &module, &layout);
+        cache.get_or_create_pipeline(module_key, "dense_to_coo_scatter", &module, &layout);
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -576,34 +579,4 @@ pub fn launch_dense_to_coo_scatter(
 
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn validate_wgsl_syntax(source: &str) -> std::result::Result<(), String> {
-        use wgpu::naga::front::wgsl;
-        let mut frontend = wgsl::Frontend::new();
-        frontend
-            .parse(source)
-            .map(|_| ())
-            .map_err(|e| format!("WGSL parse error: {e}"))
-    }
-
-    #[test]
-    fn test_all_conversion_shaders_valid() {
-        // Validate all generated shaders are syntactically correct
-        validate_wgsl_syntax(&generate_expand_row_ptrs_shader().unwrap()).unwrap();
-        validate_wgsl_syntax(&generate_expand_col_ptrs_shader().unwrap()).unwrap();
-        validate_wgsl_syntax(&generate_histogram_shader().unwrap()).unwrap();
-        validate_wgsl_syntax(&generate_copy_ptrs_shader().unwrap()).unwrap();
-
-        for dtype in [DType::F32, DType::I32, DType::U32] {
-            validate_wgsl_syntax(&generate_coo_to_csr_scatter_shader(dtype).unwrap()).unwrap();
-            validate_wgsl_syntax(&generate_coo_to_csc_scatter_shader(dtype).unwrap()).unwrap();
-            validate_wgsl_syntax(&generate_csr_to_csc_scatter_shader(dtype).unwrap()).unwrap();
-            validate_wgsl_syntax(&generate_csc_to_csr_scatter_shader(dtype).unwrap()).unwrap();
-        }
-    }
 }

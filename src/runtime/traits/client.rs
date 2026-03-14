@@ -12,4 +12,12 @@ pub trait RuntimeClient<R: Runtime>: Clone + Send + Sync {
 
     /// Get the allocator for this client
     fn allocator(&self) -> &R::Allocator;
+
+    /// Get the raw CUDA stream handle for compute-communication overlap.
+    ///
+    /// Returns `Some(handle)` on CUDA backends where the handle is the
+    /// `CUstream` pointer cast to `u64`. Returns `None` on CPU/WebGPU.
+    fn compute_stream_handle(&self) -> Option<u64> {
+        None
+    }
 }

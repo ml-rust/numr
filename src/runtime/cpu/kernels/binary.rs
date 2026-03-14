@@ -4,7 +4,7 @@
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 //! On aarch64, f32 and f64 operations use NEON when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::BinaryOp;
 
 /// Execute a binary operation element-wise with automatic SIMD dispatch
@@ -30,6 +30,7 @@ pub unsafe fn binary_op_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::binary;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -38,6 +39,32 @@ pub unsafe fn binary_op_kernel<T: Element>(
             }
             DType::F64 => {
                 binary::binary_f64(op, a as *const f64, b as *const f64, out as *mut f64, len);
+                return;
+            }
+            DType::I32 => {
+                binary::binary_i32(op, a as *const i32, b as *const i32, out as *mut i32, len);
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                binary::binary_f16(
+                    op,
+                    a as *const half::f16,
+                    b as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                binary::binary_bf16(
+                    op,
+                    a as *const half::bf16,
+                    b as *const half::bf16,
+                    out as *mut half::bf16,
+                    len,
+                );
                 return;
             }
             _ => {} // Fall through to scalar
@@ -232,6 +259,72 @@ pub unsafe fn binary_scalar_f64(
         BinaryOp::Atan2 => {
             for i in 0..len {
                 *out.add(i) = (*a.add(i)).atan2(*b.add(i));
+            }
+        }
+    }
+}
+
+/// Scalar binary operation for i32 (used by SIMD for small arrays and tail)
+#[inline]
+pub unsafe fn binary_scalar_i32(
+    op: BinaryOp,
+    a: *const i32,
+    b: *const i32,
+    out: *mut i32,
+    len: usize,
+) {
+    match op {
+        BinaryOp::Add => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).wrapping_add(*b.add(i));
+            }
+        }
+        BinaryOp::Sub => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).wrapping_sub(*b.add(i));
+            }
+        }
+        BinaryOp::Mul => {
+            for i in 0..len {
+                *out.add(i) = (*a.add(i)).wrapping_mul(*b.add(i));
+            }
+        }
+        BinaryOp::Div => {
+            for i in 0..len {
+                let bv = *b.add(i);
+                *out.add(i) = if bv != 0 {
+                    (*a.add(i)).wrapping_div(bv)
+                } else {
+                    0
+                };
+            }
+        }
+        BinaryOp::Max => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av > bv { av } else { bv };
+            }
+        }
+        BinaryOp::Min => {
+            for i in 0..len {
+                let av = *a.add(i);
+                let bv = *b.add(i);
+                *out.add(i) = if av < bv { av } else { bv };
+            }
+        }
+        BinaryOp::Pow => {
+            for i in 0..len {
+                let base = *a.add(i) as f64;
+                let exp = *b.add(i) as f64;
+                *out.add(i) = base.powf(exp) as i32;
+            }
+        }
+        BinaryOp::Atan2 => {
+            for i in 0..len {
+                let y = *a.add(i) as f64;
+                let x = *b.add(i) as f64;
+                *out.add(i) = y.atan2(x) as i32;
             }
         }
     }

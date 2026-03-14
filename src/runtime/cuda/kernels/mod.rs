@@ -56,6 +56,12 @@ mod cumulative;
 mod distance;
 mod distributions;
 mod fft;
+#[cfg(feature = "fp8")]
+mod fp8_matmul;
+mod fused_activation_mul;
+mod fused_add_norm;
+mod fused_elementwise;
+mod gemm_epilogue;
 mod index;
 mod linalg;
 pub mod linalg_launchers;
@@ -68,6 +74,8 @@ mod scalar;
 mod scan;
 mod shape;
 mod sort;
+#[cfg(feature = "sparse")]
+mod sparse_24_launcher;
 #[cfg(feature = "sparse")]
 mod sparse_convert;
 #[cfg(feature = "sparse")]
@@ -102,6 +110,12 @@ pub use cumulative::*;
 pub use distance::*;
 pub use distributions::*;
 pub use fft::*;
+#[cfg(feature = "fp8")]
+pub use fp8_matmul::*;
+pub use fused_activation_mul::*;
+pub use fused_add_norm::*;
+pub use fused_elementwise::*;
+pub use gemm_epilogue::*;
 pub use index::*;
 pub use linalg::*;
 pub use norm::*;
@@ -113,6 +127,8 @@ pub use scalar::*;
 pub use scan::*;
 pub use shape::*;
 pub use sort::*;
+#[cfg(feature = "sparse")]
+pub use sparse_24_launcher::*;
 #[cfg(feature = "sparse")]
 pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
@@ -142,7 +158,8 @@ pub use utility::*;
 // Re-export commonly used items from loader for advanced users
 #[allow(unused_imports)]
 pub use loader::{
-    BLOCK_SIZE, LaunchConfig, kernel_names, launch_matmul_batched_kernel,
-    launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel, launch_matmul_kernel,
-    launch_semiring_matmul_batched_kernel, launch_semiring_matmul_kernel,
+    BLOCK_SIZE, LaunchConfig, kernel_names, launch_gemv_kernel_bt, launch_gemv_kernel_bt_mr,
+    launch_matmul_batched_kernel, launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel,
+    launch_matmul_kernel, launch_semiring_matmul_batched_kernel, launch_semiring_matmul_kernel,
+    preload_modules,
 };

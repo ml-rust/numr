@@ -17,6 +17,7 @@
 
 use super::DTypeSupport;
 use crate::algorithm::fft::{FftAlgorithms, FftNormalization};
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{BinaryOps, ComplexOps, IndexingOps, ReduceOps, ShapeOps, UtilityOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -60,7 +61,7 @@ pub fn convolve_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + BinaryOps<R>
         + IndexingOps<R>
@@ -103,7 +104,7 @@ fn convolve_direct<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + BinaryOps<R>
         + IndexingOps<R>
@@ -179,7 +180,7 @@ fn convolve_fft<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + BinaryOps<R>
         + ShapeOps<R>
@@ -245,7 +246,7 @@ where
 /// This uses BinaryOps::mul which handles complex types via the Element trait.
 fn complex_mul<R, C>(client: &C, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: BinaryOps<R>,
 {
     // BinaryOps::mul handles complex multiplication natively

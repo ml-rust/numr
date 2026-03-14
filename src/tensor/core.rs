@@ -1,7 +1,7 @@
 //! Core Tensor type
 
 use super::{Layout, Storage, TensorId};
-use crate::dtype::{DType, Element};
+use crate::dtype::{DType, DataType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use std::fmt;
@@ -38,6 +38,10 @@ pub struct Tensor<R: Runtime> {
     layout: Layout,
 }
 
+// ============================================================================
+// Generic methods — work with ANY R::DType via DataType trait
+// ============================================================================
+
 impl<R: Runtime> Tensor<R> {
     /// Create a tensor from storage and layout
     pub fn from_parts(storage: Storage<R>, layout: Layout) -> Self {
@@ -48,63 +52,6 @@ impl<R: Runtime> Tensor<R> {
         }
     }
 
-    /// Create a tensor from a slice of data
-    ///
-    /// # Panics
-    ///
-    /// Panics if `data.len()` does not equal the product of the `shape` dimensions.
-    /// For a fallible alternative, use [`Self::try_from_slice`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use numr::prelude::*;
-    /// # let device = CpuDevice::new();
-    /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
-    /// # Ok::<(), numr::error::Error>(())
-    /// ```
-    #[track_caller]
-    pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
-        Self::try_from_slice(data, shape, device)
-            .unwrap_or_else(|e| panic!("Tensor::from_slice failed: {e}"))
-    }
-
-    /// Create a tensor from a slice of data (fallible version)
-    ///
-    /// Returns an error if `data.len()` does not equal the product of the `shape` dimensions,
-    /// or if memory allocation fails.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use numr::prelude::*;
-    /// # let device = CpuDevice::new();
-    /// let tensor = Tensor::<CpuRuntime>::try_from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device)?;
-    /// # Ok::<(), numr::error::Error>(())
-    /// ```
-    pub fn try_from_slice<T: Element>(
-        data: &[T],
-        shape: &[usize],
-        device: &R::Device,
-    ) -> Result<Self> {
-        let expected_len: usize = shape.iter().product();
-        if data.len() != expected_len {
-            return Err(Error::ShapeMismatch {
-                expected: shape.to_vec(),
-                got: vec![data.len()],
-            });
-        }
-
-        let storage = Storage::from_slice(data, device)?;
-        let layout = Layout::contiguous(shape);
-
-        Ok(Self {
-            id: TensorId::new(),
-            storage,
-            layout,
-        })
-    }
-
     /// Create an uninitialized tensor
     ///
     /// # Safety
@@ -113,132 +60,15 @@ impl<R: Runtime> Tensor<R> {
     /// # Panics
     /// Panics if allocation fails. Use [`Self::try_empty`] in fallible contexts.
     #[track_caller]
-    pub fn empty(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
+    pub fn empty(shape: &[usize], dtype: R::DType, device: &R::Device) -> Self {
         Self::try_empty(shape, dtype, device)
             .unwrap_or_else(|e| panic!("Tensor::empty failed: {e}"))
     }
 
     /// Create an uninitialized tensor (fallible version)
-    pub fn try_empty(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
+    pub fn try_empty(shape: &[usize], dtype: R::DType, device: &R::Device) -> Result<Self> {
         let len: usize = shape.iter().product();
         let storage = Storage::new(len, dtype, device)?;
-        let layout = Layout::contiguous(shape);
-
-        Ok(Self {
-            id: TensorId::new(),
-            storage,
-            layout,
-        })
-    }
-
-    /// Create a tensor filled with zeros
-    ///
-    /// This properly initializes memory to zero on all backends (CPU and GPU).
-    #[track_caller]
-    pub fn zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::try_zeros(shape, dtype, device)
-            .unwrap_or_else(|e| panic!("Tensor::zeros failed: {e}"))
-    }
-
-    /// Create a tensor filled with zeros (fallible version)
-    pub fn try_zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
-        Self::try_full_scalar(shape, dtype, 0.0, device)
-    }
-
-    /// Create a tensor filled with ones
-    #[track_caller]
-    pub fn ones(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
-        Self::try_ones(shape, dtype, device).unwrap_or_else(|e| panic!("Tensor::ones failed: {e}"))
-    }
-
-    /// Create a tensor filled with ones (fallible version)
-    pub fn try_ones(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
-        Self::try_full_scalar(shape, dtype, 1.0, device)
-    }
-
-    /// Create a tensor filled with a scalar value
-    ///
-    /// The scalar is converted to the target dtype.
-    #[track_caller]
-    pub fn full_scalar(shape: &[usize], dtype: DType, value: f64, device: &R::Device) -> Self {
-        Self::try_full_scalar(shape, dtype, value, device)
-            .unwrap_or_else(|e| panic!("Tensor::full_scalar failed: {e}"))
-    }
-
-    /// Create a tensor filled with a scalar value (fallible version)
-    pub fn try_full_scalar(
-        shape: &[usize],
-        dtype: DType,
-        value: f64,
-        device: &R::Device,
-    ) -> Result<Self> {
-        // Helper to convert a typed Vec to bytes safely.
-        // Allocates with correct alignment for T, then copies to u8 vec.
-        #[inline]
-        fn typed_to_bytes<T: bytemuck::NoUninit>(v: Vec<T>) -> Vec<u8> {
-            bytemuck::cast_slice::<T, u8>(&v).to_vec()
-        }
-
-        let len: usize = shape.iter().product();
-        if len == 0 {
-            return Self::try_empty(shape, dtype, device);
-        }
-
-        // Allocate with correct type alignment, then convert to bytes.
-        // This avoids alignment violations that would occur if we allocated
-        // a Vec<u8> and cast to stricter-aligned types like f64/i64.
-        let bytes: Vec<u8> = match dtype {
-            DType::F64 => typed_to_bytes(vec![value; len]),
-            DType::F32 => typed_to_bytes(vec![value as f32; len]),
-            DType::F16 => {
-                #[cfg(feature = "f16")]
-                {
-                    use half::f16;
-                    typed_to_bytes(vec![f16::from_f64(value); len])
-                }
-                #[cfg(not(feature = "f16"))]
-                {
-                    let half_bits = half_from_f32(value as f32, dtype);
-                    typed_to_bytes(vec![half_bits; len])
-                }
-            }
-            DType::BF16 => {
-                #[cfg(feature = "f16")]
-                {
-                    use half::bf16;
-                    typed_to_bytes(vec![bf16::from_f64(value); len])
-                }
-                #[cfg(not(feature = "f16"))]
-                {
-                    let half_bits = half_from_f32(value as f32, dtype);
-                    typed_to_bytes(vec![half_bits; len])
-                }
-            }
-            DType::FP8E4M3 => {
-                vec![crate::dtype::FP8E4M3::from_f32(value as f32).to_bits(); len]
-            }
-            DType::FP8E5M2 => {
-                vec![crate::dtype::FP8E5M2::from_f32(value as f32).to_bits(); len]
-            }
-            DType::I64 => typed_to_bytes(vec![value as i64; len]),
-            DType::I32 => typed_to_bytes(vec![value as i32; len]),
-            DType::I16 => typed_to_bytes(vec![value as i16; len]),
-            DType::I8 => typed_to_bytes(vec![value as i8; len]),
-            DType::U64 => typed_to_bytes(vec![value as u64; len]),
-            DType::U32 => typed_to_bytes(vec![value as u32; len]),
-            DType::U16 => typed_to_bytes(vec![value as u16; len]),
-            DType::U8 => vec![value as u8; len],
-            DType::Bool => vec![if value != 0.0 { 1u8 } else { 0u8 }; len],
-            DType::Complex64 => {
-                typed_to_bytes(vec![crate::dtype::Complex64::new(value as f32, 0.0); len])
-            }
-            DType::Complex128 => {
-                typed_to_bytes(vec![crate::dtype::Complex128::new(value, 0.0); len])
-            }
-        };
-
-        // Allocate and copy to device
-        let storage = Storage::from_bytes(&bytes, dtype, device)?;
         let layout = Layout::contiguous(shape);
 
         Ok(Self {
@@ -252,7 +82,7 @@ impl<R: Runtime> Tensor<R> {
 
     /// Get the internal tensor ID for autograd graph tracking.
     #[inline]
-    pub(crate) fn id(&self) -> TensorId {
+    pub fn id(&self) -> TensorId {
         self.id
     }
 
@@ -294,7 +124,7 @@ impl<R: Runtime> Tensor<R> {
 
     /// Get the element type
     #[inline]
-    pub fn dtype(&self) -> DType {
+    pub fn dtype(&self) -> R::DType {
         self.storage.dtype()
     }
 
@@ -319,6 +149,153 @@ impl<R: Runtime> Tensor<R> {
     /// Get size along a dimension (supports negative indexing)
     pub fn size(&self, dim: isize) -> Option<usize> {
         self.layout.dim(dim)
+    }
+
+    /// Get size along a dimension, returning error on invalid index
+    pub fn dim(&self, index: isize) -> Result<usize> {
+        self.layout.dim(index).ok_or(Error::InvalidDimension {
+            dim: index,
+            ndim: self.ndim(),
+        })
+    }
+
+    // ===== Aliases (common across tensor libraries) =====
+
+    /// Number of dimensions (alias for `ndim`)
+    #[inline]
+    pub fn rank(&self) -> usize {
+        self.layout.ndim()
+    }
+
+    /// Total number of elements (alias for `numel`)
+    #[inline]
+    pub fn elem_count(&self) -> usize {
+        self.layout.elem_count()
+    }
+
+    /// Shape as slice (alias for `shape`)
+    #[inline]
+    pub fn dims(&self) -> &[usize] {
+        self.layout.shape()
+    }
+
+    /// Total number of elements (alias for `numel`)
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.layout.elem_count()
+    }
+
+    /// Whether the tensor has zero elements
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.layout.elem_count() == 0
+    }
+
+    /// Layout offset into storage (in elements)
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.layout.offset()
+    }
+
+    /// Data pointer adjusted for layout offset.
+    /// This is the pointer to the first element of this tensor's view.
+    #[inline]
+    pub fn ptr(&self) -> u64 {
+        self.storage.ptr() + (self.layout.offset() * self.dtype().size_in_bytes()) as u64
+    }
+
+    /// Whether the underlying storage is owned (will deallocate on drop)
+    #[inline]
+    pub fn owns_memory(&self) -> bool {
+        self.storage.is_owned()
+    }
+
+    /// Check if two tensors share the same storage
+    pub fn shares_storage_with(&self, other: &Tensor<R>) -> bool {
+        self.storage.ptr() == other.storage.ptr()
+    }
+
+    /// Storage reference count
+    pub fn ref_count(&self) -> usize {
+        self.storage.ref_count()
+    }
+
+    // ===== Dimension Unpacking =====
+
+    /// Unpack shape of a 1D tensor
+    pub fn dims1(&self) -> Result<usize> {
+        let s = self.shape();
+        if s.len() == 1 {
+            Ok(s[0])
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 2D tensor
+    pub fn dims2(&self) -> Result<(usize, usize)> {
+        let s = self.shape();
+        if s.len() == 2 {
+            Ok((s[0], s[1]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 3D tensor
+    pub fn dims3(&self) -> Result<(usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 3 {
+            Ok((s[0], s[1], s[2]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 4D tensor
+    pub fn dims4(&self) -> Result<(usize, usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 4 {
+            Ok((s[0], s[1], s[2], s[3]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    /// Unpack shape of a 5D tensor
+    pub fn dims5(&self) -> Result<(usize, usize, usize, usize, usize)> {
+        let s = self.shape();
+        if s.len() == 5 {
+            Ok((s[0], s[1], s[2], s[3], s[4]))
+        } else {
+            Err(Error::ShapeMismatch {
+                expected: vec![0, 0, 0, 0, 0],
+                got: s.to_vec(),
+            })
+        }
+    }
+
+    // ===== Construction Helpers =====
+
+    /// Create tensor from storage and contiguous layout
+    pub fn from_storage_contiguous(storage: Storage<R>, shape: &[usize]) -> Self {
+        Self {
+            id: TensorId::new(),
+            storage,
+            layout: Layout::contiguous(shape),
+        }
     }
 
     // ===== View Operations (Zero-Copy) =====
@@ -561,7 +538,7 @@ impl<R: Runtime> Tensor<R> {
     /// - CPU/CUDA: Uses pointer arithmetic (handles can be offset directly)
     /// - WGPU: Uses compute shader (buffer IDs don't support arithmetic)
     pub fn contiguous(&self) -> Self {
-        if self.is_contiguous() {
+        if self.is_contiguous() && self.layout.offset() == 0 {
             self.clone()
         } else {
             // Need to copy data to a new contiguous storage
@@ -636,6 +613,39 @@ impl<R: Runtime> Tensor<R> {
         result
     }
 
+    /// Record an event on the compute stream for this tensor's device.
+    ///
+    /// Call this BEFORE launching additional compute work, then pass the event
+    /// to `to_vec_pipelined` AFTER launching the compute work. This allows the
+    /// copy to proceed as soon as the event fires, while compute continues.
+    pub fn record_event(&self) -> crate::error::Result<u64> {
+        R::record_compute_event(self.storage.device())
+    }
+
+    /// Copy tensor data to a Vec using the pipelined copy stream, synchronized
+    /// via a previously recorded event.
+    ///
+    /// On CUDA, syncs only the copy stream — compute stream keeps running.
+    pub fn to_vec_pipelined<T: bytemuck::Pod>(&self, event: u64) -> crate::error::Result<Vec<T>> {
+        if !self.is_contiguous() {
+            return Err(crate::error::Error::ShapeMismatch {
+                expected: vec![self.numel()],
+                got: self.shape().to_vec(),
+            });
+        }
+
+        let numel = self.numel();
+        let offset = self.layout.offset();
+        let elem_size = std::mem::size_of::<T>();
+        let byte_offset = offset * elem_size;
+
+        let mut result = vec![T::zeroed(); numel];
+        let bytes: &mut [u8] = bytemuck::cast_slice_mut(&mut result);
+        let src_ptr = self.storage.ptr() as usize + byte_offset;
+        R::copy_from_device_pipelined(src_ptr as u64, bytes, self.storage.device(), event)?;
+        Ok(result)
+    }
+
     /// Extract the scalar value from a single-element tensor
     ///
     /// This is the idiomatic way to get a scalar value from a tensor for use
@@ -687,6 +697,278 @@ impl<R: Runtime> Tensor<R> {
     }
 }
 
+// ============================================================================
+// Generic constructors (work with ANY R::DType via DataType trait)
+// ============================================================================
+
+impl<R: Runtime> Tensor<R> {
+    /// Create a tensor filled with zeros (generic, works with any DType)
+    pub fn try_zeros_generic(shape: &[usize], dtype: R::DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar_generic(shape, dtype, 0.0, device)
+    }
+
+    /// Create a tensor filled with ones (generic, works with any DType)
+    pub fn try_ones_generic(shape: &[usize], dtype: R::DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar_generic(shape, dtype, 1.0, device)
+    }
+
+    /// Create a tensor filled with a scalar value (generic, works with any DType)
+    ///
+    /// Uses `DataType::fill_bytes` to generate the fill pattern, so it works
+    /// with any DType that implements the trait (including boostr's quantized types).
+    pub fn try_full_scalar_generic(
+        shape: &[usize],
+        dtype: R::DType,
+        value: f64,
+        device: &R::Device,
+    ) -> Result<Self> {
+        let len: usize = shape.iter().product();
+        if len == 0 {
+            return Self::try_empty(shape, dtype, device);
+        }
+
+        let bytes = dtype.fill_bytes(value, len).ok_or_else(|| {
+            Error::Msg(format!(
+                "fill not supported for dtype {}",
+                dtype.short_name()
+            ))
+        })?;
+
+        let storage = Storage::from_bytes(&bytes, dtype, device)?;
+        let layout = Layout::contiguous(shape);
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage,
+            layout,
+        })
+    }
+
+    /// Create a tensor from raw bytes with specified dtype (generic)
+    pub fn try_from_bytes(
+        bytes: &[u8],
+        shape: &[usize],
+        dtype: R::DType,
+        device: &R::Device,
+    ) -> Result<Self> {
+        let storage = Storage::from_bytes(bytes, dtype, device)?;
+        let layout = Layout::contiguous(shape);
+        Ok(Self {
+            id: TensorId::new(),
+            storage,
+            layout,
+        })
+    }
+}
+
+// ============================================================================
+// Constructors that require numr's standard DType (for variant matching)
+// ============================================================================
+
+impl<R: Runtime<DType = DType>> Tensor<R> {
+    /// Create a tensor from a slice of data
+    ///
+    /// # Panics
+    ///
+    /// Panics if `data.len()` does not equal the product of the `shape` dimensions.
+    /// For a fallible alternative, use [`Self::try_from_slice`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// let tensor = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    #[track_caller]
+    pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Self {
+        Self::try_from_slice(data, shape, device)
+            .unwrap_or_else(|e| panic!("Tensor::from_slice failed: {e}"))
+    }
+
+    /// Create a tensor from a slice of data (fallible version)
+    ///
+    /// Returns an error if `data.len()` does not equal the product of the `shape` dimensions,
+    /// or if memory allocation fails.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// let tensor = Tensor::<CpuRuntime>::try_from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device)?;
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    pub fn try_from_slice<T: Element>(
+        data: &[T],
+        shape: &[usize],
+        device: &R::Device,
+    ) -> Result<Self> {
+        let expected_len: usize = shape.iter().product();
+        if data.len() != expected_len {
+            return Err(Error::ShapeMismatch {
+                expected: shape.to_vec(),
+                got: vec![data.len()],
+            });
+        }
+
+        let storage = Storage::from_slice(data, device)?;
+        let layout = Layout::contiguous(shape);
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage,
+            layout,
+        })
+    }
+
+    /// Create a tensor filled with zeros
+    ///
+    /// This properly initializes memory to zero on all backends (CPU and GPU).
+    #[track_caller]
+    pub fn zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
+        Self::try_zeros(shape, dtype, device)
+            .unwrap_or_else(|e| panic!("Tensor::zeros failed: {e}"))
+    }
+
+    /// Create a tensor filled with zeros (fallible version)
+    pub fn try_zeros(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar(shape, dtype, 0.0, device)
+    }
+
+    /// Create a tensor filled with ones
+    #[track_caller]
+    pub fn ones(shape: &[usize], dtype: DType, device: &R::Device) -> Self {
+        Self::try_ones(shape, dtype, device).unwrap_or_else(|e| panic!("Tensor::ones failed: {e}"))
+    }
+
+    /// Create a tensor filled with ones (fallible version)
+    pub fn try_ones(shape: &[usize], dtype: DType, device: &R::Device) -> Result<Self> {
+        Self::try_full_scalar(shape, dtype, 1.0, device)
+    }
+
+    /// Create a tensor filled with a scalar value
+    ///
+    /// The scalar is converted to the target dtype.
+    #[track_caller]
+    pub fn full_scalar(shape: &[usize], dtype: DType, value: f64, device: &R::Device) -> Self {
+        Self::try_full_scalar(shape, dtype, value, device)
+            .unwrap_or_else(|e| panic!("Tensor::full_scalar failed: {e}"))
+    }
+
+    /// Create a tensor filled with a scalar value (fallible version)
+    pub fn try_full_scalar(
+        shape: &[usize],
+        dtype: DType,
+        value: f64,
+        device: &R::Device,
+    ) -> Result<Self> {
+        // Helper to convert a typed Vec to bytes safely.
+        // Allocates with correct alignment for T, then copies to u8 vec.
+        #[inline]
+        fn typed_to_bytes<T: bytemuck::NoUninit>(v: Vec<T>) -> Vec<u8> {
+            bytemuck::cast_slice::<T, u8>(&v).to_vec()
+        }
+
+        let len: usize = shape.iter().product();
+        if len == 0 {
+            return Self::try_empty(shape, dtype, device);
+        }
+
+        // Allocate with correct type alignment, then convert to bytes.
+        // This avoids alignment violations that would occur if we allocated
+        // a Vec<u8> and cast to stricter-aligned types like f64/i64.
+        let bytes: Vec<u8> = match dtype {
+            DType::F64 => typed_to_bytes(vec![value; len]),
+            DType::F32 => typed_to_bytes(vec![value as f32; len]),
+            DType::F16 => {
+                #[cfg(feature = "f16")]
+                {
+                    use half::f16;
+                    typed_to_bytes(vec![f16::from_f64(value); len])
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    let half_bits = half_from_f32(value as f32, dtype);
+                    typed_to_bytes(vec![half_bits; len])
+                }
+            }
+            DType::BF16 => {
+                #[cfg(feature = "f16")]
+                {
+                    use half::bf16;
+                    typed_to_bytes(vec![bf16::from_f64(value); len])
+                }
+                #[cfg(not(feature = "f16"))]
+                {
+                    let half_bits = half_from_f32(value as f32, dtype);
+                    typed_to_bytes(vec![half_bits; len])
+                }
+            }
+            DType::FP8E4M3 => {
+                vec![crate::dtype::FP8E4M3::from_f32(value as f32).to_bits(); len]
+            }
+            DType::FP8E5M2 => {
+                vec![crate::dtype::FP8E5M2::from_f32(value as f32).to_bits(); len]
+            }
+            DType::I64 => typed_to_bytes(vec![value as i64; len]),
+            DType::I32 => typed_to_bytes(vec![value as i32; len]),
+            DType::I16 => typed_to_bytes(vec![value as i16; len]),
+            DType::I8 => typed_to_bytes(vec![value as i8; len]),
+            DType::U64 => typed_to_bytes(vec![value as u64; len]),
+            DType::U32 => typed_to_bytes(vec![value as u32; len]),
+            DType::U16 => typed_to_bytes(vec![value as u16; len]),
+            DType::U8 => vec![value as u8; len],
+            DType::Bool => vec![if value != 0.0 { 1u8 } else { 0u8 }; len],
+            DType::Complex64 => {
+                typed_to_bytes(vec![crate::dtype::Complex64::new(value as f32, 0.0); len])
+            }
+            DType::Complex128 => {
+                typed_to_bytes(vec![crate::dtype::Complex128::new(value, 0.0); len])
+            }
+        };
+
+        // Allocate and copy to device
+        let storage = Storage::from_bytes(&bytes, dtype, device)?;
+        let layout = Layout::contiguous(shape);
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage,
+            layout,
+        })
+    }
+}
+
+// ============================================================================
+// Foundational ops (generic — work with any R::DType)
+// ============================================================================
+
+impl<R: Runtime> Tensor<R> {
+    /// Serialize tensor data to raw bytes
+    ///
+    /// Makes tensor contiguous first if needed, then copies raw bytes from device.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let tensor = if self.is_contiguous() && self.offset() == 0 {
+            std::borrow::Cow::Borrowed(self)
+        } else {
+            std::borrow::Cow::Owned(self.contiguous())
+        };
+        let size = tensor.numel() * tensor.dtype().size_in_bytes();
+        let mut data = vec![0u8; size];
+        R::copy_from_device(tensor.storage().ptr(), &mut data, tensor.storage().device())
+            .map_err(|e| Error::Msg(format!("to_bytes copy failed: {}", e)))?;
+        Ok(data)
+    }
+
+    /// Clone tensor with new storage (deep copy)
+    pub fn clone_deep(&self) -> Result<Self> {
+        let bytes = self.to_bytes()?;
+        Self::try_from_bytes(&bytes, self.shape(), self.dtype(), self.device())
+    }
+}
+
 impl<R: Runtime> Clone for Tensor<R> {
     /// Clone creates a new tensor sharing the same storage (zero-copy)
     fn clone(&self) -> Self {
@@ -711,7 +993,12 @@ impl<R: Runtime> fmt::Debug for Tensor<R> {
 
 impl<R: Runtime> fmt::Display for Tensor<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Tensor({:?}, dtype={})", self.shape(), self.dtype())
+        write!(
+            f,
+            "Tensor({:?}, dtype={})",
+            self.shape(),
+            self.dtype().short_name()
+        )
     }
 }
 

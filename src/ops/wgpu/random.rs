@@ -66,6 +66,46 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         Ok(out)
     }
 
+    fn rand_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<WgpuRuntime>> {
+        if !matches!(dtype, DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "rand_seeded",
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::empty(shape, dtype, self.device()));
+        }
+
+        let out = alloc_output(self, shape, dtype);
+        let out_buf = get_tensor_buffer(&out)?;
+
+        // Truncate u64 seed to u32 — WGSL has no native u64 support.
+        // Determinism is still guaranteed: same seed → same u32 → same output.
+        let seed = seed as u32;
+
+        let params = RandParams {
+            numel: numel as u32,
+            seed,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(self, &params);
+
+        shape::launch_rand(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &out_buf,
+            &params_buf,
+            numel,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
         // WebGPU randn only supports F32
         if !matches!(dtype, DType::F32) {

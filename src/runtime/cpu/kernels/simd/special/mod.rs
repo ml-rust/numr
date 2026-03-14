@@ -191,6 +191,17 @@ impl_scalar_only!(gamma);
 impl_scalar_only!(lgamma);
 impl_scalar_only!(digamma);
 
+// F16/BF16 Wrappers via macros
+half_unary!(erf, erf_f32);
+half_unary!(erfc, erfc_f32);
+half_unary!(bessel_j0, bessel_j0_f32);
+half_unary!(bessel_j1, bessel_j1_f32);
+half_unary!(bessel_i0, bessel_i0_f32);
+half_unary!(bessel_i1, bessel_i1_f32);
+half_unary!(gamma, gamma_f32);
+half_unary!(lgamma, lgamma_f32);
+half_unary!(digamma, digamma_f32);
+
 // ============================================================================
 // Tests
 // ============================================================================

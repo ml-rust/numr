@@ -1,13 +1,13 @@
 //! SparseTensor format conversion: to_coo, to_csr, to_csc
 
 use super::SparseTensor;
-use crate::dtype::Element;
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::sparse::SparseFormat;
 use crate::tensor::Tensor;
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     // =========================================================================
     // Format Conversion
     // =========================================================================

@@ -212,13 +212,13 @@ fn run_factorization_f32(
     let device_index = client.device.index;
 
     // Base GPU pointers
-    let a_values_ptr = a_values_gpu.storage().ptr();
-    let a_row_indices_ptr = a_row_indices_gpu.storage().ptr();
-    let l_values_ptr = l_values_gpu.storage().ptr();
-    let l_row_indices_ptr = l_row_indices_gpu.storage().ptr();
-    let u_values_ptr = u_values_gpu.storage().ptr();
-    let u_row_indices_ptr = u_row_indices_gpu.storage().ptr();
-    let work_ptr = work_gpu.storage().ptr();
+    let a_values_ptr = a_values_gpu.ptr();
+    let a_row_indices_ptr = a_row_indices_gpu.ptr();
+    let l_values_ptr = l_values_gpu.ptr();
+    let l_row_indices_ptr = l_row_indices_gpu.ptr();
+    let u_values_ptr = u_values_gpu.ptr();
+    let u_row_indices_ptr = u_row_indices_gpu.ptr();
+    let work_ptr = work_gpu.ptr();
 
     let elem_size = std::mem::size_of::<f32>() as u64;
     let idx_size = std::mem::size_of::<i32>() as u64;
@@ -417,13 +417,13 @@ fn run_factorization_f64(
     let device_index = client.device.index;
 
     // Base GPU pointers
-    let a_values_ptr = a_values_gpu.storage().ptr();
-    let a_row_indices_ptr = a_row_indices_gpu.storage().ptr();
-    let l_values_ptr = l_values_gpu.storage().ptr();
-    let l_row_indices_ptr = l_row_indices_gpu.storage().ptr();
-    let u_values_ptr = u_values_gpu.storage().ptr();
-    let u_row_indices_ptr = u_row_indices_gpu.storage().ptr();
-    let work_ptr = work_gpu.storage().ptr();
+    let a_values_ptr = a_values_gpu.ptr();
+    let a_row_indices_ptr = a_row_indices_gpu.ptr();
+    let l_values_ptr = l_values_gpu.ptr();
+    let l_row_indices_ptr = l_row_indices_gpu.ptr();
+    let u_values_ptr = u_values_gpu.ptr();
+    let u_row_indices_ptr = u_row_indices_gpu.ptr();
+    let work_ptr = work_gpu.ptr();
 
     let elem_size = std::mem::size_of::<f64>() as u64;
     let idx_size = std::mem::size_of::<i32>() as u64;
@@ -776,9 +776,9 @@ pub fn sparse_lu_solve_cuda(
             context,
             stream,
             device_index,
-            l_col_ptrs_gpu.storage().ptr(),
-            l_row_indices_gpu.storage().ptr(),
-            l_diag_ptr_gpu.storage().ptr(),
+            l_col_ptrs_gpu.ptr(),
+            l_row_indices_gpu.ptr(),
+            l_diag_ptr_gpu.ptr(),
             n as i32,
         )?;
 
@@ -786,9 +786,9 @@ pub fn sparse_lu_solve_cuda(
             context,
             stream,
             device_index,
-            u_col_ptrs_gpu.storage().ptr(),
-            u_row_indices_gpu.storage().ptr(),
-            u_diag_ptr_gpu.storage().ptr(),
+            u_col_ptrs_gpu.ptr(),
+            u_row_indices_gpu.ptr(),
+            u_diag_ptr_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -806,9 +806,9 @@ pub fn sparse_lu_solve_cuda(
                 context,
                 stream,
                 device_index,
-                b.storage().ptr(),
-                row_perm_gpu.storage().ptr(),
-                y_gpu.storage().ptr(),
+                b.ptr(),
+                row_perm_gpu.ptr(),
+                y_gpu.ptr(),
                 n as i32,
             )?;
         },
@@ -817,9 +817,9 @@ pub fn sparse_lu_solve_cuda(
                 context,
                 stream,
                 device_index,
-                b.storage().ptr(),
-                row_perm_gpu.storage().ptr(),
-                y_gpu.storage().ptr(),
+                b.ptr(),
+                row_perm_gpu.ptr(),
+                y_gpu.ptr(),
                 n as i32,
             )?;
         },
@@ -840,8 +840,8 @@ pub fn sparse_lu_solve_cuda(
             continue;
         }
 
-        let level_cols_ptr = l_level_cols_gpu.storage().ptr()
-            + (level_start as u64) * std::mem::size_of::<i32>() as u64;
+        let level_cols_ptr =
+            l_level_cols_gpu.ptr() + (level_start as u64) * std::mem::size_of::<i32>() as u64;
 
         match dtype {
             DType::F32 => unsafe {
@@ -851,11 +851,11 @@ pub fn sparse_lu_solve_cuda(
                     device_index,
                     level_cols_ptr,
                     level_size,
-                    l_col_ptrs_gpu.storage().ptr(),
-                    l_row_indices_gpu.storage().ptr(),
-                    factors.l.values().storage().ptr(),
-                    l_diag_ptr_gpu.storage().ptr(),
-                    y_gpu.storage().ptr(),
+                    l_col_ptrs_gpu.ptr(),
+                    l_row_indices_gpu.ptr(),
+                    factors.l.values().ptr(),
+                    l_diag_ptr_gpu.ptr(),
+                    y_gpu.ptr(),
                     n as i32,
                     true, // L has unit diagonal for LU
                 )?;
@@ -867,11 +867,11 @@ pub fn sparse_lu_solve_cuda(
                     device_index,
                     level_cols_ptr,
                     level_size,
-                    l_col_ptrs_gpu.storage().ptr(),
-                    l_row_indices_gpu.storage().ptr(),
-                    factors.l.values().storage().ptr(),
-                    l_diag_ptr_gpu.storage().ptr(),
-                    y_gpu.storage().ptr(),
+                    l_col_ptrs_gpu.ptr(),
+                    l_row_indices_gpu.ptr(),
+                    factors.l.values().ptr(),
+                    l_diag_ptr_gpu.ptr(),
+                    y_gpu.ptr(),
                     n as i32,
                     true, // L has unit diagonal for LU
                 )?;
@@ -894,8 +894,8 @@ pub fn sparse_lu_solve_cuda(
             continue;
         }
 
-        let level_cols_ptr = u_level_cols_gpu.storage().ptr()
-            + (level_start as u64) * std::mem::size_of::<i32>() as u64;
+        let level_cols_ptr =
+            u_level_cols_gpu.ptr() + (level_start as u64) * std::mem::size_of::<i32>() as u64;
 
         match dtype {
             DType::F32 => unsafe {
@@ -905,11 +905,11 @@ pub fn sparse_lu_solve_cuda(
                     device_index,
                     level_cols_ptr,
                     level_size,
-                    u_col_ptrs_gpu.storage().ptr(),
-                    u_row_indices_gpu.storage().ptr(),
-                    factors.u.values().storage().ptr(),
-                    u_diag_ptr_gpu.storage().ptr(),
-                    y_gpu.storage().ptr(),
+                    u_col_ptrs_gpu.ptr(),
+                    u_row_indices_gpu.ptr(),
+                    factors.u.values().ptr(),
+                    u_diag_ptr_gpu.ptr(),
+                    y_gpu.ptr(),
                     n as i32,
                 )?;
             },
@@ -920,11 +920,11 @@ pub fn sparse_lu_solve_cuda(
                     device_index,
                     level_cols_ptr,
                     level_size,
-                    u_col_ptrs_gpu.storage().ptr(),
-                    u_row_indices_gpu.storage().ptr(),
-                    factors.u.values().storage().ptr(),
-                    u_diag_ptr_gpu.storage().ptr(),
-                    y_gpu.storage().ptr(),
+                    u_col_ptrs_gpu.ptr(),
+                    u_row_indices_gpu.ptr(),
+                    factors.u.values().ptr(),
+                    u_diag_ptr_gpu.ptr(),
+                    y_gpu.ptr(),
                     n as i32,
                 )?;
             },

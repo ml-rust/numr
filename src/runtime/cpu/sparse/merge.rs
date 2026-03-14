@@ -10,7 +10,7 @@ use crate::tensor::Tensor;
 
 // Re-export zero_tolerance from shared utilities module
 // See runtime::sparse_utils::zero_tolerance for full documentation
-pub(crate) use crate::runtime::sparse_utils::zero_tolerance;
+pub(crate) use crate::runtime::common::sparse_utils::zero_tolerance;
 
 // =============================================================================
 // Merge Strategy and Operation Semantics

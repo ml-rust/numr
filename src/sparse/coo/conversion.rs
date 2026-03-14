@@ -1,12 +1,13 @@
 //! COO format conversion: to_csr, to_csc
 
 use super::CooData;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::sparse::{CscData, CsrData, SparseStorage};
 use crate::tensor::Tensor;
 
-impl<R: Runtime> CooData<R> {
+impl<R: Runtime<DType = DType>> CooData<R> {
     /// Convert to CSR format
     ///
     /// This is an efficient conversion that:

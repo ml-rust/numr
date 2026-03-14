@@ -8,15 +8,13 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::dtype_suffix;
-use super::generator::sparse_linalg::{
-    generate_extract_lower_count_shader, generate_extract_lower_scatter_shader,
-    generate_split_lu_count_shader, generate_split_lu_scatter_l_shader,
-    generate_split_lu_scatter_u_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
+
+// Static WGSL shader sources
+const SPARSE_LINALG: &str = include_str!("sparse_linalg.wgsl");
+const SPARSE_LINALG_SPLIT_F32: &str = include_str!("sparse_linalg_split_f32.wgsl");
 
 // ============================================================================
 // Split LU Operations
@@ -40,15 +38,18 @@ pub fn launch_split_lu_count(
     params_buffer: &Buffer,
     n: usize,
 ) -> Result<()> {
-    let shader_source = generate_split_lu_count_shader();
-    let module = cache.get_or_create_module_from_source("split_lu_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_linalg_split_f32", SPARSE_LINALG_SPLIT_F32);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_pipeline("split_lu_count", "split_lu_count", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_linalg_split_f32",
+        "split_lu_count",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -98,19 +99,25 @@ pub fn launch_split_lu_scatter_l(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("split_lu_scatter_l_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "split_lu_scatter_l (WebGPU)",
+        });
+    }
 
-    let shader_source = generate_split_lu_scatter_l_shader(dtype)?;
-    let module_name = format!("split_lu_scatter_l_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module("sparse_linalg_split_f32", SPARSE_LINALG_SPLIT_F32);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("split_lu_scatter_l", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_linalg_split_f32",
+        "split_lu_scatter_l_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -168,19 +175,25 @@ pub fn launch_split_lu_scatter_u(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("split_lu_scatter_u_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "split_lu_scatter_u (WebGPU)",
+        });
+    }
 
-    let shader_source = generate_split_lu_scatter_u_shader(dtype)?;
-    let module_name = format!("split_lu_scatter_u_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module("sparse_linalg_split_f32", SPARSE_LINALG_SPLIT_F32);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline =
-        cache.get_or_create_dynamic_pipeline("split_lu_scatter_u", &entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_linalg_split_f32",
+        "split_lu_scatter_u_f32",
+        &module,
+        &layout,
+    );
 
     let bind_group = cache.create_bind_group(
         &layout,
@@ -235,15 +248,14 @@ pub fn launch_extract_lower_count(
     params_buffer: &Buffer,
     n: usize,
 ) -> Result<()> {
-    let shader_source = generate_extract_lower_count_shader();
-    let module = cache.get_or_create_module_from_source("extract_lower_count", &shader_source);
+    let module = cache.get_or_create_module("sparse_linalg_split_f32", SPARSE_LINALG_SPLIT_F32);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
     let pipeline = cache.get_or_create_pipeline(
-        "extract_lower_count",
+        "sparse_linalg_split_f32",
         "extract_lower_count",
         &module,
         &layout,
@@ -295,20 +307,22 @@ pub fn launch_extract_lower_scatter(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point = format!("extract_lower_scatter_{}", suffix);
+    if dtype != DType::F32 {
+        return Err(Error::UnsupportedDType {
+            dtype,
+            op: "extract_lower_scatter (WebGPU)",
+        });
+    }
 
-    let shader_source = generate_extract_lower_scatter_shader(dtype)?;
-    let module_name = format!("extract_lower_scatter_{}", suffix);
-    let module = cache.get_or_create_module_from_source(&module_name, &shader_source);
+    let module = cache.get_or_create_module("sparse_linalg_split_f32", SPARSE_LINALG_SPLIT_F32);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 6,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_dynamic_pipeline(
-        "extract_lower_scatter",
-        &entry_point,
+    let pipeline = cache.get_or_create_pipeline(
+        "sparse_linalg_split_f32",
+        "extract_lower_scatter_f32",
         &module,
         &layout,
     );
@@ -371,15 +385,14 @@ pub fn launch_sparse_scatter_f32(
     work: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let shader_source = include_str!("sparse_linalg.wgsl");
-    let module = cache.get_or_create_module_from_source("sparse_scatter_f32", shader_source);
+    let module = cache.get_or_create_module("sparse_linalg", SPARSE_LINALG);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline =
-        cache.get_or_create_pipeline("sparse_scatter_f32", "sparse_scatter_f32", &module, &layout);
+        cache.get_or_create_pipeline("sparse_linalg", "sparse_scatter_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[values, row_indices, work]);
 
@@ -415,15 +428,14 @@ pub fn launch_sparse_axpy_f32(
     work: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let shader_source = include_str!("sparse_linalg.wgsl");
-    let module = cache.get_or_create_module_from_source("sparse_axpy_f32", shader_source);
+    let module = cache.get_or_create_module("sparse_linalg", SPARSE_LINALG);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
     let pipeline =
-        cache.get_or_create_pipeline("sparse_axpy_f32", "sparse_axpy_f32", &module, &layout);
+        cache.get_or_create_pipeline("sparse_linalg", "sparse_axpy_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[params_buffer, values, row_indices, work]);
 
@@ -458,19 +470,14 @@ pub fn launch_sparse_gather_clear_f32(
     output: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let shader_source = include_str!("sparse_linalg.wgsl");
-    let module = cache.get_or_create_module_from_source("sparse_gather_clear_f32", shader_source);
+    let module = cache.get_or_create_module("sparse_linalg", SPARSE_LINALG);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(
-        "sparse_gather_clear_f32",
-        "sparse_gather_clear_f32",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_linalg", "sparse_gather_clear_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[work, row_indices, output]);
 
@@ -515,19 +522,14 @@ pub fn launch_sparse_divide_pivot_f32(
     row_indices: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let shader_source = include_str!("sparse_linalg.wgsl");
-    let module = cache.get_or_create_module_from_source("sparse_divide_pivot_f32", shader_source);
+    let module = cache.get_or_create_module("sparse_linalg", SPARSE_LINALG);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(
-        "sparse_divide_pivot_f32",
-        "sparse_divide_pivot_f32",
-        &module,
-        &layout,
-    );
+    let pipeline =
+        cache.get_or_create_pipeline("sparse_linalg", "sparse_divide_pivot_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[params_buffer, work, row_indices]);
 
@@ -561,15 +563,14 @@ pub fn launch_sparse_clear_f32(
     row_indices: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let shader_source = include_str!("sparse_linalg.wgsl");
-    let module = cache.get_or_create_module_from_source("sparse_clear_f32", shader_source);
+    let module = cache.get_or_create_module("sparse_linalg", SPARSE_LINALG);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
     let pipeline =
-        cache.get_or_create_pipeline("sparse_clear_f32", "sparse_clear_f32", &module, &layout);
+        cache.get_or_create_pipeline("sparse_linalg", "sparse_clear_f32", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[work, row_indices]);
 

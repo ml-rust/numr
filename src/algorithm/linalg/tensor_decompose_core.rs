@@ -19,7 +19,8 @@ use super::decompositions::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::traits::{BinaryOps, MatmulOps, RandomOps, ReduceOps, UnaryOps};
+use crate::ops::traits::RandomOps;
+use crate::ops::traits::{BinaryOps, MatmulOps, ReduceOps, UnaryOps};
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -135,7 +136,7 @@ fn unfold_permutation(mode: usize, ndim: usize) -> Vec<usize> {
 ///
 /// Unfolds tensor T of shape [I₁, I₂, ..., Iₙ] along mode n into matrix
 /// of shape [Iₙ, ∏ⱼ≠ₙ Iⱼ].
-pub fn unfold_impl<R: Runtime>(
+pub fn unfold_impl<R: Runtime<DType = DType>>(
     tensor: &Tensor<R>,
     mode: usize,
     dtype_support: TensorDecomposeDTypeSupport,
@@ -168,7 +169,7 @@ pub fn unfold_impl<R: Runtime>(
 /// Mode-n folding (tensorization) - inverse of unfolding
 ///
 /// Reconstructs tensor from its mode-n unfolding.
-pub fn fold_impl<R: Runtime>(
+pub fn fold_impl<R: Runtime<DType = DType>>(
     matrix: &Tensor<R>,
     mode: usize,
     shape: &[usize],
@@ -232,7 +233,7 @@ pub fn mode_n_product_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: MatmulOps<R>,
 {
     let tensor_shape = tensor.shape();
@@ -287,7 +288,7 @@ pub fn hosvd_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<TuckerDecomposition<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + MatmulOps<R>,
 {
     let shape = tensor.shape();
@@ -335,7 +336,7 @@ where
 /// Compute Frobenius norm of a tensor - returns GPU scalar tensor (no CPU transfer)
 fn frobenius_norm_tensor<R, C>(client: &C, tensor: &Tensor<R>) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: ReduceOps<R> + BinaryOps<R> + UnaryOps<R>,
 {
     let sq = client.mul(tensor, tensor)?;
@@ -355,7 +356,7 @@ pub fn tucker_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<TuckerDecomposition<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + MatmulOps<R> + ReduceOps<R> + BinaryOps<R> + RandomOps<R>,
 {
     let shape = tensor.shape();
@@ -437,7 +438,7 @@ fn initialize_cp_factors<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<Vec<Tensor<R>>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + RandomOps<R>,
 {
     let shape = tensor.shape();
@@ -517,7 +518,7 @@ fn compute_gram_hadamard_except<R, C>(
     skip_mode: usize,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: MatmulOps<R> + BinaryOps<R>,
 {
     let n = factors.len();
@@ -573,7 +574,7 @@ pub fn cp_decompose_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<CpDecomposition<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R>
         + MatmulOps<R>
         + ReduceOps<R>
@@ -647,7 +648,7 @@ pub fn tensor_train_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<TensorTrainDecomposition<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + ReduceOps<R> + BinaryOps<R> + UnaryOps<R>,
 {
     let shape = tensor.shape();
@@ -784,7 +785,7 @@ pub fn tucker_reconstruct_impl<R, C>(
     dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: MatmulOps<R>,
 {
     let mut result = decomp.core.clone();
@@ -804,7 +805,7 @@ pub fn cp_reconstruct_impl<R, C>(
     _dtype_support: TensorDecomposeDTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: LinearAlgebraAlgorithms<R> + MatmulOps<R> + BinaryOps<R>,
 {
     let ndim = decomp.factors.len();
@@ -848,7 +849,7 @@ pub fn tt_reconstruct_impl<R, C>(
     decomp: &TensorTrainDecomposition<R>,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: MatmulOps<R>,
 {
     if decomp.cores.is_empty() {

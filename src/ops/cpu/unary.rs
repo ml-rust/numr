@@ -141,8 +141,8 @@ impl UnaryOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let numel = a.numel();
 
         dispatch_dtype!(dtype, T => {
@@ -163,8 +163,8 @@ impl UnaryOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
         let numel = a.numel();
 
         dispatch_dtype!(dtype, T => {

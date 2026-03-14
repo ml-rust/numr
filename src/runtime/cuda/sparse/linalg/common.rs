@@ -40,8 +40,8 @@ pub fn cast_i64_to_i32_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            tensor.storage().ptr(),
-            output.storage().ptr(),
+            tensor.ptr(),
+            output.ptr(),
             n,
         )?;
     }
@@ -76,10 +76,10 @@ pub fn compute_levels_lower_gpu(
                 &client.context,
                 &client.stream,
                 client.device.index,
-                row_ptrs_i32.storage().ptr(),
-                col_indices_i32.storage().ptr(),
-                levels_gpu.storage().ptr(),
-                changed_gpu.storage().ptr(),
+                row_ptrs_i32.ptr(),
+                col_indices_i32.ptr(),
+                levels_gpu.ptr(),
+                changed_gpu.ptr(),
                 n as i32,
             )?;
         }
@@ -100,8 +100,8 @@ pub fn compute_levels_lower_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            max_level_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            max_level_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -117,8 +117,8 @@ pub fn compute_levels_lower_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            histogram_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            histogram_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -148,10 +148,10 @@ pub fn compute_levels_lower_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            level_ptrs_gpu.storage().ptr(),
-            level_rows_gpu.storage().ptr(),
-            level_counters_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            level_ptrs_gpu.ptr(),
+            level_rows_gpu.ptr(),
+            level_counters_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -186,10 +186,10 @@ pub fn compute_levels_upper_gpu(
                 &client.context,
                 &client.stream,
                 client.device.index,
-                row_ptrs_i32.storage().ptr(),
-                col_indices_i32.storage().ptr(),
-                levels_gpu.storage().ptr(),
-                changed_gpu.storage().ptr(),
+                row_ptrs_i32.ptr(),
+                col_indices_i32.ptr(),
+                levels_gpu.ptr(),
+                changed_gpu.ptr(),
                 n as i32,
             )?;
         }
@@ -210,8 +210,8 @@ pub fn compute_levels_upper_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            max_level_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            max_level_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -227,8 +227,8 @@ pub fn compute_levels_upper_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            histogram_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            histogram_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -255,10 +255,10 @@ pub fn compute_levels_upper_gpu(
             &client.context,
             &client.stream,
             client.device.index,
-            levels_gpu.storage().ptr(),
-            level_ptrs_gpu.storage().ptr(),
-            level_rows_gpu.storage().ptr(),
-            level_counters_gpu.storage().ptr(),
+            levels_gpu.ptr(),
+            level_ptrs_gpu.ptr(),
+            level_rows_gpu.ptr(),
+            level_counters_gpu.ptr(),
             n as i32,
         )?;
     }
@@ -342,11 +342,11 @@ pub fn split_lu_cuda(
                     &client.context,
                     &client.stream,
                     client.device.index,
-                    values_gpu.storage().ptr(),
-                    l_values_t.storage().ptr(),
-                    u_values_t.storage().ptr(),
-                    l_map_gpu.storage().ptr(),
-                    u_map_gpu.storage().ptr(),
+                    values_gpu.ptr(),
+                    l_values_t.ptr(),
+                    u_values_t.ptr(),
+                    l_map_gpu.ptr(),
+                    u_map_gpu.ptr(),
                     nnz as i32,
                 )?;
             }
@@ -355,11 +355,11 @@ pub fn split_lu_cuda(
                     &client.context,
                     &client.stream,
                     client.device.index,
-                    values_gpu.storage().ptr(),
-                    l_values_t.storage().ptr(),
-                    u_values_t.storage().ptr(),
-                    l_map_gpu.storage().ptr(),
-                    u_map_gpu.storage().ptr(),
+                    values_gpu.ptr(),
+                    l_values_t.ptr(),
+                    u_values_t.ptr(),
+                    l_map_gpu.ptr(),
+                    u_map_gpu.ptr(),
                     nnz as i32,
                 )?;
             }
@@ -431,9 +431,9 @@ pub fn extract_lower_cuda(
                     &client.context,
                     &client.stream,
                     client.device.index,
-                    values_gpu.storage().ptr(),
-                    l_values_t.storage().ptr(),
-                    lower_map_gpu.storage().ptr(),
+                    values_gpu.ptr(),
+                    l_values_t.ptr(),
+                    lower_map_gpu.ptr(),
                     nnz as i32,
                 )?;
             }
@@ -442,9 +442,9 @@ pub fn extract_lower_cuda(
                     &client.context,
                     &client.stream,
                     client.device.index,
-                    values_gpu.storage().ptr(),
-                    l_values_t.storage().ptr(),
-                    lower_map_gpu.storage().ptr(),
+                    values_gpu.ptr(),
+                    l_values_t.ptr(),
+                    lower_map_gpu.ptr(),
                     nnz as i32,
                 )?;
             }

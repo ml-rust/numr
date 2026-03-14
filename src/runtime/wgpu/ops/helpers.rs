@@ -37,7 +37,7 @@ pub(super) fn create_params_buffer<T: bytemuck::Pod>(
 pub(crate) fn get_tensor_buffer(
     tensor: &Tensor<WgpuRuntime>,
 ) -> Result<std::sync::Arc<wgpu::Buffer>> {
-    let ptr = tensor.storage().ptr();
+    let ptr = tensor.ptr();
     get_buffer(ptr).ok_or_else(|| Error::Internal("Buffer not found in registry".to_string()))
 }
 
@@ -169,6 +169,19 @@ pub(super) struct LayerNormParams {
     pub(super) batch_size: u32,
     pub(super) hidden_size: u32,
     pub(super) eps: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct GroupNormParams {
+    pub(super) batch_size: u32,
+    pub(super) channels: u32,
+    pub(super) spatial: u32,
+    pub(super) num_groups: u32,
+    pub(super) channels_per_group: u32,
+    pub(super) eps: f32,
+    pub(super) _pad0: u32,
+    pub(super) _pad1: u32,
 }
 
 #[repr(C)]
@@ -719,6 +732,20 @@ pub(crate) struct Gather2dParams {
     pub(crate) ncols: u32,
     pub(crate) num_indices: u32,
     pub(crate) _pad: u32,
+}
+
+/// Params for slice_assign operations
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct SliceAssignParams {
+    pub(crate) outer_size: u32,
+    pub(crate) dst_dim_size: u32,
+    pub(crate) src_dim_size: u32,
+    pub(crate) inner_size: u32,
+    pub(crate) start: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) _pad2: u32,
 }
 
 /// Params for unique_with_counts operations

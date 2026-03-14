@@ -78,6 +78,9 @@ mod distance;
 #[path = "../../../ops/wgpu/multivariate.rs"]
 mod multivariate;
 
+#[path = "../../../ops/wgpu/gemm_epilogue.rs"]
+mod gemm_epilogue;
+
 #[path = "../../../ops/wgpu/semiring_matmul.rs"]
 mod semiring_matmul;
 
@@ -92,3 +95,10 @@ mod scalar;
 
 #[path = "../../../ops/wgpu/einsum.rs"]
 mod einsum;
+
+#[path = "../../../ops/wgpu/fp8_matmul.rs"]
+mod fp8_matmul;
+
+#[cfg(feature = "sparse")]
+#[path = "../../../ops/wgpu/sparse_24.rs"]
+mod sparse_24;

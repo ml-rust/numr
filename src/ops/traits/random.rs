@@ -32,6 +32,28 @@ pub trait RandomOps<R: Runtime> {
         })
     }
 
+    /// Generate uniform random values in [0, 1) with a deterministic seed
+    ///
+    /// Same as `rand()` but uses the provided seed for reproducible output.
+    /// Calling with the same seed and shape always produces the same tensor.
+    ///
+    /// # Arguments
+    ///
+    /// * `shape` - Shape of the output tensor
+    /// * `dtype` - Data type of the output tensor (must be floating point)
+    /// * `seed` - Deterministic seed for the PRNG
+    fn rand_seeded(
+        &self,
+        shape: &[usize],
+        dtype: crate::dtype::DType,
+        seed: u64,
+    ) -> Result<Tensor<R>> {
+        let _ = (shape, dtype, seed);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::rand_seeded",
+        })
+    }
+
     /// Generate standard normal random values (mean=0, std=1)
     ///
     /// Creates a tensor filled with random values from standard normal distribution N(0, 1).

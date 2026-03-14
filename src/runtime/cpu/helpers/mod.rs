@@ -7,6 +7,7 @@ pub mod activation;
 pub mod binary;
 pub mod compare;
 pub mod cumulative;
+pub mod fused_elementwise;
 pub mod indexing;
 pub mod reduce;
 pub mod scalar;
@@ -14,14 +15,18 @@ pub mod shape;
 pub mod unary;
 
 // Re-export all helper functions
-pub use activation::{ActivationOp, activation_op_impl, elu_impl, leaky_relu_impl};
+pub use activation::{
+    ActivationOp, FusedActivationMulOp, activation_op_impl, elu_impl, fused_activation_mul_impl,
+    leaky_relu_impl,
+};
 pub use binary::binary_op_impl;
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
+pub use fused_elementwise::{fused_add_mul_impl, fused_mul_add_impl, fused_mul_add_scalar_impl};
 pub use indexing::{
     bincount_impl, embedding_lookup_impl, gather_2d_impl, gather_impl, gather_nd_impl,
     index_put_impl, index_select_impl, masked_fill_impl, masked_select_impl, scatter_impl,
-    scatter_reduce_impl,
+    scatter_reduce_impl, slice_assign_impl,
 };
 pub use reduce::{reduce_impl, reduce_impl_with_precision};
 pub use scalar::scalar_op_impl;

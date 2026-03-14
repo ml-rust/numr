@@ -17,7 +17,7 @@ use numr::sparse::{CsrData, SparseOps, SparseStorage};
 use numr::tensor::Tensor;
 
 /// Helper to assert sparse matrices are close within tolerance
-fn assert_sparse_allclose<A: Runtime, B: Runtime>(
+fn assert_sparse_allclose<A: Runtime<DType = DType>, B: Runtime<DType = DType>>(
     a: &CsrData<A>,
     b: &CsrData<B>,
     _rtol: f64,
@@ -68,7 +68,10 @@ fn assert_sparse_allclose<A: Runtime, B: Runtime>(
 }
 
 /// Helper to create a simple test sparse matrix in CSR format
-fn create_test_csr_3x3<R: Runtime>(device: &R::Device, dtype: DType) -> Result<CsrData<R>> {
+fn create_test_csr_3x3<R: Runtime<DType = DType>>(
+    device: &R::Device,
+    dtype: DType,
+) -> Result<CsrData<R>> {
     // Matrix:
     // [1.0, 0.0, 2.0]
     // [0.0, 3.0, 0.0]

@@ -22,11 +22,26 @@ use crate::error::{Error, Result};
 /// while maintaining type safety at the kernel boundary.
 #[derive(Debug, Clone, Copy)]
 pub enum FillValue {
+    /// 32-bit float fill value.
     F32(f32),
+    /// 64-bit float fill value.
     F64(f64),
+    /// 32-bit signed integer fill value.
     I32(i32),
+    /// 64-bit signed integer fill value.
     I64(i64),
+    /// 8-bit unsigned integer fill value (also used for Bool).
     U8(u8),
+    /// 16-bit float fill value (raw bits for __half).
+    #[cfg(feature = "f16")]
+    F16(u16),
+    /// 16-bit bfloat fill value (raw bits for __nv_bfloat16).
+    #[cfg(feature = "f16")]
+    BF16(u16),
+    /// FP8 E4M3 fill value (raw bits).
+    FP8E4M3(u8),
+    /// FP8 E5M2 fill value (raw bits).
+    FP8E5M2(u8),
 }
 
 impl FillValue {
@@ -39,9 +54,16 @@ impl FillValue {
             DType::I64 => FillValue::I64(value as i64),
             DType::U8 | DType::Bool => FillValue::U8(value as u8),
             #[cfg(feature = "f16")]
-            DType::F16 | DType::BF16 => FillValue::F32(value as f32), // F16/BF16 kernels use f32 value
-            DType::FP8E4M3 | DType::FP8E5M2 => FillValue::F32(value as f32), // FP8 kernels use f32 value
-            _ => FillValue::F64(value),                                      // Default fallback
+            DType::F16 => FillValue::F16(half::f16::from_f64(value).to_bits()),
+            #[cfg(feature = "f16")]
+            DType::BF16 => FillValue::BF16(half::bf16::from_f64(value).to_bits()),
+            DType::FP8E4M3 => {
+                FillValue::FP8E4M3(crate::dtype::fp8::FP8E4M3::from_f64(value).to_bits())
+            }
+            DType::FP8E5M2 => {
+                FillValue::FP8E5M2(crate::dtype::fp8::FP8E5M2::from_f64(value).to_bits())
+            }
+            _ => FillValue::F64(value),
         }
     }
 
@@ -53,6 +75,12 @@ impl FillValue {
             FillValue::I32(_) => DType::I32,
             FillValue::I64(_) => DType::I64,
             FillValue::U8(_) => DType::U8,
+            #[cfg(feature = "f16")]
+            FillValue::F16(_) => DType::F16,
+            #[cfg(feature = "f16")]
+            FillValue::BF16(_) => DType::BF16,
+            FillValue::FP8E4M3(_) => DType::FP8E4M3,
+            FillValue::FP8E5M2(_) => DType::FP8E5M2,
         }
     }
 }
@@ -140,6 +168,36 @@ pub unsafe fn launch_fill(
             unsafe { builder.launch(cfg) }
         }
         FillValue::U8(v) => {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&v);
+            builder.arg(&n);
+            unsafe { builder.launch(cfg) }
+        }
+        #[cfg(feature = "f16")]
+        FillValue::F16(v) => {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&v);
+            builder.arg(&n);
+            unsafe { builder.launch(cfg) }
+        }
+        #[cfg(feature = "f16")]
+        FillValue::BF16(v) => {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&v);
+            builder.arg(&n);
+            unsafe { builder.launch(cfg) }
+        }
+        FillValue::FP8E4M3(v) => {
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&v);
+            builder.arg(&n);
+            unsafe { builder.launch(cfg) }
+        }
+        FillValue::FP8E5M2(v) => {
             let mut builder = stream.launch_builder(&func);
             builder.arg(&out_ptr);
             builder.arg(&v);
@@ -510,6 +568,23 @@ pub unsafe fn launch_arange(
                 ))
             })?;
         },
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 | DType::FP8E5M2 => unsafe {
+            // FP8 kernels take f32 parameters (compute in f32, store as fp8)
+            let start_f32 = start as f32;
+            let step_f32 = step as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&step_f32);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA arange kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
         _ => {
             return Err(Error::UnsupportedDType {
                 dtype,
@@ -614,6 +689,22 @@ pub unsafe fn launch_linspace(
             builder.arg(&out_ptr);
             builder.arg(&start); // Use f64 for precision
             builder.arg(&stop);
+            builder.arg(&n);
+            builder.launch(cfg).map_err(|e| {
+                Error::Internal(format!(
+                    "CUDA linspace kernel '{}' launch failed: {:?}",
+                    func_name, e
+                ))
+            })?;
+        },
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 | DType::FP8E5M2 => unsafe {
+            let start_f32 = start as f32;
+            let stop_f32 = stop as f32;
+            let mut builder = stream.launch_builder(&func);
+            builder.arg(&out_ptr);
+            builder.arg(&start_f32);
+            builder.arg(&stop_f32);
             builder.arg(&n);
             builder.launch(cfg).map_err(|e| {
                 Error::Internal(format!(

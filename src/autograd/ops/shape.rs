@@ -9,8 +9,9 @@
 //! is just reshaping the gradient back to the original shape.
 
 use crate::autograd::{GradFn, Var};
+use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::ReduceOps;
+use crate::ops::{ReduceOps, ShapeOps};
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -419,6 +420,303 @@ where
     }
 }
 
+// ============================================================================
+// NarrowBackward
+// ============================================================================
+
+/// Backward for narrow: z = narrow(a, dim, start, length)
+///
+/// Gradient: dL/da is a zero tensor with dL/dz placed at the sliced region.
+/// We use pad-with-zeros: create zeros of original shape, then add the gradient
+/// into the narrow region.
+pub struct NarrowBackward<R: Runtime> {
+    input_id: TensorId,
+    input_shape: Vec<usize>,
+    dim: usize,
+    start: usize,
+    input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+}
+
+impl<R: Runtime> NarrowBackward<R> {
+    /// Create a new `NarrowBackward` node.
+    ///
+    /// - `input_id` — ID of the input tensor before narrowing
+    /// - `input_shape` — original shape of the input tensor
+    /// - `dim` — dimension that was narrowed
+    /// - `start` — start index along `dim`
+    /// - `input_grad_fn` — gradient function of the input, if it requires grad
+    pub fn new(
+        input_id: TensorId,
+        input_shape: Vec<usize>,
+        dim: usize,
+        start: usize,
+        input_grad_fn: Option<Arc<dyn GradFn<R>>>,
+    ) -> Self {
+        Self {
+            input_id,
+            input_shape,
+            dim,
+            start,
+            input_grad_fn,
+        }
+    }
+}
+
+impl<R: Runtime<DType = DType>> GradFn<R> for NarrowBackward<R>
+where
+    R::Client: RuntimeClient<R> + crate::ops::TensorOps<R> + ShapeOps<R>,
+{
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let client = R::default_client(grad_output.device());
+
+        // Pad gradient back to original size along the narrowed dimension.
+        // Before: zeros of size [start], After: zeros of size [orig_dim - start - length]
+        let length = grad_output.shape()[self.dim];
+        let orig_dim_size = self.input_shape[self.dim];
+        let end = self.start + length;
+
+        let mut parts: Vec<Tensor<R>> = Vec::new();
+
+        // Padding before the narrow region
+        if self.start > 0 {
+            let mut pad_shape = self.input_shape.clone();
+            pad_shape[self.dim] = self.start;
+            parts.push(Tensor::<R>::zeros(
+                &pad_shape,
+                grad_output.dtype(),
+                grad_output.device(),
+            ));
+        }
+
+        // The gradient itself (make contiguous for cat)
+        parts.push(grad_output.contiguous());
+
+        // Padding after the narrow region
+        if end < orig_dim_size {
+            let mut pad_shape = self.input_shape.clone();
+            pad_shape[self.dim] = orig_dim_size - end;
+            parts.push(Tensor::<R>::zeros(
+                &pad_shape,
+                grad_output.dtype(),
+                grad_output.device(),
+            ));
+        }
+
+        let refs: Vec<&Tensor<R>> = parts.iter().collect();
+        let grad_input = client.cat(&refs, self.dim as isize)?;
+
+        Ok(vec![Some(grad_input)])
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let client = R::default_client(grad_output.tensor().device());
+
+        let length = grad_output.shape()[self.dim];
+        let orig_dim_size = self.input_shape[self.dim];
+        let end = self.start + length;
+
+        let mut parts: Vec<Tensor<R>> = Vec::new();
+
+        if self.start > 0 {
+            let mut pad_shape = self.input_shape.clone();
+            pad_shape[self.dim] = self.start;
+            parts.push(Tensor::<R>::zeros(
+                &pad_shape,
+                grad_output.tensor().dtype(),
+                grad_output.tensor().device(),
+            ));
+        }
+
+        parts.push(grad_output.tensor().contiguous());
+
+        if end < orig_dim_size {
+            let mut pad_shape = self.input_shape.clone();
+            pad_shape[self.dim] = orig_dim_size - end;
+            parts.push(Tensor::<R>::zeros(
+                &pad_shape,
+                grad_output.tensor().dtype(),
+                grad_output.tensor().device(),
+            ));
+        }
+
+        let refs: Vec<&Tensor<R>> = parts.iter().collect();
+        let grad_input = client.cat(&refs, self.dim as isize)?;
+
+        Ok(vec![Some(Var::new(grad_input, false))])
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        std::slice::from_ref(&self.input_id)
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        vec![self.input_grad_fn.clone()]
+    }
+
+    fn name(&self) -> &'static str {
+        "NarrowBackward"
+    }
+}
+
+// ============================================================================
+// CatBackward
+// ============================================================================
+
+/// Backward for cat: z = cat([a, b, ...], dim)
+///
+/// Gradient: split dL/dz along dim, one slice per input.
+pub struct CatBackward<R: Runtime> {
+    input_ids: Vec<TensorId>,
+    /// Size of each input along the cat dimension
+    split_sizes: Vec<usize>,
+    dim: usize,
+    input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>>,
+}
+
+impl<R: Runtime> CatBackward<R> {
+    /// Create a new `CatBackward` node.
+    ///
+    /// - `input_ids` — IDs of the input tensors that were concatenated
+    /// - `split_sizes` — size of each input along the cat dimension
+    /// - `dim` — dimension along which the inputs were concatenated
+    /// - `input_grad_fns` — gradient functions of each input, if they require grad
+    pub fn new(
+        input_ids: Vec<TensorId>,
+        split_sizes: Vec<usize>,
+        dim: usize,
+        input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>>,
+    ) -> Self {
+        Self {
+            input_ids,
+            split_sizes,
+            dim,
+            input_grad_fns,
+        }
+    }
+}
+
+impl<R: Runtime> GradFn<R> for CatBackward<R> {
+    fn backward(&self, grad_output: &Tensor<R>) -> Result<Vec<Option<Tensor<R>>>> {
+        let mut grads = Vec::with_capacity(self.split_sizes.len());
+        let mut offset = 0;
+        for &size in &self.split_sizes {
+            let grad_slice = grad_output.narrow(self.dim as isize, offset, size)?;
+            // Make contiguous so downstream ops get clean data
+            grads.push(Some(grad_slice.contiguous()));
+            offset += size;
+        }
+        Ok(grads)
+    }
+
+    fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        let mut grads = Vec::with_capacity(self.split_sizes.len());
+        let mut offset = 0;
+        for &size in &self.split_sizes {
+            let grad_slice = grad_output
+                .tensor()
+                .narrow(self.dim as isize, offset, size)?
+                .contiguous();
+            grads.push(Some(Var::new(grad_slice, false)));
+            offset += size;
+        }
+        Ok(grads)
+    }
+
+    fn inputs(&self) -> &[TensorId] {
+        &self.input_ids
+    }
+
+    fn input_grad_fns(&self) -> Vec<Option<Arc<dyn GradFn<R>>>> {
+        self.input_grad_fns.clone()
+    }
+
+    fn name(&self) -> &'static str {
+        "CatBackward"
+    }
+}
+
+// ============================================================================
+// Var Operations for Narrow and Cat
+// ============================================================================
+
+/// Narrow (slice) a Var along a dimension
+///
+/// Creates NarrowBackward for gradient computation.
+pub fn var_narrow<R: Runtime<DType = DType>>(
+    a: &Var<R>,
+    dim: isize,
+    start: usize,
+    length: usize,
+) -> Result<Var<R>>
+where
+    R::Client: RuntimeClient<R> + crate::ops::TensorOps<R> + ShapeOps<R>,
+{
+    let dim_idx =
+        a.tensor()
+            .layout()
+            .normalize_dim(dim)
+            .ok_or(crate::error::Error::InvalidDimension {
+                dim,
+                ndim: a.ndim(),
+            })?;
+
+    let output = a.tensor().narrow(dim, start, length)?;
+
+    if a.requires_grad() {
+        let grad_fn = NarrowBackward::<R>::new(
+            a.id(),
+            a.shape().to_vec(),
+            dim_idx,
+            start,
+            a.grad_fn().cloned(),
+        );
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
+/// Concatenate Vars along a dimension
+///
+/// Creates CatBackward for gradient computation.
+pub fn var_cat<R, C>(vars: &[&Var<R>], dim: isize, client: &C) -> Result<Var<R>>
+where
+    R: Runtime,
+    C: RuntimeClient<R> + crate::ops::ShapeOps<R>,
+{
+    if vars.is_empty() {
+        return Err(crate::error::Error::InvalidArgument {
+            arg: "vars",
+            reason: "var_cat requires at least one input".into(),
+        });
+    }
+
+    let tensors: Vec<&Tensor<R>> = vars.iter().map(|v| v.tensor()).collect();
+    let output = client.cat(&tensors, dim)?;
+
+    let any_requires_grad = vars.iter().any(|v| v.requires_grad());
+
+    if any_requires_grad {
+        // Normalize dim for split_sizes
+        let dim_idx = vars[0].tensor().layout().normalize_dim(dim).ok_or(
+            crate::error::Error::InvalidDimension {
+                dim,
+                ndim: vars[0].ndim(),
+            },
+        )?;
+
+        let input_ids: Vec<TensorId> = vars.iter().map(|v| v.id()).collect();
+        let split_sizes: Vec<usize> = vars.iter().map(|v| v.shape()[dim_idx]).collect();
+        let input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>> =
+            vars.iter().map(|v| v.grad_fn().cloned()).collect();
+
+        let grad_fn = CatBackward::<R>::new(input_ids, split_sizes, dim_idx, input_grad_fns);
+        Ok(Var::from_op(output, Arc::new(grad_fn)))
+    } else {
+        Ok(Var::new(output, false))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +926,91 @@ mod tests {
         // Identity permutation should pass through unchanged
         let grad_data: Vec<f32> = grad.to_vec();
         assert_eq!(grad_data, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_var_narrow() {
+        let device = CpuDevice::new();
+
+        let tensor =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[6], &device);
+        let x = Var::new(tensor, true);
+
+        let y = var_narrow(&x, 0, 1, 3).unwrap();
+        assert_eq!(y.shape(), &[3]);
+        assert!(y.requires_grad());
+        assert_eq!(y.grad_fn().unwrap().name(), "NarrowBackward");
+
+        let y_data: Vec<f32> = y.tensor().to_vec();
+        assert_eq!(y_data, vec![2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_narrow_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device),
+            true,
+        );
+
+        // narrow(dim=0, start=1, length=3) -> [2.0, 3.0, 4.0]
+        let y = var_narrow(&x, 0, 1, 3).unwrap();
+        let loss = crate::autograd::var_sum(&y, &[0], false, &client).unwrap();
+        let grads = crate::autograd::backward(&loss, &client).unwrap();
+
+        let grad_x: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        // Gradient should be [0, 1, 1, 1, 0] — ones in the narrow region, zeros outside
+        assert_eq!(grad_x, vec![0.0, 1.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_var_cat() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device),
+            true,
+        );
+        let b = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0, 5.0], &[3], &device),
+            true,
+        );
+
+        let c = var_cat(&[&a, &b], 0, &client).unwrap();
+        assert_eq!(c.shape(), &[5]);
+        assert!(c.requires_grad());
+        assert_eq!(c.grad_fn().unwrap().name(), "CatBackward");
+
+        let c_data: Vec<f32> = c.tensor().to_vec();
+        assert_eq!(c_data, vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_cat_backward() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        let a = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2], &device),
+            true,
+        );
+        let b = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0, 5.0], &[3], &device),
+            true,
+        );
+
+        let c = var_cat(&[&a, &b], 0, &client).unwrap();
+        let loss = crate::autograd::var_sum(&c, &[0], false, &client).unwrap();
+        let grads = crate::autograd::backward(&loss, &client).unwrap();
+
+        let grad_a: Vec<f32> = grads.get(a.id()).unwrap().to_vec();
+        let grad_b: Vec<f32> = grads.get(b.id()).unwrap().to_vec();
+
+        // Sum backward → all ones, split back to original sizes
+        assert_eq!(grad_a, vec![1.0, 1.0]);
+        assert_eq!(grad_b, vec![1.0, 1.0, 1.0]);
     }
 }

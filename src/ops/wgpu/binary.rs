@@ -4,7 +4,9 @@ use crate::error::Result;
 use crate::ops::BinaryOps;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
-use crate::runtime::wgpu::ops::native::native_binary_op;
+use crate::runtime::wgpu::ops::native::{
+    native_binary_op, native_fused_add_mul, native_fused_mul_add,
+};
 use crate::tensor::Tensor;
 
 impl BinaryOps<WgpuRuntime> for WgpuClient {
@@ -50,5 +52,23 @@ impl BinaryOps<WgpuRuntime> for WgpuClient {
         x: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_binary_op(self, "atan2", y, x)
+    }
+
+    fn fused_mul_add(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        c: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_fused_mul_add(self, a, b, c)
+    }
+
+    fn fused_add_mul(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        c: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_fused_add_mul(self, a, b, c)
     }
 }

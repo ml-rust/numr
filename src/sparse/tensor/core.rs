@@ -65,7 +65,7 @@ pub enum SparseTensor<R: Runtime> {
     Csc(CscData<R>),
 }
 
-impl<R: Runtime> SparseTensor<R> {
+impl<R: Runtime<DType = DType>> SparseTensor<R> {
     // =========================================================================
     // Constructors
     // =========================================================================
@@ -302,7 +302,7 @@ impl<R: Runtime> SparseTensor<R> {
     }
 }
 
-impl<R: Runtime> std::fmt::Display for SparseTensor<R> {
+impl<R: Runtime<DType = DType>> std::fmt::Display for SparseTensor<R> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

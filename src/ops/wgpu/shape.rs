@@ -4,8 +4,8 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
-use crate::runtime::shape_ops;
-use crate::runtime::shape_ops::{validate_cat, validate_stack};
+use crate::runtime::common::shape_ops;
+use crate::runtime::common::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
@@ -34,11 +34,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         // Copy data from each tensor using WGSL kernel
         let mut cat_offset = 0usize;
         for &tensor in tensors {
-            let tensor_contig = if tensor.is_contiguous() {
-                tensor.clone()
-            } else {
-                tensor.contiguous()
-            };
+            let tensor_contig = tensor.contiguous();
             let src_cat_size = tensor.shape()[cat_params.dim_idx];
             let total_elements = cat_params.outer_size * src_cat_size * cat_params.inner_size;
 

@@ -94,10 +94,10 @@ pub fn gather_2d_impl(
     // Allocate output
     let out = Tensor::<CpuRuntime>::empty(&[num_indices], dtype, &client.device);
 
-    let input_ptr = input_contig.storage().ptr();
-    let rows_ptr = rows_contig.storage().ptr();
-    let cols_ptr = cols_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let input_ptr = input_contig.ptr();
+    let rows_ptr = rows_contig.ptr();
+    let cols_ptr = cols_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         let success = unsafe {
@@ -158,9 +158,9 @@ pub fn gather_impl(
     let index_contig = ensure_contiguous(&index_i64);
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let index_ptr = index_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let index_ptr = index_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -220,10 +220,10 @@ pub fn scatter_impl(
     let src_contig = ensure_contiguous(src);
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let index_ptr = index_contig.storage().ptr();
-    let src_ptr = src_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let index_ptr = index_contig.ptr();
+    let src_ptr = src_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -282,9 +282,8 @@ pub fn index_select_impl(
 
     // Validate all indices are within bounds (before calling unsafe kernel)
     let dim_size = shape[dim];
-    let index_data = unsafe {
-        std::slice::from_raw_parts(index_contig.storage().ptr() as *const i64, index_len)
-    };
+    let index_data =
+        unsafe { std::slice::from_raw_parts(index_contig.ptr() as *const i64, index_len) };
     for &idx in index_data.iter() {
         // Negative indices are not supported - must be in [0, dim_size)
         if idx < 0 || idx as usize >= dim_size {
@@ -297,9 +296,9 @@ pub fn index_select_impl(
 
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let index_ptr = index_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let index_ptr = index_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -373,9 +372,8 @@ pub fn index_put_impl(
 
     // Validate all indices are within bounds (before calling unsafe kernel)
     let dim_size = shape[dim];
-    let index_data = unsafe {
-        std::slice::from_raw_parts(index_contig.storage().ptr() as *const i64, index_len)
-    };
+    let index_data =
+        unsafe { std::slice::from_raw_parts(index_contig.ptr() as *const i64, index_len) };
     for &idx in index_data.iter() {
         // Negative indices are not supported - must be in [0, dim_size)
         if idx < 0 || idx as usize >= dim_size {
@@ -389,10 +387,10 @@ pub fn index_put_impl(
     // Clone a's data for output
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
-    let a_ptr = a_contig.storage().ptr();
-    let index_ptr = index_contig.storage().ptr();
-    let src_ptr = src_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let index_ptr = index_contig.ptr();
+    let src_ptr = src_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -434,8 +432,8 @@ pub fn masked_select_impl(
     let mask_contig = ensure_contiguous(&mask_broadcast);
 
     let numel = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let mask_ptr = mask_contig.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let mask_ptr = mask_contig.ptr();
 
     // Use SIMD for f32/f64 on x86_64
     #[cfg(target_arch = "x86_64")]
@@ -445,7 +443,7 @@ pub fn masked_select_impl(
 
         // Allocate output with correct size
         let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         match dtype {
             DType::F32 => {
@@ -495,7 +493,7 @@ pub fn masked_select_impl(
 
         // Allocate output with correct size
         let out = Tensor::<CpuRuntime>::empty(&[count], dtype, &client.device);
-        let out_ptr = out.storage().ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -537,9 +535,9 @@ pub fn masked_fill_impl(
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let numel = a.numel();
-    let a_ptr = a_contig.storage().ptr();
-    let mask_ptr = mask_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let a_ptr = a_contig.ptr();
+    let mask_ptr = mask_contig.ptr();
+    let out_ptr = out.ptr();
 
     // Use SIMD for f32/f64 on x86_64
     #[cfg(target_arch = "x86_64")]
@@ -626,9 +624,9 @@ pub fn embedding_lookup_impl(
     let idx_contig = ensure_contiguous(&indices_i64);
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let emb_ptr = emb_contig.storage().ptr();
-    let idx_ptr = idx_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let emb_ptr = emb_contig.ptr();
+    let idx_ptr = idx_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -703,10 +701,10 @@ pub fn scatter_reduce_impl(
     let dst_numel: usize = shape.iter().product();
     let counts_buffer: Vec<u32> = vec![0; dst_numel];
 
-    let dst_ptr = dst_contig.storage().ptr();
-    let index_ptr = index_contig.storage().ptr();
-    let src_ptr = src_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let dst_ptr = dst_contig.ptr();
+    let index_ptr = index_contig.ptr();
+    let src_ptr = src_contig.ptr();
+    let out_ptr = out.ptr();
     let counts_ptr = if op == ScatterReduceOp::Mean {
         counts_buffer.as_ptr() as *mut u32
     } else {
@@ -778,9 +776,9 @@ pub fn gather_nd_impl(
     let indices_contig = ensure_contiguous(&indices_i64);
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-    let input_ptr = input_contig.storage().ptr();
-    let indices_ptr = indices_contig.storage().ptr();
-    let out_ptr = out.storage().ptr();
+    let input_ptr = input_contig.ptr();
+    let indices_ptr = indices_contig.ptr();
+    let out_ptr = out.ptr();
 
     dispatch_dtype!(dtype, T => {
         unsafe {
@@ -840,14 +838,11 @@ pub fn bincount_impl(
 
     // Convert input to i64 if needed
     let input_i64: Vec<i64> = if input_dtype == DType::I64 {
-        unsafe {
-            std::slice::from_raw_parts(input_contig.storage().ptr() as *const i64, numel).to_vec()
-        }
+        unsafe { std::slice::from_raw_parts(input_contig.ptr() as *const i64, numel).to_vec() }
     } else {
         // I32 input
-        let i32_slice = unsafe {
-            std::slice::from_raw_parts(input_contig.storage().ptr() as *const i32, numel)
-        };
+        let i32_slice =
+            unsafe { std::slice::from_raw_parts(input_contig.ptr() as *const i32, numel) };
         i32_slice.iter().map(|&x| x as i64).collect()
     };
 
@@ -862,11 +857,11 @@ pub fn bincount_impl(
     let output_len = (max_val as usize + 1).max(minlength);
 
     let out = Tensor::<CpuRuntime>::empty(&[output_len], out_dtype, &client.device);
-    let out_ptr = out.storage().ptr();
+    let out_ptr = out.ptr();
 
     if let Some(w) = weights {
         let w_contig = ensure_contiguous(w);
-        let w_ptr = w_contig.storage().ptr();
+        let w_ptr = w_contig.ptr();
 
         dispatch_dtype!(out_dtype, T => {
             let success = unsafe {
@@ -903,6 +898,90 @@ pub fn bincount_impl(
             });
         }
     }
+
+    Ok(out)
+}
+
+/// Slice assign implementation: copies src into a slice of dst along dim starting at start.
+pub fn slice_assign_impl(
+    client: &CpuClient,
+    dst: &Tensor<CpuRuntime>,
+    src: &Tensor<CpuRuntime>,
+    dim: usize,
+    start: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    let ndim = dst.ndim();
+    if dim >= ndim {
+        return Err(Error::InvalidDimension {
+            dim: dim as isize,
+            ndim,
+        });
+    }
+
+    // Validate shapes match except at dim
+    if src.ndim() != ndim {
+        return Err(Error::ShapeMismatch {
+            expected: dst.shape().to_vec(),
+            got: src.shape().to_vec(),
+        });
+    }
+    for d in 0..ndim {
+        if d != dim && src.shape()[d] != dst.shape()[d] {
+            return Err(Error::ShapeMismatch {
+                expected: dst.shape().to_vec(),
+                got: src.shape().to_vec(),
+            });
+        }
+    }
+
+    let src_dim_size = src.shape()[dim];
+    let dst_dim_size = dst.shape()[dim];
+    if start + src_dim_size > dst_dim_size {
+        return Err(Error::InvalidArgument {
+            arg: "start",
+            reason: format!(
+                "start ({}) + src dim size ({}) exceeds dst dim size ({})",
+                start, src_dim_size, dst_dim_size
+            ),
+        });
+    }
+
+    let dtype = dst.dtype();
+    if src.dtype() != dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: dtype,
+            rhs: src.dtype(),
+        });
+    }
+
+    // Compute outer/inner sizes
+    let outer_size: usize = dst.shape()[..dim].iter().product();
+    let outer_size = if outer_size == 0 { 1 } else { outer_size };
+    let inner_size: usize = dst.shape()[dim + 1..].iter().product();
+    let inner_size = if inner_size == 0 { 1 } else { inner_size };
+
+    let dst_c = ensure_contiguous(dst);
+    let src_c = ensure_contiguous(src);
+    let out = Tensor::<CpuRuntime>::empty(dst.shape(), dtype, &client.device);
+
+    let dst_ptr = dst_c.ptr();
+    let src_ptr = src_c.ptr();
+    let out_ptr = out.ptr();
+
+    dispatch_dtype!(dtype, T => {
+        unsafe {
+            kernels::slice_assign_kernel::<T>(
+                dst_ptr as *const T,
+                src_ptr as *const T,
+                out_ptr as *mut T,
+                outer_size,
+                dst_dim_size,
+                src_dim_size,
+                inner_size,
+                start,
+            );
+        }
+    }, "slice_assign");
 
     Ok(out)
 }

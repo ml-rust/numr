@@ -5,6 +5,7 @@ use crate::algorithm::fft::FftAlgorithms;
 use crate::algorithm::polynomial::helpers::{
     validate_polynomial_coeffs, validate_polynomial_dtype,
 };
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{BinaryOps, ComplexOps, IndexingOps, ReduceOps, ShapeOps, UtilityOps};
 use crate::runtime::{Runtime, RuntimeClient};
@@ -33,7 +34,7 @@ pub fn polymul_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<Tensor<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + BinaryOps<R>
         + IndexingOps<R>

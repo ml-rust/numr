@@ -52,9 +52,9 @@ pub fn embedding_lookup(
             &client.stream,
             client.device.index,
             dtype,
-            emb_contig.storage().ptr(),
-            idx_contig.storage().ptr(),
-            out.storage().ptr(),
+            emb_contig.ptr(),
+            idx_contig.ptr(),
+            out.ptr(),
             num_indices,
             vocab_size,
             embedding_dim,
@@ -152,8 +152,8 @@ pub fn scatter_reduce(
                 &client.stream,
                 client.device.index,
                 dtype,
-                dst_contig.storage().ptr(),
-                out.storage().ptr(),
+                dst_contig.ptr(),
+                out.ptr(),
                 dst.numel(),
             )?;
         }
@@ -172,7 +172,7 @@ pub fn scatter_reduce(
                 client.device.index,
                 dtype,
                 identity,
-                out.storage().ptr(),
+                out.ptr(),
                 dst.numel(),
             )?;
         }
@@ -190,9 +190,9 @@ pub fn scatter_reduce(
             &client.stream,
             client.device.index,
             dtype,
-            src_contig.storage().ptr(),
-            index_contig.storage().ptr(),
-            out.storage().ptr(),
+            src_contig.ptr(),
+            index_contig.ptr(),
+            out.ptr(),
             dim,
             outer_size,
             dim_size,
@@ -221,7 +221,7 @@ pub fn scatter_reduce(
                 client.device.index,
                 dtype,
                 0.0,
-                count.storage().ptr(),
+                count.ptr(),
                 dst.numel(),
             )?;
         }
@@ -235,7 +235,7 @@ pub fn scatter_reduce(
                     client.device.index,
                     dtype,
                     1.0,
-                    count.storage().ptr(),
+                    count.ptr(),
                     dst.numel(),
                 )?;
             }
@@ -248,8 +248,8 @@ pub fn scatter_reduce(
                 &client.stream,
                 client.device.index,
                 dtype,
-                index_contig.storage().ptr(),
-                count.storage().ptr(),
+                index_contig.ptr(),
+                count.ptr(),
                 dim,
                 outer_size,
                 dim_size,
@@ -266,9 +266,9 @@ pub fn scatter_reduce(
                 &client.stream,
                 client.device.index,
                 dtype,
-                out.storage().ptr(),
-                count.storage().ptr(),
-                result.storage().ptr(),
+                out.ptr(),
+                count.ptr(),
+                result.ptr(),
                 dst.numel(),
             )?;
         }
@@ -361,9 +361,9 @@ pub fn gather_nd(
             &client.stream,
             client.device.index,
             dtype,
-            input_contig.storage().ptr(),
-            indices_contig.storage().ptr(),
-            out.storage().ptr(),
+            input_contig.ptr(),
+            indices_contig.ptr(),
+            out.ptr(),
             shape_ptr,
             strides_ptr,
             num_slices,
@@ -449,13 +449,13 @@ pub fn bincount(
             client.device.index,
             out_dtype,
             0.0,
-            out.storage().ptr(),
+            out.ptr(),
             output_len,
         )?;
     }
 
     let weights_contig = weights.map(ensure_contiguous);
-    let weights_ptr = weights_contig.as_ref().map(|w| w.storage().ptr());
+    let weights_ptr = weights_contig.as_ref().map(|w| w.ptr());
 
     unsafe {
         launch_bincount_weighted(
@@ -464,9 +464,9 @@ pub fn bincount(
             client.device.index,
             input_dtype,
             weights_dtype,
-            input_contig.storage().ptr(),
+            input_contig.ptr(),
             weights_ptr,
-            out.storage().ptr(),
+            out.ptr(),
             numel,
             output_len,
         )?;

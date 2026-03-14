@@ -32,7 +32,7 @@
 
 use bytemuck::{Pod, Zeroable};
 use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Sub, SubAssign};
 
 // ============================================================================
 // CUDA Compatibility Traits
@@ -240,6 +240,29 @@ macro_rules! impl_complex {
                     re: -self.re,
                     im: -self.im,
                 }
+            }
+        }
+
+        impl AddAssign for $name {
+            #[inline]
+            fn add_assign(&mut self, rhs: Self) {
+                self.re += rhs.re;
+                self.im += rhs.im;
+            }
+        }
+
+        impl SubAssign for $name {
+            #[inline]
+            fn sub_assign(&mut self, rhs: Self) {
+                self.re -= rhs.re;
+                self.im -= rhs.im;
+            }
+        }
+
+        impl MulAssign for $name {
+            #[inline]
+            fn mul_assign(&mut self, rhs: Self) {
+                *self = *self * rhs;
             }
         }
 

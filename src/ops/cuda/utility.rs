@@ -49,7 +49,7 @@ impl UtilityOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 value,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -82,7 +82,7 @@ impl UtilityOps<CudaRuntime> for CudaClient {
                 dtype,
                 start,
                 step,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -119,7 +119,7 @@ impl UtilityOps<CudaRuntime> for CudaClient {
                 dtype,
                 start,
                 stop,
-                out.storage().ptr(),
+                out.ptr(),
                 steps,
             )?;
         }
@@ -166,7 +166,7 @@ impl UtilityOps<CudaRuntime> for CudaClient {
                 dtype,
                 rows,
                 cols,
-                out.storage().ptr(),
+                out.ptr(),
             )?;
         }
 

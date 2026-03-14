@@ -38,9 +38,13 @@ impl SemiringMatmulOps<CudaRuntime> for CudaClient {
             });
         }
 
-        // Only F32, F64, I32 have CUDA kernels
+        // Supported CUDA kernel dtypes
         match dtype {
-            DType::F32 | DType::F64 | DType::I32 => {}
+            DType::F32 | DType::F64 | DType::I32 | DType::Bool | DType::U8 => {}
+            #[cfg(feature = "f16")]
+            DType::F16 | DType::BF16 => {}
+            #[cfg(feature = "fp8")]
+            DType::FP8E4M3 | DType::FP8E5M2 => {}
             _ => {
                 return Err(Error::UnsupportedDType {
                     dtype,
@@ -84,10 +88,17 @@ impl SemiringMatmulOps<CudaRuntime> for CudaClient {
 
         let op_code = semiring_op_code(op);
 
-        if batch_size > 1 {
-            semiring_matmul_batched_native(self, a, b, dtype, batch_size, m, k, n, op_code)
+        // Bool uses the u8 kernel (same underlying type)
+        let kernel_dtype = if dtype == DType::Bool {
+            DType::U8
         } else {
-            semiring_matmul_native(self, a, b, dtype, m, k, n, op_code)
+            dtype
+        };
+
+        if batch_size > 1 {
+            semiring_matmul_batched_native(self, a, b, kernel_dtype, batch_size, m, k, n, op_code)
+        } else {
+            semiring_matmul_native(self, a, b, kernel_dtype, m, k, n, op_code)
         }
     }
 }

@@ -91,7 +91,7 @@ pub fn lstsq(
     // Q^T @ B gives [m, num_rhs]
     let qtb = client.matmul(&q_t, &b_mat)?;
 
-    let r_buffer = get_buffer(qr.r.storage().ptr())
+    let r_buffer = get_buffer(qr.r.ptr())
         .ok_or_else(|| Error::Internal("Failed to get R buffer".to_string()))?;
 
     // Allocate output X [n, num_rhs] or [n] for vector
@@ -106,7 +106,7 @@ pub fn lstsq(
         // Get first n elements of Q^T @ b using GPU-side slicing
         let qtb_flat = qtb.reshape(&[m])?;
         let qtb_n = qtb_flat.narrow(0, 0, n)?.contiguous();
-        let qtb_buffer = get_buffer(qtb_n.storage().ptr())
+        let qtb_buffer = get_buffer(qtb_n.ptr())
             .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
 
         let params: [u32; 1] = [n as u32];
@@ -125,7 +125,7 @@ pub fn lstsq(
     } else {
         // Multi-RHS: solve for each column
         let qtb_contig = qtb.contiguous();
-        let qtb_buffer = get_buffer(qtb_contig.storage().ptr())
+        let qtb_buffer = get_buffer(qtb_contig.ptr())
             .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
 
         let col_size = n * dtype.size_in_bytes();

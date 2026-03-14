@@ -34,7 +34,7 @@ pub fn jacobi_impl<R, C>(
     options: JacobiOptions,
 ) -> Result<JacobiResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {

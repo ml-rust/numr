@@ -13,6 +13,9 @@ pub mod conv;
 pub mod cumulative;
 pub mod distance;
 pub mod einsum;
+#[cfg(feature = "fp8")]
+pub mod fp8_matmul;
+pub mod gemm_epilogue;
 pub mod indexing;
 pub mod linalg;
 pub mod logical;
@@ -25,6 +28,8 @@ pub mod random;
 pub mod reduce;
 pub mod scalar;
 pub mod shape;
+#[cfg(feature = "sparse")]
+pub mod sparse_24;
 pub mod sorting;
 pub mod statistics;
 pub mod type_conversion;

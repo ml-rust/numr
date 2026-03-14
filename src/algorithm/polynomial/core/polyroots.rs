@@ -5,6 +5,7 @@ use crate::algorithm::linalg::LinearAlgebraAlgorithms;
 use crate::algorithm::polynomial::helpers::validate_polynomial_coeffs;
 use crate::algorithm::polynomial::helpers::validate_polynomial_dtype;
 use crate::algorithm::polynomial::types::PolynomialRoots;
+use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::{
     BinaryOps, CompareOps, IndexingOps, LinalgOps, ReduceOps, ScalarOps, ShapeOps, UtilityOps,
@@ -48,7 +49,7 @@ pub fn polyroots_impl<R, C>(
     dtype_support: DTypeSupport,
 ) -> Result<PolynomialRoots<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     C: RuntimeClient<R>
         + LinearAlgebraAlgorithms<R>
         + BinaryOps<R>

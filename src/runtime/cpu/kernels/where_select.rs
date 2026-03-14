@@ -6,7 +6,7 @@
 //! - `where_strided_kernel<T>` - U8 condition with broadcasting
 //! - `where_strided_kernel_generic<C, T>` - Generic condition with broadcasting
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Where (conditional select): out[i] = cond[i] ? x[i] : y[i]
 ///
@@ -31,6 +31,7 @@ pub unsafe fn where_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::where_select;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -49,6 +50,28 @@ pub unsafe fn where_kernel<T: Element>(
                     x as *const f64,
                     y as *const f64,
                     out as *mut f64,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                where_select::where_f16(
+                    cond,
+                    x as *const half::f16,
+                    y as *const half::f16,
+                    out as *mut half::f16,
+                    len,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                where_select::where_bf16(
+                    cond,
+                    x as *const half::bf16,
+                    y as *const half::bf16,
+                    out as *mut half::bf16,
                     len,
                 );
                 return;

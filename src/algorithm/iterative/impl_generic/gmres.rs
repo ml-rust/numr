@@ -38,7 +38,7 @@ pub fn gmres_impl<R, C>(
     options: GmresOptions,
 ) -> Result<GmresResult<R>>
 where
-    R: Runtime,
+    R: Runtime<DType = DType>,
     R::Client: SparseOps<R>,
     C: SparseLinAlgAlgorithms<R>
         + SparseOps<R>

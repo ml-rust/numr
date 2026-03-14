@@ -37,6 +37,7 @@ fn compile_cuda_kernels() {
     #[allow(unused_mut)]
     let mut kernel_files = vec![
         "activation.cu",
+        "softmax.cu",
         "advanced_random.cu",
         "binary.cu",
         "cast.cu",
@@ -47,6 +48,10 @@ fn compile_cuda_kernels() {
         "distance.cu",
         "distributions.cu",
         "fft.cu",
+        "fused_activation_mul.cu",
+        "fused_activation_mul_bwd.cu",
+        "fused_add_norm.cu",
+        "fused_elementwise.cu",
         "index.cu",
         "linalg_advanced.cu",
         "linalg_banded.cu",
@@ -59,6 +64,8 @@ fn compile_cuda_kernels() {
         "linalg_schur.cu",
         "linalg_solvers.cu",
         "linalg_svd.cu",
+        "fp8_matmul.cu",
+        "gemv.cu",
         "matmul.cu",
         "norm.cu",
         "semiring_matmul.cu",
@@ -73,11 +80,14 @@ fn compile_cuda_kernels() {
         "ternary.cu",
         "unary.cu",
         "utility.cu",
+        "gemm_epilogue.cu",
+        "gemm_epilogue_bwd.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled
     #[cfg(feature = "sparse")]
     {
+        kernel_files.push("sparse_24.cu");
         kernel_files.push("sparse_spmv.cu");
         kernel_files.push("sparse_merge.cu");
         kernel_files.push("sparse_convert.cu");
@@ -114,6 +124,14 @@ fn compile_cuda_kernels() {
         panic!("nvcc not found - CUDA Toolkit must be installed for the 'cuda' feature");
     });
 
+    // Determine compute capability from NUMR_CUDA_ARCH env var, default sm_80 (Ampere)
+    // sm_80 enables tensor cores for F16/BF16, async copy, and other Ampere features
+    let cuda_arch = env::var("NUMR_CUDA_ARCH").unwrap_or_else(|_| "sm_80".to_string());
+    println!(
+        "cargo:warning=numr: compiling {} CUDA kernels for {cuda_arch} (set NUMR_CUDA_ARCH to override)",
+        kernel_files.len()
+    );
+
     for kernel_file in kernel_files {
         let cu_path = kernels_dir.join(kernel_file);
         let ptx_name = kernel_file.replace(".cu", ".ptx");
@@ -131,15 +149,12 @@ fn compile_cuda_kernels() {
             );
         }
 
-        // Compile to PTX
-        // Target: sm_75 (Turing) - supports CUDA 10.0+
-        // This provides good compatibility while enabling modern features
         let output = Command::new(&nvcc)
             .args([
                 "-ptx",
                 "-O3",
                 "--use_fast_math",
-                "-arch=sm_75",
+                &format!("-arch={cuda_arch}"),
                 "-o",
                 ptx_path.to_str().unwrap(),
                 cu_path.to_str().unwrap(),

@@ -111,7 +111,7 @@ impl DTypeSupport {
 /// * `index` - The index value
 /// * `index_dtype` - The dtype for the index tensor (I32 or I64)
 /// * `device` - The device to create the tensor on
-pub(crate) fn create_index_tensor<R: Runtime>(
+pub(crate) fn create_index_tensor<R: Runtime<DType = DType>>(
     index: usize,
     index_dtype: DType,
     device: &R::Device,
@@ -130,7 +130,7 @@ pub(crate) fn create_index_tensor<R: Runtime>(
 /// * `end` - End index (exclusive)
 /// * `index_dtype` - The dtype for the index tensor (I32 or I64)
 /// * `device` - The device to create the tensor on
-pub(crate) fn create_arange_tensor<R: Runtime>(
+pub(crate) fn create_arange_tensor<R: Runtime<DType = DType>>(
     start: usize,
     end: usize,
     index_dtype: DType,

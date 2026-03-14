@@ -1,7 +1,7 @@
 //! CUDA runtime implementation
 
 use super::cache::{
-    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, reset_client,
+    get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, try_get_cached_client,
     try_get_cached_stream,
 };
 use super::client::CudaAllocator;
@@ -9,6 +9,7 @@ use super::client::CudaClient;
 use super::device::CudaDevice;
 use super::kernels;
 use crate::runtime::Runtime;
+use crate::runtime::common::Allocator;
 
 /// CUDA Runtime adapter
 ///
@@ -21,7 +22,9 @@ impl Runtime for CudaRuntime {
     type Device = CudaDevice;
     type Client = CudaClient;
     type Allocator = CudaAllocator;
+    type Graph = super::CudaGraph;
     type RawHandle = super::CudaRawHandle;
+    type DType = crate::dtype::DType;
 
     fn name() -> &'static str {
         "cuda"
@@ -31,82 +34,96 @@ impl Runtime for CudaRuntime {
         true // CUDA supports graph capture
     }
 
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
+    {
+        use cudarc::driver::sys::CUstreamCaptureMode;
+
+        // Freeze the caching allocator so all alloc/free calls go directly
+        // through cuMemAllocAsync/cuMemFreeAsync, creating proper graph nodes.
+        // Without this, the free-list cache intercepts deallocations (no graph
+        // free node) and satisfies allocations from cache (no graph alloc node),
+        // corrupting the graph's internal memory management on replay.
+        client.allocator.freeze();
+
+        // Begin stream capture — all ops on this stream are recorded, not executed
+        client
+            .stream
+            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
+
+        // Execute the closure — ops are recorded into the graph
+        let result = f(client);
+
+        // End capture — MUST happen even if the closure failed, otherwise the
+        // stream is left in capture mode and all subsequent operations fail.
+        //
+        // AUTO_FREE_ON_LAUNCH: graph-managed memory allocated during capture is
+        // freed on each launch. For graph capture in training (where we re-run
+        // the same graph), this is acceptable — each launch re-allocates.
+        // For inference with stable output pointers, the caller must copy the
+        // output tensor after each launch before the next launch frees it.
+        let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
+        let graph_result = client.stream.end_capture(flags);
+
+        // Restore caching allocator for normal (non-capture) operations
+        client.allocator.unfreeze();
+
+        // Handle closure error: propagate after restoring stream
+        let closure_result = result?;
+
+        // Handle capture error
+        let graph_opt = graph_result?;
+
+        let cudarc_graph = graph_opt.ok_or_else(|| {
+            crate::error::Error::Backend(
+                "CUDA graph capture produced no operations — closure recorded nothing".into(),
+            )
+        })?;
+
+        Ok((super::CudaGraph::new(cudarc_graph), closure_result))
+    }
+
     /// Allocate GPU memory.
     ///
-    /// Returns `Err(OutOfMemory)` if CUDA memory allocation fails.
+    /// Routes through the client's caching allocator (free-list pool) to avoid
+    /// cuMemAllocAsync driver round-trips for repeated same-size allocations.
     fn allocate(size_bytes: usize, device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
             return Ok(0);
         }
 
         let client = get_or_create_client(device);
-
-        unsafe {
-            let mut ptr: u64 = 0;
-            let result = cudarc::driver::sys::cuMemAllocAsync(
-                &mut ptr,
-                size_bytes,
-                client.stream.cu_stream(),
-            );
-
-            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Ok(ptr);
-            }
-
-            // First attempt failed - try syncing the stream to flush pending frees
-            let _ = client.stream.synchronize();
-
-            let result = cudarc::driver::sys::cuMemAllocAsync(
-                &mut ptr,
-                size_bytes,
-                client.stream.cu_stream(),
-            );
-
-            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Ok(ptr);
-            }
-
-            // Stream is likely in a sticky error state (e.g., CUDA_ERROR_MISALIGNED_ADDRESS
-            // from a previous kernel). Reset the client with a fresh context/stream.
-            drop(client);
-            if let Some(new_client) = reset_client(device) {
-                let result = cudarc::driver::sys::cuMemAllocAsync(
-                    &mut ptr,
-                    size_bytes,
-                    new_client.stream.cu_stream(),
-                );
-
-                if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                    return Ok(ptr);
-                }
-            }
-
-            Err(crate::error::Error::OutOfMemory { size: size_bytes })
-        }
+        client.allocator.allocate(size_bytes)
     }
 
-    fn deallocate(ptr: u64, _size_bytes: usize, device: &Self::Device) {
+    /// Deallocate GPU memory.
+    ///
+    /// Routes through the client's caching allocator — buffers are returned to
+    /// the free-list for reuse instead of calling cuMemFreeAsync.
+    fn deallocate(ptr: u64, size_bytes: usize, device: &Self::Device) {
         if ptr == 0 {
             return;
         }
 
+        // Try to use the client's caching allocator (returns to free-list)
+        if let Some(client) = try_get_cached_client(device.index) {
+            client.allocator.deallocate(ptr, size_bytes);
+            return;
+        }
+
+        // Client not available (shutdown) — free directly
         unsafe {
-            // Check if CUDA context is still valid before attempting free
             if !is_cuda_context_valid() {
-                // Context is gone - memory will be reclaimed by driver on context destruction
                 return;
             }
 
-            // Try to use stream-ordered async free if client is available
             let result = if let Some(stream) = try_get_cached_stream(device.index) {
                 cudarc::driver::sys::cuMemFreeAsync(ptr, stream)
             } else {
-                // Fallback to synchronous free
                 cudarc::driver::sys::cuMemFree_v2(ptr)
             };
 
-            // Log failures but don't panic - deallocation errors are typically benign
-            // (e.g., double-free attempts, already-freed memory)
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS
                 && result != cudarc::driver::sys::CUresult::CUDA_ERROR_ILLEGAL_ADDRESS
             {
@@ -141,8 +158,10 @@ impl Runtime for CudaRuntime {
                 )));
             }
 
-            // Synchronize to ensure data is available
-            let _ = client.stream.synchronize();
+            // No explicit sync needed: with pageable (non-pinned) host memory,
+            // cuMemcpyHtoDAsync is synchronous w.r.t. the host buffer — the call
+            // returns only after the copy is complete. An explicit stream.synchronize()
+            // here would also drain ALL pending GPU work, destroying pipeline throughput.
         }
         Ok(())
     }
@@ -177,8 +196,64 @@ impl Runtime for CudaRuntime {
                 )));
             }
 
-            // Synchronize to ensure data is available on host
+            // With pageable host memory, cuMemcpyDtoHAsync blocks the host until
+            // the copy completes. However, we still need to synchronize the stream
+            // to ensure all prior GPU kernels have finished producing the data.
             let _ = client.stream.synchronize();
+        }
+        Ok(())
+    }
+
+    /// Record an event on the compute stream.
+    fn record_compute_event(device: &Self::Device) -> crate::error::Result<u64> {
+        let client = get_or_create_client(device);
+        client
+            .record_event_on_compute()
+            .map_err(|e| crate::error::Error::Backend(format!("Event record failed: {}", e)))
+    }
+
+    /// Pipelined D2H copy: copy stream waits on the provided event, copies,
+    /// and syncs only the copy stream. Compute stream continues concurrently.
+    fn copy_from_device_pipelined(
+        src: u64,
+        dst: &mut [u8],
+        device: &Self::Device,
+        event: u64,
+    ) -> crate::error::Result<()> {
+        if dst.is_empty() || src == 0 {
+            return Ok(());
+        }
+
+        let client = get_or_create_client(device);
+
+        unsafe {
+            // 1. Copy stream waits for event (waits for argmax to finish)
+            client.copy_stream_wait_event(event).map_err(|e| {
+                client.destroy_event(event);
+                crate::error::Error::Backend(format!("Stream wait event failed: {}", e))
+            })?;
+
+            // 2. Launch D2H copy on copy stream
+            let result = cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
+                dst.as_mut_ptr() as *mut std::ffi::c_void,
+                src,
+                dst.len(),
+                client.copy_stream.cu_stream(),
+            );
+
+            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                client.destroy_event(event);
+                return Err(crate::error::Error::Backend(format!(
+                    "[numr::cuda] Pipelined D2H copy failed: {} bytes ({:?})",
+                    dst.len(),
+                    result
+                )));
+            }
+
+            // 3. Sync ONLY the copy stream (compute stream keeps running)
+            let _ = client.copy_stream.synchronize();
+
+            client.destroy_event(event);
         }
         Ok(())
     }
@@ -236,93 +311,26 @@ impl Runtime for CudaRuntime {
 
         let ndim = shape.len();
         let client = get_or_create_client(device);
-        let cu_stream = client.stream.cu_stream();
 
-        // Convert shape and strides to device-compatible types
-        let shape_u64: Vec<u64> = shape.iter().map(|&s| s as u64).collect();
-        let strides_i64: Vec<i64> = strides.iter().map(|&s| s as i64).collect();
-
-        // Allocate temporary device memory for shape and strides arrays
-        let shape_bytes = ndim * std::mem::size_of::<u64>();
-        let strides_bytes = ndim * std::mem::size_of::<i64>();
-
+        // Shape and strides are passed as kernel arguments (by value), not device
+        // memory pointers.  This is critical for CUDA graph capture compatibility:
+        // H2D copies of temporary host data create graph memcpy nodes that re-read
+        // from stale host addresses on replay, causing CUDA_ERROR_ILLEGAL_ADDRESS.
         unsafe {
-            // Allocate device memory for shape array
-            let mut shape_ptr: u64 = 0;
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut shape_ptr, shape_bytes, cu_stream);
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to allocate shape array for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Allocate device memory for strides array
-            let mut strides_ptr: u64 = 0;
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut strides_ptr, strides_bytes, cu_stream);
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                // Free shape_ptr before returning error
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to allocate strides array for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Copy shape to device
-            let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                shape_ptr,
-                shape_u64.as_ptr() as *const std::ffi::c_void,
-                shape_bytes,
-                cu_stream,
-            );
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to copy shape to device for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Copy strides to device
-            let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                strides_ptr,
-                strides_i64.as_ptr() as *const std::ffi::c_void,
-                strides_bytes,
-                cu_stream,
-            );
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-                let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-                return Err(crate::error::Error::Backend(format!(
-                    "[numr::cuda] Failed to copy strides to device for strided copy ({:?})",
-                    result
-                )));
-            }
-
-            // Launch the strided copy kernel
             let kernel_result = kernels::launch_strided_copy(
                 &client.context,
                 &client.stream,
                 device.index,
                 src_handle,
                 dst_handle,
-                shape_ptr,
-                strides_ptr,
+                shape,
+                strides,
                 numel,
                 ndim,
                 elem_size,
                 src_byte_offset,
             );
 
-            // Free temporary device memory (async, will happen after kernel completes)
-            let _ = cudarc::driver::sys::cuMemFreeAsync(shape_ptr, cu_stream);
-            let _ = cudarc::driver::sys::cuMemFreeAsync(strides_ptr, cu_stream);
-
-            // Check kernel launch result
             if let Err(e) = kernel_result {
                 return Err(crate::error::Error::Backend(format!(
                     "[numr::cuda] Strided copy kernel failed: {} bytes ({} elements × {} bytes/elem) from {} to {} on device {}: {:?}",
@@ -335,9 +343,6 @@ impl Runtime for CudaRuntime {
                     e
                 )));
             }
-
-            // Synchronize to ensure copy is complete
-            let _ = client.stream.synchronize();
         }
         Ok(())
     }

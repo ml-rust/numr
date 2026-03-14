@@ -19,6 +19,7 @@
 //!             └── wgpu/multivariate.rs delegates here
 //! ```
 
+pub mod activation;
 pub mod einsum;
 pub mod linalg;
 pub mod multivariate;

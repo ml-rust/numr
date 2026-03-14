@@ -14,7 +14,7 @@
 
 use super::client::get_buffer;
 use super::shaders::fft as kernels;
-use super::shaders::generator::MAX_WORKGROUP_FFT_SIZE;
+const MAX_WORKGROUP_FFT_SIZE: usize = 256;
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::fft::{
     FftAlgorithms, FftDirection, FftNormalization, complex_dtype_for_real, real_dtype_for_complex,
@@ -117,7 +117,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "FFT output");
 
-        let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "FFT input");
+        let input_buffer = get_buffer_or_err!(input_contig.ptr(), "FFT input");
 
         // If FFT is on last dimension and data is contiguous, we can do batched FFT directly
         if dim_usize == ndim - 1 {
@@ -155,12 +155,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                 let temp_buffer = get_buffer_or_err!(temp_ptr, "FFT temp");
 
                 // Copy input to temp buffer initially
-                WgpuRuntime::copy_within_device(
-                    input_contig.storage().ptr(),
-                    temp_ptr,
-                    output_size,
-                    device,
-                )?;
+                WgpuRuntime::copy_within_device(input_contig.ptr(), temp_ptr, output_size, device)?;
 
                 // Run stages
                 let mut use_temp_as_input = true;
@@ -306,7 +301,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let complex_ptr = complex_guard.ptr();
         let complex_buffer = get_buffer_or_err!(complex_ptr, "rfft complex");
 
-        let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "rfft input");
+        let input_buffer = get_buffer_or_err!(input_contig.ptr(), "rfft input");
 
         let pack_params: [u32; 4] = [n as u32, batch_size as u32, 0, 0];
         let params_buffer = self.create_uniform_buffer("rfft_params", 16);
@@ -342,7 +337,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "rfft output");
 
-        let fft_buffer = get_buffer_or_err!(fft_result.storage().ptr(), "rfft fft result");
+        let fft_buffer = get_buffer_or_err!(fft_result.ptr(), "rfft fft result");
 
         let truncate_params: [u32; 4] = [n as u32, out_n as u32, batch_size as u32, 0];
         self.write_buffer(&params_buffer, &truncate_params);
@@ -420,7 +415,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let extended_ptr = extended_guard.ptr();
         let extended_buffer = get_buffer_or_err!(extended_ptr, "irfft extended");
 
-        let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "irfft input");
+        let input_buffer = get_buffer_or_err!(input_contig.ptr(), "irfft input");
 
         let extend_params: [u32; 4] = [full_n as u32, half_n as u32, batch_size as u32, 0];
         let params_buffer = self.create_uniform_buffer("irfft_params", 16);
@@ -458,7 +453,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "irfft output");
 
-        let ifft_buffer = get_buffer_or_err!(ifft_result.storage().ptr(), "irfft ifft result");
+        let ifft_buffer = get_buffer_or_err!(ifft_result.ptr(), "irfft ifft result");
 
         let unpack_params: [u32; 4] = [full_n as u32, batch_size as u32, 0, 0];
         self.write_buffer(&params_buffer, &unpack_params);
@@ -551,7 +546,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "fftshift output");
 
-        let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "fftshift input");
+        let input_buffer = get_buffer_or_err!(input_contig.ptr(), "fftshift input");
 
         let params: [u32; 4] = [n as u32, batch_size as u32, 0, 0];
         let params_buffer = self.create_uniform_buffer("fftshift_params", 16);
@@ -604,7 +599,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let output_ptr = output_guard.ptr();
         let output_buffer = get_buffer_or_err!(output_ptr, "ifftshift output");
 
-        let input_buffer = get_buffer_or_err!(input_contig.storage().ptr(), "ifftshift input");
+        let input_buffer = get_buffer_or_err!(input_contig.ptr(), "ifftshift input");
 
         let params: [u32; 4] = [n as u32, batch_size as u32, 0, 0];
         let params_buffer = self.create_uniform_buffer("ifftshift_params", 16);

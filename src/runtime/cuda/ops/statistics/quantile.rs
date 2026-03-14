@@ -3,9 +3,9 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{BinaryOps, IndexingOps, ScalarOps, SortingOps, TypeConversionOps};
+use crate::runtime::common::statistics_common::Interpolation;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::normalize_dim;
-use crate::runtime::statistics_common::Interpolation;
 use crate::tensor::Tensor;
 
 /// Compute quantile along a dimension entirely on GPU.
@@ -91,7 +91,7 @@ pub fn quantile_impl(
 
     // Calculate quantile indices (small computation, OK on CPU)
     let (floor_idx, ceil_idx, frac) =
-        crate::runtime::statistics_common::compute_quantile_indices(q, dim_size);
+        crate::runtime::common::statistics_common::compute_quantile_indices(q, dim_size);
 
     // index_select requires at least 1D indices, so use [1] for scalar output
     let is_scalar_output = out_shape.is_empty();

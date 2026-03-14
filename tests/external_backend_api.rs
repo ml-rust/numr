@@ -41,10 +41,20 @@ impl Runtime for MockRuntime {
     type Device = MockDevice;
     type Client = MockClient;
     type Allocator = MockAllocator;
+    type Graph = numr::runtime::NoOpGraph;
     type RawHandle = ();
+    type DType = numr::dtype::DType;
 
     fn name() -> &'static str {
         "mock"
+    }
+
+    fn capture_graph<F, T>(client: &Self::Client, f: F) -> error::Result<(Self::Graph, T)>
+    where
+        F: FnOnce(&Self::Client) -> error::Result<T>,
+    {
+        let result = f(client)?;
+        Ok((numr::runtime::NoOpGraph, result))
     }
 
     fn allocate(_size_bytes: usize, _device: &Self::Device) -> error::Result<u64> {

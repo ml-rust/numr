@@ -5,7 +5,6 @@
 
 use numr::algorithm::polynomial::PolynomialAlgorithms;
 use numr::dtype::DType;
-use numr::runtime::Runtime;
 use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 

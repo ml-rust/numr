@@ -2,7 +2,7 @@
 //!
 //! Contains argmax, argmin, softmax, and variance kernels.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Argmax along a dimension - returns indices of maximum values
 ///
@@ -117,6 +117,7 @@ pub unsafe fn softmax_kernel<T: Element>(
     // Dispatch to SIMD for f32/f64 on x86-64
     #[cfg(target_arch = "x86_64")]
     {
+        use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax;
 
         match T::DTYPE {
@@ -128,6 +129,26 @@ pub unsafe fn softmax_kernel<T: Element>(
                 softmax::softmax_f64(a as *const f64, out as *mut f64, outer_size, dim_size);
                 return;
             }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                softmax::softmax_f16(
+                    a as *const half::f16,
+                    out as *mut half::f16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                softmax::softmax_bf16(
+                    a as *const half::bf16,
+                    out as *mut half::bf16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
             _ => {} // Fall through to scalar
         }
     }
@@ -136,7 +157,7 @@ pub unsafe fn softmax_kernel<T: Element>(
     softmax_kernel_scalar(a, out, outer_size, dim_size);
 }
 
-/// Scalar softmax for all Element types
+/// Scalar softmax for all Element types using online algorithm (2-pass).
 #[inline]
 unsafe fn softmax_kernel_scalar<T: Element>(
     a: *const T,
@@ -147,29 +168,175 @@ unsafe fn softmax_kernel_scalar<T: Element>(
     for o in 0..outer_size {
         let base = o * dim_size;
 
-        // Find max for numerical stability
+        // Pass 1: Online max + sum
         let mut max_val = (*a.add(base)).to_f64();
+        let mut sum = 1.0f64;
         for d in 1..dim_size {
             let val = (*a.add(base + d)).to_f64();
             if val > max_val {
+                sum = sum * (max_val - val).exp() + 1.0;
                 max_val = val;
+            } else {
+                sum += (val - max_val).exp();
             }
         }
 
-        // Compute exp(x - max) and sum
-        let mut sum = 0.0f64;
-        for d in 0..dim_size {
-            let val = (*a.add(base + d)).to_f64();
-            let exp_val = (val - max_val).exp();
-            *out.add(base + d) = T::from_f64(exp_val);
-            sum += exp_val;
-        }
-
-        // Normalize by sum
+        // Pass 2: exp(x - max) / sum
         let inv_sum = 1.0 / sum;
         for d in 0..dim_size {
-            let val = (*out.add(base + d)).to_f64();
-            *out.add(base + d) = T::from_f64(val * inv_sum);
+            let val = (*a.add(base + d)).to_f64();
+            *out.add(base + d) = T::from_f64((val - max_val).exp() * inv_sum);
+        }
+    }
+}
+
+/// Softmax backward kernel: d_input = output * (grad - sum(grad * output))
+///
+/// Dispatches to SIMD for f32/f64, with f16/bf16 block-convert wrappers.
+/// Falls back to scalar for other types.
+///
+/// # Safety
+/// - `grad`, `output`, `d_input` must point to `outer_size * dim_size` elements
+#[inline]
+pub unsafe fn softmax_bwd_kernel<T: Element>(
+    grad: *const T,
+    output: *const T,
+    d_input: *mut T,
+    outer_size: usize,
+    dim_size: usize,
+) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        use crate::dtype::DType;
+        use crate::runtime::cpu::kernels::simd::softmax_bwd;
+
+        match T::DTYPE {
+            DType::F32 => {
+                softmax_bwd::softmax_bwd_f32(
+                    grad as *const f32,
+                    output as *const f32,
+                    d_input as *mut f32,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            DType::F64 => {
+                softmax_bwd::softmax_bwd_f64(
+                    grad as *const f64,
+                    output as *const f64,
+                    d_input as *mut f64,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                softmax_bwd::softmax_bwd_f16(
+                    grad as *const half::f16,
+                    output as *const half::f16,
+                    d_input as *mut half::f16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                softmax_bwd::softmax_bwd_bf16(
+                    grad as *const half::bf16,
+                    output as *const half::bf16,
+                    d_input as *mut half::bf16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        use crate::dtype::DType;
+        use crate::runtime::cpu::kernels::simd::softmax_bwd;
+
+        match T::DTYPE {
+            DType::F32 => {
+                softmax_bwd::softmax_bwd_f32(
+                    grad as *const f32,
+                    output as *const f32,
+                    d_input as *mut f32,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            DType::F64 => {
+                softmax_bwd::softmax_bwd_f64(
+                    grad as *const f64,
+                    output as *const f64,
+                    d_input as *mut f64,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::F16 => {
+                softmax_bwd::softmax_bwd_f16(
+                    grad as *const half::f16,
+                    output as *const half::f16,
+                    d_input as *mut half::f16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            #[cfg(feature = "f16")]
+            DType::BF16 => {
+                softmax_bwd::softmax_bwd_bf16(
+                    grad as *const half::bf16,
+                    output as *const half::bf16,
+                    d_input as *mut half::bf16,
+                    outer_size,
+                    dim_size,
+                );
+                return;
+            }
+            _ => {} // Fall through to scalar
+        }
+    }
+
+    // Scalar fallback
+    softmax_bwd_kernel_scalar(grad, output, d_input, outer_size, dim_size);
+}
+
+/// Scalar softmax backward for all Element types
+#[inline]
+unsafe fn softmax_bwd_kernel_scalar<T: Element>(
+    grad: *const T,
+    output: *const T,
+    d_input: *mut T,
+    outer_size: usize,
+    dim_size: usize,
+) {
+    for o in 0..outer_size {
+        let base = o * dim_size;
+
+        // Pass 1: dot = sum(grad * output)
+        let mut dot = 0.0f64;
+        for d in 0..dim_size {
+            dot += (*grad.add(base + d)).to_f64() * (*output.add(base + d)).to_f64();
+        }
+
+        // Pass 2: d_input = output * (grad - dot)
+        for d in 0..dim_size {
+            let idx = base + d;
+            let g = (*grad.add(idx)).to_f64();
+            let out = (*output.add(idx)).to_f64();
+            *d_input.add(idx) = T::from_f64(out * (g - dot));
         }
     }
 }

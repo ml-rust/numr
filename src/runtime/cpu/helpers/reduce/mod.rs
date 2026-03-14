@@ -49,8 +49,8 @@ pub fn reduce_impl(
         let out_shape = reduce_output_shape(shape, dims, keepdim);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
-        let a_ptr = a.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -67,7 +67,9 @@ pub fn reduce_impl(
 
         Ok(out)
     } else if dims.is_empty() {
-        Ok(a.clone())
+        // Empty dims = reduce over ALL dimensions → scalar
+        let all_dims: Vec<usize> = (0..ndim).collect();
+        return reduce_impl(client, op, a, &all_dims, keepdim, op_name);
     } else if should_fuse_multi_dim_reduction(a, dims) {
         reduce_multi_dim_fused(
             client,

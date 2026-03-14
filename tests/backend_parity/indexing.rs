@@ -3,10 +3,8 @@
 // Dtype-parameterized: each test runs for all supported dtypes across all backends.
 // Index tensors remain as I32/I64 (not parameterized), only data tensors vary by dtype.
 
-use numr::dtype::DType;
 use numr::error::Error;
 use numr::ops::IndexingOps;
-use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
 use crate::backend_parity::dtype_helpers::tensor_from_f64;

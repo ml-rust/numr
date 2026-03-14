@@ -303,7 +303,7 @@ fn get_buffer_registry() -> &'static parking_lot::Mutex<HashMap<u64, Arc<Buffer>
 }
 
 /// Get a buffer by its ID.
-pub(crate) fn get_buffer(id: u64) -> Option<Arc<Buffer>> {
+pub fn get_buffer(id: u64) -> Option<Arc<Buffer>> {
     if id == 0 {
         return None;
     }

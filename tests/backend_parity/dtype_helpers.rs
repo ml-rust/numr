@@ -50,7 +50,7 @@ use numr::tensor::Tensor;
 /// let tensor = tensor_from_f64(&data, &[2, 2], DType::F32, &device, &client)?;
 /// assert_eq!(tensor.dtype(), DType::F32);
 /// ```
-pub fn tensor_from_f64<R: Runtime>(
+pub fn tensor_from_f64<R: Runtime<DType = DType>>(
     data: &[f64],
     shape: &[usize],
     dtype: DType,
@@ -89,7 +89,7 @@ pub fn tensor_from_f64<R: Runtime>(
 /// let tensor = tensor_from_f32(&[1.0, 2.0], &[2], DType::F16, &device, &client)?;
 /// assert_eq!(tensor.dtype(), DType::F16);
 /// ```
-pub fn tensor_from_f32<R: Runtime>(
+pub fn tensor_from_f32<R: Runtime<DType = DType>>(
     data: &[f32],
     shape: &[usize],
     dtype: DType,
@@ -116,7 +116,7 @@ pub fn tensor_from_f32<R: Runtime>(
 /// let tensor = tensor_from_i32(&[1, 2, 3], &[3], DType::U32, &device, &client)?;
 /// assert_eq!(tensor.dtype(), DType::U32);
 /// ```
-pub fn tensor_from_i32<R: Runtime>(
+pub fn tensor_from_i32<R: Runtime<DType = DType>>(
     data: &[i32],
     shape: &[usize],
     dtype: DType,

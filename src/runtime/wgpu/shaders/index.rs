@@ -11,83 +11,287 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::generator::{
-    generate_embedding_lookup_shader, generate_gather_shader, generate_index_put_shader,
-    generate_index_select_shader, generate_masked_fill_shader, generate_masked_select_shader,
-    generate_scatter_shader, generate_validate_indices_shader,
-};
 use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
 // ============================================================================
-// Helper Functions
+// Static shaders — data-movement ops (F32 / I32 / U32)
 // ============================================================================
 
-/// Check if dtype is supported for index operations on WebGPU.
-fn check_dtype_supported(dtype: DType, op: &'static str) -> Result<()> {
-    match dtype {
-        DType::F32 | DType::I32 | DType::U32 => Ok(()),
-        _ => Err(Error::UnsupportedDType { dtype, op }),
-    }
-}
+const INDEX_SELECT_SHADER_F32: &str = include_str!("index_select_f32.wgsl");
+const INDEX_SELECT_SHADER_I32: &str = include_str!("index_select_i32.wgsl");
+const INDEX_SELECT_SHADER_U32: &str = include_str!("index_select_u32.wgsl");
 
-/// Get the static module/entry point name for an index operation.
-///
-/// Returns the kernel name in format `{op}_{dtype_suffix}`.
-/// For WebGPU index operations, module name and entry point are identical.
-fn kernel_name(op: &'static str, dtype: DType) -> Result<&'static str> {
-    match (op, dtype) {
-        ("index_select", DType::F32) => Ok("index_select_f32"),
-        ("index_select", DType::I32) => Ok("index_select_i32"),
-        ("index_select", DType::U32) => Ok("index_select_u32"),
-        ("index_put", DType::F32) => Ok("index_put_f32"),
-        ("index_put", DType::I32) => Ok("index_put_i32"),
-        ("index_put", DType::U32) => Ok("index_put_u32"),
-        ("gather", DType::F32) => Ok("gather_f32"),
-        ("gather", DType::I32) => Ok("gather_i32"),
-        ("gather", DType::U32) => Ok("gather_u32"),
-        ("scatter", DType::F32) => Ok("scatter_f32"),
-        ("scatter", DType::I32) => Ok("scatter_i32"),
-        ("scatter", DType::U32) => Ok("scatter_u32"),
-        ("copy", DType::F32) => Ok("copy_f32"),
-        ("copy", DType::I32) => Ok("copy_i32"),
-        ("copy", DType::U32) => Ok("copy_u32"),
-        ("masked_fill", DType::F32) => Ok("masked_fill_f32"),
-        ("masked_fill", DType::I32) => Ok("masked_fill_i32"),
-        ("masked_fill", DType::U32) => Ok("masked_fill_u32"),
-        ("masked_select", DType::F32) => Ok("masked_select_f32"),
-        ("masked_select", DType::I32) => Ok("masked_select_i32"),
-        ("masked_select", DType::U32) => Ok("masked_select_u32"),
-        ("embedding_lookup", DType::F32) => Ok("embedding_lookup_f32"),
-        ("embedding_lookup", DType::I32) => Ok("embedding_lookup_i32"),
-        ("embedding_lookup", DType::U32) => Ok("embedding_lookup_u32"),
-        ("gather_nd", DType::F32) => Ok("gather_nd_f32"),
-        ("gather_nd", DType::I32) => Ok("gather_nd_i32"),
-        ("gather_nd", DType::U32) => Ok("gather_nd_u32"),
-        ("bincount", DType::F32) => Ok("bincount_weighted_f32"),
-        ("bincount", DType::I32) => Ok("bincount_weighted_i32"),
-        ("bincount", DType::U32) => Ok("bincount_weighted_u32"),
-        ("bincount_unweighted", _) => Ok("bincount_i32"),
-        ("scatter_reduce_sum", DType::F32) => Ok("scatter_reduce_sum_f32"),
-        ("scatter_reduce_sum", DType::I32) => Ok("scatter_reduce_sum_i32"),
-        ("scatter_reduce_sum", DType::U32) => Ok("scatter_reduce_sum_u32"),
-        ("scatter_reduce_max", DType::F32) => Ok("scatter_reduce_max_f32"),
-        ("scatter_reduce_max", DType::I32) => Ok("scatter_reduce_max_i32"),
-        ("scatter_reduce_max", DType::U32) => Ok("scatter_reduce_max_u32"),
-        ("scatter_reduce_min", DType::F32) => Ok("scatter_reduce_min_f32"),
-        ("scatter_reduce_min", DType::I32) => Ok("scatter_reduce_min_i32"),
-        ("scatter_reduce_min", DType::U32) => Ok("scatter_reduce_min_u32"),
-        ("scatter_reduce_prod", DType::F32) => Ok("scatter_reduce_prod_f32"),
-        ("scatter_reduce_prod", DType::I32) => Ok("scatter_reduce_prod_i32"),
-        ("scatter_reduce_prod", DType::U32) => Ok("scatter_reduce_prod_u32"),
-        ("scatter_reduce_count", DType::F32) => Ok("scatter_reduce_count_f32"),
-        ("scatter_reduce_mean_div", DType::F32) => Ok("scatter_reduce_mean_div_f32"),
-        ("gather_2d", DType::F32) => Ok("gather_2d_f32"),
-        ("gather_2d", DType::I32) => Ok("gather_2d_i32"),
-        ("gather_2d", DType::U32) => Ok("gather_2d_u32"),
-        _ => Err(Error::UnsupportedDType { dtype, op }),
-    }
+const INDEX_PUT_SHADER_F32: &str = include_str!("index_put_f32.wgsl");
+const INDEX_PUT_SHADER_I32: &str = include_str!("index_put_i32.wgsl");
+const INDEX_PUT_SHADER_U32: &str = include_str!("index_put_u32.wgsl");
+
+const GATHER_SHADER_F32: &str = include_str!("gather_f32.wgsl");
+const GATHER_SHADER_I32: &str = include_str!("gather_i32.wgsl");
+const GATHER_SHADER_U32: &str = include_str!("gather_u32.wgsl");
+
+const SCATTER_SHADER_F32: &str = include_str!("scatter_f32.wgsl");
+const SCATTER_SHADER_I32: &str = include_str!("scatter_i32.wgsl");
+const SCATTER_SHADER_U32: &str = include_str!("scatter_u32.wgsl");
+
+const MASKED_FILL_SHADER_F32: &str = include_str!("masked_fill_f32.wgsl");
+const MASKED_FILL_SHADER_I32: &str = include_str!("masked_fill_i32.wgsl");
+const MASKED_FILL_SHADER_U32: &str = include_str!("masked_fill_u32.wgsl");
+
+const MASKED_SELECT_SHADER_F32: &str = include_str!("masked_select_f32.wgsl");
+const MASKED_SELECT_SHADER_I32: &str = include_str!("masked_select_i32.wgsl");
+const MASKED_SELECT_SHADER_U32: &str = include_str!("masked_select_u32.wgsl");
+
+const EMBEDDING_LOOKUP_SHADER_F32: &str = include_str!("embedding_lookup_f32.wgsl");
+const EMBEDDING_LOOKUP_SHADER_I32: &str = include_str!("embedding_lookup_i32.wgsl");
+const EMBEDDING_LOOKUP_SHADER_U32: &str = include_str!("embedding_lookup_u32.wgsl");
+
+const GATHER_ND_SHADER_F32: &str = include_str!("gather_nd_f32.wgsl");
+const GATHER_ND_SHADER_I32: &str = include_str!("gather_nd_i32.wgsl");
+const GATHER_ND_SHADER_U32: &str = include_str!("gather_nd_u32.wgsl");
+
+const SCATTER_REDUCE_SUM_SHADER_F32: &str = include_str!("scatter_reduce_sum_f32.wgsl");
+const SCATTER_REDUCE_SUM_SHADER_I32: &str = include_str!("scatter_reduce_sum_i32.wgsl");
+const SCATTER_REDUCE_SUM_SHADER_U32: &str = include_str!("scatter_reduce_sum_u32.wgsl");
+
+const SCATTER_REDUCE_MAX_SHADER_F32: &str = include_str!("scatter_reduce_max_f32.wgsl");
+const SCATTER_REDUCE_MAX_SHADER_I32: &str = include_str!("scatter_reduce_max_i32.wgsl");
+const SCATTER_REDUCE_MAX_SHADER_U32: &str = include_str!("scatter_reduce_max_u32.wgsl");
+
+const SCATTER_REDUCE_MIN_SHADER_F32: &str = include_str!("scatter_reduce_min_f32.wgsl");
+const SCATTER_REDUCE_MIN_SHADER_I32: &str = include_str!("scatter_reduce_min_i32.wgsl");
+const SCATTER_REDUCE_MIN_SHADER_U32: &str = include_str!("scatter_reduce_min_u32.wgsl");
+
+const SCATTER_REDUCE_PROD_SHADER_F32: &str = include_str!("scatter_reduce_prod_f32.wgsl");
+const SCATTER_REDUCE_PROD_SHADER_I32: &str = include_str!("scatter_reduce_prod_i32.wgsl");
+const SCATTER_REDUCE_PROD_SHADER_U32: &str = include_str!("scatter_reduce_prod_u32.wgsl");
+
+const SCATTER_REDUCE_COUNT_SHADER_F32: &str = include_str!("scatter_reduce_count_f32.wgsl");
+const SCATTER_REDUCE_MEAN_DIV_SHADER_F32: &str = include_str!("scatter_reduce_mean_div_f32.wgsl");
+
+const SLICE_ASSIGN_SHADER_F32: &str = include_str!("slice_assign_f32.wgsl");
+const SLICE_ASSIGN_SHADER_I32: &str = include_str!("slice_assign_i32.wgsl");
+const SLICE_ASSIGN_SHADER_U32: &str = include_str!("slice_assign_u32.wgsl");
+
+const GATHER_2D_SHADER_F32: &str = include_str!("gather_2d_f32.wgsl");
+const GATHER_2D_SHADER_I32: &str = include_str!("gather_2d_i32.wgsl");
+const GATHER_2D_SHADER_U32: &str = include_str!("gather_2d_u32.wgsl");
+
+// ============================================================================
+// Static shaders — dtype-agnostic ops
+// ============================================================================
+
+const VALIDATE_INDICES_SHADER: &str = include_str!("validate_indices.wgsl");
+const BINCOUNT_UNWEIGHTED_SHADER: &str = include_str!("bincount_i32.wgsl");
+
+// ============================================================================
+// Static shaders — F32-only ops
+// ============================================================================
+
+const BINCOUNT_WEIGHTED_SHADER_F32: &str = include_str!("bincount_weighted_f32.wgsl");
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/// Returns (shader, module_key, entry_point) for standard index/scatter/gather ops.
+fn shader_info(
+    op: &'static str,
+    dtype: DType,
+) -> Result<(&'static str, &'static str, &'static str)> {
+    Ok(match (op, dtype) {
+        ("index_select", DType::F32) => (
+            INDEX_SELECT_SHADER_F32,
+            "index_select_f32",
+            "index_select_f32",
+        ),
+        ("index_select", DType::I32) => (
+            INDEX_SELECT_SHADER_I32,
+            "index_select_i32",
+            "index_select_i32",
+        ),
+        ("index_select", DType::U32) => (
+            INDEX_SELECT_SHADER_U32,
+            "index_select_u32",
+            "index_select_u32",
+        ),
+        ("index_put", DType::F32) => (INDEX_PUT_SHADER_F32, "index_put_f32", "index_put_f32"),
+        ("index_put", DType::I32) => (INDEX_PUT_SHADER_I32, "index_put_i32", "index_put_i32"),
+        ("index_put", DType::U32) => (INDEX_PUT_SHADER_U32, "index_put_u32", "index_put_u32"),
+        ("gather", DType::F32) => (GATHER_SHADER_F32, "gather_f32", "gather_f32"),
+        ("gather", DType::I32) => (GATHER_SHADER_I32, "gather_i32", "gather_i32"),
+        ("gather", DType::U32) => (GATHER_SHADER_U32, "gather_u32", "gather_u32"),
+        ("scatter", DType::F32) => (SCATTER_SHADER_F32, "scatter_f32", "scatter_f32"),
+        ("scatter", DType::I32) => (SCATTER_SHADER_I32, "scatter_i32", "scatter_i32"),
+        ("scatter", DType::U32) => (SCATTER_SHADER_U32, "scatter_u32", "scatter_u32"),
+        // copy shares the scatter shader module but uses a different entry point
+        ("copy", DType::F32) => (SCATTER_SHADER_F32, "scatter_f32", "copy_f32"),
+        ("copy", DType::I32) => (SCATTER_SHADER_I32, "scatter_i32", "copy_i32"),
+        ("copy", DType::U32) => (SCATTER_SHADER_U32, "scatter_u32", "copy_u32"),
+        ("masked_fill", DType::F32) => {
+            (MASKED_FILL_SHADER_F32, "masked_fill_f32", "masked_fill_f32")
+        }
+        ("masked_fill", DType::I32) => {
+            (MASKED_FILL_SHADER_I32, "masked_fill_i32", "masked_fill_i32")
+        }
+        ("masked_fill", DType::U32) => {
+            (MASKED_FILL_SHADER_U32, "masked_fill_u32", "masked_fill_u32")
+        }
+        ("masked_select", DType::F32) => (
+            MASKED_SELECT_SHADER_F32,
+            "masked_select_f32",
+            "masked_select_f32",
+        ),
+        ("masked_select", DType::I32) => (
+            MASKED_SELECT_SHADER_I32,
+            "masked_select_i32",
+            "masked_select_i32",
+        ),
+        ("masked_select", DType::U32) => (
+            MASKED_SELECT_SHADER_U32,
+            "masked_select_u32",
+            "masked_select_u32",
+        ),
+        // masked_count and masked_prefix_sum share the masked_select shader module
+        ("masked_count", DType::F32) => (
+            MASKED_SELECT_SHADER_F32,
+            "masked_select_f32",
+            "masked_count",
+        ),
+        ("masked_count", DType::I32) => (
+            MASKED_SELECT_SHADER_I32,
+            "masked_select_i32",
+            "masked_count",
+        ),
+        ("masked_count", DType::U32) => (
+            MASKED_SELECT_SHADER_U32,
+            "masked_select_u32",
+            "masked_count",
+        ),
+        ("masked_prefix_sum", DType::F32) => (
+            MASKED_SELECT_SHADER_F32,
+            "masked_select_f32",
+            "masked_prefix_sum",
+        ),
+        ("masked_prefix_sum", DType::I32) => (
+            MASKED_SELECT_SHADER_I32,
+            "masked_select_i32",
+            "masked_prefix_sum",
+        ),
+        ("masked_prefix_sum", DType::U32) => (
+            MASKED_SELECT_SHADER_U32,
+            "masked_select_u32",
+            "masked_prefix_sum",
+        ),
+        ("embedding_lookup", DType::F32) => (
+            EMBEDDING_LOOKUP_SHADER_F32,
+            "embedding_lookup_f32",
+            "embedding_lookup_f32",
+        ),
+        ("embedding_lookup", DType::I32) => (
+            EMBEDDING_LOOKUP_SHADER_I32,
+            "embedding_lookup_i32",
+            "embedding_lookup_i32",
+        ),
+        ("embedding_lookup", DType::U32) => (
+            EMBEDDING_LOOKUP_SHADER_U32,
+            "embedding_lookup_u32",
+            "embedding_lookup_u32",
+        ),
+        ("gather_nd", DType::F32) => (GATHER_ND_SHADER_F32, "gather_nd_f32", "gather_nd_f32"),
+        ("gather_nd", DType::I32) => (GATHER_ND_SHADER_I32, "gather_nd_i32", "gather_nd_i32"),
+        ("gather_nd", DType::U32) => (GATHER_ND_SHADER_U32, "gather_nd_u32", "gather_nd_u32"),
+        ("scatter_reduce_sum", DType::F32) => (
+            SCATTER_REDUCE_SUM_SHADER_F32,
+            "scatter_reduce_sum_f32",
+            "scatter_reduce_sum_f32",
+        ),
+        ("scatter_reduce_sum", DType::I32) => (
+            SCATTER_REDUCE_SUM_SHADER_I32,
+            "scatter_reduce_sum_i32",
+            "scatter_reduce_sum_i32",
+        ),
+        ("scatter_reduce_sum", DType::U32) => (
+            SCATTER_REDUCE_SUM_SHADER_U32,
+            "scatter_reduce_sum_u32",
+            "scatter_reduce_sum_u32",
+        ),
+        ("scatter_reduce_max", DType::F32) => (
+            SCATTER_REDUCE_MAX_SHADER_F32,
+            "scatter_reduce_max_f32",
+            "scatter_reduce_max_f32",
+        ),
+        ("scatter_reduce_max", DType::I32) => (
+            SCATTER_REDUCE_MAX_SHADER_I32,
+            "scatter_reduce_max_i32",
+            "scatter_reduce_max_i32",
+        ),
+        ("scatter_reduce_max", DType::U32) => (
+            SCATTER_REDUCE_MAX_SHADER_U32,
+            "scatter_reduce_max_u32",
+            "scatter_reduce_max_u32",
+        ),
+        ("scatter_reduce_min", DType::F32) => (
+            SCATTER_REDUCE_MIN_SHADER_F32,
+            "scatter_reduce_min_f32",
+            "scatter_reduce_min_f32",
+        ),
+        ("scatter_reduce_min", DType::I32) => (
+            SCATTER_REDUCE_MIN_SHADER_I32,
+            "scatter_reduce_min_i32",
+            "scatter_reduce_min_i32",
+        ),
+        ("scatter_reduce_min", DType::U32) => (
+            SCATTER_REDUCE_MIN_SHADER_U32,
+            "scatter_reduce_min_u32",
+            "scatter_reduce_min_u32",
+        ),
+        ("scatter_reduce_prod", DType::F32) => (
+            SCATTER_REDUCE_PROD_SHADER_F32,
+            "scatter_reduce_prod_f32",
+            "scatter_reduce_prod_f32",
+        ),
+        ("scatter_reduce_prod", DType::I32) => (
+            SCATTER_REDUCE_PROD_SHADER_I32,
+            "scatter_reduce_prod_i32",
+            "scatter_reduce_prod_i32",
+        ),
+        ("scatter_reduce_prod", DType::U32) => (
+            SCATTER_REDUCE_PROD_SHADER_U32,
+            "scatter_reduce_prod_u32",
+            "scatter_reduce_prod_u32",
+        ),
+        ("scatter_reduce_count", DType::F32) => (
+            SCATTER_REDUCE_COUNT_SHADER_F32,
+            "scatter_reduce_count_f32",
+            "scatter_reduce_count_f32",
+        ),
+        ("scatter_reduce_mean_div", DType::F32) => (
+            SCATTER_REDUCE_MEAN_DIV_SHADER_F32,
+            "scatter_reduce_mean_div_f32",
+            "scatter_reduce_mean_div_f32",
+        ),
+        ("slice_assign", DType::F32) => (
+            SLICE_ASSIGN_SHADER_F32,
+            "slice_assign_f32",
+            "slice_assign_f32",
+        ),
+        ("slice_assign", DType::I32) => (
+            SLICE_ASSIGN_SHADER_I32,
+            "slice_assign_i32",
+            "slice_assign_i32",
+        ),
+        ("slice_assign", DType::U32) => (
+            SLICE_ASSIGN_SHADER_U32,
+            "slice_assign_u32",
+            "slice_assign_u32",
+        ),
+        ("gather_2d", DType::F32) => (GATHER_2D_SHADER_F32, "gather_2d_f32", "gather_2d_f32"),
+        ("gather_2d", DType::I32) => (GATHER_2D_SHADER_I32, "gather_2d_i32", "gather_2d_i32"),
+        ("gather_2d", DType::U32) => (GATHER_2D_SHADER_U32, "gather_2d_u32", "gather_2d_u32"),
+        _ => return Err(Error::UnsupportedDType { dtype, op }),
+    })
 }
 
 // ============================================================================
@@ -108,17 +312,15 @@ pub fn launch_index_select(
     total_output: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "index_select")?;
+    let (shader, module_key, entry_point) = shader_info("index_select", dtype)?;
 
-    let name = kernel_name("index_select", dtype)?;
-    let shader_source = generate_index_select_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
 
@@ -160,17 +362,15 @@ pub fn launch_index_put(
     total_src: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "index_put")?;
+    let (shader, module_key, entry_point) = shader_info("index_put", dtype)?;
 
-    let name = kernel_name("index_put", dtype)?;
-    let shader_source = generate_index_put_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[indices, src, output, params_buffer]);
 
@@ -215,15 +415,14 @@ pub fn launch_validate_indices(
         return Ok(());
     }
 
-    let name = "validate_indices";
-    let shader_source = generate_validate_indices_shader();
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module("validate_indices", VALIDATE_INDICES_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline =
+        cache.get_or_create_pipeline("validate_indices", "validate_indices", &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[indices, error_count, params_buffer]);
 
@@ -264,17 +463,15 @@ pub fn launch_gather(
     total_elements: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "gather")?;
+    let (shader, module_key, entry_point) = shader_info("gather", dtype)?;
 
-    let name = kernel_name("gather", dtype)?;
-    let shader_source = generate_gather_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
 
@@ -312,20 +509,15 @@ pub fn launch_copy(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "copy")?;
+    let (shader, module_key, entry_point) = shader_info("copy", dtype)?;
 
-    // Copy kernel is defined in the scatter shader module
-    let mod_name = kernel_name("scatter", dtype)?;
-    let entry_point = kernel_name("copy", dtype)?;
-
-    let shader_source = generate_scatter_shader(dtype)?;
-    let module = cache.get_or_create_module(mod_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
 
@@ -362,17 +554,15 @@ pub fn launch_scatter(
     src_total: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "scatter")?;
+    let (shader, module_key, entry_point) = shader_info("scatter", dtype)?;
 
-    let name = kernel_name("scatter", dtype)?;
-    let shader_source = generate_scatter_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, indices, output, params_buffer]);
 
@@ -413,17 +603,15 @@ pub fn launch_masked_fill(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "masked_fill")?;
+    let (shader, module_key, entry_point) = shader_info("masked_fill", dtype)?;
 
-    let name = kernel_name("masked_fill", dtype)?;
-    let shader_source = generate_masked_fill_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, mask, output, params_buffer]);
 
@@ -463,11 +651,9 @@ pub fn launch_masked_count(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "masked_count")?;
+    let (shader, module_key, entry_point) = shader_info("masked_count", dtype)?;
 
-    let mod_name = kernel_name("masked_select", dtype)?;
-    let shader_source = generate_masked_select_shader(dtype)?;
-    let module = cache.get_or_create_module(mod_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     // For count: mask (read), count_result (atomic), params
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -475,7 +661,7 @@ pub fn launch_masked_count(
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(mod_name, "masked_count", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[mask, count_result, params_buffer]);
 
@@ -511,18 +697,16 @@ pub fn launch_masked_prefix_sum(
     _numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "masked_prefix_sum")?;
+    let (shader, module_key, entry_point) = shader_info("masked_prefix_sum", dtype)?;
 
-    let mod_name = kernel_name("masked_select", dtype)?;
-    let shader_source = generate_masked_select_shader(dtype)?;
-    let module = cache.get_or_create_module(mod_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(mod_name, "masked_prefix_sum", &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[mask, prefix_sum, params_buffer]);
 
@@ -561,20 +745,16 @@ pub fn launch_masked_select(
     numel: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "masked_select")?;
+    let (shader, module_key, entry_point) = shader_info("masked_select", dtype)?;
 
-    let mod_name = kernel_name("masked_select", dtype)?;
-    let entry_point = kernel_name("masked_select", dtype)?;
-
-    let shader_source = generate_masked_select_shader(dtype)?;
-    let module = cache.get_or_create_module(mod_name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(mod_name, entry_point, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[input, mask, prefix_sum, output, params_buffer]);
@@ -618,17 +798,15 @@ pub fn launch_gather_nd(
     total_output: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "gather_nd")?;
+    let (shader, module_key, entry_point) = shader_info("gather_nd", dtype)?;
 
-    let name = kernel_name("gather_nd", dtype)?;
-    let shader_source = super::generator::generate_gather_nd_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 0,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
 
@@ -671,17 +849,20 @@ pub fn launch_bincount(
     n: usize,
     weights_dtype: Option<DType>,
 ) -> Result<()> {
-    let (name, shader_source) = if let Some(dtype) = weights_dtype {
-        let name = kernel_name("bincount", dtype)?;
-        let source = super::generator::generate_bincount_shader(Some(dtype))?;
-        (name, source)
+    let (name, shader) = if let Some(dtype) = weights_dtype {
+        // bincount_weighted is F32 only (uses float atomics)
+        if dtype != DType::F32 {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "bincount_weighted",
+            });
+        }
+        ("bincount_weighted_f32", BINCOUNT_WEIGHTED_SHADER_F32)
     } else {
-        let name = kernel_name("bincount_unweighted", DType::I32)?;
-        let source = super::generator::generate_bincount_shader(None)?;
-        (name, source)
+        ("bincount_i32", BINCOUNT_UNWEIGHTED_SHADER)
     };
 
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(name, shader);
 
     let (layout, bind_group) = if let Some(weights_buf) = weights {
         let layout = cache.get_or_create_layout(LayoutKey {
@@ -743,8 +924,6 @@ pub fn launch_scatter_reduce(
     dtype: DType,
     op: &str,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "scatter_reduce")?;
-
     // Get static kernel name based on op type
     let op_name: &'static str = match op {
         "sum" => "scatter_reduce_sum",
@@ -758,15 +937,15 @@ pub fn launch_scatter_reduce(
         }
     };
 
-    let name = kernel_name(op_name, dtype)?;
-    let shader_source = super::generator::generate_scatter_reduce_shader(dtype, op)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let (shader, module_key, entry_point) = shader_info(op_name, dtype)?;
+
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, indices, dst, params_buffer]);
 
@@ -807,17 +986,15 @@ pub fn launch_scatter_reduce_prod(
     total_src: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "scatter_reduce_prod")?;
+    let (shader, module_key, entry_point) = shader_info("scatter_reduce_prod", dtype)?;
 
-    let name = kernel_name("scatter_reduce_prod", dtype)?;
-    let shader_source = super::generator::generate_scatter_reduce_prod_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[src, indices, dst, params_buffer]);
 
@@ -857,15 +1034,15 @@ pub fn launch_scatter_reduce_count(
     total_src: usize,
     dtype: DType,
 ) -> Result<()> {
-    let name = kernel_name("scatter_reduce_count", dtype)?;
-    let shader_source = super::generator::generate_scatter_reduce_count_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let (shader, module_key, entry_point) = shader_info("scatter_reduce_count", dtype)?;
+
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 2,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[indices, count, params_buffer]);
 
@@ -904,17 +1081,15 @@ pub fn launch_scatter_reduce_mean_div(
     n: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "scatter_reduce_mean_div")?;
+    let (shader, module_key, entry_point) = shader_info("scatter_reduce_mean_div", dtype)?;
 
-    let name = kernel_name("scatter_reduce_mean_div", dtype)?;
-    let shader_source = super::generator::generate_scatter_reduce_mean_div_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[sum_buf, count_buf, output, params_buffer]);
 
@@ -960,17 +1135,15 @@ pub fn launch_embedding_lookup(
     num_indices: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "embedding_lookup")?;
+    let (shader, module_key, entry_point) = shader_info("embedding_lookup", dtype)?;
 
-    let name = kernel_name("embedding_lookup", dtype)?;
-    let shader_source = generate_embedding_lookup_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
         num_uniform_buffers: 1,
         num_readonly_storage: 0,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group =
         cache.create_bind_group(&layout, &[embeddings, indices, output, params_buffer]);
@@ -989,6 +1162,55 @@ pub fn launch_embedding_lookup(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+// ============================================================================
+// Slice Assign Operation
+// ============================================================================
+
+/// Launch a slice_assign operation kernel.
+///
+/// Overwrites a slice of the output tensor with src values along a dimension.
+/// Output should already contain a copy of dst data.
+pub fn launch_slice_assign(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_src: usize,
+    dtype: DType,
+) -> Result<()> {
+    let (shader, module_key, entry_point) = shader_info("slice_assign", dtype)?;
+
+    let module = cache.get_or_create_module(module_key, shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("slice_assign"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("slice_assign"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_src), 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -1018,17 +1240,15 @@ pub fn launch_gather_2d(
     num_indices: usize,
     dtype: DType,
 ) -> Result<()> {
-    check_dtype_supported(dtype, "gather_2d")?;
+    let (shader, module_key, entry_point) = shader_info("gather_2d", dtype)?;
 
-    let name = kernel_name("gather_2d", dtype)?;
-    let shader_source = super::generator::generate_gather_2d_shader(dtype)?;
-    let module = cache.get_or_create_module(name, &shader_source);
+    let module = cache.get_or_create_module(module_key, shader);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 4,
         num_uniform_buffers: 1,
         num_readonly_storage: 3,
     });
-    let pipeline = cache.get_or_create_pipeline(name, name, &module, &layout);
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
 
     let bind_group = cache.create_bind_group(&layout, &[input, rows, cols, output, params_buffer]);
 

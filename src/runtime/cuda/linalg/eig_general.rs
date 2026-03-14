@@ -52,7 +52,7 @@ pub fn eig_decompose_impl(
     let flag_ptr = flag_guard.ptr();
 
     // Copy A to T (working buffer)
-    CudaRuntime::copy_within_device(a.storage().ptr(), t_ptr, matrix_size, device)?;
+    CudaRuntime::copy_within_device(a.ptr(), t_ptr, matrix_size, device)?;
 
     // Initialize converged flag to 0
     let zero_flag = [0i32];

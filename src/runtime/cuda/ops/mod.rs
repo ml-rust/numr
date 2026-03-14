@@ -13,11 +13,14 @@ mod tests {
         ActivationOps, BinaryOps, IndexingOps, MatmulOps, NormalizationOps, ReduceOps,
     };
     use crate::runtime::Runtime;
-    use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+    use crate::runtime::cuda::{CudaDevice, CudaRuntime, is_cuda_available};
     use crate::tensor::Tensor;
 
     #[test]
     fn test_cuda_tensor_add() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -33,6 +36,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_matmul_2x2() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -48,6 +54,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_matmul_3x2_2x4() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -73,6 +82,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_relu() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -85,6 +97,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_sum() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -100,6 +115,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_silu() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -118,6 +136,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_gelu() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -135,6 +156,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_rms_norm() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -163,6 +187,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_layer_norm() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -198,6 +225,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_argmax() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 
@@ -226,6 +256,9 @@ mod tests {
 
     #[test]
     fn test_cuda_tensor_argmin() {
+        if !is_cuda_available() {
+            return;
+        }
         let device = CudaDevice::new(0);
         let client = CudaRuntime::default_client(&device);
 

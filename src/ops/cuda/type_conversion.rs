@@ -28,8 +28,8 @@ impl TypeConversionOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 src_dtype,
                 target_dtype,
-                a_contig.storage().ptr(),
-                out.storage().ptr(),
+                a_contig.ptr(),
+                out.ptr(),
                 numel,
             )?;
         }

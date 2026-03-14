@@ -67,10 +67,10 @@ pub fn solve_triangular_lower(
         )));
     };
 
-    let l_buffer = get_buffer(l.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
+    let l_buffer =
+        get_buffer(l.ptr()).ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
     let b_contig = b.contiguous();
-    let b_buffer = get_buffer(b_contig.storage().ptr())
+    let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     // Allocate output
@@ -227,10 +227,10 @@ pub fn solve_triangular_upper(
         )));
     };
 
-    let u_buffer = get_buffer(u.storage().ptr())
-        .ok_or_else(|| Error::Internal("Failed to get U buffer".to_string()))?;
+    let u_buffer =
+        get_buffer(u.ptr()).ok_or_else(|| Error::Internal("Failed to get U buffer".to_string()))?;
     let b_contig = b.contiguous();
-    let b_buffer = get_buffer(b_contig.storage().ptr())
+    let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
     // Allocate output

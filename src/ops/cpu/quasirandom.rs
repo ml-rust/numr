@@ -26,10 +26,10 @@ impl QuasiRandomOps<CpuRuntime> for CpuClient {
 
         match dtype {
             DType::F32 => unsafe {
-                kernels::sobol_f32(out.storage().ptr() as *mut f32, n_points, dimension, skip);
+                kernels::sobol_f32(out.ptr() as *mut f32, n_points, dimension, skip);
             },
             DType::F64 => unsafe {
-                kernels::sobol_f64(out.storage().ptr() as *mut f64, n_points, dimension, skip);
+                kernels::sobol_f64(out.ptr() as *mut f64, n_points, dimension, skip);
             },
             _ => unreachable!("dtype validation should prevent this"),
         }
@@ -50,10 +50,10 @@ impl QuasiRandomOps<CpuRuntime> for CpuClient {
 
         match dtype {
             DType::F32 => unsafe {
-                kernels::halton_f32(out.storage().ptr() as *mut f32, n_points, dimension, skip);
+                kernels::halton_f32(out.ptr() as *mut f32, n_points, dimension, skip);
             },
             DType::F64 => unsafe {
-                kernels::halton_f64(out.storage().ptr() as *mut f64, n_points, dimension, skip);
+                kernels::halton_f64(out.ptr() as *mut f64, n_points, dimension, skip);
             },
             _ => unreachable!("dtype validation should prevent this"),
         }
@@ -79,10 +79,10 @@ impl QuasiRandomOps<CpuRuntime> for CpuClient {
 
         match dtype {
             DType::F32 => unsafe {
-                kernels::latin_hypercube_f32(out.storage().ptr() as *mut f32, n_samples, dimension);
+                kernels::latin_hypercube_f32(out.ptr() as *mut f32, n_samples, dimension);
             },
             DType::F64 => unsafe {
-                kernels::latin_hypercube_f64(out.storage().ptr() as *mut f64, n_samples, dimension);
+                kernels::latin_hypercube_f64(out.ptr() as *mut f64, n_samples, dimension);
             },
             _ => unreachable!("dtype validation should prevent this"),
         }

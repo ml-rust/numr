@@ -452,10 +452,10 @@ impl SparseOps<CudaRuntime> for CudaClient {
 
         let out = Tensor::<CudaRuntime>::zeros(&[n], dtype, device);
 
-        let row_ptrs_ptr = row_ptrs.storage().ptr();
-        let col_indices_ptr = col_indices.storage().ptr();
-        let values_ptr = values.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let row_ptrs_ptr = row_ptrs.ptr();
+        let col_indices_ptr = col_indices.ptr();
+        let values_ptr = values.ptr();
+        let out_ptr = out.ptr();
 
         match dtype {
             DType::F32 => unsafe {

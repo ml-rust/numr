@@ -26,9 +26,13 @@
 /// Sparse element-wise operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SparseMergeOp {
+    /// Element-wise addition: C[i,j] = A[i,j] + B[i,j] (union semantics)
     Add,
+    /// Element-wise subtraction: C[i,j] = A[i,j] - B[i,j] (union semantics)
     Sub,
+    /// Element-wise multiplication: C[i,j] = A[i,j] * B[i,j] (intersection semantics)
     Mul,
+    /// Element-wise division: C[i,j] = A[i,j] / B[i,j] (intersection semantics)
     Div,
 }
 

@@ -2,7 +2,8 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::RandomOps;
-use crate::ops::TypeConversionOps; // Required for self.cast() method resolution
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::runtime::cuda::kernels::{
     launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
     launch_f_distribution, launch_gamma_dist, launch_laplace, launch_multinomial_with_replacement,
@@ -48,7 +49,43 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
+                numel,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn rand_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<CudaRuntime>> {
+        #[cfg(feature = "fp8")]
+        if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+            let f32_result = self.rand_seeded(shape, DType::F32, seed)?;
+            return self.cast(&f32_result, dtype);
+        }
+
+        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "rand_seeded",
+            });
+        }
+
+        let numel: usize = shape.iter().product();
+        if numel == 0 {
+            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device));
+        }
+
+        let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
+
+        unsafe {
+            launch_rand(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                seed,
+                out.ptr(),
                 numel,
             )?;
         }
@@ -89,7 +126,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 self.device.index,
                 dtype,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -157,7 +194,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 low,
                 range,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -243,8 +280,8 @@ impl RandomOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    probs.storage().ptr(),
-                    out.storage().ptr(),
+                    probs.ptr(),
+                    out.ptr(),
                     seed,
                     num_distributions,
                     num_categories,
@@ -256,8 +293,8 @@ impl RandomOps<CudaRuntime> for CudaClient {
                     &self.stream,
                     self.device.index,
                     dtype,
-                    probs.storage().ptr(),
-                    out.storage().ptr(),
+                    probs.ptr(),
+                    out.ptr(),
                     seed,
                     num_distributions,
                     num_categories,
@@ -299,7 +336,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 p,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -347,7 +384,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 alpha,
                 beta,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -395,7 +432,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 shape_param,
                 scale,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -433,7 +470,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 rate,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -471,7 +508,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 lambda,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -522,7 +559,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 n,
                 p,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -567,7 +604,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 loc,
                 scale,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -605,7 +642,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 df,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -643,7 +680,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 dtype,
                 df,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }
@@ -694,7 +731,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
                 df1,
                 df2,
                 seed,
-                out.storage().ptr(),
+                out.ptr(),
                 numel,
             )?;
         }

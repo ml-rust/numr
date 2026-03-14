@@ -24,9 +24,12 @@
 
 mod cache;
 mod client;
+#[cfg(feature = "nccl")]
+mod communicator;
 mod device;
 mod fft;
-pub(crate) mod kernels;
+mod graph;
+pub mod kernels;
 mod linalg;
 mod ops;
 mod polynomial;
@@ -37,5 +40,8 @@ mod special;
 
 pub use crate::tensor::Tensor;
 pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
+#[cfg(feature = "nccl")]
+pub use communicator::NcclCommunicator;
 pub use device::{CudaDevice, CudaError};
+pub use graph::CudaGraph;
 pub use runtime::{CudaRuntime, cuda_device, cuda_device_id, is_cuda_available};

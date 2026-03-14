@@ -1,6 +1,6 @@
 //! Storage: device memory management with Arc-based sharing
 
-use crate::dtype::{DType, Element};
+use crate::dtype::{DType, DataType, Element};
 use crate::error::Result;
 use crate::runtime::Runtime;
 use std::sync::Arc;
@@ -21,7 +21,7 @@ struct StorageInner<R: Runtime> {
     /// Number of elements (not bytes)
     len: usize,
     /// Element type
-    dtype: DType,
+    dtype: R::DType,
     /// Device where memory is allocated
     device: R::Device,
     /// If true, we own this memory and should deallocate on drop
@@ -32,34 +32,9 @@ impl<R: Runtime> Storage<R> {
     /// Create new storage with allocated memory
     ///
     /// Allocates `len` elements of type `dtype` on the specified device.
-    pub fn new(len: usize, dtype: DType, device: &R::Device) -> Result<Self> {
-        let size_bytes = len * dtype.size_in_bytes();
+    pub fn new(len: usize, dtype: R::DType, device: &R::Device) -> Result<Self> {
+        let size_bytes = dtype.storage_bytes(len);
         let ptr = R::allocate(size_bytes, device)?;
-
-        Ok(Self {
-            inner: Arc::new(StorageInner {
-                ptr,
-                len,
-                dtype,
-                device: device.clone(),
-                owned: true,
-            }),
-        })
-    }
-
-    /// Create storage from existing data with inferred dtype
-    ///
-    /// Copies `data` to the device. The dtype is inferred from the Element type.
-    pub fn from_slice<T: Element>(data: &[T], device: &R::Device) -> Result<Self> {
-        let dtype = T::DTYPE;
-        let len = data.len();
-
-        // Copy data to device
-        let bytes = bytemuck::cast_slice(data);
-        let size_bytes = bytes.len();
-        let ptr = R::allocate(size_bytes, device)?;
-
-        R::copy_to_device(bytes, ptr, device)?;
 
         Ok(Self {
             inner: Arc::new(StorageInner {
@@ -75,7 +50,7 @@ impl<R: Runtime> Storage<R> {
     /// Create storage from raw bytes with explicit dtype
     ///
     /// Use this when you have raw bytes and know the dtype.
-    pub fn from_bytes(data: &[u8], dtype: DType, device: &R::Device) -> Result<Self> {
+    pub fn from_bytes(data: &[u8], dtype: R::DType, device: &R::Device) -> Result<Self> {
         let len = data.len() / dtype.size_in_bytes();
         let ptr = R::allocate(data.len(), device)?;
 
@@ -98,7 +73,7 @@ impl<R: Runtime> Storage<R> {
     /// - `ptr` must point to valid device memory
     /// - The memory must remain valid for the lifetime of this Storage
     /// - Caller is responsible for eventual deallocation
-    pub unsafe fn from_ptr(ptr: u64, len: usize, dtype: DType, device: &R::Device) -> Self {
+    pub unsafe fn from_ptr(ptr: u64, len: usize, dtype: R::DType, device: &R::Device) -> Self {
         Self {
             inner: Arc::new(StorageInner {
                 ptr,
@@ -108,6 +83,82 @@ impl<R: Runtime> Storage<R> {
                 owned: false,
             }),
         }
+    }
+
+    /// Wrap existing device memory and take ownership (will deallocate on drop)
+    ///
+    /// # Safety
+    /// - `ptr` must point to valid device memory allocated by this runtime
+    /// - `len` must match the actual allocation size (in elements)
+    /// - No other code will deallocate this memory
+    pub unsafe fn from_ptr_owned(
+        ptr: u64,
+        len: usize,
+        dtype: R::DType,
+        device: &R::Device,
+    ) -> Self {
+        Self {
+            inner: Arc::new(StorageInner {
+                ptr,
+                len,
+                dtype,
+                device: device.clone(),
+                owned: true,
+            }),
+        }
+    }
+
+    /// Wrap existing device memory with explicit ownership flag
+    ///
+    /// # Safety
+    /// - `ptr` must point to valid device memory
+    /// - If `owned` is true, the memory must have been allocated by this runtime
+    /// - If `owned` is false, the memory must remain valid for the Storage's lifetime
+    pub unsafe fn from_raw(
+        ptr: u64,
+        len: usize,
+        dtype: R::DType,
+        device: &R::Device,
+        owned: bool,
+    ) -> Self {
+        Self {
+            inner: Arc::new(StorageInner {
+                ptr,
+                len,
+                dtype,
+                device: device.clone(),
+                owned,
+            }),
+        }
+    }
+
+    /// Create storage from existing data with inferred dtype
+    ///
+    /// Copies `data` to the device. The dtype is inferred from the Element type.
+    /// Only available when the runtime uses numr's standard `DType`.
+    pub fn from_slice<T: Element>(data: &[T], device: &R::Device) -> Result<Self>
+    where
+        R: Runtime<DType = DType>,
+    {
+        let dtype = T::DTYPE;
+        let len = data.len();
+
+        // Copy data to device
+        let bytes = bytemuck::cast_slice(data);
+        let size_bytes = bytes.len();
+        let ptr = R::allocate(size_bytes, device)?;
+
+        R::copy_to_device(bytes, ptr, device)?;
+
+        Ok(Self {
+            inner: Arc::new(StorageInner {
+                ptr,
+                len,
+                dtype,
+                device: device.clone(),
+                owned: true,
+            }),
+        })
     }
 
     /// Get the raw device pointer
@@ -130,7 +181,7 @@ impl<R: Runtime> Storage<R> {
 
     /// Get the element type
     #[inline]
-    pub fn dtype(&self) -> DType {
+    pub fn dtype(&self) -> R::DType {
         self.inner.dtype
     }
 
@@ -143,7 +194,7 @@ impl<R: Runtime> Storage<R> {
     /// Get size in bytes
     #[inline]
     pub fn size_in_bytes(&self) -> usize {
-        self.inner.len * self.inner.dtype.size_in_bytes()
+        self.inner.dtype.storage_bytes(self.inner.len)
     }
 
     /// Get the reference count
@@ -158,14 +209,58 @@ impl<R: Runtime> Storage<R> {
         Arc::strong_count(&self.inner) == 1
     }
 
-    /// Get as raw buffer for passing to operations
+    /// Check if this storage owns its memory (will deallocate on drop)
     #[inline]
-    pub fn as_raw(&self) -> RawBuffer {
+    pub fn is_owned(&self) -> bool {
+        self.inner.owned
+    }
+
+    /// Get as raw buffer for passing to operations.
+    ///
+    /// Only available when the runtime uses numr's standard `DType`.
+    #[inline]
+    pub fn as_raw(&self) -> RawBuffer
+    where
+        R: Runtime<DType = DType>,
+    {
         RawBuffer {
             ptr: self.inner.ptr,
             len: self.inner.len,
             dtype: self.inner.dtype,
         }
+    }
+
+    /// View storage as a host slice without copying.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure:
+    /// - The storage pointer is a valid host (CPU) pointer
+    /// - This is only safe for CPU-backed storage; calling on GPU storage is UB
+    /// - The returned slice borrows the storage, preventing deallocation
+    #[inline]
+    pub unsafe fn as_host_slice<T: bytemuck::Pod>(&self) -> &[T] {
+        if self.inner.len == 0 {
+            return &[];
+        }
+        let ptr = self.inner.ptr as *const T;
+        unsafe { std::slice::from_raw_parts(ptr, self.inner.len) }
+    }
+
+    /// View storage as a mutable host slice without copying.
+    ///
+    /// # Safety
+    ///
+    /// Same as [`as_host_slice`], plus:
+    /// - The storage must be uniquely owned (no other references)
+    /// - The caller must ensure no aliasing
+    #[inline]
+    pub unsafe fn as_host_slice_mut<T: bytemuck::Pod>(&mut self) -> &mut [T] {
+        if self.inner.len == 0 {
+            return &mut [];
+        }
+        let ptr = self.inner.ptr as *mut T;
+        unsafe { std::slice::from_raw_parts_mut(ptr, self.inner.len) }
     }
 
     /// Copy data from device to host
@@ -193,11 +288,7 @@ impl<R: Runtime> Clone for Storage<R> {
 impl<R: Runtime> Drop for StorageInner<R> {
     fn drop(&mut self) {
         if self.owned && self.ptr != 0 {
-            R::deallocate(
-                self.ptr,
-                self.len * self.dtype.size_in_bytes(),
-                &self.device,
-            );
+            R::deallocate(self.ptr, self.dtype.storage_bytes(self.len), &self.device);
         }
     }
 }

@@ -11,7 +11,7 @@ use crate::runtime::cpu::{
     helpers::{
         bincount_impl, dispatch_dtype, embedding_lookup_impl, ensure_contiguous, gather_2d_impl,
         gather_impl, gather_nd_impl, index_put_impl, index_select_impl, masked_fill_impl,
-        masked_select_impl, scatter_impl, scatter_reduce_impl,
+        masked_select_impl, scatter_impl, scatter_reduce_impl, slice_assign_impl,
     },
     kernels,
 };
@@ -43,8 +43,8 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -85,8 +85,8 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         let a_contig = ensure_contiguous(a);
         let out = Tensor::<CpuRuntime>::empty(&out_shape, DType::I64, &self.device);
 
-        let a_ptr = a_contig.storage().ptr();
-        let out_ptr = out.storage().ptr();
+        let a_ptr = a_contig.ptr();
+        let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
@@ -202,5 +202,15 @@ impl IndexingOps<CpuRuntime> for CpuClient {
         cols: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         gather_2d_impl(self, input, rows, cols)
+    }
+
+    fn slice_assign(
+        &self,
+        dst: &Tensor<CpuRuntime>,
+        src: &Tensor<CpuRuntime>,
+        dim: usize,
+        start: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        slice_assign_impl(self, dst, src, dim, start)
     }
 }

@@ -17,7 +17,7 @@ pub struct CscData<R: Runtime> {
     pub(crate) shape: [usize; 2],
 }
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Create a new CSC matrix from components
     pub fn new(
         col_ptrs: Tensor<R>,
@@ -225,7 +225,7 @@ impl<R: Runtime> CscData<R> {
     }
 }
 
-impl<R: Runtime> SparseStorage for CscData<R> {
+impl<R: Runtime<DType = DType>> SparseStorage for CscData<R> {
     fn format(&self) -> SparseFormat {
         SparseFormat::Csc
     }
@@ -250,7 +250,7 @@ impl<R: Runtime> SparseStorage for CscData<R> {
     }
 }
 
-impl<R: Runtime> CscData<R> {
+impl<R: Runtime<DType = DType>> CscData<R> {
     /// Create CSC matrix from host slices
     pub fn from_slices<T: Element>(
         col_ptrs: &[i64],
@@ -307,7 +307,7 @@ impl<R: Runtime> CscData<R> {
 // SparseScaling Implementation for CscData
 // ============================================================================
 
-impl<R: Runtime> SparseScaling<R> for CscData<R> {
+impl<R: Runtime<DType = DType>> SparseScaling<R> for CscData<R> {
     fn row_norms<T: Element + Default + Copy>(&self, norm: NormType) -> Result<Tensor<R>> {
         let [nrows, ncols] = self.shape;
         let device = self.values.device();
