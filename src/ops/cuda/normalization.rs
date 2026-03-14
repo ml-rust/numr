@@ -1,6 +1,7 @@
 //! Normalization operations for CUDA runtime
+use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::NormalizationOps;
+use crate::ops::{NormalizationOps, TypeConversionOps};
 use crate::runtime::cuda::kernels::{
     launch_fused_add_layer_norm, launch_fused_add_layer_norm_bwd, launch_fused_add_rms_norm,
     launch_fused_add_rms_norm_bwd, launch_group_norm, launch_layer_norm, launch_rms_norm,
@@ -471,6 +472,28 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
 
         let batch_size: usize = grad_shape[..grad_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1);
+
+        // FP8: compute backward in F32, then cast results back (FP8 precision too low for
+        // multi-pass backward with atomicAdd accumulation)
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let grad_f32 = self.cast(grad, DType::F32)?;
+            let pre_norm_f32 = self.cast(pre_norm, DType::F32)?;
+            let weight_f32 = self.cast(weight, DType::F32)?;
+            let bias_f32 = self.cast(bias, DType::F32)?;
+            let (d_ir, d_w, d_b) = self.fused_add_layer_norm_bwd(
+                &grad_f32,
+                &pre_norm_f32,
+                &weight_f32,
+                &bias_f32,
+                eps,
+            )?;
+            return Ok((
+                self.cast(&d_ir, dtype)?,
+                self.cast(&d_w, dtype)?,
+                self.cast(&d_b, dtype)?,
+            ));
+        }
 
         let grad_contig = ensure_contiguous(grad);
         let pre_norm_contig = ensure_contiguous(pre_norm);

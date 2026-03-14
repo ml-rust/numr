@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
 use crate::ops::{
-    ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps,
     activation::normalize_softmax_dim,
 };
 use crate::runtime::cpu::{
@@ -101,16 +101,8 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         let inner_arg = self.add(a, &coef_x_cu)?;
         let sqrt_2_pi: f64 = 0.7978845608028654;
         let inner = self.mul_scalar(&inner_arg, sqrt_2_pi)?;
-        // Clamp inner to prevent exp overflow in tanh computation.
-        // Range ±20.0 because ops accumulate in f64: tanh(±20) saturates to ±1.0 in f64,
-        // and exp(40) < DBL_MAX. CUDA f32 kernels use ±15.0 (see activation_deriv.cuh).
-        let inner = self.clamp(&inner, -20.0, 20.0)?;
-        // tanh(inner) via exp
-        let two_inner = self.mul_scalar(&inner, 2.0)?;
-        let exp_2 = self.exp(&two_inner)?;
-        let num = self.add_scalar(&exp_2, -1.0)?;
-        let den = self.add_scalar(&exp_2, 1.0)?;
-        let tanh_inner = self.div(&num, &den)?;
+        // Use tanh op directly — avoids exp overflow for low-precision dtypes (F16/FP8)
+        let tanh_inner = self.tanh(&inner)?;
         // term1 = 0.5*(1+tanh(inner))
         let one_plus_tanh = self.add_scalar(&tanh_inner, 1.0)?;
         let term1 = self.mul_scalar(&one_plus_tanh, 0.5)?;

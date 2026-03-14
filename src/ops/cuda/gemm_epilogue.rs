@@ -1,8 +1,10 @@
 //! CUDA implementation of GEMM epilogue operations.
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
-    GemmActivation, GemmEpilogueOps, matmul_bias_output_shape, validate_matmul_bias_dtypes,
+    GemmActivation, GemmEpilogueOps, TypeConversionOps, matmul_bias_output_shape,
+    validate_matmul_bias_dtypes,
 };
 use crate::runtime::cuda::kernels::{
     launch_gemm_bias_act_batched_kernel, launch_gemm_bias_act_bwd_batched_kernel,
@@ -22,6 +24,16 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
         activation: GemmActivation,
     ) -> Result<Tensor<CudaRuntime>> {
         let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
+
+        // FP8: compute in F32 (tiled GEMM with shared memory needs native arithmetic)
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let a_f32 = self.cast(a, DType::F32)?;
+            let b_f32 = self.cast(b, DType::F32)?;
+            let bias_f32 = self.cast(bias, DType::F32)?;
+            let result = self.matmul_bias_activation(&a_f32, &b_f32, &bias_f32, activation)?;
+            return self.cast(&result, dtype);
+        }
 
         if bias.shape().len() != 1 {
             return Err(Error::InvalidArgument {
@@ -105,6 +117,18 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
         residual: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         let dtype = validate_matmul_bias_dtypes(a.dtype(), b.dtype(), bias.dtype())?;
+
+        // FP8: compute in F32
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let a_f32 = self.cast(a, DType::F32)?;
+            let b_f32 = self.cast(b, DType::F32)?;
+            let bias_f32 = self.cast(bias, DType::F32)?;
+            let res_f32 = self.cast(residual, DType::F32)?;
+            let result = self.matmul_bias_residual(&a_f32, &b_f32, &bias_f32, &res_f32)?;
+            return self.cast(&result, dtype);
+        }
+
         if residual.dtype() != dtype {
             return Err(Error::DTypeMismatch {
                 lhs: dtype,

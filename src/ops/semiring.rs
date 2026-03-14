@@ -139,13 +139,14 @@ impl SemiringOp {
             _ => {
                 matches!(dtype, DType::F32 | DType::F64 | DType::I32 | DType::I64) || {
                     #[cfg(feature = "f16")]
-                    {
-                        matches!(dtype, DType::F16 | DType::BF16)
+                    if matches!(dtype, DType::F16 | DType::BF16) {
+                        return true;
                     }
-                    #[cfg(not(feature = "f16"))]
-                    {
-                        false
+                    #[cfg(feature = "fp8")]
+                    if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+                        return true;
                     }
+                    false
                 }
             }
         }

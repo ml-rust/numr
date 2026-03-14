@@ -3,7 +3,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::distance_common::*;
-use crate::ops::{DistanceMetric, DistanceOps};
+use crate::ops::{DistanceMetric, DistanceOps, TypeConversionOps};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
 
@@ -76,6 +76,26 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let y_ptr = y.ptr();
         let out_ptr = out.ptr();
 
+        // FP8 types: compute in F32, then cast result back
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let x_f32 = self.cast(&x, DType::F32)?;
+            let y_f32 = self.cast(&y, DType::F32)?;
+            let out_f32 = Tensor::<CpuRuntime>::empty(&[n, m], DType::F32, &self.device);
+            unsafe {
+                kernels::cdist_kernel::<f32>(
+                    x_f32.ptr() as *const f32,
+                    y_f32.ptr() as *const f32,
+                    out_f32.ptr() as *mut f32,
+                    n,
+                    m,
+                    d,
+                    metric,
+                );
+            }
+            return self.cast(&out_f32, dtype);
+        }
+
         dispatch_float_dtype!(dtype, T => {
             unsafe {
                 kernels::cdist_kernel::<T>(
@@ -114,6 +134,23 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
         let x_ptr = x.ptr();
         let out_ptr = out.ptr();
+
+        // FP8 types: compute in F32, then cast result back
+        #[cfg(feature = "fp8")]
+        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
+            let x_f32 = self.cast(&x, DType::F32)?;
+            let out_f32 = Tensor::<CpuRuntime>::empty(&[out_size], DType::F32, &self.device);
+            unsafe {
+                kernels::pdist_kernel::<f32>(
+                    x_f32.ptr() as *const f32,
+                    out_f32.ptr() as *mut f32,
+                    n,
+                    d,
+                    metric,
+                );
+            }
+            return self.cast(&out_f32, dtype);
+        }
 
         dispatch_float_dtype!(dtype, T => {
             unsafe {
