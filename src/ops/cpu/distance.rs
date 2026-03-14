@@ -2,8 +2,10 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::ops::distance_common::*;
-use crate::ops::{DistanceMetric, DistanceOps, TypeConversionOps};
+use crate::ops::{DistanceMetric, DistanceOps};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
 
