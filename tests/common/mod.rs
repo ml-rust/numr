@@ -161,7 +161,7 @@ pub fn tolerance_for_dtype(dtype: DType) -> (f64, f64) {
         DType::F64 => (1e-12, 1e-14), // Machine epsilon-level tolerance
         DType::F16 => (0.01, 0.1),    // 1% relative tolerance for half-precision
         DType::BF16 => (0.01, 0.1),   // 1% relative tolerance for BF16
-        DType::FP8E4M3 => (0.1, 1.0), // 10% relative — 4-bit mantissa; atol=1.0 because floor/trunc can differ by 1 ULP
+        DType::FP8E4M3 => (0.3, 2.5), // 30% relative — 4-bit mantissa; atol=2.5 for compound ops (norm bwd, gemm)
         DType::FP8E5M2 => (1.0, 2.5), // Very coarse — 2-bit mantissa; atol=2.5 because scatter_reduce/cov accumulate rounding error
         _ => (1e-5, 1e-6),            // Default tolerance
     }

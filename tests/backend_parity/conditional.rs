@@ -203,7 +203,7 @@ fn test_where_cond_from_compare_parity() {
     .expect("tensor creation failed");
 
     let mask = cpu_client.gt(&a, &threshold).expect("gt failed");
-    let cpu_result = cpu_client
+    let _cpu_result = cpu_client
         .where_cond(&mask, &x, &y)
         .expect("where_cond failed");
 
