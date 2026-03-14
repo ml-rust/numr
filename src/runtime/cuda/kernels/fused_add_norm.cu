@@ -5,6 +5,7 @@
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
+#include "dtype_traits.cuh"
 
 extern "C" {
 
@@ -984,6 +985,476 @@ __global__ void fused_add_layer_norm_bwd_bf16(
         d_input_residual[row * hidden_size + i] = __float2bfloat16(d_ir);
         atomicAddBf16(&d_weight[i], g * normalized);
         atomicAddBf16(&d_bias[i], g);
+    }
+}
+
+// ============================================================================
+// Helper: atomicAdd for FP8 types via 32-bit atomicCAS
+// ============================================================================
+
+__device__ void atomicAddFp8E4M3(numr_fp8_e4m3* address, float val) {
+    // FP8 is 1 byte — use 32-bit atomicCAS on the containing 4-byte word
+    unsigned int* base = (unsigned int*)((size_t)address & ~3ULL);
+    unsigned int byte_offset = (unsigned int)((size_t)address & 3);
+    unsigned int shift = byte_offset * 8;
+    unsigned int old_word = *base, assumed;
+    do {
+        assumed = old_word;
+        uint8_t old_byte = (uint8_t)((assumed >> shift) & 0xFF);
+        float old_float = fp8_e4m3_to_f32(old_byte);
+        uint8_t new_byte = f32_to_fp8_e4m3(old_float + val);
+        unsigned int new_word = (assumed & ~(0xFFu << shift)) | ((unsigned int)new_byte << shift);
+        old_word = atomicCAS(base, assumed, new_word);
+    } while (assumed != old_word);
+}
+
+__device__ void atomicAddFp8E5M2(numr_fp8_e5m2* address, float val) {
+    unsigned int* base = (unsigned int*)((size_t)address & ~3ULL);
+    unsigned int byte_offset = (unsigned int)((size_t)address & 3);
+    unsigned int shift = byte_offset * 8;
+    unsigned int old_word = *base, assumed;
+    do {
+        assumed = old_word;
+        uint8_t old_byte = (uint8_t)((assumed >> shift) & 0xFF);
+        float old_float = fp8_e5m2_to_f32(old_byte);
+        uint8_t new_byte = f32_to_fp8_e5m2(old_float + val);
+        unsigned int new_word = (assumed & ~(0xFFu << shift)) | ((unsigned int)new_byte << shift);
+        old_word = atomicCAS(base, assumed, new_word);
+    } while (assumed != old_word);
+}
+
+// ============================================================================
+// FP8 E4M3 Fused Add + RMSNorm Forward
+// ============================================================================
+
+__global__ void fused_add_rms_norm_fp8_e4m3(
+    const numr_fp8_e4m3* input, const numr_fp8_e4m3* residual, const numr_fp8_e4m3* weight,
+    numr_fp8_e4m3* output, numr_fp8_e4m3* pre_norm,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(input[row * hidden_size + i].data)
+                  + fp8_e4m3_to_f32(residual[row * hidden_size + i].data);
+        pre_norm[row * hidden_size + i].data = f32_to_fp8_e4m3(pn);
+        thread_sum += pn * pn;
+    }
+    shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) shared[threadIdx.x] += shared[threadIdx.x + s];
+        __syncthreads();
+    }
+
+    float rms_inv = rsqrtf(shared[0] / hidden_size + eps);
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        output[row * hidden_size + i].data = f32_to_fp8_e4m3(pn * rms_inv * w);
+    }
+}
+
+__global__ void fused_add_rms_norm_fp8_e5m2(
+    const numr_fp8_e5m2* input, const numr_fp8_e5m2* residual, const numr_fp8_e5m2* weight,
+    numr_fp8_e5m2* output, numr_fp8_e5m2* pre_norm,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(input[row * hidden_size + i].data)
+                  + fp8_e5m2_to_f32(residual[row * hidden_size + i].data);
+        pre_norm[row * hidden_size + i].data = f32_to_fp8_e5m2(pn);
+        thread_sum += pn * pn;
+    }
+    shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) shared[threadIdx.x] += shared[threadIdx.x + s];
+        __syncthreads();
+    }
+
+    float rms_inv = rsqrtf(shared[0] / hidden_size + eps);
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        output[row * hidden_size + i].data = f32_to_fp8_e5m2(pn * rms_inv * w);
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Fused Add + RMSNorm Backward
+// ============================================================================
+
+__global__ void fused_add_rms_norm_bwd_fp8_e4m3(
+    const numr_fp8_e4m3* grad, const numr_fp8_e4m3* pre_norm, const numr_fp8_e4m3* weight,
+    numr_fp8_e4m3* d_input_residual, numr_fp8_e4m3* d_weight,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* sum_sq_shared = shared;
+    float* dot_shared = shared + blockDim.x;
+
+    float thread_sq = 0.0f, thread_dot = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float g = fp8_e4m3_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        thread_sq += pn * pn;
+        thread_dot += g * w * pn;
+    }
+    sum_sq_shared[threadIdx.x] = thread_sq;
+    dot_shared[threadIdx.x] = thread_dot;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_sq_shared[threadIdx.x] += sum_sq_shared[threadIdx.x + s];
+            dot_shared[threadIdx.x] += dot_shared[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+
+    float mean_sq = sum_sq_shared[0] / hidden_size;
+    float inv_rms = rsqrtf(mean_sq + eps);
+    float dot = dot_shared[0];
+    float coeff = dot * inv_rms / (hidden_size * (mean_sq + eps));
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float g = fp8_e4m3_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float dir = (g * w - pn * coeff) * inv_rms;
+        d_input_residual[row * hidden_size + i].data = f32_to_fp8_e4m3(dir);
+        atomicAddFp8E4M3(&d_weight[i], g * pn * inv_rms);
+    }
+}
+
+__global__ void fused_add_rms_norm_bwd_fp8_e5m2(
+    const numr_fp8_e5m2* grad, const numr_fp8_e5m2* pre_norm, const numr_fp8_e5m2* weight,
+    numr_fp8_e5m2* d_input_residual, numr_fp8_e5m2* d_weight,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* sum_sq_shared = shared;
+    float* dot_shared = shared + blockDim.x;
+
+    float thread_sq = 0.0f, thread_dot = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float g = fp8_e5m2_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        thread_sq += pn * pn;
+        thread_dot += g * w * pn;
+    }
+    sum_sq_shared[threadIdx.x] = thread_sq;
+    dot_shared[threadIdx.x] = thread_dot;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            sum_sq_shared[threadIdx.x] += sum_sq_shared[threadIdx.x + s];
+            dot_shared[threadIdx.x] += dot_shared[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+
+    float mean_sq = sum_sq_shared[0] / hidden_size;
+    float inv_rms = rsqrtf(mean_sq + eps);
+    float dot = dot_shared[0];
+    float coeff = dot * inv_rms / (hidden_size * (mean_sq + eps));
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float g = fp8_e5m2_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float dir = (g * w - pn * coeff) * inv_rms;
+        d_input_residual[row * hidden_size + i].data = f32_to_fp8_e5m2(dir);
+        atomicAddFp8E5M2(&d_weight[i], g * pn * inv_rms);
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Fused Add + LayerNorm Forward
+// ============================================================================
+
+__global__ void fused_add_layer_norm_fp8_e4m3(
+    const numr_fp8_e4m3* input, const numr_fp8_e4m3* residual,
+    const numr_fp8_e4m3* weight, const numr_fp8_e4m3* bias,
+    numr_fp8_e4m3* output, numr_fp8_e4m3* pre_norm,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* mean_shared = shared;
+    float* var_shared = shared + blockDim.x;
+
+    // Phase 1: Add residual + compute mean
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(input[row * hidden_size + i].data)
+                  + fp8_e4m3_to_f32(residual[row * hidden_size + i].data);
+        pre_norm[row * hidden_size + i].data = f32_to_fp8_e4m3(pn);
+        thread_sum += pn;
+    }
+    mean_shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) mean_shared[threadIdx.x] += mean_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float mean = mean_shared[0] / hidden_size;
+    __syncthreads();
+
+    // Phase 2: Compute variance
+    float thread_var = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float diff = pn - mean;
+        thread_var += diff * diff;
+    }
+    var_shared[threadIdx.x] = thread_var;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) var_shared[threadIdx.x] += var_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float inv_std = rsqrtf(var_shared[0] / hidden_size + eps);
+    __syncthreads();
+
+    // Phase 3: Normalize
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        float b = fp8_e4m3_to_f32(bias[i].data);
+        float normalized = (pn - mean) * inv_std;
+        output[row * hidden_size + i].data = f32_to_fp8_e4m3(normalized * w + b);
+    }
+}
+
+__global__ void fused_add_layer_norm_fp8_e5m2(
+    const numr_fp8_e5m2* input, const numr_fp8_e5m2* residual,
+    const numr_fp8_e5m2* weight, const numr_fp8_e5m2* bias,
+    numr_fp8_e5m2* output, numr_fp8_e5m2* pre_norm,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* mean_shared = shared;
+    float* var_shared = shared + blockDim.x;
+
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(input[row * hidden_size + i].data)
+                  + fp8_e5m2_to_f32(residual[row * hidden_size + i].data);
+        pre_norm[row * hidden_size + i].data = f32_to_fp8_e5m2(pn);
+        thread_sum += pn;
+    }
+    mean_shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) mean_shared[threadIdx.x] += mean_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float mean = mean_shared[0] / hidden_size;
+    __syncthreads();
+
+    float thread_var = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float diff = pn - mean;
+        thread_var += diff * diff;
+    }
+    var_shared[threadIdx.x] = thread_var;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) var_shared[threadIdx.x] += var_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float inv_std = rsqrtf(var_shared[0] / hidden_size + eps);
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        float b = fp8_e5m2_to_f32(bias[i].data);
+        float normalized = (pn - mean) * inv_std;
+        output[row * hidden_size + i].data = f32_to_fp8_e5m2(normalized * w + b);
+    }
+}
+
+// ============================================================================
+// FP8 E4M3 Fused Add + LayerNorm Backward
+// ============================================================================
+
+__global__ void fused_add_layer_norm_bwd_fp8_e4m3(
+    const numr_fp8_e4m3* grad, const numr_fp8_e4m3* pre_norm,
+    const numr_fp8_e4m3* weight,
+    numr_fp8_e4m3* d_input_residual, numr_fp8_e4m3* d_weight, numr_fp8_e4m3* d_bias,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* mean_shared = shared;
+    float* var_shared = shared + blockDim.x;
+    float* gs_shared = shared + 2 * blockDim.x;
+    float* gsn_shared = shared + 3 * blockDim.x;
+
+    // Phase 1: Compute mean
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        thread_sum += fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+    }
+    mean_shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) mean_shared[threadIdx.x] += mean_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float mean = mean_shared[0] / hidden_size;
+    __syncthreads();
+
+    // Phase 2: Compute variance + dot products
+    float thread_var = 0.0f, thread_gs = 0.0f, thread_gsn = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data);
+        float g = fp8_e4m3_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        float diff = pn - mean;
+        thread_var += diff * diff;
+        thread_gs += g * w;
+        thread_gsn += g * w * diff;
+    }
+    var_shared[threadIdx.x] = thread_var;
+    gs_shared[threadIdx.x] = thread_gs;
+    gsn_shared[threadIdx.x] = thread_gsn;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            var_shared[threadIdx.x] += var_shared[threadIdx.x + s];
+            gs_shared[threadIdx.x] += gs_shared[threadIdx.x + s];
+            gsn_shared[threadIdx.x] += gsn_shared[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+
+    float inv_std = rsqrtf(var_shared[0] / hidden_size + eps);
+    float mean_gs = gs_shared[0] / hidden_size;
+    float mean_gsn = gsn_shared[0] / hidden_size;
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float g = fp8_e4m3_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e4m3_to_f32(weight[i].data);
+        float normalized = (fp8_e4m3_to_f32(pre_norm[row * hidden_size + i].data) - mean) * inv_std;
+        float d_ir = inv_std * (g * w - mean_gs - normalized * mean_gsn);
+        d_input_residual[row * hidden_size + i].data = f32_to_fp8_e4m3(d_ir);
+        atomicAddFp8E4M3(&d_weight[i], g * normalized);
+        atomicAddFp8E4M3(&d_bias[i], g);
+    }
+}
+
+__global__ void fused_add_layer_norm_bwd_fp8_e5m2(
+    const numr_fp8_e5m2* grad, const numr_fp8_e5m2* pre_norm,
+    const numr_fp8_e5m2* weight,
+    numr_fp8_e5m2* d_input_residual, numr_fp8_e5m2* d_weight, numr_fp8_e5m2* d_bias,
+    unsigned int batch_size, unsigned int hidden_size, float eps
+) {
+    unsigned int row = blockIdx.x;
+    if (row >= batch_size) return;
+
+    extern __shared__ float shared[];
+    float* mean_shared = shared;
+    float* var_shared = shared + blockDim.x;
+    float* gs_shared = shared + 2 * blockDim.x;
+    float* gsn_shared = shared + 3 * blockDim.x;
+
+    float thread_sum = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        thread_sum += fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+    }
+    mean_shared[threadIdx.x] = thread_sum;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) mean_shared[threadIdx.x] += mean_shared[threadIdx.x + s];
+        __syncthreads();
+    }
+    float mean = mean_shared[0] / hidden_size;
+    __syncthreads();
+
+    float thread_var = 0.0f, thread_gs = 0.0f, thread_gsn = 0.0f;
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float pn = fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data);
+        float g = fp8_e5m2_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        float diff = pn - mean;
+        thread_var += diff * diff;
+        thread_gs += g * w;
+        thread_gsn += g * w * diff;
+    }
+    var_shared[threadIdx.x] = thread_var;
+    gs_shared[threadIdx.x] = thread_gs;
+    gsn_shared[threadIdx.x] = thread_gsn;
+    __syncthreads();
+
+    for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (threadIdx.x < s) {
+            var_shared[threadIdx.x] += var_shared[threadIdx.x + s];
+            gs_shared[threadIdx.x] += gs_shared[threadIdx.x + s];
+            gsn_shared[threadIdx.x] += gsn_shared[threadIdx.x + s];
+        }
+        __syncthreads();
+    }
+
+    float inv_std = rsqrtf(var_shared[0] / hidden_size + eps);
+    float mean_gs = gs_shared[0] / hidden_size;
+    float mean_gsn = gsn_shared[0] / hidden_size;
+    __syncthreads();
+
+    for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {
+        float g = fp8_e5m2_to_f32(grad[row * hidden_size + i].data);
+        float w = fp8_e5m2_to_f32(weight[i].data);
+        float normalized = (fp8_e5m2_to_f32(pre_norm[row * hidden_size + i].data) - mean) * inv_std;
+        float d_ir = inv_std * (g * w - mean_gs - normalized * mean_gsn);
+        d_input_residual[row * hidden_size + i].data = f32_to_fp8_e5m2(d_ir);
+        atomicAddFp8E5M2(&d_weight[i], g * normalized);
+        atomicAddFp8E5M2(&d_bias[i], g);
     }
 }
 

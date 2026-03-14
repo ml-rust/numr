@@ -9,6 +9,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include <cmath>
+#include "dtype_traits.cuh"
 
 // ============================================================================
 // Accumulation Type Traits
@@ -19,6 +20,8 @@
 template<typename T> struct AccType { using type = T; };
 template<> struct AccType<__half> { using type = float; };
 template<> struct AccType<__nv_bfloat16> { using type = float; };
+template<> struct AccType<numr_fp8_e4m3> { using type = float; };
+template<> struct AccType<numr_fp8_e5m2> { using type = float; };
 
 // ============================================================================
 // Type Conversion Helpers (to/from AccT)
@@ -52,6 +55,26 @@ __device__ __forceinline__ __half from_acc<__half, float>(float val) {
 template<>
 __device__ __forceinline__ __nv_bfloat16 from_acc<__nv_bfloat16, float>(float val) {
     return __float2bfloat16(val);
+}
+
+template<>
+__device__ __forceinline__ float to_acc<float, numr_fp8_e4m3>(numr_fp8_e4m3 val) {
+    return fp8_e4m3_to_f32(val.data);
+}
+
+template<>
+__device__ __forceinline__ float to_acc<float, numr_fp8_e5m2>(numr_fp8_e5m2 val) {
+    return fp8_e5m2_to_f32(val.data);
+}
+
+template<>
+__device__ __forceinline__ numr_fp8_e4m3 from_acc<numr_fp8_e4m3, float>(float val) {
+    return numr_fp8_e4m3(f32_to_fp8_e4m3(val));
+}
+
+template<>
+__device__ __forceinline__ numr_fp8_e5m2 from_acc<numr_fp8_e5m2, float>(float val) {
+    return numr_fp8_e5m2(f32_to_fp8_e5m2(val));
 }
 
 // ============================================================================
@@ -393,3 +416,5 @@ INSTANTIATE_DISTANCE_KERNELS(float, float, f32)
 INSTANTIATE_DISTANCE_KERNELS(double, double, f64)
 INSTANTIATE_DISTANCE_KERNELS(__half, float, f16)
 INSTANTIATE_DISTANCE_KERNELS(__nv_bfloat16, float, bf16)
+INSTANTIATE_DISTANCE_KERNELS(numr_fp8_e4m3, float, fp8_e4m3)
+INSTANTIATE_DISTANCE_KERNELS(numr_fp8_e5m2, float, fp8_e5m2)

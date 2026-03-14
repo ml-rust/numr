@@ -1,6 +1,10 @@
 // Semiring Matrix Multiplication CUDA Kernels
 // C[i,j] = reduce_k( combine(A[i,k], B[k,j]) )
 //
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+#include "dtype_traits.cuh"
+//
 // Semiring operations (passed as op parameter):
 //   0 = MinPlus:  reduce=min, combine=+
 //   1 = MaxPlus:  reduce=max, combine=+
@@ -474,4 +478,360 @@ extern "C" __global__ void semiring_matmul_batched_u8(
     }
 
     C[c_offset + row * N + col] = acc;
+}
+
+// ============================================================================
+// F16 Kernels (compute in F32)
+// ============================================================================
+
+extern "C" __global__ void semiring_matmul_f16(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    __half* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op
+) {
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = __half2float(A[row * K + kk]);
+        float b_val = __half2float(B[kk * N + col]);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[row * N + col] = __float2half(acc);
+}
+
+extern "C" __global__ void semiring_matmul_batched_f16(
+    const __half* __restrict__ A,
+    const __half* __restrict__ B,
+    __half* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op,
+    unsigned int batch_size, unsigned int a_batch_count, unsigned int b_batch_count
+) {
+    unsigned int batch = blockIdx.z;
+    if (batch >= batch_size) return;
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
+    unsigned int c_offset = batch * M * N;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = __half2float(A[a_offset + row * K + kk]);
+        float b_val = __half2float(B[b_offset + kk * N + col]);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[c_offset + row * N + col] = __float2half(acc);
+}
+
+// ============================================================================
+// BF16 Kernels (compute in F32)
+// ============================================================================
+
+extern "C" __global__ void semiring_matmul_bf16(
+    const __nv_bfloat16* __restrict__ A,
+    const __nv_bfloat16* __restrict__ B,
+    __nv_bfloat16* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op
+) {
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = __bfloat162float(A[row * K + kk]);
+        float b_val = __bfloat162float(B[kk * N + col]);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[row * N + col] = __float2bfloat16(acc);
+}
+
+extern "C" __global__ void semiring_matmul_batched_bf16(
+    const __nv_bfloat16* __restrict__ A,
+    const __nv_bfloat16* __restrict__ B,
+    __nv_bfloat16* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op,
+    unsigned int batch_size, unsigned int a_batch_count, unsigned int b_batch_count
+) {
+    unsigned int batch = blockIdx.z;
+    if (batch >= batch_size) return;
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
+    unsigned int c_offset = batch * M * N;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = __bfloat162float(A[a_offset + row * K + kk]);
+        float b_val = __bfloat162float(B[b_offset + kk * N + col]);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[c_offset + row * N + col] = __float2bfloat16(acc);
+}
+
+// ============================================================================
+// FP8 E4M3 Kernels (compute in F32)
+// ============================================================================
+
+extern "C" __global__ void semiring_matmul_fp8_e4m3(
+    const numr_fp8_e4m3* __restrict__ A,
+    const numr_fp8_e4m3* __restrict__ B,
+    numr_fp8_e4m3* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op
+) {
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = fp8_e4m3_to_f32(A[row * K + kk].data);
+        float b_val = fp8_e4m3_to_f32(B[kk * N + col].data);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[row * N + col].data = f32_to_fp8_e4m3(acc);
+}
+
+extern "C" __global__ void semiring_matmul_batched_fp8_e4m3(
+    const numr_fp8_e4m3* __restrict__ A,
+    const numr_fp8_e4m3* __restrict__ B,
+    numr_fp8_e4m3* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op,
+    unsigned int batch_size, unsigned int a_batch_count, unsigned int b_batch_count
+) {
+    unsigned int batch = blockIdx.z;
+    if (batch >= batch_size) return;
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
+    unsigned int c_offset = batch * M * N;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = fp8_e4m3_to_f32(A[a_offset + row * K + kk].data);
+        float b_val = fp8_e4m3_to_f32(B[b_offset + kk * N + col].data);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[c_offset + row * N + col].data = f32_to_fp8_e4m3(acc);
+}
+
+// ============================================================================
+// FP8 E5M2 Kernels (compute in F32)
+// ============================================================================
+
+extern "C" __global__ void semiring_matmul_fp8_e5m2(
+    const numr_fp8_e5m2* __restrict__ A,
+    const numr_fp8_e5m2* __restrict__ B,
+    numr_fp8_e5m2* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op
+) {
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = fp8_e5m2_to_f32(A[row * K + kk].data);
+        float b_val = fp8_e5m2_to_f32(B[kk * N + col].data);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[row * N + col].data = f32_to_fp8_e5m2(acc);
+}
+
+extern "C" __global__ void semiring_matmul_batched_fp8_e5m2(
+    const numr_fp8_e5m2* __restrict__ A,
+    const numr_fp8_e5m2* __restrict__ B,
+    numr_fp8_e5m2* __restrict__ C,
+    unsigned int M, unsigned int N, unsigned int K, unsigned int op,
+    unsigned int batch_size, unsigned int a_batch_count, unsigned int b_batch_count
+) {
+    unsigned int batch = blockIdx.z;
+    if (batch >= batch_size) return;
+    unsigned int row = blockIdx.y * blockDim.y + threadIdx.y;
+    unsigned int col = blockIdx.x * blockDim.x + threadIdx.x;
+    if (row >= M || col >= N) return;
+
+    unsigned int a_offset = (batch % a_batch_count) * M * K;
+    unsigned int b_offset = (batch % b_batch_count) * K * N;
+    unsigned int c_offset = batch * M * N;
+
+    float acc;
+    switch (op) {
+        case 0: case 3: acc = __int_as_float(0x7f800000); break;
+        case 1: case 2: acc = __int_as_float(0xff800000); break;
+        default: acc = 0.0f; break;
+    }
+
+    for (unsigned int kk = 0; kk < K; kk++) {
+        float a_val = fp8_e5m2_to_f32(A[a_offset + row * K + kk].data);
+        float b_val = fp8_e5m2_to_f32(B[b_offset + kk * N + col].data);
+        float combined;
+        switch (op) {
+            case 0: case 1: combined = a_val + b_val; break;
+            case 2: combined = fminf(a_val, b_val); break;
+            case 3: case 5: combined = fmaxf(a_val, b_val); break;
+            case 4: combined = (a_val != 0.0f && b_val != 0.0f) ? 1.0f : 0.0f; break;
+            default: combined = a_val + b_val; break;
+        }
+        switch (op) {
+            case 0: case 3: acc = fminf(acc, combined); break;
+            case 1: case 2: acc = fmaxf(acc, combined); break;
+            case 4: if (combined != 0.0f) acc = 1.0f; break;
+            case 5: acc = acc + combined; break;
+            default: acc = fminf(acc, combined); break;
+        }
+    }
+    C[c_offset + row * N + col].data = f32_to_fp8_e5m2(acc);
 }
