@@ -90,7 +90,7 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 ### Shape and Data Movement
 
 - **ShapeOps**: cat, stack, split, chunk, repeat, pad, roll
-- **IndexingOps**: gather, scatter, gather_nd, scatter_reduce, index_select, masked_select, masked_fill, embedding_lookup, bincount, argmax, argmin
+- **IndexingOps**: gather, scatter, gather_nd, scatter_reduce, index_select, masked_select, masked_fill, embedding_lookup, bincount, argmax, argmin, slice_assign
 - **SortingOps**: sort, argsort, topk, unique, nonzero, searchsorted
 
 ### Reductions
@@ -106,8 +106,10 @@ numr implements a comprehensive set of tensor operations across CPU, CUDA, and W
 
 ### Activation & Normalization Functions
 
-- **ActivationOps**: relu, sigmoid, silu, gelu, swiglu, leaky_relu, elu, softmax, dropout
-- **NormalizationOps**: rms_norm, layer_norm, batch_norm, group_norm, instance_norm
+- **ActivationOps**: relu, sigmoid, silu, gelu, swiglu, leaky_relu, elu, softmax, dropout, fused activation-mul (for gated architectures)
+- **NormalizationOps**: rms_norm, layer_norm, batch_norm, group_norm, instance_norm, fused add-norm (residual + normalize in one pass)
+- **GemmEpilogueOps**: fused matmul+bias+activation in a single kernel (forward + backward)
+- **FusedElementwiseOps**: fused element-wise operation chains across all backends
 - **ConvOps**: conv1d, conv2d, depthwise_conv2d (with stride, padding, dilation, groups)
 - **EinsumOps**: Einstein summation notation
 
@@ -115,7 +117,7 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 
 ### Linear Algebra
 
-- **MatmulOps**: matmul, matmul_bias (fused GEMM+bias)
+- **MatmulOps**: matmul, matmul_bias (fused GEMM+bias), i8×i8→i32 quantized matmul, FP8 matmul
 - **LinalgOps**: solve, lstsq, pinverse, inverse, det, trace, matrix_rank, diag, matrix_norm, kron, khatri_rao
 - **ComplexOps**: conj, real, imag, angle (for complex tensor support)
 
@@ -126,11 +128,12 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 - **Second-order**: `hvp()` for Hessian-vector products, `backward_with_graph()` for higher-order gradients
 - **Activation checkpointing**: `checkpoint()` to trade compute for memory
 - **Backward hooks**: `BackwardHook` trait for gradient notifications (e.g., distributed allreduce)
+- **Differentiable ops**: matmul, conv1d, conv2d, softmax, rms_norm, layer_norm, SiLU, softplus, SwiGLU, dropout, fused GEMM epilogue, fused add-norm, dtype cast, narrow, cat
 
 ### Statistics and Probability
 
 - **StatisticalOps**: var, std, skew, kurtosis, quantile, percentile, median, cov, corrcoef
-- **RandomOps**: rand, randn, randint, multinomial, bernoulli, poisson, binomial, beta, gamma, exponential, chi_squared, student_t, f_distribution
+- **RandomOps**: rand, randn, randint, multinomial, bernoulli, poisson, binomial, beta, gamma, exponential, chi_squared, student_t, f_distribution (with seeded deterministic generation)
 - **MultivariateRandomOps**: multivariate_normal, wishart, dirichlet
 - **QuasirandomOps**: Sobol, Halton sequences
 
@@ -185,6 +188,7 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 
 - Formats: CSR, CSC, COO
 - Operations: SpGEMM (sparse matrix multiplication), SpMV (sparse matrix-vector), DSMM (dense-sparse matrix)
+- 2:4 structured sparsity with multi-backend support
 
 **Sparse Linear Algebra (`numr::sparse_linalg`):**
 
@@ -234,15 +238,15 @@ Every operation supports every compatible dtype. No hardcoded f32-only kernels.
 
 All backends implement identical algorithms with native kernels—no cuBLAS, MKL, or vendor library dependencies.
 
-| Hardware     | Backend | Feature       | Status  | Notes              |
-| ------------ | ------- | ------------- | ------- | ------------------ |
-| CPU (x86-64) | CPU     | cpu (default) | ✓       | AVX-512/AVX2 SIMD  |
-| CPU (ARM64)  | CPU     | cpu           | ✓       | NEON SIMD          |
-| NVIDIA GPU   | CUDA    | cuda          | ✓       | Native PTX kernels |
-| AMD GPU      | WebGPU  | wgpu          | ✓       | WGSL shaders       |
-| Intel GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
-| Apple GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders       |
-| AMD GPU      | ROCm    | -             | Planned | Native HIP kernels |
+| Hardware     | Backend | Feature       | Status  | Notes                                                  |
+| ------------ | ------- | ------------- | ------- | ------------------------------------------------------ |
+| CPU (x86-64) | CPU     | cpu (default) | ✓       | AVX-512/AVX2 SIMD                                      |
+| CPU (ARM64)  | CPU     | cpu           | ✓       | NEON SIMD                                              |
+| NVIDIA GPU   | CUDA    | cuda          | ✓       | Native PTX kernels, caching allocator, GEMV fast paths |
+| AMD GPU      | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
+| Intel GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
+| Apple GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
+| AMD GPU      | ROCm    | -             | Planned | Native HIP kernels                                     |
 
 ### SIMD Acceleration
 
