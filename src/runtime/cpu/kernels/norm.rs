@@ -3,7 +3,7 @@
 //! Provides normalization operations with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// RMS Normalization: output = input * rsqrt(mean(input^2) + eps) * weight
 ///
@@ -39,6 +39,7 @@ pub unsafe fn rms_norm_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -167,6 +168,7 @@ pub unsafe fn layer_norm_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

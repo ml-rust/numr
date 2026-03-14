@@ -4,7 +4,7 @@
 //! - fused_add_mul: out = (a + b) * c
 //! - fused_mul_add_scalar: out = a * scale + bias
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Fused multiply-add: `out[i] = a[i] * b[i] + c[i]`
 ///
@@ -21,6 +21,7 @@ pub unsafe fn fused_mul_add_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::fused_elementwise;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -87,6 +88,7 @@ pub unsafe fn fused_add_mul_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::fused_elementwise;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -153,6 +155,7 @@ pub unsafe fn fused_mul_add_scalar_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::fused_elementwise;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

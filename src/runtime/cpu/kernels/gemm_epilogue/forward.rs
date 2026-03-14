@@ -3,7 +3,7 @@
 //! matmul_bias_activation: C = activation(A @ B + bias)
 //! matmul_bias_residual: C = A @ B + bias + residual
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::GemmActivation;
 
 /// Fused matmul + bias + activation kernel.
@@ -40,6 +40,7 @@ pub unsafe fn matmul_bias_activation_kernel<T: Element>(
     // SIMD dispatch for f32/f64 on x86_64: matmul_bias first, then apply activation via SIMD
     #[cfg(target_arch = "x86_64")]
     {
+        use crate::dtype::DType;
         match T::DTYPE {
             DType::F32 => {
                 matmul_bias_activation_simd_f32(

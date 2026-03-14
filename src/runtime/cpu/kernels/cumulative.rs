@@ -1,6 +1,6 @@
 //! Cumulative operation kernels (cumsum, cumprod, logsumexp)
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Cumulative sum along a contiguous dimension
 ///
@@ -53,6 +53,7 @@ pub unsafe fn cumsum_strided_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::cumulative;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -166,6 +167,7 @@ pub unsafe fn cumprod_strided_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::cumulative;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -256,6 +258,7 @@ pub unsafe fn logsumexp_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::logsumexp;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

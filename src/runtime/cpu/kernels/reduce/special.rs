@@ -2,7 +2,7 @@
 //!
 //! Contains argmax, argmin, softmax, and variance kernels.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Argmax along a dimension - returns indices of maximum values
 ///
@@ -117,6 +117,7 @@ pub unsafe fn softmax_kernel<T: Element>(
     // Dispatch to SIMD for f32/f64 on x86-64
     #[cfg(target_arch = "x86_64")]
     {
+        use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax;
 
         match T::DTYPE {
@@ -206,6 +207,7 @@ pub unsafe fn softmax_bwd_kernel<T: Element>(
 ) {
     #[cfg(target_arch = "x86_64")]
     {
+        use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax_bwd;
 
         match T::DTYPE {
@@ -257,6 +259,7 @@ pub unsafe fn softmax_bwd_kernel<T: Element>(
 
     #[cfg(target_arch = "aarch64")]
     {
+        use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax_bwd;
 
         match T::DTYPE {

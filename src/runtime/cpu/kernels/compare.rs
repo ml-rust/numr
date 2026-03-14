@@ -1,6 +1,6 @@
 //! Comparison operation kernels
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::CompareOp;
 
 /// Execute a comparison operation element-wise
@@ -26,6 +26,7 @@ pub unsafe fn compare_op_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::compare;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

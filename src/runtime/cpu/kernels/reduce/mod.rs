@@ -9,7 +9,7 @@ pub use special::{
     argmax_kernel, argmin_kernel, softmax_bwd_kernel, softmax_kernel, variance_kernel,
 };
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::{AccumulationPrecision, ReduceOp};
 
 /// Reduce along contiguous dimension with automatic SIMD dispatch
@@ -41,6 +41,7 @@ pub unsafe fn reduce_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::reduce;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

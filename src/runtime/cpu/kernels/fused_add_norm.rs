@@ -2,7 +2,7 @@
 //!
 //! Provides fused add+norm operations with automatic SIMD dispatch.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Fused Add + RMS Norm kernel: pre_norm = input + residual, output = rms_norm(pre_norm)
 #[inline]
@@ -20,6 +20,7 @@ pub unsafe fn fused_add_rms_norm_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
         match T::DTYPE {
             DType::F32 => {
                 norm::fused_add_rms_norm_f32(
@@ -135,6 +136,7 @@ pub unsafe fn fused_add_rms_norm_bwd_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
         match T::DTYPE {
             DType::F32 => {
                 norm::fused_add_rms_norm_bwd_f32(
@@ -268,6 +270,7 @@ pub unsafe fn fused_add_layer_norm_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
         match T::DTYPE {
             DType::F32 => {
                 norm::fused_add_layer_norm_f32(
@@ -404,6 +407,7 @@ pub unsafe fn fused_add_layer_norm_bwd_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::norm;
+        use crate::dtype::DType;
         match T::DTYPE {
             DType::F32 => {
                 norm::fused_add_layer_norm_bwd_f32(

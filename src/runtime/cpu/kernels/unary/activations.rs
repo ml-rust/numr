@@ -3,7 +3,7 @@
 //! Provides element-wise activation functions with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Sigmoid activation: 1 / (1 + exp(-x))
 ///
@@ -18,6 +18,7 @@ pub unsafe fn sigmoid_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -69,6 +70,7 @@ pub unsafe fn silu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -122,6 +124,7 @@ pub unsafe fn gelu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -180,6 +183,7 @@ pub unsafe fn leaky_relu_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -248,6 +252,7 @@ pub unsafe fn elu_kernel<T: Element>(a: *const T, out: *mut T, len: usize, alpha
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::activations;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

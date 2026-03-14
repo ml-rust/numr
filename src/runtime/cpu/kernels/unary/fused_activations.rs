@@ -3,7 +3,7 @@
 //! Each function computes `activation(a) * b` element-wise with automatic SIMD dispatch.
 //! Fusing saves one full memory pass compared to separate activation + multiply.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Fused SiLU-Mul: `silu(a) * b = (a / (1 + exp(-a))) * b`
 ///
@@ -14,6 +14,7 @@ pub unsafe fn silu_mul_kernel<T: Element>(a: *const T, b: *const T, out: *mut T,
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::fused_activation_mul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -70,6 +71,7 @@ pub unsafe fn gelu_mul_kernel<T: Element>(a: *const T, b: *const T, out: *mut T,
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::fused_activation_mul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -131,6 +133,7 @@ pub unsafe fn relu_mul_kernel<T: Element>(a: *const T, b: *const T, out: *mut T,
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::fused_activation_mul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -187,6 +190,7 @@ pub unsafe fn sigmoid_mul_kernel<T: Element>(a: *const T, b: *const T, out: *mut
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::fused_activation_mul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

@@ -3,7 +3,7 @@
 //! This module provides matrix multiplication with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 matmuls use AVX-512 or AVX2+FMA when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// SIMD-accelerated f32 dot product for use in half-precision GEMV-BT.
 ///
@@ -141,6 +141,7 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
     {
         use super::simd::detect_simd;
         use super::simd::matmul::gemv_bt;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -182,6 +183,8 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
 
     #[cfg(not(target_arch = "x86_64"))]
     {
+        #[allow(unused_imports)]
+        use crate::dtype::DType;
         match T::DTYPE {
             #[cfg(feature = "f16")]
             DType::F16 | DType::BF16 => {
@@ -279,6 +282,7 @@ unsafe fn gemv_bt_via_f32<T: Element>(
 #[cfg(feature = "f16")]
 #[inline]
 unsafe fn batch_half_to_f32<T: Element>(src: *const T, dst: *mut f32, len: usize) {
+    use crate::dtype::DType;
     match T::DTYPE {
         #[cfg(target_arch = "x86_64")]
         DType::BF16 => {
@@ -407,6 +411,7 @@ pub unsafe fn matmul_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::matmul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::I32 => {
@@ -534,6 +539,7 @@ pub unsafe fn matmul_bias_kernel<T: Element>(
     #[cfg(target_arch = "x86_64")]
     {
         use super::simd::matmul;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

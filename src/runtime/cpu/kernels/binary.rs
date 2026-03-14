@@ -4,7 +4,7 @@
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 //! On aarch64, f32 and f64 operations use NEON when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::BinaryOp;
 
 /// Execute a binary operation element-wise with automatic SIMD dispatch
@@ -30,6 +30,7 @@ pub unsafe fn binary_op_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::binary;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

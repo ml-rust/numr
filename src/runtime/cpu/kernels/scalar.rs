@@ -3,7 +3,7 @@
 //! Provides tensor-scalar operations with automatic SIMD dispatch.
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 use crate::ops::BinaryOp;
 
 /// Binary operation with a scalar (tensor op scalar) with automatic SIMD dispatch
@@ -27,6 +27,7 @@ pub unsafe fn scalar_op_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::scalar;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
@@ -138,6 +139,7 @@ pub unsafe fn rsub_scalar_kernel<T: Element>(a: *const T, scalar: f64, out: *mut
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::scalar;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
