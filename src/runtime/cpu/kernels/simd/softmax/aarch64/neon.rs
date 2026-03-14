@@ -135,13 +135,13 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
 
             // Guard -inf lanes
             let neg_inf = vdupq_n_f64(f64::NEG_INFINITY);
-            let valid_old = vmvnq_u64(vceqq_f64(old_max, neg_inf));
+            let valid_old = veorq_u64(vceqq_f64(old_max, neg_inf), vdupq_n_u64(!0));
             let rescale = exp_f64(vsubq_f64(old_max, max_vec));
             let rescale =
                 vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(rescale), valid_old));
             sum_vec = vmulq_f64(sum_vec, rescale);
 
-            let valid_new = vmvnq_u64(vceqq_f64(max_vec, neg_inf));
+            let valid_new = veorq_u64(vceqq_f64(max_vec, neg_inf), vdupq_n_u64(!0));
             let exp_v = exp_f64(vsubq_f64(v, max_vec));
             let exp_v = vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(exp_v), valid_new));
             sum_vec = vaddq_f64(sum_vec, exp_v);
@@ -169,7 +169,7 @@ pub unsafe fn softmax_f64(a: *const f64, out: *mut f64, outer_size: usize, dim_s
 
         // Reconcile SIMD sum with global max
         let neg_inf = vdupq_n_f64(f64::NEG_INFINITY);
-        let valid_mask = vmvnq_u64(vceqq_f64(max_vec, neg_inf));
+        let valid_mask = veorq_u64(vceqq_f64(max_vec, neg_inf), vdupq_n_u64(!0));
         let v_global_max = vdupq_n_f64(max_val);
         let rescale = exp_f64(vsubq_f64(max_vec, v_global_max));
         let rescale = vreinterpretq_f64_u64(vandq_u64(vreinterpretq_u64_f64(rescale), valid_mask));

@@ -117,11 +117,6 @@ pub unsafe fn unary_f32(op: UnaryOp, a: *const f32, out: *mut f32, len: usize) {
         UnaryOp::Asinh => unary_transcendental_f32(a, out, chunks, math::asinh_f32),
         UnaryOp::Acosh => unary_transcendental_f32(a, out, chunks, math::acosh_f32),
         UnaryOp::Atanh => unary_transcendental_f32(a, out, chunks, math::atanh_f32),
-        _ => {
-            // Unsupported ops handled above
-            unary_scalar_f32(op, a, out, len);
-            return;
-        }
     }
 
     if remainder > 0 {
@@ -181,11 +176,6 @@ pub unsafe fn unary_f64(op: UnaryOp, a: *const f64, out: *mut f64, len: usize) {
         UnaryOp::Asinh => unary_transcendental_f64(a, out, chunks, math::asinh_f64),
         UnaryOp::Acosh => unary_transcendental_f64(a, out, chunks, math::acosh_f64),
         UnaryOp::Atanh => unary_transcendental_f64(a, out, chunks, math::atanh_f64),
-        _ => {
-            // Unsupported ops handled above
-            unary_scalar_f64(op, a, out, len);
-            return;
-        }
     }
 
     if remainder > 0 {

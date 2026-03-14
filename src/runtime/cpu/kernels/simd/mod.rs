@@ -209,6 +209,7 @@ fn detect_simd_uncached() -> SimdLevel {
         return SimdLevel::Neon;
     }
 
+    #[allow(unreachable_code)]
     SimdLevel::Scalar
 }
 

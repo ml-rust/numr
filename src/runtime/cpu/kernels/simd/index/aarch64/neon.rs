@@ -222,7 +222,7 @@ pub unsafe fn masked_count(mask: *const u8, len: usize) -> usize {
             // Horizontal sum
             let sum16 = vpaddlq_u8(total_acc);
             let sum32 = vpaddlq_u16(sum16);
-            let sum64 = vpaddlq_u32(sum32);
+            let _sum64 = vpaddlq_u32(sum32);
             // Will handle at final reduction
         }
     }

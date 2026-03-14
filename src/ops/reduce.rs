@@ -141,7 +141,10 @@ mod tests {
         );
 
         // Reduce all dims
-        assert_eq!(reduce_output_shape(&[2, 3, 4], &[0, 1, 2], false), vec![]);
+        assert_eq!(
+            reduce_output_shape(&[2, 3, 4], &[0, 1, 2], false),
+            Vec::<usize>::new()
+        );
         assert_eq!(
             reduce_output_shape(&[2, 3, 4], &[0, 1, 2], true),
             vec![1, 1, 1]

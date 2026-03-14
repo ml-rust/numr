@@ -5,7 +5,9 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::super::{SimdLevel, detect_simd};
+#[cfg(target_arch = "x86_64")]
+use super::super::SimdLevel;
+use super::super::detect_simd;
 
 /// SIMD-optimized i32 matrix multiplication: C = A @ B
 ///

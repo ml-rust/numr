@@ -16,6 +16,7 @@
 //! Each k iteration: 2 B loads shared across 6 A broadcasts = good reuse.
 
 /// Generate a 6×NR matmul microkernel for f32 (single column chunk)
+#[cfg(target_arch = "x86_64")]
 macro_rules! define_microkernel_f32 {
     (
         $name:ident,
@@ -99,6 +100,7 @@ macro_rules! define_microkernel_f32 {
 /// Generate a 6×(2*NR) double-width matmul microkernel for f32
 ///
 /// Processes 2 column chunks per row = 12 independent FMA chains.
+#[cfg(target_arch = "x86_64")]
 macro_rules! define_microkernel_2x_f32 {
     (
         $name:ident,
@@ -211,6 +213,7 @@ macro_rules! define_microkernel_2x_f32 {
 }
 
 /// Generate a 6×NR matmul microkernel for f64 (single column chunk)
+#[cfg(target_arch = "x86_64")]
 macro_rules! define_microkernel_f64 {
     (
         $name:ident,
@@ -292,6 +295,7 @@ macro_rules! define_microkernel_f64 {
 }
 
 /// Generate a 6×(2*NR) double-width matmul microkernel for f64
+#[cfg(target_arch = "x86_64")]
 macro_rules! define_microkernel_2x_f64 {
     (
         $name:ident,
@@ -399,7 +403,11 @@ macro_rules! define_microkernel_2x_f64 {
     };
 }
 
+#[cfg(target_arch = "x86_64")]
 pub(crate) use define_microkernel_2x_f32;
+#[cfg(target_arch = "x86_64")]
 pub(crate) use define_microkernel_2x_f64;
+#[cfg(target_arch = "x86_64")]
 pub(crate) use define_microkernel_f32;
+#[cfg(target_arch = "x86_64")]
 pub(crate) use define_microkernel_f64;

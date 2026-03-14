@@ -18,7 +18,7 @@
 use std::arch::aarch64::*;
 
 use crate::algorithm::special::scalar::{
-    bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar, bessel_j1_scalar, erf_scalar, erfc_scalar,
+    bessel_i0_scalar, bessel_i1_scalar, bessel_j0_scalar, bessel_j1_scalar, erf_scalar,
 };
 
 // ============================================================================
