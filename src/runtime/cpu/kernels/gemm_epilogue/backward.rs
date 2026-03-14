@@ -30,6 +30,7 @@ trait AccFloat:
     fn exp(self) -> Self;
     fn recip(self) -> Self;
     fn from_f64_const(v: f64) -> Self;
+    fn is_finite(self) -> bool;
 }
 
 impl AccFloat for f32 {
@@ -69,6 +70,10 @@ impl AccFloat for f32 {
     fn from_f64_const(v: f64) -> Self {
         v as f32
     }
+    #[inline]
+    fn is_finite(self) -> bool {
+        f32::is_finite(self)
+    }
 }
 
 impl AccFloat for f64 {
@@ -107,6 +112,10 @@ impl AccFloat for f64 {
     #[inline]
     fn from_f64_const(v: f64) -> Self {
         v
+    }
+    #[inline]
+    fn is_finite(self) -> bool {
+        f64::is_finite(self)
     }
 }
 
@@ -189,6 +198,8 @@ unsafe fn bwd_in<T: Element, A: AccFloat>(
     for i in 0..total {
         let g: A = A::from_elem(*grad.add((i / n) * ld_grad + (i % n)));
         let deriv = activation_derivative(grad_pre[i], activation);
+        // Guard against non-finite derivatives from platform-specific FP edge cases
+        let deriv = if deriv.is_finite() { deriv } else { A::zero() };
         grad_pre[i] = g * deriv;
     }
 
