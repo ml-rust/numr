@@ -67,6 +67,51 @@ unsafe fn simd_dot_f32_avx512(a: *const f32, b: *const f32, len: usize) -> f32 {
     sum
 }
 
+#[cfg(all(feature = "f16", target_arch = "aarch64"))]
+#[inline]
+unsafe fn simd_dot_f32(
+    a: *const f32,
+    b: *const f32,
+    len: usize,
+    _level: super::simd::SimdLevel,
+) -> f32 {
+    simd_dot_f32_neon(a, b, len)
+}
+
+#[cfg(all(feature = "f16", target_arch = "aarch64"))]
+#[target_feature(enable = "neon")]
+unsafe fn simd_dot_f32_neon(a: *const f32, b: *const f32, len: usize) -> f32 {
+    use std::arch::aarch64::*;
+    let mut offset = 0;
+    let mut acc0 = vdupq_n_f32(0.0);
+    let mut acc1 = vdupq_n_f32(0.0);
+    // Process 8 floats per iteration with dual accumulators
+    while offset + 8 <= len {
+        let av0 = vld1q_f32(a.add(offset));
+        let bv0 = vld1q_f32(b.add(offset));
+        acc0 = vfmaq_f32(acc0, av0, bv0);
+        let av1 = vld1q_f32(a.add(offset + 4));
+        let bv1 = vld1q_f32(b.add(offset + 4));
+        acc1 = vfmaq_f32(acc1, av1, bv1);
+        offset += 8;
+    }
+    acc0 = vaddq_f32(acc0, acc1);
+    // Handle remaining 4-float chunk
+    while offset + 4 <= len {
+        let av = vld1q_f32(a.add(offset));
+        let bv = vld1q_f32(b.add(offset));
+        acc0 = vfmaq_f32(acc0, av, bv);
+        offset += 4;
+    }
+    let mut sum = vaddvq_f32(acc0);
+    // Scalar tail
+    while offset < len {
+        sum += *a.add(offset) * *b.add(offset);
+        offset += 1;
+    }
+    sum
+}
+
 #[cfg(all(feature = "f16", target_arch = "x86_64"))]
 #[target_feature(enable = "avx2", enable = "fma")]
 unsafe fn simd_dot_f32_avx2(a: *const f32, b: *const f32, len: usize) -> f32 {
