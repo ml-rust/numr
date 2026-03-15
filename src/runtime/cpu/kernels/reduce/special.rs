@@ -114,8 +114,8 @@ pub unsafe fn softmax_kernel<T: Element>(
     outer_size: usize,
     dim_size: usize,
 ) {
-    // Dispatch to SIMD for f32/f64 on x86-64
-    #[cfg(target_arch = "x86_64")]
+    // Dispatch to SIMD for f32/f64 on x86-64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax;
@@ -205,7 +205,7 @@ pub unsafe fn softmax_bwd_kernel<T: Element>(
     outer_size: usize,
     dim_size: usize,
 ) {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use crate::dtype::DType;
         use crate::runtime::cpu::kernels::simd::softmax_bwd;

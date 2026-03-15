@@ -137,7 +137,7 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
     k: usize,
     ldc: usize,
 ) {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::detect_simd;
         use super::simd::matmul::gemv_bt;
@@ -181,7 +181,7 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
         }
     }
 
-    #[cfg(not(target_arch = "x86_64"))]
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     {
         #[allow(unused_imports)]
         use crate::dtype::DType;
@@ -245,7 +245,7 @@ unsafe fn gemv_bt_via_f32<T: Element>(
     let mut a_f32 = vec![0.0f32; k];
     let mut b_f32 = vec![0.0f32; k];
 
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     let level = super::simd::detect_simd();
 
     for row in 0..m {
@@ -261,12 +261,12 @@ unsafe fn gemv_bt_via_f32<T: Element>(
             batch_half_to_f32::<T>(b_row, b_f32.as_mut_ptr(), k);
 
             // Use SIMD f32 dot product
-            #[cfg(target_arch = "x86_64")]
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             {
                 let dot = simd_dot_f32(a_f32.as_ptr(), b_f32.as_ptr(), k, level);
                 *out_row.add(col) = T::from_f32(dot);
             }
-            #[cfg(not(target_arch = "x86_64"))]
+            #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
             {
                 let mut sum = 0.0f32;
                 for i in 0..k {

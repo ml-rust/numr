@@ -49,8 +49,8 @@ pub unsafe fn cumsum_strided_kernel<T: Element>(
     outer_size: usize,
     inner_size: usize,
 ) {
-    // Use SIMD for f32/f64 on x86_64
-    #[cfg(target_arch = "x86_64")]
+    // Use SIMD for f32/f64 on x86_64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::cumulative;
         use crate::dtype::DType;
@@ -163,8 +163,8 @@ pub unsafe fn cumprod_strided_kernel<T: Element>(
     outer_size: usize,
     inner_size: usize,
 ) {
-    // Use SIMD for f32/f64 on x86_64
-    #[cfg(target_arch = "x86_64")]
+    // Use SIMD for f32/f64 on x86_64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::cumulative;
         use crate::dtype::DType;
@@ -254,8 +254,8 @@ pub unsafe fn logsumexp_kernel<T: Element>(
     reduce_size: usize,
     outer_size: usize,
 ) {
-    // Dispatch to SIMD for f32/f64 on x86-64
-    #[cfg(target_arch = "x86_64")]
+    // Dispatch to SIMD for f32/f64 on x86-64 and aarch64
+    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::simd::logsumexp;
         use crate::dtype::DType;
