@@ -11,4 +11,5 @@ pub(crate) mod dispatch;
 #[cfg(target_arch = "aarch64")]
 pub(crate) mod aarch64;
 
+#[allow(unused_imports)]
 pub use dispatch::*;

@@ -34,7 +34,9 @@ use super::scalar::{matmul_bias_scalar_f32, matmul_bias_scalar_f64};
 use super::scalar::{matmul_scalar_f32, matmul_scalar_f64};
 use super::scalar::{microkernel_edge_f32, microkernel_edge_f64};
 use super::small;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use super::tiling::{matmul_bias_tiled_f32, matmul_bias_tiled_f64};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use super::tiling::{matmul_tiled_f32, matmul_tiled_f64};
 use crate::runtime::cpu::kernels::simd::{SimdLevel, detect_simd};
 

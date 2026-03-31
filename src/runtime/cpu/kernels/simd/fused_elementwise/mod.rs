@@ -10,4 +10,5 @@ pub(crate) mod aarch64;
 
 pub(crate) mod dispatch;
 
+#[allow(unused_imports)]
 pub use dispatch::*;
