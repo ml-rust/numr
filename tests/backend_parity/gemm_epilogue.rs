@@ -468,6 +468,55 @@ fn test_gemm_bias_activation_bwd_batched_3d_parity() {
 }
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/// Assert all elements of a tensor are finite, reading as the correct native dtype.
+fn assert_finite<R: numr::runtime::Runtime>(
+    tensor: &numr::tensor::Tensor<R>,
+    dtype: numr::dtype::DType,
+    label: &str,
+) {
+    use numr::dtype::DType;
+    macro_rules! check {
+        ($T:ty) => {
+            for (i, val) in tensor.to_vec::<$T>().iter().enumerate() {
+                let v = *val as f64;
+                assert!(
+                    v.is_finite(),
+                    "non-finite {label} [{dtype:?}] at index {i}: {v}"
+                );
+            }
+        };
+    }
+    match dtype {
+        DType::F64 => check!(f64),
+        DType::F32 => check!(f32),
+        #[cfg(feature = "f16")]
+        DType::F16 => {
+            for (i, val) in tensor.to_vec::<half::f16>().iter().enumerate() {
+                let v = f32::from(*val) as f64;
+                assert!(
+                    v.is_finite(),
+                    "non-finite {label} [{dtype:?}] at index {i}: {v}"
+                );
+            }
+        }
+        #[cfg(feature = "f16")]
+        DType::BF16 => {
+            for (i, val) in tensor.to_vec::<half::bf16>().iter().enumerate() {
+                let v = f32::from(*val) as f64;
+                assert!(
+                    v.is_finite(),
+                    "non-finite {label} [{dtype:?}] at index {i}: {v}"
+                );
+            }
+        }
+        _ => {} // integer/bool dtypes are always "finite"
+    }
+}
+
+// ============================================================================
 // matmul_bias_activation_bwd: negative values / edge cases
 // ============================================================================
 
@@ -496,25 +545,11 @@ fn test_gemm_bias_activation_bwd_negative_values_parity() {
                 .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
                 .unwrap();
 
-            // Verify finiteness on CPU reference
-            for val in cpu_da.to_vec::<f64>().iter() {
-                assert!(
-                    val.is_finite(),
-                    "non-finite d_a for {activation:?} [{dtype:?}]"
-                );
-            }
-            for val in cpu_db.to_vec::<f64>().iter() {
-                assert!(
-                    val.is_finite(),
-                    "non-finite d_b for {activation:?} [{dtype:?}]"
-                );
-            }
-            for val in cpu_dbias.to_vec::<f64>().iter() {
-                assert!(
-                    val.is_finite(),
-                    "non-finite d_bias for {activation:?} [{dtype:?}]"
-                );
-            }
+            // Verify finiteness on CPU reference (must read as native dtype,
+            // not f64, because to_vec is a raw byte copy with no conversion)
+            assert_finite(&cpu_da, dtype, &format!("d_a for {activation:?}"));
+            assert_finite(&cpu_db, dtype, &format!("d_b for {activation:?}"));
+            assert_finite(&cpu_dbias, dtype, &format!("d_bias for {activation:?}"));
 
             #[cfg(feature = "cuda")]
             if is_dtype_supported("cuda", dtype) {
