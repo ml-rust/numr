@@ -273,4 +273,57 @@ pub trait ConvOps<R: Runtime> {
             feature: "ConvOps::depthwise_conv2d",
         })
     }
+
+    /// Applies a 1D transposed convolution (also called "deconvolution") over an input signal.
+    ///
+    /// Given input of shape `(N, C_in, L_in)` and weight of shape `(C_in, C_out/groups, K)`,
+    /// produces output of shape `(N, C_out, L_out)` where:
+    /// `L_out = (L_in - 1) * stride - pad_left - pad_right + dilation * (K - 1) + output_padding + 1`
+    ///
+    /// Note: the weight layout differs from `conv1d`: input channels come first, then output
+    /// channels per group — matching PyTorch's `ConvTranspose1d` convention.
+    ///
+    /// Used by StyleTTS2-family TTS decoders (Kokoro, etc.) and by generative models
+    /// that upsample a latent sequence to a waveform / spectrogram.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of shape `(N, C_in, L_in)`
+    /// * `weight` - Kernel of shape `(C_in, C_out/groups, K)`
+    /// * `bias` - Optional bias of shape `(C_out,)`
+    /// * `stride` - Upsampling stride
+    /// * `padding` - Padding mode. Note: for transposed conv, this *reduces* output length.
+    /// * `output_padding` - Extra padding added to one side of the output to resolve the
+    ///   ambiguity when `stride > 1`. Must be `< stride`.
+    /// * `dilation` - Spacing between kernel elements
+    /// * `groups` - Number of blocked connections from input to output channels
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::NotImplemented` until a backend provides an implementation.
+    fn conv_transpose1d(
+        &self,
+        input: &Tensor<R>,
+        weight: &Tensor<R>,
+        bias: Option<&Tensor<R>>,
+        stride: usize,
+        padding: PaddingMode,
+        output_padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Result<Tensor<R>> {
+        let _ = (
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        );
+        Err(Error::NotImplemented {
+            feature: "ConvOps::conv_transpose1d",
+        })
+    }
 }

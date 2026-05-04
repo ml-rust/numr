@@ -277,6 +277,233 @@ impl ConvOps<CpuRuntime> for CpuClient {
 
         Ok(output)
     }
+
+    fn conv_transpose1d(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        weight: &Tensor<CpuRuntime>,
+        bias: Option<&Tensor<CpuRuntime>>,
+        stride: usize,
+        padding: PaddingMode,
+        output_padding: usize,
+        dilation: usize,
+        groups: usize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        conv_transpose1d_cpu(
+            &self.device,
+            input,
+            weight,
+            bias,
+            stride,
+            padding,
+            output_padding,
+            dilation,
+            groups,
+        )
+    }
+}
+
+fn conv_transpose1d_cpu(
+    device: &<CpuRuntime as crate::runtime::Runtime>::Device,
+    input: &Tensor<CpuRuntime>,
+    weight: &Tensor<CpuRuntime>,
+    bias: Option<&Tensor<CpuRuntime>>,
+    stride: usize,
+    padding: PaddingMode,
+    output_padding: usize,
+    dilation: usize,
+    groups: usize,
+) -> Result<Tensor<CpuRuntime>> {
+    use crate::ops::conv_common;
+
+    let op = "conv_transpose1d";
+    let dtype = input.dtype();
+    conv_common::validate_3d_tensor(input.shape(), "input", op)?;
+    conv_common::validate_3d_tensor(weight.shape(), "weight", op)?;
+    conv_common::validate_float_dtype(dtype, op)?;
+    conv_common::validate_same_dtype(dtype, weight.dtype(), op)?;
+    conv_common::validate_positive(stride, "stride", op)?;
+    conv_common::validate_positive(dilation, "dilation", op)?;
+    conv_common::validate_positive(groups, "groups", op)?;
+
+    if stride > 0 && output_padding >= stride {
+        return Err(Error::InvalidArgument {
+            arg: "output_padding",
+            reason: format!("must be < stride ({stride}), got {output_padding}"),
+        });
+    }
+
+    let (b, c_in, l_in) = (input.shape()[0], input.shape()[1], input.shape()[2]);
+    let (w_c_in, c_out_per_group, kernel) =
+        (weight.shape()[0], weight.shape()[1], weight.shape()[2]);
+    if w_c_in != c_in {
+        return Err(Error::InvalidArgument {
+            arg: "weight",
+            reason: format!(
+                "expected weight shape [{c_in}, C_out/groups, K], got {:?}",
+                weight.shape()
+            ),
+        });
+    }
+    if c_in % groups != 0 {
+        return Err(Error::InvalidArgument {
+            arg: "groups",
+            reason: format!("C_in ({c_in}) not divisible by groups ({groups})"),
+        });
+    }
+    let c_out = c_out_per_group * groups;
+    if let Some(b_tensor) = bias {
+        conv_common::validate_1d_tensor(b_tensor.shape(), "bias", op)?;
+        conv_common::validate_same_dtype(dtype, b_tensor.dtype(), op)?;
+        conv_common::validate_bias_length(b_tensor.shape()[0], c_out, op)?;
+    }
+
+    let (pad_left, pad_right) = match padding {
+        PaddingMode::Valid => (0usize, 0usize),
+        PaddingMode::Same => {
+            // For transposed conv, "same" means output length = input_length * stride.
+            // Derive symmetric padding matching that convention.
+            let desired = l_in * stride;
+            let unpadded = (l_in - 1) * stride + dilation * (kernel - 1) + output_padding + 1;
+            if unpadded < desired {
+                return Err(Error::InvalidArgument {
+                    arg: "padding",
+                    reason: "PaddingMode::Same cannot shrink output below target length".into(),
+                });
+            }
+            let total = unpadded - desired;
+            (total / 2, total - total / 2)
+        }
+        PaddingMode::Custom(left, right, _, _) => (left, right),
+    };
+
+    let unpadded_len = (l_in - 1) * stride + dilation * (kernel - 1) + output_padding + 1;
+    if pad_left + pad_right > unpadded_len {
+        return Err(Error::InvalidArgument {
+            arg: "padding",
+            reason: format!(
+                "total padding ({}) exceeds raw output length ({unpadded_len})",
+                pad_left + pad_right
+            ),
+        });
+    }
+    let l_out = unpadded_len - pad_left - pad_right;
+
+    if b == 0 || l_out == 0 {
+        return Ok(Tensor::<CpuRuntime>::empty(
+            &[b, c_out, l_out],
+            dtype,
+            device,
+        ));
+    }
+
+    let input = ensure_contiguous(input);
+    let weight = ensure_contiguous(weight);
+    let bias = bias.map(ensure_contiguous);
+    let output = Tensor::<CpuRuntime>::empty(&[b, c_out, l_out], dtype, device);
+
+    let input_ptr = input.ptr();
+    let weight_ptr = weight.ptr();
+    let bias_ptr = bias.as_ref().map(|b| b.ptr());
+    let output_ptr = output.ptr();
+
+    dispatch_float_dtype!(dtype, T => {
+        unsafe {
+            conv_transpose1d_scalar::<T>(
+                input_ptr as *const T,
+                weight_ptr as *const T,
+                bias_ptr.map(|p| p as *const T),
+                output_ptr as *mut T,
+                b, c_in, c_out, l_in, l_out, kernel,
+                stride, dilation, pad_left, groups,
+            );
+        }
+    }, op);
+
+    Ok(output)
+}
+
+/// Scalar reference implementation of transposed 1D convolution.
+///
+/// Correctness-first: no SIMD, no blocking. For Kokoro inference the hot path
+/// is a handful of transposed convs per utterance — measured latency well
+/// under the decoder's dominant cost (BiLSTM + FFT). Replace with a fused /
+/// SIMD variant if benchmarks ever show this as the bottleneck.
+#[allow(clippy::too_many_arguments)]
+unsafe fn conv_transpose1d_scalar<T>(
+    input: *const T,
+    weight: *const T,
+    bias: Option<*const T>,
+    output: *mut T,
+    batch: usize,
+    c_in: usize,
+    c_out: usize,
+    l_in: usize,
+    l_out: usize,
+    kernel: usize,
+    stride: usize,
+    dilation: usize,
+    pad_left: usize,
+    groups: usize,
+) where
+    T: Copy + Default + std::ops::Add<Output = T> + std::ops::Mul<Output = T>,
+{
+    let c_in_per_group = c_in / groups;
+    let c_out_per_group = c_out / groups;
+
+    // Zero-initialize output.
+    unsafe {
+        for i in 0..(batch * c_out * l_out) {
+            *output.add(i) = T::default();
+        }
+    }
+
+    let pad_left_i = pad_left as isize;
+    for b in 0..batch {
+        for g in 0..groups {
+            for ci in 0..c_in_per_group {
+                let c_in_abs = g * c_in_per_group + ci;
+                let input_row_base = (b * c_in + c_in_abs) * l_in;
+                for l in 0..l_in {
+                    let x = unsafe { *input.add(input_row_base + l) };
+                    let base_out_pos = l as isize * stride as isize - pad_left_i;
+                    for co in 0..c_out_per_group {
+                        let c_out_abs = g * c_out_per_group + co;
+                        let weight_row_base = (c_in_abs * c_out_per_group + co) * kernel;
+                        let output_row_base = (b * c_out + c_out_abs) * l_out;
+                        for k in 0..kernel {
+                            let out_pos = base_out_pos + (k * dilation) as isize;
+                            if out_pos < 0 || out_pos >= l_out as isize {
+                                continue;
+                            }
+                            let w = unsafe { *weight.add(weight_row_base + k) };
+                            let out_idx = output_row_base + out_pos as usize;
+                            unsafe {
+                                let cur = *output.add(out_idx);
+                                *output.add(out_idx) = cur + w * x;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Bias: add per-channel across all batch/time positions.
+    if let Some(bias_ptr) = bias {
+        for b in 0..batch {
+            for co in 0..c_out {
+                let bias_val = unsafe { *bias_ptr.add(co) };
+                let base = (b * c_out + co) * l_out;
+                for l in 0..l_out {
+                    unsafe {
+                        let cur = *output.add(base + l);
+                        *output.add(base + l) = cur + bias_val;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -610,5 +837,129 @@ mod tests {
 
         assert_eq!(output.shape(), &[1, 1, 3, 3]);
         assert_eq!(output.dtype(), DType::F64);
+    }
+
+    // -------- conv_transpose1d --------
+
+    #[test]
+    fn conv_transpose1d_stride1_valid_roundtrip() {
+        // Known PyTorch reference: input=[1,2,3], weight=[1,1,1] of shape [1,1,3]
+        // → output length = 3+2 = 5, value = convolve([1,2,3], [1,1,1]).
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 1, 3], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[1, 1, 3], &device);
+        let out = client
+            .conv_transpose1d(&input, &weight, None, 1, PaddingMode::Valid, 0, 1, 1)
+            .unwrap();
+        assert_eq!(out.shape(), &[1, 1, 5]);
+        let d: Vec<f32> = out.to_vec();
+        // Positions: [1, 1+2, 1+2+3, 2+3, 3] = [1, 3, 6, 5, 3]
+        assert_eq!(d, vec![1.0, 3.0, 6.0, 5.0, 3.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_stride2_upsamples() {
+        // stride=2 doubles the effective spacing between input samples.
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[1, 1, 2], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[1, 1, 3], &device);
+        let out = client
+            .conv_transpose1d(&input, &weight, None, 2, PaddingMode::Valid, 0, 1, 1)
+            .unwrap();
+        // L_out = (2-1)*2 + 3 = 5
+        assert_eq!(out.shape(), &[1, 1, 5]);
+        let d: Vec<f32> = out.to_vec();
+        // Scatter: input[0]=1 → positions 0,1,2; input[1]=2 → positions 2,3,4.
+        assert_eq!(d, vec![1.0, 1.0, 3.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_bias_is_added_per_channel() {
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0], &[1, 1, 2], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0], &[1, 2, 1], &device);
+        let bias = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 100.0], &[2], &device);
+        let out = client
+            .conv_transpose1d(&input, &weight, Some(&bias), 1, PaddingMode::Valid, 0, 1, 1)
+            .unwrap();
+        // L_out = (2-1)*1 + 0 + 0 + 1 = 2
+        assert_eq!(out.shape(), &[1, 2, 2]);
+        let d: Vec<f32> = out.to_vec();
+        // Channel 0: input * 1 + 10 = [11, 11]. Channel 1: input * 1 + 100 = [101, 101].
+        assert_eq!(d, vec![11.0, 11.0, 101.0, 101.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_custom_padding_crops_output() {
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[1, 1, 3], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0], &[1, 1, 3], &device);
+        // Pad=1,1 drops one frame on each side of the raw 5-length output.
+        let out = client
+            .conv_transpose1d(
+                &input,
+                &weight,
+                None,
+                1,
+                PaddingMode::Custom(1, 1, 0, 0),
+                0,
+                1,
+                1,
+            )
+            .unwrap();
+        assert_eq!(out.shape(), &[1, 1, 3]);
+        let d: Vec<f32> = out.to_vec();
+        // Crop of [1, 3, 6, 5, 3] → [3, 6, 5].
+        assert_eq!(d, vec![3.0, 6.0, 5.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_multichannel_accumulates_c_in() {
+        // 2 input channels, 1 output channel — output should sum contributions.
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 1.0], &[1, 2, 2], &device);
+        // weight[c_in=0, c_out=0] = [1, 1]; weight[c_in=1, c_out=0] = [2, 2]
+        let weight =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 2.0, 2.0], &[2, 1, 2], &device);
+        let out = client
+            .conv_transpose1d(&input, &weight, None, 1, PaddingMode::Valid, 0, 1, 1)
+            .unwrap();
+        // L_out = (2-1)*1 + 1 + 1 = 3
+        assert_eq!(out.shape(), &[1, 1, 3]);
+        let d: Vec<f32> = out.to_vec();
+        // c_in=0 contributes [1, 1, 0]; c_in=1 contributes [0, 2, 2]. Sum: [1, 3, 2].
+        assert_eq!(d, vec![1.0, 3.0, 2.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_f64_output_dtype() {
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0], &[1, 1, 2], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[1.0f64, 1.0], &[1, 1, 2], &device);
+        let out = client
+            .conv_transpose1d(&input, &weight, None, 1, PaddingMode::Valid, 0, 1, 1)
+            .unwrap();
+        assert_eq!(out.dtype(), DType::F64);
+        assert_eq!(out.shape(), &[1, 1, 3]);
+        let d: Vec<f64> = out.to_vec();
+        assert_eq!(d, vec![1.0, 3.0, 2.0]);
+    }
+
+    #[test]
+    fn conv_transpose1d_rejects_bad_group_division() {
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 3], &[1, 3, 1], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 6], &[3, 2, 1], &device);
+        let res = client.conv_transpose1d(&input, &weight, None, 1, PaddingMode::Valid, 0, 1, 2);
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn conv_transpose1d_rejects_output_padding_ge_stride() {
+        let (device, client) = setup();
+        let input = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 2], &[1, 1, 2], &device);
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.0f32; 2], &[1, 1, 2], &device);
+        let res = client.conv_transpose1d(&input, &weight, None, 2, PaddingMode::Valid, 2, 1, 1);
+        assert!(res.is_err());
     }
 }
