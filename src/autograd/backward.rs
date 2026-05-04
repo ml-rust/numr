@@ -178,7 +178,7 @@ where
             let input_grads = grad_fn.backward(&grad_output)?;
 
             // Accumulate gradients for each input
-            for (input_id, input_grad_opt) in input_ids.iter().zip(input_grads.into_iter()) {
+            for (input_id, input_grad_opt) in input_ids.iter().zip(input_grads) {
                 if let Some(input_grad) = input_grad_opt {
                     // Accumulate gradient using tensor addition
                     grad_store.try_accumulate(*input_id, input_grad, |existing, new| {
@@ -273,7 +273,7 @@ where
             let input_grads = grad_fn.backward_var(&grad_output)?;
 
             // Accumulate gradients for each input using var_add (builds graph)
-            for (input_id, input_grad_opt) in input_ids.iter().zip(input_grads.into_iter()) {
+            for (input_id, input_grad_opt) in input_ids.iter().zip(input_grads) {
                 if let Some(input_grad) = input_grad_opt {
                     // Accumulate gradient using var_add to maintain computation graph
                     var_grad_store.try_accumulate(*input_id, input_grad, |existing, new| {
