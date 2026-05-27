@@ -46,10 +46,23 @@ pub(super) fn get_or_create_client(device: &CudaDevice) -> CudaClient {
     }
 
     // Create new client and cache it
-    let client = CudaClient::new(device.clone()).expect("Failed to create CUDA client");
+    let client = CudaClient::new_uncached(device.clone()).expect("Failed to create CUDA client");
     cache_guard.insert(device.index, client.clone());
 
     client
+}
+
+/// Register a freshly-created client in the cache if the slot is empty.
+///
+/// Called by `CudaClient::new` to ensure callers outside the runtime (e.g.,
+/// `build_device_client` in the embedding pipeline) share the same stream and
+/// context as callers that go through `get_or_create_client`. Returns the
+/// canonical client for this device (either `client` itself if the slot was
+/// empty, or the pre-existing cached client).
+pub(super) fn register_or_get_client(device_index: usize, client: CudaClient) -> CudaClient {
+    let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache_guard = lock_client_cache(cache);
+    cache_guard.entry(device_index).or_insert(client).clone()
 }
 
 /// Try to get a cached client for a device.

@@ -11,28 +11,12 @@
 
 use cudarc::cublas::CudaBlas;
 use cudarc::driver::safe::{CudaContext, CudaStream};
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use super::CudaRuntime;
 use super::device::{CudaDevice, CudaError};
 use crate::runtime::{Allocator, RuntimeClient};
-
-// ============================================================================
-// Internal Helpers
-// ============================================================================
-
-/// Check if the CUDA context on the current thread is valid.
-///
-/// # Safety
-///
-/// This function calls CUDA driver API directly.
-#[inline]
-unsafe fn is_cuda_context_valid() -> bool {
-    let mut ctx: cudarc::driver::sys::CUcontext = std::ptr::null_mut();
-    // SAFETY: cuCtxGetCurrent is safe to call at any time and writes to the provided pointer.
-    let result = unsafe { cudarc::driver::sys::cuCtxGetCurrent(&mut ctx) };
-    result == cudarc::driver::sys::CUresult::CUDA_SUCCESS && !ctx.is_null()
-}
 
 // ============================================================================
 // CudaClient
@@ -88,24 +72,89 @@ impl std::fmt::Debug for CudaClient {
 // CudaAllocator
 // ============================================================================
 
-/// CUDA caching allocator with Rust-side free lists.
+/// Maximum number of cached buffers per exact byte-size bucket.
 ///
-/// Maintains per-size free lists of GPU buffers. On deallocation, buffers are
-/// returned to the free list instead of calling `cuMemFreeAsync`. On allocation,
-/// the free list is checked first, bypassing the CUDA driver entirely for repeat
-/// allocations of the same size. This is critical for inference decode loops where
-/// the same buffer sizes are allocated every step.
+/// 64 gives enough depth to absorb a full decode loop's worth of temporaries
+/// (typically 8–32 per forward pass) while keeping the worst-case cached
+/// footprint to 64× the largest recurring buffer — acceptable for VRAM.
+const FREE_LIST_CAP: usize = 64;
+
+/// CUDA stream-ordered allocator with a Rust-side free list.
 ///
-/// Falls through to `cuMemAllocAsync` for sizes not in the cache.
+/// Combines a per-size-bucket Rust free list (fast path: no driver call) with
+/// `cuMemAllocAsync`/`cuMemFreeAsync` for cold misses and pool management.
 ///
+/// # Safety invariant — single canonical stream
+///
+/// Every pointer in the free list was allocated on `self.stream`. Every
+/// deallocation is also issued on `self.stream`. Because all alloc/free ops
+/// share the same stream, there is no cross-stream ordering hazard: a buffer
+/// popped from the free list is guaranteed to have no pending use on any
+/// other stream before it is returned to the caller.
+///
+/// This invariant holds because `CudaClient::new` always returns the cached
+/// canonical client for a device (via `register_or_get_client`), and stream
+/// creation only happens in `new_uncached`. The `copy_stream` is exclusively
+/// for D2H copies and never used with the allocator.
+///
+/// # Pool Threshold
+///
+/// The default memory pool's release threshold is set to `u64::MAX` at context
+/// creation so that freed segments stay warm for reuse in decode loops.
 #[derive(Clone)]
 pub struct CudaAllocator {
     stream: Arc<CudaStream>,
-    /// Free list: size_bytes → Vec<device_ptr>
-    cache: Arc<std::sync::Mutex<std::collections::HashMap<usize, Vec<u64>>>>,
-    /// When frozen, bypass the cache entirely. Used during CUDA graph capture
-    /// so that `cuMemAllocAsync`/`cuMemFreeAsync` create proper graph nodes.
+    /// Per-size free list: size_bytes → VecDeque of device pointers.
+    ///
+    /// VecDeque gives O(1) push_back / pop_front so the oldest entry is
+    /// evicted first when the cap is reached (FIFO within a bucket).
+    free_list: Arc<Mutex<HashMap<u64, VecDeque<u64>>>>,
+    /// When frozen, alloc/free go directly to the driver to create proper
+    /// CUDA graph alloc/free nodes — bypassing the Rust free list.
     frozen: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl CudaAllocator {
+    /// Allocate directly from the driver (no free-list lookup).
+    ///
+    /// On failure, drains the Rust free list back to the driver pool so those
+    /// segments become available for reuse, syncs the stream, then retries once.
+    unsafe fn driver_alloc(&self, size_bytes: usize) -> crate::error::Result<u64> {
+        let mut ptr: u64 = 0;
+        let result =
+            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
+        if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Ok(ptr);
+        }
+
+        // Drain free list: return cached segments to the driver pool so it can
+        // reclaim VRAM that our Rust-side cache was holding "live" from the
+        // driver's perspective.
+        let drained: Vec<u64> = {
+            let mut map = self.free_list.lock().unwrap();
+            map.drain()
+                .flat_map(|(_, bucket)| bucket.into_iter())
+                .collect()
+        };
+        for p in drained {
+            let _ = cudarc::driver::sys::cuMemFreeAsync(p, self.stream.cu_stream());
+        }
+
+        // Sync so the pool can process the frees before the retry alloc.
+        let _ = self.stream.synchronize();
+
+        let result =
+            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
+        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            return Err(crate::error::Error::OutOfMemory { size: size_bytes });
+        }
+        Ok(ptr)
+    }
+
+    /// Free directly to the driver (no free-list insertion).
+    unsafe fn driver_free(&self, ptr: u64) {
+        let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
+    }
 }
 
 impl Allocator for CudaAllocator {
@@ -114,40 +163,24 @@ impl Allocator for CudaAllocator {
             return Ok(0);
         }
 
-        // When frozen (graph capture), bypass cache — go straight to driver
-        // so cuMemAllocAsync creates a proper graph allocation node.
-        if !self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
-            // Check free list first
-            let mut cache = self.cache.lock().unwrap();
-            if let Some(ptrs) = cache.get_mut(&size_bytes)
-                && let Some(ptr) = ptrs.pop()
-            {
-                return Ok(ptr);
+        // Graph-capture path: bypass free list so the driver records a proper
+        // alloc node in the CUDA graph.
+        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
+            return unsafe { self.driver_alloc(size_bytes) };
+        }
+
+        // Fast path: pop from the free list if a cached buffer exists.
+        {
+            let mut map = self.free_list.lock().unwrap();
+            if let Some(bucket) = map.get_mut(&(size_bytes as u64)) {
+                if let Some(ptr) = bucket.pop_front() {
+                    return Ok(ptr);
+                }
             }
         }
 
-        // Allocate from CUDA driver (stream-ordered)
-        unsafe {
-            let mut ptr: u64 = 0;
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
-
-            if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Ok(ptr);
-            }
-
-            // Sync stream to flush pending async frees, then retry
-            let _ = self.stream.synchronize();
-
-            let result =
-                cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
-
-            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(crate::error::Error::OutOfMemory { size: size_bytes });
-            }
-
-            Ok(ptr)
-        }
+        // Cold miss: ask the driver.
+        unsafe { self.driver_alloc(size_bytes) }
     }
 
     fn deallocate(&self, ptr: u64, size_bytes: usize) {
@@ -155,18 +188,30 @@ impl Allocator for CudaAllocator {
             return;
         }
 
-        // When frozen (graph capture), bypass cache — call cuMemFreeAsync
-        // so the driver creates a proper graph free node.
+        // Graph-capture path: issue a driver free node directly.
         if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
-            unsafe {
-                let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
-            }
+            unsafe { self.driver_free(ptr) };
             return;
         }
 
-        // Return to free list for reuse
-        let mut cache = self.cache.lock().unwrap();
-        cache.entry(size_bytes).or_default().push(ptr);
+        let evict = {
+            let mut map = self.free_list.lock().unwrap();
+            let bucket = map.entry(size_bytes as u64).or_default();
+            if bucket.len() < FREE_LIST_CAP {
+                bucket.push_back(ptr);
+                None
+            } else {
+                // Cap exceeded: evict the oldest buffer and keep the new one.
+                let oldest = bucket.pop_front();
+                bucket.push_back(ptr);
+                oldest
+            }
+        };
+
+        // Evict outside the lock so the lock is not held during a driver call.
+        if let Some(old_ptr) = evict {
+            unsafe { self.driver_free(old_ptr) };
+        }
     }
 
     fn is_frozen(&self) -> bool {
@@ -185,16 +230,17 @@ impl Allocator for CudaAllocator {
     }
 
     fn reset(&self) -> crate::error::Result<()> {
-        // Flush all cached buffers back to CUDA
-        let mut cache = self.cache.lock().unwrap();
-        for (_size, ptrs) in cache.drain() {
-            for ptr in ptrs {
-                unsafe {
-                    if is_cuda_context_valid() {
-                        let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
-                    }
-                }
-            }
+        // Drain the free list and return all cached buffers to the driver pool.
+        // Callers must have dropped all live tensors (which call `deallocate`)
+        // before calling `reset`, so every pointer here is idle on the stream.
+        let drained: Vec<u64> = {
+            let mut map = self.free_list.lock().unwrap();
+            map.drain()
+                .flat_map(|(_, bucket)| bucket.into_iter())
+                .collect()
+        };
+        for ptr in drained {
+            unsafe { self.driver_free(ptr) };
         }
         Ok(())
     }
@@ -205,17 +251,42 @@ impl Allocator for CudaAllocator {
 // ============================================================================
 
 impl CudaClient {
-    /// Create a new CUDA client for a device.
+    /// Create a CUDA client for a device.
     ///
-    /// This initializes the CUDA context, creates a stream, and sets up cuBLAS.
+    /// Returns the canonical client for this device index from the global cache.
+    /// If no client exists for this device yet, a new one is created, registered,
+    /// and returned. Subsequent calls with the same device index always return the
+    /// same underlying streams, context, and allocator — even from call sites that
+    /// do not go through the runtime's `get_or_create_client` (e.g.,
+    /// `build_device_client` in embedding pipelines).
+    ///
+    /// This ensures that tensor allocations (which route through
+    /// `CudaRuntime::allocate` → `get_or_create_client`) and kernel launches
+    /// (which use the client supplied by the caller) always share the same CUDA
+    /// stream, maintaining the stream-ordering invariant required by
+    /// `cuMemAllocAsync`/`cuMemFreeAsync`.
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - CUDA context creation fails (e.g., invalid device ID)
-    /// - Stream creation fails
-    /// - cuBLAS initialization fails
+    /// Returns an error if device initialisation fails (invalid device index,
+    /// driver error, cuBLAS init failure, etc.).
     pub fn new(device: CudaDevice) -> Result<Self, CudaError> {
+        // Return the cached canonical client if one already exists.
+        if let Some(cached) = super::cache::try_get_cached_client(device.index) {
+            return Ok(cached);
+        }
+        let client = Self::new_uncached(device)?;
+        Ok(super::cache::register_or_get_client(
+            client.device.index,
+            client,
+        ))
+    }
+
+    /// Construct a brand-new client without consulting the cache.
+    ///
+    /// Used internally by `get_or_create_client` and `new`. External callers
+    /// should always use `CudaClient::new`.
+    pub(super) fn new_uncached(device: CudaDevice) -> Result<Self, CudaError> {
         // Create CUDA context for this device
         let context = CudaContext::new(device.index).map_err(|e| {
             CudaError::ContextError(format!(
@@ -262,7 +333,7 @@ impl CudaClient {
 
         let allocator = CudaAllocator {
             stream: stream.clone(),
-            cache: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            free_list: Arc::new(Mutex::new(HashMap::new())),
             frozen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
 
