@@ -112,6 +112,11 @@ pub struct CudaAllocator {
     /// When frozen, alloc/free go directly to the driver to create proper
     /// CUDA graph alloc/free nodes — bypassing the Rust free list.
     frozen: Arc<std::sync::atomic::AtomicBool>,
+    /// Cached handle to the default memory pool for the device. Stored as
+    /// `u64` (the raw pointer value) so the struct stays `Send + Sync`.
+    /// Used only by the OOM retry path to call `cuMemPoolTrimTo`.
+    /// Zero when the pool could not be obtained at construction.
+    pool_handle: u64,
 }
 
 impl CudaAllocator {
@@ -142,6 +147,17 @@ impl CudaAllocator {
 
         // Sync so the pool can process the frees before the retry alloc.
         let _ = self.stream.synchronize();
+
+        // Trim the pool to release cached segments back to the OS. The
+        // pool retains freed allocations (per the release threshold) which
+        // is fast for tight decode loops but fragments the address space
+        // when a one-shot large allocation arrives after many small frees.
+        // Calling trim only on the retry path keeps the steady-state cache
+        // behaviour but recovers from fragmentation when it matters.
+        if self.pool_handle != 0 {
+            let pool = self.pool_handle as cudarc::driver::sys::CUmemoryPool;
+            let _ = cudarc::driver::sys::cuMemPoolTrimTo(pool, 0);
+        }
 
         let result =
             cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
@@ -314,20 +330,28 @@ impl CudaClient {
         let cublas = CudaBlas::new(stream.clone())
             .map_err(|e| CudaError::CublasError(format!("Failed to initialize cuBLAS: {:?}", e)))?;
 
-        // Configure the default memory pool to cache freed allocations instead
-        // of returning them to the OS. This dramatically reduces allocation overhead
-        // for repetitive workloads (e.g. inference decode loops).
+        // Configure the default memory pool with a bounded release threshold.
+        // `u64::MAX` (cache everything forever) is great for tight decode loops
+        // but causes fragmentation: after loading many small tensors then trying
+        // to allocate a multi-GB contiguous block (e.g. a large model's weight),
+        // the pool reports OOM despite ample free VRAM because its address space
+        // is fragmented. A 512 MiB threshold lets the pool keep moderate caches
+        // for hot reuse but reclaim larger freed segments back to the OS.
+        // The OOM retry path additionally trims the pool to 0 to recover
+        // from fragmentation when a large request would otherwise fail.
+        let mut pool_handle: u64 = 0;
         unsafe {
             let mut pool: cudarc::driver::sys::CUmemoryPool = std::ptr::null_mut();
             let result =
                 cudarc::driver::sys::cuDeviceGetDefaultMemPool(&mut pool, device.index as i32);
             if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS && !pool.is_null() {
-                let threshold: u64 = u64::MAX; // Keep all freed memory cached
+                let threshold: u64 = 512 * 1024 * 1024;
                 let _ = cudarc::driver::sys::cuMemPoolSetAttribute(
                     pool,
                     cudarc::driver::sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
                     &threshold as *const u64 as *mut std::ffi::c_void,
                 );
+                pool_handle = pool as u64;
             }
         }
 
@@ -335,6 +359,7 @@ impl CudaClient {
             stream: stream.clone(),
             free_list: Arc::new(Mutex::new(HashMap::new())),
             frozen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pool_handle,
         };
 
         let raw_handle = CudaRawHandle {
