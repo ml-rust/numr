@@ -226,6 +226,28 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Fused softmax with additive bias: `softmax(a + bias, dim)` in a single memory pass.
+    ///
+    /// Semantically equivalent to `softmax(a + bias, dim)` but avoids materializing the
+    /// intermediate `a + bias` tensor. The bias is added element-wise (with broadcasting)
+    /// during the max/exp/sum scan so that only one pass over `a` is needed.
+    ///
+    /// # Arguments
+    /// * `a` - Input tensor (e.g. `[B, H, S, S]` attention scores)
+    /// * `bias` - Additive bias broadcastable to `a` (e.g. `[B, 1, 1, S]` attention mask)
+    /// * `dim` - Dimension along which softmax is computed
+    ///
+    /// # Semantics
+    /// Must produce results numerically identical (within FP tolerance) to
+    /// `softmax(add_broadcast(a, bias), dim)`. Accumulation is always done in F32 even
+    /// when `a` and `bias` are F16/BF16.
+    fn softmax_with_bias(&self, a: &Tensor<R>, bias: &Tensor<R>, dim: isize) -> Result<Tensor<R>> {
+        let _ = (a, bias, dim);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::softmax_with_bias",
+        })
+    }
+
     /// Dropout: randomly zero elements with probability `p` during training.
     ///
     /// When `training` is true, each element is independently zeroed with probability `p`,

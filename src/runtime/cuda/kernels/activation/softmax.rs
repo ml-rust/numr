@@ -155,6 +155,62 @@ pub unsafe fn launch_softmax_bwd(
     }
 }
 
+/// Launch fused softmax-with-bias over the last dimension.
+///
+/// Computes `softmax(a + bias, last_dim)` in a single kernel pass.
+/// The bias must have `dim_size` elements (the last-dim size); it is applied
+/// element-wise by position, broadcasting over all outer dimensions of `a`.
+///
+/// # Safety
+///
+/// - All pointers must be valid device memory
+/// - `input_ptr` and `output_ptr` must have `outer_size * dim_size` elements
+/// - `bias_ptr` must have at least `dim_size` elements (bias cycles by `dim_size`)
+pub unsafe fn launch_softmax_with_bias(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    input_ptr: u64,
+    bias_ptr: u64,
+    output_ptr: u64,
+    outer_size: usize,
+    dim_size: usize,
+) -> Result<()> {
+    unsafe {
+        let module = get_or_load_module(context, device_index, kernel_names::SOFTMAX_MODULE)?;
+        let func_name = kernel_name("softmax_bias", dtype);
+        let func = get_kernel_function(&module, &func_name)?;
+
+        let (grid_size, block_size, shared_mem) = softmax_launch_config(outer_size, dim_size);
+        let outer = outer_size as u32;
+        let dim = dim_size as u32;
+
+        let shared_mem = if dtype == DType::F64 {
+            shared_mem * 2
+        } else {
+            shared_mem
+        };
+
+        let cfg = launch_config((grid_size, 1, 1), (block_size, 1, 1), shared_mem);
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&input_ptr);
+        builder.arg(&bias_ptr);
+        builder.arg(&output_ptr);
+        builder.arg(&outer);
+        builder.arg(&dim);
+
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA softmax_with_bias kernel launch failed: {:?}",
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
+}
+
 /// Launch softmax backward kernel (non-last dimension).
 ///
 /// # Safety

@@ -399,14 +399,22 @@ fn test_softmax_parity_for_dtype(dtype: DType) {
 
     for (data, shape, dim) in softmax_test_shapes() {
         let input_cpu = tensor_from_f64(&data, &shape, dtype, &cpu_device, &cpu_client).unwrap();
-        let result_cpu = cpu_client.softmax(&input_cpu, dim).unwrap().contiguous();
+        let result_cpu = cpu_client
+            .softmax(&input_cpu, dim)
+            .unwrap()
+            .contiguous()
+            .unwrap();
 
         #[cfg(feature = "wgpu")]
         if is_dtype_supported("wgpu", dtype) {
             with_wgpu_backend(|wgpu_client, wgpu_device| {
                 let input_wgpu =
                     tensor_from_f64(&data, &shape, dtype, &wgpu_device, &wgpu_client).unwrap();
-                let result_wgpu = wgpu_client.softmax(&input_wgpu, dim).unwrap().contiguous();
+                let result_wgpu = wgpu_client
+                    .softmax(&input_wgpu, dim)
+                    .unwrap()
+                    .contiguous()
+                    .unwrap();
                 assert_tensor_allclose(&result_wgpu, &result_cpu, dtype, "softmax wgpu vs cpu");
             });
         }
@@ -416,7 +424,11 @@ fn test_softmax_parity_for_dtype(dtype: DType) {
             with_cuda_backend(|cuda_client, cuda_device| {
                 let input_cuda =
                     tensor_from_f64(&data, &shape, dtype, &cuda_device, &cuda_client).unwrap();
-                let result_cuda = cuda_client.softmax(&input_cuda, dim).unwrap().contiguous();
+                let result_cuda = cuda_client
+                    .softmax(&input_cuda, dim)
+                    .unwrap()
+                    .contiguous()
+                    .unwrap();
                 assert_tensor_allclose(&result_cuda, &result_cpu, dtype, "softmax cuda vs cpu");
             });
         }
@@ -439,7 +451,11 @@ fn test_softmax_bwd_parity_for_dtype(dtype: DType) {
 
     for (data, shape, dim) in softmax_test_shapes() {
         let input_cpu = tensor_from_f64(&data, &shape, dtype, &cpu_device, &cpu_client).unwrap();
-        let output_cpu = cpu_client.softmax(&input_cpu, dim).unwrap().contiguous();
+        let output_cpu = cpu_client
+            .softmax(&input_cpu, dim)
+            .unwrap()
+            .contiguous()
+            .unwrap();
 
         let grad_data: Vec<f64> = (0..data.len()).map(|i| (i as f64) * 0.1 - 0.5).collect();
         let grad_cpu =
@@ -447,7 +463,8 @@ fn test_softmax_bwd_parity_for_dtype(dtype: DType) {
         let d_input_cpu = cpu_client
             .softmax_bwd(&grad_cpu, &output_cpu, dim)
             .unwrap()
-            .contiguous();
+            .contiguous()
+            .unwrap();
 
         // Get CPU output as f64 for creating GPU tensors
         let output_f64: Vec<f64> = if dtype == DType::F64 {
@@ -471,7 +488,8 @@ fn test_softmax_bwd_parity_for_dtype(dtype: DType) {
                 let d_input_wgpu = wgpu_client
                     .softmax_bwd(&grad_wgpu, &output_wgpu, dim)
                     .unwrap()
-                    .contiguous();
+                    .contiguous()
+                    .unwrap();
                 assert_tensor_allclose(
                     &d_input_wgpu,
                     &d_input_cpu,
@@ -492,7 +510,8 @@ fn test_softmax_bwd_parity_for_dtype(dtype: DType) {
                 let d_input_cuda = cuda_client
                     .softmax_bwd(&grad_cuda, &output_cuda, dim)
                     .unwrap()
-                    .contiguous();
+                    .contiguous()
+                    .unwrap();
                 assert_tensor_allclose(
                     &d_input_cuda,
                     &d_input_cpu,
@@ -509,4 +528,134 @@ fn test_softmax_bwd_parity() {
     for dtype in &[DType::F32, DType::F64] {
         test_softmax_bwd_parity_for_dtype(*dtype);
     }
+}
+
+// ============================================================================
+// softmax_with_bias parity tests
+// ============================================================================
+
+struct SoftmaxBiasCase {
+    a: Vec<f64>,
+    a_shape: Vec<usize>,
+    bias: Vec<f64>,
+    bias_shape: Vec<usize>,
+    dim: isize,
+    label: &'static str,
+}
+
+fn softmax_bias_test_cases() -> Vec<SoftmaxBiasCase> {
+    vec![
+        // (i) [B,1,1,S] broadcast bias over [B,H,S,S] — the primary attention case
+        SoftmaxBiasCase {
+            a: (0..16).map(|i| i as f64 * 0.1 - 0.8).collect(),
+            a_shape: vec![1, 2, 2, 4], // B=1,H=2,S=2,D=4
+            bias: vec![0.0, -30000.0, 0.0, -30000.0],
+            bias_shape: vec![1, 1, 1, 4],
+            dim: -1,
+            label: "broadcast [B,1,1,S]",
+        },
+        // (ii) Same-shape bias
+        SoftmaxBiasCase {
+            a: (0..12).map(|i| i as f64 * 0.2 - 1.0).collect(),
+            a_shape: vec![2, 3, 2],
+            bias: (0..12).map(|i| -(i as f64) * 0.05).collect(),
+            bias_shape: vec![2, 3, 2],
+            dim: -1,
+            label: "same-shape bias",
+        },
+        // (iii) Ragged/non-power-of-2 last dim — triggers fallback path on CUDA
+        //       (still semantically correct via add+softmax)
+        SoftmaxBiasCase {
+            a: (0..15).map(|i| i as f64 * 0.1 - 0.7).collect(),
+            a_shape: vec![3, 5],
+            bias: vec![0.0, -1.0, 0.0, -1.0, 0.0],
+            bias_shape: vec![1, 5],
+            dim: -1,
+            label: "non-power-of-2 dim (5)",
+        },
+        // (iv) Large sentinel value matching the attention -30000 case, multiple heads
+        SoftmaxBiasCase {
+            a: (0..64).map(|i| (i % 8) as f64 * 0.5 - 2.0).collect(),
+            a_shape: vec![2, 2, 4, 4],
+            bias: vec![0.0, 0.0, -30000.0, -30000.0, 0.0, 0.0, -30000.0, -30000.0],
+            bias_shape: vec![2, 1, 1, 4],
+            dim: -1,
+            label: "attention mask -30000 multi-batch",
+        },
+        // (v) Softmax over non-last dim (always uses fallback)
+        SoftmaxBiasCase {
+            a: (0..12).map(|i| i as f64 * 0.1).collect(),
+            a_shape: vec![3, 4],
+            bias: (0..12).map(|i| -(i as f64) * 0.02).collect(),
+            bias_shape: vec![3, 4],
+            dim: 0,
+            label: "non-last dim softmax",
+        },
+    ]
+}
+
+fn test_softmax_with_bias_parity_for_dtype(dtype: DType) {
+    if !is_dtype_supported("cpu", dtype) {
+        return;
+    }
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+
+    for case in softmax_bias_test_cases() {
+        let a_cpu =
+            tensor_from_f64(&case.a, &case.a_shape, dtype, &cpu_device, &cpu_client).unwrap();
+        let bias_cpu = tensor_from_f64(
+            &case.bias,
+            &case.bias_shape,
+            dtype,
+            &cpu_device,
+            &cpu_client,
+        )
+        .unwrap();
+
+        let result_cpu = cpu_client
+            .softmax_with_bias(&a_cpu, &bias_cpu, case.dim)
+            .unwrap()
+            .contiguous()
+            .unwrap();
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a_cuda =
+                    tensor_from_f64(&case.a, &case.a_shape, dtype, &cuda_device, &cuda_client)
+                        .unwrap();
+                let bias_cuda = tensor_from_f64(
+                    &case.bias,
+                    &case.bias_shape,
+                    dtype,
+                    &cuda_device,
+                    &cuda_client,
+                )
+                .unwrap();
+                let result_cuda = cuda_client
+                    .softmax_with_bias(&a_cuda, &bias_cuda, case.dim)
+                    .unwrap()
+                    .contiguous()
+                    .unwrap();
+                assert_tensor_allclose(
+                    &result_cuda,
+                    &result_cpu,
+                    dtype,
+                    &format!("softmax_with_bias cuda vs cpu [{}]", case.label),
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn test_softmax_with_bias_parity() {
+    #[cfg(feature = "f16")]
+    {
+        test_softmax_with_bias_parity_for_dtype(DType::F16);
+        test_softmax_with_bias_parity_for_dtype(DType::BF16);
+    }
+    test_softmax_with_bias_parity_for_dtype(DType::F32);
+    test_softmax_with_bias_parity_for_dtype(DType::F64);
 }

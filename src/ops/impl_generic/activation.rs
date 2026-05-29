@@ -10,6 +10,24 @@ use crate::ops::traits::{
 use crate::runtime::{Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
+/// Generic softmax_with_bias implementation: `softmax(a + bias, dim)`.
+///
+/// This is the reference implementation used by CPU and any backend without a fused kernel.
+/// Correctness is guaranteed by `softmax(broadcast_add(a, bias), dim)`.
+pub fn softmax_with_bias_impl<R, C>(
+    client: &C,
+    a: &Tensor<R>,
+    bias: &Tensor<R>,
+    dim: isize,
+) -> Result<Tensor<R>>
+where
+    R: Runtime,
+    C: ActivationOps<R> + BinaryOps<R>,
+{
+    let biased = client.add(a, bias)?;
+    client.softmax(&biased, dim)
+}
+
 /// Generic softplus implementation: softplus(x) = log(1 + exp(x))
 ///
 /// Uses the numerically stable form: `relu(x) + log(1 + exp(-|x|))`
