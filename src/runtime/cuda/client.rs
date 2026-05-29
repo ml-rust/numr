@@ -11,12 +11,13 @@
 
 use cudarc::cublas::CudaBlas;
 use cudarc::driver::safe::{CudaContext, CudaStream};
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use super::CudaRuntime;
+use super::allocator::CudaAllocator;
 use super::device::{CudaDevice, CudaError};
-use crate::runtime::{Allocator, RuntimeClient};
+use super::sobol_cache::SobolDvCache;
+use crate::runtime::RuntimeClient;
 
 // ============================================================================
 // CudaClient
@@ -58,6 +59,13 @@ pub struct CudaClient {
 
     /// Raw handle for custom kernel launching
     pub(crate) raw_handle: CudaRawHandle,
+
+    /// Persistent cache of Sobol direction-vector device buffers.
+    ///
+    /// Buffers are allocated once per unique dimension count and reused on
+    /// every subsequent call, including inside CUDA graph capture regions.
+    /// This avoids H2D memcpy nodes with stack-local source pointers.
+    pub(crate) sobol_dv_cache: Arc<SobolDvCache>,
 }
 
 impl std::fmt::Debug for CudaClient {
@@ -65,200 +73,6 @@ impl std::fmt::Debug for CudaClient {
         f.debug_struct("CudaClient")
             .field("device", &self.device)
             .finish_non_exhaustive()
-    }
-}
-
-// ============================================================================
-// CudaAllocator
-// ============================================================================
-
-/// Maximum number of cached buffers per exact byte-size bucket.
-///
-/// 64 gives enough depth to absorb a full decode loop's worth of temporaries
-/// (typically 8–32 per forward pass) while keeping the worst-case cached
-/// footprint to 64× the largest recurring buffer — acceptable for VRAM.
-const FREE_LIST_CAP: usize = 64;
-
-/// CUDA stream-ordered allocator with a Rust-side free list.
-///
-/// Combines a per-size-bucket Rust free list (fast path: no driver call) with
-/// `cuMemAllocAsync`/`cuMemFreeAsync` for cold misses and pool management.
-///
-/// # Safety invariant — single canonical stream
-///
-/// Every pointer in the free list was allocated on `self.stream`. Every
-/// deallocation is also issued on `self.stream`. Because all alloc/free ops
-/// share the same stream, there is no cross-stream ordering hazard: a buffer
-/// popped from the free list is guaranteed to have no pending use on any
-/// other stream before it is returned to the caller.
-///
-/// This invariant holds because `CudaClient::new` always returns the cached
-/// canonical client for a device (via `register_or_get_client`), and stream
-/// creation only happens in `new_uncached`. The `copy_stream` is exclusively
-/// for D2H copies and never used with the allocator.
-///
-/// # Pool Threshold
-///
-/// The default memory pool's release threshold is set to `u64::MAX` at context
-/// creation so that freed segments stay warm for reuse in decode loops.
-#[derive(Clone)]
-pub struct CudaAllocator {
-    stream: Arc<CudaStream>,
-    /// Per-size free list: size_bytes → VecDeque of device pointers.
-    ///
-    /// VecDeque gives O(1) push_back / pop_front so the oldest entry is
-    /// evicted first when the cap is reached (FIFO within a bucket).
-    free_list: Arc<Mutex<HashMap<u64, VecDeque<u64>>>>,
-    /// When frozen, alloc/free go directly to the driver to create proper
-    /// CUDA graph alloc/free nodes — bypassing the Rust free list.
-    frozen: Arc<std::sync::atomic::AtomicBool>,
-    /// Cached handle to the default memory pool for the device. Stored as
-    /// `u64` (the raw pointer value) so the struct stays `Send + Sync`.
-    /// Used only by the OOM retry path to call `cuMemPoolTrimTo`.
-    /// Zero when the pool could not be obtained at construction.
-    pool_handle: u64,
-}
-
-impl CudaAllocator {
-    /// Allocate directly from the driver (no free-list lookup).
-    ///
-    /// On failure, drains the Rust free list back to the driver pool so those
-    /// segments become available for reuse, syncs the stream, then retries once.
-    unsafe fn driver_alloc(&self, size_bytes: usize) -> crate::error::Result<u64> {
-        let mut ptr: u64 = 0;
-        let result =
-            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
-        if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-            return Ok(ptr);
-        }
-
-        // Drain free list: return cached segments to the driver pool so it can
-        // reclaim VRAM that our Rust-side cache was holding "live" from the
-        // driver's perspective.
-        let drained: Vec<u64> = {
-            let mut map = self.free_list.lock().unwrap();
-            map.drain()
-                .flat_map(|(_, bucket)| bucket.into_iter())
-                .collect()
-        };
-        for p in drained {
-            let _ = cudarc::driver::sys::cuMemFreeAsync(p, self.stream.cu_stream());
-        }
-
-        // Sync so the pool can process the frees before the retry alloc.
-        let _ = self.stream.synchronize();
-
-        // Trim the pool to release cached segments back to the OS. The
-        // pool retains freed allocations (per the release threshold) which
-        // is fast for tight decode loops but fragments the address space
-        // when a one-shot large allocation arrives after many small frees.
-        // Calling trim only on the retry path keeps the steady-state cache
-        // behaviour but recovers from fragmentation when it matters.
-        if self.pool_handle != 0 {
-            let pool = self.pool_handle as cudarc::driver::sys::CUmemoryPool;
-            let _ = cudarc::driver::sys::cuMemPoolTrimTo(pool, 0);
-        }
-
-        let result =
-            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream());
-        if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-            return Err(crate::error::Error::OutOfMemory { size: size_bytes });
-        }
-        Ok(ptr)
-    }
-
-    /// Free directly to the driver (no free-list insertion).
-    unsafe fn driver_free(&self, ptr: u64) {
-        let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream());
-    }
-}
-
-impl Allocator for CudaAllocator {
-    fn allocate(&self, size_bytes: usize) -> crate::error::Result<u64> {
-        if size_bytes == 0 {
-            return Ok(0);
-        }
-
-        // Graph-capture path: bypass free list so the driver records a proper
-        // alloc node in the CUDA graph.
-        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
-            return unsafe { self.driver_alloc(size_bytes) };
-        }
-
-        // Fast path: pop from the free list if a cached buffer exists.
-        {
-            let mut map = self.free_list.lock().unwrap();
-            if let Some(bucket) = map.get_mut(&(size_bytes as u64)) {
-                if let Some(ptr) = bucket.pop_front() {
-                    return Ok(ptr);
-                }
-            }
-        }
-
-        // Cold miss: ask the driver.
-        unsafe { self.driver_alloc(size_bytes) }
-    }
-
-    fn deallocate(&self, ptr: u64, size_bytes: usize) {
-        if ptr == 0 {
-            return;
-        }
-
-        // Graph-capture path: issue a driver free node directly.
-        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
-            unsafe { self.driver_free(ptr) };
-            return;
-        }
-
-        let evict = {
-            let mut map = self.free_list.lock().unwrap();
-            let bucket = map.entry(size_bytes as u64).or_default();
-            if bucket.len() < FREE_LIST_CAP {
-                bucket.push_back(ptr);
-                None
-            } else {
-                // Cap exceeded: evict the oldest buffer and keep the new one.
-                let oldest = bucket.pop_front();
-                bucket.push_back(ptr);
-                oldest
-            }
-        };
-
-        // Evict outside the lock so the lock is not held during a driver call.
-        if let Some(old_ptr) = evict {
-            unsafe { self.driver_free(old_ptr) };
-        }
-    }
-
-    fn is_frozen(&self) -> bool {
-        self.frozen.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    fn freeze(&self) -> bool {
-        self.frozen
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        true
-    }
-
-    fn unfreeze(&self) {
-        self.frozen
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn reset(&self) -> crate::error::Result<()> {
-        // Drain the free list and return all cached buffers to the driver pool.
-        // Callers must have dropped all live tensors (which call `deallocate`)
-        // before calling `reset`, so every pointer here is idle on the stream.
-        let drained: Vec<u64> = {
-            let mut map = self.free_list.lock().unwrap();
-            map.drain()
-                .flat_map(|(_, bucket)| bucket.into_iter())
-                .collect()
-        };
-        for ptr in drained {
-            unsafe { self.driver_free(ptr) };
-        }
-        Ok(())
     }
 }
 
@@ -355,12 +169,7 @@ impl CudaClient {
             }
         }
 
-        let allocator = CudaAllocator {
-            stream: stream.clone(),
-            free_list: Arc::new(Mutex::new(HashMap::new())),
-            frozen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            pool_handle,
-        };
+        let allocator = CudaAllocator::new(stream.clone(), pool_handle);
 
         let raw_handle = CudaRawHandle {
             context: context.clone(),
@@ -375,6 +184,7 @@ impl CudaClient {
             cublas: Arc::new(cublas),
             allocator,
             raw_handle,
+            sobol_dv_cache: SobolDvCache::new(),
         })
     }
 
@@ -465,6 +275,116 @@ impl CudaClient {
             self.device.index,
             module_names,
         )
+    }
+
+    /// Pre-populate the Sobol direction-vector device buffer for `dimension`.
+    ///
+    /// Computes `dimension * 32` direction vectors on the host, uploads them to
+    /// a persistent device buffer, and stores the pointer in the per-client
+    /// cache. Subsequent calls to `sobol(…, dimension, …)` — including those
+    /// executed inside a CUDA graph capture region — will use the cached pointer
+    /// instead of performing a new H2D copy, which would embed a memcpy node
+    /// with a freed host-pointer source in the captured graph.
+    ///
+    /// # Contract for CUDA graph capture
+    ///
+    /// Call `warmup_sobol(dimension)` **once**, outside any capture region,
+    /// before using `sobol(…, dimension, …)` inside `capture_graph_into`. The
+    /// upload stream is synchronised before this method returns, so the device
+    /// buffer is fully ready when the next capture begins.
+    ///
+    /// Calling `warmup_sobol` with the same `dimension` multiple times is safe
+    /// and cheap (the cache entry already exists; no second allocation is made).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - `dimension` exceeds the maximum supported by the Joe & Kuo dataset
+    ///   (21 201).
+    /// - Device memory allocation fails.
+    /// - The H2D copy fails.
+    pub fn warmup_sobol(&self, dimension: usize) -> crate::error::Result<()> {
+        use crate::ops::common::quasirandom::{SOBOL_BITS, SOBOL_MAX_DIMENSIONS};
+
+        if dimension == 0 {
+            return Err(crate::error::Error::InvalidArgument {
+                arg: "dimension",
+                reason: "Sobol dimension must be at least 1".into(),
+            });
+        }
+        if dimension > SOBOL_MAX_DIMENSIONS {
+            return Err(crate::error::Error::InvalidArgument {
+                arg: "dimension",
+                reason: format!(
+                    "Sobol dimension {} exceeds maximum supported value {}",
+                    dimension, SOBOL_MAX_DIMENSIONS
+                ),
+            });
+        }
+
+        let dim_u32 = dimension as u32;
+
+        // Fast path: already cached.
+        if self.sobol_dv_cache.get(dim_u32).is_some() {
+            return Ok(());
+        }
+
+        // Compute direction vectors on the host.
+        let direction_vectors =
+            crate::ops::common::quasirandom::compute_all_direction_vectors(dimension);
+        let num_u32s = direction_vectors.len();
+        debug_assert_eq!(num_u32s, dimension * SOBOL_BITS);
+
+        let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
+
+        // Allocate a device buffer directly via the driver (bypassing the
+        // caching allocator's frozen path) so the address survives across
+        // graph replays.  We use `cuMemAllocAsync` on the compute stream
+        // for proper pool membership and synchronise before returning.
+        let dv_ptr: u64 = unsafe {
+            let mut ptr: u64 = 0;
+            let r = cudarc::driver::sys::cuMemAllocAsync(
+                &mut ptr,
+                dv_bytes.len(),
+                self.stream.cu_stream(),
+            );
+            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                return Err(crate::error::Error::OutOfMemory {
+                    size: dv_bytes.len(),
+                });
+            }
+            ptr
+        };
+
+        // H2D copy.
+        unsafe {
+            let r = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
+                dv_ptr,
+                dv_bytes.as_ptr() as *const std::ffi::c_void,
+                dv_bytes.len(),
+                self.stream.cu_stream(),
+            );
+            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                // Free the buffer we just allocated before returning the error.
+                let _ = cudarc::driver::sys::cuMemFreeAsync(dv_ptr, self.stream.cu_stream());
+                return Err(crate::error::Error::Backend(format!(
+                    "Sobol warmup H2D copy failed: {:?}",
+                    r
+                )));
+            }
+        }
+
+        // Synchronise: the buffer must be fully uploaded before any subsequent
+        // capture region references the pointer.
+        self.stream
+            .synchronize()
+            .map_err(|e| crate::error::Error::Internal(format!("stream sync failed: {:?}", e)))?;
+
+        // Store in cache. Ownership of the device pointer is transferred.
+        // SAFETY: ptr is a valid, fully-uploaded device buffer.
+        unsafe { self.sobol_dv_cache.insert(dim_u32, dv_ptr, num_u32s) };
+
+        Ok(())
     }
 
     /// Destroy a CUDA event handle returned by `record_event_on_compute`.

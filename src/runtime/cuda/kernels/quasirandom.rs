@@ -5,21 +5,31 @@ use super::loader::{
     launch_config,
 };
 use crate::error::{Error, Result};
-use crate::ops::common::quasirandom::compute_all_direction_vectors;
-use crate::runtime::Runtime;
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
 use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
 use std::sync::Arc;
 
 /// Launch Sobol sequence generation kernel (F32).
 ///
+/// `dv_ptr` must be a valid device pointer holding `dimension * 32` `u32` direction
+/// vectors that were loaded **before** any CUDA graph capture began. Passing a
+/// pointer that was H2D-copied inside a capture region will embed a
+/// `cuMemcpyHtoD` memcpy node referencing freed host memory and cause
+/// `CUDA_ERROR_ILLEGAL_ADDRESS` on graph replay.
+///
+/// Use [`CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
+/// before entering a capture region.
+///
 /// # Safety
-/// - `out_ptr` must be a valid device pointer with at least `n_points * dimension` elements
+/// - `out_ptr` must be a valid device pointer with at least `n_points * dimension`
+///   elements of `f32`.
+/// - `dv_ptr` must be a valid device pointer with at least `dimension * 32` `u32`
+///   elements and must remain valid for the duration of the kernel launch.
+#[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sobol_f32(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    device: &CudaDevice,
+    dv_ptr: u64,
     out_ptr: u64,
     n_points: usize,
     dimension: usize,
@@ -28,12 +38,6 @@ pub unsafe fn launch_sobol_f32(
     let module = get_or_load_module(context, device_index, kernel_names::QUASIRANDOM_MODULE)?;
     let func_name = "sobol_f32";
     let func = get_kernel_function(&module, func_name)?;
-
-    // Compute direction vectors on host and upload to GPU
-    let direction_vectors = compute_all_direction_vectors(dimension);
-    let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
-    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device)?;
-    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device)?;
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
@@ -55,25 +59,31 @@ pub unsafe fn launch_sobol_f32(
         })?;
     }
 
-    // Synchronize before deallocating direction vectors
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
-
-    CudaRuntime::deallocate(dv_ptr, dv_bytes.len(), device);
-
     Ok(())
 }
 
 /// Launch Sobol sequence generation kernel (F64).
 ///
+/// `dv_ptr` must be a valid device pointer holding `dimension * 32` `u32` direction
+/// vectors that were loaded **before** any CUDA graph capture began. Passing a
+/// pointer that was H2D-copied inside a capture region will embed a
+/// `cuMemcpyHtoD` memcpy node referencing freed host memory and cause
+/// `CUDA_ERROR_ILLEGAL_ADDRESS` on graph replay.
+///
+/// Use [`CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
+/// before entering a capture region.
+///
 /// # Safety
-/// - `out_ptr` must be a valid device pointer with at least `n_points * dimension` elements
+/// - `out_ptr` must be a valid device pointer with at least `n_points * dimension`
+///   elements of `f64`.
+/// - `dv_ptr` must be a valid device pointer with at least `dimension * 32` `u32`
+///   elements and must remain valid for the duration of the kernel launch.
+#[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sobol_f64(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    device: &CudaDevice,
+    dv_ptr: u64,
     out_ptr: u64,
     n_points: usize,
     dimension: usize,
@@ -82,12 +92,6 @@ pub unsafe fn launch_sobol_f64(
     let module = get_or_load_module(context, device_index, kernel_names::QUASIRANDOM_MODULE)?;
     let func_name = "sobol_f64";
     let func = get_kernel_function(&module, func_name)?;
-
-    // Compute direction vectors on host and upload to GPU
-    let direction_vectors = compute_all_direction_vectors(dimension);
-    let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
-    let dv_ptr = CudaRuntime::allocate(dv_bytes.len(), device)?;
-    CudaRuntime::copy_to_device(dv_bytes, dv_ptr, device)?;
 
     let grid = elementwise_launch_config(n_points);
     let block = (BLOCK_SIZE, 1, 1);
@@ -108,13 +112,6 @@ pub unsafe fn launch_sobol_f64(
             Error::Internal(format!("CUDA sobol_f64 kernel launch failed: {:?}", e))
         })?;
     }
-
-    // Synchronize before deallocating direction vectors
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("CUDA stream sync failed: {:?}", e)))?;
-
-    CudaRuntime::deallocate(dv_ptr, dv_bytes.len(), device);
 
     Ok(())
 }
