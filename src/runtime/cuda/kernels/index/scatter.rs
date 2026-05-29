@@ -12,10 +12,21 @@ use super::gather::INDEX_MODULE;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
+/// Maximum number of tensor dimensions supported by the scatter kernel.
+/// Must match INDEX_MAX_DIMS in index.cu.
+const MAX_DIMS: usize = 8;
+
 /// Launch scatter kernel.
 ///
 /// Scatters values from src to output at positions specified by indices.
 /// `output[i][indices[i][j][k]][k] = src[i][j][k]` (when dim=1)
+///
+/// Shape and stride arrays are passed as individual scalar kernel arguments (not
+/// device pointers) so this launcher is safe for CUDA graph capture/replay.
+///
+/// # Errors
+///
+/// Returns `Error::BackendLimitation` if `ndim > MAX_DIMS`.
 ///
 /// # Safety
 ///
@@ -33,14 +44,38 @@ pub unsafe fn launch_scatter(
     output_ptr: u64,
     ndim: usize,
     dim: usize,
-    output_shape_ptr: u64,
-    output_strides_ptr: u64,
-    src_shape_ptr: u64,
-    src_strides_ptr: u64,
+    output_shape: &[u32],
+    output_strides: &[u32],
+    src_shape: &[u32],
+    src_strides: &[u32],
     src_total: usize,
 ) -> Result<()> {
     if src_total == 0 {
         return Ok(());
+    }
+
+    if ndim > MAX_DIMS {
+        return Err(Error::BackendLimitation {
+            backend: "CUDA",
+            operation: "scatter",
+            reason: format!(
+                "tensor has {} dimensions but scatter kernel supports at most {}",
+                ndim, MAX_DIMS
+            ),
+        });
+    }
+
+    // Build zero-padded stack arrays
+    let mut output_shape_args = [0u32; MAX_DIMS];
+    let mut output_strides_args = [0u32; MAX_DIMS];
+    let mut src_shape_args = [0u32; MAX_DIMS];
+    let mut src_strides_args = [0u32; MAX_DIMS];
+
+    for i in 0..ndim {
+        output_shape_args[i] = output_shape[i];
+        output_strides_args[i] = output_strides[i];
+        src_shape_args[i] = src_shape[i];
+        src_strides_args[i] = src_strides[i];
     }
 
     unsafe {
@@ -63,10 +98,22 @@ pub unsafe fn launch_scatter(
         builder.arg(&output_ptr);
         builder.arg(&ndim_u32);
         builder.arg(&dim_u32);
-        builder.arg(&output_shape_ptr);
-        builder.arg(&output_strides_ptr);
-        builder.arg(&src_shape_ptr);
-        builder.arg(&src_strides_ptr);
+        // Pass output_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&output_shape_args[i]);
+        }
+        // Pass output_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&output_strides_args[i]);
+        }
+        // Pass src_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&src_shape_args[i]);
+        }
+        // Pass src_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&src_strides_args[i]);
+        }
         builder.arg(&src_total_u32);
 
         builder

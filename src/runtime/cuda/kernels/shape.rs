@@ -103,19 +103,29 @@ pub unsafe fn launch_cat_copy(
 // Repeat Kernel
 // ============================================================================
 
+/// Maximum number of tensor dimensions supported by repeat/pad kernels.
+/// Must match SHAPE_MAX_DIMS in shape.cu.
+const MAX_DIMS: usize = 8;
+
 /// Launch repeat kernel to tile a tensor along all dimensions.
+///
+/// Shape arrays are passed as individual scalar kernel arguments (not device
+/// pointers) so this launcher is safe for CUDA graph capture/replay.
 ///
 /// # Arguments
 ///
 /// * `context` - CUDA context
 /// * `stream` - CUDA stream for async execution
 /// * `device_index` - GPU device index
-/// * `device` - CUDA device for memory allocation
 /// * `dtype` - Data type of the tensors
 /// * `src_ptr` - Pointer to source tensor data (must be contiguous)
 /// * `dst_ptr` - Pointer to output tensor data
 /// * `src_shape` - Shape of source tensor
 /// * `out_shape` - Shape of output tensor (src_shape * repeats)
+///
+/// # Errors
+///
+/// Returns `Error::BackendLimitation` if `src_shape.len() > MAX_DIMS`.
 ///
 /// # Safety
 ///
@@ -125,7 +135,7 @@ pub unsafe fn launch_repeat(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    device: &<CudaRuntime as Runtime>::Device,
+    _device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
     src_ptr: u64,
     dst_ptr: u64,
@@ -138,35 +148,35 @@ pub unsafe fn launch_repeat(
     }
 
     let ndim = src_shape.len();
-
-    // Allocate device memory for shapes
-    let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
-    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
-    let out_strides_ptr = CudaRuntime::allocate(shape_bytes, device)?;
-
-    // Convert shapes to u32 and copy to device
-    let src_shape_u32: Vec<u32> = src_shape.iter().map(|&s| s as u32).collect();
-    let out_shape_u32: Vec<u32> = out_shape.iter().map(|&s| s as u32).collect();
-
-    // Compute output strides (row-major)
-    let mut out_strides_u32 = vec![0u32; ndim];
-    let mut stride = 1u32;
-    for i in (0..ndim).rev() {
-        out_strides_u32[i] = stride;
-        stride *= out_shape_u32[i];
+    if ndim > MAX_DIMS {
+        return Err(Error::BackendLimitation {
+            backend: "CUDA",
+            operation: "repeat",
+            reason: format!(
+                "tensor has {} dimensions but repeat kernel supports at most {}",
+                ndim, MAX_DIMS
+            ),
+        });
     }
 
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device)?;
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device)?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&out_strides_u32),
-        out_strides_ptr,
-        device,
-    )?;
+    // Build zero-padded stack arrays for shape and strides
+    let mut src_shape_args = [0u32; MAX_DIMS];
+    let mut out_shape_args = [0u32; MAX_DIMS];
+    let mut out_strides_args = [0u32; MAX_DIMS];
 
-    // Use closure to capture result, ensuring cleanup always runs even if kernel launch fails
-    let result: Result<()> = (|| unsafe {
+    for i in 0..ndim {
+        src_shape_args[i] = src_shape[i] as u32;
+        out_shape_args[i] = out_shape[i] as u32;
+    }
+
+    // Compute output strides (row-major)
+    let mut stride = 1u32;
+    for i in (0..ndim).rev() {
+        out_strides_args[i] = stride;
+        stride = stride.saturating_mul(out_shape_args[i]);
+    }
+
+    unsafe {
         let module = get_or_load_module(context, device_index, SHAPE_MODULE)?;
         let func_name = kernel_name("repeat", dtype);
         let func = get_kernel_function(&module, &func_name)?;
@@ -181,9 +191,18 @@ pub unsafe fn launch_repeat(
         let mut builder = stream.launch_builder(&func);
         builder.arg(&src_ptr);
         builder.arg(&dst_ptr);
-        builder.arg(&src_shape_ptr);
-        builder.arg(&out_shape_ptr);
-        builder.arg(&out_strides_ptr);
+        // Pass src_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&src_shape_args[i]);
+        }
+        // Pass out_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&out_shape_args[i]);
+        }
+        // Pass out_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&out_strides_args[i]);
+        }
         builder.arg(&ndim_u32);
         builder.arg(&total_u32);
 
@@ -192,14 +211,7 @@ pub unsafe fn launch_repeat(
             .map_err(|e| Error::Internal(format!("CUDA repeat kernel launch failed: {:?}", e)))?;
 
         Ok(())
-    })();
-
-    // Clean up device memory unconditionally (prevents leak on error)
-    CudaRuntime::deallocate(src_shape_ptr, shape_bytes, device);
-    CudaRuntime::deallocate(out_shape_ptr, shape_bytes, device);
-    CudaRuntime::deallocate(out_strides_ptr, shape_bytes, device);
-
-    result
+    }
 }
 
 // ============================================================================
@@ -208,12 +220,14 @@ pub unsafe fn launch_repeat(
 
 /// Launch pad kernel to add padding around a tensor.
 ///
+/// Shape/pad arrays are passed as individual scalar kernel arguments (not device
+/// pointers) so this launcher is safe for CUDA graph capture/replay.
+///
 /// # Arguments
 ///
 /// * `context` - CUDA context
 /// * `stream` - CUDA stream for async execution
 /// * `device_index` - GPU device index
-/// * `device` - CUDA device for memory allocation
 /// * `dtype` - Data type of the tensors
 /// * `src_ptr` - Pointer to source tensor data (must be contiguous)
 /// * `dst_ptr` - Pointer to output tensor data
@@ -221,6 +235,10 @@ pub unsafe fn launch_repeat(
 /// * `src_shape` - Shape of source tensor
 /// * `out_shape` - Shape of output tensor
 /// * `pad_before` - Padding before each dimension
+///
+/// # Errors
+///
+/// Returns `Error::BackendLimitation` if `src_shape.len() > MAX_DIMS`.
 ///
 /// # Safety
 ///
@@ -230,7 +248,7 @@ pub unsafe fn launch_pad(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    device: &<CudaRuntime as Runtime>::Device,
+    _device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
     src_ptr: u64,
     dst_ptr: u64,
@@ -245,27 +263,29 @@ pub unsafe fn launch_pad(
     }
 
     let ndim = src_shape.len();
+    if ndim > MAX_DIMS {
+        return Err(Error::BackendLimitation {
+            backend: "CUDA",
+            operation: "pad",
+            reason: format!(
+                "tensor has {} dimensions but pad kernel supports at most {}",
+                ndim, MAX_DIMS
+            ),
+        });
+    }
 
-    // Allocate device memory for shapes and padding
-    let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
-    let out_shape_ptr = CudaRuntime::allocate(shape_bytes, device)?;
-    let pad_before_ptr = CudaRuntime::allocate(shape_bytes, device)?;
+    // Build zero-padded stack arrays
+    let mut src_shape_args = [0u32; MAX_DIMS];
+    let mut out_shape_args = [0u32; MAX_DIMS];
+    let mut pad_before_args = [0u32; MAX_DIMS];
 
-    // Convert to u32 and copy to device
-    let src_shape_u32: Vec<u32> = src_shape.iter().map(|&s| s as u32).collect();
-    let out_shape_u32: Vec<u32> = out_shape.iter().map(|&s| s as u32).collect();
-    let pad_before_u32: Vec<u32> = pad_before.iter().map(|&s| s as u32).collect();
+    for i in 0..ndim {
+        src_shape_args[i] = src_shape[i] as u32;
+        out_shape_args[i] = out_shape[i] as u32;
+        pad_before_args[i] = pad_before[i] as u32;
+    }
 
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&src_shape_u32), src_shape_ptr, device)?;
-    CudaRuntime::copy_to_device(bytemuck::cast_slice(&out_shape_u32), out_shape_ptr, device)?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&pad_before_u32),
-        pad_before_ptr,
-        device,
-    )?;
-
-    // Prepare fill values before the closure (all variants needed for borrow lifetime)
+    // Prepare fill values (all variants needed for borrow/dtype dispatch)
     let fill_f32 = fill_value as f32;
     let fill_f64 = fill_value;
     let fill_i32 = fill_value as i32;
@@ -285,8 +305,7 @@ pub unsafe fn launch_pad(
     #[cfg(feature = "fp8")]
     let fill_fp8_e5m2 = crate::dtype::FP8E5M2::from_f32(fill_value as f32);
 
-    // Use closure to capture result, ensuring cleanup always runs even if kernel launch fails
-    let result: Result<()> = (|| unsafe {
+    unsafe {
         let module = get_or_load_module(context, device_index, SHAPE_MODULE)?;
         let func_name = kernel_name("pad", dtype);
         let func = get_kernel_function(&module, &func_name)?;
@@ -327,9 +346,18 @@ pub unsafe fn launch_pad(
             }
         };
 
-        builder.arg(&src_shape_ptr);
-        builder.arg(&out_shape_ptr);
-        builder.arg(&pad_before_ptr);
+        // Pass src_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&src_shape_args[i]);
+        }
+        // Pass out_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&out_shape_args[i]);
+        }
+        // Pass pad_before as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&pad_before_args[i]);
+        }
         builder.arg(&ndim_u32);
         builder.arg(&total_u32);
 
@@ -338,14 +366,7 @@ pub unsafe fn launch_pad(
             .map_err(|e| Error::Internal(format!("CUDA pad kernel launch failed: {:?}", e)))?;
 
         Ok(())
-    })();
-
-    // Clean up device memory unconditionally (prevents leak on error)
-    CudaRuntime::deallocate(src_shape_ptr, shape_bytes, device);
-    CudaRuntime::deallocate(out_shape_ptr, shape_bytes, device);
-    CudaRuntime::deallocate(pad_before_ptr, shape_bytes, device);
-
-    result
+    }
 }
 
 // ============================================================================

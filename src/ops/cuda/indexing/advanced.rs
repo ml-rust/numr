@@ -331,31 +331,14 @@ pub fn gather_nd(
     let indices_contig = ensure_contiguous(&indices_i64);
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
-    // Allocate device memory for input shape and strides
+    // Prepare shape and stride arrays as host Vecs (passed as scalar args, no device alloc needed)
     let input_shape_u32: Vec<u32> = input_shape.iter().map(|&s| s as u32).collect();
     let input_strides: Vec<usize> = compute_contiguous_strides(input_shape);
     let input_strides_u32: Vec<u32> = input_strides.iter().map(|&s| s as u32).collect();
 
     let ndim = input_shape.len();
-    let shape_bytes = ndim * std::mem::size_of::<u32>();
 
-    // Allocate GPU buffers for shape and strides
-    let shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-
-    // Copy shape and strides to GPU
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&input_shape_u32),
-        shape_ptr,
-        &client.device,
-    )?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&input_strides_u32),
-        strides_ptr,
-        &client.device,
-    )?;
-
-    let result = unsafe {
+    unsafe {
         launch_gather_nd(
             &client.context,
             &client.stream,
@@ -364,20 +347,15 @@ pub fn gather_nd(
             input_contig.ptr(),
             indices_contig.ptr(),
             out.ptr(),
-            shape_ptr,
-            strides_ptr,
+            &input_shape_u32,
+            &input_strides_u32,
             num_slices,
             slice_size,
             index_depth,
             ndim,
-        )
-    };
+        )?;
+    }
 
-    // Clean up temporary device allocations
-    CudaRuntime::deallocate(shape_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(strides_ptr, shape_bytes, &client.device);
-
-    result?;
     Ok(out)
 }
 

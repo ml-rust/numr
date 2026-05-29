@@ -15,8 +15,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
-use crate::tensor::Tensor;
+use crate::runtime::cuda::CudaDevice;
 
 /// Launch a binary operation kernel.
 ///
@@ -270,9 +269,23 @@ pub fn compute_broadcast_strides(input_shape: &[usize], output_shape: &[usize]) 
     strides
 }
 
+/// Maximum number of dimensions supported by the inline broadcast kernel.
+///
+/// Must match `MAX_BROADCAST_DIMS` in `binary.cu`.
+pub const MAX_BROADCAST_DIMS: usize = 8;
+
 /// Launch a broadcast binary operation kernel.
 ///
-/// Performs element-wise operation with broadcasting: `output[i] = op(a[broadcast_idx], b[broadcast_idx])`
+/// Performs element-wise operation with broadcasting:
+/// `output[i] = op(a[broadcast_idx], b[broadcast_idx])`
+///
+/// # CUDA Graph Compatibility
+///
+/// This function uses the `*_broadcast_*_inline` kernel variants that accept
+/// strides and shape as individual scalar u32 arguments baked into the
+/// kernel-parameter block.  Unlike the pointer-based variants, the inline
+/// kernels do NOT trigger H2D memcpy nodes during CUDA graph capture, so the
+/// graph's kernel nodes never contain stale host-side pointers.
 ///
 /// # Supported Operations
 ///
@@ -287,7 +300,7 @@ pub fn compute_broadcast_strides(input_shape: &[usize], output_shape: &[usize]) 
 /// # Safety
 ///
 /// - All pointers must be valid device memory
-/// - Shape arrays must be valid
+/// - `out_shape.len()` must be ≤ `MAX_BROADCAST_DIMS` (= 8)
 ///
 /// # Arguments
 ///
@@ -296,7 +309,6 @@ pub fn compute_broadcast_strides(input_shape: &[usize], output_shape: &[usize]) 
 /// * `device_index` - Device index for module caching
 /// * `op` - Operation name (e.g., "add", "mul")
 /// * `dtype` - Data type of the tensors
-/// * `device` - CUDA device for tensor allocation
 /// * `a_ptr` - Device pointer to first input tensor
 /// * `b_ptr` - Device pointer to second input tensor
 /// * `out_ptr` - Device pointer to output tensor
@@ -308,7 +320,7 @@ pub unsafe fn launch_broadcast_binary_op(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    device: &CudaDevice,
+    _device: &CudaDevice,
     op: &str,
     dtype: DType,
     a_ptr: u64,
@@ -324,46 +336,43 @@ pub unsafe fn launch_broadcast_binary_op(
     }
 
     let ndim = out_shape.len();
+    if ndim > MAX_BROADCAST_DIMS {
+        return Err(Error::Internal(format!(
+            "launch_broadcast_binary_op: ndim={ndim} exceeds MAX_BROADCAST_DIMS={MAX_BROADCAST_DIMS}"
+        )));
+    }
 
-    // Compute broadcast strides
-    let a_strides = compute_broadcast_strides(a_shape, out_shape);
-    let b_strides = compute_broadcast_strides(b_shape, out_shape);
-    let out_strides: Vec<u32> = {
-        let mut s = vec![1u32; ndim];
-        for i in (0..ndim.saturating_sub(1)).rev() {
-            s[i] = s[i + 1] * out_shape[i + 1] as u32;
-        }
-        s
-    };
-    let shape_u32: Vec<u32> = out_shape.iter().map(|&x| x as u32).collect();
+    // Compute broadcast strides.
+    let a_strides_vec = compute_broadcast_strides(a_shape, out_shape);
+    let b_strides_vec = compute_broadcast_strides(b_shape, out_shape);
+    let shape_vec: Vec<u32> = out_shape.iter().map(|&x| x as u32).collect();
 
-    // Allocate device memory for strides and shape using Tensor
-    let a_strides_tensor = Tensor::<CudaRuntime>::from_slice(&a_strides, &[ndim], device);
-    let b_strides_tensor = Tensor::<CudaRuntime>::from_slice(&b_strides, &[ndim], device);
-    let out_strides_tensor = Tensor::<CudaRuntime>::from_slice(&out_strides, &[ndim], device);
-    let shape_tensor = Tensor::<CudaRuntime>::from_slice(&shape_u32, &[ndim], device);
+    // Pack into fixed-size arrays (zero-padded to MAX_BROADCAST_DIMS).
+    // These arrays live in Rust stack memory and are passed as individual
+    // u32 scalar arguments to the kernel — no H2D copy is performed, making
+    // this safe inside a CUDA graph capture region.
+    let mut a_strides = [0u32; MAX_BROADCAST_DIMS];
+    let mut b_strides = [0u32; MAX_BROADCAST_DIMS];
+    let mut shape = [0u32; MAX_BROADCAST_DIMS];
+    for i in 0..ndim {
+        a_strides[i] = a_strides_vec[i];
+        b_strides[i] = b_strides_vec[i];
+        shape[i] = shape_vec[i];
+    }
 
-    // Get device pointers
-    let a_strides_ptr = a_strides_tensor.ptr();
-    let b_strides_ptr = b_strides_tensor.ptr();
-    let out_strides_ptr = out_strides_tensor.ptr();
-    let shape_ptr = shape_tensor.ptr();
-
-    // Get kernel function
+    // Select the inline kernel variant (no device pointers for strides/shape).
     let module = get_or_load_module(context, device_index, kernel_names::BINARY_MODULE)?;
     let func_name = format!(
-        "{}_broadcast_{}",
+        "{}_broadcast_{}_inline",
         op,
         kernel_name("", dtype).trim_start_matches('_')
     );
     let func = get_kernel_function(&module, &func_name)?;
 
-    // Launch kernel
     let grid = elementwise_launch_config(numel);
     let block = (BLOCK_SIZE, 1, 1);
     let n = numel as u32;
     let ndim_u32 = ndim as u32;
-
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -371,10 +380,33 @@ pub unsafe fn launch_broadcast_binary_op(
         builder.arg(&a_ptr);
         builder.arg(&b_ptr);
         builder.arg(&out_ptr);
-        builder.arg(&a_strides_ptr);
-        builder.arg(&b_strides_ptr);
-        builder.arg(&out_strides_ptr);
-        builder.arg(&shape_ptr);
+        // a_strides[0..7] as individual args
+        builder.arg(&a_strides[0]);
+        builder.arg(&a_strides[1]);
+        builder.arg(&a_strides[2]);
+        builder.arg(&a_strides[3]);
+        builder.arg(&a_strides[4]);
+        builder.arg(&a_strides[5]);
+        builder.arg(&a_strides[6]);
+        builder.arg(&a_strides[7]);
+        // b_strides[0..7] as individual args
+        builder.arg(&b_strides[0]);
+        builder.arg(&b_strides[1]);
+        builder.arg(&b_strides[2]);
+        builder.arg(&b_strides[3]);
+        builder.arg(&b_strides[4]);
+        builder.arg(&b_strides[5]);
+        builder.arg(&b_strides[6]);
+        builder.arg(&b_strides[7]);
+        // shape[0..7] as individual args
+        builder.arg(&shape[0]);
+        builder.arg(&shape[1]);
+        builder.arg(&shape[2]);
+        builder.arg(&shape[3]);
+        builder.arg(&shape[4]);
+        builder.arg(&shape[5]);
+        builder.arg(&shape[6]);
+        builder.arg(&shape[7]);
         builder.arg(&ndim_u32);
         builder.arg(&n);
 
@@ -385,9 +417,6 @@ pub unsafe fn launch_broadcast_binary_op(
             ))
         })?;
     }
-
-    // No sync needed: temporary GPU allocations (strides, shape tensors) are freed via
-    // cuMemFreeAsync which is stream-ordered — the free happens after the kernel completes.
 
     Ok(())
 }

@@ -14,15 +14,25 @@ use crate::error::{Error, Result};
 /// Module name for indexing operations
 pub const INDEX_MODULE: &str = "index";
 
+/// Maximum number of tensor dimensions supported by gather/gather_nd kernels.
+/// Must match INDEX_MAX_DIMS in index.cu.
+const MAX_DIMS: usize = 8;
+
 /// Launch gather kernel.
 ///
 /// Gathers values from input along a dimension specified by indices.
 /// `output[i][j][k] = input[i][indices[i][j][k]][k]` (when dim=1)
 ///
+/// Shape and stride arrays are passed as individual scalar kernel arguments (not
+/// device pointers) so this launcher is safe for CUDA graph capture/replay.
+///
+/// # Errors
+///
+/// Returns `Error::BackendLimitation` if `ndim > MAX_DIMS`.
+///
 /// # Safety
 ///
 /// - All pointers must be valid device memory
-/// - Shape and stride arrays must be valid device memory with `ndim` u32 elements
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gather(
     context: &Arc<CudaContext>,
@@ -34,14 +44,38 @@ pub unsafe fn launch_gather(
     output_ptr: u64,
     ndim: usize,
     dim: usize,
-    input_shape_ptr: u64,
-    input_strides_ptr: u64,
-    output_shape_ptr: u64,
-    output_strides_ptr: u64,
+    input_shape: &[u32],
+    input_strides: &[u32],
+    output_shape: &[u32],
+    output_strides: &[u32],
     total_elements: usize,
 ) -> Result<()> {
     if total_elements == 0 {
         return Ok(());
+    }
+
+    if ndim > MAX_DIMS {
+        return Err(Error::BackendLimitation {
+            backend: "CUDA",
+            operation: "gather",
+            reason: format!(
+                "tensor has {} dimensions but gather kernel supports at most {}",
+                ndim, MAX_DIMS
+            ),
+        });
+    }
+
+    // Build zero-padded stack arrays
+    let mut input_shape_args = [0u32; MAX_DIMS];
+    let mut input_strides_args = [0u32; MAX_DIMS];
+    let mut output_shape_args = [0u32; MAX_DIMS];
+    let mut output_strides_args = [0u32; MAX_DIMS];
+
+    for i in 0..ndim {
+        input_shape_args[i] = input_shape[i];
+        input_strides_args[i] = input_strides[i];
+        output_shape_args[i] = output_shape[i];
+        output_strides_args[i] = output_strides[i];
     }
 
     unsafe {
@@ -63,10 +97,22 @@ pub unsafe fn launch_gather(
         builder.arg(&output_ptr);
         builder.arg(&ndim_u32);
         builder.arg(&dim_u32);
-        builder.arg(&input_shape_ptr);
-        builder.arg(&input_strides_ptr);
-        builder.arg(&output_shape_ptr);
-        builder.arg(&output_strides_ptr);
+        // Pass input_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&input_shape_args[i]);
+        }
+        // Pass input_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&input_strides_args[i]);
+        }
+        // Pass output_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&output_shape_args[i]);
+        }
+        // Pass output_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&output_strides_args[i]);
+        }
         builder.arg(&total_u32);
 
         builder
@@ -81,6 +127,13 @@ pub unsafe fn launch_gather(
 ///
 /// Gathers slices from input at positions specified by indices tensor.
 ///
+/// Shape and stride arrays are passed as individual scalar kernel arguments (not
+/// device pointers) so this launcher is safe for CUDA graph capture/replay.
+///
+/// # Errors
+///
+/// Returns `Error::BackendLimitation` if `ndim > MAX_DIMS`.
+///
 /// # Safety
 ///
 /// All pointers must be valid device memory with sufficient size.
@@ -93,8 +146,8 @@ pub unsafe fn launch_gather_nd(
     input_ptr: u64,
     indices_ptr: u64,
     output_ptr: u64,
-    input_shape_ptr: u64,
-    input_strides_ptr: u64,
+    input_shape: &[u32],
+    input_strides: &[u32],
     num_slices: usize,
     slice_size: usize,
     index_depth: usize,
@@ -103,6 +156,26 @@ pub unsafe fn launch_gather_nd(
     let total = num_slices * slice_size;
     if total == 0 {
         return Ok(());
+    }
+
+    if ndim > MAX_DIMS {
+        return Err(Error::BackendLimitation {
+            backend: "CUDA",
+            operation: "gather_nd",
+            reason: format!(
+                "tensor has {} dimensions but gather_nd kernel supports at most {}",
+                ndim, MAX_DIMS
+            ),
+        });
+    }
+
+    // Build zero-padded stack arrays
+    let mut input_shape_args = [0u32; MAX_DIMS];
+    let mut input_strides_args = [0u32; MAX_DIMS];
+
+    for i in 0..ndim {
+        input_shape_args[i] = input_shape[i];
+        input_strides_args[i] = input_strides[i];
     }
 
     unsafe {
@@ -123,8 +196,14 @@ pub unsafe fn launch_gather_nd(
         builder.arg(&input_ptr);
         builder.arg(&indices_ptr);
         builder.arg(&output_ptr);
-        builder.arg(&input_shape_ptr);
-        builder.arg(&input_strides_ptr);
+        // Pass input_shape as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&input_shape_args[i]);
+        }
+        // Pass input_strides as 8 individual u32 args
+        for i in 0..MAX_DIMS {
+            builder.arg(&input_strides_args[i]);
+        }
         builder.arg(&num_slices_u32);
         builder.arg(&slice_size_u32);
         builder.arg(&index_depth_u32);

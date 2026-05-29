@@ -90,19 +90,46 @@ DEFINE_CAT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 //
 // Example: repeat([2,3], [2,3]) -> [4,9]
 //   out[i,j] = src[i%2, j%3]
+//
+// Shape/stride arrays are passed as 8 individual scalar args (MAX_DIMS=8)
+// rather than device pointers, making this safe for CUDA graph capture/replay.
+// Unused dimension slots are zero-padded by the Rust launcher.
+
+// Maximum number of dimensions supported (must match shape.rs MAX_DIMS)
+#ifndef SHAPE_MAX_DIMS
+#define SHAPE_MAX_DIMS 8
+#endif
 
 #define DEFINE_REPEAT_KERNEL(suffix, dtype) \
 __global__ void repeat_##suffix( \
     const dtype* __restrict__ src, \
     dtype* __restrict__ dst, \
-    const unsigned int* __restrict__ src_shape, \
-    const unsigned int* __restrict__ out_shape, \
-    const unsigned int* __restrict__ out_strides, \
+    unsigned int src_shape0, unsigned int src_shape1, unsigned int src_shape2, unsigned int src_shape3, \
+    unsigned int src_shape4, unsigned int src_shape5, unsigned int src_shape6, unsigned int src_shape7, \
+    unsigned int out_shape0, unsigned int out_shape1, unsigned int out_shape2, unsigned int out_shape3, \
+    unsigned int out_shape4, unsigned int out_shape5, unsigned int out_shape6, unsigned int out_shape7, \
+    unsigned int out_strides0, unsigned int out_strides1, unsigned int out_strides2, unsigned int out_strides3, \
+    unsigned int out_strides4, unsigned int out_strides5, unsigned int out_strides6, unsigned int out_strides7, \
     unsigned int ndim, \
     unsigned int total_elements \
 ) { \
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
     if (idx >= total_elements) return; \
+    \
+    /* Load scalar args into shared arrays for indexed access */ \
+    __shared__ unsigned int s_src_shape[SHAPE_MAX_DIMS]; \
+    __shared__ unsigned int s_out_shape[SHAPE_MAX_DIMS]; \
+    if (threadIdx.x == 0) { \
+        s_src_shape[0] = src_shape0; s_src_shape[1] = src_shape1; \
+        s_src_shape[2] = src_shape2; s_src_shape[3] = src_shape3; \
+        s_src_shape[4] = src_shape4; s_src_shape[5] = src_shape5; \
+        s_src_shape[6] = src_shape6; s_src_shape[7] = src_shape7; \
+        s_out_shape[0] = out_shape0; s_out_shape[1] = out_shape1; \
+        s_out_shape[2] = out_shape2; s_out_shape[3] = out_shape3; \
+        s_out_shape[4] = out_shape4; s_out_shape[5] = out_shape5; \
+        s_out_shape[6] = out_shape6; s_out_shape[7] = out_shape7; \
+    } \
+    __syncthreads(); \
     \
     /* Decompose idx into multi-dimensional output coordinates */ \
     unsigned int remaining = idx; \
@@ -110,14 +137,14 @@ __global__ void repeat_##suffix( \
     unsigned int src_stride = 1; \
     \
     /* Process dimensions from last to first */ \
-    for (int d = ndim - 1; d >= 0; d--) { \
-        unsigned int coord = remaining % out_shape[d]; \
-        remaining /= out_shape[d]; \
+    for (int d = (int)ndim - 1; d >= 0; d--) { \
+        unsigned int coord = remaining % s_out_shape[d]; \
+        remaining /= s_out_shape[d]; \
         \
         /* Map to source coordinate using modulo */ \
-        unsigned int src_coord = coord % src_shape[d]; \
+        unsigned int src_coord = coord % s_src_shape[d]; \
         src_idx += src_coord * src_stride; \
-        src_stride *= src_shape[d]; \
+        src_stride *= s_src_shape[d]; \
     } \
     \
     dst[idx] = src[src_idx]; \
@@ -159,33 +186,60 @@ DEFINE_REPEAT_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 //   - src_shape[d]: original tensor size
 //   - pad_after[d]: padding after original data
 //   - out_shape[d] = pad_before[d] + src_shape[d] + pad_after[d]
+//
+// Shape/pad arrays are passed as 8 individual scalar args (MAX_DIMS=8)
+// rather than device pointers, making this safe for CUDA graph capture/replay.
+// Unused dimension slots are zero-padded by the Rust launcher.
 
 #define DEFINE_PAD_KERNEL(suffix, dtype) \
 __global__ void pad_##suffix( \
     const dtype* __restrict__ src, \
     dtype* __restrict__ dst, \
     dtype fill_value, \
-    const unsigned int* __restrict__ src_shape, \
-    const unsigned int* __restrict__ out_shape, \
-    const unsigned int* __restrict__ pad_before, \
+    unsigned int src_shape0, unsigned int src_shape1, unsigned int src_shape2, unsigned int src_shape3, \
+    unsigned int src_shape4, unsigned int src_shape5, unsigned int src_shape6, unsigned int src_shape7, \
+    unsigned int out_shape0, unsigned int out_shape1, unsigned int out_shape2, unsigned int out_shape3, \
+    unsigned int out_shape4, unsigned int out_shape5, unsigned int out_shape6, unsigned int out_shape7, \
+    unsigned int pad_before0, unsigned int pad_before1, unsigned int pad_before2, unsigned int pad_before3, \
+    unsigned int pad_before4, unsigned int pad_before5, unsigned int pad_before6, unsigned int pad_before7, \
     unsigned int ndim, \
     unsigned int total_elements \
 ) { \
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
     if (idx >= total_elements) return; \
     \
+    /* Load scalar args into shared arrays for indexed access */ \
+    __shared__ unsigned int s_src_shape[SHAPE_MAX_DIMS]; \
+    __shared__ unsigned int s_out_shape[SHAPE_MAX_DIMS]; \
+    __shared__ unsigned int s_pad_before[SHAPE_MAX_DIMS]; \
+    if (threadIdx.x == 0) { \
+        s_src_shape[0] = src_shape0; s_src_shape[1] = src_shape1; \
+        s_src_shape[2] = src_shape2; s_src_shape[3] = src_shape3; \
+        s_src_shape[4] = src_shape4; s_src_shape[5] = src_shape5; \
+        s_src_shape[6] = src_shape6; s_src_shape[7] = src_shape7; \
+        s_out_shape[0] = out_shape0; s_out_shape[1] = out_shape1; \
+        s_out_shape[2] = out_shape2; s_out_shape[3] = out_shape3; \
+        s_out_shape[4] = out_shape4; s_out_shape[5] = out_shape5; \
+        s_out_shape[6] = out_shape6; s_out_shape[7] = out_shape7; \
+        s_pad_before[0] = pad_before0; s_pad_before[1] = pad_before1; \
+        s_pad_before[2] = pad_before2; s_pad_before[3] = pad_before3; \
+        s_pad_before[4] = pad_before4; s_pad_before[5] = pad_before5; \
+        s_pad_before[6] = pad_before6; s_pad_before[7] = pad_before7; \
+    } \
+    __syncthreads(); \
+    \
     /* Decompose idx into multi-dimensional output coordinates */ \
     unsigned int remaining = idx; \
-    unsigned int coords[8]; /* Max 8 dimensions supported */ \
+    unsigned int coords[SHAPE_MAX_DIMS]; \
     bool in_bounds = true; \
     \
     /* Process dimensions from last to first */ \
-    for (int d = ndim - 1; d >= 0; d--) { \
-        coords[d] = remaining % out_shape[d]; \
-        remaining /= out_shape[d]; \
+    for (int d = (int)ndim - 1; d >= 0; d--) { \
+        coords[d] = remaining % s_out_shape[d]; \
+        remaining /= s_out_shape[d]; \
         \
         /* Check if this coordinate is in the original tensor region */ \
-        if (coords[d] < pad_before[d] || coords[d] >= pad_before[d] + src_shape[d]) { \
+        if (coords[d] < s_pad_before[d] || coords[d] >= s_pad_before[d] + s_src_shape[d]) { \
             in_bounds = false; \
         } \
     } \
@@ -194,10 +248,10 @@ __global__ void pad_##suffix( \
         /* Compute source index */ \
         unsigned int src_idx = 0; \
         unsigned int src_stride = 1; \
-        for (int d = ndim - 1; d >= 0; d--) { \
-            unsigned int src_coord = coords[d] - pad_before[d]; \
+        for (int d = (int)ndim - 1; d >= 0; d--) { \
+            unsigned int src_coord = coords[d] - s_pad_before[d]; \
             src_idx += src_coord * src_stride; \
-            src_stride *= src_shape[d]; \
+            src_stride *= s_src_shape[d]; \
         } \
         dst[idx] = src[src_idx]; \
     } else { \

@@ -7,7 +7,7 @@ use crate::runtime::cuda::kernels::{
     launch_index_select, launch_scatter, launch_slice_assign, launch_validate_indices,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
+use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
 
 use super::helpers::normalize_indices_to_i64;
@@ -46,7 +46,7 @@ pub fn gather(
     let out_shape = index_i64.shape().to_vec();
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
-    // Prepare shape and stride arrays for GPU
+    // Prepare shape and stride arrays as host Vecs (passed as scalar args, no device alloc needed)
     let input_shape: Vec<u32> = a.shape().iter().map(|&s| s as u32).collect();
     let input_strides: Vec<u32> = compute_contiguous_strides(a.shape())
         .iter()
@@ -58,25 +58,7 @@ pub fn gather(
         .map(|&s| s as u32)
         .collect();
 
-    // Allocate device memory for shape/stride arrays
-    let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let input_shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let input_strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let output_shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let output_strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-
-    // Copy shape/stride data to device
-    let input_shape_bytes: &[u8] = bytemuck::cast_slice(&input_shape);
-    let input_strides_bytes: &[u8] = bytemuck::cast_slice(&input_strides);
-    let output_shape_bytes: &[u8] = bytemuck::cast_slice(&output_shape);
-    let output_strides_bytes: &[u8] = bytemuck::cast_slice(&output_strides);
-
-    CudaRuntime::copy_to_device(input_shape_bytes, input_shape_ptr, &client.device)?;
-    CudaRuntime::copy_to_device(input_strides_bytes, input_strides_ptr, &client.device)?;
-    CudaRuntime::copy_to_device(output_shape_bytes, output_shape_ptr, &client.device)?;
-    CudaRuntime::copy_to_device(output_strides_bytes, output_strides_ptr, &client.device)?;
-
-    let result = unsafe {
+    unsafe {
         launch_gather(
             &client.context,
             &client.stream,
@@ -87,21 +69,14 @@ pub fn gather(
             out.ptr(),
             ndim,
             dim,
-            input_shape_ptr,
-            input_strides_ptr,
-            output_shape_ptr,
-            output_strides_ptr,
+            &input_shape,
+            &input_strides,
+            &output_shape,
+            &output_strides,
             out.numel(),
-        )
-    };
+        )?;
+    }
 
-    // Clean up temporary device allocations
-    CudaRuntime::deallocate(input_shape_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(input_strides_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(output_shape_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(output_strides_ptr, shape_bytes, &client.device);
-
-    result?;
     Ok(out)
 }
 
@@ -173,36 +148,7 @@ pub fn scatter(
         .map(|&s| s as u32)
         .collect();
 
-    // Allocate device memory for shape/stride arrays
-    let shape_bytes = ndim * std::mem::size_of::<u32>();
-    let output_shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let output_strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let src_shape_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-    let src_strides_ptr = CudaRuntime::allocate(shape_bytes, &client.device)?;
-
-    // Copy shape/stride data to device
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&output_shape),
-        output_shape_ptr,
-        &client.device,
-    )?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&output_strides),
-        output_strides_ptr,
-        &client.device,
-    )?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&src_shape),
-        src_shape_ptr,
-        &client.device,
-    )?;
-    CudaRuntime::copy_to_device(
-        bytemuck::cast_slice(&src_strides),
-        src_strides_ptr,
-        &client.device,
-    )?;
-
-    let result = unsafe {
+    unsafe {
         launch_scatter(
             &client.context,
             &client.stream,
@@ -214,21 +160,13 @@ pub fn scatter(
             out.ptr(),
             ndim,
             dim,
-            output_shape_ptr,
-            output_strides_ptr,
-            src_shape_ptr,
-            src_strides_ptr,
+            &output_shape,
+            &output_strides,
+            &src_shape,
+            &src_strides,
             src.numel(),
-        )
-    };
-
-    // Clean up temporary device allocations
-    CudaRuntime::deallocate(output_shape_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(output_strides_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(src_shape_ptr, shape_bytes, &client.device);
-    CudaRuntime::deallocate(src_strides_ptr, shape_bytes, &client.device);
-
-    result?;
+        )?;
+    }
     Ok(out)
 }
 

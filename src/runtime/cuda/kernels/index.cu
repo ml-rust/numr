@@ -11,7 +11,15 @@
 // Helper Macros for Multi-Dtype Kernel Generation
 // ============================================================================
 
-// Macro for gather kernel
+// Maximum number of dimensions supported (must match MAX_DIMS in index/gather.rs)
+#ifndef INDEX_MAX_DIMS
+#define INDEX_MAX_DIMS 8
+#endif
+
+// Macro for gather kernel.
+// Shape and stride arrays are passed as 4*MAX_DIMS=32 individual scalar u32 args
+// rather than device pointers, making this safe for CUDA graph capture/replay.
+// Unused slots are zero-padded by the Rust launcher.
 #define DEFINE_GATHER_KERNEL(suffix, dtype) \
 __global__ void gather_##suffix( \
     const dtype* __restrict__ input, \
@@ -19,38 +27,65 @@ __global__ void gather_##suffix( \
     dtype* __restrict__ output, \
     unsigned int ndim, \
     unsigned int dim, \
-    const unsigned int* __restrict__ input_shape, \
-    const unsigned int* __restrict__ input_strides, \
-    const unsigned int* __restrict__ output_shape, \
-    const unsigned int* __restrict__ output_strides, \
+    unsigned int input_shape0, unsigned int input_shape1, unsigned int input_shape2, unsigned int input_shape3, \
+    unsigned int input_shape4, unsigned int input_shape5, unsigned int input_shape6, unsigned int input_shape7, \
+    unsigned int input_strides0, unsigned int input_strides1, unsigned int input_strides2, unsigned int input_strides3, \
+    unsigned int input_strides4, unsigned int input_strides5, unsigned int input_strides6, unsigned int input_strides7, \
+    unsigned int output_shape0, unsigned int output_shape1, unsigned int output_shape2, unsigned int output_shape3, \
+    unsigned int output_shape4, unsigned int output_shape5, unsigned int output_shape6, unsigned int output_shape7, \
+    unsigned int output_strides0, unsigned int output_strides1, unsigned int output_strides2, unsigned int output_strides3, \
+    unsigned int output_strides4, unsigned int output_strides5, unsigned int output_strides6, unsigned int output_strides7, \
     unsigned int total_elements \
 ) { \
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
     if (idx >= total_elements) return; \
     \
+    /* Load scalar args into shared arrays for indexed access */ \
+    __shared__ unsigned int s_input_shape[INDEX_MAX_DIMS]; \
+    __shared__ unsigned int s_input_strides[INDEX_MAX_DIMS]; \
+    __shared__ unsigned int s_output_strides[INDEX_MAX_DIMS]; \
+    if (threadIdx.x == 0) { \
+        s_input_shape[0]   = input_shape0;   s_input_shape[1]   = input_shape1; \
+        s_input_shape[2]   = input_shape2;   s_input_shape[3]   = input_shape3; \
+        s_input_shape[4]   = input_shape4;   s_input_shape[5]   = input_shape5; \
+        s_input_shape[6]   = input_shape6;   s_input_shape[7]   = input_shape7; \
+        s_input_strides[0] = input_strides0; s_input_strides[1] = input_strides1; \
+        s_input_strides[2] = input_strides2; s_input_strides[3] = input_strides3; \
+        s_input_strides[4] = input_strides4; s_input_strides[5] = input_strides5; \
+        s_input_strides[6] = input_strides6; s_input_strides[7] = input_strides7; \
+        s_output_strides[0] = output_strides0; s_output_strides[1] = output_strides1; \
+        s_output_strides[2] = output_strides2; s_output_strides[3] = output_strides3; \
+        s_output_strides[4] = output_strides4; s_output_strides[5] = output_strides5; \
+        s_output_strides[6] = output_strides6; s_output_strides[7] = output_strides7; \
+    } \
+    __syncthreads(); \
+    \
     unsigned int remaining = idx; \
     unsigned int src_offset = 0; \
     \
     for (unsigned int d = 0; d < ndim; d++) { \
-        unsigned int coord = remaining / output_strides[d]; \
-        remaining %= output_strides[d]; \
+        unsigned int coord = remaining / s_output_strides[d]; \
+        remaining %= s_output_strides[d]; \
         \
         if (d == dim) { \
             long long index_val = indices[idx]; \
-            if (index_val < 0 || (unsigned int)index_val >= input_shape[d]) { \
+            if (index_val < 0 || (unsigned int)index_val >= s_input_shape[d]) { \
                 output[idx] = (dtype)0; \
                 return; \
             } \
-            src_offset += (unsigned int)index_val * input_strides[d]; \
+            src_offset += (unsigned int)index_val * s_input_strides[d]; \
         } else { \
-            src_offset += coord * input_strides[d]; \
+            src_offset += coord * s_input_strides[d]; \
         } \
     } \
     \
     output[idx] = input[src_offset]; \
 }
 
-// Macro for scatter kernel
+// Macro for scatter kernel.
+// Shape and stride arrays are passed as 4*INDEX_MAX_DIMS=32 individual scalar u32 args
+// rather than device pointers, making this safe for CUDA graph capture/replay.
+// Unused slots are zero-padded by the Rust launcher.
 #define DEFINE_SCATTER_KERNEL(suffix, dtype) \
 __global__ void scatter_##suffix( \
     const dtype* __restrict__ input, \
@@ -59,30 +94,54 @@ __global__ void scatter_##suffix( \
     dtype* __restrict__ output, \
     unsigned int ndim, \
     unsigned int dim, \
-    const unsigned int* __restrict__ output_shape, \
-    const unsigned int* __restrict__ output_strides, \
-    const unsigned int* __restrict__ src_shape, \
-    const unsigned int* __restrict__ src_strides, \
+    unsigned int output_shape0, unsigned int output_shape1, unsigned int output_shape2, unsigned int output_shape3, \
+    unsigned int output_shape4, unsigned int output_shape5, unsigned int output_shape6, unsigned int output_shape7, \
+    unsigned int output_strides0, unsigned int output_strides1, unsigned int output_strides2, unsigned int output_strides3, \
+    unsigned int output_strides4, unsigned int output_strides5, unsigned int output_strides6, unsigned int output_strides7, \
+    unsigned int src_shape0, unsigned int src_shape1, unsigned int src_shape2, unsigned int src_shape3, \
+    unsigned int src_shape4, unsigned int src_shape5, unsigned int src_shape6, unsigned int src_shape7, \
+    unsigned int src_strides0, unsigned int src_strides1, unsigned int src_strides2, unsigned int src_strides3, \
+    unsigned int src_strides4, unsigned int src_strides5, unsigned int src_strides6, unsigned int src_strides7, \
     unsigned int src_total \
 ) { \
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
     if (idx >= src_total) return; \
     \
+    /* Load scalar args into shared arrays for indexed access */ \
+    __shared__ unsigned int s_output_shape[INDEX_MAX_DIMS]; \
+    __shared__ unsigned int s_output_strides[INDEX_MAX_DIMS]; \
+    __shared__ unsigned int s_src_strides[INDEX_MAX_DIMS]; \
+    if (threadIdx.x == 0) { \
+        s_output_shape[0]   = output_shape0;   s_output_shape[1]   = output_shape1; \
+        s_output_shape[2]   = output_shape2;   s_output_shape[3]   = output_shape3; \
+        s_output_shape[4]   = output_shape4;   s_output_shape[5]   = output_shape5; \
+        s_output_shape[6]   = output_shape6;   s_output_shape[7]   = output_shape7; \
+        s_output_strides[0] = output_strides0; s_output_strides[1] = output_strides1; \
+        s_output_strides[2] = output_strides2; s_output_strides[3] = output_strides3; \
+        s_output_strides[4] = output_strides4; s_output_strides[5] = output_strides5; \
+        s_output_strides[6] = output_strides6; s_output_strides[7] = output_strides7; \
+        s_src_strides[0]    = src_strides0;    s_src_strides[1]    = src_strides1; \
+        s_src_strides[2]    = src_strides2;    s_src_strides[3]    = src_strides3; \
+        s_src_strides[4]    = src_strides4;    s_src_strides[5]    = src_strides5; \
+        s_src_strides[6]    = src_strides6;    s_src_strides[7]    = src_strides7; \
+    } \
+    __syncthreads(); \
+    \
     unsigned int remaining = idx; \
     unsigned int dst_offset = 0; \
     \
     for (unsigned int d = 0; d < ndim; d++) { \
-        unsigned int coord = remaining / src_strides[d]; \
-        remaining %= src_strides[d]; \
+        unsigned int coord = remaining / s_src_strides[d]; \
+        remaining %= s_src_strides[d]; \
         \
         if (d == dim) { \
             long long index_val = indices[idx]; \
-            if (index_val < 0 || (unsigned int)index_val >= output_shape[d]) { \
+            if (index_val < 0 || (unsigned int)index_val >= s_output_shape[d]) { \
                 return; \
             } \
-            dst_offset += (unsigned int)index_val * output_strides[d]; \
+            dst_offset += (unsigned int)index_val * s_output_strides[d]; \
         } else { \
-            dst_offset += coord * output_strides[d]; \
+            dst_offset += coord * s_output_strides[d]; \
         } \
     } \
     \
@@ -570,6 +629,10 @@ DEFINE_EMBEDDING_LOOKUP_KERNEL(fp8_e5m2, numr_fp8_e5m2)
 // Gathers slices from input at positions specified by indices tensor.
 // indices: (num_slices, index_depth) where index_depth <= ndim
 // output: (num_slices, remaining_dims...)
+//
+// Shape and stride arrays are passed as 2*MAX_DIMS=16 individual scalar u32 args
+// rather than device pointers, making this safe for CUDA graph capture/replay.
+// Unused slots are zero-padded by the Rust launcher.
 // ============================================================================
 
 #define DEFINE_GATHER_ND_KERNEL(suffix, dtype) \
@@ -577,8 +640,10 @@ __global__ void gather_nd_##suffix( \
     const dtype* __restrict__ input, \
     const long long* __restrict__ indices, \
     dtype* __restrict__ output, \
-    const unsigned int* __restrict__ input_shape, \
-    const unsigned int* __restrict__ input_strides, \
+    unsigned int input_shape0, unsigned int input_shape1, unsigned int input_shape2, unsigned int input_shape3, \
+    unsigned int input_shape4, unsigned int input_shape5, unsigned int input_shape6, unsigned int input_shape7, \
+    unsigned int input_strides0, unsigned int input_strides1, unsigned int input_strides2, unsigned int input_strides3, \
+    unsigned int input_strides4, unsigned int input_strides5, unsigned int input_strides6, unsigned int input_strides7, \
     unsigned int num_slices, \
     unsigned int slice_size, \
     unsigned int index_depth, \
@@ -588,6 +653,21 @@ __global__ void gather_nd_##suffix( \
     unsigned int total = num_slices * slice_size; \
     if (idx >= total) return; \
     \
+    /* Load scalar args into shared arrays for indexed access */ \
+    __shared__ unsigned int s_input_shape[INDEX_MAX_DIMS]; \
+    __shared__ unsigned int s_input_strides[INDEX_MAX_DIMS]; \
+    if (threadIdx.x == 0) { \
+        s_input_shape[0]   = input_shape0;   s_input_shape[1]   = input_shape1; \
+        s_input_shape[2]   = input_shape2;   s_input_shape[3]   = input_shape3; \
+        s_input_shape[4]   = input_shape4;   s_input_shape[5]   = input_shape5; \
+        s_input_shape[6]   = input_shape6;   s_input_shape[7]   = input_shape7; \
+        s_input_strides[0] = input_strides0; s_input_strides[1] = input_strides1; \
+        s_input_strides[2] = input_strides2; s_input_strides[3] = input_strides3; \
+        s_input_strides[4] = input_strides4; s_input_strides[5] = input_strides5; \
+        s_input_strides[6] = input_strides6; s_input_strides[7] = input_strides7; \
+    } \
+    __syncthreads(); \
+    \
     unsigned int slice_idx = idx / slice_size; \
     unsigned int within_slice = idx % slice_size; \
     \
@@ -596,11 +676,11 @@ __global__ void gather_nd_##suffix( \
     bool out_of_bounds = false; \
     for (unsigned int d = 0; d < index_depth; d++) { \
         long long index_val = indices[slice_idx * index_depth + d]; \
-        if (index_val < 0 || (unsigned int)index_val >= input_shape[d]) { \
+        if (index_val < 0 || (unsigned int)index_val >= s_input_shape[d]) { \
             out_of_bounds = true; \
             break; \
         } \
-        src_offset += (unsigned int)index_val * input_strides[d]; \
+        src_offset += (unsigned int)index_val * s_input_strides[d]; \
     } \
     \
     if (out_of_bounds) { \

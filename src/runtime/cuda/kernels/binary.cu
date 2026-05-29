@@ -180,6 +180,53 @@ __device__ void broadcast_kernel_impl(
     out[idx] = op(a[a_offset], b[b_offset]);
 }
 
+// CUDA-graph-safe inline broadcast kernel template.
+//
+// Strides and shape are passed as individual scalar arguments baked into the
+// kernel-parameter block rather than as device-memory pointers. This eliminates
+// the H2D memcpy nodes that the pointer-based variant creates during graph
+// capture — those nodes encode the host-side Vec<u32> addresses, which become
+// stale (dangling) on graph replay, causing CUDA_ERROR_ILLEGAL_ADDRESS.
+//
+// Up to 8 dimensions are supported (MAX_BROADCAST_DIMS = 8). Unused trailing
+// dimensions must be zero-padded by the caller.
+#define MAX_BROADCAST_DIMS 8
+template<typename T, typename OpFunc>
+__device__ void broadcast_kernel_impl_inline(
+    const T* a, const T* b, T* out,
+    // a_strides[0..7]
+    unsigned int as0, unsigned int as1, unsigned int as2, unsigned int as3,
+    unsigned int as4, unsigned int as5, unsigned int as6, unsigned int as7,
+    // b_strides[0..7]
+    unsigned int bs0, unsigned int bs1, unsigned int bs2, unsigned int bs3,
+    unsigned int bs4, unsigned int bs5, unsigned int bs6, unsigned int bs7,
+    // shape[0..7]
+    unsigned int sh0, unsigned int sh1, unsigned int sh2, unsigned int sh3,
+    unsigned int sh4, unsigned int sh5, unsigned int sh6, unsigned int sh7,
+    unsigned int ndim, unsigned int n,
+    OpFunc op
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    // Unpack inline args into local arrays so the loop below can index them.
+    unsigned int a_strides[MAX_BROADCAST_DIMS] = {as0, as1, as2, as3, as4, as5, as6, as7};
+    unsigned int b_strides[MAX_BROADCAST_DIMS] = {bs0, bs1, bs2, bs3, bs4, bs5, bs6, bs7};
+    unsigned int shape[MAX_BROADCAST_DIMS]     = {sh0, sh1, sh2, sh3, sh4, sh5, sh6, sh7};
+
+    unsigned int remaining = idx;
+    unsigned int a_offset = 0, b_offset = 0;
+
+    for (int d = (int)ndim - 1; d >= 0; d--) {
+        unsigned int coord = remaining % shape[d];
+        remaining /= shape[d];
+        a_offset += coord * a_strides[d];
+        b_offset += coord * b_strides[d];
+    }
+
+    out[idx] = op(a[a_offset], b[b_offset]);
+}
+
 extern "C" {
 
 // ============================================================================
@@ -1260,6 +1307,172 @@ __global__ void div_c128(const double2* a, const double2* b, double2* out, unsig
     if (idx < n) {
         out[idx] = complex128_div(a[idx], b[idx]);
     }
+}
+
+// ============================================================================
+// Inline broadcast kernels (CUDA-graph safe)
+//
+// These variants pass strides and shape as individual scalar u32 arguments
+// baked into the kernel-parameter block rather than as device-memory pointers.
+// This makes them safe for use inside CUDA graph capture regions: no H2D memcpy
+// nodes are created, so no stale host pointers are baked into the graph.
+//
+// Naming convention: {op}_broadcast_{dtype}_inline
+// ============================================================================
+
+// Shared inline signature for F32.
+// Each inline kernel unpacks the 24 scalar args into local arrays.
+#define BROADCAST_INLINE_ARGS \
+    unsigned int as0, unsigned int as1, unsigned int as2, unsigned int as3, \
+    unsigned int as4, unsigned int as5, unsigned int as6, unsigned int as7, \
+    unsigned int bs0, unsigned int bs1, unsigned int bs2, unsigned int bs3, \
+    unsigned int bs4, unsigned int bs5, unsigned int bs6, unsigned int bs7, \
+    unsigned int sh0, unsigned int sh1, unsigned int sh2, unsigned int sh3, \
+    unsigned int sh4, unsigned int sh5, unsigned int sh6, unsigned int sh7, \
+    unsigned int ndim, unsigned int n
+
+#define BROADCAST_INLINE_CALL \
+    as0, as1, as2, as3, as4, as5, as6, as7, \
+    bs0, bs1, bs2, bs3, bs4, bs5, bs6, bs7, \
+    sh0, sh1, sh2, sh3, sh4, sh5, sh6, sh7, \
+    ndim, n
+
+// F32 inline broadcast kernels
+__global__ void add_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<float>);
+}
+__global__ void sub_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<float>);
+}
+__global__ void mul_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<float>);
+}
+__global__ void div_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<float>);
+}
+__global__ void pow_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<float>);
+}
+__global__ void max_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<float>);
+}
+__global__ void min_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<float>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<float>);
+}
+
+// F64 inline broadcast kernels
+__global__ void add_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<double>);
+}
+__global__ void sub_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<double>);
+}
+__global__ void mul_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<double>);
+}
+__global__ void div_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<double>);
+}
+__global__ void pow_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<double>);
+}
+__global__ void max_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<double>);
+}
+__global__ void min_broadcast_f64_inline(const double* a, const double* b, double* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<double>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<double>);
+}
+
+// F16 inline broadcast kernels
+__global__ void add_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<__half>);
+}
+__global__ void sub_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<__half>);
+}
+__global__ void mul_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<__half>);
+}
+__global__ void div_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<__half>);
+}
+__global__ void pow_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<__half>);
+}
+__global__ void max_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<__half>);
+}
+__global__ void min_broadcast_f16_inline(const __half* a, const __half* b, __half* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__half>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<__half>);
+}
+
+// BF16 inline broadcast kernels
+__global__ void add_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<__nv_bfloat16>);
+}
+__global__ void sub_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<__nv_bfloat16>);
+}
+__global__ void mul_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<__nv_bfloat16>);
+}
+__global__ void div_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<__nv_bfloat16>);
+}
+__global__ void pow_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<__nv_bfloat16>);
+}
+__global__ void max_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<__nv_bfloat16>);
+}
+__global__ void min_broadcast_bf16_inline(const __nv_bfloat16* a, const __nv_bfloat16* b, __nv_bfloat16* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<__nv_bfloat16>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<__nv_bfloat16>);
+}
+
+// I32 inline broadcast kernels
+__global__ void add_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<int32_t>);
+}
+__global__ void sub_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<int32_t>);
+}
+__global__ void mul_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<int32_t>);
+}
+__global__ void div_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<int32_t>);
+}
+__global__ void pow_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<int32_t>);
+}
+__global__ void max_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<int32_t>);
+}
+__global__ void min_broadcast_i32_inline(const int32_t* a, const int32_t* b, int32_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int32_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<int32_t>);
+}
+
+// I64 inline broadcast kernels
+__global__ void add_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_add<int64_t>);
+}
+__global__ void sub_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_sub<int64_t>);
+}
+__global__ void mul_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_mul<int64_t>);
+}
+__global__ void div_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_div<int64_t>);
+}
+__global__ void pow_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_pow<int64_t>);
+}
+__global__ void max_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_max<int64_t>);
+}
+__global__ void min_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
+    broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<int64_t>);
 }
 
 } // extern "C"
