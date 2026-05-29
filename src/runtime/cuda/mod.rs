@@ -22,6 +22,8 @@
 //! These panics follow CUDA best practices where allocation failures indicate
 //! an unrecoverable out-of-memory condition.
 
+mod allocator;
+mod arena;
 mod cache;
 mod client;
 #[cfg(feature = "nccl")]
@@ -34,12 +36,14 @@ mod linalg;
 mod ops;
 mod polynomial;
 mod runtime;
+mod sobol_cache;
 #[cfg(feature = "sparse")]
 mod sparse;
 mod special;
 
 pub use crate::tensor::Tensor;
-pub use client::{CudaAllocator, CudaClient, CudaRawHandle};
+pub use allocator::CudaAllocator;
+pub use client::{CudaClient, CudaRawHandle};
 #[cfg(feature = "nccl")]
 pub use communicator::NcclCommunicator;
 pub use device::{CudaDevice, CudaError};
