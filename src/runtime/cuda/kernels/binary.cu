@@ -191,6 +191,63 @@ __device__ void broadcast_kernel_impl(
 // Up to 8 dimensions are supported (MAX_BROADCAST_DIMS = 8). Unused trailing
 // dimensions must be zero-padded by the caller.
 #define MAX_BROADCAST_DIMS 8
+
+// ============================================================================
+// Magic-number fast division helpers
+//
+// For each dimension d with size shape[d], the caller precomputes:
+//   magic[d]  — 32-bit multiplier (unsigned)
+//   shift[d]  — post-multiply right-shift amount
+//
+// These satisfy: floor(x / shape[d]) == __umulhi(x, magic[d]) >> shift[d]
+// for all 0 <= x < 2^32 when magic/shift are computed correctly.
+//
+// This replaces the ~20-40 cycle hardware integer division with 1 mulhi + 1
+// shift, making the broadcast kernel bandwidth-bound instead of divide-bound.
+// ============================================================================
+__device__ __forceinline__ unsigned int fast_div(unsigned int x, unsigned int magic, unsigned int shift) {
+    // __umulhi returns the high 32 bits of x * magic (64-bit multiply)
+    return (__umulhi(x, magic) >> shift);
+}
+
+// Fast-path kernel for the common trailing-broadcast pattern:
+//   a has the same shape as out (contiguous, stride == natural stride)
+//   b is a contiguous tensor with b_numel elements that repeats along the
+//   leading dimensions.
+//   b_index(idx) = idx % b_numel  =>  b[fast_div + subtraction trick]
+//
+// This covers:  [M,N] + [1,N] (b_numel=N, b broadcasts over rows)
+//               [B,H,S,S] + [B,1,1,S] (b_numel=S, b broadcasts over B*H*S)
+//               and any other contiguous trailing broadcast.
+//
+// Args:
+//   b_magic, b_shift  — magic-number for dividing by b_numel
+//   b_numel           — size of the repeating b tensor
+template<typename T, typename OpFunc>
+__device__ __forceinline__ void broadcast_fast_trailing_impl(
+    const T* __restrict__ a,
+    const T* __restrict__ b,
+    T* __restrict__ out,
+    unsigned int b_magic,
+    unsigned int b_shift,
+    unsigned int b_numel,
+    unsigned int n,
+    OpFunc op
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+    // b_idx = idx % b_numel  =>  idx - floor(idx/b_numel)*b_numel
+    // b_magic==0 is the power-of-2 sentinel: q = idx >> b_shift
+    unsigned int q = (b_magic == 0u) ? (idx >> b_shift) : fast_div(idx, b_magic, b_shift);
+    unsigned int b_idx = idx - q * b_numel;
+    out[idx] = op(a[idx], b[b_idx]);
+}
+
+// General magic-number broadcast kernel.
+//
+// Replaces the shape-based div/mod loop with precomputed magic+shift per dim.
+// The shape is still passed (needed for coord = remaining - q*shape[d]).
+// This eliminates hardware integer division entirely.
 template<typename T, typename OpFunc>
 __device__ void broadcast_kernel_impl_inline(
     const T* a, const T* b, T* out,
@@ -203,6 +260,12 @@ __device__ void broadcast_kernel_impl_inline(
     // shape[0..7]
     unsigned int sh0, unsigned int sh1, unsigned int sh2, unsigned int sh3,
     unsigned int sh4, unsigned int sh5, unsigned int sh6, unsigned int sh7,
+    // magic[0..7]  (precomputed fast-div multipliers for each shape dimension)
+    unsigned int mg0, unsigned int mg1, unsigned int mg2, unsigned int mg3,
+    unsigned int mg4, unsigned int mg5, unsigned int mg6, unsigned int mg7,
+    // post-shift[0..7]
+    unsigned int ps0, unsigned int ps1, unsigned int ps2, unsigned int ps3,
+    unsigned int ps4, unsigned int ps5, unsigned int ps6, unsigned int ps7,
     unsigned int ndim, unsigned int n,
     OpFunc op
 ) {
@@ -210,16 +273,31 @@ __device__ void broadcast_kernel_impl_inline(
     if (idx >= n) return;
 
     // Unpack inline args into local arrays so the loop below can index them.
-    unsigned int a_strides[MAX_BROADCAST_DIMS] = {as0, as1, as2, as3, as4, as5, as6, as7};
-    unsigned int b_strides[MAX_BROADCAST_DIMS] = {bs0, bs1, bs2, bs3, bs4, bs5, bs6, bs7};
-    unsigned int shape[MAX_BROADCAST_DIMS]     = {sh0, sh1, sh2, sh3, sh4, sh5, sh6, sh7};
+    const unsigned int a_strides[MAX_BROADCAST_DIMS] = {as0, as1, as2, as3, as4, as5, as6, as7};
+    const unsigned int b_strides[MAX_BROADCAST_DIMS] = {bs0, bs1, bs2, bs3, bs4, bs5, bs6, bs7};
+    const unsigned int shape[MAX_BROADCAST_DIMS]     = {sh0, sh1, sh2, sh3, sh4, sh5, sh6, sh7};
+    const unsigned int magic[MAX_BROADCAST_DIMS]     = {mg0, mg1, mg2, mg3, mg4, mg5, mg6, mg7};
+    const unsigned int pshift[MAX_BROADCAST_DIMS]    = {ps0, ps1, ps2, ps3, ps4, ps5, ps6, ps7};
 
     unsigned int remaining = idx;
     unsigned int a_offset = 0, b_offset = 0;
 
-    for (int d = (int)ndim - 1; d >= 0; d--) {
-        unsigned int coord = remaining % shape[d];
-        remaining /= shape[d];
+    // Unrolled for up to 8 dims using precomputed magic-number division.
+    // Sentinel: magic[d]==0 means use bit-shift (q = remaining >> pshift[d]).
+    //   d==1: magic=0, shift=0 → q = remaining; coord = remaining - remaining*1 = 0. ✓
+    //   d==2^k: magic=0, shift=k → q = remaining>>k; coord = remaining - q*d. ✓
+    //   general: q = __umulhi(remaining, magic[d]) >> pshift[d]. ✓
+    #pragma unroll
+    for (int d = MAX_BROADCAST_DIMS - 1; d >= 0; d--) {
+        if ((unsigned int)d >= ndim) continue;
+        unsigned int q;
+        if (magic[d] == 0u) {
+            q = remaining >> pshift[d];
+        } else {
+            q = fast_div(remaining, magic[d], pshift[d]);
+        }
+        unsigned int coord = remaining - q * shape[d];
+        remaining = q;
         a_offset += coord * a_strides[d];
         b_offset += coord * b_strides[d];
     }
@@ -1320,8 +1398,8 @@ __global__ void div_c128(const double2* a, const double2* b, double2* out, unsig
 // Naming convention: {op}_broadcast_{dtype}_inline
 // ============================================================================
 
-// Shared inline signature for F32.
-// Each inline kernel unpacks the 24 scalar args into local arrays.
+// Shared inline signature for all broadcast kernels.
+// Includes precomputed magic/shift for fast division (replaces hardware div/mod).
 #define BROADCAST_INLINE_ARGS \
     unsigned int as0, unsigned int as1, unsigned int as2, unsigned int as3, \
     unsigned int as4, unsigned int as5, unsigned int as6, unsigned int as7, \
@@ -1329,13 +1407,26 @@ __global__ void div_c128(const double2* a, const double2* b, double2* out, unsig
     unsigned int bs4, unsigned int bs5, unsigned int bs6, unsigned int bs7, \
     unsigned int sh0, unsigned int sh1, unsigned int sh2, unsigned int sh3, \
     unsigned int sh4, unsigned int sh5, unsigned int sh6, unsigned int sh7, \
+    unsigned int mg0, unsigned int mg1, unsigned int mg2, unsigned int mg3, \
+    unsigned int mg4, unsigned int mg5, unsigned int mg6, unsigned int mg7, \
+    unsigned int ps0, unsigned int ps1, unsigned int ps2, unsigned int ps3, \
+    unsigned int ps4, unsigned int ps5, unsigned int ps6, unsigned int ps7, \
     unsigned int ndim, unsigned int n
 
 #define BROADCAST_INLINE_CALL \
     as0, as1, as2, as3, as4, as5, as6, as7, \
     bs0, bs1, bs2, bs3, bs4, bs5, bs6, bs7, \
     sh0, sh1, sh2, sh3, sh4, sh5, sh6, sh7, \
+    mg0, mg1, mg2, mg3, mg4, mg5, mg6, mg7, \
+    ps0, ps1, ps2, ps3, ps4, ps5, ps6, ps7, \
     ndim, n
+
+// Fast trailing-broadcast kernel signature (contiguous a, contiguous repeating b)
+#define BROADCAST_FAST_TRAILING_ARGS \
+    unsigned int b_magic, unsigned int b_shift, unsigned int b_numel, unsigned int n
+
+#define BROADCAST_FAST_TRAILING_CALL \
+    b_magic, b_shift, b_numel, n
 
 // F32 inline broadcast kernels
 __global__ void add_broadcast_f32_inline(const float* a, const float* b, float* out, BROADCAST_INLINE_ARGS) {
@@ -1473,6 +1564,153 @@ __global__ void max_broadcast_i64_inline(const int64_t* a, const int64_t* b, int
 }
 __global__ void min_broadcast_i64_inline(const int64_t* a, const int64_t* b, int64_t* out, BROADCAST_INLINE_ARGS) {
     broadcast_kernel_impl_inline<int64_t>(a, b, out, BROADCAST_INLINE_CALL, broadcast_min<int64_t>);
+}
+
+// ============================================================================
+// Fast trailing-broadcast kernels
+//
+// Used when a is contiguous with the same shape as out, and b is a contiguous
+// tensor that tiles along the leading dimensions (b[idx % b_numel]).
+// b_magic + b_shift are precomputed magic-number divisors for b_numel.
+// Naming: {op}_broadcast_fast_trailing_{dtype}
+// ============================================================================
+
+// F32 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<float>);
+}
+__global__ void sub_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<float>);
+}
+__global__ void mul_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<float>);
+}
+__global__ void div_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<float>);
+}
+__global__ void pow_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<float>);
+}
+__global__ void max_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<float>);
+}
+__global__ void min_broadcast_fast_trailing_f32(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<float>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<float>);
+}
+
+// F64 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<double>);
+}
+__global__ void sub_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<double>);
+}
+__global__ void mul_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<double>);
+}
+__global__ void div_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<double>);
+}
+__global__ void pow_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<double>);
+}
+__global__ void max_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<double>);
+}
+__global__ void min_broadcast_fast_trailing_f64(const double* __restrict__ a, const double* __restrict__ b, double* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<double>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<double>);
+}
+
+// F16 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<__half>);
+}
+__global__ void sub_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<__half>);
+}
+__global__ void mul_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<__half>);
+}
+__global__ void div_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<__half>);
+}
+__global__ void pow_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<__half>);
+}
+__global__ void max_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<__half>);
+}
+__global__ void min_broadcast_fast_trailing_f16(const __half* __restrict__ a, const __half* __restrict__ b, __half* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__half>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<__half>);
+}
+
+// BF16 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<__nv_bfloat16>);
+}
+__global__ void sub_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<__nv_bfloat16>);
+}
+__global__ void mul_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<__nv_bfloat16>);
+}
+__global__ void div_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<__nv_bfloat16>);
+}
+__global__ void pow_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<__nv_bfloat16>);
+}
+__global__ void max_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<__nv_bfloat16>);
+}
+__global__ void min_broadcast_fast_trailing_bf16(const __nv_bfloat16* __restrict__ a, const __nv_bfloat16* __restrict__ b, __nv_bfloat16* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<__nv_bfloat16>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<__nv_bfloat16>);
+}
+
+// I32 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<int32_t>);
+}
+__global__ void sub_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<int32_t>);
+}
+__global__ void mul_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<int32_t>);
+}
+__global__ void div_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<int32_t>);
+}
+__global__ void pow_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<int32_t>);
+}
+__global__ void max_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<int32_t>);
+}
+__global__ void min_broadcast_fast_trailing_i32(const int32_t* __restrict__ a, const int32_t* __restrict__ b, int32_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int32_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<int32_t>);
+}
+
+// I64 fast trailing-broadcast kernels
+__global__ void add_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_add<int64_t>);
+}
+__global__ void sub_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_sub<int64_t>);
+}
+__global__ void mul_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_mul<int64_t>);
+}
+__global__ void div_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_div<int64_t>);
+}
+__global__ void pow_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_pow<int64_t>);
+}
+__global__ void max_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_max<int64_t>);
+}
+__global__ void min_broadcast_fast_trailing_i64(const int64_t* __restrict__ a, const int64_t* __restrict__ b, int64_t* __restrict__ out, BROADCAST_FAST_TRAILING_ARGS) {
+    broadcast_fast_trailing_impl<int64_t>(a, b, out, BROADCAST_FAST_TRAILING_CALL, broadcast_min<int64_t>);
 }
 
 } // extern "C"
