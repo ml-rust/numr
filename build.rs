@@ -82,6 +82,7 @@ fn compile_cuda_kernels() {
         "utility.cu",
         "gemm_epilogue.cu",
         "gemm_epilogue_bwd.cu",
+        "matmul_wmma.cu",
     ];
 
     // Add sparse kernels if sparse feature is enabled

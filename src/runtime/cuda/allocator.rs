@@ -231,10 +231,10 @@ impl Allocator for CudaAllocator {
         // Fast path: pop from the free list if a cached buffer exists.
         {
             let mut map = self.free_list.lock().unwrap();
-            if let Some(bucket) = map.get_mut(&(size_bytes as u64)) {
-                if let Some(ptr) = bucket.pop_front() {
-                    return Ok(ptr);
-                }
+            if let Some(bucket) = map.get_mut(&(size_bytes as u64))
+                && let Some(ptr) = bucket.pop_front()
+            {
+                return Ok(ptr);
             }
         }
 

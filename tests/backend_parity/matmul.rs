@@ -169,6 +169,30 @@ matmul_case!(
     )]
 );
 
+// K=48: multiple of 16 but NOT 32 — exercises the WMMA K-tail zero-pad path
+// (BLOCK_K=32 means the last K-tile covers only 16 real columns; the boundary
+// handling in the cp.async staging must zero-pad the missing columns so the
+// partial WMMA tile accumulates the correct value).
+matmul_case!(
+    test_matmul_wmma_k_tail_parity,
+    &[
+        MatmulTest::new(
+            // M=16, K=48: one full WMMA row-block, K crosses a 32-boundary
+            (0..16 * 48).map(|i| (i as f64) * 0.001 + 0.5).collect(),
+            vec![16, 48],
+            (0..48 * 16).map(|i| (i as f64) * 0.002 - 0.3).collect(),
+            vec![48, 16],
+        ),
+        MatmulTest::new(
+            // M=32, K=80: K=80 = 32*2 + 16, two full BLOCK_K tiles + one partial
+            (0..32 * 80).map(|i| ((i as f64) * 0.0007).sin()).collect(),
+            vec![32, 80],
+            (0..80 * 32).map(|i| ((i as f64) * 0.0013).cos()).collect(),
+            vec![80, 32],
+        ),
+    ]
+);
+
 #[test]
 fn test_cpu_matmul_parallelism_config_matches_default() {
     let device = CpuDevice::new();

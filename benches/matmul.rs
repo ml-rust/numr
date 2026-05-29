@@ -173,6 +173,137 @@ fn cuda_bias_512x512(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// Reranker attention shapes — the two dominant batched matmul patterns
+//
+// Shape 1: Scores  Q @ Kᵀ  → [batch, M, N] = [64, 512, 512], K = 64
+// Shape 2: Context attn @ V → [batch, M, N] = [64, 512,  64], K = 512
+// ---------------------------------------------------------------------------
+
+/// Scores: Q@Kᵀ — M=512, N=512, K=64, batch=64
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "attention_batched_f32")]
+fn cuda_attn_scores_qkt(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    // A: [64, 512, 64], B: [64, 512, 64] transposed to give [64, 64, 512]
+    // For simplicity benchmark the logically equivalent shapes:
+    // A [64, 512, 64], B [64, 64, 512] → C [64, 512, 512]
+    let a = rand_cuda(&[64, 512, 64], &device);
+    let bm = rand_cuda(&[64, 64, 512], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+/// Context: attn@V — M=512, N=64, K=512, batch=64
+#[cfg(feature = "cuda")]
+#[flux::bench(group = "attention_batched_f32")]
+fn cuda_attn_context(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    // A [64, 512, 512], B [64, 512, 64] → C [64, 512, 64]
+    let a = rand_cuda(&[64, 512, 512], &device);
+    let bm = rand_cuda(&[64, 512, 64], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
+// WMMA (tensor-core) benchmarks — F16 attention shapes
+//
+// Reranker attention:
+//   Scores:  A[64,512,64]  @ B[64,64,512]  → C[64,512,512]  (QK^T)
+//   Context: A[64,512,512] @ B[64,512,64]  → C[64,512,64]   (attn@V)
+// All dims are multiples of 16, so the WMMA path is taken automatically.
+// ---------------------------------------------------------------------------
+
+#[cfg(all(feature = "cuda", feature = "f16"))]
+fn rand_cuda_f16(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F16).unwrap()
+}
+
+/// WMMA scores: Q@Kᵀ — [64, 512, 64] @ [64, 64, 512] → [64, 512, 512]
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "attention_batched_f16_wmma")]
+fn cuda_wmma_attn_scores(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f16(&[64, 512, 64], &device);
+    let bm = rand_cuda_f16(&[64, 64, 512], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+/// WMMA context: attn@V — [64, 512, 512] @ [64, 512, 64] → [64, 512, 64]
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "attention_batched_f16_wmma")]
+fn cuda_wmma_attn_context(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f16(&[64, 512, 512], &device);
+    let bm = rand_cuda_f16(&[64, 512, 64], &device);
+    b.iter(|| black_box(client.matmul(&a, &bm).unwrap()));
+}
+
+// ---------------------------------------------------------------------------
+// Reranker projection GEMMs — dominant cost in the reranker query pipeline.
+//
+// Shapes (batched F16, WMMA path):
+//   M=512, K=1024, N=1024, batch=4   (~1.7 ms baseline per instance)
+//   M=512, K=4096, N=1024, batch=4   (~4.0 ms baseline per instance)
+//   M=512, K=1024, N=4096, batch=4
+// ---------------------------------------------------------------------------
+
+#[cfg(all(feature = "cuda", feature = "f16"))]
+fn rand_cuda_f16_seeded(shape: &[usize], device: &CudaDevice) -> Tensor<CudaRuntime> {
+    let client = CudaRuntime::default_client(device);
+    client.rand(shape, DType::F16).unwrap()
+}
+
+/// Projection: M=512, K=1024, N=1024, batch=4
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "projection_batched_f16_wmma")]
+fn cuda_proj_512k1024n1024_b4(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f16_seeded(&[4, 512, 1024], &device);
+    let bm = rand_cuda_f16_seeded(&[4, 1024, 1024], &device);
+    b.iter(|| {
+        let r = black_box(client.matmul(&a, &bm).unwrap());
+        // Sync to get accurate wall-clock time.
+        client.synchronize();
+        r
+    });
+}
+
+/// Projection: M=512, K=4096, N=1024, batch=4
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "projection_batched_f16_wmma")]
+fn cuda_proj_512k4096n1024_b4(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f16_seeded(&[4, 512, 4096], &device);
+    let bm = rand_cuda_f16_seeded(&[4, 4096, 1024], &device);
+    b.iter(|| {
+        let r = black_box(client.matmul(&a, &bm).unwrap());
+        client.synchronize();
+        r
+    });
+}
+
+/// Projection: M=512, K=1024, N=4096, batch=4
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "projection_batched_f16_wmma")]
+fn cuda_proj_512k1024n4096_b4(b: &mut Bencher) {
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let a = rand_cuda_f16_seeded(&[4, 512, 1024], &device);
+    let bm = rand_cuda_f16_seeded(&[4, 1024, 4096], &device);
+    b.iter(|| {
+        let r = black_box(client.matmul(&a, &bm).unwrap());
+        client.synchronize();
+        r
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Comparisons
 // ---------------------------------------------------------------------------
 

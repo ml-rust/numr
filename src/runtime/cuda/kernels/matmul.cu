@@ -27,6 +27,120 @@
 // Dynamic shared memory layout:
 //   As[block_m][block_k] followed by Bs[block_k][block_n]
 
+// ============================================================================
+// Load helpers: cooperative load of a sub-tile into smem with float4
+// vectorization when the innermost dimension is a multiple of 4.
+// For A: inner dim = block_k (load_col index).
+// For B: inner dim = block_n (load_col index).
+// Falls back to scalar for any ragged edge — correctness over speed.
+// ============================================================================
+
+// Load A tile [block_m × block_k] into smem_A (no boundary check needed when
+// the tile is perfectly aligned; use safe fallback otherwise).
+__device__ __forceinline__ void load_a_tile_f32(
+    const float* __restrict__ A,
+    float* smem_A,
+    unsigned int block_row,
+    unsigned int k_offset,
+    unsigned int M,
+    unsigned int K,
+    unsigned int block_m,
+    unsigned int block_k,
+    unsigned int thread_id,
+    unsigned int num_threads
+) {
+    const unsigned int tile_elems = block_m * block_k;
+    // Vectorized path: block_k divisible by 4, tile_elems divisible by 4,
+    // AND K divisible by 4.  K%4==0 guarantees that every row-start offset
+    // (global_row * K) is 4-float aligned, making the float4 load safe.
+    // Without this, batch-slice bases with odd M*K shift every row out of
+    // 16-byte alignment, causing CUDA_ERROR_MISALIGNED_ADDRESS.
+    if ((block_k & 3u) == 0u && (tile_elems & 3u) == 0u && (K & 3u) == 0u) {
+        const unsigned int vec_elems = tile_elems >> 2;
+        for (unsigned int vi = thread_id; vi < vec_elems; vi += num_threads) {
+            const unsigned int load_idx = vi << 2;
+            const unsigned int load_row = load_idx / block_k;
+            const unsigned int load_col = load_idx % block_k;
+            const unsigned int global_row = block_row + load_row;
+            const unsigned int global_col = k_offset + load_col;
+            float4 v = make_float4(0.f, 0.f, 0.f, 0.f);
+            if (global_row < M && global_col + 3 < K) {
+                v = *reinterpret_cast<const float4*>(&A[global_row * K + global_col]);
+            } else if (global_row < M && global_col < K) {
+                // Scalar fallback for boundary columns
+                v.x = (global_col     < K) ? A[global_row * K + global_col    ] : 0.f;
+                v.y = (global_col + 1 < K) ? A[global_row * K + global_col + 1] : 0.f;
+                v.z = (global_col + 2 < K) ? A[global_row * K + global_col + 2] : 0.f;
+                v.w = (global_col + 3 < K) ? A[global_row * K + global_col + 3] : 0.f;
+            }
+            *reinterpret_cast<float4*>(&smem_A[load_idx]) = v;
+        }
+    } else {
+        for (unsigned int load_idx = thread_id; load_idx < tile_elems; load_idx += num_threads) {
+            const unsigned int load_row = load_idx / block_k;
+            const unsigned int load_col = load_idx % block_k;
+            const unsigned int global_row = block_row + load_row;
+            const unsigned int global_col = k_offset + load_col;
+            float val = 0.0f;
+            if (global_row < M && global_col < K) {
+                val = A[global_row * K + global_col];
+            }
+            smem_A[load_idx] = val;
+        }
+    }
+}
+
+// Load B tile [block_k × block_n] into smem_B.
+__device__ __forceinline__ void load_b_tile_f32(
+    const float* __restrict__ B,
+    float* smem_B,
+    unsigned int block_col,
+    unsigned int k_offset,
+    unsigned int K,
+    unsigned int N,
+    unsigned int block_k,
+    unsigned int block_n,
+    unsigned int thread_id,
+    unsigned int num_threads
+) {
+    const unsigned int tile_elems = block_k * block_n;
+    // N%4==0 ensures every row-start (global_row * N) and column offset
+    // (block_col + load_col, where both are multiples of block_n and 4) are
+    // 4-float aligned, making the float4 load safe.
+    if ((block_n & 3u) == 0u && (tile_elems & 3u) == 0u && (N & 3u) == 0u) {
+        const unsigned int vec_elems = tile_elems >> 2;
+        for (unsigned int vi = thread_id; vi < vec_elems; vi += num_threads) {
+            const unsigned int load_idx = vi << 2;
+            const unsigned int load_row = load_idx / block_n;
+            const unsigned int load_col = load_idx % block_n;
+            const unsigned int global_row = k_offset + load_row;
+            const unsigned int global_col = block_col + load_col;
+            float4 v = make_float4(0.f, 0.f, 0.f, 0.f);
+            if (global_row < K && global_col + 3 < N) {
+                v = *reinterpret_cast<const float4*>(&B[global_row * N + global_col]);
+            } else if (global_row < K && global_col < N) {
+                v.x = (global_col     < N) ? B[global_row * N + global_col    ] : 0.f;
+                v.y = (global_col + 1 < N) ? B[global_row * N + global_col + 1] : 0.f;
+                v.z = (global_col + 2 < N) ? B[global_row * N + global_col + 2] : 0.f;
+                v.w = (global_col + 3 < N) ? B[global_row * N + global_col + 3] : 0.f;
+            }
+            *reinterpret_cast<float4*>(&smem_B[load_idx]) = v;
+        }
+    } else {
+        for (unsigned int load_idx = thread_id; load_idx < tile_elems; load_idx += num_threads) {
+            const unsigned int load_row = load_idx / block_n;
+            const unsigned int load_col = load_idx % block_n;
+            const unsigned int global_row = k_offset + load_row;
+            const unsigned int global_col = block_col + load_col;
+            float val = 0.0f;
+            if (global_row < K && global_col < N) {
+                val = B[global_row * N + global_col];
+            }
+            smem_B[load_idx] = val;
+        }
+    }
+}
+
 extern "C" __global__ void matmul_f32(
     const float* __restrict__ A,
     const float* __restrict__ B,
@@ -40,24 +154,30 @@ extern "C" __global__ void matmul_f32(
     unsigned int thread_m,
     unsigned int thread_n
 ) {
-    // Dynamic shared memory - allocated at kernel launch
+    // Double-buffered shared memory layout:
+    //   smem[0]: As0[block_m * block_k], Bs0[block_k * block_n]  (buffer 0)
+    //   smem[1]: As1[block_m * block_k], Bs1[block_k * block_n]  (buffer 1)
+    // Allocated at launch as 2 * (block_m*block_k + block_k*block_n) floats.
     extern __shared__ float shared_mem[];
-    float* As = shared_mem;                        // [block_m][block_k]
-    float* Bs = shared_mem + block_m * block_k;    // [block_k][block_n]
+    const unsigned int tile_a = block_m * block_k;
+    const unsigned int tile_b = block_k * block_n;
+    const unsigned int buf_stride = tile_a + tile_b;
+    // Buffer 0
+    float* As0 = shared_mem;
+    float* Bs0 = shared_mem + tile_a;
+    // Buffer 1
+    float* As1 = shared_mem + buf_stride;
+    float* Bs1 = shared_mem + buf_stride + tile_a;
 
-    // Thread position within block
     const unsigned int tx = threadIdx.x;
     const unsigned int ty = threadIdx.y;
     const unsigned int threads_x = block_n / thread_n;
 
-    // Global starting position for this thread's micro-tile
     const unsigned int block_row = blockIdx.y * block_m;
     const unsigned int block_col = blockIdx.x * block_n;
     const unsigned int thread_row = ty * thread_m;
     const unsigned int thread_col = tx * thread_n;
 
-    // Register accumulators - use max supported size, only use what's needed
-    // Max 8×8 = 64 elements per thread
     float reg_c[8][8];
     #pragma unroll
     for (int i = 0; i < 8; i++) {
@@ -74,52 +194,35 @@ extern "C" __global__ void matmul_f32(
     const unsigned int thread_id = ty * threads_x + tx;
     const unsigned int num_threads = blockDim.x * blockDim.y;
 
+    if (num_k_tiles == 0) return;
+
+    // Preload tile 0 into buffer 0
+    load_a_tile_f32(A, As0, block_row, 0, M, K, block_m, block_k, thread_id, num_threads);
+    load_b_tile_f32(B, Bs0, block_col, 0, K, N, block_k, block_n, thread_id, num_threads);
+    __syncthreads();
+
     for (unsigned int bk = 0; bk < num_k_tiles; bk++) {
-        const unsigned int k_offset = bk * block_k;
+        // Pointers to current (cur) and next (nxt) buffers
+        float* As_cur = (bk & 1u) ? As1 : As0;
+        float* Bs_cur = (bk & 1u) ? Bs1 : Bs0;
+        float* As_nxt = (bk & 1u) ? As0 : As1;
+        float* Bs_nxt = (bk & 1u) ? Bs0 : Bs1;
 
-        // Cooperative load of A tile [block_m × block_k]
-        for (unsigned int load_idx = thread_id; load_idx < block_m * block_k; load_idx += num_threads) {
-            const unsigned int load_row = load_idx / block_k;
-            const unsigned int load_col = load_idx % block_k;
-            const unsigned int global_row = block_row + load_row;
-            const unsigned int global_col = k_offset + load_col;
-
-            float val = 0.0f;
-            if (global_row < M && global_col < K) {
-                val = A[global_row * K + global_col];
-            }
-            As[load_row * block_k + load_col] = val;
+        // Prefetch next tile while computing current (if there is a next tile)
+        const unsigned int next_k_offset = (bk + 1) * block_k;
+        if (bk + 1 < num_k_tiles) {
+            load_a_tile_f32(A, As_nxt, block_row, next_k_offset, M, K, block_m, block_k, thread_id, num_threads);
+            load_b_tile_f32(B, Bs_nxt, block_col, next_k_offset, K, N, block_k, block_n, thread_id, num_threads);
         }
 
-        // Cooperative load of B tile [block_k × block_n]
-        for (unsigned int load_idx = thread_id; load_idx < block_k * block_n; load_idx += num_threads) {
-            const unsigned int load_row = load_idx / block_n;
-            const unsigned int load_col = load_idx % block_n;
-            const unsigned int global_row = k_offset + load_row;
-            const unsigned int global_col = block_col + load_col;
-
-            float val = 0.0f;
-            if (global_row < K && global_col < N) {
-                val = B[global_row * N + global_col];
-            }
-            Bs[load_row * block_n + load_col] = val;
-        }
-
-        __syncthreads();
-
-        // Register tiling: compute partial products
+        // Compute partial products from current buffer
         for (unsigned int k = 0; k < block_k; k++) {
-            // Load thread_m elements from A tile into registers
             for (unsigned int i = 0; i < thread_m; i++) {
-                reg_a[i] = As[(thread_row + i) * block_k + k];
+                reg_a[i] = As_cur[(thread_row + i) * block_k + k];
             }
-
-            // Load thread_n elements from B tile into registers
             for (unsigned int j = 0; j < thread_n; j++) {
-                reg_b[j] = Bs[k * block_n + thread_col + j];
+                reg_b[j] = Bs_cur[k * block_n + thread_col + j];
             }
-
-            // Outer product: thread_m × thread_n FMAs
             for (unsigned int i = 0; i < thread_m; i++) {
                 for (unsigned int j = 0; j < thread_n; j++) {
                     reg_c[i][j] += reg_a[i] * reg_b[j];
@@ -127,7 +230,11 @@ extern "C" __global__ void matmul_f32(
             }
         }
 
-        __syncthreads();
+        // Sync: next tile loads (if any) must be complete before the next
+        // iteration reads from the nxt buffer (which becomes cur).
+        if (bk + 1 < num_k_tiles) {
+            __syncthreads();
+        }
     }
 
     // Write register tile to global memory
@@ -145,7 +252,7 @@ extern "C" __global__ void matmul_f32(
 }
 
 // ============================================================================
-// Configurable Batched GEMM (F32)
+// Configurable Batched GEMM (F32) — double-buffered + float4 vectorized loads
 // ============================================================================
 
 extern "C" __global__ void matmul_batched_f32(
@@ -164,9 +271,15 @@ extern "C" __global__ void matmul_batched_f32(
     unsigned int a_batch_count,
     unsigned int b_batch_count
 ) {
+    // Double-buffered shared memory: 2 * (tile_a + tile_b) floats allocated at launch.
     extern __shared__ float shared_mem[];
-    float* As = shared_mem;
-    float* Bs = shared_mem + block_m * block_k;
+    const unsigned int tile_a = block_m * block_k;
+    const unsigned int tile_b = block_k * block_n;
+    const unsigned int buf_stride = tile_a + tile_b;
+    float* As0 = shared_mem;
+    float* Bs0 = shared_mem + tile_a;
+    float* As1 = shared_mem + buf_stride;
+    float* Bs1 = shared_mem + buf_stride + tile_a;
 
     const unsigned int b = blockIdx.z;
     if (b >= batch) return;
@@ -202,43 +315,33 @@ extern "C" __global__ void matmul_batched_f32(
     const unsigned int thread_id = ty * threads_x + tx;
     const unsigned int num_threads = blockDim.x * blockDim.y;
 
+    if (num_k_tiles == 0) return;
+
+    // Helper lambdas as inline cooperative loads (reuse device functions from non-batched path
+    // but operating on A_batch / B_batch pointers).
+    // --- Preload tile 0 into buffer 0 ---
+    load_a_tile_f32(A_batch, As0, block_row, 0, M, K, block_m, block_k, thread_id, num_threads);
+    load_b_tile_f32(B_batch, Bs0, block_col, 0, K, N, block_k, block_n, thread_id, num_threads);
+    __syncthreads();
+
     for (unsigned int bk = 0; bk < num_k_tiles; bk++) {
-        const unsigned int k_offset = bk * block_k;
+        float* As_cur = (bk & 1u) ? As1 : As0;
+        float* Bs_cur = (bk & 1u) ? Bs1 : Bs0;
+        float* As_nxt = (bk & 1u) ? As0 : As1;
+        float* Bs_nxt = (bk & 1u) ? Bs0 : Bs1;
 
-        for (unsigned int load_idx = thread_id; load_idx < block_m * block_k; load_idx += num_threads) {
-            const unsigned int load_row = load_idx / block_k;
-            const unsigned int load_col = load_idx % block_k;
-            const unsigned int global_row = block_row + load_row;
-            const unsigned int global_col = k_offset + load_col;
-
-            float val = 0.0f;
-            if (global_row < M && global_col < K) {
-                val = A_batch[global_row * K + global_col];
-            }
-            As[load_row * block_k + load_col] = val;
+        const unsigned int next_k_offset = (bk + 1) * block_k;
+        if (bk + 1 < num_k_tiles) {
+            load_a_tile_f32(A_batch, As_nxt, block_row, next_k_offset, M, K, block_m, block_k, thread_id, num_threads);
+            load_b_tile_f32(B_batch, Bs_nxt, block_col, next_k_offset, K, N, block_k, block_n, thread_id, num_threads);
         }
-
-        for (unsigned int load_idx = thread_id; load_idx < block_k * block_n; load_idx += num_threads) {
-            const unsigned int load_row = load_idx / block_n;
-            const unsigned int load_col = load_idx % block_n;
-            const unsigned int global_row = k_offset + load_row;
-            const unsigned int global_col = block_col + load_col;
-
-            float val = 0.0f;
-            if (global_row < K && global_col < N) {
-                val = B_batch[global_row * N + global_col];
-            }
-            Bs[load_row * block_n + load_col] = val;
-        }
-
-        __syncthreads();
 
         for (unsigned int k = 0; k < block_k; k++) {
             for (unsigned int i = 0; i < thread_m; i++) {
-                reg_a[i] = As[(thread_row + i) * block_k + k];
+                reg_a[i] = As_cur[(thread_row + i) * block_k + k];
             }
             for (unsigned int j = 0; j < thread_n; j++) {
-                reg_b[j] = Bs[k * block_n + thread_col + j];
+                reg_b[j] = Bs_cur[k * block_n + thread_col + j];
             }
             for (unsigned int i = 0; i < thread_m; i++) {
                 for (unsigned int j = 0; j < thread_n; j++) {
@@ -247,7 +350,9 @@ extern "C" __global__ void matmul_batched_f32(
             }
         }
 
-        __syncthreads();
+        if (bk + 1 < num_k_tiles) {
+            __syncthreads();
+        }
     }
 
     for (unsigned int i = 0; i < thread_m; i++) {

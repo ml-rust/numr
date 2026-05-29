@@ -281,6 +281,8 @@ pub mod kernel_names {
     pub const LINALG_MATRIX_FUNCS_MODULE: &str = "linalg_matrix_funcs";
     /// Matrix multiplication operations (native tiled GEMM)
     pub const MATMUL_MODULE: &str = "matmul";
+    /// Tensor-core WMMA GEMM for F16/BF16 (sm_70+)
+    pub const MATMUL_WMMA_MODULE: &str = "matmul_wmma";
     /// GEMV operations (matrix-vector multiply for small M)
     pub const GEMV_MODULE: &str = "gemv";
     /// Cumulative operations (cumsum, cumprod, logsumexp)
@@ -542,6 +544,50 @@ pub fn default_tile_config(dtype: DType) -> TileConfig {
     }
 }
 
+/// Shape-aware tile configuration for F32 batched matmul.
+///
+/// The default 128×128×8 tile is badly inefficient when N or M is small (e.g.
+/// N=64 in the context-attention path): half the columns in every block are
+/// wasted, and block_k=8 forces 64+ __syncthreads barriers for K=512.
+///
+/// Rules (all tiles keep smem ≤ 24KB per buffer, 48KB total for double-buffer):
+/// - Small-N (N ≤ 64): use 64×64 block tile, block_k=32, thread_m=8, thread_n=4
+///   (64×32 + 32×64 = 4096 floats × 2 buffers = 32KB — fits in 48KB limit)
+/// - Small-M (M ≤ 64, N large): mirror the small-N tile transposed
+/// - Large square (default): 128×128, block_k=16, thread_m=8, thread_n=8
+///   (128×16 + 16×128 = 4096 floats × 2 buffers = 32KB — fits in 48KB limit)
+///
+/// Note: the matmul_f32 and matmul_batched_f32 kernels are double-buffered, so
+/// shared memory is allocated as 2 × (block_m*block_k + block_k*block_n) floats.
+#[inline]
+pub fn f32_batched_tile_config(m: usize, n: usize, _k: usize) -> TileConfig {
+    if n <= 64 || m <= 64 {
+        // Attention shapes: Scores Q@Kᵀ (M=512, N=512 but K=64 so inner loop short)
+        // and Context attn@V (M=512, N=64, K=512).
+        // For N≤64: block_n=64 so no wasted columns; block_k=32 halves sync count.
+        // thread_m=8, thread_n=4: 8×(64/4)=128 threads/block (2 warps × 4).
+        // Smem per buffer: (64×32 + 32×64) × 4 = 16 384 bytes. Two buffers = 32KB.
+        TileConfig {
+            block_m: 64,
+            block_n: 64,
+            block_k: 32,
+            thread_m: 8,
+            thread_n: 4,
+        }
+    } else {
+        // Large square shapes (e.g. 512×512×512, 1024×1024×1024).
+        // block_k=16 instead of 8 cuts the k-loop iterations in half vs CUDA default.
+        // Smem per buffer: (128×16 + 16×128) × 4 = 16 384 bytes. Two buffers = 32KB.
+        TileConfig {
+            block_m: 128,
+            block_n: 128,
+            block_k: 16,
+            thread_m: 8,
+            thread_n: 8,
+        }
+    }
+}
+
 /// Launch native tiled matmul kernel: C[M,N] = A[M,K] @ B[K,N]
 ///
 /// # Safety
@@ -583,6 +629,28 @@ pub unsafe fn launch_matmul_kernel(
             );
         }
     }
+    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims → up to ~100 TFLOPS on Ampere.
+    if use_wmma(dtype, m, n, k) {
+        unsafe {
+            return launch_matmul_wmma_kernel(
+                context,
+                stream,
+                device_index,
+                dtype,
+                a_ptr,
+                b_ptr,
+                c_ptr,
+                m,
+                n,
+                k,
+            );
+        }
+    }
+    // F32 uses shape-aware tiles to avoid wasted columns and reduce sync count.
+    let tile_cfg = match dtype {
+        DType::F32 => f32_batched_tile_config(m, n, k),
+        _ => default_tile_config(dtype),
+    };
     unsafe {
         launch_matmul_kernel_with_config(
             context,
@@ -595,7 +663,7 @@ pub unsafe fn launch_matmul_kernel(
             m,
             n,
             k,
-            &default_tile_config(dtype),
+            &tile_cfg,
         )
     }
 }
@@ -815,13 +883,19 @@ pub unsafe fn launch_matmul_kernel_with_config(
     let func = get_kernel_function(&module, &func_name)?;
 
     let elem_size = dtype.size_in_bytes();
-    // For F16/BF16, shared memory uses F32 for accumulation
+    // For F16/BF16, shared memory uses F32 for accumulation.
+    // For F32, the kernel is double-buffered (2 ping-pong smem slots).
     let shared_elem_size = match dtype {
         DType::F16 | DType::BF16 => 4, // F32 accumulator
         _ => elem_size,
     };
+    let smem_factor: u32 = if dtype == DType::F32 { 2 } else { 1 };
 
-    let cfg = matmul_launch_config(m, n, tile_cfg, shared_elem_size);
+    let base_cfg = matmul_launch_config(m, n, tile_cfg, shared_elem_size);
+    let cfg = LaunchConfig {
+        shared_mem_bytes: base_cfg.shared_mem_bytes * smem_factor,
+        ..base_cfg
+    };
     let m_u32 = m as u32;
     let n_u32 = n as u32;
     let k_u32 = k as u32;
@@ -896,6 +970,31 @@ pub unsafe fn launch_matmul_batched_kernel(
             );
         }
     }
+    // Tensor-core WMMA path for F16/BF16 with 16-aligned dims.
+    if use_wmma(dtype, m, n, k) {
+        unsafe {
+            return launch_matmul_wmma_batched_kernel(
+                context,
+                stream,
+                device_index,
+                dtype,
+                a_ptr,
+                b_ptr,
+                c_ptr,
+                batch,
+                m,
+                n,
+                k,
+                a_batch,
+                b_batch,
+            );
+        }
+    }
+    // F32 uses shape-aware tiles to avoid wasted columns and reduce sync count.
+    let tile_cfg = match dtype {
+        DType::F32 => f32_batched_tile_config(m, n, k),
+        _ => default_tile_config(dtype),
+    };
     unsafe {
         launch_matmul_batched_kernel_with_config(
             context,
@@ -909,7 +1008,7 @@ pub unsafe fn launch_matmul_batched_kernel(
             m,
             n,
             k,
-            &default_tile_config(dtype),
+            &tile_cfg,
             a_batch,
             b_batch,
         )
@@ -942,12 +1041,19 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
     let func = get_kernel_function(&module, &func_name)?;
 
     let elem_size = dtype.size_in_bytes();
+    // For F16/BF16, shared memory uses F32 for accumulation.
+    // For F32, the kernel is double-buffered (2 ping-pong smem slots).
     let shared_elem_size = match dtype {
         DType::F16 | DType::BF16 => 4,
         _ => elem_size,
     };
+    let smem_factor: u32 = if dtype == DType::F32 { 2 } else { 1 };
 
-    let cfg = matmul_batched_launch_config(batch, m, n, tile_cfg, shared_elem_size);
+    let base_cfg = matmul_batched_launch_config(batch, m, n, tile_cfg, shared_elem_size);
+    let cfg = LaunchConfig {
+        shared_mem_bytes: base_cfg.shared_mem_bytes * smem_factor,
+        ..base_cfg
+    };
     let batch_u32 = batch as u32;
     let m_u32 = m as u32;
     let n_u32 = n as u32;
@@ -979,6 +1085,170 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA batched matmul kernel launch failed: {:?}", e))
+        })?;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Tensor-Core WMMA GEMM Launcher
+// ============================================================================
+//
+// Block: WARP_ROWS*WARP_COLS warps × 32 threads = 16 warps × 32 = 512 threads.
+// Grid:  ceil(N/64) × ceil(M/64) [× batch]
+// Shared memory per block with double-buffered A+B staging (sm_80 cp.async path):
+//   smem_A: 2 × 64 × 24 × 2 bytes =  6 144
+//   smem_B: 2 × 16 × 72 × 2 bytes =  4 608
+//   epilogue (float): 64 × 64 × 4 = 16 384
+//   Total:  27 136 bytes ≈ 26.5 KB  (well within 48 KB)
+// On sm_70/75 the kernel only uses one buffer at a time, but the smem
+// allocation covers the double-buffered size regardless of arch — occupancy
+// is the same either way since sm_70/75 has 96 KB shared per SM.
+
+/// Returns true when the WMMA path should be taken for this dtype and shape.
+///
+/// Conditions:
+/// - dtype is F16 or BF16
+/// - M, N, K are all multiples of 16 (WMMA requirement)
+/// - M > 16 (keep existing m<=16 GEMV fast path)
+#[inline]
+fn use_wmma(dtype: DType, m: usize, n: usize, k: usize) -> bool {
+    matches!(dtype, DType::F16 | DType::BF16)
+        && m > 16
+        && m.is_multiple_of(16)
+        && n.is_multiple_of(16)
+        && k.is_multiple_of(16)
+}
+
+// WMMA block: 16 warps (4×4 warp grid), each warp = 32 threads → 512 threads.
+const WMMA_BLOCK_THREADS: u32 = 512;
+// Tile dimensions matching the .cu defines.
+const WMMA_BLOCK_TILE_M: u32 = 64;
+const WMMA_BLOCK_TILE_N: u32 = 64;
+
+/// Shared-memory per WMMA block in bytes.
+///
+/// Double-buffered A+B staging for cp.async prefetch + float epilogue
+/// (BLOCK_K=32, SMEM_STRIDE_A=40, SMEM_STRIDE_B=72):
+///   smem_A: 2 × 64 × 40 × 2 = 10 240
+///   smem_B: 2 × 32 × 72 × 2 =  9 216
+///   epilogue: 64 × 64 × 4   = 16 384
+///   Total:  35 840 bytes ≈ 35.0 KB  (well within 48 KB)
+// WMMA kernels use only statically-declared __shared__ arrays; there is no
+// extern __shared__ (dynamic) allocation.  Pass 0 so CUDA does not add
+// extra dynamic smem on top of the static pool (which would push total over
+// the 48 KB default per-block limit on sm_86).
+const WMMA_SMEM_BYTES: u32 = 0;
+
+/// Launch 2-D (non-batched) WMMA GEMM for F16 or BF16.
+///
+/// # Safety
+///
+/// Caller must guarantee M, N, K are multiples of 16.
+pub unsafe fn launch_matmul_wmma_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_WMMA_MODULE)?;
+    let func_name = format!("matmul_wmma_{}", dtype_suffix(dtype));
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid_x = ((n as u32) + WMMA_BLOCK_TILE_N - 1) / WMMA_BLOCK_TILE_N;
+    let grid_y = ((m as u32) + WMMA_BLOCK_TILE_M - 1) / WMMA_BLOCK_TILE_M;
+    let cfg = LaunchConfig {
+        grid_dim: (grid_x, grid_y, 1),
+        block_dim: (WMMA_BLOCK_THREADS, 1, 1),
+        shared_mem_bytes: WMMA_SMEM_BYTES,
+    };
+
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!("CUDA WMMA matmul kernel launch failed: {:?}", e))
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Launch batched WMMA GEMM for F16 or BF16.
+///
+/// # Safety
+///
+/// Caller must guarantee M, N, K are multiples of 16.
+pub unsafe fn launch_matmul_wmma_batched_kernel(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+    a_batch: usize,
+    b_batch: usize,
+) -> Result<()> {
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_WMMA_MODULE)?;
+    let func_name = format!(
+        "matmul_wmma_batched_{}",
+        crate::runtime::cuda::kernels::loader::dtype_suffix(dtype)
+    );
+    let func = get_kernel_function(&module, &func_name)?;
+
+    let grid_x = ((n as u32) + WMMA_BLOCK_TILE_N - 1) / WMMA_BLOCK_TILE_N;
+    let grid_y = ((m as u32) + WMMA_BLOCK_TILE_M - 1) / WMMA_BLOCK_TILE_M;
+    let grid_z = batch as u32;
+    let cfg = LaunchConfig {
+        grid_dim: (grid_x, grid_y, grid_z),
+        block_dim: (WMMA_BLOCK_THREADS, 1, 1),
+        shared_mem_bytes: WMMA_SMEM_BYTES,
+    };
+
+    let batch_u32 = batch as u32;
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&batch_u32);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA WMMA batched matmul kernel launch failed: {:?}",
+                e
+            ))
         })?;
     }
 
