@@ -35,15 +35,6 @@ impl Runtime for WgpuRuntime {
         false // WebGPU doesn't have CUDA-style graph capture
     }
 
-    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
-    where
-        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
-    {
-        // WebGPU: execute eagerly, return NoOpGraph
-        let result = f(client)?;
-        Ok((NoOpGraph, result))
-    }
-
     /// Allocate GPU memory (storage buffer).
     ///
     /// Returns `Err(OutOfMemory)` if buffer creation fails.
@@ -411,6 +402,25 @@ impl Runtime for WgpuRuntime {
         }
         client.submit_and_wait(encoder);
         Ok(())
+    }
+
+    fn capture_graph_into<F>(
+        client: &Self::Client,
+        inputs: &[&crate::tensor::Tensor<Self>],
+        outputs: &[&crate::tensor::Tensor<Self>],
+        f: F,
+    ) -> crate::error::Result<crate::runtime::CapturedGraph<Self>>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<()>,
+    {
+        f(client)?;
+        let owned_inputs: Vec<_> = inputs.iter().map(|t| (*t).clone()).collect();
+        let owned_outputs: Vec<_> = outputs.iter().map(|t| (*t).clone()).collect();
+        Ok(crate::runtime::CapturedGraph::new(
+            crate::runtime::NoOpGraph,
+            owned_inputs,
+            owned_outputs,
+        ))
     }
 
     fn default_device() -> Self::Device {

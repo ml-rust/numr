@@ -99,8 +99,8 @@ pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::tensor::{Layout, Shape, Strides, Tensor};
 
-    // Runtime traits
-    pub use crate::runtime::{Device, Runtime, RuntimeClient};
+    // Runtime traits and graph types
+    pub use crate::runtime::{CapturedGraph, Device, Graph, NoOpGraph, Runtime, RuntimeClient};
 
     // Operation traits (same API across all backends)
     pub use crate::ops::{

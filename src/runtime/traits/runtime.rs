@@ -55,23 +55,71 @@ pub trait Runtime: Clone + Send + Sync + 'static {
 
     /// Does this backend support graph capture (e.g., CUDA Graphs)?
     ///
-    /// Check this BEFORE calling `capture_graph` to avoid unnecessary
-    /// eager execution on non-capture backends.
+    /// Check this BEFORE calling `capture_graph_into` to skip capture on
+    /// non-capture backends.
     fn supports_graph_capture() -> bool {
         false
     }
 
-    /// Capture a sequence of operations as a replayable graph.
+    /// Destination-passing graph capture.
     ///
-    /// The closure receives the client so operations are issued on the correct
-    /// stream/queue. On capture-capable backends (CUDA), ops submitted inside
-    /// the closure are recorded into a graph. On non-capture backends (CPU, WebGPU),
-    /// the closure executes eagerly and returns `NoOpGraph`.
+    /// Captures the operations performed by `f` into a replayable
+    /// [`CapturedGraph`][crate::runtime::CapturedGraph], which bundles the
+    /// compiled graph with `Arc` clones of the caller-supplied `inputs` and
+    /// `outputs` tensors. The bundled tensors prevent their device memory from
+    /// being freed while the graph is alive.
     ///
-    /// Returns `(graph, closure_result)`.
-    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    /// # Contract
+    ///
+    /// - `outputs` must be allocated **before** calling this method (outside
+    ///   the closure). The graph encodes their device addresses at capture
+    ///   time; they must not move.
+    /// - The closure `f` must write results into the output tensors in-place.
+    ///   It must not allocate new output buffers (those would be subject to
+    ///   `AUTO_FREE_ON_LAUNCH` and freed after the first replay).
+    /// - `inputs` and `outputs` are passed as shared slices; the method clones
+    ///   each tensor (cheap `Arc` bump) to hold in the `CapturedGraph`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::BackendLimitation`][crate::error::Error::BackendLimitation]
+    /// on backends that do not support graph capture (CPU, WebGPU).
+    ///
+    /// # Example (CUDA)
+    ///
+    /// ```ignore
+    /// let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0], &[2], device);
+    /// let b = Tensor::<CudaRuntime>::from_slice(&[3.0f32, 4.0], &[2], device);
+    /// let c = Tensor::<CudaRuntime>::zeros(&[2], DType::F32, device);
+    ///
+    /// let captured = CudaRuntime::capture_graph_into(
+    ///     client, &[&a, &b], &[&c],
+    ///     |cc| { cc.copy_within_device(cc.add(&a, &b)?.ptr(), c.ptr(), ...) },
+    /// )?;
+    ///
+    /// // First replay with original data
+    /// captured.launch()?;
+    /// // Update inputs, replay again
+    /// CudaRuntime::copy_to_device(..., a.ptr(), device)?;
+    /// captured.launch()?;
+    /// ```
+    fn capture_graph_into<F>(
+        client: &Self::Client,
+        inputs: &[&crate::tensor::Tensor<Self>],
+        outputs: &[&crate::tensor::Tensor<Self>],
+        f: F,
+    ) -> crate::error::Result<crate::runtime::CapturedGraph<Self>>
     where
-        F: FnOnce(&Self::Client) -> crate::error::Result<T>;
+        F: FnOnce(&Self::Client) -> crate::error::Result<()>,
+        Self: Sized,
+    {
+        let _ = (client, inputs, outputs, f);
+        Err(crate::error::Error::BackendLimitation {
+            backend: Self::name(),
+            operation: "capture_graph_into",
+            reason: "this backend does not support CUDA-style graph capture".into(),
+        })
+    }
 
     /// Allocate device memory
     ///

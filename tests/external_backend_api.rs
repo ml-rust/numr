@@ -49,12 +49,24 @@ impl Runtime for MockRuntime {
         "mock"
     }
 
-    fn capture_graph<F, T>(client: &Self::Client, f: F) -> error::Result<(Self::Graph, T)>
+    fn capture_graph_into<F>(
+        client: &Self::Client,
+        inputs: &[&numr::tensor::Tensor<Self>],
+        outputs: &[&numr::tensor::Tensor<Self>],
+        f: F,
+    ) -> error::Result<numr::runtime::CapturedGraph<Self>>
     where
-        F: FnOnce(&Self::Client) -> error::Result<T>,
+        F: FnOnce(&Self::Client) -> error::Result<()>,
+        Self: Sized,
     {
-        let result = f(client)?;
-        Ok((numr::runtime::NoOpGraph, result))
+        f(client)?;
+        let owned_inputs: Vec<_> = inputs.iter().map(|t| (*t).clone()).collect();
+        let owned_outputs: Vec<_> = outputs.iter().map(|t| (*t).clone()).collect();
+        Ok(numr::runtime::CapturedGraph::new(
+            numr::runtime::NoOpGraph,
+            owned_inputs,
+            owned_outputs,
+        ))
     }
 
     fn allocate(_size_bytes: usize, _device: &Self::Device) -> error::Result<u64> {

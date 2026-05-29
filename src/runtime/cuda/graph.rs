@@ -27,7 +27,7 @@ unsafe impl Send for CudaGraphInner {}
 
 /// CUDA graph — a captured computation sequence replayed via `cuGraphLaunch`.
 ///
-/// Created by `CudaRuntime::capture_graph()`. Thread-safe via internal `Mutex`.
+/// Created by `CudaRuntime::capture_graph_into()`. Thread-safe via internal `Mutex`.
 /// `Clone` bumps the `Arc` refcount (no graph duplication).
 pub struct CudaGraph {
     inner: Arc<Mutex<CudaGraphInner>>,

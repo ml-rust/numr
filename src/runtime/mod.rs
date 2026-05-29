@@ -13,6 +13,7 @@
 //! └── RawHandle (escape hatch for custom kernels)
 //! ```
 
+mod captured_graph;
 pub(crate) mod common;
 mod communicator;
 pub mod traits;
@@ -51,6 +52,9 @@ pub use communicator::{
 };
 #[cfg(feature = "nccl")]
 pub use cuda::NcclCommunicator;
+
+// CapturedGraph re-export
+pub use captured_graph::CapturedGraph;
 
 // Trait re-exports
 pub use traits::{Device, Runtime, RuntimeClient};

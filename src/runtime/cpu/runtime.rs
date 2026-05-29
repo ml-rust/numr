@@ -24,15 +24,6 @@ impl Runtime for CpuRuntime {
         "cpu"
     }
 
-    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
-    where
-        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
-    {
-        // CPU: execute eagerly, return NoOpGraph
-        let result = f(client)?;
-        Ok((NoOpGraph, result))
-    }
-
     fn allocate(size_bytes: usize, _device: &Self::Device) -> crate::error::Result<u64> {
         if size_bytes == 0 {
             return Ok(0);
@@ -175,12 +166,31 @@ impl Runtime for CpuRuntime {
     fn raw_handle(_client: &Self::Client) -> &Self::RawHandle {
         &()
     }
+
+    fn capture_graph_into<F>(
+        client: &Self::Client,
+        inputs: &[&crate::tensor::Tensor<Self>],
+        outputs: &[&crate::tensor::Tensor<Self>],
+        f: F,
+    ) -> crate::error::Result<crate::runtime::CapturedGraph<Self>>
+    where
+        F: FnOnce(&Self::Client) -> crate::error::Result<()>,
+    {
+        f(client)?;
+        let owned_inputs: Vec<_> = inputs.iter().map(|t| (*t).clone()).collect();
+        let owned_outputs: Vec<_> = outputs.iter().map(|t| (*t).clone()).collect();
+        Ok(crate::runtime::CapturedGraph::new(
+            crate::runtime::NoOpGraph,
+            owned_inputs,
+            owned_outputs,
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::runtime::Graph;
+    use crate::runtime::Runtime;
 
     #[test]
     fn test_cpu_supports_graph_capture() {
@@ -188,36 +198,49 @@ mod tests {
     }
 
     #[test]
-    fn test_cpu_capture_graph_executes_eagerly() {
-        let device = CpuRuntime::default_device();
-        let client = CpuRuntime::default_client(&device);
+    fn test_cpu_capture_graph_into_executes_eagerly() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
 
-        let mut executed = false;
-        let (graph, result) = CpuRuntime::capture_graph(&client, |_c| {
-            executed = true;
-            Ok(42)
+        // Allocate a 4-element f32 output tensor.
+        let out =
+            crate::tensor::Tensor::<CpuRuntime>::zeros(&[4], crate::dtype::DType::F32, &device);
+        let input = crate::tensor::Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[4],
+            &device,
+        );
+
+        let mut closure_ran = false;
+        let graph = CpuRuntime::capture_graph_into(&client, &[&input], &[&out], |_c| {
+            closure_ran = true;
+            // Copy input bytes into `out` in-place — visible after capture.
+            let size = input.numel() * input.dtype().size_in_bytes();
+            CpuRuntime::copy_within_device(input.ptr(), out.ptr(), size, input.device())
         })
-        .unwrap();
+        .expect("cpu capture_graph_into should succeed");
 
-        // Closure executed eagerly
-        assert!(executed);
-        assert_eq!(result, 42);
+        assert!(closure_ran, "closure must run eagerly");
 
-        // Graph is NoOp
-        assert!(!graph.is_replay_capable());
-        assert!(graph.launch().is_ok());
+        // The copy performed inside the closure must be visible.
+        let result = out.to_vec::<f32>();
+        assert_eq!(result, vec![1.0f32, 2.0, 3.0, 4.0]);
+
+        // launch() is a no-op on CPU — should not error.
+        graph.launch().expect("launch should be a no-op on CPU");
     }
 
     #[test]
-    fn test_cpu_capture_graph_propagates_error() {
-        let device = CpuRuntime::default_device();
-        let client = CpuRuntime::default_client(&device);
+    fn test_cpu_capture_graph_into_propagates_error() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
 
-        let result: crate::error::Result<(NoOpGraph, ())> =
-            CpuRuntime::capture_graph(&client, |_c| {
-                Err(crate::error::Error::Internal("test error".into()))
-            });
+        let result = CpuRuntime::capture_graph_into(&client, &[], &[], |_c| {
+            Err(crate::error::Error::Backend(
+                "sentinel error from closure".into(),
+            ))
+        });
 
-        assert!(result.is_err());
+        assert!(result.is_err(), "error from the closure must be propagated");
     }
 }

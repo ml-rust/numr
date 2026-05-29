@@ -12,18 +12,19 @@
 /// computation on the same fixed-address buffers. Callers update input
 /// data in-place, then call `launch()` to re-execute with new values.
 ///
-/// On non-capture backends (CPU, WebGPU), `capture_graph` executes the
-/// closure eagerly and returns `NoOpGraph`. `launch()` is a no-op —
-/// the computation already ran. Callers wanting repeated execution on
-/// these backends must call the operations directly (not via launch).
+/// On non-capture backends (CPU, WebGPU), `capture_graph_into` executes the
+/// closure eagerly and returns a `CapturedGraph` wrapping `NoOpGraph`.
+/// `launch()` on that graph is a no-op — the computation already ran.
+/// Callers wanting repeated execution on these backends must call the
+/// operations directly (not via launch).
 ///
 /// Use `R::supports_graph_capture()` to check capability without
 /// side effects, then branch:
 ///
 /// ```ignore
 /// if R::supports_graph_capture() {
-///     let (graph, _) = R::capture_graph(client, |c| hot_path(c))?;
-///     loop { update_inputs(); graph.launch()?; read_outputs(); }
+///     let captured = R::capture_graph_into(client, &[&a], &[&c], |cc| { ... })?;
+///     loop { update_inputs(); captured.launch()?; read_outputs(); }
 /// } else {
 ///     loop { update_inputs(); hot_path(client)?; }
 /// }
@@ -40,7 +41,7 @@ pub trait Graph: Send + Sync + Clone {
     ///
     /// Must be consistent with `Runtime::supports_graph_capture()`:
     /// if `supports_graph_capture()` returns true, then any `Graph` produced
-    /// by `capture_graph()` MUST return true from `is_replay_capable()`,
+    /// by `capture_graph_into()` MUST return true from `is_replay_capable()`,
     /// and vice versa.
     fn is_replay_capable(&self) -> bool {
         false

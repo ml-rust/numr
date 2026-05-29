@@ -1,10 +1,10 @@
 //! CUDA runtime implementation
 
+use super::allocator::CudaAllocator;
 use super::cache::{
     get_or_create_client, is_cuda_context_valid, log_cuda_memory_error, try_get_cached_client,
     try_get_cached_stream,
 };
-use super::client::CudaAllocator;
 use super::client::CudaClient;
 use super::device::CudaDevice;
 use super::kernels;
@@ -34,45 +34,57 @@ impl Runtime for CudaRuntime {
         true // CUDA supports graph capture
     }
 
-    fn capture_graph<F, T>(client: &Self::Client, f: F) -> crate::error::Result<(Self::Graph, T)>
+    fn capture_graph_into<F>(
+        client: &Self::Client,
+        inputs: &[&crate::tensor::Tensor<Self>],
+        outputs: &[&crate::tensor::Tensor<Self>],
+        f: F,
+    ) -> crate::error::Result<crate::runtime::CapturedGraph<Self>>
     where
-        F: FnOnce(&Self::Client) -> crate::error::Result<T>,
+        F: FnOnce(&Self::Client) -> crate::error::Result<()>,
     {
         use cudarc::driver::sys::CUstreamCaptureMode;
 
-        // Freeze the caching allocator so all alloc/free calls go directly
-        // through cuMemAllocAsync/cuMemFreeAsync, creating proper graph nodes.
-        // Without this, the free-list cache intercepts deallocations (no graph
-        // free node) and satisfies allocations from cache (no graph alloc node),
-        // corrupting the graph's internal memory management on replay.
+        // Clone each I/O tensor (cheap Arc bump on Storage).  Holding these
+        // clones prevents the underlying device memory from being freed for
+        // the lifetime of the resulting CapturedGraph.
+        let owned_inputs: Vec<crate::tensor::Tensor<Self>> =
+            inputs.iter().map(|t| (*t).clone()).collect();
+        let owned_outputs: Vec<crate::tensor::Tensor<Self>> =
+            outputs.iter().map(|t| (*t).clone()).collect();
+
+        // Freeze the caching allocator: alloc/free calls go directly through
+        // cuMemAllocAsync/cuMemFreeAsync, creating proper graph nodes.
+        // (Same rationale as the allocator freeze in capture_graph_into.)
         client.allocator.freeze();
 
-        // Begin stream capture — all ops on this stream are recorded, not executed
+        // Begin stream capture — all ops on this stream are recorded.
         client
             .stream
             .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
 
-        // Execute the closure — ops are recorded into the graph
-        let result = f(client);
+        // Execute the closure — ops are recorded into the graph.
+        let closure_result = f(client);
 
         // End capture — MUST happen even if the closure failed, otherwise the
         // stream is left in capture mode and all subsequent operations fail.
         //
         // AUTO_FREE_ON_LAUNCH: graph-managed memory allocated during capture is
-        // freed on each launch. For graph capture in training (where we re-run
-        // the same graph), this is acceptable — each launch re-allocates.
-        // For inference with stable output pointers, the caller must copy the
-        // output tensor after each launch before the next launch frees it.
+        // freed on each launch. Intermediate tensors (scratch buffers) created
+        // inside the closure are subject to this. The caller-supplied output
+        // tensors are allocated OUTSIDE the closure (before capture begins) and
+        // are NOT subject to auto-free — their lifetime is controlled by the
+        // Arc-clones held in owned_outputs.
         let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
         let graph_result = client.stream.end_capture(flags);
 
-        // Restore caching allocator for normal (non-capture) operations
+        // Restore caching allocator for normal (non-capture) operations.
         client.allocator.unfreeze();
 
-        // Handle closure error: propagate after restoring stream
-        let closure_result = result?;
+        // Propagate closure error (after restoring stream/allocator state).
+        closure_result?;
 
-        // Handle capture error
+        // Propagate capture error.
         let graph_opt = graph_result?;
 
         let cudarc_graph = graph_opt.ok_or_else(|| {
@@ -81,7 +93,11 @@ impl Runtime for CudaRuntime {
             )
         })?;
 
-        Ok((super::CudaGraph::new(cudarc_graph), closure_result))
+        Ok(crate::runtime::CapturedGraph::new(
+            super::CudaGraph::new(cudarc_graph),
+            owned_inputs,
+            owned_outputs,
+        ))
     }
 
     /// Allocate GPU memory.
@@ -360,6 +376,141 @@ impl Runtime for CudaRuntime {
     }
 }
 
+// ============================================================================
+// Arena-enabled graph capture
+// ============================================================================
+
+impl CudaRuntime {
+    /// Capture a CUDA graph with a dedicated bump-pointer arena for all
+    /// graph-internal intermediate allocations.
+    ///
+    /// # Why this exists
+    ///
+    /// During normal graph capture (`capture_graph_into`), intermediate tensors
+    /// allocated inside the closure via `cuMemAllocAsync` produce graph-managed
+    /// memory that is subject to `AUTO_FREE_ON_LAUNCH`.  On the **first** replay
+    /// `cuGraphLaunch` frees those addresses; on the **second** replay the
+    /// graph's kernel nodes dereference the now-freed addresses and the driver
+    /// raises `CUDA_ERROR_ILLEGAL_ADDRESS`.
+    ///
+    /// This variant pre-allocates an `arena_bytes`-sized device buffer
+    /// **outside** the capture region and redirects every frozen `allocate()`
+    /// call into a bump-pointer offset inside that buffer.  Because the buffer
+    /// was not allocated during capture, it is NOT subject to
+    /// `AUTO_FREE_ON_LAUNCH`; its address is stable across all replays for the
+    /// lifetime of the returned `CapturedGraph`.
+    ///
+    /// # Arguments
+    ///
+    /// * `client` — the CUDA client to capture on.
+    /// * `inputs` / `outputs` — tensors whose device addresses are passed to
+    ///   the closure and encoded in the graph (same semantics as
+    ///   `capture_graph_into`).
+    /// * `arena_bytes` — size in bytes of the pre-allocated scratch arena.
+    ///   Must be large enough to hold all intermediate tensors created inside
+    ///   `f`.  Returns `Err(OutOfMemory)` inside the closure if the arena is
+    ///   exhausted; the graph is not produced in that case.
+    /// * `f` — the closure to capture.  Same contract as `capture_graph_into`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The arena device allocation fails (device OOM).
+    /// - The closure returns an error (including arena OOM for intermediates).
+    /// - The CUDA stream capture API fails.
+    ///
+    /// # Drop ordering
+    ///
+    /// The returned `CapturedGraph` holds the arena tensor in its `arena` field,
+    /// which drops AFTER `graph`, `inputs`, and `outputs` (declaration order).
+    /// This guarantees the arena buffer outlives the compiled graph handle.
+    pub fn capture_graph_into_with_arena<F>(
+        client: &CudaClient,
+        inputs: &[&crate::tensor::Tensor<CudaRuntime>],
+        outputs: &[&crate::tensor::Tensor<CudaRuntime>],
+        arena_bytes: usize,
+        f: F,
+    ) -> crate::error::Result<crate::runtime::CapturedGraph<CudaRuntime>>
+    where
+        F: FnOnce(&CudaClient) -> crate::error::Result<()>,
+    {
+        use crate::dtype::DType;
+        use crate::tensor::Tensor;
+        use cudarc::driver::sys::CUstreamCaptureMode;
+
+        // Allocate the arena buffer OUTSIDE the capture region so its address
+        // is NOT baked into graph-managed memory and is NOT subject to
+        // AUTO_FREE_ON_LAUNCH.  We use F32 storage (4 bytes/element) as a
+        // neutral dtype; the arena is only accessed as raw bytes by the
+        // bump-pointer logic.
+        let arena_elems = arena_bytes.div_ceil(std::mem::size_of::<f32>());
+        let arena_tensor =
+            Tensor::<CudaRuntime>::try_empty(&[arena_elems], DType::F32, &client.device).map_err(
+                |e| {
+                    crate::error::Error::Backend(format!(
+                        "capture_graph_into_with_arena: arena allocation failed \
+                         ({arena_bytes} bytes): {e}"
+                    ))
+                },
+            )?;
+        let arena_ptr = arena_tensor.ptr();
+
+        // Install the arena so freeze-time allocations go into it. Fails if a
+        // capture is already in progress on this client (arena already present);
+        // `arena_tensor` is dropped here, freeing its buffer.
+        client.allocator.install_arena(arena_ptr, arena_bytes)?;
+
+        // Clone each I/O tensor (cheap Arc bump).
+        let owned_inputs: Vec<Tensor<CudaRuntime>> = inputs.iter().map(|t| (*t).clone()).collect();
+        let owned_outputs: Vec<Tensor<CudaRuntime>> =
+            outputs.iter().map(|t| (*t).clone()).collect();
+
+        // Freeze: allocations now serve from the arena.
+        client.allocator.freeze();
+
+        // Begin stream capture.
+        client
+            .stream
+            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
+
+        // Execute the closure — ops are recorded into the graph.
+        let closure_result = f(client);
+
+        // End capture — MUST happen even if the closure failed.
+        //
+        // With the arena approach, ALL intermediate allocations go into the
+        // pre-allocated bump-pointer buffer (no `cuMemAllocAsync` inside the
+        // capture region). Therefore there are NO graph-managed allocation
+        // nodes and AUTO_FREE_ON_LAUNCH has nothing to free. However, we keep
+        // the flag for now since it is harmless when there are no alloc nodes.
+        let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
+        let graph_result = client.stream.end_capture(flags);
+
+        // Restore the allocator (clears the arena bookkeeping, resets frozen).
+        client.allocator.unfreeze();
+
+        // Propagate closure error after restoring stream/allocator state.
+        closure_result?;
+
+        // Propagate capture error.
+        let graph_opt = graph_result?;
+        let cudarc_graph = graph_opt.ok_or_else(|| {
+            crate::error::Error::Backend(
+                "CUDA graph capture (with_arena) produced no operations — \
+                 closure recorded nothing"
+                    .into(),
+            )
+        })?;
+
+        Ok(crate::runtime::CapturedGraph::new_with_arena(
+            super::CudaGraph::new(cudarc_graph),
+            owned_inputs,
+            owned_outputs,
+            arena_tensor,
+        ))
+    }
+}
+
 /// Get the default CUDA device (device 0)
 pub fn cuda_device() -> CudaDevice {
     CudaDevice::new(0)
@@ -377,4 +528,47 @@ pub fn is_cuda_available() -> bool {
         let _client = get_or_create_client(&device);
     })
     .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+
+    /// Full `capture_graph_into` integration test.
+    ///
+    /// # Why ignored
+    ///
+    /// This test requires a working CUDA GPU and a numr in-place binary addition
+    /// primitive (`add_into(out, a, b)` or equivalent).  Neither exists yet:
+    /// - `numr` currently has no `add_into` / `copy_into` ops that write into a
+    ///   pre-allocated destination without allocating a new tensor.
+    /// - Without a destination-writing op the closure would allocate `c` inside
+    ///   the capture region, making it subject to `AUTO_FREE_ON_LAUNCH` and
+    ///   causing a use-after-free on replay.
+    ///
+    /// # What this test should do once unblocked
+    ///
+    /// 1. Allocate two input tensors `a`, `b` of shape `[4]` (F32) and one
+    ///    output tensor `c` of the same shape — all OUTSIDE the closure.
+    /// 2. Call `CudaRuntime::capture_graph_into(client, &[&a, &b], &[&c], |cc| {
+    ///        cc.add_into(&c, &a, &b)   // in-place: c = a + b
+    ///    })?`.
+    /// 3. After capture, read `c` back to host and verify `c[i] == a[i] + b[i]`.
+    /// 4. Write new values into `a` and `b` via H2D copy.
+    /// 5. Call `captured.launch()?` and verify `c` reflects the new values.
+    /// 6. Drop `captured` and verify no `CUDA_ERROR_ILLEGAL_ADDRESS` on a
+    ///    subsequent normal allocation (e.g. `Tensor::zeros`).
+    ///
+    /// # Migration task
+    ///
+    /// Add `add_into` (or an in-place binary op) to numr's BinaryOps trait and
+    /// CUDA backend, then remove `#[ignore]` and complete this test.
+    #[ignore = "requires add_into primitive (see comment) and a CUDA GPU"]
+    #[test]
+    fn test_capture_graph_into_add() {
+        // Placeholder — see doc comment above for what this should implement.
+        // Unignore and fill in once numr has an in-place destination-passing
+        // binary op (add_into / binary_into).
+    }
 }
