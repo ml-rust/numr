@@ -17,7 +17,7 @@ pub fn scalar_op_impl(
     op_name: &'static str,
 ) -> Result<Tensor<CpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let len = a.numel();
@@ -46,7 +46,7 @@ pub fn rsub_scalar_op_impl(
     scalar: f64,
 ) -> Result<Tensor<CpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let len = a.numel();

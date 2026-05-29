@@ -72,7 +72,7 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             // Check if B is a simple transpose: shape [K,N], strides [1, K]
             // meaning the underlying data is contiguous [N,K]
             if stride_row == 1 && stride_col == k as isize {
-                let a_contig = ensure_contiguous(a);
+                let a_contig = ensure_contiguous(a)?;
                 let a_ptr = a_contig.ptr();
                 let b_ptr = b.ptr(); // Use original ptr - data is contiguous [N,K]
 
@@ -153,8 +153,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
 
         // Require row-major contiguous tensors for SIMD-optimized packing
         // Non-contiguous tensors (transposed, views) are copied to contiguous layout
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         let a_ptr = a_contig.ptr();
         let b_ptr = b_contig.ptr();
@@ -354,9 +354,9 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         let n = b_shape[b_shape.len() - 1];
 
         // Require row-major contiguous tensors for SIMD-optimized packing
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
 
         // Calculate batch size from output shape, and per-operand batch sizes for broadcasting
         let batch_size: usize = out_shape

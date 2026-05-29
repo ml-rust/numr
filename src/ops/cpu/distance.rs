@@ -70,8 +70,8 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let x = ensure_contiguous(x);
-        let y = ensure_contiguous(y);
+        let x = ensure_contiguous(x)?;
+        let y = ensure_contiguous(y)?;
 
         let out = Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device);
         let x_ptr = x.ptr();
@@ -131,7 +131,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         let out_size = n * (n - 1) / 2;
 
         // Ensure contiguous
-        let x = ensure_contiguous(x);
+        let x = ensure_contiguous(x)?;
 
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);
         let x_ptr = x.ptr();
@@ -187,7 +187,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let condensed = ensure_contiguous(condensed);
+        let condensed = ensure_contiguous(condensed)?;
 
         let out = Tensor::<CpuRuntime>::empty(&[n, n], dtype, &self.device);
         let cond_ptr = condensed.ptr();
@@ -226,7 +226,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let square = ensure_contiguous(square);
+        let square = ensure_contiguous(square)?;
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device);

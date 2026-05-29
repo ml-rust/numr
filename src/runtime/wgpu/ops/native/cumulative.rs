@@ -38,7 +38,7 @@ pub(crate) fn native_cumsum(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Compute parameters
     let scan_size = shape[dim];
@@ -124,7 +124,7 @@ pub(crate) fn native_cumprod(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Compute parameters
     let scan_size = shape[dim];
@@ -263,7 +263,7 @@ fn native_logsumexp_single_dim(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Compute parameters
     let reduce_size = shape[dim];

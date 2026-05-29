@@ -19,7 +19,7 @@ impl WgpuClient {
     ) -> Result<Tensor<WgpuRuntime>> {
         use crate::runtime::{RuntimeClient, ensure_contiguous};
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let shape = a_contig.shape().to_vec();
 
         // Read raw bytes as f64 intermediary values, then write as target type.

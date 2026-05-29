@@ -208,7 +208,7 @@ impl RandomOps<CpuRuntime> for CpuClient {
         let num_distributions = num_distributions.max(1); // At least 1 for 1D input
 
         // Ensure probs is contiguous
-        let probs = ensure_contiguous(probs);
+        let probs = ensure_contiguous(probs)?;
 
         // Validate that probabilities sum to a positive value to prevent division by zero
         // Check the max value - if all values are <= 0, we cannot sample

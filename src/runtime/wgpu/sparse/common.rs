@@ -269,11 +269,11 @@ pub fn split_lu_wgpu(
     // Get total sizes from last element of row_ptrs
     // This is the ONE necessary scalar read for allocation
     let l_nnz = {
-        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous()?;
         last.to_vec::<i32>()[0] as usize
     };
     let u_nnz = {
-        let last = u_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        let last = u_row_ptrs_i32.narrow(0, n, 1)?.contiguous()?;
         last.to_vec::<i32>()[0] as usize
     };
 
@@ -417,7 +417,7 @@ pub fn extract_lower_wgpu(
     // Get total size from last element of row_ptrs
     // This is the ONE necessary scalar read for allocation
     let l_nnz = {
-        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous();
+        let last = l_row_ptrs_i32.narrow(0, n, 1)?.contiguous()?;
         last.to_vec::<i32>()[0] as usize
     };
 

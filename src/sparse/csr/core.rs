@@ -142,7 +142,9 @@ impl<R: Runtime<DType = DType>> CsrData<R> {
             .row_ptrs
             .narrow(0, row, 2)
             .expect("row_nnz: invalid row index");
-        let slice = slice.contiguous();
+        let slice = slice
+            .contiguous()
+            .expect("row_nnz: contiguous allocation failed");
         let ptrs: Vec<i64> = slice.to_vec();
         (ptrs[1] - ptrs[0]) as usize
     }

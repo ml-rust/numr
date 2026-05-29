@@ -19,7 +19,7 @@ impl ComplexOps<CpuRuntime> for CpuClient {
 
         let shape = a.shape();
         let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
 
         // Handle empty tensors
@@ -68,7 +68,7 @@ impl ComplexOps<CpuRuntime> for CpuClient {
 
         let shape = a.shape();
         let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Determine output dtype (F32 for Complex64, F64 for Complex128)
         let out_dtype = dtype
@@ -123,7 +123,7 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             return Ok(Tensor::<CpuRuntime>::zeros(shape, dtype, &self.device));
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Determine output dtype (F32 for Complex64, F64 for Complex128)
         let out_dtype = dtype
@@ -174,7 +174,7 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let numel = a.numel();
         let chunk_size = self.chunk_size_hint();
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // For real types: angle(x) = 0 if x >= 0, π if x < 0
         if !dtype.is_complex() {
@@ -278,8 +278,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
             _ => unreachable!("validated above"),
         };
 
-        let real_contig = ensure_contiguous(real);
-        let imag_contig = ensure_contiguous(imag);
+        let real_contig = ensure_contiguous(real)?;
+        let imag_contig = ensure_contiguous(imag)?;
         let out = Tensor::<CpuRuntime>::empty(shape, out_dtype, &self.device);
 
         // Handle empty tensors
@@ -332,8 +332,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let shape = complex.shape();
         let numel = complex.numel();
 
-        let complex_contig = ensure_contiguous(complex);
-        let real_contig = ensure_contiguous(real);
+        let complex_contig = ensure_contiguous(complex)?;
+        let real_contig = ensure_contiguous(real)?;
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
 
         // Handle empty tensors
@@ -386,8 +386,8 @@ impl ComplexOps<CpuRuntime> for CpuClient {
         let shape = complex.shape();
         let numel = complex.numel();
 
-        let complex_contig = ensure_contiguous(complex);
-        let real_contig = ensure_contiguous(real);
+        let complex_contig = ensure_contiguous(complex)?;
+        let real_contig = ensure_contiguous(real)?;
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device);
 
         // Handle empty tensors

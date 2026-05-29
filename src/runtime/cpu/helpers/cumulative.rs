@@ -38,7 +38,7 @@ pub fn cumsum_impl(
     }
 
     // Make contiguous for simplicity
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Output has same shape as input
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
@@ -97,7 +97,7 @@ pub fn cumprod_impl(
     }
 
     // Make contiguous for simplicity
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Output has same shape as input
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
@@ -201,7 +201,7 @@ pub fn logsumexp_impl(
     }
 
     // General case: reduce one dimension at a time
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     let mut sorted_dims: Vec<usize> = dims.to_vec();
     sorted_dims.sort_unstable();

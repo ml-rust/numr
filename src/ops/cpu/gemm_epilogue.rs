@@ -38,9 +38,9 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
 
         let batch_size: usize = out_shape
             .iter()
@@ -153,10 +153,10 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
-        let residual_contig = ensure_contiguous(residual);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
+        let residual_contig = ensure_contiguous(residual)?;
 
         let batch_size: usize = out_shape
             .iter()
@@ -256,10 +256,10 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         let k = a_shape[a_shape.len() - 1];
         let n = b_shape[b_shape.len() - 1];
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
-        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
+        let grad_contig = ensure_contiguous(grad)?;
 
         let batch_size: usize = a_shape
             .iter()

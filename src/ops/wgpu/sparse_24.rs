@@ -44,7 +44,7 @@ impl Sparse24Ops<WgpuRuntime> for WgpuClient {
             });
         }
 
-        let dense_contig = ensure_contiguous(dense);
+        let dense_contig = ensure_contiguous(dense)?;
         let half_k = k / 2;
         let mc = meta_cols_for_k(k);
         let num_groups = k / 4;
@@ -103,8 +103,8 @@ impl Sparse24Ops<WgpuRuntime> for WgpuClient {
         let mc = meta_cols_for_k(k);
         let half_k = k / 2;
 
-        let vals = ensure_contiguous(sparse.compressed_values());
-        let meta = ensure_contiguous(sparse.metadata());
+        let vals = ensure_contiguous(sparse.compressed_values())?;
+        let meta = ensure_contiguous(sparse.metadata())?;
         let dense = alloc_output(self, &[m, k], dtype);
 
         let vals_buf = get_tensor_buffer(&vals)?;

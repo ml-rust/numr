@@ -18,7 +18,7 @@ impl TypeConversionOps<CudaRuntime> for CudaClient {
 
         let shape = a.shape();
         let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(shape, target_dtype, &self.device);
 
         unsafe {

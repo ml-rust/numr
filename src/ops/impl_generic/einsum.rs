@@ -179,7 +179,7 @@ where
     }?;
 
     // Ensure result is contiguous for downstream consumers
-    Ok(result.contiguous())
+    Ok(result.contiguous()?)
 }
 
 /// Single-input einsum: trace, transpose, diagonal sum, partial sum.
@@ -289,7 +289,7 @@ where
     // "ii->i" : diagonal extraction
     if in_subs.len() == 2 && in_subs[0] == in_subs[1] && out_subs.len() == 1 {
         let diag = extract_diagonal(input)?;
-        return Ok(diag.contiguous());
+        return diag.contiguous();
     }
 
     Err(Error::NotImplemented {

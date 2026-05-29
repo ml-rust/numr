@@ -27,9 +27,9 @@ pub(crate) fn native_gemm_bias_activation(
         let k = a_shape[1];
         let n = b_shape[1];
 
-        let a_c = ensure_contiguous(a);
-        let b_c = ensure_contiguous(b);
-        let bias_c = ensure_contiguous(bias);
+        let a_c = ensure_contiguous(a)?;
+        let b_c = ensure_contiguous(b)?;
+        let bias_c = ensure_contiguous(bias)?;
         let out = alloc_output(client, &out_shape, dtype);
 
         let a_buf = get_tensor_buffer(&a_c)?;
@@ -75,9 +75,9 @@ pub(crate) fn native_gemm_bias_activation(
             });
         }
 
-        let a_c = ensure_contiguous(a);
-        let b_c = ensure_contiguous(b);
-        let bias_c = ensure_contiguous(bias);
+        let a_c = ensure_contiguous(a)?;
+        let b_c = ensure_contiguous(b)?;
+        let bias_c = ensure_contiguous(bias)?;
         let out = alloc_output(client, &out_shape, dtype);
 
         let a_buf = get_tensor_buffer(&a_c)?;
@@ -155,10 +155,10 @@ pub(crate) fn native_gemm_bias_residual(
         let k = a_shape[1];
         let n = b_shape[1];
 
-        let a_c = ensure_contiguous(a);
-        let b_c = ensure_contiguous(b);
-        let bias_c = ensure_contiguous(bias);
-        let res_c = ensure_contiguous(residual);
+        let a_c = ensure_contiguous(a)?;
+        let b_c = ensure_contiguous(b)?;
+        let bias_c = ensure_contiguous(bias)?;
+        let res_c = ensure_contiguous(residual)?;
         let out = alloc_output(client, &out_shape, dtype);
 
         let a_buf = get_tensor_buffer(&a_c)?;
@@ -205,10 +205,10 @@ pub(crate) fn native_gemm_bias_residual(
             });
         }
 
-        let a_c = ensure_contiguous(a);
-        let b_c = ensure_contiguous(b);
-        let bias_c = ensure_contiguous(bias);
-        let res_c = ensure_contiguous(residual);
+        let a_c = ensure_contiguous(a)?;
+        let b_c = ensure_contiguous(b)?;
+        let bias_c = ensure_contiguous(bias)?;
+        let res_c = ensure_contiguous(residual)?;
         let out = alloc_output(client, &out_shape, dtype);
 
         let a_buf = get_tensor_buffer(&a_c)?;

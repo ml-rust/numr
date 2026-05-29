@@ -318,7 +318,7 @@ where
                 e
             ))
         })?;
-        let inv_a_t = inv_a.t()?.contiguous();
+        let inv_a_t = inv_a.t()?.contiguous()?;
 
         // Scale: det_output * inv_a_t (element-wise broadcast)
         // det_output is scalar [1] or [], inv_a_t is [n, n]
@@ -349,7 +349,7 @@ where
                 e
             ))
         })?;
-        let inv_a_t = inv_a.t()?.contiguous();
+        let inv_a_t = inv_a.t()?.contiguous()?;
 
         // det_output * inv_a_t is constant (not dependent on grad_output)
         let det_scaled = client.mul(&inv_a_t, det_output)?;
@@ -422,7 +422,7 @@ where
 
         // grad_output = dL/dx
         // Solve A^T @ v = dL/dx for v
-        let a_t = saved_a.t()?.contiguous();
+        let a_t = saved_a.t()?.contiguous()?;
         let v = LinalgOps::solve(&client, &a_t, grad_output)?;
 
         // dL/db = v = solve(A^T, dL/dx)
@@ -448,7 +448,7 @@ where
         // Solve A^T @ v = dL/dx for v
         // The solve operation is not differentiable in the var sense here,
         // so we compute v as a constant tensor
-        let a_t = saved_a.t()?.contiguous();
+        let a_t = saved_a.t()?.contiguous()?;
         let v = LinalgOps::solve(&client, &a_t, grad_output.tensor())?;
 
         // dL/db = v = solve(A^T, dL/dx)
@@ -539,17 +539,17 @@ where
 
         // Step 1: Compute S = L^T @ grad_L
         // Ensure L^T is contiguous for matmul
-        let l_t = l.t()?.contiguous();
+        let l_t = l.t()?.contiguous()?;
         let s = client.matmul(&l_t, grad_output)?;
 
         // Step 2: Φ(S) = tril(S) with diagonal halved
         // Use tensor operations to preserve dtype
-        let phi = tril_with_halved_diagonal::<R>(&s.contiguous(), &client)?;
+        let phi = tril_with_halved_diagonal::<R>(&s.contiguous()?, &client)?;
 
         // Step 3: Compute Z = Φ @ L^{-1}
         // Solve L^T @ W = Φ^T for W, then Z = W^T
         // (because L^T @ W = Φ^T implies W = L^{-T} @ Φ^T, so W^T = Φ @ L^{-1})
-        let phi_t = phi.t()?.contiguous();
+        let phi_t = phi.t()?.contiguous()?;
         let w = client.solve_triangular_upper(&l_t, &phi_t).map_err(|e| {
             Error::Internal(format!(
                 "CholeskyBackward: triangular solve failed in step 3 \
@@ -557,7 +557,7 @@ where
                 e
             ))
         })?;
-        let z = w.t()?.contiguous();
+        let z = w.t()?.contiguous()?;
 
         // Step 4: Compute grad_A = L^{-T} @ Z
         // Solve L^T @ Y = Z for Y (gives Y = L^{-T} @ Z = L^{-T} @ Φ @ L^{-1})
@@ -571,8 +571,8 @@ where
 
         // Step 5: Symmetrize the result: grad_A = (Y + Y^T) / 2
         // Use tensor operations to preserve dtype
-        let y_contiguous = grad_a_raw.contiguous();
-        let y_t = y_contiguous.t()?.contiguous();
+        let y_contiguous = grad_a_raw.contiguous()?;
+        let y_t = y_contiguous.t()?.contiguous()?;
         let sum = client.add(&y_contiguous, &y_t)?;
         let grad_a = client.div_scalar(&sum, 2.0)?;
 
@@ -594,24 +594,24 @@ where
 
         // Step 1: Compute S = L^T @ grad_L
         // L is saved (constant), grad_output needs gradient tracking
-        let l_t = l.t()?.contiguous();
+        let l_t = l.t()?.contiguous()?;
         let l_t_var = Var::new(l_t.clone(), false);
         let s = var_matmul(&l_t_var, grad_output, &client)?;
 
         // Step 2: Φ(S) = tril(S) with diagonal halved
         // This is a non-differentiable mask operation
-        let phi = tril_with_halved_diagonal::<R>(&s.tensor().contiguous(), &client)?;
+        let phi = tril_with_halved_diagonal::<R>(&s.tensor().contiguous()?, &client)?;
 
         // Step 3-5: The triangular solves and symmetrization
         // These don't have var_ops equivalents, so we compute them as constants
-        let phi_t = phi.t()?.contiguous();
+        let phi_t = phi.t()?.contiguous()?;
         let w = client.solve_triangular_upper(&l_t, &phi_t).map_err(|e| {
             Error::Internal(format!(
                 "CholeskyBackward: triangular solve failed in step 3: {}",
                 e
             ))
         })?;
-        let z = w.t()?.contiguous();
+        let z = w.t()?.contiguous()?;
 
         let grad_a_raw = client.solve_triangular_upper(&l_t, &z).map_err(|e| {
             Error::Internal(format!(
@@ -621,8 +621,8 @@ where
         })?;
 
         // Step 5: Symmetrize: grad_A = (Y + Y^T) / 2
-        let y_contiguous = grad_a_raw.contiguous();
-        let y_t = y_contiguous.t()?.contiguous();
+        let y_contiguous = grad_a_raw.contiguous()?;
+        let y_t = y_contiguous.t()?.contiguous()?;
         let sum = client.add(&y_contiguous, &y_t)?;
         let grad_a = client.div_scalar(&sum, 2.0)?;
 

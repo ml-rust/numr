@@ -25,12 +25,12 @@ pub fn cat_impl(
     unsafe {
         let mut cat_offset = 0usize;
         for &tensor in tensors {
-            let contig_tmp;
+            let contig_tmp_owned;
             let src_ptr = if tensor.is_contiguous() {
                 tensor.ptr() as *const u8
             } else {
-                contig_tmp = tensor.contiguous();
-                contig_tmp.ptr() as *const u8
+                contig_tmp_owned = tensor.contiguous()?;
+                contig_tmp_owned.ptr() as *const u8
             };
             let src_cat_size = tensor.shape()[params.dim_idx];
             let src_bytes = src_cat_size * params.inner_size * elem_size;
@@ -119,7 +119,7 @@ pub fn repeat_impl(
     let out = Tensor::<CpuRuntime>::empty(&params.out_shape, dtype, &client.device);
 
     // Make input contiguous
-    let tensor_contig = ensure_contiguous(tensor);
+    let tensor_contig = ensure_contiguous(tensor)?;
     let src_ptr = tensor_contig.ptr();
     let dst_ptr = out.ptr();
 
@@ -200,7 +200,7 @@ pub fn pad_impl(
     let out = Tensor::<CpuRuntime>::full_scalar(&params.out_shape, dtype, value, &client.device);
 
     // Make input contiguous
-    let tensor_contig = ensure_contiguous(tensor);
+    let tensor_contig = ensure_contiguous(tensor)?;
     let src_ptr = tensor_contig.ptr();
     let dst_ptr = out.ptr();
 
@@ -278,7 +278,7 @@ pub fn roll_impl(
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
     // Make input contiguous
-    let tensor_contig = ensure_contiguous(tensor);
+    let tensor_contig = ensure_contiguous(tensor)?;
     let src_ptr = tensor_contig.ptr();
     let dst_ptr = out.ptr();
 

@@ -67,14 +67,14 @@ where
     };
 
     // Broadcast to input shape for comparison
-    let extremum_broadcast = ensure_contiguous(extremum_vals.broadcast_to(saved_input.shape())?);
+    let extremum_broadcast = ensure_contiguous(extremum_vals.broadcast_to(saved_input.shape())?)?;
 
     // Create mask where input equals extremum (handles ties)
     let mask = client.eq(saved_input, &extremum_broadcast)?;
 
     // Count ties per reduction group
     let mask_sum = client.sum(&mask, dims, true)?;
-    let mask_sum_broadcast = ensure_contiguous(mask_sum.broadcast_to(saved_input.shape())?);
+    let mask_sum_broadcast = ensure_contiguous(mask_sum.broadcast_to(saved_input.shape())?)?;
 
     // Normalize mask by count
     let normalized_mask = client.div(&mask, &mask_sum_broadcast)?;
@@ -88,7 +88,7 @@ where
             grad = grad.unsqueeze(dim as isize)?;
         }
     }
-    let grad_broadcast = ensure_contiguous(grad.broadcast_to(saved_input.shape())?);
+    let grad_broadcast = ensure_contiguous(grad.broadcast_to(saved_input.shape())?)?;
 
     client.mul(&grad_broadcast, &normalized_mask)
 }
@@ -112,10 +112,10 @@ where
         client.min(saved_input, dims, true)?
     };
 
-    let extremum_broadcast = ensure_contiguous(extremum_vals.broadcast_to(saved_input.shape())?);
+    let extremum_broadcast = ensure_contiguous(extremum_vals.broadcast_to(saved_input.shape())?)?;
     let mask = client.eq(saved_input, &extremum_broadcast)?;
     let mask_sum = client.sum(&mask, dims, true)?;
-    let mask_sum_broadcast = ensure_contiguous(mask_sum.broadcast_to(saved_input.shape())?);
+    let mask_sum_broadcast = ensure_contiguous(mask_sum.broadcast_to(saved_input.shape())?)?;
     let normalized_mask = client.div(&mask, &mask_sum_broadcast)?;
 
     let mut grad_tensor = grad_output.tensor().clone();
@@ -126,7 +126,7 @@ where
             grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
         }
     }
-    let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(saved_input.shape())?);
+    let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(saved_input.shape())?)?;
 
     let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
     let mask_var = Var::new(normalized_mask, false);

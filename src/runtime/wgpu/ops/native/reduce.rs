@@ -74,7 +74,7 @@ fn native_single_dim_reduce(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     // Compute parameters
     let reduce_size = shape[dim];
@@ -129,7 +129,7 @@ fn native_full_reduce(
     a: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     // For mean, we need to divide by numel at the end
@@ -250,7 +250,7 @@ pub(crate) fn native_softmax(
 
         // Permute to move target dimension to last position
         let permuted = a.permute(&perm)?;
-        let permuted_contig = permuted.contiguous();
+        let permuted_contig = permuted.contiguous()?;
 
         // Softmax on last dimension (now the original target dimension)
         let result = native_softmax_last_dim(client, &permuted_contig)?;
@@ -279,7 +279,7 @@ fn native_softmax_last_dim(
     let shape = a.shape();
     let ndim = shape.len();
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let dim = ndim - 1;
     let batch_size: usize = shape[..dim].iter().product();
     let dim_size = shape[dim];
@@ -339,8 +339,8 @@ pub(crate) fn native_softmax_bwd(
         perm.remove(dim);
         perm.push(dim);
 
-        let grad_p = grad.permute(&perm)?.contiguous();
-        let output_p = output.permute(&perm)?.contiguous();
+        let grad_p = grad.permute(&perm)?.contiguous()?;
+        let output_p = output.permute(&perm)?.contiguous()?;
         let result = native_softmax_bwd_last_dim(client, &grad_p, &output_p)?;
 
         let mut inv_perm = vec![0; ndim];
@@ -362,8 +362,8 @@ fn native_softmax_bwd_last_dim(
     let ndim = shape.len();
     let dtype = grad.dtype();
 
-    let grad_contig = ensure_contiguous(grad);
-    let output_contig = ensure_contiguous(output);
+    let grad_contig = ensure_contiguous(grad)?;
+    let output_contig = ensure_contiguous(output)?;
     let dim = ndim - 1;
     let batch_size: usize = shape[..dim].iter().product();
     let dim_size = shape[dim];
@@ -412,7 +412,7 @@ pub(crate) fn native_argreduce_op(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     let reduce_size = shape[dim];
     let outer_size: usize = shape[..dim].iter().product();

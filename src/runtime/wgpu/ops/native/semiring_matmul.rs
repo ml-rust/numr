@@ -43,8 +43,8 @@ pub(crate) fn native_semiring_matmul(
         let k = a_shape[1];
         let n = b_shape[1];
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 
@@ -90,8 +90,8 @@ pub(crate) fn native_semiring_matmul(
             });
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 

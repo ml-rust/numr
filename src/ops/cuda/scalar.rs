@@ -40,7 +40,7 @@ impl ScalarOps<CudaRuntime> for CudaClient {
         bias: f64,
     ) -> Result<Tensor<CudaRuntime>> {
         let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
 
         unsafe {

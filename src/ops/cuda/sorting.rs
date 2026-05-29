@@ -28,7 +28,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
 
         let dim_idx = normalize_dim(dim, ndim)?;
         let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
 
         unsafe {
@@ -66,7 +66,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
 
         let dim_idx = normalize_dim(dim, ndim)?;
         let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out_values = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
         let out_indices = Tensor::<CudaRuntime>::empty(shape, DType::I64, &self.device);
 
@@ -109,7 +109,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
 
         let dim_idx = normalize_dim(dim, ndim)?;
         let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(shape, DType::I64, &self.device);
 
         unsafe {
@@ -174,7 +174,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
         }
 
         let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         let mut out_shape = shape.to_vec();
         out_shape[dim_idx] = k;
@@ -213,7 +213,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
 
         // Flatten and make contiguous
         let a_flat = a.reshape(&[numel])?;
-        let a_contig = ensure_contiguous(&a_flat);
+        let a_contig = ensure_contiguous(&a_flat)?;
 
         // Sort first
         let sorted_tensor = self.sort(&a_contig, 0, false)?;
@@ -324,7 +324,7 @@ impl SortingOps<CudaRuntime> for CudaClient {
             ));
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Phase 1: Count nonzero elements
         let counter = Tensor::<CudaRuntime>::zeros(&[1], DType::U32, &self.device);
@@ -437,8 +437,8 @@ impl SortingOps<CudaRuntime> for CudaClient {
             ));
         }
 
-        let seq_contig = ensure_contiguous(sorted_sequence);
-        let values_contig = ensure_contiguous(values);
+        let seq_contig = ensure_contiguous(sorted_sequence)?;
+        let values_contig = ensure_contiguous(values)?;
         let out = Tensor::<CudaRuntime>::empty(values.shape(), DType::I64, &self.device);
 
         unsafe {

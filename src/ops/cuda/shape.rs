@@ -17,7 +17,7 @@ impl ShapeOps<CudaRuntime> for CudaClient {
         // Copy data from each tensor using CUDA kernel
         let mut cat_offset = 0usize;
         for &tensor in tensors {
-            let tensor_contig = ensure_contiguous(tensor);
+            let tensor_contig = ensure_contiguous(tensor)?;
             let src_cat_size = tensor.shape()[params.dim_idx];
 
             unsafe {
@@ -83,10 +83,10 @@ impl ShapeOps<CudaRuntime> for CudaClient {
 
         // Handle no-op case (all repeats are 1)
         if repeats.iter().all(|&r| r == 1) {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
-        let tensor_contig = ensure_contiguous(tensor);
+        let tensor_contig = ensure_contiguous(tensor)?;
         let out = Tensor::<CudaRuntime>::empty(&params.out_shape, tensor.dtype(), &self.device);
 
         unsafe {
@@ -116,10 +116,10 @@ impl ShapeOps<CudaRuntime> for CudaClient {
 
         // Handle no-op case (all padding is zero)
         if params.pad_per_dim.iter().all(|&(b, a)| b == 0 && a == 0) {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
-        let tensor_contig = ensure_contiguous(tensor);
+        let tensor_contig = ensure_contiguous(tensor)?;
         let out = Tensor::<CudaRuntime>::empty(&params.out_shape, tensor.dtype(), &self.device);
 
         // Extract pad_before from pad_per_dim
@@ -154,10 +154,10 @@ impl ShapeOps<CudaRuntime> for CudaClient {
 
         // Handle no-op case (shift is 0 or multiple of dim_size)
         if params.shift == 0 {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
-        let tensor_contig = ensure_contiguous(tensor);
+        let tensor_contig = ensure_contiguous(tensor)?;
         let out = Tensor::<CudaRuntime>::empty(tensor.shape(), tensor.dtype(), &self.device);
 
         // Compute outer/inner sizes

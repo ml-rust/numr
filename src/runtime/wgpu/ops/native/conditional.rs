@@ -15,7 +15,7 @@ pub(crate) fn native_clamp(
     max_val: f64,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), dtype);
@@ -74,9 +74,9 @@ pub(crate) fn native_where_cond(
 
     // Same shape case - use element-wise kernel
     if cond.shape() == x.shape() && x.shape() == y.shape() {
-        let cond_contig = ensure_contiguous(cond);
-        let x_contig = ensure_contiguous(x);
-        let y_contig = ensure_contiguous(y);
+        let cond_contig = ensure_contiguous(cond)?;
+        let x_contig = ensure_contiguous(x)?;
+        let y_contig = ensure_contiguous(y)?;
 
         let out = alloc_output(client, &out_shape, out_dtype);
 
@@ -107,9 +107,9 @@ pub(crate) fn native_where_cond(
     }
 
     // Broadcasting case - use broadcast kernel
-    let cond_contig = ensure_contiguous(cond);
-    let x_contig = ensure_contiguous(x);
-    let y_contig = ensure_contiguous(y);
+    let cond_contig = ensure_contiguous(cond)?;
+    let x_contig = ensure_contiguous(x)?;
+    let y_contig = ensure_contiguous(y)?;
 
     let cond_strides = compute_broadcast_strides(cond.shape(), &out_shape);
     let x_strides = compute_broadcast_strides(x.shape(), &out_shape);

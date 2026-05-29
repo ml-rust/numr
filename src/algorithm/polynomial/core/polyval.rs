@@ -60,7 +60,7 @@ where
         let c0 = client.index_select(coeffs, 0, &idx)?; // Shape [1]
         // Broadcast c0 to x's shape and make contiguous
         let result = c0.broadcast_to(x.shape())?;
-        return Ok(result.contiguous());
+        return result.contiguous();
     }
 
     // Horner's method using tensor operations
@@ -70,7 +70,7 @@ where
 
     // Broadcast to x's shape for the first multiplication
     // Make contiguous since broadcast_to creates a non-contiguous view
-    result = result.broadcast_to(x.shape())?.contiguous();
+    result = result.broadcast_to(x.shape())?.contiguous()?;
 
     // Iterate from second-highest to lowest coefficient
     for i in (0..n - 1).rev() {

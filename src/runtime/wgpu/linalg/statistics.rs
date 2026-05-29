@@ -54,8 +54,8 @@ pub fn cov(
     let centered = client.sub(a, &mean)?;
 
     // Compute covariance: C = X_centered^T @ X_centered / (n - ddof)
-    let centered_t = centered.transpose(0, 1)?.contiguous();
-    let centered_contig = centered.contiguous();
+    let centered_t = centered.transpose(0, 1)?.contiguous()?;
+    let centered_contig = centered.contiguous()?;
     let cov_unnorm = client.matmul(&centered_t, &centered_contig)?;
 
     // Normalize by (n - ddof)

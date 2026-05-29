@@ -79,7 +79,7 @@ pub fn mode_impl(
     let num_outputs = outer_size * inner_size;
 
     // Ensure sorted is contiguous for kernel access
-    let sorted_contig = ensure_contiguous(&sorted);
+    let sorted_contig = ensure_contiguous(&sorted)?;
 
     // Allocate output tensors on GPU
     // Note: WGSL shader uses i32 for counts (WebGPU doesn't support i64 in storage buffers)

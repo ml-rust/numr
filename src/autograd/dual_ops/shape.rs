@@ -95,11 +95,11 @@ where
 }
 
 /// Dual contiguous: contiguous(a, ȧ) = (contiguous(a), contiguous(ȧ))
-pub fn dual_contiguous<R>(a: &DualTensor<R>) -> DualTensor<R>
+pub fn dual_contiguous<R>(a: &DualTensor<R>) -> Result<DualTensor<R>>
 where
     R: Runtime,
 {
-    let primal = a.primal().contiguous();
-    let tangent = a.tangent().map(|at| at.contiguous());
-    DualTensor::new(primal, tangent)
+    let primal = a.primal().contiguous()?;
+    let tangent = a.tangent().map(|at| at.contiguous()).transpose()?;
+    Ok(DualTensor::new(primal, tangent))
 }

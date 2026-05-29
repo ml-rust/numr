@@ -92,7 +92,7 @@ pub fn quantile_impl(
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
 
-    let sorted_contig = ensure_contiguous(&sorted);
+    let sorted_contig = ensure_contiguous(&sorted)?;
     let sorted_ptr = sorted_contig.ptr();
     let out_ptr = out.ptr();
 

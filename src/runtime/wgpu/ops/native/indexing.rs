@@ -25,9 +25,9 @@ pub(crate) fn native_index_select(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let indices_i32 = ensure_i32_indices(client, indices)?;
-    let indices_contig = ensure_contiguous(&indices_i32);
+    let indices_contig = ensure_contiguous(&indices_i32)?;
 
     // Compute output shape
     let index_len = indices.numel();
@@ -133,10 +133,10 @@ pub(crate) fn native_index_put(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let indices_i32 = ensure_i32_indices(client, indices)?;
-    let indices_contig = ensure_contiguous(&indices_i32);
-    let src_contig = ensure_contiguous(src);
+    let indices_contig = ensure_contiguous(&indices_i32)?;
+    let src_contig = ensure_contiguous(src)?;
 
     let index_len = indices.numel();
     let outer_size: usize = shape[..dim].iter().product();
@@ -258,8 +258,8 @@ pub(crate) fn native_gather(
     let out_shape = indices_i32.shape().to_vec();
     let total_elements = indices_i32.numel();
 
-    let a_contig = ensure_contiguous(a);
-    let indices_contig = ensure_contiguous(&indices_i32);
+    let a_contig = ensure_contiguous(a)?;
+    let indices_contig = ensure_contiguous(&indices_i32)?;
 
     let out = alloc_output(client, &out_shape, dtype);
 
@@ -342,10 +342,10 @@ pub(crate) fn native_scatter(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let indices_i32 = ensure_i32_indices(client, indices)?;
-    let indices_contig = ensure_contiguous(&indices_i32);
-    let src_contig = ensure_contiguous(src);
+    let indices_contig = ensure_contiguous(&indices_i32)?;
+    let src_contig = ensure_contiguous(src)?;
 
     let src_shape = src.shape();
     let src_total = src.numel();
@@ -474,8 +474,8 @@ pub(crate) fn native_slice_assign(
     let inner_size = inner_size.max(1);
     let total_src = outer_size * src_dim_size * inner_size;
 
-    let dst_contig = ensure_contiguous(dst);
-    let src_contig = ensure_contiguous(src);
+    let dst_contig = ensure_contiguous(dst)?;
+    let src_contig = ensure_contiguous(src)?;
 
     let out = alloc_output(client, dst.shape(), dtype);
 

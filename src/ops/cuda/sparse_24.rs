@@ -31,7 +31,7 @@ impl Sparse24Ops<CudaRuntime> for CudaClient {
         }
 
         let dtype = dense.dtype();
-        let dense_contig = ensure_contiguous(dense);
+        let dense_contig = ensure_contiguous(dense)?;
         let half_k = k / 2;
         let mc = meta_cols_for_k(k);
 
@@ -65,8 +65,8 @@ impl Sparse24Ops<CudaRuntime> for CudaClient {
 
         let dense = Tensor::<CudaRuntime>::empty(&[m, k], dtype, &self.device);
 
-        let vals = ensure_contiguous(sparse.compressed_values());
-        let meta = ensure_contiguous(sparse.metadata());
+        let vals = ensure_contiguous(sparse.compressed_values())?;
+        let meta = ensure_contiguous(sparse.metadata())?;
 
         unsafe {
             launch_sparse_24_decompress(
@@ -109,9 +109,9 @@ impl Sparse24Ops<CudaRuntime> for CudaClient {
         }
 
         let dtype = input.dtype();
-        let input_contig = ensure_contiguous(input);
-        let vals = ensure_contiguous(weight.compressed_values());
-        let meta = ensure_contiguous(weight.metadata());
+        let input_contig = ensure_contiguous(input)?;
+        let vals = ensure_contiguous(weight.compressed_values())?;
+        let meta = ensure_contiguous(weight.metadata())?;
 
         let output = Tensor::<CudaRuntime>::empty(&[n, m], dtype, &self.device);
 

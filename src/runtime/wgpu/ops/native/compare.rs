@@ -36,8 +36,8 @@ pub(crate) fn native_compare_op(
         );
     }
 
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     // Output is F32 (comparison results: 1.0 = true, 0.0 = false)

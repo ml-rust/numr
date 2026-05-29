@@ -42,7 +42,7 @@ where
         let flipped = grad_output.flip(self.dim as isize)?;
         let cumsum_flipped = client.cumsum(&flipped, self.dim as isize)?;
         let grad_input = cumsum_flipped.flip(self.dim as isize)?;
-        Ok(vec![Some(grad_input.contiguous())])
+        Ok(vec![Some(grad_input.contiguous()?)])
     }
 
     fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
@@ -50,7 +50,7 @@ where
         let flipped = grad_output.tensor().flip(self.dim as isize)?;
         let cumsum_flipped = client.cumsum(&flipped, self.dim as isize)?;
         let grad_input = cumsum_flipped.flip(self.dim as isize)?;
-        Ok(vec![Some(Var::new(grad_input.contiguous(), true))])
+        Ok(vec![Some(Var::new(grad_input.contiguous()?, true))])
     }
 
     fn inputs(&self) -> &[TensorId] {
@@ -114,7 +114,7 @@ where
         let reverse_cumsum = cumsum_flipped.flip(self.dim as isize)?;
 
         let grad_input = client.div(&reverse_cumsum, &self.input)?;
-        Ok(vec![Some(grad_input.contiguous())])
+        Ok(vec![Some(grad_input.contiguous()?)])
     }
 
     fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
@@ -126,7 +126,7 @@ where
         let reverse_cumsum = cumsum_flipped.flip(self.dim as isize)?;
 
         let grad_input = client.div(&reverse_cumsum, &self.input)?;
-        Ok(vec![Some(Var::new(grad_input.contiguous(), true))])
+        Ok(vec![Some(Var::new(grad_input.contiguous()?, true))])
     }
 
     fn inputs(&self) -> &[TensorId] {

@@ -88,8 +88,8 @@ impl Fp8MatmulOps<CudaRuntime> for CudaClient {
         let (out_shape, batch_size, m, k, n) =
             validate_and_extract(a, b, DType::FP8E4M3, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, out_dtype, &self.device);
 
         unsafe {
@@ -141,8 +141,8 @@ impl Fp8MatmulOps<CudaRuntime> for CudaClient {
         let (out_shape, batch_size, m, k, n) =
             validate_and_extract(a, b, DType::FP8E5M2, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, out_dtype, &self.device);
 
         unsafe {

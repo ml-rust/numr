@@ -118,7 +118,7 @@ where
     let neg_coeffs = client.neg(&lower_coeffs)?;
     // Broadcast leading_tensor [1] to [degree] for division
     // Make contiguous since broadcast_to creates a non-contiguous view
-    let leading_broadcast = leading_tensor.broadcast_to(&[degree])?.contiguous();
+    let leading_broadcast = leading_tensor.broadcast_to(&[degree])?.contiguous()?;
     let last_col = client.div(&neg_coeffs, &leading_broadcast)?; // Shape [degree]
 
     // Now we need to set the last column of companion to last_col

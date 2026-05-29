@@ -141,10 +141,10 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let dst = ensure_contiguous(dst);
+        let dst = ensure_contiguous(dst)?;
         let index_i32 = ensure_i32_indices(self, index)?;
-        let index = ensure_contiguous(&index_i32);
-        let src = ensure_contiguous(src);
+        let index = ensure_contiguous(&index_i32)?;
+        let src = ensure_contiguous(src)?;
 
         // Compute shape parameters
         let dst_shape = dst.shape();
@@ -315,9 +315,9 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
+        let input = ensure_contiguous(input)?;
         let indices_i32 = ensure_i32_indices(self, indices)?;
-        let indices = ensure_contiguous(&indices_i32);
+        let indices = ensure_contiguous(&indices_i32)?;
 
         let input_shape = input.shape();
         let indices_shape = indices.shape();
@@ -433,8 +433,8 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
 
         // Cast I64→I32 on GPU (WebGPU shaders use i32 indices)
         let input_i32 = ensure_i32_indices(self, input)?;
-        let input = ensure_contiguous(&input_i32);
-        let weights = weights.map(ensure_contiguous);
+        let input = ensure_contiguous(&input_i32)?;
+        let weights = weights.map(ensure_contiguous).transpose()?;
 
         let n = input.numel();
 
@@ -565,11 +565,11 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
         }
 
         // Make all inputs contiguous
-        let input = ensure_contiguous(input);
+        let input = ensure_contiguous(input)?;
         let rows_i32 = ensure_i32_indices(self, rows)?;
         let cols_i32 = ensure_i32_indices(self, cols)?;
-        let rows = ensure_contiguous(&rows_i32);
-        let cols = ensure_contiguous(&cols_i32);
+        let rows = ensure_contiguous(&rows_i32)?;
+        let cols = ensure_contiguous(&cols_i32)?;
 
         // Allocate output
         let output = alloc_output(self, &[num_indices], dtype);

@@ -532,8 +532,6 @@ pub fn is_cuda_available() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::runtime::Runtime;
 
     /// Full `capture_graph_into` integration test.
     ///

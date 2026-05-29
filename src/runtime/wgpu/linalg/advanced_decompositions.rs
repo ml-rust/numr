@@ -346,7 +346,7 @@ pub fn polar_decompose(
     let s_diag = LinalgOps::diagflat(client, &svd.s)?;
 
     // V = Vt^T
-    let v = svd.vt.transpose(0, 1)?.contiguous();
+    let v = svd.vt.transpose(0, 1)?.contiguous()?;
 
     // V @ diag(S)
     let v_s = client.matmul(&v, &s_diag)?;

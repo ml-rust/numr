@@ -69,7 +69,7 @@ pub fn solve_triangular_lower(
 
     let l_buffer =
         get_buffer(l.ptr()).ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
-    let b_contig = b.contiguous();
+    let b_contig = b.contiguous()?;
     let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
@@ -172,7 +172,7 @@ pub fn solve_triangular_lower(
             WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
         };
         let x = x_col_major.transpose(0, 1)?;
-        Ok(x.contiguous())
+        x.contiguous()
     }
 }
 
@@ -229,7 +229,7 @@ pub fn solve_triangular_upper(
 
     let u_buffer =
         get_buffer(u.ptr()).ok_or_else(|| Error::Internal("Failed to get U buffer".to_string()))?;
-    let b_contig = b.contiguous();
+    let b_contig = b.contiguous()?;
     let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
@@ -332,6 +332,6 @@ pub fn solve_triangular_upper(
             WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
         };
         let x = x_col_major.transpose(0, 1)?;
-        Ok(x.contiguous())
+        x.contiguous()
     }
 }

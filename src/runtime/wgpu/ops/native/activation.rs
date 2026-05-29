@@ -17,7 +17,7 @@ pub(crate) fn native_parametric_activation(
     param: f64,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), dtype);
@@ -80,8 +80,8 @@ pub(crate) fn native_fused_activation_mul_fwd(
             rhs: b.dtype(),
         });
     }
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), dtype);
@@ -156,9 +156,9 @@ pub(crate) fn native_fused_activation_mul_bwd(
     b: &Tensor<WgpuRuntime>,
 ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
     let dtype = a.dtype();
-    let grad_contig = ensure_contiguous(grad);
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let grad_contig = ensure_contiguous(grad)?;
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     let d_a = alloc_output(client, a.shape(), dtype);

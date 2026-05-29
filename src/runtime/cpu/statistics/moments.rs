@@ -45,7 +45,7 @@ pub fn skew_impl(
     // Handle scalar/global reduction case
     if dims.is_empty() {
         let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let a_ptr = a_contig.ptr();
 
         let skewness = dispatch_dtype!(dtype, T => {
@@ -126,7 +126,7 @@ pub fn kurtosis_impl(
     // Handle scalar/global reduction case
     if dims.is_empty() {
         let numel = a.numel();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let a_ptr = a_contig.ptr();
 
         let kurtosis = dispatch_dtype!(dtype, T => {

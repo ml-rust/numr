@@ -258,7 +258,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         let num_distributions = num_distributions.max(1); // At least 1 for 1D input
 
         // Ensure probs is contiguous
-        let probs = crate::runtime::ensure_contiguous(probs);
+        let probs = crate::runtime::ensure_contiguous(probs)?;
 
         // Output shape: [..., num_samples]
         let mut out_shape = shape[..shape.len() - 1].to_vec();

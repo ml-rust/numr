@@ -32,8 +32,8 @@ pub(crate) fn native_rms_norm(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let a_contig = ensure_contiguous(a);
-    let weight_contig = ensure_contiguous(weight);
+    let a_contig = ensure_contiguous(a)?;
+    let weight_contig = ensure_contiguous(weight)?;
 
     let out = alloc_output(client, shape, dtype);
 
@@ -81,9 +81,9 @@ pub(crate) fn native_layer_norm(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let a_contig = ensure_contiguous(a);
-    let weight_contig = ensure_contiguous(weight);
-    let bias_contig = ensure_contiguous(bias);
+    let a_contig = ensure_contiguous(a)?;
+    let weight_contig = ensure_contiguous(weight)?;
+    let bias_contig = ensure_contiguous(bias)?;
 
     let out = alloc_output(client, shape, dtype);
 
@@ -154,9 +154,9 @@ pub(crate) fn native_group_norm(
         });
     }
 
-    let input_contig = ensure_contiguous(input);
-    let weight_contig = ensure_contiguous(weight);
-    let bias_contig = ensure_contiguous(bias);
+    let input_contig = ensure_contiguous(input)?;
+    let weight_contig = ensure_contiguous(weight)?;
+    let bias_contig = ensure_contiguous(bias)?;
     let out = alloc_output(client, shape, dtype);
 
     let input_buf = get_tensor_buffer(&input_contig)?;
@@ -222,9 +222,9 @@ pub(crate) fn native_fused_add_rms_norm(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let input_contig = ensure_contiguous(input);
-    let residual_contig = ensure_contiguous(residual);
-    let weight_contig = ensure_contiguous(weight);
+    let input_contig = ensure_contiguous(input)?;
+    let residual_contig = ensure_contiguous(residual)?;
+    let weight_contig = ensure_contiguous(weight)?;
 
     let output = alloc_output(client, shape, dtype);
     let pre_norm = alloc_output(client, shape, dtype);
@@ -285,10 +285,10 @@ pub(crate) fn native_fused_add_layer_norm(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let input_contig = ensure_contiguous(input);
-    let residual_contig = ensure_contiguous(residual);
-    let weight_contig = ensure_contiguous(weight);
-    let bias_contig = ensure_contiguous(bias);
+    let input_contig = ensure_contiguous(input)?;
+    let residual_contig = ensure_contiguous(residual)?;
+    let weight_contig = ensure_contiguous(weight)?;
+    let bias_contig = ensure_contiguous(bias)?;
 
     let output = alloc_output(client, shape, dtype);
     let pre_norm = alloc_output(client, shape, dtype);
@@ -343,9 +343,9 @@ pub(crate) fn native_fused_add_rms_norm_bwd(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let grad_contig = ensure_contiguous(grad);
-    let pn_contig = ensure_contiguous(pre_norm);
-    let weight_contig = ensure_contiguous(weight);
+    let grad_contig = ensure_contiguous(grad)?;
+    let pn_contig = ensure_contiguous(pre_norm)?;
+    let weight_contig = ensure_contiguous(weight)?;
 
     let d_input_residual = alloc_output(client, shape, dtype);
     let d_weight_scratch = alloc_output(client, &[batch_size, hidden_size], dtype);
@@ -422,10 +422,10 @@ pub(crate) fn native_fused_add_layer_norm_bwd(
     let hidden_size = shape[shape.len() - 1];
     let batch_size: usize = shape[..shape.len() - 1].iter().product();
 
-    let grad_contig = ensure_contiguous(grad);
-    let pn_contig = ensure_contiguous(pre_norm);
-    let weight_contig = ensure_contiguous(weight);
-    let bias_contig = ensure_contiguous(bias);
+    let grad_contig = ensure_contiguous(grad)?;
+    let pn_contig = ensure_contiguous(pre_norm)?;
+    let weight_contig = ensure_contiguous(weight)?;
+    let bias_contig = ensure_contiguous(bias)?;
 
     let d_input_residual = alloc_output(client, shape, dtype);
     let d_weight_scratch = alloc_output(client, &[batch_size, hidden_size], dtype);

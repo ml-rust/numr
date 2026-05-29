@@ -81,11 +81,11 @@ pub fn lstsq(
     let qr = qr_decompose_internal(client, a, false)?;
 
     // Make Q^T contiguous before matmul (transpose creates a view)
-    let q_t = qr.q.transpose(0, 1)?.contiguous();
+    let q_t = qr.q.transpose(0, 1)?.contiguous()?;
     let b_mat = if b_is_vector {
-        b.reshape(&[m, 1])?.contiguous()
+        b.reshape(&[m, 1])?.contiguous()?
     } else {
-        b.contiguous()
+        b.contiguous()?
     };
 
     // Q^T @ B gives [m, num_rhs]
@@ -105,7 +105,7 @@ pub fn lstsq(
         // Single RHS: solve directly
         // Get first n elements of Q^T @ b using GPU-side slicing
         let qtb_flat = qtb.reshape(&[m])?;
-        let qtb_n = qtb_flat.narrow(0, 0, n)?.contiguous();
+        let qtb_n = qtb_flat.narrow(0, 0, n)?.contiguous()?;
         let qtb_buffer = get_buffer(qtb_n.ptr())
             .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
 
@@ -124,7 +124,7 @@ pub fn lstsq(
         )?;
     } else {
         // Multi-RHS: solve for each column
-        let qtb_contig = qtb.contiguous();
+        let qtb_contig = qtb.contiguous()?;
         let qtb_buffer = get_buffer(qtb_contig.ptr())
             .ok_or_else(|| Error::Internal("Failed to get qtb buffer".to_string()))?;
 
@@ -204,6 +204,6 @@ pub fn lstsq(
             WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
         };
         let x = x_col_major.transpose(0, 1)?;
-        Ok(x.contiguous())
+        x.contiguous()
     }
 }

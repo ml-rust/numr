@@ -17,7 +17,7 @@ pub(crate) fn native_cast_op(
     dst_dtype: DType,
 ) -> Result<Tensor<WgpuRuntime>> {
     let src_dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     // Allocate output with target dtype

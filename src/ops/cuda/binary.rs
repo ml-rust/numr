@@ -69,9 +69,9 @@ impl BinaryOps<CudaRuntime> for CudaClient {
                 },
             });
         }
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let c_contig = ensure_contiguous(c);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let c_contig = ensure_contiguous(c)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
 
         unsafe {
@@ -108,9 +108,9 @@ impl BinaryOps<CudaRuntime> for CudaClient {
                 },
             });
         }
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let c_contig = ensure_contiguous(c);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let c_contig = ensure_contiguous(c)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device);
 
         unsafe {

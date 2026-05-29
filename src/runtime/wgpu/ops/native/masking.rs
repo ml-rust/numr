@@ -34,8 +34,8 @@ pub(crate) fn native_masked_fill(
             got: mask.shape().to_vec(),
         })?;
 
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(&mask_broadcast);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(&mask_broadcast)?;
 
     let out = alloc_output(client, a.shape(), dtype);
 
@@ -98,8 +98,8 @@ pub(crate) fn native_embedding_lookup(
     let mut out_shape = indices_i32.shape().to_vec();
     out_shape.push(embedding_dim);
 
-    let emb_contig = ensure_contiguous(embeddings);
-    let idx_contig = ensure_contiguous(&indices_i32);
+    let emb_contig = ensure_contiguous(embeddings)?;
+    let idx_contig = ensure_contiguous(&indices_i32)?;
     let out = alloc_output(client, &out_shape, dtype);
 
     let emb_buf = get_tensor_buffer(&emb_contig)?;
@@ -152,8 +152,8 @@ pub(crate) fn native_masked_select(
             got: mask.shape().to_vec(),
         })?;
 
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(&mask_broadcast);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(&mask_broadcast)?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let mask_buf = get_tensor_buffer(&mask_contig)?;

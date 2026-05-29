@@ -141,9 +141,11 @@ pub fn validate_eye(n: usize, m: Option<usize>) -> (usize, usize) {
 /// A new tensor that is guaranteed to be contiguous. If the input was already
 /// contiguous, this is zero-copy (just clones the Arc). Otherwise, data is copied.
 #[inline]
-pub fn ensure_contiguous<R: Runtime<DType = DType>>(tensor: &Tensor<R>) -> Tensor<R> {
+pub fn ensure_contiguous<R: Runtime<DType = DType>>(
+    tensor: &Tensor<R>,
+) -> crate::error::Result<Tensor<R>> {
     if tensor.is_contiguous() {
-        tensor.clone()
+        Ok(tensor.clone())
     } else {
         tensor.contiguous()
     }
@@ -245,7 +247,7 @@ mod tests {
         let device = CpuDevice::new();
         let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device);
         assert!(a.is_contiguous());
-        let c = ensure_contiguous(&a);
+        let c = ensure_contiguous(&a).unwrap();
         assert!(c.is_contiguous());
     }
 }

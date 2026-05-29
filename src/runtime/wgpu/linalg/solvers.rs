@@ -94,7 +94,7 @@ pub fn solve(
         .ok_or_else(|| Error::Internal("Failed to get col buffer".to_string()))?;
 
     // Get b buffer for GPU column extraction
-    let b_contig = b.contiguous();
+    let b_contig = b.contiguous()?;
     let b_buffer = get_buffer(b_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
 
@@ -238,6 +238,6 @@ pub fn solve(
         // Transpose to get [n, num_rhs] - this is a zero-copy view
         let x = x_col_major.transpose(0, 1)?;
         // Make contiguous to get proper row-major layout
-        Ok(x.contiguous())
+        x.contiguous()
     }
 }

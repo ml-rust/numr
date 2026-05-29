@@ -77,8 +77,8 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let x = x.contiguous();
-        let y = y.contiguous();
+        let x = x.contiguous()?;
+        let y = y.contiguous()?;
 
         let out = Tensor::<WgpuRuntime>::empty(&[n, m], dtype, &self.device_id);
 
@@ -139,7 +139,7 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         let out_size = n * (n - 1) / 2;
 
         // Ensure contiguous
-        let x = x.contiguous();
+        let x = x.contiguous()?;
 
         let out = Tensor::<WgpuRuntime>::empty(&[out_size], dtype, &self.device_id);
 
@@ -202,7 +202,7 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let condensed = condensed.contiguous();
+        let condensed = condensed.contiguous()?;
 
         let out = Tensor::<WgpuRuntime>::empty(&[n, n], dtype, &self.device_id);
 
@@ -250,7 +250,7 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let square = square.contiguous();
+        let square = square.contiguous()?;
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<WgpuRuntime>::empty(&[out_size], dtype, &self.device_id);

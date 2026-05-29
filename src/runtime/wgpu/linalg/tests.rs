@@ -242,7 +242,7 @@ mod tests {
 
         // Verify Q @ R == A
         let reconstructed = client.matmul(&qr.q, &qr.r).unwrap();
-        let reconstructed = reconstructed.contiguous();
+        let reconstructed = reconstructed.contiguous().unwrap();
         let a_data: Vec<f32> = a.to_vec();
         let reconstructed_data: Vec<f32> = reconstructed.to_vec();
 

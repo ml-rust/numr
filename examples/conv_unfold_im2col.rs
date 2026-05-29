@@ -78,7 +78,7 @@ fn main() -> Result<()> {
     let k_h = unfolded_hw.shape()[4];
     let k_w = unfolded_hw.shape()[5];
     let patches = unfolded_hw
-        .contiguous()
+        .contiguous()?
         .reshape(&[out_h * out_w, k_h * k_w])?;
 
     // Step 3d: Flatten kernel to (kH*kW, out_channels=1).
@@ -86,7 +86,7 @@ fn main() -> Result<()> {
     let kernel_col = kernel_flat.transpose(0, 1)?;
 
     // Step 3e: matmul → (out_h*out_w, 1)
-    let im2col_flat = client.matmul(&patches, &kernel_col.contiguous())?;
+    let im2col_flat = client.matmul(&patches, &kernel_col.contiguous()?)?;
     let im2col_out = im2col_flat.reshape(&[1, 1, out_h, out_w])?;
 
     println!("im2col conv output (shape {:?}):", im2col_out.shape());

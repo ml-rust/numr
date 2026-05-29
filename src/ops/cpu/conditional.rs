@@ -47,9 +47,9 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
 
         // Fast path: all same shape, use simple kernel
         if cond.shape() == x.shape() && x.shape() == y.shape() {
-            let cond_contig = ensure_contiguous(cond);
-            let x_contig = ensure_contiguous(x);
-            let y_contig = ensure_contiguous(y);
+            let cond_contig = ensure_contiguous(cond)?;
+            let x_contig = ensure_contiguous(x)?;
+            let y_contig = ensure_contiguous(y)?;
 
             let cond_ptr = cond_contig.ptr();
             let x_ptr = x_contig.ptr();

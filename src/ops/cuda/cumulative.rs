@@ -34,7 +34,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Calculate dimensions for kernel launch
         let scan_size = shape[dim];
@@ -104,7 +104,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Calculate dimensions for kernel launch
         let scan_size = shape[dim];
@@ -231,7 +231,7 @@ impl CumulativeOps<CudaRuntime> for CudaClient {
         let dim = actual_dims[0];
 
         // Ensure contiguous for CUDA kernel
-        let a_contig = ensure_contiguous(&a_compute);
+        let a_contig = ensure_contiguous(&a_compute)?;
 
         // Calculate dimensions for kernel launch
         let reduce_size = shape[dim];

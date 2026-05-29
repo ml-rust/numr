@@ -81,7 +81,7 @@ pub fn reduce_impl(
             op_name,
         )
     } else {
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         let mut sorted_dims: Vec<usize> = dims.to_vec();
         sorted_dims.sort_unstable();

@@ -32,7 +32,7 @@ impl Sparse24Ops<CpuRuntime> for CpuClient {
 
         let dtype = dense.dtype();
         let device = dense.device().clone();
-        let dense_contig = ensure_contiguous(dense);
+        let dense_contig = ensure_contiguous(dense)?;
 
         let half_k = k / 2;
         let mc = meta_cols_for_k(k);
@@ -65,8 +65,8 @@ impl Sparse24Ops<CpuRuntime> for CpuClient {
 
         let dense = Tensor::<CpuRuntime>::empty(&[m, k], dtype, &device);
 
-        let vals = ensure_contiguous(sparse.compressed_values());
-        let meta = ensure_contiguous(sparse.metadata());
+        let vals = ensure_contiguous(sparse.compressed_values())?;
+        let meta = ensure_contiguous(sparse.metadata())?;
 
         dispatch_dtype!(dtype, T => {
             unsafe {

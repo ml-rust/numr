@@ -133,9 +133,9 @@ impl ConvOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CpuRuntime>::empty(
@@ -192,9 +192,9 @@ impl ConvOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CpuRuntime>::empty(
@@ -249,9 +249,9 @@ impl ConvOps<CpuRuntime> for CpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CpuRuntime>::empty(
@@ -397,9 +397,9 @@ fn conv_transpose1d_cpu(
         ));
     }
 
-    let input = ensure_contiguous(input);
-    let weight = ensure_contiguous(weight);
-    let bias = bias.map(ensure_contiguous);
+    let input = ensure_contiguous(input)?;
+    let weight = ensure_contiguous(weight)?;
+    let bias = bias.map(ensure_contiguous).transpose()?;
     let output = Tensor::<CpuRuntime>::empty(&[b, c_out, l_out], dtype, device);
 
     let input_ptr = input.ptr();

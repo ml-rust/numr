@@ -40,8 +40,8 @@ impl LogicalOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         validate_logical_inputs(a, b)?;
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         unsafe {
@@ -65,8 +65,8 @@ impl LogicalOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         validate_logical_inputs(a, b)?;
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         unsafe {
@@ -90,8 +90,8 @@ impl LogicalOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         validate_logical_inputs(a, b)?;
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         unsafe {
@@ -117,7 +117,7 @@ impl LogicalOps<CudaRuntime> for CudaClient {
             });
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         unsafe {

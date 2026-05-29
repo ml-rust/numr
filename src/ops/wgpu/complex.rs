@@ -28,7 +28,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
             return Err(Error::UnsupportedDType { dtype, op: "conj" });
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let numel = a.numel();
         let out = alloc_output(self, a.shape(), dtype);
 
@@ -67,7 +67,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
             return Err(Error::UnsupportedDType { dtype, op: "real" });
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let numel = a.numel();
         let out_dtype = DType::F32; // Complex64 → F32
         let out = alloc_output(self, a.shape(), out_dtype);
@@ -109,7 +109,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
 
         // For complex types, extract imaginary part
         let out_dtype = DType::F32; // Complex64 → F32
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let numel = a.numel();
         let out = alloc_output(self, a.shape(), out_dtype);
 
@@ -143,7 +143,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
             match dtype {
                 DType::F32 => {
                     // Use angle_real shader for F32
-                    let a_contig = ensure_contiguous(a);
+                    let a_contig = ensure_contiguous(a)?;
                     let numel = a.numel();
                     let out = alloc_output(self, a.shape(), dtype);
 
@@ -180,7 +180,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
 
         // For complex types, compute phase angle
         let out_dtype = DType::F32; // Complex64 → F32
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let numel = a.numel();
         let out = alloc_output(self, a.shape(), out_dtype);
 
@@ -217,8 +217,8 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let numel = real.numel();
         let out_dtype = DType::Complex64; // F32 → Complex64
 
-        let real_contig = ensure_contiguous(real);
-        let imag_contig = ensure_contiguous(imag);
+        let real_contig = ensure_contiguous(real)?;
+        let imag_contig = ensure_contiguous(imag)?;
         let out = alloc_output(self, shape, out_dtype);
 
         // Handle empty tensors
@@ -259,8 +259,8 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let shape = complex.shape();
         let numel = complex.numel();
 
-        let complex_contig = ensure_contiguous(complex);
-        let real_contig = ensure_contiguous(real);
+        let complex_contig = ensure_contiguous(complex)?;
+        let real_contig = ensure_contiguous(real)?;
         let out = alloc_output(self, shape, dtype);
 
         // Handle empty tensors
@@ -301,8 +301,8 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let shape = complex.shape();
         let numel = complex.numel();
 
-        let complex_contig = ensure_contiguous(complex);
-        let real_contig = ensure_contiguous(real);
+        let complex_contig = ensure_contiguous(complex)?;
+        let real_contig = ensure_contiguous(real)?;
         let out = alloc_output(self, shape, dtype);
 
         // Handle empty tensors

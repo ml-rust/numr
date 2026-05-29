@@ -1,13 +1,14 @@
 //! Shared utilities for reduction backward implementations
 
+use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
 /// Ensure a tensor is contiguous, making a copy if necessary.
 #[inline]
-pub(super) fn ensure_contiguous<R: Runtime>(tensor: Tensor<R>) -> Tensor<R> {
+pub(super) fn ensure_contiguous<R: Runtime>(tensor: Tensor<R>) -> Result<Tensor<R>> {
     if tensor.is_contiguous() {
-        tensor
+        Ok(tensor)
     } else {
         tensor.contiguous()
     }

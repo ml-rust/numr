@@ -93,8 +93,8 @@ pub fn solve_banded_impl(
     let b_is_1d = b.ndim() == 1;
 
     // Make inputs contiguous
-    let ab_contig = ab.contiguous();
-    let b_contig = b.contiguous();
+    let ab_contig = ab.contiguous()?;
+    let b_contig = b.contiguous()?;
 
     let ab_buffer = get_buffer(ab_contig.ptr())
         .ok_or_else(|| Error::Internal("Failed to get ab buffer".to_string()))?;
@@ -298,6 +298,6 @@ pub fn solve_banded_impl(
             WgpuClient::tensor_from_raw(x_out_guard.release(), &[nrhs, n], dtype, device)
         };
         let x = x_col_major.transpose(0, 1)?;
-        Ok(x.contiguous())
+        x.contiguous()
     }
 }

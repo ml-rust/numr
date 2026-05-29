@@ -60,7 +60,7 @@ impl<R: Runtime> GradFn<R> for SumBackward<R> {
             }
         }
 
-        grad = ensure_contiguous(grad.broadcast_to(&self.input_shape)?);
+        grad = ensure_contiguous(grad.broadcast_to(&self.input_shape)?)?;
 
         Ok(vec![Some(grad)])
     }
@@ -76,7 +76,7 @@ impl<R: Runtime> GradFn<R> for SumBackward<R> {
             }
         }
 
-        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?);
+        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?)?;
 
         Ok(vec![Some(Var::new(grad_tensor, true))])
     }
@@ -149,7 +149,7 @@ where
             }
         }
 
-        grad = ensure_contiguous(grad.broadcast_to(&self.input_shape)?);
+        grad = ensure_contiguous(grad.broadcast_to(&self.input_shape)?)?;
 
         let grad = client.div_scalar(&grad, count_f64)?;
 
@@ -175,7 +175,7 @@ where
             }
         }
 
-        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?);
+        grad_tensor = ensure_contiguous(grad_tensor.broadcast_to(&self.input_shape)?)?;
 
         let grad_var = Var::new(grad_tensor, grad_output.requires_grad());
         let grad = var_div_scalar(&grad_var, count_f64, &client)?;

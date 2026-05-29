@@ -66,7 +66,7 @@ where
         let n_minus_corr = (n - self.correction) as f64;
 
         let mean = client.mean(&self.saved_input, &self.dims, true)?;
-        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?)?;
 
         let centered = client.sub(&self.saved_input, &mean_broadcast)?;
 
@@ -81,7 +81,7 @@ where
                 grad = grad.unsqueeze(dim as isize)?;
             }
         }
-        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?);
+        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?)?;
 
         let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
 
@@ -102,7 +102,7 @@ where
         let n_minus_corr = (n - self.correction) as f64;
 
         let mean = client.mean(&self.saved_input, &self.dims, true)?;
-        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?)?;
 
         let centered = client.sub(&self.saved_input, &mean_broadcast)?;
 
@@ -117,7 +117,8 @@ where
                 grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
             }
         }
-        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+        let grad_broadcast =
+            ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?)?;
 
         let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
         let contrib_var = Var::new(grad_contrib, false);
@@ -202,7 +203,7 @@ where
         let n_minus_corr = (n - self.correction) as f64;
 
         let mean = client.mean(&self.saved_input, &self.dims, true)?;
-        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?)?;
 
         let std_for_broadcast = if self.keepdim {
             self.saved_output.clone()
@@ -216,7 +217,7 @@ where
             std_expanded
         };
         let std_broadcast =
-            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?);
+            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?)?;
 
         let centered = client.sub(&self.saved_input, &mean_broadcast)?;
 
@@ -231,7 +232,7 @@ where
                 grad = grad.unsqueeze(dim as isize)?;
             }
         }
-        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?);
+        let grad_broadcast = ensure_contiguous(grad.broadcast_to(self.saved_input.shape())?)?;
 
         let grad_input = client.mul(&grad_broadcast, &grad_contrib)?;
 
@@ -252,7 +253,7 @@ where
         let n_minus_corr = (n - self.correction) as f64;
 
         let mean = client.mean(&self.saved_input, &self.dims, true)?;
-        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?);
+        let mean_broadcast = ensure_contiguous(mean.broadcast_to(self.saved_input.shape())?)?;
 
         let std_for_broadcast = if self.keepdim {
             self.saved_output.clone()
@@ -266,7 +267,7 @@ where
             std_expanded
         };
         let std_broadcast =
-            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?);
+            ensure_contiguous(std_for_broadcast.broadcast_to(self.saved_input.shape())?)?;
 
         let centered = client.sub(&self.saved_input, &mean_broadcast)?;
 
@@ -281,7 +282,8 @@ where
                 grad_tensor = grad_tensor.unsqueeze(dim as isize)?;
             }
         }
-        let grad_broadcast = ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?);
+        let grad_broadcast =
+            ensure_contiguous(grad_tensor.broadcast_to(self.saved_input.shape())?)?;
 
         let grad_var = Var::new(grad_broadcast, grad_output.requires_grad());
         let contrib_var = Var::new(grad_contrib, false);

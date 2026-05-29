@@ -1,7 +1,9 @@
 //! CPU implementation of activation operations.
 
 use crate::error::{Error, Result};
-use crate::ops::impl_generic::activation::{dropout_impl, log_softmax_impl, softplus_impl};
+use crate::ops::impl_generic::activation::{
+    dropout_impl, log_softmax_impl, softmax_with_bias_impl, softplus_impl,
+};
 use crate::ops::{
     ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps,
     activation::normalize_softmax_dim,
@@ -179,7 +181,7 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         let dim_idx =
             normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
 
         let shape = a.shape();
@@ -243,8 +245,8 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         let dim_idx =
             normalize_softmax_dim(ndim, dim).ok_or(Error::InvalidDimension { dim, ndim })?;
 
-        let grad_contig = ensure_contiguous(grad);
-        let output_contig = ensure_contiguous(output);
+        let grad_contig = ensure_contiguous(grad)?;
+        let output_contig = ensure_contiguous(output)?;
         let d_input = Tensor::<CpuRuntime>::empty(grad.shape(), dtype, &self.device);
 
         let shape = grad.shape();
@@ -290,6 +292,15 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         }
 
         Ok(d_input)
+    }
+
+    fn softmax_with_bias(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        bias: &Tensor<CpuRuntime>,
+        dim: isize,
+    ) -> Result<Tensor<CpuRuntime>> {
+        softmax_with_bias_impl(self, a, bias, dim)
     }
 
     fn softplus(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {

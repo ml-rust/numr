@@ -18,8 +18,8 @@ pub(crate) fn native_binary_op(
     let dtype = validate_binary_dtypes(a, b)?;
     let out_shape = compute_broadcast_shape(a, b)?;
 
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
 
     let numel: usize = out_shape.iter().product();
     let out = alloc_output(client, &out_shape, dtype);
@@ -125,7 +125,7 @@ pub(crate) fn native_scalar_op(
     scalar: f64,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), dtype);

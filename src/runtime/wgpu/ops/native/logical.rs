@@ -33,8 +33,8 @@ pub(crate) fn native_logical_and(
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), DType::U32);
@@ -68,8 +68,8 @@ pub(crate) fn native_logical_or(
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), DType::U32);
@@ -103,8 +103,8 @@ pub(crate) fn native_logical_xor(
     a: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), DType::U32);
@@ -137,7 +137,7 @@ pub(crate) fn native_logical_not(
     client: &WgpuClient,
     a: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), DType::U32);

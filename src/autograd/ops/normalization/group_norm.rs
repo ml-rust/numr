@@ -84,7 +84,7 @@ where
         let weight_4d = weight.reshape(&[1, self.num_groups, cpg, 1])?;
         let weight_bcast = weight_4d
             .broadcast_to(&[1, self.num_groups, cpg, spatial])?
-            .contiguous();
+            .contiguous()?;
         let weight_flat = weight_bcast.reshape(&[1, self.num_groups, group_size])?;
 
         // d_input (per-group layer norm backward)

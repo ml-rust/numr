@@ -65,9 +65,9 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             .product::<usize>()
             .max(1);
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
 
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
 
@@ -167,10 +167,10 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             .product::<usize>()
             .max(1);
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
-        let res_contig = ensure_contiguous(residual);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
+        let res_contig = ensure_contiguous(residual)?;
 
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
 
@@ -248,10 +248,10 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             .product::<usize>()
             .max(1);
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
-        let grad_contig = ensure_contiguous(grad);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
+        let grad_contig = ensure_contiguous(grad)?;
 
         let d_a = Tensor::<CudaRuntime>::empty(a_shape, dtype, &self.device);
         let d_b = Tensor::<CudaRuntime>::zeros(b_shape, dtype, &self.device);

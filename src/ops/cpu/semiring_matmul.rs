@@ -54,8 +54,8 @@ impl SemiringMatmulOps<CpuRuntime> for CpuClient {
         let n = b_shape[b_shape.len() - 1];
 
         // Ensure contiguous layout
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         // Calculate batch size from output shape and per-input batch counts
         let batch_size: usize = out_shape

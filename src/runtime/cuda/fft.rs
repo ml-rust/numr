@@ -44,7 +44,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let input_contig = if input.is_contiguous() {
             input.clone()
         } else {
-            input.contiguous()
+            input.contiguous()?
         };
 
         // Calculate batch size and scale factor
@@ -217,7 +217,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let input_contig = if input.is_contiguous() {
             input.clone()
         } else {
-            input.contiguous()
+            input.contiguous()?
         };
 
         let complex_dtype = complex_dtype_for_real(dtype)?;
@@ -369,7 +369,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let input_contig = if input.is_contiguous() {
             input.clone()
         } else {
-            input.contiguous()
+            input.contiguous()?
         };
 
         let device = self.device();
@@ -557,7 +557,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let input_contig = if input.is_contiguous() {
             input.clone()
         } else {
-            input.contiguous()
+            input.contiguous()?
         };
 
         let device = self.device();
@@ -604,7 +604,7 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
         let input_contig = if input.is_contiguous() {
             input.clone()
         } else {
-            input.contiguous()
+            input.contiguous()?
         };
 
         let device = self.device();

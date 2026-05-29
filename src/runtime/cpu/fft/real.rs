@@ -33,7 +33,7 @@ pub(super) fn rfft_impl(
     let input_contig = if input.is_contiguous() {
         input.clone()
     } else {
-        input.contiguous()
+        input.contiguous()?
     };
 
     let output_dtype = complex_dtype_for_real(dtype)?;
@@ -183,7 +183,7 @@ pub(super) fn irfft_impl(
     let input_contig = if input.is_contiguous() {
         input.clone()
     } else {
-        input.contiguous()
+        input.contiguous()?
     };
 
     let output_dtype = real_dtype_for_complex(dtype)?;

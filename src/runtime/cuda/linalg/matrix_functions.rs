@@ -54,7 +54,7 @@ fn read_scalar_f64(_client: &CudaClient, tensor: &Tensor<CudaRuntime>) -> Result
     let tensor = if tensor.is_contiguous() {
         tensor.clone()
     } else {
-        tensor.contiguous()
+        tensor.contiguous()?
     };
 
     // Allocate host memory and copy from GPU

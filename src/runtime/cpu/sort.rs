@@ -25,7 +25,7 @@ pub fn sort_impl(
 
     let dim_idx = normalize_dim(dim, ndim)?;
     let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
     let a_ptr = a_contig.ptr();
@@ -65,7 +65,7 @@ pub fn sort_with_indices_impl(
 
     let dim_idx = normalize_dim(dim, ndim)?;
     let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out_values = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
     let out_indices = Tensor::<CpuRuntime>::empty(shape, DType::I64, &client.device);
 
@@ -111,7 +111,7 @@ pub fn argsort_impl(
 
     let dim_idx = normalize_dim(dim, ndim)?;
     let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CpuRuntime>::empty(shape, DType::I64, &client.device);
 
     let a_ptr = a_contig.ptr();
@@ -178,7 +178,7 @@ pub fn topk_impl(
     }
 
     let (outer_size, sort_size, inner_size) = compute_reduce_strides(shape, dim_idx);
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
 
     let mut out_shape = shape.to_vec();
     out_shape[dim_idx] = k;
@@ -223,7 +223,7 @@ pub fn unique_impl(
     }
 
     let a_flat = a.reshape(&[numel])?;
-    let a_contig = ensure_contiguous(&a_flat);
+    let a_contig = ensure_contiguous(&a_flat)?;
 
     // Sort first
     let sorted_tensor = sort_impl(client, &a_contig, 0, false)?;
@@ -268,7 +268,7 @@ pub fn unique_with_counts_impl(
     }
 
     let a_flat = a.reshape(&[numel])?;
-    let a_contig = ensure_contiguous(&a_flat);
+    let a_contig = ensure_contiguous(&a_flat)?;
 
     // Get sort indices
     let sort_indices = argsort_impl(client, &a_contig, 0, false)?;
@@ -326,7 +326,7 @@ pub fn nonzero_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor
         ));
     }
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let a_ptr = a_contig.ptr();
 
     // Count nonzero
@@ -402,8 +402,8 @@ pub fn searchsorted_impl(
         ));
     }
 
-    let seq_contig = ensure_contiguous(sorted_sequence);
-    let values_contig = ensure_contiguous(values);
+    let seq_contig = ensure_contiguous(sorted_sequence)?;
+    let values_contig = ensure_contiguous(values)?;
     let out = Tensor::<CpuRuntime>::empty(values.shape(), DType::I64, &client.device);
 
     let seq_ptr = seq_contig.ptr();

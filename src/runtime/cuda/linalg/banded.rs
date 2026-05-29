@@ -103,8 +103,8 @@ pub fn solve_banded_impl(
     let x_ptr = x_guard.ptr();
 
     // Make inputs contiguous
-    let ab_contig = ab.contiguous();
-    let b_contig = b.contiguous();
+    let ab_contig = ab.contiguous()?;
+    let b_contig = b.contiguous()?;
 
     let b_is_1d = b.ndim() == 1;
 

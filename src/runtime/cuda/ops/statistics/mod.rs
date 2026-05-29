@@ -89,7 +89,7 @@ pub(crate) fn read_scalar_f64(t: &Tensor<CudaRuntime>) -> Result<f64> {
     let tensor = if t.is_contiguous() {
         t.clone()
     } else {
-        t.contiguous()
+        t.contiguous()?
     };
 
     // Get GPU buffer pointer

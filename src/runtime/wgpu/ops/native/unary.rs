@@ -13,7 +13,7 @@ pub(crate) fn native_unary_op(
     a: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
 
     let out = alloc_output(client, a.shape(), dtype);

@@ -50,7 +50,7 @@ pub fn histogram_impl(
 
     // Flatten input
     let flat = a.reshape(&[numel])?;
-    let flat_contig = ensure_contiguous(&flat);
+    let flat_contig = ensure_contiguous(&flat)?;
     let flat_ptr = flat_contig.ptr();
 
     // Determine range

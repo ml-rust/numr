@@ -68,7 +68,7 @@ pub fn reduce_impl_with_precision(
     } else if should_fuse_multi_dim_reduction(a, dims) {
         reduce_multi_dim_fused(client, op, a, dims, keepdim, precision, op_name)
     } else {
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         let mut sorted_dims: Vec<usize> = dims.to_vec();
         sorted_dims.sort_unstable();

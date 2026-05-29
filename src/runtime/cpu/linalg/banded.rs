@@ -100,8 +100,8 @@ fn solve_banded_typed<T: Element + LinalgElement>(
     n: usize,
     nrhs: usize,
 ) -> Result<Tensor<CpuRuntime>> {
-    let ab_contig = ab.contiguous();
-    let b_contig = b.contiguous();
+    let ab_contig = ab.contiguous()?;
+    let b_contig = b.contiguous()?;
 
     let ab_data: Vec<T> = ab_contig.to_vec();
     let b_data: Vec<T> = b_contig.to_vec();

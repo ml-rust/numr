@@ -50,10 +50,10 @@ pub fn svd_decompose(
     // Get working matrix on GPU (transpose if needed)
     let work_tensor = if transposed {
         // Transpose on GPU: use view + contiguous
-        a.transpose(0, 1)?.contiguous()
+        a.transpose(0, 1)?.contiguous()?
     } else {
         // Use input directly if already contiguous, otherwise make contiguous
-        a.contiguous()
+        a.contiguous()?
     };
 
     // Allocate buffers for SVD computation
@@ -127,32 +127,32 @@ pub fn svd_decompose(
         // U = V[:m, :k] = V[:, :k] narrowed and transposed to get [m, k]
         // Actually: V is [n, n], we need U [m, k] where m < n
         // V[:m, :k] gives us [m, k] directly
-        let u = v_tensor.narrow(0, 0, m)?.narrow(1, 0, k)?.contiguous();
+        let u = v_tensor.narrow(0, 0, m)?.narrow(1, 0, k)?.contiguous()?;
 
         // VT = B[:k, :n] transposed -> B is [n, m], we need [k, n]
         // Take first k rows of B^T, which means first k columns of B
         let vt = b_tensor
             .narrow(1, 0, k)? // First k columns: [n, k]
             .transpose(0, 1)? // Transpose to [k, n]
-            .contiguous();
+            .contiguous()?;
 
         (u, vt)
     } else {
         // Normal case: B contains U columns, V contains V
         // U = B[:m, :k] - first k columns
-        let u = b_tensor.narrow(1, 0, k)?.contiguous();
+        let u = b_tensor.narrow(1, 0, k)?.contiguous()?;
 
         // VT = V^T[:k, :n] - transpose V and take first k rows
         let vt = v_tensor
             .transpose(0, 1)? // Transpose to get V^T
             .narrow(0, 0, k)? // First k rows
-            .contiguous();
+            .contiguous()?;
 
         (u, vt)
     };
 
     // S only uses first k singular values
-    let s = s_tensor.narrow(0, 0, k)?.contiguous();
+    let s = s_tensor.narrow(0, 0, k)?.contiguous()?;
 
     Ok(SvdDecomposition { u, s, vt })
 }
@@ -205,8 +205,8 @@ pub fn pinverse(
     let s_inv_mat = LinalgOps::diagflat(client, &s_inv)?;
 
     // Compute A^+ = V @ S_inv @ U^T
-    let v = svd.vt.transpose(0, 1)?.contiguous();
-    let ut = svd.u.transpose(0, 1)?.contiguous();
+    let v = svd.vt.transpose(0, 1)?.contiguous()?;
+    let ut = svd.u.transpose(0, 1)?.contiguous()?;
 
     let v_sinv = client.matmul(&v, &s_inv_mat)?;
     let pinv = client.matmul(&v_sinv, &ut)?;

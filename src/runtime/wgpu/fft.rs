@@ -81,7 +81,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous input
-        let input_contig = input.contiguous();
+        let input_contig = input.contiguous()?;
 
         let n = input_contig.shape()[dim_usize];
         validate_fft_size(n, "wgpu_fft")?;
@@ -236,7 +236,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
             // Permute input and make contiguous
             let transposed = input_contig.permute(&perm)?;
-            let transposed_contig = transposed.contiguous();
+            let transposed_contig = transposed.contiguous()?;
 
             // Compute FFT on last dimension (recursive call)
             let result = self.fft_dim(&transposed_contig, -1, direction, norm)?;
@@ -274,7 +274,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let complex_dtype = complex_dtype_for_real(dtype)?;
 
         // Ensure contiguous input
-        let input_contig = input.contiguous();
+        let input_contig = input.contiguous()?;
 
         let shape = input_contig.shape().to_vec();
         let n = *shape.last().ok_or_else(|| Error::InvalidArgument {
@@ -387,7 +387,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         let real_dtype = real_dtype_for_complex(dtype)?;
 
         // Ensure contiguous input
-        let input_contig = input.contiguous();
+        let input_contig = input.contiguous()?;
 
         let shape = input_contig.shape().to_vec();
         let half_n = *shape.last().ok_or_else(|| Error::InvalidArgument {
@@ -529,7 +529,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
             });
         }
 
-        let input_contig = input.contiguous();
+        let input_contig = input.contiguous()?;
 
         let shape = input_contig.shape().to_vec();
         let n = *shape.last().ok_or_else(|| Error::InvalidArgument {
@@ -582,7 +582,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
             });
         }
 
-        let input_contig = input.contiguous();
+        let input_contig = input.contiguous()?;
 
         let shape = input_contig.shape().to_vec();
         let n = *shape.last().ok_or_else(|| Error::InvalidArgument {

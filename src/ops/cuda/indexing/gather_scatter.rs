@@ -39,8 +39,8 @@ pub fn gather(
     }
 
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
 
     // Output has same shape as index
     let out_shape = index_i64.shape().to_vec();
@@ -116,9 +116,9 @@ pub fn scatter(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
 
     // Output has same shape as input
     let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &client.device);
@@ -198,8 +198,8 @@ pub fn index_select(
     }
 
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
 
     // Compute output shape: same as input but dim[dim] = index.len()
     let index_len = index_i64.numel();
@@ -322,9 +322,9 @@ pub fn gather_2d(
     }
 
     // Make all inputs contiguous
-    let input_contig = ensure_contiguous(input);
-    let rows_contig = ensure_contiguous(&rows_i64);
-    let cols_contig = ensure_contiguous(&cols_i64);
+    let input_contig = ensure_contiguous(input)?;
+    let rows_contig = ensure_contiguous(&rows_i64)?;
+    let cols_contig = ensure_contiguous(&cols_i64)?;
 
     // Allocate output
     let out = Tensor::<CudaRuntime>::empty(&[num_indices], dtype, &client.device);
@@ -398,9 +398,9 @@ pub fn index_put(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
 
     // Compute dim_size for validation
     let dim_size = shape[dim];
@@ -525,8 +525,8 @@ pub fn slice_assign(
     let inner_size: usize = dst.shape()[dim + 1..].iter().product();
     let inner_size = inner_size.max(1);
 
-    let dst_contig = ensure_contiguous(dst);
-    let src_contig = ensure_contiguous(src);
+    let dst_contig = ensure_contiguous(dst)?;
+    let src_contig = ensure_contiguous(src)?;
 
     let out = Tensor::<CudaRuntime>::empty(dst.shape(), dtype, &client.device);
 

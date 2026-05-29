@@ -41,8 +41,8 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
         let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1); // Handle 1D case
 
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
+        let input_contig = ensure_contiguous(input)?;
+        let weight_contig = ensure_contiguous(weight)?;
         let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
 
         unsafe {
@@ -104,9 +104,9 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
         let batch_size: usize = input_shape[..input_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1); // Handle 1D case
 
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let bias_contig = ensure_contiguous(bias);
+        let input_contig = ensure_contiguous(input)?;
+        let weight_contig = ensure_contiguous(weight)?;
+        let bias_contig = ensure_contiguous(bias)?;
         let out = Tensor::<CudaRuntime>::empty(input_shape, dtype, &self.device);
 
         unsafe {
@@ -179,9 +179,9 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
             });
         }
 
-        let input_contig = ensure_contiguous(input);
-        let weight_contig = ensure_contiguous(weight);
-        let bias_contig = ensure_contiguous(bias);
+        let input_contig = ensure_contiguous(input)?;
+        let weight_contig = ensure_contiguous(weight)?;
+        let bias_contig = ensure_contiguous(bias)?;
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device);
 
         unsafe {
@@ -249,9 +249,9 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
         let batch_size: usize = x_shape[..x_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1);
 
-        let x_contig = ensure_contiguous(x);
-        let residual_contig = ensure_contiguous(residual);
-        let weight_contig = ensure_contiguous(weight);
+        let x_contig = ensure_contiguous(x)?;
+        let residual_contig = ensure_contiguous(residual)?;
+        let weight_contig = ensure_contiguous(weight)?;
         let output = Tensor::<CudaRuntime>::empty(x_shape, dtype, &self.device);
         let pre_norm = Tensor::<CudaRuntime>::empty(x_shape, dtype, &self.device);
 
@@ -316,9 +316,9 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
         let batch_size: usize = grad_shape[..grad_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1);
 
-        let grad_contig = ensure_contiguous(grad);
-        let pre_norm_contig = ensure_contiguous(pre_norm);
-        let weight_contig = ensure_contiguous(weight);
+        let grad_contig = ensure_contiguous(grad)?;
+        let pre_norm_contig = ensure_contiguous(pre_norm)?;
+        let weight_contig = ensure_contiguous(weight)?;
         let d_input_residual = Tensor::<CudaRuntime>::empty(grad_shape, dtype, &self.device);
         let d_weight = Tensor::<CudaRuntime>::zeros(&[hidden_size], dtype, &self.device);
 
@@ -393,10 +393,10 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
         let batch_size: usize = x_shape[..x_shape.len() - 1].iter().product();
         let batch_size = batch_size.max(1);
 
-        let x_contig = ensure_contiguous(x);
-        let residual_contig = ensure_contiguous(residual);
-        let weight_contig = ensure_contiguous(weight);
-        let bias_contig = ensure_contiguous(bias);
+        let x_contig = ensure_contiguous(x)?;
+        let residual_contig = ensure_contiguous(residual)?;
+        let weight_contig = ensure_contiguous(weight)?;
+        let bias_contig = ensure_contiguous(bias)?;
         let output = Tensor::<CudaRuntime>::empty(x_shape, dtype, &self.device);
         let pre_norm = Tensor::<CudaRuntime>::empty(x_shape, dtype, &self.device);
 
@@ -495,9 +495,9 @@ impl NormalizationOps<CudaRuntime> for CudaClient {
             ));
         }
 
-        let grad_contig = ensure_contiguous(grad);
-        let pre_norm_contig = ensure_contiguous(pre_norm);
-        let weight_contig = ensure_contiguous(weight);
+        let grad_contig = ensure_contiguous(grad)?;
+        let pre_norm_contig = ensure_contiguous(pre_norm)?;
+        let weight_contig = ensure_contiguous(weight)?;
         let d_input_residual = Tensor::<CudaRuntime>::empty(grad_shape, dtype, &self.device);
         let d_weight = Tensor::<CudaRuntime>::zeros(&[hidden_size], dtype, &self.device);
         let d_bias = Tensor::<CudaRuntime>::zeros(&[hidden_size], dtype, &self.device);

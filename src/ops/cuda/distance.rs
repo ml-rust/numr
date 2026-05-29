@@ -35,8 +35,8 @@ impl DistanceOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let x = x.contiguous();
-        let y = y.contiguous();
+        let x = x.contiguous()?;
+        let y = y.contiguous()?;
 
         let out = Tensor::<CudaRuntime>::empty(&[n, m], dtype, &self.device);
 
@@ -81,7 +81,7 @@ impl DistanceOps<CudaRuntime> for CudaClient {
         let out_size = n * (n - 1) / 2;
 
         // Ensure contiguous
-        let x = x.contiguous();
+        let x = x.contiguous()?;
 
         let out = Tensor::<CudaRuntime>::empty(&[out_size], dtype, &self.device);
 
@@ -121,7 +121,7 @@ impl DistanceOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let condensed = condensed.contiguous();
+        let condensed = condensed.contiguous()?;
 
         let out = Tensor::<CudaRuntime>::empty(&[n, n], dtype, &self.device);
 
@@ -157,7 +157,7 @@ impl DistanceOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let square = square.contiguous();
+        let square = square.contiguous()?;
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<CudaRuntime>::empty(&[out_size], dtype, &self.device);

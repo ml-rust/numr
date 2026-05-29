@@ -489,7 +489,7 @@ where
         }
 
         // The gradient itself (make contiguous for cat)
-        parts.push(grad_output.contiguous());
+        parts.push(grad_output.contiguous()?);
 
         // Padding after the narrow region
         if end < orig_dim_size {
@@ -527,7 +527,7 @@ where
             ));
         }
 
-        parts.push(grad_output.tensor().contiguous());
+        parts.push(grad_output.tensor().contiguous()?);
 
         if end < orig_dim_size {
             let mut pad_shape = self.input_shape.clone();
@@ -602,7 +602,7 @@ impl<R: Runtime> GradFn<R> for CatBackward<R> {
         for &size in &self.split_sizes {
             let grad_slice = grad_output.narrow(self.dim as isize, offset, size)?;
             // Make contiguous so downstream ops get clean data
-            grads.push(Some(grad_slice.contiguous()));
+            grads.push(Some(grad_slice.contiguous()?));
             offset += size;
         }
         Ok(grads)
@@ -615,7 +615,7 @@ impl<R: Runtime> GradFn<R> for CatBackward<R> {
             let grad_slice = grad_output
                 .tensor()
                 .narrow(self.dim as isize, offset, size)?
-                .contiguous();
+                .contiguous()?;
             grads.push(Some(Var::new(grad_slice, false)));
             offset += size;
         }
@@ -854,7 +854,7 @@ mod tests {
         assert_eq!(y.grad_fn().unwrap().name(), "ExpandBackward");
 
         // Verify values are broadcast correctly (need contiguous for to_vec)
-        let y_contiguous = y.tensor().contiguous();
+        let y_contiguous = y.tensor().contiguous().unwrap();
         let y_data: Vec<f32> = y_contiguous.to_vec();
         assert_eq!(y_data, vec![1.0, 2.0, 3.0, 1.0, 2.0, 3.0]);
     }

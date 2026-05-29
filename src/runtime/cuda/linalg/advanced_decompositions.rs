@@ -215,7 +215,7 @@ pub fn polar_decompose_impl(
 
     // Get V from V^T by transposing
     // svd.vt is k x n, so V = (V^T)^T is n x k
-    let v = svd.vt.transpose(0, 1)?.contiguous();
+    let v = svd.vt.transpose(0, 1)?.contiguous()?;
 
     // Compute U_polar = U_svd @ V (both are n x k, result is n x n... wait, need to be careful)
     // For square matrix: U is n x n (full), S is n, V^T is n x n

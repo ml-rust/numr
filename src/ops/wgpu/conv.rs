@@ -112,9 +112,9 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = alloc_output(
@@ -207,9 +207,9 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = alloc_output(
@@ -305,9 +305,9 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = alloc_output(

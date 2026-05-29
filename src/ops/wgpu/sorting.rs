@@ -60,7 +60,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let inner_size = inner_size.max(1);
 
         // Ensure contiguous
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Allocate output
         let out = alloc_output(self, shape, dtype);
@@ -141,7 +141,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let outer_size = outer_size.max(1);
         let inner_size = inner_size.max(1);
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         let values_out = alloc_output(self, shape, dtype);
         let indices_out = alloc_output(self, shape, DType::I32);
@@ -214,7 +214,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let outer_size = outer_size.max(1);
         let inner_size = inner_size.max(1);
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         let indices_out = alloc_output(self, shape, DType::I32);
 
@@ -293,7 +293,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let outer_size = outer_size.max(1);
         let inner_size = inner_size.max(1);
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
 
         // Output shape has k instead of sort_size on dim
         let mut out_shape = shape.to_vec();
@@ -539,7 +539,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             return Ok(Tensor::empty(&[0, ndim], DType::I32, self.device()));
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let a_buf = get_tensor_buffer(&a_contig)?;
 
         // Phase 1: Count nonzero elements
@@ -663,8 +663,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             return Ok(Tensor::empty(values.shape(), DType::I32, self.device()));
         }
 
-        let seq_contig = ensure_contiguous(sorted_sequence);
-        let values_contig = ensure_contiguous(values);
+        let seq_contig = ensure_contiguous(sorted_sequence)?;
+        let values_contig = ensure_contiguous(values)?;
 
         let out = alloc_output(self, values.shape(), DType::I32);
 

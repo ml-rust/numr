@@ -22,7 +22,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
         max_val: f64,
     ) -> Result<Tensor<CpuRuntime>> {
         let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &self.device);
 
         let a_ptr = a_contig.ptr();
@@ -171,7 +171,7 @@ impl UtilityOps<CpuRuntime> for CpuClient {
             });
         }
 
-        let indices = ensure_contiguous(indices);
+        let indices = ensure_contiguous(indices)?;
         let numel = indices.numel();
 
         // Output shape = indices.shape() + [num_classes]

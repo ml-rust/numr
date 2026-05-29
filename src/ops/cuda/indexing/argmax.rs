@@ -30,7 +30,7 @@ pub fn argmax(
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
     let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &client.device);
 
     unsafe {
@@ -72,7 +72,7 @@ pub fn argmin(
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
     let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
 
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let out = Tensor::<CudaRuntime>::empty(&out_shape, DType::I64, &client.device);
 
     unsafe {

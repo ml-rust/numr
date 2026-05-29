@@ -36,9 +36,9 @@ pub(crate) fn native_fused_mul_add(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-    let c_contig = ensure_contiguous(c);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
+    let c_contig = ensure_contiguous(c)?;
     let numel = a.numel();
     let out = alloc_output(client, a.shape(), dtype);
 
@@ -90,9 +90,9 @@ pub(crate) fn native_fused_add_mul(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let b_contig = ensure_contiguous(b);
-    let c_contig = ensure_contiguous(c);
+    let a_contig = ensure_contiguous(a)?;
+    let b_contig = ensure_contiguous(b)?;
+    let c_contig = ensure_contiguous(c)?;
     let numel = a.numel();
     let out = alloc_output(client, a.shape(), dtype);
 
@@ -123,7 +123,7 @@ pub(crate) fn native_fused_mul_add_scalar(
     bias: f64,
 ) -> Result<Tensor<WgpuRuntime>> {
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
+    let a_contig = ensure_contiguous(a)?;
     let numel = a.numel();
     let out = alloc_output(client, a.shape(), dtype);
 

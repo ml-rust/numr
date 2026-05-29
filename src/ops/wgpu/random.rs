@@ -324,7 +324,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let probs_contig = if probs.is_contiguous() {
             probs.clone()
         } else {
-            probs.contiguous()
+            probs.contiguous()?
         };
 
         // Output dtype: I32 for WebGPU (no I64 support in WGSL)

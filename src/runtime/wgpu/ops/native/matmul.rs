@@ -55,7 +55,7 @@ pub(crate) fn native_matmul(
 
         // GEMV-BT fast path: transposed B with small M
         if m <= 16 && is_simple_transpose_2d(b) {
-            let a_contig = ensure_contiguous(a);
+            let a_contig = ensure_contiguous(a)?;
             let out = alloc_output(client, &out_shape, dtype);
 
             let a_buf = get_tensor_buffer(&a_contig)?;
@@ -85,8 +85,8 @@ pub(crate) fn native_matmul(
             return Ok(out);
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 
@@ -149,7 +149,7 @@ pub(crate) fn native_matmul(
 
         // GEMV-BT fast path: transposed B with small M
         if m <= 16 && is_batched_transpose_last2(b) {
-            let a_contig = ensure_contiguous(a);
+            let a_contig = ensure_contiguous(a)?;
             let out = alloc_output(client, &out_shape, dtype);
 
             let a_buf = get_tensor_buffer(&a_contig)?;
@@ -180,8 +180,8 @@ pub(crate) fn native_matmul(
             return Ok(out);
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 
@@ -238,10 +238,10 @@ pub(crate) fn native_matmul(
     let batch_size = batch_a.max(batch_b);
 
     // Flatten to 3D
-    let a_3d = ensure_contiguous(a)
+    let a_3d = ensure_contiguous(a)?
         .reshape(&[batch_a, m, k])
         .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?;
-    let b_3d = ensure_contiguous(b)
+    let b_3d = ensure_contiguous(b)?
         .reshape(&[batch_b, k, n])
         .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?;
 
@@ -252,7 +252,8 @@ pub(crate) fn native_matmul(
         (
             a_3d.broadcast_to(&[batch_size, m, k])
                 .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?
-                .contiguous(),
+                .contiguous()
+                .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?,
             b_3d,
         )
     } else if batch_b == 1 {
@@ -260,7 +261,8 @@ pub(crate) fn native_matmul(
             a_3d,
             b_3d.broadcast_to(&[batch_size, k, n])
                 .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?
-                .contiguous(),
+                .contiguous()
+                .map_err(|_| Error::shape_mismatch(a_shape, b_shape))?,
         )
     } else {
         return Err(Error::shape_mismatch(a_shape, b_shape));
@@ -325,9 +327,9 @@ pub(crate) fn native_matmul_bias(
         let k = a_shape[1];
         let n = b_shape[1];
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 
@@ -375,9 +377,9 @@ pub(crate) fn native_matmul_bias(
             });
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
-        let bias_contig = ensure_contiguous(bias);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let bias_contig = ensure_contiguous(bias)?;
 
         let out = alloc_output(client, &out_shape, dtype);
 

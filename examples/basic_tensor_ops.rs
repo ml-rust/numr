@@ -142,7 +142,7 @@ fn main() -> Result<()> {
     let transposed = t.transpose(0, 1)?;
     println!(
         "transposed (3×2): {:?}",
-        transposed.contiguous().to_vec::<f32>()
+        transposed.contiguous().unwrap().to_vec::<f32>()
     );
 
     let unsqueezed = t.unsqueeze(0)?; // [1, 2, 3]

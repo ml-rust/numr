@@ -66,7 +66,7 @@ impl FftAlgorithms<CpuRuntime> for CpuClient {
         perm.swap(dim, ndim - 1);
 
         let transposed = input.permute(&perm)?;
-        let transposed_contig = transposed.contiguous();
+        let transposed_contig = transposed.contiguous()?;
 
         let result = self.fft_last_dim_contiguous(&transposed_contig, direction, norm)?;
         result.permute(&perm)

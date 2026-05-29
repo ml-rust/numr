@@ -158,8 +158,8 @@ fn test_split_on_backends(
             for (idx, chunk) in chunks.iter().enumerate() {
                 assert_eq!(cpu_shapes[idx], chunk.shape().to_vec());
                 assert_tensor_allclose(
-                    &chunk.contiguous(),
-                    &cpu_chunks[idx].contiguous(),
+                    &chunk.contiguous().unwrap(),
+                    &cpu_chunks[idx].contiguous().unwrap(),
                     dtype,
                     &format!("split CUDA vs CPU chunk {}", idx),
                 );
@@ -177,8 +177,8 @@ fn test_split_on_backends(
             for (idx, chunk) in chunks.iter().enumerate() {
                 assert_eq!(cpu_shapes[idx], chunk.shape().to_vec());
                 assert_tensor_allclose(
-                    &chunk.contiguous(),
-                    &cpu_chunks[idx].contiguous(),
+                    &chunk.contiguous().unwrap(),
+                    &cpu_chunks[idx].contiguous().unwrap(),
                     dtype,
                     &format!("split WebGPU vs CPU chunk {}", idx),
                 );
@@ -204,8 +204,8 @@ fn test_chunk_on_backends(data: &[f64], shape: &[usize], chunks: usize, dim: isi
             for (idx, chunk) in got.iter().enumerate() {
                 assert_eq!(cpu_shapes[idx], chunk.shape().to_vec());
                 assert_tensor_allclose(
-                    &chunk.contiguous(),
-                    &cpu_chunks[idx].contiguous(),
+                    &chunk.contiguous().unwrap(),
+                    &cpu_chunks[idx].contiguous().unwrap(),
                     dtype,
                     &format!("chunk CUDA vs CPU chunk {}", idx),
                 );
@@ -223,8 +223,8 @@ fn test_chunk_on_backends(data: &[f64], shape: &[usize], chunks: usize, dim: isi
             for (idx, chunk) in got.iter().enumerate() {
                 assert_eq!(cpu_shapes[idx], chunk.shape().to_vec());
                 assert_tensor_allclose(
-                    &chunk.contiguous(),
-                    &cpu_chunks[idx].contiguous(),
+                    &chunk.contiguous().unwrap(),
+                    &cpu_chunks[idx].contiguous().unwrap(),
                     dtype,
                     &format!("chunk WebGPU vs CPU chunk {}", idx),
                 );
@@ -318,8 +318,8 @@ fn test_unfold_on_backends(
             let cuda_result = cuda_client.unfold(&cuda_tensor, dim, size, step).unwrap();
             assert_eq!(cpu_result.shape(), cuda_result.shape());
             assert_tensor_allclose(
-                &cuda_result.contiguous(),
-                &cpu_result.contiguous(),
+                &cuda_result.contiguous().unwrap(),
+                &cpu_result.contiguous().unwrap(),
                 dtype,
                 "unfold CUDA vs CPU",
             );
@@ -334,8 +334,8 @@ fn test_unfold_on_backends(
             let wgpu_result = wgpu_client.unfold(&wgpu_tensor, dim, size, step).unwrap();
             assert_eq!(cpu_result.shape(), wgpu_result.shape());
             assert_tensor_allclose(
-                &wgpu_result.contiguous(),
-                &cpu_result.contiguous(),
+                &wgpu_result.contiguous().unwrap(),
+                &cpu_result.contiguous().unwrap(),
                 dtype,
                 "unfold WebGPU vs CPU",
             );
@@ -415,8 +415,8 @@ fn test_flip_on_backends(data: &[f64], shape: &[usize], dim: isize, dtype: DType
             let cuda_result = cuda_tensor.flip(dim).unwrap();
             assert_eq!(cpu_result.shape(), cuda_result.shape());
             assert_tensor_allclose(
-                &cuda_result.contiguous(),
-                &cpu_result.contiguous(),
+                &cuda_result.contiguous().unwrap(),
+                &cpu_result.contiguous().unwrap(),
                 dtype,
                 "flip CUDA vs CPU",
             );
@@ -431,8 +431,8 @@ fn test_flip_on_backends(data: &[f64], shape: &[usize], dim: isize, dtype: DType
             let wgpu_result = wgpu_tensor.flip(dim).unwrap();
             assert_eq!(cpu_result.shape(), wgpu_result.shape());
             assert_tensor_allclose(
-                &wgpu_result.contiguous(),
-                &cpu_result.contiguous(),
+                &wgpu_result.contiguous().unwrap(),
+                &cpu_result.contiguous().unwrap(),
                 dtype,
                 "flip WebGPU vs CPU",
             );

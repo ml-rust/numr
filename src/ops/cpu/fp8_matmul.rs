@@ -143,8 +143,8 @@ impl Fp8MatmulOps<CpuRuntime> for CpuClient {
         let (out_shape, batch_size, m, k, n) =
             validate_fp8_matmul(a, b, DType::FP8E4M3, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = crate::runtime::cpu::helpers::ensure_contiguous(a);
-        let b_contig = crate::runtime::cpu::helpers::ensure_contiguous(b);
+        let a_contig = crate::runtime::cpu::helpers::ensure_contiguous(a)?;
+        let b_contig = crate::runtime::cpu::helpers::ensure_contiguous(b)?;
         let out = Tensor::<CpuRuntime>::empty(&out_shape, out_dtype, &self.device);
 
         fused_fp8_matmul_kernel(
@@ -175,8 +175,8 @@ impl Fp8MatmulOps<CpuRuntime> for CpuClient {
         let (out_shape, batch_size, m, k, n) =
             validate_fp8_matmul(a, b, DType::FP8E5M2, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = crate::runtime::cpu::helpers::ensure_contiguous(a);
-        let b_contig = crate::runtime::cpu::helpers::ensure_contiguous(b);
+        let a_contig = crate::runtime::cpu::helpers::ensure_contiguous(a)?;
+        let b_contig = crate::runtime::cpu::helpers::ensure_contiguous(b)?;
         let out = Tensor::<CpuRuntime>::empty(&out_shape, out_dtype, &self.device);
 
         fused_fp8_matmul_kernel(

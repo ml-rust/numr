@@ -162,7 +162,7 @@ pub fn unfold_impl<R: Runtime<DType = DType>>(
         .product();
 
     // Make contiguous before reshape (permute may have changed strides)
-    let permuted = permuted.contiguous();
+    let permuted = permuted.contiguous()?;
     permuted.reshape(&[mode_size, other_size])
 }
 
@@ -204,7 +204,7 @@ pub fn fold_impl<R: Runtime<DType = DType>>(
     // Step 1: Reshape to permuted tensor shape
     let perm = unfold_permutation(mode, ndim);
     let permuted_shape: Vec<usize> = perm.iter().map(|&i| shape[i]).collect();
-    let permuted = matrix.contiguous().reshape(&permuted_shape)?;
+    let permuted = matrix.contiguous()?.reshape(&permuted_shape)?;
 
     // Step 2: Inverse permutation to restore original order
     let mut inv_perm = vec![0; ndim];
@@ -213,7 +213,7 @@ pub fn fold_impl<R: Runtime<DType = DType>>(
     }
 
     // Return contiguous tensor for easy use
-    Ok(permuted.permute(&inv_perm)?.contiguous())
+    permuted.permute(&inv_perm)?.contiguous()
 }
 
 // ============================================================================
@@ -315,7 +315,7 @@ where
         } else {
             // Truncate: take first `rank` columns
             let factor = svd.u.narrow(1, 0, rank)?;
-            factors.push(factor.contiguous());
+            factors.push(factor.contiguous()?);
         }
     }
 
@@ -408,7 +408,7 @@ where
             // Truncate to rank
             let rank = ranks[mode];
             if rank < svd.u.shape()[1] {
-                factors[mode] = svd.u.narrow(1, 0, rank)?.contiguous();
+                factors[mode] = svd.u.narrow(1, 0, rank)?.contiguous()?;
             } else {
                 factors[mode] = svd.u;
             }
@@ -464,7 +464,7 @@ where
             // First factor from U
             let u_cols = svd.u.shape()[1].min(rank);
             let first_factor = if u_cols >= rank {
-                svd.u.narrow(1, 0, rank)?.contiguous()
+                svd.u.narrow(1, 0, rank)?.contiguous()?
             } else {
                 // Pad with random if not enough singular vectors
                 // For simplicity, just use random for remaining columns
@@ -611,10 +611,10 @@ where
             // Equivalent to solving Gram @ A_modeᵀ = KRᵀ @ T₍mode₎ᵀ for A_mode
             let rhs = client.matmul(&t_unfolded, &kr_product)?;
             // Make tensors contiguous for solve (which requires contiguous data)
-            let gram_t = gram_product.t()?.contiguous();
-            let rhs_t = rhs.t()?.contiguous();
+            let gram_t = gram_product.t()?.contiguous()?;
+            let rhs_t = rhs.t()?.contiguous()?;
             let new_factor = client.solve(&gram_t, &rhs_t)?.t()?;
-            factors[mode] = new_factor.contiguous();
+            factors[mode] = new_factor.contiguous()?;
 
             // Normalize factor if requested, but NOT the last factor
             // (the last factor accumulates the scale which becomes the weights)
@@ -688,7 +688,7 @@ where
     let mut ranks: Vec<usize> = Vec::with_capacity(ndim - 1);
 
     // Working tensor, will be reshaped and decomposed sequentially
-    let mut work = tensor.contiguous();
+    let mut work = tensor.contiguous()?;
     let mut left_rank = 1usize;
 
     for mode in 0..(ndim - 1) {
@@ -699,7 +699,7 @@ where
         let left_size = left_rank * mode_dim;
         let right_size: usize = work_shape.iter().product::<usize>() / left_size;
 
-        let matrix = work.reshape(&[left_size, right_size])?.contiguous();
+        let matrix = work.reshape(&[left_size, right_size])?.contiguous()?;
 
         // SVD
         let svd = client.svd_decompose(&matrix)?;
@@ -738,14 +738,14 @@ where
 
         // Extract truncated U and form core
         let u_trunc = if trunc_rank < svd.u.shape()[1] {
-            svd.u.narrow(1, 0, trunc_rank)?.contiguous()
+            svd.u.narrow(1, 0, trunc_rank)?.contiguous()?
         } else {
             svd.u.clone()
         };
 
         // Core has shape [left_rank, I_mode, trunc_rank]
         let core = u_trunc.reshape(&[left_rank, mode_dim, trunc_rank])?;
-        cores.push(core.contiguous());
+        cores.push(core.contiguous()?);
         ranks.push(trunc_rank);
 
         // Prepare for next mode: S @ Vᵀ (truncated)
@@ -755,7 +755,7 @@ where
             svd.s.clone()
         };
         let vt_trunc = if trunc_rank < svd.vt.shape()[0] {
-            svd.vt.narrow(0, 0, trunc_rank)?.contiguous()
+            svd.vt.narrow(0, 0, trunc_rank)?.contiguous()?
         } else {
             svd.vt.clone()
         };
@@ -769,7 +769,7 @@ where
     // Last core: remaining work reshaped to [left_rank, I_N, 1]
     let last_dim = shape[ndim - 1];
     let last_core = work.reshape(&[left_rank, last_dim, 1])?;
-    cores.push(last_core.contiguous());
+    cores.push(last_core.contiguous()?);
 
     Ok(TensorTrainDecomposition { cores, ranks })
 }
@@ -866,7 +866,7 @@ where
     let first_core = &decomp.cores[0];
     let i1 = first_core.shape()[1];
     let r1 = first_core.shape()[2];
-    let mut result = first_core.reshape(&[i1, r1])?.contiguous();
+    let mut result = first_core.reshape(&[i1, r1])?.contiguous()?;
 
     for mode in 1..ndim {
         let core = &decomp.cores[mode];
@@ -879,14 +879,14 @@ where
         // core: [R_{mode-1}, I_mode, R_mode]
 
         // Reshape core to [R_{mode-1}, I_mode * R_mode]
-        let core_mat = core.reshape(&[r_left, i_mode * r_right])?.contiguous();
+        let core_mat = core.reshape(&[r_left, i_mode * r_right])?.contiguous()?;
 
         // Contract: result @ core_mat -> [prod(I_1..I_{mode-1}), I_mode * R_mode]
         result = client.matmul(&result, &core_mat)?;
 
         // Reshape to [prod(I_1..I_mode), R_mode]
         let left_prod: usize = shape[..=mode].iter().product();
-        result = result.reshape(&[left_prod, r_right])?.contiguous();
+        result = result.reshape(&[left_prod, r_right])?.contiguous()?;
     }
 
     // Final result should be [prod(all I), 1], reshape to original shape

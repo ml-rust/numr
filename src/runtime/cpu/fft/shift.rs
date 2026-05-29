@@ -36,7 +36,7 @@ fn shift_impl(
     let input_contig = if input.is_contiguous() {
         input.clone()
     } else {
-        input.contiguous()
+        input.contiguous()?
     };
 
     let n = input_contig.shape()[ndim - 1];

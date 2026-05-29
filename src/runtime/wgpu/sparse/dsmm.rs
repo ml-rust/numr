@@ -55,7 +55,7 @@ pub(super) fn column_parallel_dsmm(
     let ([m, n], k) = validate_dsmm_shapes(dense_a.shape(), sparse_b_csc.shape)?;
 
     // Ensure A is contiguous for kernel
-    let a_contig = dense_a.contiguous();
+    let a_contig = dense_a.contiguous()?;
 
     // Allocate output C [M, N]
     let output = Tensor::<WgpuRuntime>::zeros(&[m, n], dtype, device);

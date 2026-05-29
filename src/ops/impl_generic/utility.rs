@@ -127,7 +127,7 @@ pub fn meshgrid_impl<R: Runtime>(
 
         let reshaped = t.reshape(&reshape_dims)?;
         let broadcasted = reshaped.broadcast_to(&output_shape)?;
-        let materialized = broadcasted.contiguous();
+        let materialized = broadcasted.contiguous()?;
 
         grids.push(materialized);
     }

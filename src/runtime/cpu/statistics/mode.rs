@@ -71,7 +71,7 @@ pub fn mode_impl(
     let out_shape = reduce_dim_output_shape(shape, dim_idx, keepdim);
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
 
-    let sorted_contig = ensure_contiguous(&sorted);
+    let sorted_contig = ensure_contiguous(&sorted)?;
 
     // Use shared implementation to compute mode
     // Match on dtype explicitly for type-safe to_vec() conversion

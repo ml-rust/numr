@@ -32,7 +32,7 @@ impl StatisticalOps<CpuRuntime> for CpuClient {
         if dims.is_empty() {
             // Reduce over all dimensions - return scalar variance
             let numel = a.numel();
-            let a_contig = ensure_contiguous(a);
+            let a_contig = ensure_contiguous(a)?;
             let a_ptr = a_contig.ptr();
 
             let variance = dispatch_dtype!(dtype, T => {
@@ -82,7 +82,7 @@ impl StatisticalOps<CpuRuntime> for CpuClient {
             let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim);
             let out_shape = reduce_dim_output_shape(shape, dim, keepdim);
 
-            let a_contig = ensure_contiguous(a);
+            let a_contig = ensure_contiguous(a)?;
             let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device);
 
             let a_ptr = a_contig.ptr();

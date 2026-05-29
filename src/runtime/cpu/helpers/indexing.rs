@@ -87,9 +87,9 @@ pub fn gather_2d_impl(
     }
 
     // Make all inputs contiguous
-    let input_contig = ensure_contiguous(input);
-    let rows_contig = ensure_contiguous(&rows_i64);
-    let cols_contig = ensure_contiguous(&cols_i64);
+    let input_contig = ensure_contiguous(input)?;
+    let rows_contig = ensure_contiguous(&rows_i64)?;
+    let cols_contig = ensure_contiguous(&cols_i64)?;
 
     // Allocate output
     let out = Tensor::<CpuRuntime>::empty(&[num_indices], dtype, &client.device);
@@ -154,8 +154,8 @@ pub fn gather_impl(
     // Output shape is same as index shape
     let out_shape = index_i64.shape().to_vec();
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     let a_ptr = a_contig.ptr();
@@ -215,9 +215,9 @@ pub fn scatter_impl(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
     let a_ptr = a_contig.ptr();
@@ -277,8 +277,8 @@ pub fn index_select_impl(
     let mut out_shape = shape.to_vec();
     out_shape[dim] = index_len;
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
 
     // Validate all indices are within bounds (before calling unsafe kernel)
     let dim_size = shape[dim];
@@ -366,9 +366,9 @@ pub fn index_put_impl(
         });
     }
 
-    let a_contig = ensure_contiguous(a);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let a_contig = ensure_contiguous(a)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
 
     // Validate all indices are within bounds (before calling unsafe kernel)
     let dim_size = shape[dim];
@@ -428,8 +428,8 @@ pub fn masked_select_impl(
     // Broadcast mask to input shape
     let mask_broadcast = mask.broadcast_to(a.shape())?;
 
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(&mask_broadcast);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(&mask_broadcast)?;
 
     let numel = a.numel();
     let a_ptr = a_contig.ptr();
@@ -530,8 +530,8 @@ pub fn masked_fill_impl(
     // Broadcast mask to input shape
     let mask_broadcast = mask.broadcast_to(a.shape())?;
 
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(&mask_broadcast);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(&mask_broadcast)?;
     let out = Tensor::<CpuRuntime>::empty(a.shape(), dtype, &client.device);
 
     let numel = a.numel();
@@ -620,8 +620,8 @@ pub fn embedding_lookup_impl(
     let mut out_shape = indices_i64.shape().to_vec();
     out_shape.push(embedding_dim);
 
-    let emb_contig = ensure_contiguous(embeddings);
-    let idx_contig = ensure_contiguous(&indices_i64);
+    let emb_contig = ensure_contiguous(embeddings)?;
+    let idx_contig = ensure_contiguous(&indices_i64)?;
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     let emb_ptr = emb_contig.ptr();
@@ -692,9 +692,9 @@ pub fn scatter_reduce_impl(
         });
     }
 
-    let dst_contig = ensure_contiguous(dst);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let dst_contig = ensure_contiguous(dst)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
     let out = Tensor::<CpuRuntime>::empty(shape, dtype, &client.device);
 
     // Allocate counts buffer for Mean operation
@@ -772,8 +772,8 @@ pub fn gather_nd_impl(
         out_shape.push(1);
     }
 
-    let input_contig = ensure_contiguous(input);
-    let indices_contig = ensure_contiguous(&indices_i64);
+    let input_contig = ensure_contiguous(input)?;
+    let indices_contig = ensure_contiguous(&indices_i64)?;
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device);
 
     let input_ptr = input_contig.ptr();
@@ -833,7 +833,7 @@ pub fn bincount_impl(
         DType::I64 // Count output is I64 when no weights
     };
 
-    let input_contig = ensure_contiguous(input);
+    let input_contig = ensure_contiguous(input)?;
     let numel = input.numel();
 
     // Convert input to i64 if needed
@@ -860,7 +860,7 @@ pub fn bincount_impl(
     let out_ptr = out.ptr();
 
     if let Some(w) = weights {
-        let w_contig = ensure_contiguous(w);
+        let w_contig = ensure_contiguous(w)?;
         let w_ptr = w_contig.ptr();
 
         dispatch_dtype!(out_dtype, T => {
@@ -960,8 +960,8 @@ pub fn slice_assign_impl(
     let inner_size: usize = dst.shape()[dim + 1..].iter().product();
     let inner_size = if inner_size == 0 { 1 } else { inner_size };
 
-    let dst_c = ensure_contiguous(dst);
-    let src_c = ensure_contiguous(src);
+    let dst_c = ensure_contiguous(dst)?;
+    let src_c = ensure_contiguous(src)?;
     let out = Tensor::<CpuRuntime>::empty(dst.shape(), dtype, &client.device);
 
     let dst_ptr = dst_c.ptr();

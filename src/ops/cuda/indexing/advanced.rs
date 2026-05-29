@@ -10,7 +10,7 @@ use crate::runtime::cuda::kernels::{
     launch_scatter_reduce_mean_div,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{Runtime, compute_contiguous_strides, ensure_contiguous};
+use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
 
 use super::helpers::normalize_indices_to_i64;
@@ -42,8 +42,8 @@ pub fn embedding_lookup(
     let mut out_shape = indices_i64.shape().to_vec();
     out_shape.push(embedding_dim);
 
-    let emb_contig = ensure_contiguous(embeddings);
-    let idx_contig = ensure_contiguous(&indices_i64);
+    let emb_contig = ensure_contiguous(embeddings)?;
+    let idx_contig = ensure_contiguous(&indices_i64)?;
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     unsafe {
@@ -137,9 +137,9 @@ pub fn scatter_reduce(
         ScatterReduceOp::Mean => ScatterReduceOpCuda::Sum, // Mean uses sum kernel + count + div
     };
 
-    let dst_contig = ensure_contiguous(dst);
-    let index_contig = ensure_contiguous(&index_i64);
-    let src_contig = ensure_contiguous(src);
+    let dst_contig = ensure_contiguous(dst)?;
+    let index_contig = ensure_contiguous(&index_i64)?;
+    let src_contig = ensure_contiguous(src)?;
 
     // Allocate output and initialize with dst values if include_self
     let out = Tensor::<CudaRuntime>::empty(shape, dtype, &client.device);
@@ -327,8 +327,8 @@ pub fn gather_nd(
     let slice_size: usize = input_shape[index_depth..].iter().product();
     let slice_size = slice_size.max(1);
 
-    let input_contig = ensure_contiguous(input);
-    let indices_contig = ensure_contiguous(&indices_i64);
+    let input_contig = ensure_contiguous(input)?;
+    let indices_contig = ensure_contiguous(&indices_i64)?;
     let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);
 
     // Prepare shape and stride arrays as host Vecs (passed as scalar args, no device alloc needed)
@@ -397,7 +397,7 @@ pub fn bincount(
     };
 
     let out_dtype = weights_dtype.unwrap_or(DType::I64);
-    let input_contig = ensure_contiguous(input);
+    let input_contig = ensure_contiguous(input)?;
     let numel = input.numel();
 
     // Find the max value on GPU to determine output size.
@@ -432,7 +432,7 @@ pub fn bincount(
         )?;
     }
 
-    let weights_contig = weights.map(ensure_contiguous);
+    let weights_contig = weights.map(ensure_contiguous).transpose()?;
     let weights_ptr = weights_contig.as_ref().map(|w| w.ptr());
 
     unsafe {

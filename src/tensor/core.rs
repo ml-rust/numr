@@ -528,8 +528,13 @@ impl<R: Runtime> Tensor<R> {
 
     /// Make tensor contiguous (copy if needed)
     ///
-    /// If the tensor is already contiguous, returns a view (zero-copy).
+    /// If the tensor is already contiguous, returns a clone (zero-copy view).
     /// Otherwise, allocates new storage and copies the data to a contiguous layout.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if device memory allocation fails (OOM) or if the strided
+    /// copy operation fails.
     ///
     /// # Backend Support
     ///
@@ -537,9 +542,9 @@ impl<R: Runtime> Tensor<R> {
     /// correctly for each backend:
     /// - CPU/CUDA: Uses pointer arithmetic (handles can be offset directly)
     /// - WGPU: Uses compute shader (buffer IDs don't support arithmetic)
-    pub fn contiguous(&self) -> Self {
+    pub fn contiguous(&self) -> Result<Self> {
         if self.is_contiguous() && self.layout.offset() == 0 {
-            self.clone()
+            Ok(self.clone())
         } else {
             // Need to copy data to a new contiguous storage
             let dtype = self.dtype();
@@ -547,8 +552,7 @@ impl<R: Runtime> Tensor<R> {
             let numel = self.numel();
 
             // Allocate new contiguous storage
-            let new_storage =
-                Storage::new(numel, dtype, device).expect("Tensor::contiguous allocation failed");
+            let new_storage = Storage::new(numel, dtype, device)?;
             let new_layout = Layout::contiguous(self.shape());
 
             // Use Runtime::copy_strided which handles buffer ID vs pointer correctly
@@ -565,14 +569,13 @@ impl<R: Runtime> Tensor<R> {
                 self.strides(),
                 elem_size,
                 device,
-            )
-            .expect("copy_strided failed in contiguous()");
+            )?;
 
-            Self {
+            Ok(Self {
                 id: TensorId::new(),
                 storage: new_storage,
                 layout: new_layout,
-            }
+            })
         }
     }
 
@@ -681,7 +684,7 @@ impl<R: Runtime> Tensor<R> {
         let tensor = if self.is_contiguous() {
             std::borrow::Cow::Borrowed(self)
         } else {
-            std::borrow::Cow::Owned(self.contiguous())
+            std::borrow::Cow::Owned(self.contiguous()?)
         };
 
         // Direct single-element copy without Vec allocation
@@ -953,7 +956,7 @@ impl<R: Runtime> Tensor<R> {
         let tensor = if self.is_contiguous() && self.offset() == 0 {
             std::borrow::Cow::Borrowed(self)
         } else {
-            std::borrow::Cow::Owned(self.contiguous())
+            std::borrow::Cow::Owned(self.contiguous()?)
         };
         let size = tensor.numel() * tensor.dtype().size_in_bytes();
         let mut data = vec![0u8; size];
@@ -1080,7 +1083,7 @@ mod tests {
         let tensor = Tensor::<CpuRuntime>::from_slice(&data, &[2, 2], &device);
 
         assert!(tensor.is_contiguous());
-        let contiguous = tensor.contiguous();
+        let contiguous = tensor.contiguous().unwrap();
         assert!(contiguous.is_contiguous());
 
         let result: Vec<f32> = contiguous.to_vec();
@@ -1099,7 +1102,7 @@ mod tests {
         assert!(!transposed.is_contiguous());
 
         // Make contiguous - should copy data
-        let contiguous = transposed.contiguous();
+        let contiguous = transposed.contiguous().unwrap();
         assert!(contiguous.is_contiguous());
         assert_eq!(contiguous.shape(), &[3, 2]);
 

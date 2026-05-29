@@ -54,8 +54,8 @@ fn test_narrow_contiguous_binary_op_separate_client() {
     let data: Vec<f32> = (0..n).map(|i| i as f32 / (n - 1) as f32).collect();
     let x = Tensor::<WgpuRuntime>::from_slice(&data, &[n], &device);
 
-    let x_left = x.narrow(0, 0, n - 1).unwrap().contiguous();
-    let x_right = x.narrow(0, 1, n - 1).unwrap().contiguous();
+    let x_left = x.narrow(0, 0, n - 1).unwrap().contiguous().unwrap();
+    let x_right = x.narrow(0, 1, n - 1).unwrap().contiguous().unwrap();
     let dx = client.sub(&x_right, &x_left).unwrap();
 
     let result: Vec<f32> = dx.to_vec();
@@ -81,12 +81,12 @@ fn test_trapezoid_chain_separate_client() {
     let x = Tensor::<WgpuRuntime>::from_slice(&x_data, &[n], &device);
     let y = Tensor::<WgpuRuntime>::from_slice(&y_data, &[n], &device);
 
-    let x_left = x.narrow(0, 0, n - 1).unwrap().contiguous();
-    let x_right = x.narrow(0, 1, n - 1).unwrap().contiguous();
+    let x_left = x.narrow(0, 0, n - 1).unwrap().contiguous().unwrap();
+    let x_right = x.narrow(0, 1, n - 1).unwrap().contiguous().unwrap();
     let dx = client.sub(&x_right, &x_left).unwrap();
 
-    let y_left = y.narrow(0, 0, n - 1).unwrap().contiguous();
-    let y_right = y.narrow(0, 1, n - 1).unwrap().contiguous();
+    let y_left = y.narrow(0, 0, n - 1).unwrap().contiguous().unwrap();
+    let y_right = y.narrow(0, 1, n - 1).unwrap().contiguous().unwrap();
     let y_sum = client.add(&y_left, &y_right).unwrap();
 
     let scaled = client.mul_scalar(&y_sum, 0.5).unwrap();
@@ -115,8 +115,8 @@ fn test_narrow_contiguous_source_dropped_separate_client() {
 
     let (left, right) = {
         let x = Tensor::<WgpuRuntime>::from_slice(&data, &[n], &device);
-        let l = x.narrow(0, 0, n - 1).unwrap().contiguous();
-        let r = x.narrow(0, 1, n - 1).unwrap().contiguous();
+        let l = x.narrow(0, 0, n - 1).unwrap().contiguous().unwrap();
+        let r = x.narrow(0, 1, n - 1).unwrap().contiguous().unwrap();
         (l, r)
     };
 

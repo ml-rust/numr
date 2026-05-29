@@ -45,9 +45,9 @@ impl ConvOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CudaRuntime>::empty(
@@ -125,9 +125,9 @@ impl ConvOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CudaRuntime>::empty(
@@ -209,9 +209,9 @@ impl ConvOps<CudaRuntime> for CudaClient {
         }
 
         // Ensure contiguous
-        let input = ensure_contiguous(input);
-        let weight = ensure_contiguous(weight);
-        let bias = bias.map(ensure_contiguous);
+        let input = ensure_contiguous(input)?;
+        let weight = ensure_contiguous(weight)?;
+        let bias = bias.map(ensure_contiguous).transpose()?;
 
         // Allocate output
         let output = Tensor::<CudaRuntime>::empty(

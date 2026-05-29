@@ -127,7 +127,7 @@ pub fn repeat_interleave_impl<R: Runtime, C: ShapeOps<R>>(
             }
             (tensor.clone(), dim_idx)
         }
-        None => (tensor.contiguous().flatten()?, 0usize),
+        None => (tensor.contiguous()?.flatten()?, 0usize),
     };
 
     let dim_size = input.shape()[dim_idx];

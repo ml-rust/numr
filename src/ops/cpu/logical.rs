@@ -34,8 +34,8 @@ impl LogicalOps<CpuRuntime> for CpuClient {
             });
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         let a_ptr = a_contig.ptr() as *const u8;
@@ -77,8 +77,8 @@ impl LogicalOps<CpuRuntime> for CpuClient {
             });
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         let a_ptr = a_contig.ptr() as *const u8;
@@ -120,8 +120,8 @@ impl LogicalOps<CpuRuntime> for CpuClient {
             });
         }
 
-        let a_contig = ensure_contiguous(a);
-        let b_contig = ensure_contiguous(b);
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         let a_ptr = a_contig.ptr() as *const u8;
@@ -145,7 +145,7 @@ impl LogicalOps<CpuRuntime> for CpuClient {
             });
         }
 
-        let a_contig = ensure_contiguous(a);
+        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CpuRuntime>::empty(a.shape(), DType::U8, &self.device);
 
         let a_ptr = a_contig.ptr() as *const u8;

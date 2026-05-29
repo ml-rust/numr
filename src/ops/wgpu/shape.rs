@@ -34,7 +34,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         // Copy data from each tensor using WGSL kernel
         let mut cat_offset = 0usize;
         for &tensor in tensors {
-            let tensor_contig = tensor.contiguous();
+            let tensor_contig = tensor.contiguous()?;
             let src_cat_size = tensor.shape()[cat_params.dim_idx];
             let total_elements = cat_params.outer_size * src_cat_size * cat_params.inner_size;
 
@@ -107,7 +107,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
 
         // No-op if all repeats are 1
         if repeats.iter().all(|&r| r == 1) {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
         // Check dtype is supported by WebGPU
@@ -135,7 +135,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = if tensor.is_contiguous() {
             tensor.clone()
         } else {
-            tensor.contiguous()
+            tensor.contiguous()?
         };
 
         let total_elements: usize = params.out_shape.iter().product();
@@ -187,7 +187,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
 
         // No-op if all padding is zero
         if padding.iter().all(|&p| p == 0) {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
         let dtype = tensor.dtype();
@@ -214,7 +214,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = if tensor.is_contiguous() {
             tensor.clone()
         } else {
-            tensor.contiguous()
+            tensor.contiguous()?
         };
 
         let total_elements: usize = params.out_shape.iter().product();
@@ -304,7 +304,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
 
         // Zero shift is a no-op
         if params.shift == 0 {
-            return Ok(tensor.contiguous());
+            return tensor.contiguous();
         }
 
         // Check dtype is supported by WebGPU
@@ -319,7 +319,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = if tensor.is_contiguous() {
             tensor.clone()
         } else {
-            tensor.contiguous()
+            tensor.contiguous()?
         };
 
         let total_elements = tensor.numel();

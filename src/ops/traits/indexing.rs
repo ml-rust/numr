@@ -233,8 +233,8 @@ pub trait IndexingOps<R: Runtime> {
         R: Runtime<DType = DType>,
     {
         validate_index_dtype(indices)?;
-        let flat = tensor.contiguous().flatten()?;
-        let indices_flat = indices.contiguous().flatten()?;
+        let flat = tensor.contiguous()?.flatten()?;
+        let indices_flat = indices.contiguous()?.flatten()?;
         let out_flat = self.index_select(&flat, 0, &indices_flat)?;
         out_flat.reshape(indices.shape())
     }
@@ -258,9 +258,9 @@ pub trait IndexingOps<R: Runtime> {
         R: Runtime<DType = DType>,
     {
         validate_index_dtype(indices)?;
-        let flat = tensor.contiguous().flatten()?;
-        let indices_flat = indices.contiguous().flatten()?;
-        let values_flat = values.contiguous().flatten()?;
+        let flat = tensor.contiguous()?.flatten()?;
+        let indices_flat = indices.contiguous()?.flatten()?;
+        let values_flat = values.contiguous()?.flatten()?;
 
         if values_flat.numel() != indices_flat.numel() {
             return Err(Error::ShapeMismatch {

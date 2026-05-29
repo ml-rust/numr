@@ -81,7 +81,7 @@ pub fn mode_impl(
     let (outer_size, reduce_size, inner_size) = compute_reduce_strides(shape, dim_idx);
 
     // Ensure sorted is contiguous for kernel access
-    let sorted_contig = ensure_contiguous(&sorted);
+    let sorted_contig = ensure_contiguous(&sorted)?;
 
     // Allocate output tensors on GPU
     let mode_values = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device);

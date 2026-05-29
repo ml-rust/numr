@@ -20,8 +20,8 @@ pub fn masked_select(
     validate_mask_dtype(mask)?;
 
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(mask);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(mask)?;
     let numel = a.numel();
 
     let bcast = BroadcastContext::prepare(a, mask, &client.device)?;
@@ -153,8 +153,8 @@ pub fn masked_fill(
     validate_mask_dtype(mask)?;
 
     let dtype = a.dtype();
-    let a_contig = ensure_contiguous(a);
-    let mask_contig = ensure_contiguous(mask);
+    let a_contig = ensure_contiguous(a)?;
+    let mask_contig = ensure_contiguous(mask)?;
     let numel = a.numel();
 
     let bcast = BroadcastContext::prepare(a, mask, &client.device)?;
