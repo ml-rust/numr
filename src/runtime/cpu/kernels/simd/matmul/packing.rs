@@ -77,14 +77,17 @@ macro_rules! define_pack_b {
                         p += NR;
                     }
                 } else {
-                    // Partial block - copy + zero-pad
+                    // Partial (or half) block — pack CONTIGUOUSLY with stride
+                    // `nr_actual`, NOT padded to NR. The consuming microkernels
+                    // (microkernel_edge / the single-width half kernel) index this
+                    // block with stride `nr_actual` (`b.add(kk * nr + j)`), so the
+                    // packed stride MUST be nr_actual; zero-padding to NR here would
+                    // make every kk>0 read into the previous row's pad → wrong dot
+                    // product. The partial block is always the LAST jr-block, so its
+                    // (smaller) size does not shift any later block's offset.
                     for k in 0..kc {
                         for j in 0..nr_actual {
                             *packed.add(p) = *b.add(k * ldb + jr + j);
-                            p += 1;
-                        }
-                        for _ in nr_actual..NR {
-                            *packed.add(p) = 0.0;
                             p += 1;
                         }
                     }
