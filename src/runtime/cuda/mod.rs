@@ -29,6 +29,7 @@ mod client;
 #[cfg(feature = "nccl")]
 mod communicator;
 mod device;
+mod env_config;
 mod fft;
 mod graph;
 pub mod kernels;

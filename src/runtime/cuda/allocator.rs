@@ -14,6 +14,78 @@ use crate::runtime::Allocator;
 /// footprint to 64× the largest recurring buffer — acceptable for VRAM.
 const FREE_LIST_CAP: usize = 64;
 
+/// Default global cap on the TOTAL bytes retained by the free list, across all
+/// size buckets.
+///
+/// The per-bucket [`FREE_LIST_CAP`] bounds a single size, but the number of
+/// distinct sizes is unbounded: variable-length / many-shape workloads (e.g.
+/// packed varlen embedding ingest) free buffers of continuously varying sizes,
+/// each spawning a new bucket. Without a global cap the free list retains
+/// `Σ (per-size buffers × size)` device memory indefinitely — the driver sees
+/// those cached pointers as live, so free VRAM falls monotonically until OOM.
+///
+/// This cap bounds the total cached footprint; when exceeded, the oldest cached
+/// buffers are returned to the driver. Overridable via the
+/// `NUMR_CUDA_FREE_LIST_CAP_MB` environment variable (value in MiB).
+const DEFAULT_FREE_LIST_CAP_BYTES: usize = 1024 * 1024 * 1024;
+
+/// Resolve the global free-list byte cap from the environment (MiB) or default.
+fn resolve_free_list_cap_bytes() -> usize {
+    super::env_config::env_mib_to_bytes(
+        "NUMR_CUDA_FREE_LIST_CAP_MB",
+        DEFAULT_FREE_LIST_CAP_BYTES as u64,
+    ) as usize
+}
+
+/// Per-size free buffers plus a running total of cached bytes.
+#[derive(Default)]
+struct FreeList {
+    /// size_bytes → cached device pointers of that exact size (FIFO per bucket).
+    map: HashMap<u64, VecDeque<u64>>,
+    /// Sum of `size × count` across every bucket — the live cached footprint.
+    total_bytes: usize,
+}
+
+impl FreeList {
+    /// Pop a cached buffer of exactly `size_bytes`, updating the byte total.
+    fn pop(&mut self, size_bytes: u64) -> Option<u64> {
+        let ptr = self.map.get_mut(&size_bytes).and_then(|b| b.pop_front())?;
+        self.total_bytes -= size_bytes as usize;
+        Some(ptr)
+    }
+
+    /// Push a cached buffer of `size_bytes`, updating the byte total.
+    fn push(&mut self, size_bytes: u64, ptr: u64) {
+        self.map.entry(size_bytes).or_default().push_back(ptr);
+        self.total_bytes += size_bytes as usize;
+    }
+
+    /// Evict cached buffers (largest size first) until `total_bytes <= cap`.
+    /// Returns the evicted pointers for the caller to free outside the lock.
+    fn evict_to_cap(&mut self, cap: usize) -> Vec<u64> {
+        let mut evicted = Vec::new();
+        while self.total_bytes > cap {
+            let largest = self
+                .map
+                .iter()
+                .filter(|(_, b)| !b.is_empty())
+                .map(|(&s, _)| s)
+                .max();
+            match largest {
+                Some(size) => {
+                    if let Some(ptr) = self.pop(size) {
+                        evicted.push(ptr);
+                    } else {
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
+        evicted
+    }
+}
+
 /// CUDA stream-ordered allocator with a Rust-side free list.
 ///
 /// Combines a per-size-bucket Rust free list (fast path: no driver call) with
@@ -34,16 +106,26 @@ const FREE_LIST_CAP: usize = 64;
 ///
 /// # Pool Threshold
 ///
-/// The default memory pool's release threshold is set to `u64::MAX` at context
-/// creation so that freed segments stay warm for reuse in decode loops.
+/// The default memory pool's release threshold is set to 512 MiB at context
+/// creation (see `CudaClient` construction in `client.rs`): freed segments up
+/// to that size stay warm for reuse in decode loops, while larger freed
+/// segments are returned to the OS to avoid address-space fragmentation on
+/// many-shape workloads. The threshold is overridable via the
+/// `NUMR_CUDA_POOL_RELEASE_THRESHOLD_MB` environment variable (value in MiB).
+/// The OOM-retry path additionally trims the pool to 0.
 #[derive(Clone)]
 pub struct CudaAllocator {
     stream: Arc<CudaStream>,
-    /// Per-size free list: size_bytes → VecDeque of device pointers.
+    /// Per-size free list with a running cached-byte total.
     ///
     /// VecDeque gives O(1) push_back / pop_front so the oldest entry is
-    /// evicted first when the cap is reached (FIFO within a bucket).
-    free_list: Arc<Mutex<HashMap<u64, VecDeque<u64>>>>,
+    /// evicted first when the per-bucket cap is reached (FIFO within a bucket).
+    /// A global byte cap ([`free_list_cap_bytes`](Self::free_list_cap_bytes))
+    /// bounds the total across all buckets so many-shape workloads cannot retain
+    /// device memory without bound.
+    free_list: Arc<Mutex<FreeList>>,
+    /// Global cap on total bytes retained by `free_list` across all buckets.
+    free_list_cap_bytes: usize,
     /// When frozen, alloc/free go directly to the driver to create proper
     /// CUDA graph alloc/free nodes — bypassing the Rust free list.
     frozen: Arc<std::sync::atomic::AtomicBool>,
@@ -85,7 +167,8 @@ impl CudaAllocator {
     pub(super) fn new(stream: Arc<CudaStream>, pool_handle: u64) -> Self {
         Self {
             stream,
-            free_list: Arc::new(Mutex::new(HashMap::new())),
+            free_list: Arc::new(Mutex::new(FreeList::default())),
+            free_list_cap_bytes: resolve_free_list_cap_bytes(),
             frozen: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             captured_ptrs: Arc::new(Mutex::new(HashSet::new())),
             pool_handle,
@@ -110,8 +193,10 @@ impl CudaAllocator {
         // reclaim VRAM that our Rust-side cache was holding "live" from the
         // driver's perspective.
         let drained: Vec<u64> = {
-            let mut map = self.free_list.lock().unwrap();
-            map.drain()
+            let mut fl = self.free_list.lock().unwrap();
+            fl.total_bytes = 0;
+            fl.map
+                .drain()
                 .flat_map(|(_, bucket)| bucket.into_iter())
                 .collect()
         };
@@ -230,10 +315,8 @@ impl Allocator for CudaAllocator {
 
         // Fast path: pop from the free list if a cached buffer exists.
         {
-            let mut map = self.free_list.lock().unwrap();
-            if let Some(bucket) = map.get_mut(&(size_bytes as u64))
-                && let Some(ptr) = bucket.pop_front()
-            {
+            let mut fl = self.free_list.lock().unwrap();
+            if let Some(ptr) = fl.pop(size_bytes as u64) {
                 return Ok(ptr);
             }
         }
@@ -266,22 +349,30 @@ impl Allocator for CudaAllocator {
             return;
         }
 
-        let evict = {
-            let mut map = self.free_list.lock().unwrap();
-            let bucket = map.entry(size_bytes as u64).or_default();
-            if bucket.len() < FREE_LIST_CAP {
-                bucket.push_back(ptr);
-                None
-            } else {
-                // Cap exceeded: evict the oldest buffer and keep the new one.
-                let oldest = bucket.pop_front();
-                bucket.push_back(ptr);
-                oldest
+        let mut evict: Vec<u64> = Vec::new();
+        {
+            let mut fl = self.free_list.lock().unwrap();
+            let size = size_bytes as u64;
+            match fl.map.get_mut(&size) {
+                // Per-bucket cap exceeded: evict the oldest of this size and
+                // keep the new one (byte total unchanged — same-size swap).
+                Some(bucket) if bucket.len() >= FREE_LIST_CAP => {
+                    if let Some(old) = bucket.pop_front() {
+                        evict.push(old);
+                    }
+                    bucket.push_back(ptr);
+                }
+                _ => fl.push(size, ptr),
             }
-        };
+            // Global byte cap: return oldest-largest cached buffers to the
+            // driver until total cached bytes are back under the cap. Bounds
+            // retention on many-shape workloads that spawn unbounded size
+            // buckets.
+            evict.extend(fl.evict_to_cap(self.free_list_cap_bytes));
+        }
 
-        // Evict outside the lock so the lock is not held during a driver call.
-        if let Some(old_ptr) = evict {
+        // Free outside the lock so the lock is not held during driver calls.
+        for old_ptr in evict {
             unsafe { self.driver_free(old_ptr) };
         }
     }
@@ -342,8 +433,8 @@ impl Allocator for CudaAllocator {
         // graph-internal address — a definite bug.
         #[cfg(debug_assertions)]
         {
-            let map = self.free_list.lock().unwrap();
-            for bucket in map.values() {
+            let fl = self.free_list.lock().unwrap();
+            for bucket in fl.map.values() {
                 for &cached_ptr in bucket {
                     debug_assert!(
                         !captured.contains(&cached_ptr),
@@ -365,8 +456,10 @@ impl Allocator for CudaAllocator {
         // Callers must have dropped all live tensors (which call `deallocate`)
         // before calling `reset`, so every pointer here is idle on the stream.
         let drained: Vec<u64> = {
-            let mut map = self.free_list.lock().unwrap();
-            map.drain()
+            let mut fl = self.free_list.lock().unwrap();
+            fl.total_bytes = 0;
+            fl.map
+                .drain()
                 .flat_map(|(_, bucket)| bucket.into_iter())
                 .collect()
         };
@@ -439,8 +532,8 @@ mod tests {
         // an un-frozen allocator (e.g., because they cached the raw pointer and
         // called deallocate after the freeze window closed).
         {
-            let mut map = alloc.free_list.lock().unwrap();
-            map.entry(128).or_default().push_back(p3);
+            let mut fl = alloc.free_list.lock().unwrap();
+            fl.push(128, p3);
         }
 
         // `unfreeze()` must detect the overlap and panic (debug builds only).

@@ -153,13 +153,21 @@ impl CudaClient {
         // for hot reuse but reclaim larger freed segments back to the OS.
         // The OOM retry path additionally trims the pool to 0 to recover
         // from fragmentation when a large request would otherwise fail.
+        //
+        // The threshold is tunable per workload/hardware via the
+        // `NUMR_CUDA_POOL_RELEASE_THRESHOLD_MB` env var (value in MiB); many-shape
+        // workloads (e.g. variable-length embedding ingest) may prefer a smaller
+        // threshold to reclaim aggressively, while tight decode loops may raise it.
         let mut pool_handle: u64 = 0;
         unsafe {
             let mut pool: cudarc::driver::sys::CUmemoryPool = std::ptr::null_mut();
             let result =
                 cudarc::driver::sys::cuDeviceGetDefaultMemPool(&mut pool, device.index as i32);
             if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS && !pool.is_null() {
-                let threshold: u64 = 512 * 1024 * 1024;
+                let threshold: u64 = super::env_config::env_mib_to_bytes(
+                    "NUMR_CUDA_POOL_RELEASE_THRESHOLD_MB",
+                    512 * 1024 * 1024,
+                );
                 let _ = cudarc::driver::sys::cuMemPoolSetAttribute(
                     pool,
                     cudarc::driver::sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
