@@ -1,10 +1,12 @@
 //! CUDA implementation of GEMM epilogue operations.
 
+#[cfg(feature = "fp8")]
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::ops::{
-    GemmActivation, GemmEpilogueOps, TypeConversionOps, matmul_bias_output_shape,
-    validate_matmul_bias_dtypes,
+    GemmActivation, GemmEpilogueOps, matmul_bias_output_shape, validate_matmul_bias_dtypes,
 };
 use crate::runtime::cuda::kernels::{
     launch_gemm_bias_act_batched_kernel, launch_gemm_bias_act_bwd_batched_kernel,

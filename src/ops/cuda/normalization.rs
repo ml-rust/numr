@@ -1,7 +1,10 @@
 //! Normalization operations for CUDA runtime
+#[cfg(feature = "fp8")]
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{NormalizationOps, TypeConversionOps};
+use crate::ops::NormalizationOps;
+#[cfg(feature = "fp8")]
+use crate::ops::TypeConversionOps;
 use crate::runtime::cuda::kernels::{
     launch_fused_add_layer_norm, launch_fused_add_layer_norm_bwd, launch_fused_add_rms_norm,
     launch_fused_add_rms_norm_bwd, launch_group_norm, launch_layer_norm, launch_rms_norm,
