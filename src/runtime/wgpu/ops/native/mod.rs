@@ -34,7 +34,9 @@ pub(crate) use cumulative::{native_cumprod, native_cumsum, native_logsumexp};
 pub(crate) use fused_elementwise::{
     native_fused_add_mul, native_fused_mul_add, native_fused_mul_add_scalar,
 };
-pub(crate) use gemm_epilogue::{native_gemm_bias_activation, native_gemm_bias_residual};
+pub(crate) use gemm_epilogue::{
+    native_gemm_bias_activation, native_gemm_bias_activation_bwd, native_gemm_bias_residual,
+};
 pub(crate) use indexing::{
     native_gather, native_index_put, native_index_select, native_scatter, native_slice_assign,
 };

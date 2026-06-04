@@ -28,6 +28,7 @@ pub mod activation_launcher;
 pub mod elementwise;
 pub mod fused_add_norm;
 pub mod gemm_epilogue;
+pub mod gemm_epilogue_bwd;
 pub mod gemv_bt;
 pub mod matmul;
 pub mod matrix_funcs_launcher;
