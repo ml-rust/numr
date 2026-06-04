@@ -124,7 +124,7 @@ impl PipelineCache {
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some(&format!("{}_layout", shader_name)),
-                bind_group_layouts: &[layout],
+                bind_group_layouts: &[Some(layout)],
                 immediate_size: 0, // Not using push constants
             });
 
@@ -166,7 +166,7 @@ impl PipelineCache {
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some(&format!("{}_layout", shader_name)),
-                bind_group_layouts: &[layout],
+                bind_group_layouts: &[Some(layout)],
                 immediate_size: 0,
             });
 
