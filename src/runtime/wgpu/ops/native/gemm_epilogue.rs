@@ -4,6 +4,7 @@ use super::helpers::*;
 use crate::error::{Error, Result};
 use crate::ops::{GemmActivation, matmul_bias_output_shape, validate_matmul_bias_dtypes};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::traits::client::RuntimeClient;
 use crate::runtime::wgpu::shaders::gemm_epilogue;
 use crate::runtime::wgpu::shaders::gemm_epilogue_bwd::{
     GemmEpilogueBwdBuffers, launch_gemm_bias_activation_bwd,
@@ -313,7 +314,17 @@ pub(crate) fn native_gemm_bias_activation_bwd(
     let grad_c = ensure_contiguous(grad)?;
 
     let d_a = alloc_output(client, a_shape, dtype);
-    let d_b = alloc_output(client, b_shape, dtype);
+    // The db shader sums the gradient over the batch dimension and writes only
+    // the leading [K, N] slice of d_b; the CPU and CUDA references explicitly
+    // allocate d_b with zeros, leaving the remaining [batch-1, K, N] elements
+    // at zero. We match that contract explicitly here instead of relying on the
+    // WebGPU allocator handing back freshly zero-initialized buffers, so the
+    // trailing slices stay correct even if buffer pooling is added later.
+    let d_b = if batch_size > 1 {
+        Tensor::<WgpuRuntime>::try_zeros(b_shape, dtype, RuntimeClient::device(client))?
+    } else {
+        alloc_output(client, b_shape, dtype)
+    };
     let d_bias = alloc_output(client, &[n], dtype);
     // grad_pre scratch has the same shape as grad/output: [batch, M, N].
     let grad_pre = alloc_output(client, grad.shape(), dtype);
