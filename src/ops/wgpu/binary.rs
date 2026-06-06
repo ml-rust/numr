@@ -5,7 +5,7 @@ use crate::ops::BinaryOps;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
-    native_binary_op, native_fused_add_mul, native_fused_mul_add,
+    native_binary_op, native_binary_op_into, native_fused_add_mul, native_fused_mul_add,
 };
 use crate::tensor::Tensor;
 
@@ -70,5 +70,14 @@ impl BinaryOps<WgpuRuntime> for WgpuClient {
         c: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_fused_add_mul(self, a, b, c)
+    }
+
+    fn add_into(
+        &self,
+        out: &Tensor<WgpuRuntime>,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<()> {
+        native_binary_op_into(self, "add", out, a, b)
     }
 }

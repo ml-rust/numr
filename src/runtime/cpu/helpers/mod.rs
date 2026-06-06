@@ -19,7 +19,7 @@ pub use activation::{
     ActivationOp, FusedActivationMulOp, activation_op_impl, elu_impl, fused_activation_mul_impl,
     leaky_relu_impl,
 };
-pub use binary::binary_op_impl;
+pub use binary::{binary_op_impl, binary_op_into_impl};
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
 pub use fused_elementwise::{fused_add_mul_impl, fused_mul_add_impl, fused_mul_add_scalar_impl};

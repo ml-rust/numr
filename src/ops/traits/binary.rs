@@ -282,4 +282,26 @@ pub trait BinaryOps<R: Runtime> {
     /// * `b` - Second addend
     /// * `c` - Multiplicand
     fn fused_add_mul(&self, a: &Tensor<R>, b: &Tensor<R>, c: &Tensor<R>) -> Result<Tensor<R>>;
+
+    /// Element-wise addition into a pre-allocated destination: `out = a + b`.
+    ///
+    /// Unlike [`add`](Self::add), this writes the result into the caller-owned
+    /// `out` tensor instead of allocating a new one. This is required for
+    /// destination-passing workflows such as CUDA graph capture, where output
+    /// buffers must be allocated outside the captured region so their device
+    /// addresses stay stable across replays.
+    ///
+    /// `a` and `b` are broadcast together using the same rules as
+    /// [`add`](Self::add); the broadcast result shape must exactly match
+    /// `out`'s shape, and `out` must be contiguous.
+    ///
+    /// # Arguments
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    /// * `a` - Left operand
+    /// * `b` - Right operand (broadcastable with `a`)
+    ///
+    /// # Errors
+    /// Returns an error if dtypes mismatch, if `out` is not contiguous, or if
+    /// `broadcast(a, b)` does not equal `out`'s shape.
+    fn add_into(&self, out: &Tensor<R>, a: &Tensor<R>, b: &Tensor<R>) -> Result<()>;
 }

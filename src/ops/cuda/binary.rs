@@ -2,7 +2,7 @@
 use crate::error::{Error, Result};
 use crate::ops::BinaryOps;
 use crate::runtime::cuda::kernels::{launch_fused_add_mul, launch_fused_mul_add};
-use crate::runtime::cuda::ops::helpers::native_binary_op;
+use crate::runtime::cuda::ops::helpers::{native_binary_op, native_binary_op_into};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
@@ -128,5 +128,14 @@ impl BinaryOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn add_into(
+        &self,
+        out: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<()> {
+        native_binary_op_into(self, out, a, b, "add")
     }
 }

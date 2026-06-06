@@ -294,3 +294,111 @@ binary_case!(
         ),
     ]
 );
+
+// Destination-passing `add_into`: must match the allocating `add` on every
+// backend (CPU reference), including the broadcast path.
+fn test_add_into_parity(test_cases: &[TestCase], dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = test_cases
+        .iter()
+        .map(|tc| {
+            let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cpu_device, &cpu_client).unwrap();
+            let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cpu_device, &cpu_client).unwrap();
+            // Independent reference: the allocating `add`. Using `add` (not
+            // `add_into`) means a CPU-only run genuinely validates that CPU
+            // `add_into` produces `a + b`, instead of comparing it to itself.
+            cpu_client.add(&a, &b).unwrap()
+        })
+        .collect();
+
+    // Verify CPU `add_into` writes into the destination and matches the
+    // independent `add` reference (runs on every build, including CPU-only).
+    for (idx, tc) in test_cases.iter().enumerate() {
+        let a = tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cpu_device, &cpu_client).unwrap();
+        let b = tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cpu_device, &cpu_client).unwrap();
+        let out = Tensor::<numr::runtime::cpu::CpuRuntime>::zeros(
+            cpu_results[idx].shape(),
+            dtype,
+            &cpu_device,
+        );
+        cpu_client.add_into(&out, &a, &b).unwrap();
+        assert_tensor_allclose(
+            &out,
+            &cpu_results[idx],
+            dtype,
+            &format!("add_into CPU vs add [{dtype:?}] case {idx}"),
+        );
+    }
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let a =
+                    tensor_from_f64(&tc.a, &tc.a_shape, dtype, &cuda_device, &cuda_client).unwrap();
+                let b =
+                    tensor_from_f64(&tc.b, &tc.b_shape, dtype, &cuda_device, &cuda_client).unwrap();
+                let out = Tensor::<numr::runtime::cuda::CudaRuntime>::zeros(
+                    cpu_results[idx].shape(),
+                    dtype,
+                    &cuda_device,
+                );
+                cuda_client.add_into(&out, &a, &b).unwrap();
+                assert_tensor_allclose(
+                    &out,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("add_into CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in test_cases.iter().enumerate() {
+                let a =
+                    tensor_from_f64(&tc.a, &tc.a_shape, dtype, &wgpu_device, &wgpu_client).unwrap();
+                let b =
+                    tensor_from_f64(&tc.b, &tc.b_shape, dtype, &wgpu_device, &wgpu_client).unwrap();
+                let out = Tensor::<numr::runtime::wgpu::WgpuRuntime>::zeros(
+                    cpu_results[idx].shape(),
+                    dtype,
+                    &wgpu_device,
+                );
+                wgpu_client.add_into(&out, &a, &b).unwrap();
+                assert_tensor_allclose(
+                    &out,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("add_into WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn test_add_into_matches_add() {
+    let cases = [
+        TestCase::new(
+            vec![1.0, 2.0, 3.0, 4.0],
+            vec![4],
+            vec![5.0, 6.0, 7.0, 8.0],
+            vec![4],
+        ),
+        TestCase::new(
+            vec![1.0, 2.0, 3.0, 4.0],
+            vec![2, 2],
+            vec![0.5, 0.5, 0.5, 0.5],
+            vec![2, 2],
+        ),
+        // Broadcast path (a [4] + b [1]).
+        TestCase::new(vec![1.0, 2.0, 3.0, 4.0], vec![4], vec![10.0], vec![1]),
+    ];
+    for dtype in supported_dtypes("cpu") {
+        test_add_into_parity(&cases, dtype);
+    }
+}
