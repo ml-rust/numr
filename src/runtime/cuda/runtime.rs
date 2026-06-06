@@ -480,9 +480,13 @@ impl CudaRuntime {
         //
         // With the arena approach, ALL intermediate allocations go into the
         // pre-allocated bump-pointer buffer (no `cuMemAllocAsync` inside the
-        // capture region). Therefore there are NO graph-managed allocation
-        // nodes and AUTO_FREE_ON_LAUNCH has nothing to free. However, we keep
-        // the flag for now since it is harmless when there are no alloc nodes.
+        // capture region), so there are normally NO graph-managed allocation
+        // nodes for AUTO_FREE_ON_LAUNCH to act on. We deliberately pass it
+        // anyway: cudarc's safe `end_capture` requires a flag from
+        // `CUgraphInstantiate_flags` (which has no zero/NONE variant), and
+        // AUTO_FREE_ON_LAUNCH is the correct, defensive choice — a no-op when
+        // there are no alloc nodes, and the safe behavior (free on replay) if a
+        // future op ever does allocate inside the capture region.
         let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
         let graph_result = client.stream.end_capture(flags);
 
@@ -532,41 +536,59 @@ pub fn is_cuda_available() -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::dtype::DType;
+    use crate::ops::BinaryOps;
+    use crate::runtime::Runtime;
+    use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+    use crate::runtime::traits::client::RuntimeClient;
+    use crate::tensor::Tensor;
 
-    /// Full `capture_graph_into` integration test.
+    /// Full `capture_graph_into` integration test using the destination-passing
+    /// `add_into` primitive.
     ///
-    /// # Why ignored
-    ///
-    /// This test requires a working CUDA GPU and a numr in-place binary addition
-    /// primitive (`add_into(out, a, b)` or equivalent).  Neither exists yet:
-    /// - `numr` currently has no `add_into` / `copy_into` ops that write into a
-    ///   pre-allocated destination without allocating a new tensor.
-    /// - Without a destination-writing op the closure would allocate `c` inside
-    ///   the capture region, making it subject to `AUTO_FREE_ON_LAUNCH` and
-    ///   causing a use-after-free on replay.
-    ///
-    /// # What this test should do once unblocked
-    ///
-    /// 1. Allocate two input tensors `a`, `b` of shape `[4]` (F32) and one
-    ///    output tensor `c` of the same shape — all OUTSIDE the closure.
-    /// 2. Call `CudaRuntime::capture_graph_into(client, &[&a, &b], &[&c], |cc| {
-    ///        cc.add_into(&c, &a, &b)   // in-place: c = a + b
-    ///    })?`.
-    /// 3. After capture, read `c` back to host and verify `c[i] == a[i] + b[i]`.
-    /// 4. Write new values into `a` and `b` via H2D copy.
-    /// 5. Call `captured.launch()?` and verify `c` reflects the new values.
-    /// 6. Drop `captured` and verify no `CUDA_ERROR_ILLEGAL_ADDRESS` on a
-    ///    subsequent normal allocation (e.g. `Tensor::zeros`).
-    ///
-    /// # Migration task
-    ///
-    /// Add `add_into` (or an in-place binary op) to numr's BinaryOps trait and
-    /// CUDA backend, then remove `#[ignore]` and complete this test.
-    #[ignore = "requires add_into primitive (see comment) and a CUDA GPU"]
+    /// Captures `c = a + b` into a graph where `a`, `b`, `c` are all allocated
+    /// OUTSIDE the closure (so their device addresses are stable and not subject
+    /// to `AUTO_FREE_ON_LAUNCH`), then verifies the captured graph replays
+    /// correctly after the inputs are overwritten in place.
+    #[ignore = "requires a live CUDA GPU"]
     #[test]
     fn test_capture_graph_into_add() {
-        // Placeholder — see doc comment above for what this should implement.
-        // Unignore and fill in once numr has an in-place destination-passing
-        // binary op (add_into / binary_into).
+        let device = CudaDevice::new(0);
+        let client = CudaRuntime::default_client(&device);
+
+        // Inputs and output allocated OUTSIDE the closure.
+        let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &device);
+        let b = Tensor::<CudaRuntime>::from_slice(&[10.0f32, 20.0, 30.0, 40.0], &[4], &device);
+        let c = Tensor::<CudaRuntime>::zeros(&[4], DType::F32, &device);
+
+        // Capture: c = a + b (destination-passing, no allocation inside).
+        let captured = CudaRuntime::capture_graph_into(&client, &[&a, &b], &[&c], |cc| {
+            cc.add_into(&c, &a, &b)
+        })
+        .expect("capture_graph_into failed");
+
+        // First replay.
+        captured.launch().expect("launch failed");
+        client.synchronize();
+        assert_eq!(c.to_vec::<f32>(), vec![11.0, 22.0, 33.0, 44.0]);
+
+        // Overwrite `a` in place (stable address) and replay again — the graph
+        // must pick up the new input values since it reads from the same buffer.
+        CudaRuntime::copy_to_device(
+            bytemuck::cast_slice(&[5.0f32, 6.0, 7.0, 8.0]),
+            a.ptr(),
+            &device,
+        )
+        .expect("H2D copy failed");
+        captured.launch().expect("relaunch failed");
+        client.synchronize();
+        assert_eq!(c.to_vec::<f32>(), vec![15.0, 26.0, 37.0, 48.0]);
+
+        // Drop the captured graph and confirm a subsequent normal allocation
+        // does not hit CUDA_ERROR_ILLEGAL_ADDRESS (clean teardown).
+        drop(captured);
+        let fresh = Tensor::<CudaRuntime>::zeros(&[4], DType::F32, &device);
+        client.synchronize();
+        assert_eq!(fresh.to_vec::<f32>(), vec![0.0, 0.0, 0.0, 0.0]);
     }
 }
