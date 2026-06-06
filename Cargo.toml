@@ -34,12 +34,12 @@ sparse = [] # Sparse tensor formats (CSR, CSC, COO) and operations
 # Core
 thiserror = "2.0"
 smallvec = "1"
-bytemuck = { version = "1.24", features = ["derive"] }
+bytemuck = { version = "1.25", features = ["derive"] }
 num-traits = "0.2"
 parking_lot = "0.12"
 
 # Optional: Parallelism
-rayon = { version = "1.11", optional = true }
+rayon = { version = "1.12", optional = true }
 
 # Zero-copy serialization for embedded data (used by sobol_data)
 rkyv = "0.8"
