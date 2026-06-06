@@ -425,10 +425,8 @@ fn conv_transpose1d_cpu(
 
 /// Scalar reference implementation of transposed 1D convolution.
 ///
-/// Correctness-first: no SIMD, no blocking. For Kokoro inference the hot path
-/// is a handful of transposed convs per utterance — measured latency well
-/// under the decoder's dominant cost (BiLSTM + FFT). Replace with a fused /
-/// SIMD variant if benchmarks ever show this as the bottleneck.
+/// Correctness-first: no SIMD, no blocking. A fused / SIMD variant can replace
+/// this if benchmarks ever show transposed convolution as a bottleneck.
 #[allow(clippy::too_many_arguments)]
 unsafe fn conv_transpose1d_scalar<T>(
     input: *const T,

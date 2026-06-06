@@ -45,6 +45,7 @@ mod wmma_bench {
     // RTX 3060 F16 tensor-core theoretical peak: ~101 TFLOPS
     const PEAK_TFLOPS: f64 = 101.0;
 
+    #[ignore = "perf benchmark; prints throughput, asserts nothing - run explicitly with --ignored"]
     #[test]
     fn measure_wmma_scores_f16() {
         // Scores: A[64,512,64] @ B[64,64,512] → C[64,512,512]  (QK^T)
@@ -66,6 +67,7 @@ mod wmma_bench {
         );
     }
 
+    #[ignore = "perf benchmark; prints throughput, asserts nothing - run explicitly with --ignored"]
     #[test]
     fn measure_wmma_context_f16() {
         // Context: A[64,512,512] @ B[64,512,64] → C[64,512,64]  (attn@V)
@@ -87,6 +89,7 @@ mod wmma_bench {
         );
     }
 
+    #[ignore = "perf benchmark; prints throughput, asserts nothing - run explicitly with --ignored"]
     #[test]
     fn compare_fma_vs_wmma() {
         // Same logical shapes, F32 for FMA vs F16 for WMMA
