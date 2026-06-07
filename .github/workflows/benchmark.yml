@@ -54,7 +54,7 @@ jobs:
           prefix-key: bench
 
       - name: Build benchmarks
-        run: cargo build --bench ci_regression --release
+        run: cargo build --bench ci_regression --release --locked
 
       # Restore the most recent baseline saved by baseline.yml on main.
       # Uses prefix matching — the exact key won't match, but restore-keys
@@ -74,9 +74,11 @@ jobs:
         if: steps.baseline-cache.outputs.cache-hit != 'true' && !hashFiles('target/fluxbench/baseline.json')
         run: |
           CURRENT_REF=$(git rev-parse HEAD)
-          git checkout origin/main
-          cargo bench --bench ci_regression -- --save-baseline
-          git checkout "$CURRENT_REF"
+          # Discard any working-tree changes (e.g. a lockfile touched by the
+          # build above) so the branch switch is never blocked.
+          git checkout -f origin/main
+          cargo bench --bench ci_regression --locked -- --save-baseline
+          git checkout -f "$CURRENT_REF"
 
       # --format github-summary: renders a markdown table for the step summary.
       # --baseline (if file exists): enables regression comparison against main.
@@ -87,4 +89,4 @@ jobs:
           if [ -f target/fluxbench/baseline.json ]; then
             ARGS="$ARGS --baseline target/fluxbench/baseline.json"
           fi
-          cargo bench --bench ci_regression -- $ARGS >> $GITHUB_STEP_SUMMARY
+          cargo bench --bench ci_regression --locked -- $ARGS >> $GITHUB_STEP_SUMMARY
