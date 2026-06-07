@@ -838,3 +838,64 @@ fn test_scatter_reduce_mean_prod_parity() {
         }
     }
 }
+
+/// Regression: `scatter_reduce` with `inner_size > 1` (2D `dst`, scatter along
+/// `dim=0`). The WGPU shader previously indexed the index buffer per-slice (as
+/// if it were 1D), producing wrong results whenever `inner_size > 1`. The
+/// canonical (CPU/CUDA/PyTorch) semantics are element-wise: `index.shape ==
+/// src.shape`, and `index[e]` gives the `dim` coordinate for source element `e`.
+#[test]
+fn test_scatter_reduce_2d_inner_parity() {
+    use numr::dtype::DType;
+
+    // dst [4, 3] of zeros; src [2, 3] = 1..6. Source row 0 → dst row 0,
+    // source row 1 → dst row 2 (element-wise index, same shape as src).
+    let dst_data = vec![0.0f64; 4 * 3];
+    let src_data: Vec<f64> = (1..=6).map(|v| v as f64).collect();
+    let idx_data = [0i32, 0, 0, 2, 2, 2];
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let cpu_dst =
+        tensor_from_f64(&dst_data, &[4, 3], DType::F32, &cpu_device, &cpu_client).unwrap();
+    let cpu_idx = Tensor::from_slice(&idx_data, &[2, 3], &cpu_device);
+    let cpu_src =
+        tensor_from_f64(&src_data, &[2, 3], DType::F32, &cpu_device, &cpu_client).unwrap();
+    let cpu_out = cpu_client
+        .scatter_reduce(&cpu_dst, 0, &cpu_idx, &cpu_src, ScatterReduceOp::Sum, true)
+        .unwrap();
+    // Expected: dst[0] = [1,2,3], dst[2] = [4,5,6], dst[1] = dst[3] = 0.
+    assert_eq!(
+        cpu_out.to_vec::<f32>(),
+        vec![1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 4.0, 5.0, 6.0, 0.0, 0.0, 0.0]
+    );
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", DType::F32) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            let dst = tensor_from_f64(&dst_data, &[4, 3], DType::F32, &cuda_device, &cuda_client)
+                .unwrap();
+            let idx = Tensor::from_slice(&idx_data, &[2, 3], &cuda_device);
+            let src = tensor_from_f64(&src_data, &[2, 3], DType::F32, &cuda_device, &cuda_client)
+                .unwrap();
+            let out = cuda_client
+                .scatter_reduce(&dst, 0, &idx, &src, ScatterReduceOp::Sum, true)
+                .unwrap();
+            assert_tensor_allclose(&out, &cpu_out, DType::F32, "scatter_reduce 2D CUDA vs CPU");
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", DType::F32) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            let dst = tensor_from_f64(&dst_data, &[4, 3], DType::F32, &wgpu_device, &wgpu_client)
+                .unwrap();
+            let idx = Tensor::from_slice(&idx_data, &[2, 3], &wgpu_device);
+            let src = tensor_from_f64(&src_data, &[2, 3], DType::F32, &wgpu_device, &wgpu_client)
+                .unwrap();
+            let out = wgpu_client
+                .scatter_reduce(&dst, 0, &idx, &src, ScatterReduceOp::Sum, true)
+                .unwrap();
+            assert_tensor_allclose(&out, &cpu_out, DType::F32, "scatter_reduce 2D WGPU vs CPU");
+        });
+    }
+}

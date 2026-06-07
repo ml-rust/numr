@@ -140,6 +140,16 @@ impl IndexingOps<WgpuRuntime> for WgpuClient {
             });
         }
 
+        // Element-wise semantics (matching CPU/CUDA/PyTorch): index and src must
+        // have the same shape — `index[e]` gives the destination coordinate along
+        // `dim` for source element `e`.
+        if index.shape() != src.shape() {
+            return Err(Error::ShapeMismatch {
+                expected: src.shape().to_vec(),
+                got: index.shape().to_vec(),
+            });
+        }
+
         // Ensure contiguous
         let dst = ensure_contiguous(dst)?;
         let index_i32 = ensure_i32_indices(self, index)?;

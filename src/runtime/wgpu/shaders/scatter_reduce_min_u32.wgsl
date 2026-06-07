@@ -27,10 +27,9 @@ fn scatter_reduce_min_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 
     let inner = idx % scatter_params.inner_size;
-    let src_dim_idx = (idx / scatter_params.inner_size) % scatter_params.src_dim_size;
     let outer = idx / (scatter_params.src_dim_size * scatter_params.inner_size);
 
-    let index_val = scatter_indices[src_dim_idx];
+    let index_val = scatter_indices[idx];
     if (index_val < 0 || u32(index_val) >= scatter_params.dim_size) {
         return;
     }
