@@ -53,8 +53,12 @@ jobs:
         with:
           prefix-key: bench
 
+      # No --locked: release.yml bumps the prerelease version before calling
+      # this workflow, which intentionally makes Cargo.lock stale (the numr
+      # package version changes). Let cargo refresh the lock; dependency
+      # versions stay pinned to the existing lock entries.
       - name: Build benchmarks
-        run: cargo build --bench ci_regression --release --locked
+        run: cargo build --bench ci_regression --release
 
       # Restore the most recent baseline saved by baseline.yml on main.
       # Uses prefix matching — the exact key won't match, but restore-keys
@@ -74,10 +78,13 @@ jobs:
         if: steps.baseline-cache.outputs.cache-hit != 'true' && !hashFiles('target/fluxbench/baseline.json')
         run: |
           CURRENT_REF=$(git rev-parse HEAD)
-          # Discard any working-tree changes (e.g. a lockfile touched by the
-          # build above) so the branch switch is never blocked.
+          # The unlocked bench builds refresh Cargo.lock (the release flow bumps
+          # the version, making the lock stale on purpose), leaving the tree
+          # dirty. `git checkout -f` force-discards that tracked-file change so
+          # the ref switch is never blocked. It does NOT touch untracked files,
+          # so target/ and the saved baseline.json survive the switch back.
           git checkout -f origin/main
-          cargo bench --bench ci_regression --locked -- --save-baseline
+          cargo bench --bench ci_regression -- --save-baseline
           git checkout -f "$CURRENT_REF"
 
       # --format github-summary: renders a markdown table for the step summary.
@@ -89,4 +96,4 @@ jobs:
           if [ -f target/fluxbench/baseline.json ]; then
             ARGS="$ARGS --baseline target/fluxbench/baseline.json"
           fi
-          cargo bench --bench ci_regression --locked -- $ARGS >> $GITHUB_STEP_SUMMARY
+          cargo bench --bench ci_regression -- $ARGS >> $GITHUB_STEP_SUMMARY
