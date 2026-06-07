@@ -62,7 +62,8 @@ fn pcg64_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     state = mul64(state.x, state.y, mult_lo, mult_hi);
     state = add64(state.x, state.y, inc_lo, inc_hi);
 
-    output[idx] = f32(pcg_output(state.x, state.y)) / 4294967296.0;
+    // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
+    output[idx] = f32((pcg_output(state.x, state.y)) >> 8u) / 16777216.0;
 }
 "#;
 
@@ -132,8 +133,9 @@ fn pcg64_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     state = pcg_advance(state, inc_lo, inc_hi);
     let r2 = pcg_output(state.x, state.y);
 
-    let u1 = f32(r1) / 4294967296.0;
-    let u2 = f32(r2) / 4294967296.0;
+    // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
+    let u1 = f32((r1) >> 8u) / 16777216.0;
+    let u2 = f32((r2) >> 8u) / 16777216.0;
     let normals = box_muller(u1, u2);
 
     if (base_idx < params.numel) { output[base_idx] = normals.x; }

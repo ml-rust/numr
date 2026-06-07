@@ -1,6 +1,9 @@
-//! ThreeFry4x32-20 PRNG WGSL shaders and launchers
+//! ThreeFry4x64-20 PRNG WGSL shaders and launchers
 //!
-//! Counter-based PRNG with cryptographic quality.
+//! Counter-based PRNG; bit-identical 64-bit stream to the CPU/CUDA reference
+//! (64-bit words emulated as `vec2<u32>`). The uniform conversion matches CPU's
+//! F32 path within f32 resolution; randn additionally differs by the f32 vs f64
+//! Box-Muller transform.
 //! Reference: Salmon et al. "Parallel Random Numbers: As Easy as 1, 2, 3" (2011)
 
 use wgpu::{Buffer, Queue};
@@ -11,8 +14,14 @@ use crate::error::Result;
 use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 
 const THREEFRY_UNIFORM_WGSL: &str = r#"
-const THREEFRY_ROTATIONS: array<u32, 8> = array(10u, 26u, 11u, 21u, 13u, 27u, 23u, 5u);
-const SKEIN_KS_PARITY: u32 = 0x1BD11BDAu;
+// ThreeFry4x64-20, bit-identical to the CPU/CUDA reference (64-bit words emulated
+// as vec2<u32> = (lo, hi)). Only rot[0]/rot[1] of each 4-entry row are used,
+// matching the CPU kernel.
+const ROT0: array<u32, 8> = array(14u, 23u, 33u, 17u, 13u, 25u, 26u, 37u);
+const ROT1: array<u32, 8> = array(16u, 40u, 48u, 34u, 50u, 29u, 24u, 38u);
+// Skein parity 0x1BD11BDAA9FC1A22
+const PARITY_LO: u32 = 0xA9FC1A22u;
+const PARITY_HI: u32 = 0x1BD11BDAu;
 
 struct ThreeFryParams {
     numel: u32,
@@ -28,49 +37,85 @@ struct ThreeFryParams {
 @group(0) @binding(0) var<storage, read_write> output: array<f32>;
 @group(0) @binding(1) var<uniform> params: ThreeFryParams;
 
-fn rotl(x: u32, n: u32) -> u32 {
-    return (x << n) | (x >> (32u - n));
+fn add64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    let lo = a.x + b.x;
+    return vec2<u32>(lo, a.y + b.y + select(0u, 1u, lo < a.x));
 }
 
-fn threefry4x32_20(ctr: vec4<u32>, key: vec4<u32>) -> vec4<u32> {
-    var x = ctr;
-    var ks = array<u32, 5>(key.x, key.y, key.z, key.w,
-                          SKEIN_KS_PARITY ^ key.x ^ key.y ^ key.z ^ key.w);
-    x.x = x.x + ks[0]; x.y = x.y + ks[1]; x.z = x.z + ks[2]; x.w = x.w + ks[3];
+fn xor64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    return vec2<u32>(a.x ^ b.x, a.y ^ b.y);
+}
 
-    for (var round = 0u; round < 20u; round++) {
-        let rot_idx = round % 8u;
-        x.x = x.x + x.y; x.y = rotl(x.y, THREEFRY_ROTATIONS[rot_idx]); x.y = x.y ^ x.x;
-        x.z = x.z + x.w; x.w = rotl(x.w, THREEFRY_ROTATIONS[(rot_idx + 4u) % 8u]); x.w = x.w ^ x.z;
-        let tmp = x.y; x.y = x.w; x.w = tmp;
-        if ((round + 1u) % 4u == 0u) {
-            let inject = (round + 1u) / 4u;
-            x.x = x.x + ks[(inject + 0u) % 5u];
-            x.y = x.y + ks[(inject + 1u) % 5u];
-            x.z = x.z + ks[(inject + 2u) % 5u];
-            x.w = x.w + ks[(inject + 3u) % 5u] + inject;
-        }
+fn rotl64(v: vec2<u32>, k: u32) -> vec2<u32> {
+    if (k == 0u) { return v; }
+    if (k < 32u) {
+        return vec2<u32>((v.x << k) | (v.y >> (32u - k)), (v.y << k) | (v.x >> (32u - k)));
     }
-    return x;
+    if (k == 32u) { return vec2<u32>(v.y, v.x); }
+    let k2 = k - 32u;
+    return vec2<u32>((v.y << k2) | (v.x >> (32u - k2)), (v.x << k2) | (v.y >> (32u - k2)));
 }
 
 @compute @workgroup_size(256)
 fn threefry_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let base_idx = gid.x * 4u;
     if (base_idx >= params.numel) { return; }
-    let counter = vec4<u32>(params.counter_lo + gid.x, params.counter_hi, 0u, 0u);
-    let key = vec4<u32>(params.key_lo, params.key_hi, 0u, 0u);
-    let random = threefry4x32_20(counter, key);
+
+    let key = vec2<u32>(params.key_lo, params.key_hi);
+    var ks = array<vec2<u32>, 5>(
+        key,
+        vec2<u32>(0u, 0u),
+        vec2<u32>(0u, 0u),
+        vec2<u32>(0u, 0u),
+        xor64(key, vec2<u32>(PARITY_LO, PARITY_HI)),
+    );
+
+    // counter = counter_base + gid.x (64-bit), the rest of the block is zero.
+    var x = array<vec2<u32>, 4>(
+        add64(vec2<u32>(params.counter_lo, params.counter_hi), vec2<u32>(gid.x, 0u)),
+        vec2<u32>(0u, 0u),
+        vec2<u32>(0u, 0u),
+        vec2<u32>(0u, 0u),
+    );
+
+    for (var r = 0u; r < 20u; r++) {
+        if (r % 4u == 0u) {
+            let d = r / 4u;
+            x[0] = add64(x[0], ks[d % 5u]);
+            x[1] = add64(x[1], ks[(d + 1u) % 5u]);
+            x[2] = add64(x[2], ks[(d + 2u) % 5u]);
+            x[3] = add64(add64(x[3], ks[(d + 3u) % 5u]), vec2<u32>(d, 0u));
+        }
+        x[0] = add64(x[0], x[1]);
+        x[1] = xor64(rotl64(x[1], ROT0[r % 8u]), x[0]);
+        x[2] = add64(x[2], x[3]);
+        x[3] = xor64(rotl64(x[3], ROT1[r % 8u]), x[2]);
+        let t = x[1]; x[1] = x[3]; x[3] = t;
+    }
+    // Final key injection (d = 5).
+    x[0] = add64(x[0], ks[0]);
+    x[1] = add64(x[1], ks[1]);
+    x[2] = add64(x[2], ks[2]);
+    x[3] = add64(add64(x[3], ks[3]), vec2<u32>(5u, 0u));
+
     for (var j = 0u; j < 4u; j++) {
         let idx = base_idx + j;
-        if (idx < params.numel) { output[idx] = f32(random[j]) / 4294967296.0; }
+        if (idx < params.numel) {
+            // Top 24 bits / 2^24 — exact in f32, matches CPU/CUDA F32 conversion.
+            output[idx] = f32(x[j].y >> 8u) / 16777216.0;
+        }
     }
 }
 "#;
 
 const THREEFRY_RANDN_WGSL: &str = r#"
-const THREEFRY_ROTATIONS: array<u32, 8> = array(10u, 26u, 11u, 21u, 13u, 27u, 23u, 5u);
-const SKEIN_KS_PARITY: u32 = 0x1BD11BDAu;
+// ThreeFry4x64-20 + Box-Muller. Same 64-bit generator as the uniform variant
+// and the CPU/CUDA reference (one block of 4 u64 → 4 normals). Note: the normal
+// transform uses f32 sin/cos/log, so randn is not bit-identical across backends.
+const ROT0: array<u32, 8> = array(14u, 23u, 33u, 17u, 13u, 25u, 26u, 37u);
+const ROT1: array<u32, 8> = array(16u, 40u, 48u, 34u, 50u, 29u, 24u, 38u);
+const PARITY_LO: u32 = 0xA9FC1A22u;
+const PARITY_HI: u32 = 0x1BD11BDAu;
 const PI: f32 = 3.14159265359;
 
 struct ThreeFryParams {
@@ -87,30 +132,57 @@ struct ThreeFryParams {
 @group(0) @binding(0) var<storage, read_write> output: array<f32>;
 @group(0) @binding(1) var<uniform> params: ThreeFryParams;
 
-fn rotl(x: u32, n: u32) -> u32 {
-    return (x << n) | (x >> (32u - n));
+fn add64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    let lo = a.x + b.x;
+    return vec2<u32>(lo, a.y + b.y + select(0u, 1u, lo < a.x));
 }
 
-fn threefry4x32_20(ctr: vec4<u32>, key: vec4<u32>) -> vec4<u32> {
-    var x = ctr;
-    var ks = array<u32, 5>(key.x, key.y, key.z, key.w,
-                          SKEIN_KS_PARITY ^ key.x ^ key.y ^ key.z ^ key.w);
-    x.x = x.x + ks[0]; x.y = x.y + ks[1]; x.z = x.z + ks[2]; x.w = x.w + ks[3];
+fn xor64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    return vec2<u32>(a.x ^ b.x, a.y ^ b.y);
+}
 
-    for (var round = 0u; round < 20u; round++) {
-        let rot_idx = round % 8u;
-        x.x = x.x + x.y; x.y = rotl(x.y, THREEFRY_ROTATIONS[rot_idx]); x.y = x.y ^ x.x;
-        x.z = x.z + x.w; x.w = rotl(x.w, THREEFRY_ROTATIONS[(rot_idx + 4u) % 8u]); x.w = x.w ^ x.z;
-        let tmp = x.y; x.y = x.w; x.w = tmp;
-        if ((round + 1u) % 4u == 0u) {
-            let inject = (round + 1u) / 4u;
-            x.x = x.x + ks[(inject + 0u) % 5u];
-            x.y = x.y + ks[(inject + 1u) % 5u];
-            x.z = x.z + ks[(inject + 2u) % 5u];
-            x.w = x.w + ks[(inject + 3u) % 5u] + inject;
-        }
+fn rotl64(v: vec2<u32>, k: u32) -> vec2<u32> {
+    if (k == 0u) { return v; }
+    if (k < 32u) {
+        return vec2<u32>((v.x << k) | (v.y >> (32u - k)), (v.y << k) | (v.x >> (32u - k)));
     }
+    if (k == 32u) { return vec2<u32>(v.y, v.x); }
+    let k2 = k - 32u;
+    return vec2<u32>((v.y << k2) | (v.x >> (32u - k2)), (v.x << k2) | (v.y >> (32u - k2)));
+}
+
+fn threefry4x64_20(counter_base: vec2<u32>, gid: u32, key: vec2<u32>) -> array<vec2<u32>, 4> {
+    var ks = array<vec2<u32>, 5>(
+        key, vec2<u32>(0u, 0u), vec2<u32>(0u, 0u), vec2<u32>(0u, 0u),
+        xor64(key, vec2<u32>(PARITY_LO, PARITY_HI)),
+    );
+    var x = array<vec2<u32>, 4>(
+        add64(counter_base, vec2<u32>(gid, 0u)),
+        vec2<u32>(0u, 0u), vec2<u32>(0u, 0u), vec2<u32>(0u, 0u),
+    );
+    for (var r = 0u; r < 20u; r++) {
+        if (r % 4u == 0u) {
+            let d = r / 4u;
+            x[0] = add64(x[0], ks[d % 5u]);
+            x[1] = add64(x[1], ks[(d + 1u) % 5u]);
+            x[2] = add64(x[2], ks[(d + 2u) % 5u]);
+            x[3] = add64(add64(x[3], ks[(d + 3u) % 5u]), vec2<u32>(d, 0u));
+        }
+        x[0] = add64(x[0], x[1]);
+        x[1] = xor64(rotl64(x[1], ROT0[r % 8u]), x[0]);
+        x[2] = add64(x[2], x[3]);
+        x[3] = xor64(rotl64(x[3], ROT1[r % 8u]), x[2]);
+        let t = x[1]; x[1] = x[3]; x[3] = t;
+    }
+    x[0] = add64(x[0], ks[0]);
+    x[1] = add64(x[1], ks[1]);
+    x[2] = add64(x[2], ks[2]);
+    x[3] = add64(add64(x[3], ks[3]), vec2<u32>(5u, 0u));
     return x;
+}
+
+fn to_unit(v: vec2<u32>) -> f32 {
+    return f32(v.y >> 8u) / 16777216.0;
 }
 
 fn box_muller(u1: f32, u2: f32) -> vec2<f32> {
@@ -121,16 +193,16 @@ fn box_muller(u1: f32, u2: f32) -> vec2<f32> {
 
 @compute @workgroup_size(256)
 fn threefry_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 2u;
+    let base_idx = gid.x * 4u;
     if (base_idx >= params.numel) { return; }
-    let counter = vec4<u32>(params.counter_lo + gid.x, params.counter_hi, 0u, 0u);
-    let key = vec4<u32>(params.key_lo, params.key_hi, 0u, 0u);
-    let random = threefry4x32_20(counter, key);
-    let u1 = f32(random[0]) / 4294967296.0;
-    let u2 = f32(random[1]) / 4294967296.0;
-    let normals = box_muller(u1, u2);
-    if (base_idx < params.numel) { output[base_idx] = normals.x; }
-    if (base_idx + 1u < params.numel) { output[base_idx + 1u] = normals.y; }
+    let key = vec2<u32>(params.key_lo, params.key_hi);
+    let x = threefry4x64_20(vec2<u32>(params.counter_lo, params.counter_hi), gid.x, key);
+    let p0 = box_muller(to_unit(x[0]), to_unit(x[1]));
+    let p1 = box_muller(to_unit(x[2]), to_unit(x[3]));
+    if (base_idx < params.numel) { output[base_idx] = p0.x; }
+    if (base_idx + 1u < params.numel) { output[base_idx + 1u] = p0.y; }
+    if (base_idx + 2u < params.numel) { output[base_idx + 2u] = p1.x; }
+    if (base_idx + 3u < params.numel) { output[base_idx + 3u] = p1.y; }
 }
 "#;
 
@@ -212,7 +284,7 @@ pub fn launch_threefry_randn(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count((numel + 1) / 2), 1, 1);
+        pass.dispatch_workgroups(workgroup_count(numel.div_ceil(4)), 1, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

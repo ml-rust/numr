@@ -65,9 +65,10 @@ fn threefry4x64_20(ctr: [u64; 4], key: [u64; 2]) -> [u64; 4] {
 }
 
 /// Convert u64 to uniform float in [0, 1)
+/// Convert u64 to uniform float in [0, 1) using the top 53 bits (full f64
+/// precision; correctly rounded when cast to f32).
 #[inline(always)]
 fn u64_to_uniform(u: u64) -> f64 {
-    // Use 53 bits for full double precision
     (u >> 11) as f64 / (1u64 << 53) as f64
 }
 

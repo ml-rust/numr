@@ -81,7 +81,8 @@ fn xoshiro256_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let rotated = rotl64(sum03.x, sum03.y, 23u);
     let result = add64(rotated.x, rotated.y, s0.x, s0.y);
 
-    output[idx] = f32(result.y) / 4294967296.0;
+    // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
+    output[idx] = f32((result.y) >> 8u) / 16777216.0;
 }
 "#;
 
@@ -186,8 +187,9 @@ fn xoshiro256_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let r1 = xoshiro_next(&state);
     let r2 = xoshiro_next(&state);
 
-    let u1 = f32(r1) / 4294967296.0;
-    let u2 = f32(r2) / 4294967296.0;
+    // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
+    let u1 = f32((r1) >> 8u) / 16777216.0;
+    let u2 = f32((r2) >> 8u) / 16777216.0;
     let normals = box_muller(u1, u2);
 
     if (base_idx < params.numel) { output[base_idx] = normals.x; }
