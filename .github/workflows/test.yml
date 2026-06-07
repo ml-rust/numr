@@ -35,6 +35,14 @@ jobs:
         with:
           prefix-key: lint
 
+      # Fail fast (with a clear message) if Cargo.lock is out of sync with
+      # Cargo.toml. Resolving the graph with --locked surfaces drift here in
+      # every pipeline, instead of deep inside the --locked benchmark build.
+      - name: Verify Cargo.lock is up to date
+        run: |
+          cargo metadata --locked --format-version=1 > /dev/null \
+            || { echo "::error::Cargo.lock is out of date. Run 'cargo generate-lockfile' (or 'cargo update') and commit it."; exit 1; }
+
       - name: Check formatting
         run: cargo fmt --all --check
 

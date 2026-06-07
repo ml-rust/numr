@@ -43,8 +43,12 @@ jobs:
         with:
           prefix-key: bench
 
+      # --locked: build against the committed Cargo.lock so the saved baseline
+      # uses the exact dependency versions a PR build will (benchmark.yml also
+      # passes --locked) — otherwise baseline vs PR is an apples-to-oranges
+      # comparison and the lockfile can drift unnoticed.
       - name: Run benchmarks and save baseline
-        run: cargo bench --bench ci_regression -- --save-baseline
+        run: cargo bench --bench ci_regression --locked -- --save-baseline
 
       # Cache keyed by SHA so each merge gets its own entry.
       # benchmark.yml uses restore-keys prefix matching to find the latest one.
