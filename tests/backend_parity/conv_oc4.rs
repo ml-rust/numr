@@ -18,8 +18,10 @@ use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "wgpu")]
 use crate::backend_parity::helpers::with_wgpu_backend;
 use crate::common::{
-    DTypeDomain, assert_tensor_allclose, create_cpu_client, is_dtype_supported, parity_dtypes,
+    DTypeDomain, assert_tensor_allclose_tol, create_cpu_client, gemm_long_k_tolerance,
+    is_dtype_supported, parity_dtypes, tolerance_for_dtype,
 };
+use numr::dtype::DType;
 
 /// Deterministic, non-repeating input values so an oc4 lane-masking bug
 /// cannot cancel out by coincidence.
@@ -40,7 +42,8 @@ pub(crate) fn conv1d_bias(n: usize) -> Vec<f64> {
 }
 
 /// Runs `conv1d` on CPU and every enabled GPU backend for every float dtype
-/// and asserts the GPU result matches the CPU reference.
+/// and asserts the GPU result matches the CPU reference at the dtype's
+/// default tolerance.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn assert_conv1d_parity(
     label: &str,
@@ -53,6 +56,38 @@ pub(crate) fn assert_conv1d_parity(
     padding: PaddingMode,
     dilation: usize,
     groups: usize,
+) {
+    assert_conv1d_parity_tol(
+        label,
+        input,
+        input_shape,
+        weight,
+        weight_shape,
+        bias,
+        stride,
+        padding,
+        dilation,
+        groups,
+        &tolerance_for_dtype,
+    );
+}
+
+/// [`assert_conv1d_parity`] with the tolerance chosen per dtype by `tol`.
+/// A GEMM-backed conv sums its contraction in tile order, so a long
+/// contraction needs [`gemm_long_k_tolerance`] rather than the default.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn assert_conv1d_parity_tol(
+    label: &str,
+    input: &[f64],
+    input_shape: &[usize],
+    weight: &[f64],
+    weight_shape: &[usize],
+    bias: Option<&[f64]>,
+    stride: usize,
+    padding: PaddingMode,
+    dilation: usize,
+    groups: usize,
+    tol: &dyn Fn(DType) -> (f64, f64),
 ) {
     let c_out = weight_shape[0];
 
@@ -97,10 +132,12 @@ pub(crate) fn assert_conv1d_parity(
                 let result = cuda_client
                     .conv1d(&x, &w, b.as_ref(), stride, padding, dilation, groups)
                     .unwrap_or_else(|e| panic!("CUDA conv1d failed for {label} [{dtype:?}]: {e}"));
-                assert_tensor_allclose(
+                let (rtol, atol) = tol(dtype);
+                assert_tensor_allclose_tol(
                     &result,
                     &cpu_result,
-                    dtype,
+                    rtol,
+                    atol,
                     &format!("{label} CUDA vs CPU [{dtype:?}]"),
                 );
             });
@@ -127,10 +164,12 @@ pub(crate) fn assert_conv1d_parity(
                     .unwrap_or_else(|e| {
                         panic!("WebGPU conv1d failed for {label} [{dtype:?}]: {e}")
                     });
-                assert_tensor_allclose(
+                let (rtol, atol) = tol(dtype);
+                assert_tensor_allclose_tol(
                     &result,
                     &cpu_result,
-                    dtype,
+                    rtol,
+                    atol,
                     &format!("{label} WebGPU vs CPU [{dtype:?}]"),
                 );
             });
@@ -428,5 +467,82 @@ fn conv1d_oc4_bias_absent_parity() {
         PaddingMode::Valid,
         1,
         1,
+    );
+}
+
+/// Contraction `64 * 7 = 448` is below the length-independent im2col floor
+/// but the output is long, so CUDA takes the im2col + GEMM path through the
+/// long-output rule (`LONG_OUTPUT_LENGTH` in `conv1d_im2col.rs`). Causal
+/// left padding and dilation 3, the decoder residual-unit shape.
+#[test]
+fn conv1d_im2col_long_output_shallow_contraction_parity() {
+    let input_shape = [1usize, 64, 1100];
+    let weight_shape = [64usize, 64, 7];
+    let input = conv1d_input(input_shape.iter().product());
+    let weight = conv1d_weight(weight_shape.iter().product());
+    let bias = conv1d_bias(64);
+    let tol = gemm_conv_tolerance(64 * 7, &input, &weight);
+    assert_conv1d_parity_tol(
+        "conv1d_im2col_long_output_shallow_contraction",
+        &input,
+        &input_shape,
+        &weight,
+        &weight_shape,
+        Some(&bias),
+        1,
+        PaddingMode::Custom(18, 0, 0, 0),
+        3,
+        1,
+        &tol,
+    );
+}
+
+/// Tolerance for a conv the CUDA backend runs as a GEMM. Two independent
+/// error sources: the contraction is summed in GEMM tile order against the
+/// CPU's sequential sum, so a near-cancelled output misses the default
+/// absolute tolerance by summation order alone — the long-K absolute bound —
+/// and the stored output then rounds to the dtype, where a half-width result
+/// one ulp either side of a rounding boundary is the relative error the
+/// dtype's own rtol covers.
+fn gemm_conv_tolerance(
+    contraction: usize,
+    input: &[f64],
+    weight: &[f64],
+) -> impl Fn(DType) -> (f64, f64) {
+    let operand_scale = input
+        .iter()
+        .chain(weight.iter())
+        .fold(0.0f64, |m, v| m.max(v.abs()));
+    move |dtype| {
+        let (rtol, atol) = tolerance_for_dtype(dtype);
+        let (_, bound) = gemm_long_k_tolerance(dtype, contraction, operand_scale);
+        (rtol, atol.max(bound))
+    }
+}
+
+/// `kernel_size=1`, unit stride, no padding, one group: the CUDA backend runs
+/// this as one GEMM over the input with no column buffer
+/// (`use_conv1d_pointwise_gemm`). Batch 2 and a bias, so the broadcast weight
+/// and the per-channel bias add are both covered.
+#[test]
+fn conv1d_pointwise_gemm_parity() {
+    let input_shape = [2usize, 64, 300];
+    let weight_shape = [48usize, 64, 1];
+    let input = conv1d_input(input_shape.iter().product());
+    let weight = conv1d_weight(weight_shape.iter().product());
+    let bias = conv1d_bias(48);
+    let tol = gemm_conv_tolerance(64, &input, &weight);
+    assert_conv1d_parity_tol(
+        "conv1d_pointwise_gemm",
+        &input,
+        &input_shape,
+        &weight,
+        &weight_shape,
+        Some(&bias),
+        1,
+        PaddingMode::Valid,
+        1,
+        1,
+        &tol,
     );
 }

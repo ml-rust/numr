@@ -4,7 +4,9 @@ use super::conv_transpose1d_gemm::{conv_transpose1d_gemm, use_conv_transpose1d_g
 use super::conv_transpose1d_gemm_first::{
     conv_transpose1d_gemm_first, gemm_first_col_elements, use_conv_transpose1d_gemm_first,
 };
-use super::conv1d_im2col::{conv1d_im2col, use_conv1d_im2col};
+use super::conv1d_im2col::{
+    conv1d_im2col, conv1d_pointwise_gemm, use_conv1d_im2col, use_conv1d_pointwise_gemm,
+};
 use super::conv2d_im2col::{conv2d_im2col, use_conv2d_im2col};
 use crate::error::Result;
 use crate::ops::conv_common::{validate_conv1d, validate_conv2d, validate_depthwise_conv2d};
@@ -58,8 +60,12 @@ impl ConvOps<CudaRuntime> for CudaClient {
         let weight = ensure_contiguous(weight)?;
         let bias = bias.map(ensure_contiguous).transpose()?;
 
+        // A pointwise convolution is one GEMM over the input as it lies.
         // Well-shaped convolutions run as im2col + GEMM; the direct kernel
         // below stays the path for every other shape.
+        if use_conv1d_pointwise_gemm(&params) {
+            return conv1d_pointwise_gemm(self, &input, &weight, bias.as_ref(), &params);
+        }
         if use_conv1d_im2col(&params, dtype) {
             return conv1d_im2col(self, &input, &weight, bias.as_ref(), &params);
         }

@@ -23,6 +23,11 @@
 //
 // PADDING. Taps whose input index falls outside [0, L) are written as zero, so
 // the GEMM contracts over them without changing the result.
+//
+// CHUNKING. `output_offset` is the first output position this launch covers
+// and `output_length` the number it covers, so the host can split a long
+// output into column buffers of bounded size. Each chunk reads the input in
+// place; only its own columns are written.
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
@@ -39,13 +44,14 @@ __global__ void im2col1d_##suffix( \
     unsigned int output_length, \
     unsigned int stride, \
     unsigned int padding, \
-    unsigned int dilation \
+    unsigned int dilation, \
+    unsigned int output_offset \
 ) { \
     unsigned int ox = blockIdx.x * blockDim.x + threadIdx.x; \
     if (ox >= output_length) return; \
     \
     unsigned int rows = c_in * kernel_size; \
-    int ix_base = (int)(ox * stride) - (int)padding; \
+    int ix_base = (int)((ox + output_offset) * stride) - (int)padding; \
     \
     for (unsigned int r = blockIdx.y; r < rows; r += gridDim.y) { \
         unsigned int ic = r / kernel_size; \
