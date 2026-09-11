@@ -64,10 +64,10 @@ __device__ __forceinline__ void ct_load_a_scalar(
     }
 }
 
-template<typename T, int BK, int BN>
+template<typename T, int BK, int BN, int BNP = BN>
 __device__ __forceinline__ void ct_load_b_scalar(
     const T* __restrict__ B,
-    float smem_B[BK][BN],
+    float smem_B[BK][BNP],
     unsigned int block_col,
     unsigned int k_offset,
     unsigned int K,
@@ -140,10 +140,12 @@ __device__ __forceinline__ void ct_load_a(
 }
 
 // Load B tile [BK × BN] cooperatively.  Float4 when BN%4==0 && N%4==0.
-template<typename T, int BK, int BN>
+// `BNP` is the smem row stride; the float4 smem store needs it to keep rows
+// 16-byte aligned, so the plain path uses BNP == BN.
+template<typename T, int BK, int BN, int BNP = BN>
 __device__ __forceinline__ void ct_load_b(
     const T* __restrict__ B,
-    float smem_B[BK][BN],
+    float smem_B[BK][BNP],
     unsigned int block_col,
     unsigned int k_offset,
     unsigned int K,
@@ -153,9 +155,9 @@ __device__ __forceinline__ void ct_load_b(
 ) {
     const unsigned int tile_elems = BK * BN;
     if constexpr (!std::is_same_v<T, float>) {
-        ct_load_b_scalar<T, BK, BN>(B, smem_B, block_col, k_offset, K, N,
-                                    thread_id, num_threads);
-    } else if ((BN & 3) == 0 && (N & 3u) == 0u) {
+        ct_load_b_scalar<T, BK, BN, BNP>(B, smem_B, block_col, k_offset, K, N,
+                                         thread_id, num_threads);
+    } else if ((BN & 3) == 0 && (N & 3u) == 0u && BNP == BN) {
         const unsigned int vec_elems = tile_elems >> 2;
         for (unsigned int vi = thread_id; vi < vec_elems; vi += num_threads) {
             const unsigned int load_idx = vi << 2;
@@ -176,8 +178,93 @@ __device__ __forceinline__ void ct_load_b(
             *reinterpret_cast<float4*>(dst) = v;
         }
     } else {
-        ct_load_b_scalar<T, BK, BN>(B, smem_B, block_col, k_offset, K, N,
-                                    thread_id, num_threads);
+        ct_load_b_scalar<T, BK, BN, BNP>(B, smem_B, block_col, k_offset, K, N,
+                                         thread_id, num_threads);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transposed-B tile loads: B is [N × K] row-major, C = A · Bᵀ
+// ---------------------------------------------------------------------------
+//
+// Every `Linear` weight is [out, in] = [N, K], so `x @ W.T` arrives here as a
+// transposed view. Reading it in place saves materialising a copy of the whole
+// weight per call. The tile still lands in smem as [BK][BN] so the micro-kernel
+// is shared with the plain path.
+//
+// Global reads run along K, the contiguous axis. Each group of BK/4 threads
+// covers one B row's BK-run in float4 steps and the next group the next row,
+// so a warp reads whole 32-byte sectors. The smem scatter is transposed, so
+// its row stride BNP carries 32 / BK floats of padding: a warp then covers
+// BK / 4 k-quads spaced 128 / BK banks apart and 128 / BK rows filling the
+// banks between them, and each scalar store lands in its own bank.
+
+template<typename T, int BK, int BN, int BNP>
+__device__ __forceinline__ void ct_load_bt_scalar(
+    const T* __restrict__ B,
+    float smem_B[BK][BNP],
+    unsigned int block_col,
+    unsigned int k_offset,
+    unsigned int K,
+    unsigned int N,
+    unsigned int thread_id,
+    unsigned int num_threads
+) {
+    const unsigned int tile_elems = BK * BN;
+    for (unsigned int idx = thread_id; idx < tile_elems; idx += num_threads) {
+        // k fastest, so consecutive threads read consecutive addresses.
+        const unsigned int load_k = idx % BK;
+        const unsigned int load_n = idx / BK;
+        const unsigned int global_n = block_col + load_n;
+        const unsigned int global_k = k_offset + load_k;
+        float val = 0.f;
+        if (global_n < N && global_k < K) {
+            val = AccumTraits<T, float>::load(B, (int)(global_n * K + global_k));
+        }
+        smem_B[load_k][load_n] = val;
+    }
+}
+
+template<typename T, int BK, int BN, int BNP>
+__device__ __forceinline__ void ct_load_bt(
+    const T* __restrict__ B,
+    float smem_B[BK][BNP],
+    unsigned int block_col,
+    unsigned int k_offset,
+    unsigned int K,
+    unsigned int N,
+    unsigned int thread_id,
+    unsigned int num_threads
+) {
+    const unsigned int tile_elems = BK * BN;
+    if constexpr (!std::is_same_v<T, float>) {
+        ct_load_bt_scalar<T, BK, BN, BNP>(B, smem_B, block_col, k_offset, K, N,
+                                          thread_id, num_threads);
+    } else if ((BK & 3) == 0 && (K & 3u) == 0u) {
+        constexpr unsigned int quads_per_row = BK / 4;
+        const unsigned int vec_elems = tile_elems >> 2;
+        for (unsigned int vi = thread_id; vi < vec_elems; vi += num_threads) {
+            const unsigned int load_n = vi / quads_per_row;
+            const unsigned int load_k = (vi % quads_per_row) << 2;
+            const unsigned int global_n = block_col + load_n;
+            const unsigned int global_k = k_offset + load_k;
+            float4 v = make_float4(0.f, 0.f, 0.f, 0.f);
+            if (global_n < N && global_k + 3 < K) {
+                v = *reinterpret_cast<const float4*>(&B[global_n * K + global_k]);
+            } else if (global_n < N && global_k < K) {
+                v.x = (global_k     < K) ? B[global_n * K + global_k    ] : 0.f;
+                v.y = (global_k + 1 < K) ? B[global_n * K + global_k + 1] : 0.f;
+                v.z = (global_k + 2 < K) ? B[global_n * K + global_k + 2] : 0.f;
+                v.w = (global_k + 3 < K) ? B[global_n * K + global_k + 3] : 0.f;
+            }
+            smem_B[load_k    ][load_n] = v.x;
+            smem_B[load_k + 1][load_n] = v.y;
+            smem_B[load_k + 2][load_n] = v.z;
+            smem_B[load_k + 3][load_n] = v.w;
+        }
+    } else {
+        ct_load_bt_scalar<T, BK, BN, BNP>(B, smem_B, block_col, k_offset, K, N,
+                                          thread_id, num_threads);
     }
 }
 
@@ -217,8 +304,9 @@ struct MatmulEpilogueNone {
 // than a runtime-indexed extern __shared__ pointer so the compiler sees fixed
 // strides and can pipeline the loads.
 // ---------------------------------------------------------------------------
+//   BT       - B is [N × K] row-major (C = A · Bᵀ) instead of [K × N]
 template<int BM, int BN, int BK, int TM, int TN, class Epilogue = MatmulEpilogueNone,
-         typename T = float>
+         typename T = float, bool BT = false>
 __device__ __forceinline__ void matmul_f32_tiled_impl(
     const T* __restrict__ A,
     const T* __restrict__ B,
@@ -228,11 +316,14 @@ __device__ __forceinline__ void matmul_f32_tiled_impl(
     unsigned int K,
     Epilogue epi = Epilogue()
 ) {
-    // Static shared memory — compile-time sizes enable unrolling.
+    // Static shared memory — compile-time sizes enable unrolling. The B tile
+    // carries row padding on the transposed path (see `ct_load_bt`); the
+    // plain path keeps rows 16-byte aligned for float4.
+    constexpr int BNP = BT ? BN + 32 / BK : BN;
     __shared__ float As0[BM][BK];
-    __shared__ float Bs0[BK][BN];
+    __shared__ float Bs0[BK][BNP];
     __shared__ float As1[BM][BK];
-    __shared__ float Bs1[BK][BN];
+    __shared__ float Bs1[BK][BNP];
 
     const unsigned int tx = threadIdx.x;      // [0, BN/TN)
     const unsigned int ty = threadIdx.y;      // [0, BM/TM)
@@ -266,21 +357,31 @@ __device__ __forceinline__ void matmul_f32_tiled_impl(
 
         // Preload tile 0 into buffer 0.
         ct_load_a<T, BM, BK>(A, As0, block_row, 0u, M, K, thread_id, num_threads);
-        ct_load_b<T, BK, BN>(B, Bs0, block_col, 0u, K, N, thread_id, num_threads);
+        if constexpr (BT) {
+            ct_load_bt<T, BK, BN, BNP>(B, Bs0, block_col, 0u, K, N, thread_id, num_threads);
+        } else {
+            ct_load_b<T, BK, BN, BNP>(B, Bs0, block_col, 0u, K, N, thread_id, num_threads);
+        }
         __syncthreads();
 
         for (unsigned int bk = 0; bk < num_k_tiles; bk++) {
             // Select current / next ping-pong buffers.
             float (*As_cur)[BK] = (bk & 1u) ? As1 : As0;
-            float (*Bs_cur)[BN] = (bk & 1u) ? Bs1 : Bs0;
+            float (*Bs_cur)[BNP] = (bk & 1u) ? Bs1 : Bs0;
             float (*As_nxt)[BK] = (bk & 1u) ? As0 : As1;
-            float (*Bs_nxt)[BN] = (bk & 1u) ? Bs0 : Bs1;
+            float (*Bs_nxt)[BNP] = (bk & 1u) ? Bs0 : Bs1;
 
             // Prefetch next tile (if any) while computing current tile.
             const unsigned int next_k = (bk + 1) * BK;
             if (bk + 1 < num_k_tiles) {
                 ct_load_a<T, BM, BK>(A, As_nxt, block_row, next_k, M, K, thread_id, num_threads);
-                ct_load_b<T, BK, BN>(B, Bs_nxt, block_col, next_k, K, N, thread_id, num_threads);
+                if constexpr (BT) {
+                    ct_load_bt<T, BK, BN, BNP>(B, Bs_nxt, block_col, next_k, K, N,
+                                               thread_id, num_threads);
+                } else {
+                    ct_load_b<T, BK, BN, BNP>(B, Bs_nxt, block_col, next_k, K, N,
+                                              thread_id, num_threads);
+                }
             }
 
             // Micro-kernel: fully unrolled, accumulators stay in registers.

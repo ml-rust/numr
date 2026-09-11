@@ -45,7 +45,10 @@ pub use launch_dims::{
     BLOCK_SIZE, LaunchConfig, MAX_GRID_DIM_YZ, check_shared_mem_fits, elementwise_launch_config,
     launch_config, reduce_dim_launch_config, reduce_launch_config, softmax_launch_config,
 };
-pub use matmul::{launch_matmul_batched_kernel, launch_matmul_kernel};
+pub use matmul::{
+    launch_matmul_batched_kernel, launch_matmul_batched_kernel_bt, launch_matmul_kernel,
+    launch_matmul_kernel_bt,
+};
 pub use matmul_bias::{launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel};
 pub use matmul_config::{
     default_tile_config, f32_batched_tile_config, f32_tiled_launch_config, f32_tiled_suffix,

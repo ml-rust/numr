@@ -1,15 +1,16 @@
 //! Native tiled GEMM entry points for the CUDA client.
 //!
 //! Handles the operand preparation the kernels cannot: transpose-view
-//! detection so a `[K,N]` view reaches GEMV without materialising the copy,
-//! batch broadcasting, and the integer output-dtype widening.
+//! detection so a `[K,N]` view reaches GEMV or the transposed-B tiled GEMM
+//! without materialising the copy, batch broadcasting, and the integer
+//! output-dtype widening.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::matmul_output_shape;
 use crate::runtime::cuda::kernels::{
     int_matmul_output_dtype, launch_gemv_kernel_bt_mr, launch_matmul_batched_kernel,
-    launch_matmul_kernel,
+    launch_matmul_batched_kernel_bt, launch_matmul_kernel, launch_matmul_kernel_bt,
 };
 use crate::runtime::cuda::ops::matmul_broadcast::resolve_batched_operands;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
@@ -86,6 +87,32 @@ pub(crate) fn matmul_native(
         }
 
         return Ok(out);
+    }
+
+    // Larger M against the same transposed weight: the tiled F32 kernel reads
+    // the `[N, K]` buffer in place. Making `b` contiguous here would copy the
+    // whole weight on every call. F32 only: the other dtypes have no
+    // transposed-B tile loader.
+    if dtype == DType::F32 && is_simple_transpose_2d(b) {
+        let a_contig = ensure_contiguous(a)?;
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
+        let launched = unsafe {
+            launch_matmul_kernel_bt(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(),
+                out.ptr(),
+                m,
+                n,
+                k,
+            )?
+        };
+        if launched {
+            return Ok(out);
+        }
     }
 
     let a_contig = ensure_contiguous(a)?;
@@ -177,6 +204,33 @@ pub(crate) fn matmul_batched_native(
         }
 
         return Ok(out);
+    }
+
+    // Same in-place read of a transposed `[batch, N, K]` operand as
+    // `matmul_native`.
+    if dtype == DType::F32 && is_batched_transpose_last2(b) {
+        let a_contig = ensure_contiguous(a)?;
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
+        let launched = unsafe {
+            launch_matmul_batched_kernel_bt(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(),
+                out.ptr(),
+                batch,
+                m,
+                n,
+                k,
+                a_batch,
+                b_batch,
+            )?
+        };
+        if launched {
+            return Ok(out);
+        }
     }
 
     let a_contig = ensure_contiguous(a)?;

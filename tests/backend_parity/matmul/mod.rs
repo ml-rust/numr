@@ -11,6 +11,10 @@
 // its output to I32 - in the fused-bias form too, where the bias is I32 as
 // well - so its parity tests assert the output dtype as well as the values.
 //
+// `transposed_b_cuda` covers the F32 tiled kernels that read a `[N, K]`
+// weight in place when matmul receives its transposed view, the shape every
+// `Linear` produces.
+//
 // `integer_wgpu` pins the WebGPU I32/U32 kernels at the accumulator boundary:
 // their operands stay 32-bit, but WGSL has no 64-bit integer, so the accumulator
 // they build out of 32-bit limbs needs coverage the small operands in `float`
@@ -22,3 +26,4 @@ pub mod integer_cuda;
 pub mod integer_dtypes_cuda;
 pub mod integer_gemv_cuda;
 pub mod integer_wgpu;
+pub mod transposed_b_cuda;

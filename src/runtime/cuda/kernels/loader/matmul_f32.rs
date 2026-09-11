@@ -133,9 +133,78 @@ pub(super) unsafe fn launch_matmul_f32_tiled(
     }
 }
 
+/// How the F32 tiled kernels read their B operand.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BLayout {
+    /// `B` is `[K, N]` row-major.
+    Kn,
+    /// `B` is `[N, K]` row-major, so the kernel computes `A · Bᵀ`. This is a
+    /// `Linear` weight read in place instead of through a transposed copy.
+    Nk,
+}
+
+impl BLayout {
+    fn kernel_infix(self) -> &'static str {
+        match self {
+            Self::Kn => "",
+            Self::Nk => "bt_",
+        }
+    }
+}
+
+/// Launch compile-time-tiled FP32 GEMM `C[M,N] = A[M,K] · B` with `B` read as
+/// `[N, K]`, without the runtime-tile fallback [`launch_matmul_f32_tiled`]
+/// has. Returns `Ok(false)` when `tile_cfg` has no specialised instantiation,
+/// so the caller can materialise the transpose and take the plain path.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub(super) unsafe fn launch_matmul_f32_tiled_bt(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+    tile_cfg: &TileConfig,
+) -> Result<bool> {
+    let Some(suffix) = f32_tiled_suffix(tile_cfg) else {
+        return Ok(false);
+    };
+    let kernel_fn_name = format!("matmul_f32_tiled_bt_{suffix}");
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
+    let func = get_kernel_function(&module, &kernel_fn_name)?;
+    let cfg = f32_tiled_launch_config(m, n, 1, tile_cfg);
+
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA matmul F32 tiled kernel '{}' launch failed: {:?}",
+                kernel_fn_name, e
+            ))
+        })?;
+    }
+    Ok(true)
+}
+
 /// Launch compile-time-tiled FP32 batched GEMM:
-/// `C[batch,M,N] = A[batch,M,K] @ B[batch,K,N]`, with `a_batch` / `b_batch`
-/// broadcasting an operand held once over every batch.
+/// `C[batch,M,N] = A[batch,M,K] · B[batch]`, with `B` read per `b_layout` and
+/// `a_batch` / `b_batch` broadcasting an operand held once over every batch.
 ///
 /// Same tile set as [`launch_matmul_f32_tiled`]. Returns `Ok(false)` when
 /// `tile_cfg` has no specialised instantiation, so the caller runs the
@@ -159,11 +228,15 @@ pub(super) unsafe fn launch_matmul_batched_f32_tiled(
     a_batch: usize,
     b_batch: usize,
     tile_cfg: &TileConfig,
+    b_layout: BLayout,
 ) -> Result<bool> {
     let Some(suffix) = f32_tiled_suffix(tile_cfg) else {
         return Ok(false);
     };
-    let kernel_fn_name = format!("matmul_batched_f32_tiled_{suffix}");
+    let kernel_fn_name = format!(
+        "matmul_batched_f32_tiled_{}{suffix}",
+        b_layout.kernel_infix()
+    );
     let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
     let func = get_kernel_function(&module, &kernel_fn_name)?;
 

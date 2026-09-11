@@ -168,7 +168,7 @@ pub use loader::{
     int_matmul_has_kernel, int_matmul_output_dtype, kernel_names, launch_col_transpose1d,
     launch_col2im_transpose1d, launch_gemv_kernel_bt, launch_gemv_kernel_bt_mr,
     launch_grouped_matmul, launch_im2col1d, launch_im2col2d, launch_matmul_batched_kernel,
-    launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel,
-    launch_matmul_kernel, launch_semiring_matmul_batched_kernel,
+    launch_matmul_batched_kernel_bt, launch_matmul_bias_batched_kernel, launch_matmul_bias_kernel,
+    launch_matmul_kernel, launch_matmul_kernel_bt, launch_semiring_matmul_batched_kernel,
     launch_semiring_matmul_kernel, preload_modules,
 };

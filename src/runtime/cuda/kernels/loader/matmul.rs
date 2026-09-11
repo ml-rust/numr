@@ -21,7 +21,9 @@ use super::matmul_config::{
     default_tile_config, f32_batched_tile_config, matmul_batched_launch_config,
     matmul_launch_config,
 };
-use super::matmul_f32::{launch_matmul_batched_f32_tiled, launch_matmul_f32_tiled};
+use super::matmul_f32::{
+    BLayout, launch_matmul_batched_f32_tiled, launch_matmul_f32_tiled, launch_matmul_f32_tiled_bt,
+};
 use super::matmul_fp8::launch_matmul_fp8_tiled;
 use super::matmul_int::{int_matmul_has_kernel, launch_matmul_int_tiled};
 use super::matmul_wmma::{launch_matmul_wmma_batched_kernel, launch_matmul_wmma_kernel, use_wmma};
@@ -404,6 +406,7 @@ pub unsafe fn launch_matmul_batched_kernel(
                 a_batch,
                 b_batch,
                 &tile_cfg,
+                BLayout::Kn,
             )?
         };
         if launched {
@@ -511,4 +514,89 @@ pub unsafe fn launch_matmul_batched_kernel_with_config(
     }
 
     Ok(())
+}
+
+/// F32 GEMM against a transposed-view operand: `C[M,N] = A[M,K] · Bᵀ` where
+/// `b_ptr` is the contiguous `[N, K]` matrix behind the view. Returns
+/// `Ok(false)` when no tiled kernel covers the shape, in which case the caller
+/// materialises the transpose and uses [`launch_matmul_kernel`]. F32 only:
+/// other dtypes have no transposed-B tile loader.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub unsafe fn launch_matmul_kernel_bt(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    m: usize,
+    n: usize,
+    k: usize,
+) -> Result<bool> {
+    if dtype != DType::F32 {
+        return Ok(false);
+    }
+    let tile_cfg = f32_batched_tile_config(m, n, k);
+    unsafe {
+        launch_matmul_f32_tiled_bt(
+            context,
+            stream,
+            device_index,
+            a_ptr,
+            b_ptr,
+            c_ptr,
+            m,
+            n,
+            k,
+            &tile_cfg,
+        )
+    }
+}
+
+/// Batched form of [`launch_matmul_kernel_bt`]: `b_ptr` is `[batch, N, K]`.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub unsafe fn launch_matmul_batched_kernel_bt(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    dtype: DType,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+    a_batch: usize,
+    b_batch: usize,
+) -> Result<bool> {
+    if dtype != DType::F32 {
+        return Ok(false);
+    }
+    let tile_cfg = f32_batched_tile_config(m, n, k);
+    unsafe {
+        launch_matmul_batched_f32_tiled(
+            context,
+            stream,
+            device_index,
+            a_ptr,
+            b_ptr,
+            c_ptr,
+            batch,
+            m,
+            n,
+            k,
+            a_batch,
+            b_batch,
+            &tile_cfg,
+            BLayout::Nk,
+        )
+    }
 }
