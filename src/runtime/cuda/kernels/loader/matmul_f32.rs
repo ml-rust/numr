@@ -2,7 +2,8 @@
 //!
 //! Selects the `extern "C"` instantiation matching the tile so NVCC can unroll
 //! the micro-kernel and keep accumulators in registers, with the generic
-//! `matmul_f32` kernel as the fallback for unspecialised tiles.
+//! `matmul_f32` / `matmul_batched_f32` kernels as the fallback for
+//! unspecialised tiles.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -130,4 +131,70 @@ pub(super) unsafe fn launch_matmul_f32_tiled(
         }
         Ok(())
     }
+}
+
+/// Launch compile-time-tiled FP32 batched GEMM:
+/// `C[batch,M,N] = A[batch,M,K] @ B[batch,K,N]`, with `a_batch` / `b_batch`
+/// broadcasting an operand held once over every batch.
+///
+/// Same tile set as [`launch_matmul_f32_tiled`]. Returns `Ok(false)` when
+/// `tile_cfg` has no specialised instantiation, so the caller runs the
+/// runtime-tile `matmul_batched_f32` instead; that kernel spills its
+/// accumulators, which is why this path exists.
+///
+/// # Safety
+///
+/// All pointers must be valid device memory with correct sizes.
+pub(super) unsafe fn launch_matmul_batched_f32_tiled(
+    context: &Arc<CudaContext>,
+    stream: &CudaStream,
+    device_index: usize,
+    a_ptr: u64,
+    b_ptr: u64,
+    c_ptr: u64,
+    batch: usize,
+    m: usize,
+    n: usize,
+    k: usize,
+    a_batch: usize,
+    b_batch: usize,
+    tile_cfg: &TileConfig,
+) -> Result<bool> {
+    let Some(suffix) = f32_tiled_suffix(tile_cfg) else {
+        return Ok(false);
+    };
+    let kernel_fn_name = format!("matmul_batched_f32_tiled_{suffix}");
+    let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
+    let func = get_kernel_function(&module, &kernel_fn_name)?;
+
+    // Static `__shared__` only, so dynamic shared memory stays 0 (see
+    // `launch_matmul_f32_tiled`).
+    let cfg = f32_tiled_launch_config(m, n, batch, tile_cfg);
+
+    let batch_u32 = batch as u32;
+    let m_u32 = m as u32;
+    let n_u32 = n as u32;
+    let k_u32 = k as u32;
+    let a_batch_u32 = a_batch as u32;
+    let b_batch_u32 = b_batch as u32;
+
+    unsafe {
+        let mut builder = stream.launch_builder(&func);
+        builder.arg(&a_ptr);
+        builder.arg(&b_ptr);
+        builder.arg(&c_ptr);
+        builder.arg(&batch_u32);
+        builder.arg(&m_u32);
+        builder.arg(&n_u32);
+        builder.arg(&k_u32);
+        builder.arg(&a_batch_u32);
+        builder.arg(&b_batch_u32);
+        builder.launch(cfg).map_err(|e| {
+            Error::Internal(format!(
+                "CUDA batched matmul F32 tiled kernel '{}' launch failed: {:?}",
+                kernel_fn_name, e
+            ))
+        })?;
+    }
+    Ok(true)
 }

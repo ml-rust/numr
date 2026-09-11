@@ -545,6 +545,43 @@ fn test_matmul_f32_tiled_non_tile_multiple_parity() {
     test_matmul_parity(&cases, DType::F32);
 }
 
+fn make_f32_batched_test_data(
+    batch_a: usize,
+    batch_b: usize,
+    m: usize,
+    k: usize,
+    n: usize,
+    seed_a: f64,
+    seed_b: f64,
+) -> MatmulTest {
+    let a: Vec<f64> = (0..batch_a * m * k)
+        .map(|i| ((i as f64) * seed_a + 0.37).sin() * 0.5)
+        .collect();
+    let b: Vec<f64> = (0..batch_b * k * n)
+        .map(|i| ((i as f64) * seed_b - 0.21).cos() * 0.5)
+        .collect();
+    MatmulTest::new(a, vec![batch_a, m, k], b, vec![batch_b, k, n])
+}
+
+// The F32 batched path runs the compile-time-tiled kernels
+// (`matmul_batched_f32_tiled_*`), so the batched shapes need the same tile
+// coverage the 2-D cases above give: both tiles, ragged edges on every dim, and
+// a batch broadcast where one operand is held once.
+#[test]
+fn test_matmul_f32_batched_tiled_parity() {
+    let cases = [
+        // 64x64x32 tile (m <= 64 or n <= 64), every dim ragged.
+        make_f32_batched_test_data(3, 3, 70, 130, 50, 0.0011, 0.0019),
+        // 128x128x8 tile (m, n > 64), ragged on all three dims.
+        make_f32_batched_test_data(2, 2, 200, 100, 150, 0.0007, 0.0013),
+        // Batch broadcast: A held once, B per batch.
+        make_f32_batched_test_data(1, 3, 70, 130, 50, 0.0017, 0.0023),
+        // Batch broadcast the other way, 128 tile.
+        make_f32_batched_test_data(3, 1, 130, 96, 77, 0.0005, 0.0015),
+    ];
+    test_matmul_parity(&cases, DType::F32);
+}
+
 // ============================================================================
 // Single-Token Decode (m=1..8) Parity
 // ============================================================================

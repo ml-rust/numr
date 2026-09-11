@@ -21,7 +21,7 @@ use super::matmul_config::{
     default_tile_config, f32_batched_tile_config, matmul_batched_launch_config,
     matmul_launch_config,
 };
-use super::matmul_f32::launch_matmul_f32_tiled;
+use super::matmul_f32::{launch_matmul_batched_f32_tiled, launch_matmul_f32_tiled};
 use super::matmul_fp8::launch_matmul_fp8_tiled;
 use super::matmul_int::{int_matmul_has_kernel, launch_matmul_int_tiled};
 use super::matmul_wmma::{launch_matmul_wmma_batched_kernel, launch_matmul_wmma_kernel, use_wmma};
@@ -386,6 +386,30 @@ pub unsafe fn launch_matmul_batched_kernel(
         DType::F32 => f32_batched_tile_config(m, n, k),
         _ => default_tile_config(dtype),
     };
+    // F32: the compile-time-tiled kernels keep accumulators in registers; the
+    // runtime-tile fallback below spills them.
+    if dtype == DType::F32 {
+        let launched = unsafe {
+            launch_matmul_batched_f32_tiled(
+                context,
+                stream,
+                device_index,
+                a_ptr,
+                b_ptr,
+                c_ptr,
+                batch,
+                m,
+                n,
+                k,
+                a_batch,
+                b_batch,
+                &tile_cfg,
+            )?
+        };
+        if launched {
+            return Ok(());
+        }
+    }
     unsafe {
         launch_matmul_batched_kernel_with_config(
             context,
