@@ -1,6 +1,9 @@
 //! CUDA implementation of convolution operations.
 
 use super::conv_transpose1d_gemm::{conv_transpose1d_gemm, use_conv_transpose1d_gemm};
+use super::conv_transpose1d_gemm_first::{
+    conv_transpose1d_gemm_first, gemm_first_col_elements, use_conv_transpose1d_gemm_first,
+};
 use super::conv1d_im2col::{conv1d_im2col, use_conv1d_im2col};
 use super::conv2d_im2col::{conv2d_im2col, use_conv2d_im2col};
 use crate::error::Result;
@@ -140,9 +143,21 @@ impl ConvOps<CudaRuntime> for CudaClient {
         let weight = ensure_contiguous(weight)?;
         let bias = bias.map(ensure_contiguous).transpose()?;
 
-        // Well-shaped transposed convolutions run as a column gather + GEMM;
-        // the direct kernel below stays the path for every other shape.
-        if use_conv_transpose1d_gemm(&params, dtype) {
+        // Well-shaped transposed convolutions run through a GEMM. Two
+        // formulations do the same multiply-accumulates and differ only in
+        // the column buffer they hold: GEMM-first sizes it by the input
+        // length, gather-first by the output length. The smaller buffer
+        // wins; the direct kernel below stays the path for every other shape.
+        let gemm_first = use_conv_transpose1d_gemm_first(&params, dtype);
+        let gather_first = use_conv_transpose1d_gemm(&params, dtype);
+        if gemm_first {
+            let gather_col = params.batch * params.c_in * params.kernel_size * params.output_length;
+            let smaller = gemm_first_col_elements(&params).is_some_and(|n| n <= gather_col);
+            if !gather_first || smaller {
+                return conv_transpose1d_gemm_first(self, &input, &weight, bias.as_ref(), &params);
+            }
+        }
+        if gather_first {
             return conv_transpose1d_gemm(self, &input, &weight, bias.as_ref(), &params);
         }
 

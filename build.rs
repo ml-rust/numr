@@ -47,6 +47,7 @@ fn compile_cuda_kernels() {
         "advanced_random.cu",
         "binary.cu",
         "cast.cu",
+        "col2im_transpose1d.cu",
         "col_transpose1d.cu",
         "compare.cu",
         "complex.cu",

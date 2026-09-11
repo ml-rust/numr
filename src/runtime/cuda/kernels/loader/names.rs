@@ -116,6 +116,8 @@ pub mod kernel_names {
     pub const IM2COL2D_MODULE: &str = "im2col2d";
     /// conv_transpose1d column gather (packs contributing samples for a GEMM)
     pub const COL_TRANSPOSE1D_MODULE: &str = "col_transpose1d";
+    /// conv_transpose1d GEMM-first fold (sums each output position's taps)
+    pub const COL2IM_TRANSPOSE1D_MODULE: &str = "col2im_transpose1d";
 
     /// Generate kernel name for reduction operations.
     #[inline]

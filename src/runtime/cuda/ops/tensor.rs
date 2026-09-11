@@ -36,6 +36,9 @@ mod conv1d_im2col;
 #[path = "../../../ops/cuda/conv_transpose1d_gemm.rs"]
 mod conv_transpose1d_gemm;
 
+#[path = "../../../ops/cuda/conv_transpose1d_gemm_first.rs"]
+mod conv_transpose1d_gemm_first;
+
 #[path = "../../../ops/cuda/conv2d_im2col.rs"]
 mod conv2d_im2col;
 

@@ -4,6 +4,7 @@
 //! cached per-device. The launch helpers below are grouped by kernel family,
 //! each with the module selectors and tile constants that family needs.
 
+mod col2im_transpose1d;
 mod col_transpose1d;
 mod dtype_modules;
 mod elementwise;
@@ -29,6 +30,7 @@ mod reduce_split;
 mod semiring_matmul;
 
 pub use col_transpose1d::{col_transpose1d_has_kernel, launch_col_transpose1d};
+pub use col2im_transpose1d::launch_col2im_transpose1d;
 pub(crate) use dtype_modules::{cumulative_module, reduce_module, unary_module};
 pub use elementwise::{launch_binary_kernel, launch_unary_kernel};
 pub(crate) use gemm_epilogue_wmma::{
