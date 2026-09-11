@@ -10,8 +10,8 @@ use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
 use super::loader::{
-    dtype_suffix, get_kernel_function, get_or_load_module, kernel_name, kernel_names,
-    launch_config, reduce_dim_launch_config, reduce_launch_config, reduce_module,
+    BLOCK_SIZE, MAX_GRID_DIM_X, dtype_suffix, get_kernel_function, get_or_load_module, kernel_name,
+    kernel_names, launch_config, reduce_dim_launch_config, reduce_launch_config, reduce_module,
     reduce_split_count,
 };
 use crate::dtype::DType;
@@ -28,8 +28,29 @@ pub(crate) use crate::ops::AccumulationPrecision;
 fn has_fp32acc_variant(base_op: &str) -> bool {
     matches!(
         base_op,
-        "reduce_sum_dim" | "reduce_max_dim" | "reduce_min_dim" | "reduce_prod_dim"
+        "reduce_sum_dim"
+            | "reduce_max_dim"
+            | "reduce_min_dim"
+            | "reduce_prod_dim"
+            | "reduce_sum_dim_serial"
+            | "reduce_max_dim_serial"
+            | "reduce_min_dim_serial"
+            | "reduce_prod_dim_serial"
     )
+}
+
+/// Longest reduced axis the one-thread-per-output `_serial` kernels take.
+///
+/// The block-per-output kernels leave most of their threads idle on a short
+/// axis and launch one block per output; below this length a thread walking
+/// the axis in order does the same work with a grid sized to the outputs.
+/// See the serial section of `reduce.cu`.
+const SERIAL_REDUCE_MAX: usize = 32;
+
+/// Whether `op` has a `_serial` twin. The float module instantiates them for
+/// the four core reductions; the integer module has none.
+fn has_serial_variant(op: &str, dtype: DType) -> bool {
+    !dtype.is_int() && matches!(op, "sum" | "max" | "min" | "prod")
 }
 
 /// Generate kernel name with accumulation precision suffix.
@@ -252,11 +273,28 @@ pub unsafe fn launch_reduce_dim_op(
 ) -> Result<()> {
     unsafe {
         let module = get_or_load_module(context, device_index, reduce_module(dtype))?;
-        let base_op = kernel_names::reduce_dim_kernel(op);
+        let serial = reduce_size <= SERIAL_REDUCE_MAX && has_serial_variant(op, dtype);
+        let base_op = if serial {
+            format!("{}_serial", kernel_names::reduce_dim_kernel(op))
+        } else {
+            kernel_names::reduce_dim_kernel(op)
+        };
         let func_name = reduce_kernel_name(&base_op, dtype, acc_precision);
         let func = get_kernel_function(&module, &func_name)?;
 
-        let (grid, block) = reduce_dim_launch_config(outer_size, inner_size);
+        // Serial: one thread per output. Otherwise one block per output.
+        let (grid, block) = if serial {
+            let outputs = outer_size * inner_size;
+            // The kernel strides its grid, so a grid capped below the output
+            // count is still correct; the elementwise helper only errors past
+            // the hardware limit, which the cap avoids.
+            let blocks = outputs
+                .div_ceil(BLOCK_SIZE as usize)
+                .clamp(1, MAX_GRID_DIM_X as usize);
+            ((blocks as u32, 1, 1), BLOCK_SIZE)
+        } else {
+            reduce_dim_launch_config(outer_size, inner_size)
+        };
         let outer = outer_size as u32;
         let reduce = reduce_size as u32;
         let inner = inner_size as u32;

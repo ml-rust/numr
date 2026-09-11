@@ -201,6 +201,66 @@ __device__ void reduce_sum_dim_impl(
     }
 }
 
+// ============================================================================
+// Serial dim reductions for a short reduced axis
+// ============================================================================
+//
+// The block-per-output kernels above give every (outer, inner) pair a whole
+// block: 256 threads, a shared-memory tree and its barriers. When the reduced
+// axis is only a handful of elements almost every thread idles and the grid
+// runs to millions of near-empty blocks — a weight of shape [2048, 1024, 16]
+// summed over its last axis is two million blocks for sixteen adds each.
+//
+// Below `reduce_size <= 32` (see the launcher) one THREAD owns one output and
+// walks the axis in order. Threads are numbered inner-fastest, so for an
+// inner reduction they read consecutive short runs and for an outer one they
+// read consecutive addresses; either way the warp coalesces.
+//
+// Accumulation is sequential over the axis, which is the CPU backend's order
+// as well; the tree above rounds differently, and both sit inside the parity
+// tolerance.
+
+template<typename T, typename Acc>
+struct SerialSum {
+    static __device__ __forceinline__ Acc identity() { return AccumTraits<T, Acc>::zero(); }
+    static __device__ __forceinline__ Acc combine(Acc a, Acc b) { return AccumTraits<T, Acc>::add(a, b); }
+};
+template<typename T, typename Acc>
+struct SerialMax {
+    static __device__ __forceinline__ Acc identity() { return AccumTraits<T, Acc>::neg_inf(); }
+    static __device__ __forceinline__ Acc combine(Acc a, Acc b) { return AccumTraits<T, Acc>::max(a, b); }
+};
+template<typename T, typename Acc>
+struct SerialMin {
+    static __device__ __forceinline__ Acc identity() { return AccumTraits<T, Acc>::pos_inf(); }
+    static __device__ __forceinline__ Acc combine(Acc a, Acc b) { return AccumTraits<T, Acc>::min(a, b); }
+};
+template<typename T, typename Acc>
+struct SerialProd {
+    static __device__ __forceinline__ Acc identity() { return AccumTraits<T, Acc>::one(); }
+    static __device__ __forceinline__ Acc combine(Acc a, Acc b) { return AccumTraits<T, Acc>::mul(a, b); }
+};
+
+template<typename T, typename Acc, class Op>
+__device__ void reduce_dim_serial_impl(
+    const T* input, T* output,
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
+) {
+    using Traits = AccumTraits<T, Acc>;
+    const size_t total = (size_t)outer_size * inner_size;
+    const size_t step = (size_t)gridDim.x * blockDim.x;
+    for (size_t o = (size_t)blockIdx.x * blockDim.x + threadIdx.x; o < total; o += step) {
+        const size_t outer_idx = o / inner_size;
+        const size_t inner_idx = o - outer_idx * inner_size;
+        const T* base = input + outer_idx * reduce_size * inner_size + inner_idx;
+        Acc acc = Op::identity();
+        for (unsigned int i = 0; i < reduce_size; i++) {
+            acc = Op::combine(acc, Traits::load(base, (int)(i * inner_size)));
+        }
+        Traits::store(output + o, 0, acc);
+    }
+}
+
 // Dimension-wise max reduction
 template<typename T, typename Acc>
 __device__ void reduce_max_dim_impl(
@@ -510,13 +570,38 @@ __global__ void reduce_prod_##SUFFIX(const T* input, T* output, unsigned int n) 
     reduce_prod_impl<T, Acc>(input, output, n); \
 }
 
-// Dim reductions: reduce_sum_dim_SUFFIX, reduce_max_dim_SUFFIX, reduce_min_dim_SUFFIX
+// Dim reductions: reduce_sum_dim_SUFFIX, reduce_max_dim_SUFFIX, reduce_min_dim_SUFFIX,
+// each with a `_serial` twin for a short reduced axis.
 #define INSTANTIATE_DIM_REDUCE_CORE(T, Acc, SUFFIX) \
 __global__ void reduce_sum_dim_##SUFFIX( \
     const T* input, T* output, \
     unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
 ) { \
     reduce_sum_dim_impl<T, Acc>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_sum_dim_serial_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_dim_serial_impl<T, Acc, SerialSum<T, Acc>>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_max_dim_serial_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_dim_serial_impl<T, Acc, SerialMax<T, Acc>>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_min_dim_serial_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_dim_serial_impl<T, Acc, SerialMin<T, Acc>>(input, output, outer_size, reduce_size, inner_size); \
+} \
+__global__ void reduce_prod_dim_serial_##SUFFIX( \
+    const T* input, T* output, \
+    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
+) { \
+    reduce_dim_serial_impl<T, Acc, SerialProd<T, Acc>>(input, output, outer_size, reduce_size, inner_size); \
 } \
 __global__ void reduce_max_dim_##SUFFIX( \
     const T* input, T* output, \

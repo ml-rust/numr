@@ -42,8 +42,9 @@ pub use grouped_matmul::launch_grouped_matmul;
 pub use im2col::{im2col_has_kernel, launch_im2col1d};
 pub use im2col2d::{im2col2d_has_kernel, launch_im2col2d};
 pub use launch_dims::{
-    BLOCK_SIZE, LaunchConfig, MAX_GRID_DIM_YZ, check_shared_mem_fits, elementwise_launch_config,
-    launch_config, reduce_dim_launch_config, reduce_launch_config, softmax_launch_config,
+    BLOCK_SIZE, LaunchConfig, MAX_GRID_DIM_X, MAX_GRID_DIM_YZ, check_shared_mem_fits,
+    elementwise_launch_config, launch_config, reduce_dim_launch_config, reduce_launch_config,
+    softmax_launch_config,
 };
 pub use matmul::{
     launch_matmul_batched_kernel, launch_matmul_batched_kernel_bt, launch_matmul_kernel,

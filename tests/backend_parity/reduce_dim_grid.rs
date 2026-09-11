@@ -193,3 +193,68 @@ fn test_all_dim_reductions_with_large_inner() {
     #[cfg(not(feature = "cuda"))]
     announce_cuda_skip("test_all_dim_reductions_with_large_inner");
 }
+
+#[cfg(feature = "cuda")]
+fn core_reduce<R: numr::runtime::Runtime<DType = DType>>(
+    client: &impl ReduceOps<R>,
+    x: &numr::tensor::Tensor<R>,
+    op: &str,
+    dim: usize,
+) -> numr::error::Result<numr::tensor::Tensor<R>> {
+    match op {
+        "sum" => client.sum(x, &[dim], false),
+        "max" => client.max(x, &[dim], false),
+        "min" => client.min(x, &[dim], false),
+        _ => client.prod(x, &[dim], false),
+    }
+}
+
+/// A reduced axis of 32 or fewer elements takes the one-thread-per-output
+/// `_serial` kernels (`SERIAL_REDUCE_MAX` in `reduce.rs`) instead of one block
+/// per output. Every core op, over the last axis (outputs read short
+/// contiguous runs) and over a middle axis (outputs read strided), at an
+/// output count of over a million so the grid is many blocks, plus the
+/// weight-norm shape that motivated it: [C_in, C_out, K] summed over K.
+#[test]
+fn test_short_axis_reductions_take_the_serial_kernels() {
+    #[cfg(feature = "cuda")]
+    {
+        let dtype = DType::F32;
+        assert!(
+            is_dtype_supported("cuda", dtype),
+            "CUDA must support F32 for the short-axis reduction check"
+        );
+        let cases: [(&[usize], usize, &str); 4] = [
+            (&[2048, 64, 16], 2, "[2048, 64, 16] over the last axis"),
+            (&[512, 16, 256], 1, "[512, 16, 256] over the middle axis"),
+            (&[32, 4096, 8], 0, "[32, 4096, 8] over the first axis"),
+            (&[7, 1030, 33], 2, "[7, 1030, 33] one past the serial cap"),
+        ];
+        let (cpu_client, cpu_device) = create_cpu_client();
+        for (shape, dim, label) in cases {
+            let data = data_for(shape.iter().product());
+            let cpu_t = tensor_from_f64(&data, shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor failed for {label}: {e}"));
+            with_cuda_backend(|client, device| {
+                let t = tensor_from_f64(&data, shape, dtype, &device, &client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor failed for {label}: {e}"));
+                for op in ["sum", "max", "min", "prod"] {
+                    let want = core_reduce(&cpu_client, &cpu_t, op, dim)
+                        .unwrap_or_else(|e| panic!("CPU {op} failed for {label}: {e}"));
+                    let got = core_reduce(&client, &t, op, dim)
+                        .unwrap_or_else(|e| panic!("CUDA {op} failed for {label}: {e}"));
+                    assert_eq!(got.shape(), want.shape(), "{op} shape: {label}");
+                    assert_tensor_allclose(
+                        &got,
+                        &want,
+                        dtype,
+                        &format!("{op} CUDA vs CPU: {label}"),
+                    );
+                }
+            });
+        }
+    }
+
+    #[cfg(not(feature = "cuda"))]
+    announce_cuda_skip("test_short_axis_reductions_take_the_serial_kernels");
+}
