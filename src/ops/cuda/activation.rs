@@ -1,4 +1,5 @@
 //! Activation functions for CUDA runtime
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
@@ -14,6 +15,8 @@ use crate::runtime::cuda::kernels::{
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
+use cudarc::driver::safe::{CudaContext, CudaStream};
+use std::sync::Arc;
 
 impl ActivationOps<CudaRuntime> for CudaClient {
     fn relu(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
@@ -101,31 +104,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        if b.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: b.dtype(),
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_silu_mul(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.ptr(),
-                b_contig.ptr(),
-                out.ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
+        self.fused_activation_mul(a, b, launch_silu_mul)
     }
 
     fn gelu_mul(
@@ -133,31 +112,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        if b.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: b.dtype(),
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_gelu_mul(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.ptr(),
-                b_contig.ptr(),
-                out.ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
+        self.fused_activation_mul(a, b, launch_gelu_mul)
     }
 
     fn relu_mul(
@@ -165,31 +120,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        if b.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: b.dtype(),
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_relu_mul(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.ptr(),
-                b_contig.ptr(),
-                out.ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
+        self.fused_activation_mul(a, b, launch_relu_mul)
     }
 
     fn sigmoid_mul(
@@ -197,31 +128,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
-        let dtype = a.dtype();
-        if b.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: b.dtype(),
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_sigmoid_mul(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                a_contig.ptr(),
-                b_contig.ptr(),
-                out.ptr(),
-                out.numel(),
-            )?;
-        }
-
-        Ok(out)
+        self.fused_activation_mul(a, b, launch_sigmoid_mul)
     }
 
     fn silu_mul_bwd(
@@ -230,29 +137,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
-        let dtype = a.dtype();
-        let grad_contig = ensure_contiguous(grad)?;
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_silu_mul_bwd(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                grad_contig.ptr(),
-                a_contig.ptr(),
-                b_contig.ptr(),
-                d_a.ptr(),
-                d_b.ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok((d_a, d_b))
+        self.fused_activation_mul_bwd(grad, a, b, launch_silu_mul_bwd)
     }
 
     fn gelu_mul_bwd(
@@ -261,29 +146,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
-        let dtype = a.dtype();
-        let grad_contig = ensure_contiguous(grad)?;
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_gelu_mul_bwd(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                grad_contig.ptr(),
-                a_contig.ptr(),
-                b_contig.ptr(),
-                d_a.ptr(),
-                d_b.ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok((d_a, d_b))
+        self.fused_activation_mul_bwd(grad, a, b, launch_gelu_mul_bwd)
     }
 
     fn relu_mul_bwd(
@@ -292,29 +155,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
-        let dtype = a.dtype();
-        let grad_contig = ensure_contiguous(grad)?;
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_relu_mul_bwd(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                grad_contig.ptr(),
-                a_contig.ptr(),
-                b_contig.ptr(),
-                d_a.ptr(),
-                d_b.ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok((d_a, d_b))
+        self.fused_activation_mul_bwd(grad, a, b, launch_relu_mul_bwd)
     }
 
     fn sigmoid_mul_bwd(
@@ -323,29 +164,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
-        let dtype = a.dtype();
-        let grad_contig = ensure_contiguous(grad)?;
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
-        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device)?;
-
-        unsafe {
-            launch_sigmoid_mul_bwd(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                grad_contig.ptr(),
-                a_contig.ptr(),
-                b_contig.ptr(),
-                d_a.ptr(),
-                d_b.ptr(),
-                a.numel(),
-            )?;
-        }
-
-        Ok((d_a, d_b))
+        self.fused_activation_mul_bwd(grad, a, b, launch_sigmoid_mul_bwd)
     }
 
     fn leaky_relu(
@@ -585,5 +404,115 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         training: bool,
     ) -> Result<Tensor<CudaRuntime>> {
         dropout_impl(self, a, p, training)
+    }
+
+    fn snake_beta(
+        &self,
+        x: &Tensor<CudaRuntime>,
+        alpha: &Tensor<CudaRuntime>,
+        beta: &Tensor<CudaRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<Tensor<CudaRuntime>> {
+        self.snake_beta_cuda(x, alpha, beta, dim, eps)
+    }
+
+    fn snake_beta_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        x: &Tensor<CudaRuntime>,
+        alpha: &Tensor<CudaRuntime>,
+        beta: &Tensor<CudaRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<(
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+        Tensor<CudaRuntime>,
+    )> {
+        self.snake_beta_bwd_cuda(grad, x, alpha, beta, dim, eps)
+    }
+}
+
+/// Signature shared by the fused activation-mul forward launchers.
+type FusedMulFwdLaunch =
+    unsafe fn(&Arc<CudaContext>, &CudaStream, usize, DType, u64, u64, u64, usize) -> Result<()>;
+
+/// Signature shared by the fused activation-mul backward launchers.
+type FusedMulBwdLaunch = unsafe fn(
+    &Arc<CudaContext>,
+    &CudaStream,
+    usize,
+    DType,
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    usize,
+) -> Result<()>;
+
+impl CudaClient {
+    /// `activation(a) * b` through one fused launcher.
+    fn fused_activation_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        launch: FusedMulFwdLaunch,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let dtype = a.dtype();
+        if b.dtype() != dtype {
+            return Err(Error::DTypeMismatch {
+                lhs: dtype,
+                rhs: b.dtype(),
+            });
+        }
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
+        unsafe {
+            launch(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                a_contig.ptr(),
+                b_contig.ptr(),
+                out.ptr(),
+                out.numel(),
+            )?;
+        }
+        Ok(out)
+    }
+
+    /// `(d_a, d_b)` of `activation(a) * b` through one fused launcher.
+    fn fused_activation_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+        launch: FusedMulBwdLaunch,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        let dtype = a.dtype();
+        let grad_contig = ensure_contiguous(grad)?;
+        let a_contig = ensure_contiguous(a)?;
+        let b_contig = ensure_contiguous(b)?;
+        let d_a = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
+        let d_b = Tensor::<CudaRuntime>::empty(b.shape(), dtype, &self.device)?;
+        unsafe {
+            launch(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                dtype,
+                grad_contig.ptr(),
+                a_contig.ptr(),
+                b_contig.ptr(),
+                d_a.ptr(),
+                d_b.ptr(),
+                a.numel(),
+            )?;
+        }
+        Ok((d_a, d_b))
     }
 }

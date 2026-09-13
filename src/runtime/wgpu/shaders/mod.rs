@@ -71,6 +71,7 @@ pub mod sparse_level_compute {
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
 pub mod fused_activation_mul;
 pub mod fused_elementwise;
+pub mod snake;
 pub use advanced_random::{
     launch_pcg64_randn, launch_pcg64_uniform, launch_philox_randn, launch_philox_uniform,
     launch_threefry_randn, launch_threefry_uniform, launch_xoshiro256_randn,

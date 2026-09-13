@@ -9,7 +9,7 @@ use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
     native_fused_activation_mul_bwd, native_fused_activation_mul_fwd, native_parametric_activation,
-    native_softmax, native_softmax_bwd, native_unary_op,
+    native_snake_beta, native_snake_beta_bwd, native_softmax, native_softmax_bwd, native_unary_op,
 };
 use crate::tensor::Tensor;
 
@@ -153,5 +153,32 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
         training: bool,
     ) -> Result<Tensor<WgpuRuntime>> {
         dropout_impl(self, a, p, training)
+    }
+
+    fn snake_beta(
+        &self,
+        x: &Tensor<WgpuRuntime>,
+        alpha: &Tensor<WgpuRuntime>,
+        beta: &Tensor<WgpuRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_snake_beta(self, x, alpha, beta, dim, eps)
+    }
+
+    fn snake_beta_bwd(
+        &self,
+        grad: &Tensor<WgpuRuntime>,
+        x: &Tensor<WgpuRuntime>,
+        alpha: &Tensor<WgpuRuntime>,
+        beta: &Tensor<WgpuRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<(
+        Tensor<WgpuRuntime>,
+        Tensor<WgpuRuntime>,
+        Tensor<WgpuRuntime>,
+    )> {
+        native_snake_beta_bwd(self, grad, x, alpha, beta, dim, eps)
     }
 }

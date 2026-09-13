@@ -48,6 +48,9 @@ mod cumulative;
 #[path = "../../../ops/cuda/activation.rs"]
 mod activation;
 
+#[path = "../../../ops/cuda/snake.rs"]
+mod snake;
+
 #[path = "../../../ops/cuda/binary.rs"]
 mod binary;
 

@@ -12,7 +12,8 @@ use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
         ActivationOp, FusedActivationMulOp, activation_op_impl, dispatch_dtype, elu_impl,
-        ensure_contiguous, fused_activation_mul_impl, leaky_relu_impl,
+        ensure_contiguous, fused_activation_mul_impl, leaky_relu_impl, snake_beta_bwd_impl,
+        snake_beta_impl,
     },
     kernels,
 };
@@ -318,6 +319,29 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         training: bool,
     ) -> Result<Tensor<CpuRuntime>> {
         dropout_impl(self, a, p, training)
+    }
+
+    fn snake_beta(
+        &self,
+        x: &Tensor<CpuRuntime>,
+        alpha: &Tensor<CpuRuntime>,
+        beta: &Tensor<CpuRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<Tensor<CpuRuntime>> {
+        snake_beta_impl(self, x, alpha, beta, dim, eps)
+    }
+
+    fn snake_beta_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        x: &Tensor<CpuRuntime>,
+        alpha: &Tensor<CpuRuntime>,
+        beta: &Tensor<CpuRuntime>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        snake_beta_bwd_impl(self, grad, x, alpha, beta, dim, eps)
     }
 }
 

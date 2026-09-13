@@ -85,6 +85,7 @@ pub mod scalar;
 pub mod scalar_narrow_float;
 pub mod semiring_matmul;
 pub mod shape;
+pub mod snake;
 pub mod sort;
 pub mod sort_nan;
 #[cfg(feature = "sparse")]

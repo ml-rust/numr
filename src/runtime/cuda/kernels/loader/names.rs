@@ -26,6 +26,8 @@ pub mod kernel_names {
     pub const ACTIVATION_MODULE: &str = "activation";
     /// Softmax forward + backward kernels
     pub const SOFTMAX_MODULE: &str = "softmax";
+    /// Snake activation forward + backward kernels
+    pub const SNAKE_MODULE: &str = "snake";
     /// Normalization operations (rms_norm, layer_norm)
     pub const NORM_MODULE: &str = "norm";
     /// Fused add + normalization operations

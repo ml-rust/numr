@@ -71,6 +71,7 @@
 //! ReLU, sigmoid, softmax for neural network layers.
 
 pub(crate) mod activation;
+pub(crate) mod activation_common;
 mod arithmetic;
 pub(crate) mod common;
 pub(crate) mod conv_common;

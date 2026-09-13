@@ -248,6 +248,51 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Snake activation with per-channel parameters:
+    /// `y = x + sin(alpha * x)^2 / (beta + eps)`, channel = `x.shape[dim]`.
+    ///
+    /// `alpha` and `beta` are 1-D `[C]` tensors in LINEAR scale (a caller with
+    /// log-scale parameters exponentiates them once, outside this op). Plain
+    /// Snake is `beta == alpha`: pass the same tensor twice.
+    ///
+    /// One memory pass. Half dtypes compute in F32 and round once at the store.
+    fn snake_beta(
+        &self,
+        x: &Tensor<R>,
+        alpha: &Tensor<R>,
+        beta: &Tensor<R>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<Tensor<R>> {
+        let _ = (x, alpha, beta, dim, eps);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::snake_beta",
+        })
+    }
+
+    /// Gradients of [`snake_beta`](Self::snake_beta): returns `(d_x, d_alpha, d_beta)`.
+    ///
+    /// - `d_x = g * (1 + alpha * sin(2*alpha*x) / (beta + eps))`
+    /// - `d_alpha = sum over non-channel dims of g * x * sin(2*alpha*x) / (beta + eps)`
+    /// - `d_beta  = sum over non-channel dims of -g * sin(alpha*x)^2 / (beta + eps)^2`
+    ///
+    /// The per-channel sums run in a fixed order on every backend, so a repeated
+    /// call returns identical bits.
+    fn snake_beta_bwd(
+        &self,
+        grad: &Tensor<R>,
+        x: &Tensor<R>,
+        alpha: &Tensor<R>,
+        beta: &Tensor<R>,
+        dim: isize,
+        eps: f64,
+    ) -> Result<(Tensor<R>, Tensor<R>, Tensor<R>)> {
+        let _ = (grad, x, alpha, beta, dim, eps);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::snake_beta_bwd",
+        })
+    }
+
     /// Dropout: randomly zero elements with probability `p` during training.
     ///
     /// When `training` is true, each element is independently zeroed with probability `p`,

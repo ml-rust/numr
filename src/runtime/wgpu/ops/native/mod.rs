@@ -21,6 +21,7 @@ mod normalization;
 mod reduce;
 mod scatter_wide;
 mod semiring_matmul;
+mod snake;
 mod unary;
 
 // Re-export all native functions for use by ops/wgpu/ implementations
@@ -53,4 +54,5 @@ pub(crate) use reduce::{
     native_argreduce_op, native_reduce_op, native_softmax, native_softmax_bwd,
 };
 pub(crate) use semiring_matmul::native_semiring_matmul;
+pub(crate) use snake::{native_snake_beta, native_snake_beta_bwd};
 pub(crate) use unary::native_unary_op;

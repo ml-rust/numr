@@ -13,6 +13,7 @@ pub mod indexing;
 pub mod reduce;
 pub mod scalar;
 pub mod shape;
+pub mod snake;
 pub mod unary;
 
 // Re-export all helper functions
@@ -33,6 +34,7 @@ pub use indexing::{
 pub use reduce::{reduce_impl, reduce_impl_with_precision};
 pub use scalar::scalar_op_impl;
 pub use shape::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_impl, stack_impl};
+pub use snake::{snake_beta_bwd_impl, snake_beta_impl};
 pub use unary::unary_op_impl;
 
 // Re-export operation types used by callers
