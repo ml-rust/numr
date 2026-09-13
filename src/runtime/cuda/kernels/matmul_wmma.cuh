@@ -68,11 +68,12 @@
 //   Out-of-bounds positions are zero-padded identically on both paths, so the
 //   two agree bit-for-bit. Both are deterministic and correct for all shapes.
 //
-// Caller must guarantee M, N, K are all multiples of 16 before dispatching here.
-// FMA fallback handles all other shapes. Given that guarantee, the K-direction
-// zero-pad in the staging loops below never triggers — it is currently
-// unreachable, not tested. Only the M/N-direction zero-pad (block tiles that
-// overhang the matrix) is live.
+// Any M, N, K >= 1 is a valid launch: the staging loops zero-pad past every
+// edge, including K, and the epilogue masks its store per element. A row
+// stride that is not a multiple of WMMA_VEC_HALVES stages that operand one
+// element at a time. The host (loader/matmul_wmma_policy.rs, `use_wmma`)
+// pads N and K up to a multiple only when the GEMM is heavy enough that the
+// copy pass costs less than the scalar staging. M is launched as it is.
 //
 // Double-buffering is synchronous: the global loads for K-tile k+1 are issued
 // before the mma work for tile k, so their latency overlaps the compute. One

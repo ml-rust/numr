@@ -5,7 +5,7 @@
 //! block tile, thread count, and launch geometry of the plain WMMA GEMM, so
 //! the grid comes from [`super::matmul_wmma_tile::wmma_launch_config`], which
 //! also picks the block tile. Dispatch is
-//! gated by [`super::matmul_wmma::use_wmma`], the same predicate plain matmul
+//! gated by [`super::matmul_wmma_policy::use_wmma`], the same predicate plain matmul
 //! and matmul_bias use.
 
 use cudarc::driver::PushKernelArg;
@@ -30,8 +30,8 @@ use super::names::kernel_names;
 ///
 /// # Safety
 ///
-/// Caller must guarantee M, N, K are multiples of 16, and that `bias_ptr`
-/// addresses N elements of `dtype`.
+/// `a_ptr`, `b_ptr` and `c_ptr` must address `M×K`, `K×N` and `M×N` elements
+/// of `dtype`, and `bias_ptr` N elements. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_gemm_bias_act_wmma_kernel(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
@@ -86,8 +86,9 @@ pub unsafe fn launch_gemm_bias_act_wmma_kernel(
 ///
 /// # Safety
 ///
-/// Caller must guarantee M, N, K are multiples of 16, and that `bias_ptr`
-/// addresses N elements of `dtype`.
+/// `a_ptr`, `b_ptr` and `c_ptr` must address `a_batch×M×K`, `b_batch×K×N`
+/// and `batch×M×N` elements of `dtype`, and `bias_ptr` N elements. Any
+/// M, N, K >= 1 is accepted.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_wmma_batched_kernel(
     context: &Arc<CudaContext>,
@@ -147,9 +148,9 @@ pub unsafe fn launch_gemm_bias_act_wmma_batched_kernel(
 ///
 /// # Safety
 ///
-/// Caller must guarantee M, N, K are multiples of 16, that `bias_ptr`
-/// addresses N elements of `dtype`, and that `residual_ptr` addresses M * N
-/// elements of `dtype`.
+/// `a_ptr`, `b_ptr` and `c_ptr` must address `M×K`, `K×N` and `M×N` elements
+/// of `dtype`, `bias_ptr` N elements, and `residual_ptr` `M×N` elements. Any
+/// M, N, K >= 1 is accepted.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_wmma_kernel(
     context: &Arc<CudaContext>,
@@ -205,9 +206,9 @@ pub unsafe fn launch_gemm_bias_residual_wmma_kernel(
 ///
 /// # Safety
 ///
-/// Caller must guarantee M, N, K are multiples of 16, that `bias_ptr`
-/// addresses N elements of `dtype`, and that `residual_ptr` addresses
-/// batch * M * N elements of `dtype`.
+/// `a_ptr`, `b_ptr` and `c_ptr` must address `a_batch×M×K`, `b_batch×K×N`
+/// and `batch×M×N` elements of `dtype`, `bias_ptr` N elements, and
+/// `residual_ptr` `batch×M×N` elements. Any M, N, K >= 1 is accepted.
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_wmma_batched_kernel(
     context: &Arc<CudaContext>,

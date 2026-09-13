@@ -2,16 +2,16 @@
 // GemmEpilogueOps::matmul_bias_activation and ::matmul_bias_residual
 // (F16/BF16).
 //
-// `use_wmma` (src/runtime/cuda/kernels/loader/matmul_wmma.rs) selects the
-// fused WMMA kernel whenever `caps.f16_mma`/`caps.bf16` and M/N/K are all
-// 16-multiples, for any m >= 1. Unaligned shapes (including small m) are
-// padded up to 16-multiples by src/ops/cuda/gemm_epilogue.rs — A, B and the
-// bias vector in 1-D, and the residual in 2-D, since it is [M,N]-shaped —
-// and sliced back afterward. The existing gemm_epilogue tests are F32-only,
-// so none of them reach this path. These cases do: aligned sizes that
-// dispatch straight to WMMA, sizes that force the padding path, small m
-// (aligned and padded) that now reaches WMMA through padding, and batched
-// shapes.
+// `use_wmma` (src/runtime/cuda/kernels/loader/matmul_wmma_policy.rs) selects the
+// fused WMMA kernel for any m >= 1 whenever `caps.f16_mma`/`caps.bf16`. An N
+// or K that is not a multiple of 8 stages that operand one element at a time;
+// when the GEMM is heavy enough per copied element,
+// src/ops/cuda/gemm_epilogue.rs pads it to the next multiple of 8 first — A,
+// B and the bias vector in 1-D, and the residual in 2-D, since it is
+// [M,N]-shaped — and slices back afterward. M is never padded. The existing gemm_epilogue
+// tests are F32-only, so none of them reach this path. These cases do:
+// aligned sizes that dispatch straight to WMMA, sizes that force the padding
+// path, each ragged stride class on its own, small m, and batched shapes.
 
 #[cfg(feature = "f16")]
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
@@ -239,7 +239,8 @@ fn gemm_bias_act_bf16_wmma_partial_tile_match_cpu() {
     );
 }
 
-// --- bias + activation: unaligned, forced through the padding path ---
+// --- bias + activation: N and K not multiples of 8 at shapes too light ---
+// --- to pad: scalar staging on both operands. M is ragged, never padded. ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -297,12 +298,12 @@ fn gemm_bias_act_bf16_wmma_padded_100_match_cpu() {
     );
 }
 
-// --- bias + activation: small m, reaches WMMA through padding ---
+// --- bias + activation: small m, reaches WMMA as it is ---
 
 #[cfg(feature = "f16")]
 #[test]
 fn gemm_bias_act_f16_wmma_small_m_aligned16_match_cpu() {
-    // m == 16, k/n already 16-multiples: dispatches to WMMA with no padding.
+    // m == 16, k/n aligned: dispatches to WMMA with no padding.
     assert_bias_act_2d(
         DType::F16,
         GemmActivation::ReLU,
@@ -316,7 +317,7 @@ fn gemm_bias_act_f16_wmma_small_m_aligned16_match_cpu() {
 #[cfg(feature = "f16")]
 #[test]
 fn gemm_bias_act_bf16_wmma_small_m_padded8_match_cpu() {
-    // m == 8, k == 30, n == 20: every dim needs padding up to 16-multiples.
+    // m == 8, k == 30, n == 20: ragged K and N, too light to pad.
     assert_bias_act_2d(
         DType::BF16,
         GemmActivation::ReLU,
@@ -327,8 +328,8 @@ fn gemm_bias_act_bf16_wmma_small_m_padded8_match_cpu() {
     );
 }
 
-// --- bias + activation: m=1, single-token LLM decode. m pads to 16;      ---
-// --- K/N are 16-multiples so only m needs padding.                       ---
+// --- bias + activation: m=1, single-token LLM decode. Launched as it is; ---
+// --- K/N are multiples of 8 so nothing pads.                             ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -421,11 +422,9 @@ fn gemm_bias_residual_f16_wmma_partial_tile_match_cpu() {
     );
 }
 
-// --- bias + residual: unaligned, exercises the 2-D residual padding ---
-//
-// A residual padded as if it were 1-D would shift every row, so these cases
-// fail in the interior — not only at the sliced-off edge — if the padding
-// spec is wrong.
+// --- bias + residual: N and K not multiples of 8 at shapes too light to ---
+// --- pad. The 2-D residual pad spec is covered by the heavy ragged      ---
+// --- cases at the end of this file.                                     ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -475,12 +474,12 @@ fn gemm_bias_residual_bf16_wmma_padded_100_match_cpu() {
     );
 }
 
-// --- bias + residual: small m, reaches WMMA through padding ---
+// --- bias + residual: small m, reaches WMMA as it is ---
 
 #[cfg(feature = "f16")]
 #[test]
 fn gemm_bias_residual_f16_wmma_small_m_aligned16_match_cpu() {
-    // m == 16, k/n already 16-multiples: dispatches to WMMA with no padding.
+    // m == 16, k/n aligned: dispatches to WMMA with no padding.
     assert_bias_residual_2d(
         DType::F16,
         16,
@@ -532,4 +531,107 @@ fn gemm_bias_residual_bf16_wmma_batched_aligned_match_cpu() {
         &[batch, m, n],
         "gemm_bias_residual_bf16_wmma_batched_aligned CUDA vs CPU",
     );
+}
+
+// --- ragged strides: each class on its own, bias+activation and           ---
+// --- bias+residual. M is never a condition; a ragged K or N pads only     ---
+// --- when the pad pass pays.                                              ---
+// ---   m=37: ragged M only, no padding                                    ---
+// ---   n=40: N ≡ 8 mod 16, no padding, scalar-staged N edge tile           ---
+// ---   k=24: K ≡ 8 mod 16, no padding, scalar-staged K tail                ---
+// ---   n=35 at m=64: N not a multiple of 8, too light to pad              ---
+// ---   k=21 at m=64: K not a multiple of 8, too light to pad              ---
+// ---   n=35 at m=520: pads N (bias and residual too) to 40                 ---
+// ---   k=21 at m=n=1040: pads K to 24 on both operands                     ---
+// A residual padded as if it were 1-D would shift every row, so the padded
+// residual cases fail in the interior, not only at the sliced-off edge, if
+// the padding spec is wrong.
+
+#[cfg(feature = "f16")]
+const RAGGED_STRIDE_SHAPES: [(usize, usize, usize, &str); 7] = [
+    (37, 64, 128, "ragged_m"),
+    (64, 64, 40, "n40"),
+    (64, 24, 128, "k24"),
+    (64, 64, 35, "n35_unpadded"),
+    (64, 21, 128, "k21_unpadded"),
+    (520, 64, 35, "n35_padded"),
+    (1040, 21, 1040, "k21_padded"),
+];
+
+#[cfg(feature = "f16")]
+fn assert_gemm_epilogue_wmma_ragged_strides(dtype: DType, tag: &str) {
+    for (m, k, n, class) in RAGGED_STRIDE_SHAPES {
+        assert_bias_act_2d(
+            dtype,
+            GemmActivation::GELU,
+            m,
+            k,
+            n,
+            &format!("gemm_bias_act_{tag}_wmma_{class} CUDA vs CPU"),
+        );
+        assert_bias_residual_2d(
+            dtype,
+            m,
+            k,
+            n,
+            &format!("gemm_bias_residual_{tag}_wmma_{class} CUDA vs CPU"),
+        );
+    }
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_f16_wmma_ragged_strides_match_cpu() {
+    assert_gemm_epilogue_wmma_ragged_strides(DType::F16, "f16");
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_bf16_wmma_ragged_strides_match_cpu() {
+    assert_gemm_epilogue_wmma_ragged_strides(DType::BF16, "bf16");
+}
+
+// --- 3-D batched with ragged M and N ≡ 8 mod 16, through the batched WMMA ---
+// --- launchers as it is.                                                  ---
+
+#[cfg(feature = "f16")]
+fn assert_gemm_epilogue_wmma_batched_ragged(dtype: DType, tag: &str) {
+    let (batch, m, k, n) = (3usize, 37usize, 64usize, 40usize);
+    let a_data = deterministic_f64(batch * m * k, 0.0);
+    let b_data = deterministic_f64(batch * k * n, 1.7);
+    let bias_data = deterministic_f64(n, 3.1);
+    let res_data = deterministic_f64(batch * m * n, 5.3);
+    assert_bias_act_parity(
+        dtype,
+        GemmActivation::SiLU,
+        &a_data,
+        &[batch, m, k],
+        &b_data,
+        &[batch, k, n],
+        &bias_data,
+        &format!("gemm_bias_act_{tag}_wmma_batched_ragged_m_n CUDA vs CPU"),
+    );
+    assert_bias_residual_parity(
+        dtype,
+        &a_data,
+        &[batch, m, k],
+        &b_data,
+        &[batch, k, n],
+        &bias_data,
+        &res_data,
+        &[batch, m, n],
+        &format!("gemm_bias_residual_{tag}_wmma_batched_ragged_m_n CUDA vs CPU"),
+    );
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_f16_wmma_batched_ragged_m_n_match_cpu() {
+    assert_gemm_epilogue_wmma_batched_ragged(DType::F16, "f16");
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_bf16_wmma_batched_ragged_m_n_match_cpu() {
+    assert_gemm_epilogue_wmma_batched_ragged(DType::BF16, "bf16");
 }

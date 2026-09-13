@@ -1,17 +1,19 @@
 // Backend parity tests for the WMMA tensor-core epilogue in
 // MatmulOps::matmul_bias (F16/BF16).
 //
-// `use_wmma` (src/ops/cuda/matmul.rs) dispatches the fused bias-in-epilogue
-// WMMA kernel whenever `caps.f16_mma`/`caps.bf16` and M/N/K are all
-// 16-multiples, for any m >= 1; unaligned shapes (including small m) are
-// padded up to 16-multiples (A, B, and the bias vector) and sliced back
-// afterward. `matmul_bias.rs`'s existing tests all use 2x2 shapes, so none
-// of them ever reached this path. These cases do: aligned sizes that
-// dispatch straight to WMMA, a ragged block edge that stays 16-aligned,
-// sizes below and at 16-multiples that force the padding path, small m
-// (aligned and padded) that now reaches WMMA through padding, batched
-// broadcast at a WMMA-eligible size, and a bias-dominant case where a
-// dropped or mis-indexed bias fails loudly.
+// `use_wmma` (src/runtime/cuda/kernels/loader/matmul_wmma_policy.rs) dispatches the
+// fused bias-in-epilogue WMMA kernel for any m >= 1 whenever
+// `caps.f16_mma`/`caps.bf16`. An N or K that is not a multiple of 8 stages
+// that operand one element at a time; when the GEMM is heavy enough per
+// copied element, src/ops/cuda/matmul.rs pads it (A, B, and the bias vector)
+// to the next multiple of 8 first and slices back afterward. M is never
+// padded.
+// `matmul_bias.rs`'s existing tests all use 2x2 shapes, so none of them ever
+// reached this path. These cases do: aligned sizes that dispatch straight to
+// WMMA, a ragged block edge, sizes that force the padding path, each ragged
+// stride class on its own, small m, batched broadcast at a WMMA-eligible
+// size, and a bias-dominant case where a dropped or mis-indexed bias fails
+// loudly.
 
 #[cfg(feature = "f16")]
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
@@ -91,7 +93,7 @@ fn assert_matmul_bias_wmma_2d(dtype: DType, m: usize, k: usize, n: usize, test_n
     );
 }
 
-// --- Case 1: aligned, reaches WMMA directly (m > 16, M/N/K all 16-multiples) ---
+// --- Case 1: aligned, reaches WMMA directly (M/N/K all 16-multiples) ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -141,7 +143,7 @@ fn matmul_bias_bf16_wmma_aligned_256x512x128_match_cpu() {
     );
 }
 
-// --- Case 2: 16-aligned but ragged against the 128x128 block tile: catches ---
+// --- Case 2: aligned but ragged against the 128x128 block tile: catches ---
 // --- an out-of-range bias[col] read or a mishandled partial tile.         ---
 
 #[cfg(feature = "f16")]
@@ -168,8 +170,8 @@ fn matmul_bias_bf16_wmma_partial_tile_match_cpu() {
     );
 }
 
-// --- Case 3: unaligned, exercises the pad-to-16-multiples-then-slice path ---
-// --- for A, B, AND the bias vector.                                       ---
+// --- Case 3: N and K not multiples of 8 at shapes too light to pad:    ---
+// --- scalar staging on both operands. M is ragged and never padded.    ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -219,14 +221,13 @@ fn matmul_bias_bf16_wmma_padded_130x70x50_match_cpu() {
     );
 }
 
-// --- Case 4: small M, still reaches WMMA. `use_wmma` no longer gates on   ---
-// --- `m > 16` — any m >= 1 dispatches to WMMA, padded up to 16 first if   ---
-// --- needed. m=16 is already aligned; m=8 is padded up to 16.            ---
+// --- Case 4: small M, still reaches WMMA. `use_wmma` does not test M:    ---
+// --- any m >= 1 dispatches to WMMA as it is.                             ---
 
 #[cfg(feature = "f16")]
 #[test]
 fn matmul_bias_f16_wmma_small_m_aligned16_match_cpu() {
-    // m == 16: already a 16-multiple, dispatches to WMMA with no padding.
+    // m == 16: one full row block.
     assert_matmul_bias_wmma_2d(
         DType::F16,
         16,
@@ -239,7 +240,7 @@ fn matmul_bias_f16_wmma_small_m_aligned16_match_cpu() {
 #[cfg(feature = "f16")]
 #[test]
 fn matmul_bias_f16_wmma_small_m_padded8_match_cpu() {
-    // m == 8: padded up to 16 before WMMA dispatch.
+    // m == 8: half a row block, masked by the kernel.
     assert_matmul_bias_wmma_2d(
         DType::F16,
         8,
@@ -273,8 +274,8 @@ fn matmul_bias_bf16_wmma_small_m_padded8_match_cpu() {
     );
 }
 
-// --- Case 5: batched with broadcast, at a WMMA-eligible size (m=64>16,    ---
-// --- M/N/K all 16-multiples). Bias is indexed by global column only and  ---
+// --- Case 5: batched with broadcast, at a WMMA-eligible size (M/N/K all  ---
+// --- 16-multiples). Bias is indexed by global column only and           ---
 // --- must broadcast across rows AND batch slices.                       ---
 
 #[cfg(feature = "f16")]
@@ -413,8 +414,8 @@ fn matmul_bias_bf16_wmma_bias_dominant_match_cpu() {
     );
 }
 
-// --- Case 7: m=1, single-token LLM decode. m pads to 16 before WMMA      ---
-// --- dispatch; K/N are 16-multiples so only m needs padding.             ---
+// --- Case 7: m=1, single-token LLM decode. Launched as it is; K/N are   ---
+// --- multiples of 8 so nothing pads.                                    ---
 
 #[cfg(feature = "f16")]
 #[test]
@@ -437,5 +438,87 @@ fn matmul_bias_bf16_wmma_m1_decode_match_cpu() {
         64,
         128,
         "matmul_bias_bf16_wmma_m1_decode CUDA vs CPU",
+    );
+}
+
+// --- Case 8: each ragged-stride class on its own. M is never a           ---
+// --- condition; a ragged K or N pads only when the pad pass pays.        ---
+// ---   m=37: ragged M only, no padding                                   ---
+// ---   n=40: N ≡ 8 mod 16, no padding, scalar-staged N edge tile          ---
+// ---   k=24: K ≡ 8 mod 16, no padding, scalar-staged K tail               ---
+// ---   n=35 at m=64: N not a multiple of 8, too light to pad             ---
+// ---   k=21 at m=64: K not a multiple of 8, too light to pad             ---
+// ---   n=35 at m=520: heavy enough, pads N (and the bias) to 40           ---
+// ---   k=21 at m=n=1040: heavy enough, pads K to 24 on both operands      ---
+
+#[cfg(feature = "f16")]
+fn assert_matmul_bias_wmma_ragged_strides(dtype: DType, tag: &str) {
+    for (m, k, n, class) in [
+        (37usize, 64usize, 128usize, "ragged_m"),
+        (64, 64, 40, "n40"),
+        (64, 24, 128, "k24"),
+        (64, 64, 35, "n35_unpadded"),
+        (64, 21, 128, "k21_unpadded"),
+        (520, 64, 35, "n35_padded"),
+        (1040, 21, 1040, "k21_padded"),
+    ] {
+        assert_matmul_bias_wmma_2d(
+            dtype,
+            m,
+            k,
+            n,
+            &format!("matmul_bias_{tag}_wmma_{class} CUDA vs CPU"),
+        );
+    }
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn matmul_bias_f16_wmma_ragged_strides_match_cpu() {
+    assert_matmul_bias_wmma_ragged_strides(DType::F16, "f16");
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn matmul_bias_bf16_wmma_ragged_strides_match_cpu() {
+    assert_matmul_bias_wmma_ragged_strides(DType::BF16, "bf16");
+}
+
+// --- Case 9: 3-D batched with ragged M and N ≡ 8 mod 16, through the      ---
+// --- batched WMMA launcher as it is.                                     ---
+
+#[cfg(feature = "f16")]
+fn assert_matmul_bias_wmma_batched_ragged(dtype: DType, test_name: &str) {
+    let (batch, m, k, n) = (3usize, 37usize, 64usize, 40usize);
+    let a_data = deterministic_f64(batch * m * k, 0.0);
+    let b_data = deterministic_f64(batch * k * n, 1.7);
+    let bias_data = deterministic_f64(n, 3.1);
+    assert_matmul_bias_wmma_parity(
+        dtype,
+        &a_data,
+        &[batch, m, k],
+        &b_data,
+        &[batch, k, n],
+        &bias_data,
+        &[n],
+        test_name,
+    );
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn matmul_bias_f16_wmma_batched_ragged_m_n_match_cpu() {
+    assert_matmul_bias_wmma_batched_ragged(
+        DType::F16,
+        "matmul_bias_f16_wmma_batched_ragged_m_n CUDA vs CPU",
+    );
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn matmul_bias_bf16_wmma_batched_ragged_m_n_match_cpu() {
+    assert_matmul_bias_wmma_batched_ragged(
+        DType::BF16,
+        "matmul_bias_bf16_wmma_batched_ragged_m_n CUDA vs CPU",
     );
 }

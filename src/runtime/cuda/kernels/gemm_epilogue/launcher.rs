@@ -76,9 +76,10 @@ pub unsafe fn launch_gemm_bias_act_kernel(
         }
     }
 
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims, the same predicate
-    // plain matmul and matmul_bias use. Unaligned operands are padded to
-    // 16-multiples by `src/ops/cuda/gemm_epilogue.rs` before they reach here.
+    // Tensor-core WMMA path: F16/BF16 at any shape, the same predicate plain
+    // matmul and matmul_bias use. Shapes whose ragged row strides are worth
+    // padding are padded by `src/ops/cuda/gemm_epilogue.rs` before they reach
+    // here; M is never padded.
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
     // per-index cache.
     let caps = CudaDevice::new(device_index).profile().caps;
@@ -195,9 +196,10 @@ pub unsafe fn launch_gemm_bias_act_batched_kernel(
         }
     }
 
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims, the same predicate
-    // plain matmul and matmul_bias use. Unaligned operands are padded to
-    // 16-multiples by `src/ops/cuda/gemm_epilogue.rs` before they reach here.
+    // Tensor-core WMMA path: F16/BF16 at any shape, the same predicate plain
+    // matmul and matmul_bias use. Shapes whose ragged row strides are worth
+    // padding are padded by `src/ops/cuda/gemm_epilogue.rs` before they reach
+    // here; M is never padded.
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
     // per-index cache.
     let caps = CudaDevice::new(device_index).profile().caps;
@@ -318,9 +320,10 @@ pub unsafe fn launch_gemm_bias_residual_kernel(
         }
     }
 
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims, the same predicate
-    // plain matmul and matmul_bias use. Unaligned operands are padded to
-    // 16-multiples by `src/ops/cuda/gemm_epilogue.rs` before they reach here.
+    // Tensor-core WMMA path: F16/BF16 at any shape, the same predicate plain
+    // matmul and matmul_bias use. Shapes whose ragged row strides are worth
+    // padding are padded by `src/ops/cuda/gemm_epilogue.rs` before they reach
+    // here; M is never padded.
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
     // per-index cache.
     let caps = CudaDevice::new(device_index).profile().caps;
@@ -439,9 +442,10 @@ pub unsafe fn launch_gemm_bias_residual_batched_kernel(
         }
     }
 
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims, the same predicate
-    // plain matmul and matmul_bias use. Unaligned operands are padded to
-    // 16-multiples by `src/ops/cuda/gemm_epilogue.rs` before they reach here.
+    // Tensor-core WMMA path: F16/BF16 at any shape, the same predicate plain
+    // matmul and matmul_bias use. Shapes whose ragged row strides are worth
+    // padding are padded by `src/ops/cuda/gemm_epilogue.rs` before they reach
+    // here; M is never padded.
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
     // per-index cache.
     let caps = CudaDevice::new(device_index).profile().caps;

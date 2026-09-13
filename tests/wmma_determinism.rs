@@ -11,8 +11,12 @@
 //! The large tile needs a grid past a device-dependent wave threshold, so
 //! batching encourages it rather than guaranteeing it.
 //!
-//! Unaligned shapes drive the pad-then-slice path. Pad copies into a wider
-//! buffer, the kernel writes there, then a narrow copies the result back.
+//! Shapes whose N or K is not a multiple of 8 stage that operand one element
+//! at a time. When the GEMM is heavy enough per copied element, the op pads
+//! N/K to a multiple of 8 first: pad copies the operands into wider buffers,
+//! the kernel writes there, then a narrow copies the result back. The
+//! `_padded` cases below are sized so that pad pays; `_unaligned` ones at
+//! small shapes launch as they are. M is never padded.
 
 // Every test here compares f16/bf16 WMMA output, so the file needs the `f16`
 // feature as well as `cuda` — without it `half` is not even a dependency.
@@ -155,9 +159,10 @@ fn matmul_aligned_small_tile_is_deterministic() {
 
 #[test]
 fn matmul_unaligned_padded_is_deterministic() {
-    // Not a multiple of 16 in any dimension: forces the pad-to-16-multiples,
-    // run WMMA, narrow-and-copy-back path in src/ops/cuda/matmul.rs.
-    let (m, k, n) = (100usize, 100usize, 100usize);
+    // N is not a multiple of 8 and M is tall enough that padding B pays:
+    // pad N to an 8-multiple, run WMMA, narrow-and-copy-back
+    // (src/ops/cuda/matmul.rs).
+    let (m, k, n) = (520usize, 64usize, 35usize);
     with_cuda_backend(|client, _device| {
         assert_deterministic_bytes("unaligned_padded f16", "matmul", |_run| {
             let a = client.randn_seeded(&[m, k], DType::F16, SEED).unwrap();
@@ -180,9 +185,9 @@ fn matmul_unaligned_padded_is_deterministic() {
 
 #[test]
 fn matmul_partial_tile_144_is_deterministic() {
-    // 16-aligned (dispatches straight to WMMA, no padding) but not a multiple
-    // of 128: a ragged block edge against the large tile, ragged in both
-    // directions against the small tile.
+    // Dispatches straight to WMMA, no padding, but not a multiple of 128: a
+    // ragged block edge against the large tile, ragged in both directions
+    // against the small tile.
     let (m, k, n) = (144usize, 144usize, 144usize);
     with_cuda_backend(|client, _device| {
         assert_deterministic_bytes("partial_tile_144 f16", "matmul", |_run| {
@@ -336,7 +341,8 @@ fn matmul_bias_large_k_is_deterministic() {
 
 #[test]
 fn matmul_bias_unaligned_padded_is_deterministic() {
-    let (m, k, n) = (130usize, 70usize, 50usize);
+    // Ragged K pads both operands; M and N are large enough that it pays.
+    let (m, k, n) = (1040usize, 21usize, 1040usize);
     with_cuda_backend(|client, _device| {
         assert_deterministic_bytes("bias_unaligned_padded f16", "matmul_bias", |_run| {
             let a = client.randn_seeded(&[m, k], DType::F16, SEED).unwrap();
@@ -444,10 +450,11 @@ fn gemm_bias_residual_aligned_is_deterministic() {
 
 #[test]
 fn gemm_bias_residual_unaligned_padded_is_deterministic() {
-    // Residual is [M,N]-shaped and padded in 2 dims (unlike bias's 1-D pad),
-    // so this exercises the residual-specific padding branch in
-    // src/ops/cuda/gemm_epilogue.rs under repetition.
-    let (m, k, n) = (130usize, 70usize, 50usize);
+    // Residual is [M,N]-shaped and takes the 2-D pad spec (unlike bias's 1-D
+    // pad), so this exercises the residual-specific padding branch in
+    // src/ops/cuda/gemm_epilogue.rs under repetition. Ragged K pads both
+    // operands; M and N are large enough that it pays.
+    let (m, k, n) = (1040usize, 21usize, 1040usize);
     with_cuda_backend(|client, _device| {
         assert_deterministic_bytes(
             "bias_residual_unaligned_padded f16",

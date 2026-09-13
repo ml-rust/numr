@@ -169,11 +169,9 @@ matmul_case!(
     )]
 );
 
-// K=48 and K=80 are both multiples of 16, the minimum use_wmma requires
-// (K % 16 == 0). With BLOCK_K=16 this gives several full K-tiles and no
-// partial tile, so these cases exercise multi-K-tile accumulation, not a
-// K-tail zero-pad — that branch is unreachable while use_wmma requires
-// K % 16 == 0.
+// K=48 and K=80 are multiples of 16, so these cases exercise multi-K-tile
+// accumulation with full tiles. The K-tail zero-pad in the staging loop is
+// covered by the ragged-stride cases below (`test_matmul_wmma_ragged_*`).
 matmul_case!(
     test_matmul_wmma_k_tail_parity,
     &[
@@ -305,8 +303,8 @@ fn test_matmul_wmma_aligned_controls_f16() {
     test_matmul_parity(&cases, numr::dtype::DType::F16);
 }
 
-// M unaligned, N & K aligned — THE varlen-embedding case (M=total_tokens unaligned,
-// N/K=hidden always 16-aligned). matmul() pads M to a multiple of 16 so WMMA fires.
+// M ragged, N & K aligned: the varlen-embedding case (M=total_tokens ragged,
+// N/K=hidden always aligned). M is never padded; the kernel masks the M edge.
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_wmma_unaligned_m_f16() {
@@ -336,10 +334,11 @@ fn test_matmul_wmma_unaligned_m_bf16() {
 // stride nr_actual, corrupting every kk>0 (fixed in simd/matmul/packing.rs). The
 // aligned tests (N=144=9×16) never hit a partial block, so it stayed latent. With
 // the CPU reference fixed, CUDA now matches it.
-// REGRESSION (§7e): 3D input [1, M, K] with unaligned M through the WMMA
-// pad-to-16 wrapper. The padded encoder forward (single query, batch=1) sends a
-// 3D [1, seq, hidden] tensor; the wrapper must pad/narrow the LAST TWO dims, not
-// dims 0/1 — narrowing dim 0 (the size-1 batch dim) produced a degenerate [0, …].
+// REGRESSION (§7e): 3D input [1, M, K] with ragged M. The padded encoder
+// forward (single query, batch=1) sends a 3D [1, seq, hidden] tensor; it must
+// reach the WMMA kernel with its leading batch dim intact. When N or K pads,
+// the wrapper narrows the LAST dim, not dim 1: narrowing dim 0 (the size-1
+// batch dim) once produced a degenerate [0, …].
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_3d_unaligned_m_f16() {
@@ -381,6 +380,66 @@ fn test_matmul_unaligned_nk_bf16() {
         make_f32_test_data(128, 128, 0.0011, 130, 0.0019),
         make_f32_test_data(128, 70, 0.0007, 128, 0.0009),
     ];
+    test_matmul_parity(&cases, numr::dtype::DType::BF16);
+}
+
+// ============================================================================
+// WMMA ragged strides: each host-side padding class, F16 and BF16
+// ============================================================================
+//
+// The kernel accepts any M, N, K. A K or N that is not a multiple of 8 (the
+// kernel's 128-bit staging width) stages that operand one element at a time;
+// the op pads it only when the GEMM is heavy enough per copied element
+// (`WMMA_PAD_MIN_WORK_PER_COPIED_ELEMENT`). M is never a condition. Each case
+// below is one class of that rule, against the CPU reference:
+// - m=37: ragged M only, the kernel masks the M edge
+// - n=40: N is a multiple of 8 but not of 16, one scalar-staged edge tile
+//   per column block
+// - k=24: K likewise, one scalar-staged K tail
+// - n=35 at m=64: N not a multiple of 8, too light to pad, scalar-staged B
+// - k=21 at m=64: K not a multiple of 8, too light to pad, both scalar-staged
+// - n=35 at m=520: heavy enough, the op pads N to 40
+// - k=21 at m=n=1040: heavy enough, the op pads K to 24 on both operands
+
+#[cfg(feature = "f16")]
+fn wmma_ragged_stride_cases() -> [MatmulTest; 7] {
+    [
+        make_f32_test_data(37, 64, 0.0013, 128, 0.0017),
+        make_f32_test_data(64, 64, 0.0011, 40, 0.0019),
+        make_f32_test_data(64, 24, 0.0007, 128, 0.0009),
+        make_f32_test_data(64, 64, 0.0005, 35, 0.0015),
+        make_f32_test_data(64, 21, 0.0021, 128, 0.0008),
+        make_f32_test_data(520, 64, 0.0005, 35, 0.0015),
+        make_f32_test_data(1040, 21, 0.0021, 1040, 0.0008),
+    ]
+}
+
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_ragged_strides_f16() {
+    test_matmul_parity(&wmma_ragged_stride_cases(), numr::dtype::DType::F16);
+}
+
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_ragged_strides_bf16() {
+    test_matmul_parity(&wmma_ragged_stride_cases(), numr::dtype::DType::BF16);
+}
+
+// 3-D batched with ragged M and N ≡ 8 mod 16: the batched WMMA launcher
+// takes it as it is, with a ragged M edge and a scalar-staged N edge tile in
+// every batch slice.
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_batched_ragged_m_n_f16() {
+    let cases = [make_f32_batched_test_data(3, 3, 37, 64, 40, 0.0013, 0.0017)];
+    test_matmul_parity(&cases, numr::dtype::DType::F16);
+}
+
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_batched_ragged_m_n_bf16() {
+    let cases = [make_f32_batched_test_data(3, 3, 37, 64, 40, 0.0013, 0.0017)];
     test_matmul_parity(&cases, numr::dtype::DType::BF16);
 }
 
@@ -588,15 +647,14 @@ fn test_matmul_f32_batched_tiled_parity() {
 //
 // `use_wmma` used to require m > 16, so decode-shaped matmuls (m=1, the
 // single-token LLM decode step) stayed on the GEMV path. That gate is gone:
-// small m now pads up to 16 and runs on the WMMA kernel. These cases
-// bracket m=1 (the target shape), plus m=2 and m=8, to cover the padded
-// small-m range rather than probing a single point.
+// any m >= 1 runs on the WMMA kernel as it is, no padding. These cases
+// bracket m=1 (the target shape), plus m=2 and m=8, to cover the small-m
+// range rather than probing a single point.
 
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_m1_decode_f16() {
-    // m=1: single-token decode; m pads to 16. K, N are 16-multiples so only
-    // m needs padding.
+    // m=1: single-token decode. K, N are 8-multiples, so nothing pads.
     let cases = [make_f32_test_data(1, 64, 0.0013, 128, 0.0017)];
     test_matmul_parity(&cases, numr::dtype::DType::F16);
 }
@@ -611,8 +669,8 @@ fn test_matmul_m1_decode_bf16() {
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_m1_decode_unaligned_nk_f16() {
-    // m=1 with K=70, N=50 (neither a 16-multiple): exercises the full
-    // pad-all-dims path, not just the m pad.
+    // m=1 with K=70, N=50 (neither an 8-multiple): scalar staging on both
+    // operands at m=1, far too light to pad.
     let cases = [make_f32_test_data(1, 70, 0.0011, 50, 0.0019)];
     test_matmul_parity(&cases, numr::dtype::DType::F16);
 }
@@ -620,7 +678,7 @@ fn test_matmul_m1_decode_unaligned_nk_f16() {
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_m2_decode_f16() {
-    // m=2: brackets m=1 from above within the padded small-m range.
+    // m=2: brackets m=1 from above within the small-m range.
     let cases = [make_f32_test_data(2, 64, 0.0013, 128, 0.0017)];
     test_matmul_parity(&cases, numr::dtype::DType::F16);
 }
@@ -628,7 +686,7 @@ fn test_matmul_m2_decode_f16() {
 #[test]
 #[cfg(feature = "f16")]
 fn test_matmul_m8_decode_f16() {
-    // m=8: upper bracket, still padded (not yet a 16-multiple).
+    // m=8: upper bracket of the small-m range.
     let cases = [make_f32_test_data(8, 64, 0.0013, 128, 0.0017)];
     test_matmul_parity(&cases, numr::dtype::DType::F16);
 }

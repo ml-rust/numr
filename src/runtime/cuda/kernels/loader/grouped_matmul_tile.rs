@@ -19,17 +19,15 @@ use crate::runtime::traits::profile::DeviceCaps;
 ///   and `caps.bf16` already gates on that)
 /// - N and K are both multiples of 16 (WMMA fragment requirement)
 ///
-/// Deliberately does NOT test M alignment, unlike the dense [`use_wmma`]
-/// (`matmul_wmma.rs`). There, M is a launch argument the host already knows
-/// and can pad. Here M is a PER-GROUP row count read from `offsets` in
-/// device memory — the host sees only `total_rows`, the sum across groups,
-/// and cannot see or pad any individual group's count. The grouped WMMA
-/// kernel is written for this: its A-tile staging and its epilogue store are
-/// both bounds-checked per row against the group's `count` (`matmul_wmma.cu`,
-/// `DEFINE_WMMA_GROUPED`), so a ragged M is masked off rather than mis-read
-/// or mis-written — no host-side alignment check is needed or possible.
+/// Does NOT test M, like the dense [`use_wmma`] (`matmul_wmma.rs`). Here M
+/// is a PER-GROUP row count read from `offsets` in device memory — the host
+/// sees only `total_rows`, the sum across groups, and cannot see any
+/// individual group's count. The grouped WMMA kernel is written for this:
+/// its A-tile staging and its epilogue store are both bounds-checked per row
+/// against the group's `count` (`matmul_wmma.cu`, `DEFINE_WMMA_GROUPED`), so
+/// a ragged M is masked off rather than mis-read or mis-written.
 ///
-/// [`use_wmma`]: super::matmul_wmma::use_wmma
+/// [`use_wmma`]: super::matmul_wmma_policy::use_wmma
 #[inline]
 pub(super) fn use_wmma_grouped(dtype: DType, caps: DeviceCaps, n: usize, k: usize) -> bool {
     let dtype_ok = match dtype {

@@ -18,8 +18,9 @@
 // 1x1 for 64x64. Thread count, launch bounds, staging loops and epilogue are
 // shared.
 //
-// Caller must guarantee M, N, K are all multiples of 16 before dispatching
-// here. The FMA fallback handles all other shapes.
+// Any M, N, K >= 1 is a valid launch; see matmul_wmma.cuh for the edge
+// handling and loader/matmul_wmma_policy.rs for the host-side dispatch
+// policy.
 
 #if __CUDA_ARCH__ >= 700
 
@@ -303,9 +304,9 @@ DEFINE_WMMA_FAMILY(f16_64x64, 1, 1, WMMA_BLOCK_K_DEFAULT, __half, WMMA,
 // BF16 WMMA fragments (nvcuda::wmma::fragment<..., __nv_bfloat16, ...>) are
 // only a complete type from sm_80. Below that, `mma.h` declares them as an
 // incomplete type and the kernel fails to compile. Guard so these symbols are
-// absent by design on sm_75 fatbin slices; the launcher
-// (src/runtime/cuda/kernels/loader/matmul_wmma.rs) must not request them on
-// a device that lacks `caps.bf16`.
+// absent by design on sm_75 fatbin slices; the dispatch policy
+// (src/runtime/cuda/kernels/loader/matmul_wmma_policy.rs) must not request
+// them on a device that lacks `caps.bf16`.
 // ---------------------------------------------------------------------------
 
 #if __CUDA_ARCH__ >= 800

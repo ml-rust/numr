@@ -161,7 +161,6 @@ pub use unary::*;
 pub use utility::*;
 
 // Re-export commonly used items from loader for advanced users
-pub(crate) use loader::use_wmma_after_padding;
 #[allow(unused_imports)]
 pub use loader::{
     BLOCK_SIZE, LaunchConfig, col_transpose1d_has_kernel, im2col_has_kernel, im2col2d_has_kernel,
@@ -172,3 +171,4 @@ pub use loader::{
     launch_matmul_kernel, launch_matmul_kernel_bt, launch_semiring_matmul_batched_kernel,
     launch_semiring_matmul_kernel, preload_modules,
 };
+pub(crate) use loader::{use_wmma_after_padding, wmma_padded_dims};

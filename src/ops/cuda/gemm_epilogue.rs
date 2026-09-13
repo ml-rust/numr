@@ -11,7 +11,7 @@ use crate::ops::{
 };
 use crate::runtime::cuda::kernels::{
     launch_gemm_bias_act_bwd_batched_kernel, launch_gemm_bias_act_bwd_kernel,
-    use_wmma_after_padding,
+    use_wmma_after_padding, wmma_padded_dims,
 };
 use crate::runtime::cuda::ops::helpers::{
     gemm_bias_act_batched_native, gemm_bias_act_native, gemm_bias_residual_batched_native,
@@ -92,22 +92,25 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             );
         }
 
-        // Pad unaligned F16/BF16 (m>16) up to 16-multiples so the WMMA tensor-core
-        // kernel fires, the same rule plain matmul and matmul_bias apply
-        // (src/ops/cuda/matmul.rs). Without it any M that is not a multiple of 16
-        // silently keeps the generic kernel. `use_wmma_after_padding` is derived
-        // from the launcher's own `use_wmma`, so the padding decision cannot
-        // disagree with the dispatch decision.
+        // The WMMA kernel handles any M, N, K: it zero-fills past every edge and
+        // masks its store. A row stride (K for A, N for B) that is not a multiple
+        // of `WMMA_STAGE_HALVES` makes the kernel stage that operand one element
+        // at a time, a fixed fraction of the GEMM's work; a pad costs one pass
+        // over each copied operand. Padding happens only when the GEMM is heavy
+        // enough per copied element for the copy to pay
+        // (`WMMA_PAD_MIN_WORK_PER_COPIED_ELEMENT`); every other shape, ragged M
+        // included, launches as it is. Same rule as plain matmul and matmul_bias
+        // (src/ops/cuda/matmul.rs). `use_wmma_after_padding` is the complement of
+        // the launcher's own `use_wmma`, so the padding decision cannot disagree
+        // with the dispatch decision.
         //
-        // Zero-padding is exact here: the extra K contributes 0 to the accumulator,
-        // and the extra M rows / N cols — where the bias and the activation still
-        // apply — are sliced off before the result is returned.
+        // Zero-padding is exact: the extra K contributes 0 to the accumulator, and
+        // the extra N columns, where the bias and the activation still apply, are
+        // sliced off before the result is returned.
         let caps = self.device.profile().caps;
         if use_wmma_after_padding(dtype, caps, m, n, k) {
-            let m_pad = m.next_multiple_of(16);
-            let k_pad = k.next_multiple_of(16);
-            let n_pad = n.next_multiple_of(16);
-            let a_pad = self.pad(a, &[0, k_pad - k, 0, m_pad - m], 0.0)?;
+            let (n_pad, k_pad) = wmma_padded_dims(n, k);
+            let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
             let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
             // bias is 1-D [n], so it takes a two-element padding spec.
             let bias_pad = self.pad(bias, &[0, n_pad - n], 0.0)?;
@@ -125,14 +128,14 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                 &bias_pad,
                 dtype,
                 &out_pad_shape,
-                m_pad,
+                m,
                 n_pad,
                 k_pad,
                 activation,
             )?;
-            // Slice the M (2nd-last) and N (last) dims back via negative indexing —
-            // NOT dims 0/1, since the output may carry leading batch dims.
-            return out_pad.narrow(-2, 0, m)?.narrow(-1, 0, n)?.contiguous();
+            // Slice N (last dim) back via negative indexing, NOT dim 1: the output
+            // can carry leading batch dims.
+            return out_pad.narrow(-1, 0, n)?.contiguous();
         }
 
         gemm_bias_act_native(self, a, b, bias, dtype, &out_shape, m, n, k, activation)
@@ -223,13 +226,11 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
         // corrupt the interior, not just the edge.
         let caps = self.device.profile().caps;
         if use_wmma_after_padding(dtype, caps, m, n, k) {
-            let m_pad = m.next_multiple_of(16);
-            let k_pad = k.next_multiple_of(16);
-            let n_pad = n.next_multiple_of(16);
-            let a_pad = self.pad(a, &[0, k_pad - k, 0, m_pad - m], 0.0)?;
+            let (n_pad, k_pad) = wmma_padded_dims(n, k);
+            let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
             let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
             let bias_pad = self.pad(bias, &[0, n_pad - n], 0.0)?;
-            let res_pad = self.pad(residual, &[0, n_pad - n, 0, m_pad - m], 0.0)?;
+            let res_pad = self.pad(residual, &[0, n_pad - n, 0, 0], 0.0)?;
             let out_pad_shape =
                 matmul_bias_output_shape(a_pad.shape(), b_pad.shape(), bias_pad.shape()).ok_or(
                     Error::ShapeMismatch {
@@ -245,11 +246,11 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                 &res_pad,
                 dtype,
                 &out_pad_shape,
-                m_pad,
+                m,
                 n_pad,
                 k_pad,
             )?;
-            return out_pad.narrow(-2, 0, m)?.narrow(-1, 0, n)?.contiguous();
+            return out_pad.narrow(-1, 0, n)?.contiguous();
         }
 
         gemm_bias_residual_native(self, a, b, bias, residual, dtype, &out_shape, m, n, k)

@@ -5,7 +5,9 @@ use crate::ops::{
     BinaryOps, MatmulOps, ShapeOps, matmul_bias_output_shape, matmul_output_dtype,
     matmul_output_shape, validate_matmul_bias_dtypes,
 };
-use crate::runtime::cuda::kernels::{int_matmul_has_kernel, use_wmma_after_padding};
+use crate::runtime::cuda::kernels::{
+    int_matmul_has_kernel, use_wmma_after_padding, wmma_padded_dims,
+};
 use crate::runtime::cuda::ops::helpers::{
     matmul_batched_native, matmul_bias_batched_native, matmul_bias_native, matmul_native,
 };
@@ -90,38 +92,39 @@ impl MatmulOps<CudaRuntime> for CudaClient {
                 if batch_size > 1 {
                     matmul_batched_native(self, a, b, dtype, batch_size, m, k, n)
                 } else {
-                    // Pad unaligned F16/BF16 (m>16) up to 16-multiples so the WMMA
-                    // tensor-core kernel fires. Critical for the varlen-embedding path:
-                    // M = total_tokens is rarely a multiple of 16, so without this F16
-                    // dropped to the ~150x-slower generic kernel (57 vs 8500 GFLOP/s).
-                    // Zero-padding is exact (extra K contributes 0; extra M rows / N
-                    // cols are sliced off); the WMMA kernel only ever sees aligned dims.
+                    // The WMMA kernel handles any M, N, K: it zero-fills past every
+                    // edge and masks its store. A row stride (K for A, N for B)
+                    // that is not a multiple of `WMMA_STAGE_HALVES` makes the kernel
+                    // stage that operand one element at a time instead of through
+                    // its 128-bit path. That costs a fixed fraction of the GEMM's
+                    // work; a pad costs one pass over each copied operand plus the
+                    // output narrow. So the op pads only when the GEMM is heavy
+                    // enough per copied element for the copy to pay
+                    // (`WMMA_PAD_MIN_WORK_PER_COPIED_ELEMENT`); every other shape,
+                    // ragged M included, launches as it is. Zero-padding is exact:
+                    // the extra K contributes 0, and the extra N columns are sliced
+                    // off.
                     //
                     // `use_wmma_after_padding` is the same predicate the launcher uses
-                    // to pick the WMMA kernel (src/runtime/cuda/kernels/loader/matmul_wmma.rs),
-                    // gated on this device's real capabilities — padding a BF16 operand on
-                    // a device without native bf16 (caps.bf16) would allocate and copy for
-                    // a WMMA path that never fires.
+                    // to pick the WMMA kernel (src/runtime/cuda/kernels/loader/matmul_wmma_policy.rs),
+                    // gated on this device's real capabilities. Padding a BF16 operand
+                    // on a device without native bf16 (caps.bf16) would allocate and
+                    // copy for a WMMA path that never fires.
                     let caps = self.device.profile().caps;
                     let pad_for_wmma = use_wmma_after_padding(dtype, caps, m, n, k);
 
                     if pad_for_wmma {
-                        let m_pad = m.next_multiple_of(16);
-                        let k_pad = k.next_multiple_of(16);
-                        let n_pad = n.next_multiple_of(16);
-                        // pad(t, [last_before, last_after, 2nd_last_before, 2nd_last_after])
-                        // — only the last two dims (M=2nd-last of A, K=last of A; N=last
-                        // of B, K=2nd-last of B) are padded; any leading batch dims are
-                        // untouched.
-                        let a_pad = self.pad(a, &[0, k_pad - k, 0, m_pad - m], 0.0)?;
+                        let (n_pad, k_pad) = wmma_padded_dims(n, k);
+                        // pad(t, [last_before, last_after, 2nd_last_before, 2nd_last_after]):
+                        // K is the last dim of A and the 2nd-last of B, N the last
+                        // dim of B. M and any leading batch dims are untouched.
+                        let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
                         let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
-                        let out_pad =
-                            matmul_native(self, &a_pad, &b_pad, dtype, m_pad, k_pad, n_pad)?;
-                        // Slice the M (2nd-last) and N (last) dims back via negative
-                        // indexing — NOT dims 0/1, since the output may carry leading
-                        // batch dims (e.g. a 3D [1, m, n] from the padded encoder forward,
-                        // where narrowing dim 0 — the size-1 batch — gave a [0, …] tensor).
-                        out_pad.narrow(-2, 0, m)?.narrow(-1, 0, n)?.contiguous()
+                        let out_pad = matmul_native(self, &a_pad, &b_pad, dtype, m, k_pad, n_pad)?;
+                        // Slice N (last dim) back via negative indexing, NOT dim 1:
+                        // the output can carry leading batch dims (e.g. a 3D
+                        // [1, m, n] from the padded encoder forward).
+                        out_pad.narrow(-1, 0, n)?.contiguous()
                     } else {
                         matmul_native(self, a, b, dtype, m, k, n)
                     }
@@ -243,24 +246,22 @@ impl MatmulOps<CudaRuntime> for CudaClient {
                 if batch_size > 1 {
                     matmul_bias_batched_native(self, a, b, bias, dtype, batch_size, m, k, n)
                 } else {
-                    // Pad unaligned F16/BF16 (m>16) up to 16-multiples so WMMA fires
-                    // (see matmul() for rationale, including why the predicate is
-                    // gated on this device's caps). bias is [n] → pad to [n_pad].
+                    // Same padding rule as matmul(): only N and K, and only when the
+                    // pad pass pays against scalar staging. The bias is [n], so it
+                    // pads to [n_pad].
                     let caps = self.device.profile().caps;
                     let pad_for_wmma = use_wmma_after_padding(dtype, caps, m, n, k);
 
                     if pad_for_wmma {
-                        let m_pad = m.next_multiple_of(16);
-                        let k_pad = k.next_multiple_of(16);
-                        let n_pad = n.next_multiple_of(16);
-                        let a_pad = self.pad(a, &[0, k_pad - k, 0, m_pad - m], 0.0)?;
+                        let (n_pad, k_pad) = wmma_padded_dims(n, k);
+                        let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
                         let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
                         let bias_pad = self.pad(bias, &[0, n_pad - n], 0.0)?;
                         let out_pad = matmul_bias_native(
-                            self, &a_pad, &b_pad, &bias_pad, dtype, m_pad, k_pad, n_pad,
+                            self, &a_pad, &b_pad, &bias_pad, dtype, m, k_pad, n_pad,
                         )?;
-                        // Slice M (2nd-last) and N (last) via negative indexing — see matmul().
-                        out_pad.narrow(-2, 0, m)?.narrow(-1, 0, n)?.contiguous()
+                        // Slice N (last dim) back via negative indexing, see matmul().
+                        out_pad.narrow(-1, 0, n)?.contiguous()
                     } else {
                         matmul_bias_native(self, a, b, bias, dtype, m, k, n)
                     }

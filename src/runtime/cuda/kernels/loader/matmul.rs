@@ -26,7 +26,8 @@ use super::matmul_f32::{
 };
 use super::matmul_fp8::launch_matmul_fp8_tiled;
 use super::matmul_int::{int_matmul_has_kernel, launch_matmul_int_tiled};
-use super::matmul_wmma::{launch_matmul_wmma_batched_kernel, launch_matmul_wmma_kernel, use_wmma};
+use super::matmul_wmma::{launch_matmul_wmma_batched_kernel, launch_matmul_wmma_kernel};
+use super::matmul_wmma_policy::use_wmma;
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::{kernel_name, kernel_names};
 
@@ -37,16 +38,10 @@ use super::names::{kernel_name, kernel_names};
 /// F32 has a tiled kernel that handles small `m` well, and it beats GEMV from
 /// about `m == 8` upward — GEMV was measurably worse at 8, 12 and 16.
 ///
-/// F16/BF16 have NO tiled path below this point: `use_wmma` requires
-/// `m > 16`, so dropping the gate sends them to the generic runtime-parameter
-/// kernel, which is orders of magnitude slower. GEMV is their only sane option
-/// here, so the threshold stays. F64 and the integer dtypes likewise have no
-/// specialised small-`m` path.
-///
-/// Raising the F16/BF16 case needs `use_wmma`'s `m > 16` relaxed first, so a
-/// padded small `m` can reach the tensor-core kernel. That is worth doing —
-/// the WMMA path just above this boundary is faster than GEMV below it — but it
-/// is a change to WMMA selection, not to this constant.
+/// F16/BF16 route every `m >= 1` to the WMMA kernel: `use_wmma` does not test
+/// M, and the kernel zero-fills and masks the M edge. The tensor-core path
+/// beats GEMV at every small `m`, so the GEMV threshold is 0 for them. F64 and
+/// the integer dtypes have no specialised small-`m` path and keep 16.
 fn gemv_m_max(dtype: DType) -> usize {
     match dtype {
         DType::F32 => 4,
@@ -122,7 +117,8 @@ pub unsafe fn launch_matmul_kernel(
             );
         }
     }
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims → up to ~100 TFLOPS on Ampere.
+    // Tensor-core WMMA path: F16/BF16 at any shape, unless padding the row
+    // strides pays and the op has not done it yet (see `use_wmma`).
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
     // per-index cache (queried once, on first use of this device index).
     let caps = CudaDevice::new(device_index).profile().caps;
@@ -341,7 +337,7 @@ pub unsafe fn launch_matmul_batched_kernel(
             );
         }
     }
-    // Tensor-core WMMA path for F16/BF16 with 16-aligned dims.
+    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form.
     let caps = CudaDevice::new(device_index).profile().caps;
     if use_wmma(dtype, caps, m, n, k) {
         unsafe {

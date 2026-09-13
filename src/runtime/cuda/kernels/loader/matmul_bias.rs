@@ -25,9 +25,8 @@ use super::matmul_config::{
 };
 use super::matmul_fp8::launch_matmul_fp8_tiled;
 use super::matmul_int::{int_matmul_has_kernel, launch_matmul_int_tiled};
-use super::matmul_wmma::{
-    launch_matmul_bias_wmma_batched_kernel, launch_matmul_bias_wmma_kernel, use_wmma,
-};
+use super::matmul_wmma::{launch_matmul_bias_wmma_batched_kernel, launch_matmul_bias_wmma_kernel};
+use super::matmul_wmma_policy::use_wmma;
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::{kernel_name, kernel_names};
 
@@ -101,11 +100,11 @@ pub unsafe fn launch_matmul_bias_kernel(
             );
         }
     }
-    // Tensor-core WMMA path: F16/BF16 with 16-aligned dims, same predicate as
-    // plain matmul (`loader/matmul.rs`). Unaligned operands are padded to
-    // 16-multiples — bias included — by `src/ops/cuda/matmul.rs` before they
-    // reach here. CudaDevice::new is a zero-cost index wrapper; profile()
-    // serves the per-index cache.
+    // Tensor-core WMMA path: F16/BF16 at any shape, same predicate as plain
+    // matmul (`loader/matmul.rs`). Shapes whose ragged row strides are worth
+    // padding are padded by `src/ops/cuda/matmul.rs`, bias included, before
+    // they reach here; M is never padded. CudaDevice::new is a zero-cost
+    // index wrapper; profile() serves the per-index cache.
     let caps = CudaDevice::new(device_index).profile().caps;
     if use_wmma(dtype, caps, m, n, k) {
         unsafe {
@@ -309,7 +308,7 @@ pub unsafe fn launch_matmul_bias_batched_kernel(
             );
         }
     }
-    // Tensor-core WMMA path for F16/BF16 with 16-aligned dims. The bias is
+    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form. The bias is
     // [N] and broadcasts across rows and batch slices, matching the generic
     // `matmul_bias_batched_*` kernels.
     let caps = CudaDevice::new(device_index).profile().caps;

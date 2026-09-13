@@ -157,7 +157,7 @@ fn wmma_grid_blocks(m: usize, n: usize, batch: usize, tile: WmmaTile) -> u64 {
 /// which makes the wave tests trivially true and leaves the first candidate
 /// (the largest tile) as the default.
 ///
-/// This runs only after [`super::matmul_wmma::use_wmma`] has already chosen
+/// This runs only after [`super::matmul_wmma_policy::use_wmma`] has already chosen
 /// the WMMA path; it never changes whether that path is taken.
 #[inline]
 pub(super) fn select_wmma_tile(
