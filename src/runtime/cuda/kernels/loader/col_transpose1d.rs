@@ -37,8 +37,11 @@ pub fn col_transpose1d_has_kernel(dtype: DType) -> bool {
 /// # Arguments
 ///
 /// * `input_ptr` - Input tensor `(N, C_in, L)`
-/// * `col_ptr` - Column buffer `(N, C_in*K, L_out)`
+/// * `col_ptr` - Column buffer `(N, C_in*K, output_length)`
+/// * `output_length` - Output positions this launch covers
 /// * `pad_left` - Resolved LEFT padding
+/// * `output_offset` - First output position this launch covers, so a long
+///   output can be split into bounded column buffers
 ///
 /// # Safety
 ///
@@ -60,6 +63,7 @@ pub unsafe fn launch_col_transpose1d(
     stride: usize,
     pad_left: usize,
     dilation: usize,
+    output_offset: usize,
 ) -> Result<()> {
     let rows = c_in * kernel_size;
     if batch == 0 || rows == 0 || output_length == 0 {
@@ -106,6 +110,7 @@ pub unsafe fn launch_col_transpose1d(
         let stride_u32 = stride as u32;
         let pad_left_u32 = pad_left as u32;
         let dilation_u32 = dilation as u32;
+        let output_offset_u32 = output_offset as u32;
 
         let mut builder = stream.launch_builder(&func);
         builder.arg(&input_ptr);
@@ -118,6 +123,7 @@ pub unsafe fn launch_col_transpose1d(
         builder.arg(&stride_u32);
         builder.arg(&pad_left_u32);
         builder.arg(&dilation_u32);
+        builder.arg(&output_offset_u32);
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(

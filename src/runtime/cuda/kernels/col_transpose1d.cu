@@ -40,6 +40,11 @@
 // GEMM contracts over them without changing the result. `output_padding` needs
 // no special case: it only lengthens L_out, and the extra positions gather
 // nothing because their `l` runs past L.
+//
+// CHUNKING. `output_offset` is the first output position this launch covers
+// and `output_length` the number it covers, so the host can split a long
+// output into column buffers of bounded size. Each chunk reads the input in
+// place; only its own columns are written, at chunk-relative column `ox`.
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
@@ -56,13 +61,14 @@ __global__ void col_transpose1d_##suffix( \
     unsigned int output_length, \
     unsigned int stride, \
     unsigned int pad_left, \
-    unsigned int dilation \
+    unsigned int dilation, \
+    unsigned int output_offset \
 ) { \
     unsigned int ox = blockIdx.x * blockDim.x + threadIdx.x; \
     if (ox >= output_length) return; \
     \
     unsigned int rows = c_in * kernel_size; \
-    int num_base = (int)ox + (int)pad_left; \
+    int num_base = (int)(ox + output_offset) + (int)pad_left; \
     \
     for (unsigned int r = blockIdx.y; r < rows; r += gridDim.y) { \
         unsigned int ic = r / kernel_size; \

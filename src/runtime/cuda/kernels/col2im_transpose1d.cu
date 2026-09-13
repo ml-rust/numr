@@ -1,10 +1,17 @@
 // col2im_transpose1d CUDA kernels - fold conv_transpose1d's GEMM output into
 // the output signal.
-// Supports: f32, f64, f16, bf16
+// Supports: f32 -> f32, f64 -> f64, f32 -> f16, f32 -> bf16 (col -> out)
 //
 // Input:  col  (N, L, C_out*K)   the GEMM product  x^T @ W  per batch
-//         bias (C_out)           optional
+//         bias (C_out)           optional, same dtype as col
 // Output: out  (N, C_out, L_out)
+//
+// HALF OUTPUTS FOLD AN F32 PRODUCT. `col` holds per-tap partial sums. Stored
+// in a half dtype, every tap would round before the fold adds it, on top of
+// the rounding inside the GEMM. So the caller casts the half input and weight
+// to F32, runs the GEMM in F32, and this kernel reads the F32 `col` and
+// `bias`, sums in F32, and rounds once at the store into the half output. The
+// template therefore separates the column dtype from the output dtype.
 //
 // GEMM FIRST, THEN GATHER. `col_transpose1d.cu` gathers the input into a
 // column buffer of `C_in*K x L_out` and contracts afterwards; that buffer
@@ -39,11 +46,11 @@
 #include <cuda_bf16.h>
 #include "dtype_traits.cuh"
 
-template<typename T, typename Acc>
+template<typename Tcol, typename Tout, typename Acc>
 __device__ __forceinline__ void col2im_transpose1d_impl(
-    const T* __restrict__ col,
-    const T* __restrict__ bias,
-    T* __restrict__ out,
+    const Tcol* __restrict__ col,
+    const Tcol* __restrict__ bias,
+    Tout* __restrict__ out,
     unsigned int batch,
     unsigned int length,
     unsigned int c_out,
@@ -60,10 +67,10 @@ __device__ __forceinline__ void col2im_transpose1d_impl(
     const int num_base = (int)ox + (int)pad_left;
 
     for (unsigned int oc = blockIdx.y; oc < c_out; oc += gridDim.y) {
-        const Acc b = (bias != nullptr) ? AccumTraits<T, Acc>::load(bias, (int)oc)
-                                        : AccumTraits<T, Acc>::zero();
+        const Acc b = (bias != nullptr) ? AccumTraits<Tcol, Acc>::load(bias, (int)oc)
+                                        : AccumTraits<Tcol, Acc>::zero();
         for (unsigned int n = blockIdx.z; n < batch; n += gridDim.z) {
-            Acc acc = AccumTraits<T, Acc>::zero();
+            Acc acc = AccumTraits<Tcol, Acc>::zero();
             for (unsigned int k = 0; k < kernel_size; k++) {
                 const int num = num_base - (int)(k * dilation);
                 // Sign first: a negative numerator has no input sample at all.
@@ -72,21 +79,21 @@ __device__ __forceinline__ void col2im_transpose1d_impl(
                 if (unum % stride != 0) continue;
                 const unsigned int l = unum / stride;
                 if (l >= length) continue;
-                const T* p = col + ((size_t)n * length + l) * row_stride
-                                 + (size_t)oc * kernel_size + k;
-                acc = AccumTraits<T, Acc>::add(acc, AccumTraits<T, Acc>::load(p, 0));
+                const Tcol* p = col + ((size_t)n * length + l) * row_stride
+                                    + (size_t)oc * kernel_size + k;
+                acc = AccumTraits<Tcol, Acc>::add(acc, AccumTraits<Tcol, Acc>::load(p, 0));
             }
-            T* o = out + ((size_t)n * c_out + oc) * output_length + ox;
-            AccumTraits<T, Acc>::store(o, 0, AccumTraits<T, Acc>::add(acc, b));
+            Tout* o = out + ((size_t)n * c_out + oc) * output_length + ox;
+            AccumTraits<Tout, Acc>::store(o, 0, AccumTraits<Tcol, Acc>::add(acc, b));
         }
     }
 }
 
-#define DEFINE_COL2IM_TRANSPOSE1D_KERNEL(suffix, dtype, acc) \
+#define DEFINE_COL2IM_TRANSPOSE1D_KERNEL(suffix, tcol, tout, acc) \
 __global__ void col2im_transpose1d_##suffix( \
-    const dtype* __restrict__ col, \
-    const dtype* __restrict__ bias, \
-    dtype* __restrict__ out, \
+    const tcol* __restrict__ col, \
+    const tcol* __restrict__ bias, \
+    tout* __restrict__ out, \
     unsigned int batch, \
     unsigned int length, \
     unsigned int c_out, \
@@ -96,19 +103,21 @@ __global__ void col2im_transpose1d_##suffix( \
     unsigned int pad_left, \
     unsigned int dilation \
 ) { \
-    col2im_transpose1d_impl<dtype, acc>(col, bias, out, batch, length, c_out, \
-                                        kernel_size, output_length, stride, \
-                                        pad_left, dilation); \
+    col2im_transpose1d_impl<tcol, tout, acc>(col, bias, out, batch, length, \
+                                             c_out, kernel_size, output_length, \
+                                             stride, pad_left, dilation); \
 }
 
 // Instantiations must stay inside `extern "C"` so the launcher can look the
-// kernels up by their unmangled `col2im_transpose1d_<dtype>` names. Half
-// widths accumulate in F32, as the direct kernel does.
+// kernels up by their unmangled names: `col2im_transpose1d_<dtype>` when col
+// and out share a dtype, `col2im_transpose1d_<col>_<out>` when they differ.
+// The half outputs read an F32 column and accumulate in F32; there is no
+// half-column kernel because nothing launches one.
 extern "C" {
 
-DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f32, float, float)
-DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f64, double, double)
-DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f16, __half, float)
-DEFINE_COL2IM_TRANSPOSE1D_KERNEL(bf16, __nv_bfloat16, float)
+DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f32, float, float, float)
+DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f64, double, double, double)
+DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f32_f16, float, __half, float)
+DEFINE_COL2IM_TRANSPOSE1D_KERNEL(f32_bf16, float, __nv_bfloat16, float)
 
 } // extern "C"

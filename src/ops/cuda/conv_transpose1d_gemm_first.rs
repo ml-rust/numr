@@ -36,11 +36,25 @@
 //! operand. Only the input needs a real transpose, `[N, C_in, L]` to
 //! `[N, L, C_in]`, and that copy is `stride * K` times smaller than the
 //! gather-first column buffer.
+//!
+//! # Half dtypes
+//!
+//! `col` holds per-tap partial sums. Stored in F16 or BF16, every tap would
+//! round before the fold adds it, on top of the rounding inside the GEMM. So
+//! for F16 and BF16 the path casts the transposed input, the weight and the
+//! bias to F32, runs the GEMM in F32, and folds with the mixed kernel that
+//! reads an F32 `col` and writes the half output. The result rounds once, at
+//! the store. F32 and F64 skip the casts and fold in their own dtype.
+//!
+//! The CPU reference and the direct CUDA kernel sum in the storage dtype, so
+//! on a half dtype they carry a rounding per add. The F32 product sits closer
+//! to the exact value than they do, and parity tests bound the gap with the
+//! accumulation-aware tolerance over `c_in * K`.
 
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::ops::MatmulOps;
 use crate::ops::conv_transpose_common::ConvTranspose1dParams;
+use crate::ops::{MatmulOps, TypeConversionOps};
 use crate::runtime::cuda::kernels::launch_col2im_transpose1d;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
@@ -53,8 +67,9 @@ use crate::tensor::Tensor;
 /// and the direct kernel's one-thread-per-output loop is no worse.
 const MIN_C_IN: usize = 32;
 
-/// Largest column buffer, in elements. `L * C_out * K` floats live for the
-/// duration of one call; the fold reads them once.
+/// Largest column buffer, in elements. `L * C_out * K` elements live for the
+/// duration of one call; the fold reads them once. For F16 and BF16 inputs
+/// the buffer is F32, so it costs 4 bytes per element, not 2.
 const MAX_COL_ELEMENTS: usize = 1 << 27;
 
 /// Column buffer size of this formulation, `None` on overflow.
@@ -68,15 +83,14 @@ pub fn gemm_first_col_elements(params: &ConvTranspose1dParams) -> Option<usize> 
 
 /// Whether conv_transpose1d takes the GEMM-first path.
 ///
-/// F32 and F64 only. The column buffer holds per-tap partial sums in the
-/// storage dtype, so a half-width dtype would round every partial before the
-/// fold adds them; the direct and gather-first paths round once, at the end.
-/// Measured: BF16 misses the parity tolerance through that extra rounding.
+/// Every float dtype qualifies. F32 and F64 run the GEMM and the fold in
+/// their own dtype. F16 and BF16 run the product in F32 and round once at the
+/// fold, so they no longer pay a rounding per tap; see the module docs.
 ///
 /// Grouped transposed convolution would need one GEMM per group; the direct
 /// kernel loses no work to grouping, so grouped shapes stay on it.
 pub fn use_conv_transpose1d_gemm_first(params: &ConvTranspose1dParams, dtype: DType) -> bool {
-    if !matches!(dtype, DType::F32 | DType::F64) || params.groups != 1 {
+    if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) || params.groups != 1 {
         return false;
     }
     match gemm_first_col_elements(params) {
@@ -100,10 +114,31 @@ pub fn conv_transpose1d_gemm_first(
     let dtype = input.dtype();
     let row = params.c_out * params.kernel_size;
 
+    // Half inputs run the product in F32 so the fold rounds once, at the
+    // store. F32 and F64 keep their own dtype through the GEMM and the fold.
+    let col_dtype = match dtype {
+        DType::F16 | DType::BF16 => DType::F32,
+        _ => dtype,
+    };
+
     // `[N, C_in, L]` -> `[N, L, C_in]`: the GEMM's left operand, one real copy.
     let x_t = input.transpose(1, 2)?.contiguous()?;
     // `[C_in, C_out, K]` -> `[1, C_in, C_out*K]`: a view, broadcast over N.
     let w_gemm = weight.reshape(&[1, params.c_in, row])?;
+
+    // The weight cast runs on every call. The weight belongs to the model and
+    // this path holds no cache, so the F32 copy is not reused across calls.
+    let (x_t, w_gemm, bias_col) = if col_dtype == dtype {
+        (x_t, w_gemm, None)
+    } else {
+        let bias_col = bias.map(|b| client.cast(b, col_dtype)).transpose()?;
+        (
+            client.cast(&x_t, col_dtype)?,
+            client.cast(&w_gemm, col_dtype)?,
+            bias_col,
+        )
+    };
+    let bias_ptr = bias_col.as_ref().or(bias).map(|b| b.ptr());
 
     let col = client.matmul(&x_t, &w_gemm)?;
 
@@ -118,9 +153,10 @@ pub fn conv_transpose1d_gemm_first(
             &client.context,
             &client.stream,
             client.device.index,
+            col_dtype,
             dtype,
             col.ptr(),
-            bias.map(|b| b.ptr()),
+            bias_ptr,
             out.ptr(),
             params.batch,
             params.length,

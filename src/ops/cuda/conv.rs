@@ -152,13 +152,27 @@ impl ConvOps<CudaRuntime> for CudaClient {
         // Well-shaped transposed convolutions run through a GEMM. Two
         // formulations do the same multiply-accumulates and differ only in
         // the column buffer they hold: GEMM-first sizes it by the input
-        // length, gather-first by the output length. The smaller buffer
-        // wins; the direct kernel below stays the path for every other shape.
+        // length, gather-first by the output length. When both qualify the
+        // smaller total buffer wins, gather-first counted unchunked so the
+        // comparison stays about traffic, not about its chunk budget.
+        // GEMM-first admits every float dtype, so gather-first wins only
+        // when its buffer is the smaller one. Gather-first chunks its
+        // output, so a long output never sends a deep contraction to the
+        // direct kernel; the direct kernel below stays the path for every
+        // shape neither GEMM gate admits.
         let gemm_first = use_conv_transpose1d_gemm_first(&params, dtype);
         let gather_first = use_conv_transpose1d_gemm(&params, dtype);
         if gemm_first {
-            let gather_col = params.batch * params.c_in * params.kernel_size * params.output_length;
-            let smaller = gemm_first_col_elements(&params).is_some_and(|n| n <= gather_col);
+            let gather_col = params
+                .batch
+                .checked_mul(params.c_in)
+                .and_then(|v| v.checked_mul(params.kernel_size))
+                .and_then(|v| v.checked_mul(params.output_length));
+            let smaller = match (gemm_first_col_elements(&params), gather_col) {
+                (Some(first), Some(gather)) => first <= gather,
+                (Some(_), None) => true,
+                (None, _) => false,
+            };
             if !gather_first || smaller {
                 return conv_transpose1d_gemm_first(self, &input, &weight, bias.as_ref(), &params);
             }

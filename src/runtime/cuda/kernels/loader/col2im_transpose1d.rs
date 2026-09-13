@@ -9,10 +9,9 @@ use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
-use super::col_transpose1d::col_transpose1d_has_kernel;
 use super::launch_dims::launch_config;
 use super::module_cache::{get_kernel_function, get_or_load_module};
-use super::names::{kernel_name, kernel_names};
+use super::names::kernel_names;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -24,13 +23,30 @@ const CUDA_MAX_GRID_YZ: usize = 65535;
 /// Widest block along the output axis.
 const COL2IM_TRANSPOSE1D_BLOCK_MAX: u32 = 256;
 
+/// Kernel name for one `(col_dtype, out_dtype)` pair, `None` when no
+/// instantiation exists for it.
+fn col2im_transpose1d_kernel_name(col_dtype: DType, out_dtype: DType) -> Option<&'static str> {
+    match (col_dtype, out_dtype) {
+        (DType::F32, DType::F32) => Some("col2im_transpose1d_f32"),
+        (DType::F64, DType::F64) => Some("col2im_transpose1d_f64"),
+        (DType::F32, DType::F16) => Some("col2im_transpose1d_f32_f16"),
+        (DType::F32, DType::BF16) => Some("col2im_transpose1d_f32_bf16"),
+        _ => None,
+    }
+}
+
 /// Launch the conv_transpose1d GEMM-first fold kernel.
+///
+/// `col` and `bias` share `col_dtype`; `out` is `out_dtype`. Accepted pairs:
+/// `(F32, F32)`, `(F64, F64)`, `(F32, F16)`, `(F32, BF16)`. The half outputs
+/// fold an F32 product so the result rounds once, at the store. Any other
+/// pair returns `Error::UnsupportedDType` naming `out_dtype`.
 ///
 /// # Arguments
 ///
-/// * `col_ptr` - GEMM product `(N, L, C_out*K)`
-/// * `bias_ptr` - Optional bias `(C_out)`
-/// * `out_ptr` - Output tensor `(N, C_out, L_out)`
+/// * `col_ptr` - GEMM product `(N, L, C_out*K)` in `col_dtype`
+/// * `bias_ptr` - Optional bias `(C_out)` in `col_dtype`
+/// * `out_ptr` - Output tensor `(N, C_out, L_out)` in `out_dtype`
 /// * `pad_left` - Resolved LEFT padding
 ///
 /// # Safety
@@ -42,7 +58,8 @@ pub unsafe fn launch_col2im_transpose1d(
     context: &Arc<CudaContext>,
     stream: &CudaStream,
     device_index: usize,
-    dtype: DType,
+    col_dtype: DType,
+    out_dtype: DType,
     col_ptr: u64,
     bias_ptr: Option<u64>,
     out_ptr: u64,
@@ -67,14 +84,12 @@ pub unsafe fn launch_col2im_transpose1d(
         ));
     }
 
-    // Same dtype set as the gather kernel: the two are the two halves of one
-    // formulation and ship together.
-    if !col_transpose1d_has_kernel(dtype) {
+    let Some(name) = col2im_transpose1d_kernel_name(col_dtype, out_dtype) else {
         return Err(Error::UnsupportedDType {
-            dtype,
+            dtype: out_dtype,
             op: "col2im_transpose1d",
         });
-    }
+    };
 
     unsafe {
         let module = get_or_load_module(
@@ -82,7 +97,7 @@ pub unsafe fn launch_col2im_transpose1d(
             device_index,
             kernel_names::COL2IM_TRANSPOSE1D_MODULE,
         )?;
-        let func = get_kernel_function(&module, &kernel_name("col2im_transpose1d", dtype))?;
+        let func = get_kernel_function(&module, name)?;
 
         // Threads walk consecutive output positions, so a short row gets a
         // narrow block instead of leaving most lanes idle.
