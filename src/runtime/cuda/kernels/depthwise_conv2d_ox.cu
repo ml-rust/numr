@@ -42,6 +42,9 @@
 // SUMMATION ORDER. Both paths sum ky-major with kx ascending inside, adding
 // bias last — the same order the flat kernel uses, so no reassociation is
 // introduced against it.
+//
+// ACCUMULATION. Half widths accumulate in F32: the macro takes an accumulator
+// type and moves values through AccumTraits<dtype, acc>.
 // ============================================================================
 
 #include <cuda_fp16.h>
@@ -72,8 +75,9 @@
     unsigned int dilation_w, \
     unsigned int has_bias
 
-#define DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(suffix, dtype) \
+#define DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(suffix, dtype, acc) \
 __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) { \
+    typedef AccumTraits<dtype, acc> AT; \
     /* The x axis carries (oy, column-block) folded together and is launched as \
        flat CONV_BLOCK_THREADS-wide blocks. A block shaped to the column-block \
        count alone rounds that count up to a candidate width, so every warp \
@@ -103,10 +107,10 @@ __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) 
         + (size_t)c * height * width; \
     const dtype* w_base = weight + (size_t)c * kernel_h * kernel_w; \
     \
-    dtype acc0 = (dtype)0; \
-    dtype acc1 = (dtype)0; \
-    dtype acc2 = (dtype)0; \
-    dtype acc3 = (dtype)0; \
+    acc acc0 = AT::zero(); \
+    acc acc1 = AT::zero(); \
+    acc acc2 = AT::zero(); \
+    acc acc3 = AT::zero(); \
     \
     if (stride_w == 1u && dilation_w == 1u) { \
         int ix_base0 = (int)ox_base - (int)pad_w; \
@@ -123,22 +127,22 @@ __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) 
             const dtype* w = w_base + (size_t)ky * kernel_w; \
             for (int t = t_lo; t < t_hi; t++) { \
                 /* One load feeds up to DEPTHWISE_CONV2D_OX_BLOCK accumulators. */ \
-                dtype x = r[t]; \
+                acc x = AT::load(r, t); \
                 int kx0 = t - ix_base0; \
                 int kx = kx0; \
-                if (kx >= 0 && kx < (int)kernel_w) { acc0 = acc0 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_w) { acc0 = AT::add(acc0, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 1; \
-                if (kx >= 0 && kx < (int)kernel_w) { acc1 = acc1 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_w) { acc1 = AT::add(acc1, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 2; \
-                if (kx >= 0 && kx < (int)kernel_w) { acc2 = acc2 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_w) { acc2 = AT::add(acc2, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 3; \
-                if (kx >= 0 && kx < (int)kernel_w) { acc3 = acc3 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_w) { acc3 = AT::add(acc3, AT::mul(x, AT::load(w, kx))); } \
             } \
         } \
     } else { \
         for (unsigned int p = 0; p < DEPTHWISE_CONV2D_OX_BLOCK && p < active; p++) { \
             unsigned int ox = ox_base + p; \
-            dtype acc = (dtype)0; \
+            acc sum = AT::zero(); \
             for (unsigned int ky = 0; ky < kernel_h; ky++) { \
                 int iy = (int)(oy * stride_h + ky * dilation_h) - (int)pad_h; \
                 if (iy < 0 || iy >= (int)height) { continue; } \
@@ -146,13 +150,13 @@ __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) 
                 const dtype* w = w_base + (size_t)ky * kernel_w; \
                 for (unsigned int kx = 0; kx < kernel_w; kx++) { \
                     int ix = (int)(ox * stride_w + kx * dilation_w) - (int)pad_w; \
-                    if (ix >= 0 && ix < (int)width) { acc = acc + r[ix] * w[kx]; } \
+                    if (ix >= 0 && ix < (int)width) { sum = AT::add(sum, AT::mul(AT::load(r, ix), AT::load(w, (int)kx))); } \
                 } \
             } \
-            if (p == 0u) { acc0 = acc; } \
-            else if (p == 1u) { acc1 = acc; } \
-            else if (p == 2u) { acc2 = acc; } \
-            else { acc3 = acc; } \
+            if (p == 0u) { acc0 = sum; } \
+            else if (p == 1u) { acc1 = sum; } \
+            else if (p == 2u) { acc2 = sum; } \
+            else { acc3 = sum; } \
         } \
     } \
     \
@@ -162,29 +166,29 @@ __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) 
         + (size_t)oy * output_w \
         + ox_base; \
     unsigned int has_b = (has_bias != 0u && bias != nullptr) ? 1u : 0u; \
-    dtype bv = has_b != 0u ? bias[c] : (dtype)0; \
+    acc bv = has_b != 0u ? AT::load(bias, (int)c) : AT::zero(); \
     \
-    if (has_b != 0u) { acc0 = acc0 + bv; } \
-    out_base[0] = acc0; \
+    if (has_b != 0u) { acc0 = AT::add(acc0, bv); } \
+    AT::store(out_base, 0, acc0); \
     if (active > 1u) { \
-        if (has_b != 0u) { acc1 = acc1 + bv; } \
-        out_base[1] = acc1; \
+        if (has_b != 0u) { acc1 = AT::add(acc1, bv); } \
+        AT::store(out_base, 1, acc1); \
     } \
     if (active > 2u) { \
-        if (has_b != 0u) { acc2 = acc2 + bv; } \
-        out_base[2] = acc2; \
+        if (has_b != 0u) { acc2 = AT::add(acc2, bv); } \
+        AT::store(out_base, 2, acc2); \
     } \
     if (active > 3u) { \
-        if (has_b != 0u) { acc3 = acc3 + bv; } \
-        out_base[3] = acc3; \
+        if (has_b != 0u) { acc3 = AT::add(acc3, bv); } \
+        AT::store(out_base, 3, acc3); \
     } \
 }
 
 extern "C" {
 
-DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f32, float)
-DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f64, double)
-DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f16, __half)
-DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(bf16, __nv_bfloat16)
+DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f32, float, float)
+DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f64, double, double)
+DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(f16, __half, float)
+DEFINE_DEPTHWISE_CONV2D_OX_KERNEL(bf16, __nv_bfloat16, float)
 
 } // extern "C"

@@ -131,6 +131,80 @@ impl WideAcc for i128 {
     }
 }
 
+/// The accumulator a float kernel sums in: `f32` for every float narrower
+/// than F64, `f64` for F64.
+///
+/// [`WideAcc`] covers the narrow floats with `f32`. A kernel generic over
+/// every float dtype also needs an `f64` accumulator for F64 input, and `f64`
+/// is not wider than any element type, so it has no [`WideAcc`] impl. This
+/// trait is the union: `f32` forwards to its [`WideAcc`] impl, `f64`
+/// accumulates natively. The direct convolution kernels branch on
+/// `T::DTYPE == DType::F64` to pick the impl.
+pub trait FloatAcc: Copy {
+    /// Additive identity.
+    const ZERO: Self;
+
+    /// Widen one element into the accumulator.
+    fn from_elem<T: Element>(v: T) -> Self;
+
+    /// Narrow the accumulator back to the element type.
+    fn to_elem<T: Element>(self) -> T;
+
+    /// `self + other`.
+    fn acc_add(self, other: Self) -> Self;
+
+    /// `self * other`.
+    fn acc_mul(self, other: Self) -> Self;
+}
+
+impl FloatAcc for f32 {
+    const ZERO: Self = <f32 as WideAcc>::ZERO;
+
+    #[inline]
+    fn from_elem<T: Element>(v: T) -> Self {
+        <f32 as WideAcc>::from_elem(v)
+    }
+
+    #[inline]
+    fn to_elem<T: Element>(self) -> T {
+        <f32 as WideAcc>::to_elem(self)
+    }
+
+    #[inline]
+    fn acc_add(self, other: Self) -> Self {
+        self.wide_add(other)
+    }
+
+    #[inline]
+    fn acc_mul(self, other: Self) -> Self {
+        self.wide_mul(other)
+    }
+}
+
+impl FloatAcc for f64 {
+    const ZERO: Self = 0.0;
+
+    #[inline]
+    fn from_elem<T: Element>(v: T) -> Self {
+        v.to_f64()
+    }
+
+    #[inline]
+    fn to_elem<T: Element>(self) -> T {
+        T::from_f64(self)
+    }
+
+    #[inline]
+    fn acc_add(self, other: Self) -> Self {
+        self + other
+    }
+
+    #[inline]
+    fn acc_mul(self, other: Self) -> Self {
+        self * other
+    }
+}
+
 /// Finish an integer mean: divide a wide sum by the element count.
 ///
 /// The division truncates toward zero, which is what the previous

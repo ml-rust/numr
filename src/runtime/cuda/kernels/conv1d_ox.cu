@@ -50,6 +50,9 @@
 // REASSOCIATION. Same contract as conv.cu: neither path sums in the flat
 // kernel's original order, but each preserves ascending-kx summation with
 // bias added last, matching the CPU reference within the existing tolerance.
+//
+// ACCUMULATION. Half widths accumulate in F32: the macro takes an accumulator
+// type and moves values through AccumTraits<dtype, acc>.
 // ============================================================================
 
 #include <cuda_fp16.h>
@@ -60,8 +63,9 @@
 // Must match CONV1D_OX_BLOCK in src/runtime/cuda/kernels/conv.rs.
 #define CONV1D_OX_BLOCK 4u
 
-#define DEFINE_CONV1D_OX_KERNEL(suffix, dtype) \
+#define DEFINE_CONV1D_OX_KERNEL(suffix, dtype, acc) \
 __global__ void conv1d_ox_##suffix(CONV1D_PARAMS(dtype)) { \
+    typedef AccumTraits<dtype, acc> AT; \
     unsigned int ox_base = (blockIdx.x * blockDim.x + threadIdx.x) * CONV1D_OX_BLOCK; \
     unsigned int oc = blockIdx.y * blockDim.y + threadIdx.y; \
     unsigned int b = blockIdx.z; \
@@ -86,10 +90,10 @@ __global__ void conv1d_ox_##suffix(CONV1D_PARAMS(dtype)) { \
         + (size_t)c_in_start * length; \
     const dtype* w_base = weight + (size_t)oc * c_in_per_group * kernel_size; \
     \
-    dtype acc0 = (dtype)0; \
-    dtype acc1 = (dtype)0; \
-    dtype acc2 = (dtype)0; \
-    dtype acc3 = (dtype)0; \
+    acc acc0 = AT::zero(); \
+    acc acc1 = AT::zero(); \
+    acc acc2 = AT::zero(); \
+    acc acc3 = AT::zero(); \
     \
     if (stride == 1u && dilation == 1u) { \
         int ix_base0 = (int)ox_base - (int)padding; \
@@ -103,34 +107,34 @@ __global__ void conv1d_ox_##suffix(CONV1D_PARAMS(dtype)) { \
             const dtype* w = w_base + (size_t)ic * kernel_size; \
             for (int t = t_lo; t < t_hi; t++) { \
                 /* One load feeds up to CONV1D_OX_BLOCK accumulators. */ \
-                dtype x = r[t]; \
+                acc x = AT::load(r, t); \
                 int kx0 = t - ix_base0; \
                 int kx = kx0; \
-                if (kx >= 0 && kx < (int)kernel_size) { acc0 = acc0 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_size) { acc0 = AT::add(acc0, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 1; \
-                if (kx >= 0 && kx < (int)kernel_size) { acc1 = acc1 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_size) { acc1 = AT::add(acc1, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 2; \
-                if (kx >= 0 && kx < (int)kernel_size) { acc2 = acc2 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_size) { acc2 = AT::add(acc2, AT::mul(x, AT::load(w, kx))); } \
                 kx = kx0 - 3; \
-                if (kx >= 0 && kx < (int)kernel_size) { acc3 = acc3 + x * w[kx]; } \
+                if (kx >= 0 && kx < (int)kernel_size) { acc3 = AT::add(acc3, AT::mul(x, AT::load(w, kx))); } \
             } \
         } \
     } else { \
         for (unsigned int p = 0; p < CONV1D_OX_BLOCK && p < active; p++) { \
             unsigned int ox = ox_base + p; \
             CONV1D_TAP_RANGE() \
-            dtype acc = (dtype)0; \
+            acc sum = AT::zero(); \
             for (unsigned int ic = 0; ic < c_in_per_group; ic++) { \
                 const dtype* r = in_base + (size_t)ic * length; \
                 const dtype* w = w_base + (size_t)ic * kernel_size; \
                 for (unsigned int kx = kx_lo; kx < kx_hi; kx++) { \
-                    acc = acc + r[ix_base + (int)(kx * dilation)] * w[kx]; \
+                    sum = AT::add(sum, AT::mul(AT::load(r, ix_base + (int)(kx * dilation)), AT::load(w, (int)kx))); \
                 } \
             } \
-            if (p == 0u) { acc0 = acc; } \
-            else if (p == 1u) { acc1 = acc; } \
-            else if (p == 2u) { acc2 = acc; } \
-            else { acc3 = acc; } \
+            if (p == 0u) { acc0 = sum; } \
+            else if (p == 1u) { acc1 = sum; } \
+            else if (p == 2u) { acc2 = sum; } \
+            else { acc3 = sum; } \
         } \
     } \
     \
@@ -139,29 +143,29 @@ __global__ void conv1d_ox_##suffix(CONV1D_PARAMS(dtype)) { \
         + (size_t)oc * output_length \
         + ox_base; \
     unsigned int has_b = (has_bias != 0u && bias != nullptr) ? 1u : 0u; \
-    dtype bv = has_b != 0u ? bias[oc] : (dtype)0; \
+    acc bv = has_b != 0u ? AT::load(bias, (int)oc) : AT::zero(); \
     \
-    if (has_b != 0u) { acc0 = acc0 + bv; } \
-    out_base[0] = acc0; \
+    if (has_b != 0u) { acc0 = AT::add(acc0, bv); } \
+    AT::store(out_base, 0, acc0); \
     if (active > 1u) { \
-        if (has_b != 0u) { acc1 = acc1 + bv; } \
-        out_base[1] = acc1; \
+        if (has_b != 0u) { acc1 = AT::add(acc1, bv); } \
+        AT::store(out_base, 1, acc1); \
     } \
     if (active > 2u) { \
-        if (has_b != 0u) { acc2 = acc2 + bv; } \
-        out_base[2] = acc2; \
+        if (has_b != 0u) { acc2 = AT::add(acc2, bv); } \
+        AT::store(out_base, 2, acc2); \
     } \
     if (active > 3u) { \
-        if (has_b != 0u) { acc3 = acc3 + bv; } \
-        out_base[3] = acc3; \
+        if (has_b != 0u) { acc3 = AT::add(acc3, bv); } \
+        AT::store(out_base, 3, acc3); \
     } \
 }
 
 extern "C" {
 
-DEFINE_CONV1D_OX_KERNEL(f32, float)
-DEFINE_CONV1D_OX_KERNEL(f64, double)
-DEFINE_CONV1D_OX_KERNEL(f16, __half)
-DEFINE_CONV1D_OX_KERNEL(bf16, __nv_bfloat16)
+DEFINE_CONV1D_OX_KERNEL(f32, float, float)
+DEFINE_CONV1D_OX_KERNEL(f64, double, double)
+DEFINE_CONV1D_OX_KERNEL(f16, __half, float)
+DEFINE_CONV1D_OX_KERNEL(bf16, __nv_bfloat16, float)
 
 } // extern "C"

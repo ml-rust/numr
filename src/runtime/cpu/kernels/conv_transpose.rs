@@ -21,8 +21,16 @@
 //! kernel and `conv_transpose1d_f32.wgsl`, including the accumulation order
 //! (taps outer, input channels inner, bias added last), so all three backends
 //! agree numerically.
+//!
+//! # Accumulator rule
+//!
+//! The tap loop sums in a [`FloatAcc`], never in the element type: `f64` for
+//! F64 input, `f32` for every other float. A half or FP8 accumulator rounds
+//! on every add and stalls once its spacing exceeds twice the increment (see
+//! [`super::wide_acc`]).
 
-use crate::dtype::Element;
+use super::wide_acc::FloatAcc;
+use crate::dtype::{DType, Element};
 use crate::ops::conv_transpose_common::ConvTranspose1dParams;
 
 /// Transposed 1D convolution, gather form.
@@ -42,6 +50,25 @@ use crate::ops::conv_transpose_common::ConvTranspose1dParams;
 /// - `params` came from `validate_conv_transpose1d` (so `stride >= 1`,
 ///   `groups >= 1`, and the channel counts divide evenly)
 pub unsafe fn conv_transpose1d_kernel<T: Element>(
+    input: *const T,
+    weight: *const T,
+    bias: Option<*const T>,
+    output: *mut T,
+    params: ConvTranspose1dParams,
+) {
+    if T::DTYPE == DType::F64 {
+        conv_transpose1d_kernel_acc::<T, f64>(input, weight, bias, output, params);
+    } else {
+        conv_transpose1d_kernel_acc::<T, f32>(input, weight, bias, output, params);
+    }
+}
+
+/// `conv_transpose1d_kernel` with the accumulator type fixed by the caller.
+///
+/// # Safety
+///
+/// Same as [`conv_transpose1d_kernel`].
+unsafe fn conv_transpose1d_kernel_acc<T: Element, A: FloatAcc>(
     input: *const T,
     weight: *const T,
     bias: Option<*const T>,
@@ -80,7 +107,7 @@ pub unsafe fn conv_transpose1d_kernel<T: Element>(
             let out_row = (b * c_out + oc) * output_length;
 
             for ot in 0..output_length {
-                let mut sum = T::zero();
+                let mut sum = A::ZERO;
 
                 for k in 0..kernel_size {
                     let num = ot as isize + pad_left_i - (k * dilation) as isize;
@@ -99,18 +126,19 @@ pub unsafe fn conv_transpose1d_kernel<T: Element>(
 
                     for ic in 0..c_in_per_group {
                         let c_in_abs = c_in_start + ic;
-                        let x = *input.add((b * c_in + c_in_abs) * length + l);
-                        let w =
-                            *weight.add((c_in_abs * c_out_per_group + oc_local) * kernel_size + k);
-                        sum = sum + x * w;
+                        let x = A::from_elem(*input.add((b * c_in + c_in_abs) * length + l));
+                        let w = A::from_elem(
+                            *weight.add((c_in_abs * c_out_per_group + oc_local) * kernel_size + k),
+                        );
+                        sum = sum.acc_add(x.acc_mul(w));
                     }
                 }
 
                 if let Some(bias_ptr) = bias {
-                    sum = sum + *bias_ptr.add(oc);
+                    sum = sum.acc_add(A::from_elem(*bias_ptr.add(oc)));
                 }
 
-                *output.add(out_row + ot) = sum;
+                *output.add(out_row + ot) = sum.to_elem::<T>();
             }
         }
     }

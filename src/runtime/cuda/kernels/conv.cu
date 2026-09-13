@@ -2,6 +2,9 @@
 // Supports: f32, f64, f16, bf16
 //
 // Direct convolution approach - each thread computes one output element.
+// Half widths accumulate in F32: every macro takes an accumulator type and
+// moves values through AccumTraits<dtype, acc>, so F16/BF16 sums round once
+// at the store instead of on every add.
 // Input layout: NCHW (batch, channels, height, width)
 // Weight layout: (C_out, C_in/groups, K_h, K_w)
 
@@ -79,8 +82,9 @@
 // small to register-block. At depthwise (groups == c_in) the ic loop runs once
 // and the chain is kernel_size long - same work as the untiled kernel.
 // ----------------------------------------------------------------------------
-#define DEFINE_CONV1D_KERNEL(suffix, dtype) \
+#define DEFINE_CONV1D_KERNEL(suffix, dtype, acc) \
 __global__ void conv1d_##suffix(CONV1D_PARAMS(dtype)) { \
+    typedef AccumTraits<dtype, acc> AT; \
     unsigned int ox = blockIdx.x * blockDim.x + threadIdx.x; \
     unsigned int oc = blockIdx.y * blockDim.y + threadIdx.y; \
     unsigned int b = blockIdx.z; \
@@ -106,20 +110,20 @@ __global__ void conv1d_##suffix(CONV1D_PARAMS(dtype)) { \
     \
     CONV1D_TAP_RANGE() \
     \
-    dtype acc = (dtype)0; \
+    acc sum = AT::zero(); \
     for (unsigned int ic = 0; ic < c_in_per_group; ic++) { \
         const dtype* r = in_base + (size_t)ic * length; \
         const dtype* w = w_base + (size_t)ic * kernel_size; \
         for (unsigned int kx = kx_lo; kx < kx_hi; kx++) { \
-            acc = acc + r[ix_base + (int)(kx * dilation)] * w[kx]; \
+            sum = AT::add(sum, AT::mul(AT::load(r, ix_base + (int)(kx * dilation)), AT::load(w, (int)kx))); \
         } \
     } \
     \
     if (has_bias != 0u && bias != nullptr) { \
-        acc = acc + bias[oc]; \
+        sum = AT::add(sum, AT::load(bias, (int)oc)); \
     } \
     \
-    output[(size_t)b * c_out * output_length + (size_t)oc * output_length + ox] = acc; \
+    AT::store(output + (size_t)b * c_out * output_length + (size_t)oc * output_length + ox, 0, sum); \
 }
 
 // Output channels each thread of conv1d_oc4_* accumulates. The launcher sizes
@@ -137,8 +141,9 @@ __global__ void conv1d_##suffix(CONV1D_PARAMS(dtype)) { \
 // of the block point at channel oc_base so their loads stay in bounds, and only
 // the active channels are stored.
 // ----------------------------------------------------------------------------
-#define DEFINE_CONV1D_OC4_KERNEL(suffix, dtype) \
+#define DEFINE_CONV1D_OC4_KERNEL(suffix, dtype, acc) \
 __global__ void conv1d_oc4_##suffix(CONV1D_PARAMS(dtype)) { \
+    typedef AccumTraits<dtype, acc> AT; \
     unsigned int ox = blockIdx.x * blockDim.x + threadIdx.x; \
     unsigned int slot = blockIdx.y * blockDim.y + threadIdx.y; \
     unsigned int b = blockIdx.z; \
@@ -171,21 +176,24 @@ __global__ void conv1d_oc4_##suffix(CONV1D_PARAMS(dtype)) { \
     \
     CONV1D_TAP_RANGE() \
     \
-    dtype acc0 = (dtype)0; \
-    dtype acc1 = (dtype)0; \
-    dtype acc2 = (dtype)0; \
-    dtype acc3 = (dtype)0; \
+    acc acc0 = AT::zero(); \
+    acc acc1 = AT::zero(); \
+    acc acc2 = AT::zero(); \
+    acc acc3 = AT::zero(); \
     \
     for (unsigned int ic = 0; ic < c_in_per_group_l; ic++) { \
         const dtype* r = in_base + (size_t)ic * length; \
-        size_t woff = (size_t)ic * kernel_size; \
+        const dtype* wi0 = w0 + (size_t)ic * kernel_size; \
+        const dtype* wi1 = w1 + (size_t)ic * kernel_size; \
+        const dtype* wi2 = w2 + (size_t)ic * kernel_size; \
+        const dtype* wi3 = w3 + (size_t)ic * kernel_size; \
         for (unsigned int kx = kx_lo; kx < kx_hi; kx++) { \
             /* One input load feeds four MACs - the whole point of the blocking. */ \
-            dtype x = r[ix_base + (int)(kx * dilation)]; \
-            acc0 = acc0 + x * w0[woff + kx]; \
-            acc1 = acc1 + x * w1[woff + kx]; \
-            acc2 = acc2 + x * w2[woff + kx]; \
-            acc3 = acc3 + x * w3[woff + kx]; \
+            acc x = AT::load(r, ix_base + (int)(kx * dilation)); \
+            acc0 = AT::add(acc0, AT::mul(x, AT::load(wi0, (int)kx))); \
+            acc1 = AT::add(acc1, AT::mul(x, AT::load(wi1, (int)kx))); \
+            acc2 = AT::add(acc2, AT::mul(x, AT::load(wi2, (int)kx))); \
+            acc3 = AT::add(acc3, AT::mul(x, AT::load(wi3, (int)kx))); \
         } \
     } \
     \
@@ -195,19 +203,19 @@ __global__ void conv1d_oc4_##suffix(CONV1D_PARAMS(dtype)) { \
         + ox; \
     unsigned int has_b = (has_bias != 0u && bias != nullptr) ? 1u : 0u; \
     \
-    if (has_b != 0u) { acc0 = acc0 + bias[oc_base]; } \
-    out_base[0] = acc0; \
+    if (has_b != 0u) { acc0 = AT::add(acc0, AT::load(bias, (int)oc_base)); } \
+    AT::store(out_base, 0, acc0); \
     if (active > 1u) { \
-        if (has_b != 0u) { acc1 = acc1 + bias[oc_base + 1u]; } \
-        out_base[(size_t)output_length] = acc1; \
+        if (has_b != 0u) { acc1 = AT::add(acc1, AT::load(bias, (int)(oc_base + 1u))); } \
+        AT::store(out_base + (size_t)output_length, 0, acc1); \
     } \
     if (active > 2u) { \
-        if (has_b != 0u) { acc2 = acc2 + bias[oc_base + 2u]; } \
-        out_base[(size_t)2 * output_length] = acc2; \
+        if (has_b != 0u) { acc2 = AT::add(acc2, AT::load(bias, (int)(oc_base + 2u))); } \
+        AT::store(out_base + (size_t)2 * output_length, 0, acc2); \
     } \
     if (active > 3u) { \
-        if (has_b != 0u) { acc3 = acc3 + bias[oc_base + 3u]; } \
-        out_base[(size_t)3 * output_length] = acc3; \
+        if (has_b != 0u) { acc3 = AT::add(acc3, AT::load(bias, (int)(oc_base + 3u))); } \
+        AT::store(out_base + (size_t)3 * output_length, 0, acc3); \
     } \
 }
 
@@ -232,7 +240,7 @@ __global__ void conv1d_oc4_##suffix(CONV1D_PARAMS(dtype)) { \
 // more occupancy than they save and measured slower on every shape tried. The
 // same blocking wins in conv1d_oc4, which is compute-bound; it loses here.
 // Benchmark with benches/conv.rs before changing this.
-#define DEFINE_CONV_TRANSPOSE1D_KERNEL(suffix, dtype) \
+#define DEFINE_CONV_TRANSPOSE1D_KERNEL(suffix, dtype, acc) \
 __global__ void conv_transpose1d_##suffix( \
     const dtype* __restrict__ input, \
     const dtype* __restrict__ weight, \
@@ -264,7 +272,8 @@ __global__ void conv_transpose1d_##suffix( \
     unsigned int oc_local = oc % c_out_per_group; \
     unsigned int c_in_start = g * c_in_per_group; \
     \
-    dtype sum = (dtype)0; \
+    typedef AccumTraits<dtype, acc> AT; \
+    acc sum = AT::zero(); \
     \
     for (unsigned int kx = 0; kx < kernel_size; kx++) { \
         int shifted = (int)(ox + padding) - (int)(kx * dilation); \
@@ -278,15 +287,15 @@ __global__ void conv_transpose1d_##suffix( \
             unsigned int input_idx = b * c_in * length + c_in_idx * length + j; \
             unsigned int weight_idx = c_in_idx * c_out_per_group * kernel_size \
                                     + oc_local * kernel_size + kx; \
-            sum = sum + input[input_idx] * weight[weight_idx]; \
+            sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
         } \
     } \
     \
     if (has_bias != 0u && bias != nullptr) { \
-        sum = sum + bias[oc]; \
+        sum = AT::add(sum, AT::load(bias, (int)oc)); \
     } \
     \
-    output[idx] = sum; \
+    AT::store(output + idx, 0, sum); \
 }
 
 // ============================================================================
@@ -296,7 +305,7 @@ __global__ void conv_transpose1d_##suffix( \
 // Output: (N, C_out, H_out, W_out)
 // ============================================================================
 
-#define DEFINE_CONV2D_KERNEL(suffix, dtype) \
+#define DEFINE_CONV2D_KERNEL(suffix, dtype, acc) \
 __global__ void conv2d_##suffix( \
     const dtype* __restrict__ input, \
     const dtype* __restrict__ weight, \
@@ -334,7 +343,8 @@ __global__ void conv2d_##suffix( \
     unsigned int g = oc / c_out_per_group; \
     unsigned int c_in_start = g * c_in_per_group; \
     \
-    dtype sum = (dtype)0; \
+    typedef AccumTraits<dtype, acc> AT; \
+    acc sum = AT::zero(); \
     \
     for (unsigned int ic = 0; ic < c_in_per_group; ic++) { \
         unsigned int c_in_idx = c_in_start + ic; \
@@ -353,17 +363,17 @@ __global__ void conv2d_##suffix( \
                         + ic * kernel_h * kernel_w \
                         + ky * kernel_w \
                         + kx; \
-                    sum = sum + input[input_idx] * weight[weight_idx]; \
+                    sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
                 } \
             } \
         } \
     } \
     \
     if (has_bias != 0u && bias != nullptr) { \
-        sum = sum + bias[oc]; \
+        sum = AT::add(sum, AT::load(bias, (int)oc)); \
     } \
     \
-    output[idx] = sum; \
+    AT::store(output + idx, 0, sum); \
 }
 
 // ============================================================================
@@ -374,7 +384,7 @@ __global__ void conv2d_##suffix( \
 // Each channel has its own independent filter
 // ============================================================================
 
-#define DEFINE_DEPTHWISE_CONV2D_KERNEL(suffix, dtype) \
+#define DEFINE_DEPTHWISE_CONV2D_KERNEL(suffix, dtype, acc) \
 __global__ void depthwise_conv2d_##suffix( \
     const dtype* __restrict__ input, \
     const dtype* __restrict__ weight, \
@@ -405,7 +415,8 @@ __global__ void depthwise_conv2d_##suffix( \
     unsigned int c = (idx / (output_w * output_h)) % channels; \
     unsigned int b = idx / (channels * output_h * output_w); \
     \
-    dtype sum = (dtype)0; \
+    typedef AccumTraits<dtype, acc> AT; \
+    acc sum = AT::zero(); \
     \
     for (unsigned int ky = 0; ky < kernel_h; ky++) { \
         for (unsigned int kx = 0; kx < kernel_w; kx++) { \
@@ -418,16 +429,16 @@ __global__ void depthwise_conv2d_##suffix( \
                     + (unsigned int)iy * width \
                     + (unsigned int)ix; \
                 unsigned int weight_idx = c * kernel_h * kernel_w + ky * kernel_w + kx; \
-                sum = sum + input[input_idx] * weight[weight_idx]; \
+                sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
             } \
         } \
     } \
     \
     if (has_bias != 0u && bias != nullptr) { \
-        sum = sum + bias[c]; \
+        sum = AT::add(sum, AT::load(bias, (int)c)); \
     } \
     \
-    output[idx] = sum; \
+    AT::store(output + idx, 0, sum); \
 }
 
 // ============================================================================
@@ -437,32 +448,32 @@ __global__ void depthwise_conv2d_##suffix( \
 extern "C" {
 
 // F32 kernels
-DEFINE_CONV1D_KERNEL(f32, float)
-DEFINE_CONV1D_OC4_KERNEL(f32, float)
-DEFINE_CONV_TRANSPOSE1D_KERNEL(f32, float)
-DEFINE_CONV2D_KERNEL(f32, float)
-DEFINE_DEPTHWISE_CONV2D_KERNEL(f32, float)
+DEFINE_CONV1D_KERNEL(f32, float, float)
+DEFINE_CONV1D_OC4_KERNEL(f32, float, float)
+DEFINE_CONV_TRANSPOSE1D_KERNEL(f32, float, float)
+DEFINE_CONV2D_KERNEL(f32, float, float)
+DEFINE_DEPTHWISE_CONV2D_KERNEL(f32, float, float)
 
 // F64 kernels
-DEFINE_CONV1D_KERNEL(f64, double)
-DEFINE_CONV1D_OC4_KERNEL(f64, double)
-DEFINE_CONV_TRANSPOSE1D_KERNEL(f64, double)
-DEFINE_CONV2D_KERNEL(f64, double)
-DEFINE_DEPTHWISE_CONV2D_KERNEL(f64, double)
+DEFINE_CONV1D_KERNEL(f64, double, double)
+DEFINE_CONV1D_OC4_KERNEL(f64, double, double)
+DEFINE_CONV_TRANSPOSE1D_KERNEL(f64, double, double)
+DEFINE_CONV2D_KERNEL(f64, double, double)
+DEFINE_DEPTHWISE_CONV2D_KERNEL(f64, double, double)
 
 // F16 kernels (half precision)
-DEFINE_CONV1D_KERNEL(f16, __half)
-DEFINE_CONV1D_OC4_KERNEL(f16, __half)
-DEFINE_CONV_TRANSPOSE1D_KERNEL(f16, __half)
-DEFINE_CONV2D_KERNEL(f16, __half)
-DEFINE_DEPTHWISE_CONV2D_KERNEL(f16, __half)
+DEFINE_CONV1D_KERNEL(f16, __half, float)
+DEFINE_CONV1D_OC4_KERNEL(f16, __half, float)
+DEFINE_CONV_TRANSPOSE1D_KERNEL(f16, __half, float)
+DEFINE_CONV2D_KERNEL(f16, __half, float)
+DEFINE_DEPTHWISE_CONV2D_KERNEL(f16, __half, float)
 
 // BF16 kernels (bfloat16)
-DEFINE_CONV1D_KERNEL(bf16, __nv_bfloat16)
-DEFINE_CONV1D_OC4_KERNEL(bf16, __nv_bfloat16)
-DEFINE_CONV_TRANSPOSE1D_KERNEL(bf16, __nv_bfloat16)
-DEFINE_CONV2D_KERNEL(bf16, __nv_bfloat16)
-DEFINE_DEPTHWISE_CONV2D_KERNEL(bf16, __nv_bfloat16)
+DEFINE_CONV1D_KERNEL(bf16, __nv_bfloat16, float)
+DEFINE_CONV1D_OC4_KERNEL(bf16, __nv_bfloat16, float)
+DEFINE_CONV_TRANSPOSE1D_KERNEL(bf16, __nv_bfloat16, float)
+DEFINE_CONV2D_KERNEL(bf16, __nv_bfloat16, float)
+DEFINE_DEPTHWISE_CONV2D_KERNEL(bf16, __nv_bfloat16, float)
 
 // FP8 E4M3 kernels (compute in float, load/store as FP8)
 __global__ void conv1d_fp8_e4m3(
