@@ -58,10 +58,16 @@ impl Runtime for CudaRuntime {
         // (Same rationale as the allocator freeze in capture_graph_into.)
         client.allocator.freeze();
 
-        // Begin stream capture — all ops on this stream are recorded.
-        client
+        // Begin stream capture — all ops on this stream are recorded. A failed
+        // begin must unfreeze, or every later allocation on this client would
+        // bypass the pool as if a capture were still open.
+        if let Err(e) = client
             .stream
-            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
+            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)
+        {
+            client.allocator.unfreeze();
+            return Err(e.into());
+        }
 
         // Execute the closure — ops are recorded into the graph.
         let closure_result = f(client);
@@ -466,10 +472,15 @@ impl CudaRuntime {
         // Freeze: allocations now serve from the arena.
         client.allocator.freeze();
 
-        // Begin stream capture.
-        client
+        // Begin stream capture. A failed begin must unfreeze (which also clears
+        // the arena), or the client stays frozen with a stale arena installed.
+        if let Err(e) = client
             .stream
-            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)?;
+            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)
+        {
+            client.allocator.unfreeze();
+            return Err(e.into());
+        }
 
         // Execute the closure — ops are recorded into the graph.
         let closure_result = f(client);
