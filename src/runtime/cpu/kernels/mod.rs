@@ -89,8 +89,8 @@ pub use index::{
 };
 pub use logical::{logical_and_kernel, logical_not_kernel, logical_or_kernel, logical_xor_kernel};
 pub use matmul::{
-    gemv_bt_kernel, matmul_bias_kernel, matmul_bt_kernel, matmul_bt_matches_contiguous,
-    matmul_kernel,
+    gemv_bt_kernel, gemv_bt_wide_kernel, matmul_bias_kernel, matmul_bt_kernel,
+    matmul_bt_matches_contiguous, matmul_kernel, matmul_wide_kernel,
 };
 pub use matmul_i8::{matmul_i8_to_i32_bias_kernel, matmul_i8_to_i32_kernel};
 pub use memory::{

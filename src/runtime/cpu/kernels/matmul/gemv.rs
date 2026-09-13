@@ -76,7 +76,7 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
             }
             #[cfg(feature = "f16")]
             DType::F16 | DType::BF16 => {
-                gemv_bt_via_f32(a, b_nk, out, m, n, k, ldc);
+                gemv_bt_via_f32::<T, T>(a, b_nk, out, m, n, k, ldc);
                 return;
             }
             _ => {}
@@ -90,7 +90,7 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
         match T::DTYPE {
             #[cfg(feature = "f16")]
             DType::F16 | DType::BF16 => {
-                gemv_bt_via_f32(a, b_nk, out, m, n, k, ldc);
+                gemv_bt_via_f32::<T, T>(a, b_nk, out, m, n, k, ldc);
                 return;
             }
             _ => {}
@@ -99,11 +99,11 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
 
     // Narrow floats and integers cannot hold their own dot product.
     if T::DTYPE.is_narrow_float() {
-        gemv_bt_scalar_acc::<T, f32>(a, b_nk, out, m, n, k, ldc);
+        gemv_bt_scalar_acc::<T, f32, T>(a, b_nk, out, m, n, k, ldc);
         return;
     }
     if T::DTYPE.is_int() {
-        gemv_bt_scalar_acc::<T, i128>(a, b_nk, out, m, n, k, ldc);
+        gemv_bt_scalar_acc::<T, i128, T>(a, b_nk, out, m, n, k, ldc);
         return;
     }
 
@@ -111,17 +111,47 @@ pub unsafe fn gemv_bt_kernel<T: Element>(
     gemv_bt_scalar(a, b_nk, out, m, n, k, ldc);
 }
 
-/// GEMV-BT with a wide accumulator, for element types that cannot hold the
-/// running dot product.
+/// GEMV-BT for a half operand, written as the F32 accumulator.
+///
+/// The same dot products as [`gemv_bt_kernel`] on F16/BF16, stored before the
+/// narrowing to the element type. `matmul_wide` runs this in place of
+/// `gemv_bt_kernel` for its small-M transposed-B path.
 ///
 /// # Safety
-/// Same as [`gemv_bt_kernel`].
+/// Same as [`gemv_bt_kernel`], with `out` valid for `m * ldc` f32 writes.
 #[inline]
-#[allow(clippy::too_many_arguments)]
-unsafe fn gemv_bt_scalar_acc<T: Element, A: WideAcc>(
+pub unsafe fn gemv_bt_wide_kernel<T: Element>(
     a: *const T,
     b_nk: *const T,
-    out: *mut T,
+    out: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    ldc: usize,
+) {
+    #[cfg(feature = "f16")]
+    {
+        use crate::dtype::DType;
+        if matches!(T::DTYPE, DType::F16 | DType::BF16) {
+            gemv_bt_via_f32::<T, f32>(a, b_nk, out, m, n, k, ldc);
+            return;
+        }
+    }
+    gemv_bt_scalar_acc::<T, f32, f32>(a, b_nk, out, m, n, k, ldc);
+}
+
+/// GEMV-BT with a wide accumulator, for element types that cannot hold the
+/// running dot product. The store narrows to `O`, which is `T` for
+/// `gemv_bt_kernel` and the accumulator type for `gemv_bt_wide_kernel`.
+///
+/// # Safety
+/// Same as [`gemv_bt_kernel`], with `out` valid for `m * ldc` elements of `O`.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+unsafe fn gemv_bt_scalar_acc<T: Element, A: WideAcc, O: Element>(
+    a: *const T,
+    b_nk: *const T,
+    out: *mut O,
     m: usize,
     n: usize,
     k: usize,
@@ -137,7 +167,7 @@ unsafe fn gemv_bt_scalar_acc<T: Element, A: WideAcc>(
                 let prod = A::from_elem(*a_row.add(i)).wide_mul(A::from_elem(*b_row.add(i)));
                 sum = sum.wide_add(prod);
             }
-            *out_row.add(col) = sum.to_elem::<T>();
+            *out_row.add(col) = sum.to_elem::<O>();
         }
     }
 }
@@ -171,14 +201,16 @@ unsafe fn gemv_bt_scalar<T: Element>(
 /// GEMV-BT for f16/bf16 via f32 conversion
 ///
 /// Converts A row to f32 (batch SIMD conversion), then converts each B row
-/// to f32 in SIMD chunks and uses the f32 AVX2/AVX-512 dot product.
+/// to f32 in SIMD chunks and uses the f32 AVX2/AVX-512 dot product. The dot
+/// product is stored as `O`: the element type for `gemv_bt_kernel`, f32 for
+/// `gemv_bt_wide_kernel`.
 #[cfg(feature = "f16")]
 #[inline]
 #[allow(clippy::too_many_arguments)]
-unsafe fn gemv_bt_via_f32<T: Element>(
+unsafe fn gemv_bt_via_f32<T: Element, O: Element>(
     a: *const T,
     b_nk: *const T,
-    out: *mut T,
+    out: *mut O,
     m: usize,
     n: usize,
     k: usize,
@@ -207,7 +239,7 @@ unsafe fn gemv_bt_via_f32<T: Element>(
             #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
             {
                 let dot = simd_dot_f32(a_f32.as_ptr(), b_f32.as_ptr(), k, level);
-                *out_row.add(col) = T::from_f32(dot);
+                *out_row.add(col) = O::from_f32(dot);
             }
             #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
             {
@@ -215,7 +247,7 @@ unsafe fn gemv_bt_via_f32<T: Element>(
                 for i in 0..k {
                     sum += a_f32[i] * b_f32[i];
                 }
-                *out_row.add(col) = T::from_f32(sum);
+                *out_row.add(col) = O::from_f32(sum);
             }
         }
     }

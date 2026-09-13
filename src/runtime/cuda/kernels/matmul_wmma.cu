@@ -5,6 +5,7 @@
 // a batched or 2-D operand setup, one epilogue transform, and one block tile.
 //
 //   matmul_wmma_*             C = A @ B
+//   matmul_wmma_*_f32out_*    C = A @ B, C in F32 (the accumulator, unnarrowed)
 //   matmul_bias_wmma_*        C = A @ B + bias
 //   gemm_bias_act_wmma_*      C = activation(A @ B + bias)
 //   gemm_bias_residual_wmma_* C = A @ B + bias + residual
@@ -48,11 +49,16 @@
 // carries the code from `activation_to_u32` (gemm_epilogue/launcher.rs).
 // ---------------------------------------------------------------------------
 
-#define DEFINE_WMMA_MATMUL(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR, STORE_FN) \
+// The plain forms carry an output type, OUT_T. The narrowing family passes
+// HALF_T with a float->half STORE_FN; the `f32out` family below passes float
+// with the identity, so the F32 accumulator reaches C as it is. The body
+// never names OUT_T: it writes C_ptr through STORE_FN, and the parameter type
+// here decides what C_ptr is.
+#define DEFINE_WMMA_MATMUL(NAME, WM, WN, BLOCK_K_VAL, HALF_T, OUT_T, MMA, ZERO_EXPR, STORE_FN) \
 extern "C" __global__ WMMA_LAUNCH_BOUNDS void matmul_wmma_##NAME(             \
     const HALF_T* __restrict__ A,                                             \
     const HALF_T* __restrict__ B,                                             \
-    HALF_T*       __restrict__ C,                                             \
+    OUT_T*        __restrict__ C,                                             \
     unsigned int M,                                                           \
     unsigned int N,                                                           \
     unsigned int K                                                            \
@@ -61,11 +67,11 @@ extern "C" __global__ WMMA_LAUNCH_BOUNDS void matmul_wmma_##NAME(             \
                      A, B, C) \
 }
 
-#define DEFINE_WMMA_MATMUL_BATCHED(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR, STORE_FN) \
+#define DEFINE_WMMA_MATMUL_BATCHED(NAME, WM, WN, BLOCK_K_VAL, HALF_T, OUT_T, MMA, ZERO_EXPR, STORE_FN) \
 extern "C" __global__ WMMA_LAUNCH_BOUNDS void matmul_wmma_batched_##NAME(     \
     const HALF_T* __restrict__ A,                                             \
     const HALF_T* __restrict__ B,                                             \
-    HALF_T*       __restrict__ C,                                             \
+    OUT_T*        __restrict__ C,                                             \
     unsigned int batch,                                                       \
     unsigned int M,                                                           \
     unsigned int N,                                                           \
@@ -77,10 +83,24 @@ extern "C" __global__ WMMA_LAUNCH_BOUNDS void matmul_wmma_batched_##NAME(     \
     if (b >= batch) return;                                                   \
     const HALF_T* A_b = A + (b % a_batch_count) * (M * K);                    \
     const HALF_T* B_b = B + (b % b_batch_count) * (K * N);                    \
-    HALF_T*       C_b = C + b * (M * N);                                      \
+    OUT_T*        C_b = C + b * (M * N);                                      \
     WMMA_KERNEL_BODY(WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR, STORE_FN,   \
                      A_b, B_b, C_b)                                           \
 }
+
+/* Identity store for the f32out family: the accumulator is already float. */
+#define WMMA_STORE_F32(VAL) (VAL)
+
+/* The wide forms: C = A @ B with C in F32 (`matmul_wide`). 2-D and batched
+   only; the bias, activation, residual and grouped forms have no F32-output
+   variant. NAME is the dtype and tile; the symbol gets `_f32out` between
+   them: matmul_wmma_f16_f32out_128x128, matmul_wmma_batched_f16_f32out_128x128. */
+#define DEFINE_WMMA_F32OUT(NAME_DTYPE, NAME_TILE, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR) \
+    DEFINE_WMMA_MATMUL(NAME_DTYPE##_f32out_##NAME_TILE, WM, WN, BLOCK_K_VAL,   \
+                       HALF_T, float, MMA, ZERO_EXPR, WMMA_STORE_F32)          \
+    DEFINE_WMMA_MATMUL_BATCHED(NAME_DTYPE##_f32out_##NAME_TILE, WM, WN,        \
+                               BLOCK_K_VAL, HALF_T, float, MMA, ZERO_EXPR,     \
+                               WMMA_STORE_F32)
 
 // Grouped: one independent GEMM per group, with the row boundaries in device
 // memory. Same shape as the batched form above — slice by blockIdx.z and hand
@@ -253,10 +273,10 @@ extern "C" __global__ WMMA_LAUNCH_BOUNDS void gemm_bias_residual_wmma_batched_##
 /* All eight families at one dtype, one tile, one BLOCK_K. */
 #define DEFINE_WMMA_FAMILY(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR, \
                            STORE_FN, EPI_BIAS, EPI_ACT, EPI_RESIDUAL)         \
-    DEFINE_WMMA_MATMUL(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR,     \
-                       STORE_FN)                                              \
-    DEFINE_WMMA_MATMUL_BATCHED(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA,        \
-                               ZERO_EXPR, STORE_FN)                           \
+    DEFINE_WMMA_MATMUL(NAME, WM, WN, BLOCK_K_VAL, HALF_T, HALF_T, MMA,        \
+                       ZERO_EXPR, STORE_FN)                                   \
+    DEFINE_WMMA_MATMUL_BATCHED(NAME, WM, WN, BLOCK_K_VAL, HALF_T, HALF_T,     \
+                               MMA, ZERO_EXPR, STORE_FN)                      \
     DEFINE_WMMA_GROUPED(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA, ZERO_EXPR,    \
                         STORE_FN)                                             \
     DEFINE_WMMA_GROUPED_ACT(NAME, WM, WN, BLOCK_K_VAL, HALF_T, MMA,           \
@@ -294,6 +314,14 @@ DEFINE_WMMA_FAMILY(f16_64x64, 1, 1, WMMA_BLOCK_K_DEFAULT, __half, WMMA,
                    WMMA_EPILOGUE_BIAS_F16, WMMA_EPILOGUE_BIAS_ACT_F16,
                    WMMA_EPILOGUE_BIAS_RESIDUAL_F16)
 
+// F16 with an F32 output, all three tiles.
+DEFINE_WMMA_F32OUT(f16, 128x128, 2, 2, WMMA_BLOCK_K_DEFAULT, __half, WMMA,
+                   __float2half(0.0f))
+DEFINE_WMMA_F32OUT(f16, 128x64, 2, 1, WMMA_BLOCK_K_DEFAULT, __half, WMMA,
+                   __float2half(0.0f))
+DEFINE_WMMA_F32OUT(f16, 64x64, 1, 1, WMMA_BLOCK_K_DEFAULT, __half, WMMA,
+                   __float2half(0.0f))
+
 // ---------------------------------------------------------------------------
 // BF16, all three tiles.
 //
@@ -328,6 +356,14 @@ DEFINE_WMMA_FAMILY(bf16_64x64, 1, 1, WMMA_BLOCK_K_DEFAULT, __nv_bfloat16, RAW,
                    __float2bfloat16, WMMA_EPILOGUE_BIAS_BF16,
                    WMMA_EPILOGUE_BIAS_ACT_BF16,
                    WMMA_EPILOGUE_BIAS_RESIDUAL_BF16)
+
+// BF16 with an F32 output, all three tiles.
+DEFINE_WMMA_F32OUT(bf16, 128x128, 2, 2, WMMA_BLOCK_K_DEFAULT, __nv_bfloat16,
+                   RAW, __float2bfloat16(0.0f))
+DEFINE_WMMA_F32OUT(bf16, 128x64, 2, 1, WMMA_BLOCK_K_DEFAULT, __nv_bfloat16,
+                   RAW, __float2bfloat16(0.0f))
+DEFINE_WMMA_F32OUT(bf16, 64x64, 1, 1, WMMA_BLOCK_K_DEFAULT, __nv_bfloat16,
+                   RAW, __float2bfloat16(0.0f))
 
 #endif  // __CUDA_ARCH__ >= 800
 

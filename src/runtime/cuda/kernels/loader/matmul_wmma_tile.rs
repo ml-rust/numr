@@ -107,6 +107,15 @@ pub(super) fn wmma_kernel_name(base: &str, dtype: DType, tile: WmmaTile) -> Stri
     format!("{base}_{}_{}", dtype_suffix(dtype), tile.suffix())
 }
 
+/// Symbol name of one F32-output WMMA instantiation:
+/// `{base}_{dtype}_f32out_{tile}`, e.g. `matmul_wmma_f16_f32out_128x128`.
+/// The `f32out` marker sits between dtype and tile, where
+/// `DEFINE_WMMA_F32OUT` in `matmul_wmma.cu` pastes it.
+#[inline]
+pub(super) fn wmma_kernel_name_f32out(base: &str, dtype: DType, tile: WmmaTile) -> String {
+    format!("{base}_{}_f32out_{}", dtype_suffix(dtype), tile.suffix())
+}
+
 /// Blocks `tile` launches for this output shape.
 #[inline]
 fn wmma_grid_blocks(m: usize, n: usize, batch: usize, tile: WmmaTile) -> u64 {

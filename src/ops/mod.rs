@@ -102,7 +102,7 @@ pub(crate) use matmul_dtype::{validate_gemm_epilogue_dtypes, validate_matmul_bia
 /// `matmul` on I8 widens to I32, so a caller must know the output dtype before
 /// it can allocate a correctly typed bias. That makes this part of the public
 /// contract, not an internal detail.
-pub use matmul_dtype::matmul_output_dtype;
+pub use matmul_dtype::{matmul_output_dtype, matmul_wide_output_dtype};
 pub(crate) use reduce::{
     AccumulationPrecision, compute_reduce_strides, max_identity, min_identity,
     reduce_dim_output_shape, reduce_output_shape,

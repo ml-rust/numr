@@ -1,9 +1,11 @@
-//! The dtype rules shared by `matmul`, `matmul_bias`, and the GEMM epilogue.
+//! The dtype rules shared by `matmul`, `matmul_wide`, `matmul_bias`, and the
+//! GEMM epilogue.
 //!
 //! These live in one module because I8 is an exception every backend has to
 //! apply identically: an I8 matmul is a quantized accumulation, so its result
-//! is I32, not I8. Encoding that once here is what keeps CPU and CUDA from
-//! drifting apart on it.
+//! is I32, not I8. `matmul_wide` extends the same idea to the half floats.
+//! Encoding both once here is what keeps CPU and CUDA from drifting apart on
+//! them.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -21,6 +23,23 @@ pub fn matmul_output_dtype(elem_dtype: DType) -> DType {
         DType::I32
     } else {
         elem_dtype
+    }
+}
+
+/// The dtype `matmul_wide` writes for this element dtype: the accumulator.
+///
+/// F16 and BF16 are the widths this rule adds. Every backend already sums
+/// their products in F32 and narrows once per output element; `matmul_wide`
+/// skips that narrowing and hands the F32 accumulator back, so a caller that
+/// keeps adding to the result (a conv fold, a residual sum) rounds once at
+/// its own store instead of once here and once there. I8 widens to I32 as it
+/// does for `matmul`. Every other width writes its own dtype, and
+/// `matmul_wide` there is `matmul`.
+#[inline]
+pub fn matmul_wide_output_dtype(elem_dtype: DType) -> DType {
+    match elem_dtype {
+        DType::F16 | DType::BF16 => DType::F32,
+        other => matmul_output_dtype(other),
     }
 }
 
@@ -110,6 +129,17 @@ mod tests {
         assert_eq!(matmul_output_dtype(DType::I32), DType::I32);
         assert_eq!(matmul_output_dtype(DType::U8), DType::U8);
         assert_eq!(matmul_output_dtype(DType::F32), DType::F32);
+    }
+
+    #[test]
+    fn test_matmul_wide_output_dtype_widens_half_and_i8() {
+        assert_eq!(matmul_wide_output_dtype(DType::F16), DType::F32);
+        assert_eq!(matmul_wide_output_dtype(DType::BF16), DType::F32);
+        assert_eq!(matmul_wide_output_dtype(DType::I8), DType::I32);
+        assert_eq!(matmul_wide_output_dtype(DType::F32), DType::F32);
+        assert_eq!(matmul_wide_output_dtype(DType::F64), DType::F64);
+        assert_eq!(matmul_wide_output_dtype(DType::FP8E4M3), DType::FP8E4M3);
+        assert_eq!(matmul_wide_output_dtype(DType::I32), DType::I32);
     }
 
     #[test]

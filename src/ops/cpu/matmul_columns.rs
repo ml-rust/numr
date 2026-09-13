@@ -51,8 +51,8 @@
 
 use crate::dtype::Element;
 use crate::ops::Kernel;
-use crate::runtime::cpu::kernels::matmul_bt_kernel;
 use crate::runtime::cpu::kernels::simd::matmul::min_tiled_columns;
+use crate::runtime::cpu::kernels::{matmul_bt_kernel, matmul_wide_kernel};
 use crate::runtime::cpu::{CpuClient, CpuRuntime};
 
 /// Output columns per chunk — fixed, never derived from the thread count.
@@ -160,6 +160,47 @@ pub(crate) unsafe fn matmul_columns<T: Element>(
             a_addr as *const T,
             (b_addr + col_start * elem) as *const T,
             (out_addr + col_start * elem) as *mut T,
+            m,
+            cols,
+            k,
+            lda,
+            ldb,
+            ldc,
+        );
+    });
+}
+
+/// Column-parallel `C = A @ B` for a half A and B with an f32 `C`, the
+/// `matmul_wide` form of [`matmul_columns`]. Same chunking, same pointer
+/// arithmetic; only the output element width differs.
+///
+/// # Safety
+/// Same as [`matmul_wide_kernel`]: pointers valid for the given dimensions
+/// and leading dimensions, `out` valid for `m * ldc` f32 writes and aliasing
+/// neither input.
+#[allow(clippy::too_many_arguments)]
+pub(crate) unsafe fn matmul_wide_columns<T: Element>(
+    client: &CpuClient,
+    a: *const T,
+    b: *const T,
+    out: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    lda: usize,
+    ldb: usize,
+    ldc: usize,
+    chunks: usize,
+) {
+    let elem = std::mem::size_of::<T>();
+    let out_elem = std::mem::size_of::<f32>();
+    let (a_addr, b_addr, out_addr) = (a as usize, b as usize, out as usize);
+
+    for_each_column_chunk(client, n, chunks, |col_start, cols| unsafe {
+        matmul_wide_kernel::<T>(
+            a_addr as *const T,
+            (b_addr + col_start * elem) as *const T,
+            (out_addr + col_start * out_elem) as *mut f32,
             m,
             cols,
             k,

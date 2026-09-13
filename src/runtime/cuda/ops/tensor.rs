@@ -24,6 +24,10 @@ mod normalization;
 #[path = "../../../ops/cuda/matmul.rs"]
 mod matmul;
 
+// Half matmul written as its F32 accumulator (`MatmulOps::matmul_wide`).
+#[path = "../../../ops/cuda/matmul_wide.rs"]
+mod matmul_wide;
+
 #[path = "../../../ops/cuda/grouped_matmul.rs"]
 mod grouped_matmul;
 

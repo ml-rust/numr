@@ -1,6 +1,7 @@
 //! CPU implementation of `MatmulOps`: dense matmul, batched and not.
 //!
-//! `matmul_bias` delegates to `super::matmul_bias`, which carries its body.
+//! `matmul_bias` delegates to `super::matmul_bias`, which carries its body,
+//! and `matmul_wide` to `super::matmul_wide`.
 //!
 //! `#[path]`-included into `runtime::cpu::ops`, so `super` here is that module.
 
@@ -44,29 +45,14 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             got: b.shape().to_vec(),
         })?;
 
-        // Get matrix dimensions (last two dims)
+        // Get matrix dimensions (last two dims), batch size, and per-operand
+        // batch indices for broadcasting. Batch dims broadcast per dimension,
+        // so each output batch needs its own source index per operand rather
+        // than a single batch count.
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
-
-        // Calculate batch size from output shape, and per-operand batch sizes for broadcasting
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
-        // so a clamp would only fabricate a batch for a genuinely zero batch dim.
-
-        // Batch dims broadcast per dimension, so each output batch needs its own
-        // source index per operand rather than a single batch count.
-        let (a_batch_idx, b_batch_idx) =
-            crate::ops::matmul::matmul_batch_indices(a_shape, b_shape, &out_shape);
+        let (m, k, n, batch_size, a_batch_idx, b_batch_idx) =
+            crate::ops::matmul::matmul_dims_and_batches(a_shape, b_shape, &out_shape);
 
         // B is the transposed view of a contiguous [N,K] buffer — the layout every
         // Linear weight has. Both paths below read that buffer directly instead of
@@ -390,6 +376,14 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         }, "matmul");
 
         Ok(out)
+    }
+
+    fn matmul_wide(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        self.matmul_wide_impl(a, b)
     }
 
     fn matmul_bias(

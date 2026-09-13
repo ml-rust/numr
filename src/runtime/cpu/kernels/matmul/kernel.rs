@@ -65,7 +65,7 @@ pub unsafe fn matmul_kernel<T: Element>(
                 }
             }
         }
-        matmul_scalar_acc::<T, i128>(a, b, out, m, n, k, lda, ldb, ldc);
+        matmul_scalar_acc::<T, i128, T>(a, b, out, m, n, k, lda, ldb, ldc);
         return;
     }
 
@@ -124,7 +124,7 @@ pub unsafe fn matmul_kernel<T: Element>(
     // architectures without the block above. All of them saturate long before a
     // dot product ends if they accumulate in themselves.
     if T::DTYPE.is_narrow_float() {
-        matmul_scalar_acc::<T, f32>(a, b, out, m, n, k, lda, ldb, ldc);
+        matmul_scalar_acc::<T, f32, T>(a, b, out, m, n, k, lda, ldb, ldc);
         return;
     }
 
@@ -136,16 +136,18 @@ pub unsafe fn matmul_kernel<T: Element>(
 /// running dot product.
 ///
 /// Keeps the `ikj` loop order of [`matmul_scalar`] for cache locality by
-/// holding one output row of accumulators, then narrowing that row once.
+/// holding one output row of accumulators, then storing that row once. The
+/// store narrows to `O`; `matmul_kernel` passes `O = T`, and `matmul_wide`
+/// passes the accumulator type itself so nothing is narrowed.
 ///
 /// # Safety
-/// Same as [`matmul_kernel`].
+/// Same as [`matmul_kernel`], with `out` valid for `m * ldc` elements of `O`.
 #[inline]
 #[allow(clippy::too_many_arguments)]
-unsafe fn matmul_scalar_acc<T: Element, A: WideAcc>(
+pub(super) unsafe fn matmul_scalar_acc<T: Element, A: WideAcc, O: Element>(
     a: *const T,
     b: *const T,
-    out: *mut T,
+    out: *mut O,
     m: usize,
     n: usize,
     k: usize,
@@ -169,7 +171,7 @@ unsafe fn matmul_scalar_acc<T: Element, A: WideAcc>(
         }
 
         for (j, slot) in row_acc.iter().enumerate() {
-            *out.add(i * ldc + j) = slot.to_elem::<T>();
+            *out.add(i * ldc + j) = slot.to_elem::<O>();
         }
     }
 }

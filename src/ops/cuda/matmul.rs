@@ -1,4 +1,6 @@
-//! Matrix multiplication operations for CUDA runtime
+//! Matrix multiplication operations for CUDA runtime.
+//!
+//! `matmul_wide` delegates to `super::matmul_wide`, which carries its body.
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{
@@ -146,6 +148,14 @@ impl MatmulOps<CudaRuntime> for CudaClient {
                 op: "matmul",
             }),
         }
+    }
+
+    fn matmul_wide(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        self.matmul_wide_impl(a, b)
     }
 
     fn matmul_bias(

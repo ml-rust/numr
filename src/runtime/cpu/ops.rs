@@ -41,6 +41,10 @@ mod matmul_bias;
 #[path = "../../ops/cpu/matmul_i8.rs"]
 pub mod matmul_i8;
 
+// Half matmul written as its F32 accumulator (`MatmulOps::matmul_wide`).
+#[path = "../../ops/cpu/matmul_wide.rs"]
+mod matmul_wide;
+
 // Column-split parallelism for the tiled matmul paths. Rayon-only: without it
 // there is no pool to split across and `matmul` takes its serial branch.
 #[cfg(feature = "rayon")]

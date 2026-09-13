@@ -40,6 +40,7 @@ mod indexing;
 
 pub mod linalg;
 mod matmul;
+mod matmul_wide;
 mod normalization;
 pub mod reduce;
 mod scalar;
@@ -63,6 +64,7 @@ pub use gemm_epilogue::var_matmul_bias_activation;
 pub use indexing::{var_embedding_lookup, var_gather};
 pub use linalg::{var_cholesky, var_det, var_inverse, var_solve, var_trace};
 pub use matmul::var_matmul;
+pub use matmul_wide::var_matmul_wide;
 pub use normalization::{
     var_fused_add_layer_norm, var_fused_add_rms_norm, var_group_norm, var_layer_norm, var_rms_norm,
 };

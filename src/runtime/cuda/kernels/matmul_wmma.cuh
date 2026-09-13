@@ -221,7 +221,9 @@ static_assert(WMMA_STAGES >= 2,
 //           WARP_ROWS*WM*16 by WARP_COLS*WN*16.
 // HALF_T  : __half | __nv_bfloat16
 // ZERO    : __float2half(0.0f) | __float2bfloat16(0.0f)
-// STORE   : __float2half | __float2bfloat16
+// STORE   : __float2half | __float2bfloat16, or the identity when the entry
+//           point declares a float C (the `f32out` kernels in matmul_wmma.cu).
+//           C_ptr's element type comes from the entry point, not from here.
 // EPI_FN  : epilogue value transform,
 //           EPI_FN(f32_accumulator, global_row, global_col) → float.
 //           WMMA_EPILOGUE_PLAIN is the identity; every other form adds

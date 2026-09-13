@@ -172,4 +172,7 @@ pub use loader::{
     launch_matmul_kernel, launch_matmul_kernel_bt, launch_semiring_matmul_batched_kernel,
     launch_semiring_matmul_kernel, preload_modules,
 };
-pub(crate) use loader::{use_wmma_after_padding, wmma_padded_dims};
+pub(crate) use loader::{
+    launch_matmul_wmma_f32out_batched_kernel, launch_matmul_wmma_f32out_kernel, use_wmma,
+    use_wmma_after_padding, wmma_padded_dims,
+};

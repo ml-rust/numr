@@ -41,10 +41,12 @@
 //!
 //! `col` holds per-tap partial sums. Stored in F16 or BF16, every tap would
 //! round before the fold adds it, on top of the rounding inside the GEMM. So
-//! for F16 and BF16 the path casts the transposed input, the weight and the
-//! bias to F32, runs the GEMM in F32, and folds with the mixed kernel that
-//! reads an F32 `col` and writes the half output. The result rounds once, at
-//! the store. F32 and F64 skip the casts and fold in their own dtype.
+//! for F16 and BF16 the path runs the GEMM through `matmul_wide`, which hands
+//! back the tensor-core kernel's F32 accumulator without narrowing it, and
+//! folds with the mixed kernel that reads an F32 `col` and writes the half
+//! output. The result rounds once, at the store. No operand is cast: the
+//! half input and weight feed the GEMM as they are, and only the `[C_out]`
+//! bias is cast to F32 for the fold. F32 and F64 fold in their own dtype.
 //!
 //! The CPU reference and the direct CUDA kernel sum in the storage dtype, so
 //! on a half dtype they carry a rounding per add. The F32 product sits closer
@@ -114,33 +116,25 @@ pub fn conv_transpose1d_gemm_first(
     let dtype = input.dtype();
     let row = params.c_out * params.kernel_size;
 
-    // Half inputs run the product in F32 so the fold rounds once, at the
-    // store. F32 and F64 keep their own dtype through the GEMM and the fold.
-    let col_dtype = match dtype {
-        DType::F16 | DType::BF16 => DType::F32,
-        _ => dtype,
-    };
-
     // `[N, C_in, L]` -> `[N, L, C_in]`: the GEMM's left operand, one real copy.
     let x_t = input.transpose(1, 2)?.contiguous()?;
     // `[C_in, C_out, K]` -> `[1, C_in, C_out*K]`: a view, broadcast over N.
     let w_gemm = weight.reshape(&[1, params.c_in, row])?;
 
-    // The weight cast runs on every call. The weight belongs to the model and
-    // this path holds no cache, so the F32 copy is not reused across calls.
-    let (x_t, w_gemm, bias_col) = if col_dtype == dtype {
-        (x_t, w_gemm, None)
+    // Half inputs keep the GEMM's F32 accumulator so the fold rounds once, at
+    // the store; F32 and F64 write their own dtype. `matmul_wide` is `matmul`
+    // for the latter two, so one call covers every dtype this path admits.
+    let col = client.matmul_wide(&x_t, &w_gemm)?;
+    let col_dtype = col.dtype();
+
+    // The fold reads the bias in the column dtype. Only the half dtypes cast,
+    // and only the `[C_out]` vector.
+    let bias_col = if col_dtype == dtype {
+        None
     } else {
-        let bias_col = bias.map(|b| client.cast(b, col_dtype)).transpose()?;
-        (
-            client.cast(&x_t, col_dtype)?,
-            client.cast(&w_gemm, col_dtype)?,
-            bias_col,
-        )
+        bias.map(|b| client.cast(b, col_dtype)).transpose()?
     };
     let bias_ptr = bias_col.as_ref().or(bias).map(|b| b.ptr());
-
-    let col = client.matmul(&x_t, &w_gemm)?;
 
     let out = Tensor::<CudaRuntime>::empty(
         &[params.batch, params.c_out, params.output_length],

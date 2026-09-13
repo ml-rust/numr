@@ -11,6 +11,16 @@ pub trait MatmulOps<R: Runtime> {
     /// Supports batched matmul for tensors with more than 2 dimensions.
     fn matmul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
 
+    /// `A @ B` written in the accumulator dtype instead of the element dtype:
+    /// F16/BF16 → F32, I8 → I32 (as `matmul` already does), every other dtype
+    /// unchanged. Same shape and broadcasting rules as `matmul`.
+    ///
+    /// The half dtypes already accumulate in F32 on every backend; this
+    /// returns that accumulator without the per-element narrowing, so a
+    /// caller that sums the result further rounds once at its own store. See
+    /// [`crate::ops::matmul_wide_output_dtype`] for the rule.
+    fn matmul_wide(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>>;
+
     /// Fused matrix multiplication with bias addition: C = A @ B + bias
     ///
     /// This is a fused operation that combines matrix multiplication and bias addition

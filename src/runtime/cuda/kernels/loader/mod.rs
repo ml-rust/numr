@@ -23,6 +23,7 @@ mod matmul_f32;
 mod matmul_fp8;
 mod matmul_int;
 mod matmul_wmma;
+mod matmul_wmma_f32out;
 mod matmul_wmma_policy;
 mod matmul_wmma_tile;
 mod module_cache;
@@ -57,6 +58,9 @@ pub use matmul_config::{
     matmul_batched_launch_config, matmul_launch_config,
 };
 pub use matmul_int::{int_matmul_has_kernel, int_matmul_output_dtype};
+pub(crate) use matmul_wmma_f32out::{
+    launch_matmul_wmma_f32out_batched_kernel, launch_matmul_wmma_f32out_kernel,
+};
 pub(crate) use matmul_wmma_policy::{use_wmma, use_wmma_after_padding, wmma_padded_dims};
 pub use module_cache::{get_kernel_function, get_or_load_module, preload_modules};
 pub use names::{dtype_suffix, kernel_name, kernel_names};

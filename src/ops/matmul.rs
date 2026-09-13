@@ -176,6 +176,36 @@ pub fn matmul_batch_indices(
     (a_indices, b_indices)
 }
 
+/// `m`, `k`, `n` and the per-operand batch indices shared by `matmul` and
+/// `matmul_wide` on every backend: both dispatch the same shape and batch
+/// arithmetic before picking a kernel path.
+///
+/// Returns `(m, k, n, batch_size, a_batch_idx, b_batch_idx)`.
+pub fn matmul_dims_and_batches(
+    a_shape: &[usize],
+    b_shape: &[usize],
+    out_shape: &[usize],
+) -> (usize, usize, usize, usize, Vec<usize>, Vec<usize>) {
+    let m = if a_shape.len() >= 2 {
+        a_shape[a_shape.len() - 2]
+    } else {
+        1
+    };
+    let k = a_shape[a_shape.len() - 1];
+    let n = b_shape[b_shape.len() - 1];
+
+    // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
+    // so a clamp would only fabricate a batch for a genuinely zero batch dim.
+    let batch_size: usize = out_shape
+        .iter()
+        .take(out_shape.len().saturating_sub(2))
+        .product();
+
+    let (a_batch_idx, b_batch_idx) = matmul_batch_indices(a_shape, b_shape, out_shape);
+
+    (m, k, n, batch_size, a_batch_idx, b_batch_idx)
+}
+
 /// Is `B` a plain transpose of a contiguous `[.., N, K]` buffer?
 ///
 /// A `[K, N]` operand with strides `[1, K]` is the transposed view of a

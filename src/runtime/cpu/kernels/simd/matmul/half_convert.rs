@@ -82,26 +82,42 @@ pub unsafe fn matmul_via_f32<T: Element>(
     ldb: usize,
     ldc: usize,
 ) {
+    let mut c_f32 = vec![0.0f32; m * n];
+    matmul_wide_via_f32(a, b, c_f32.as_mut_ptr(), m, n, k, lda, ldb, n);
+    convert_from_f32(c_f32.as_ptr(), out, m, n, ldc);
+}
+
+/// f16/bf16 matmul via the f32 SIMD path, stored as f32: the same product
+/// [`matmul_via_f32`] computes, before its narrowing pass.
+///
+/// `matmul_via_f32` runs this into a scratch buffer and narrows it;
+/// `matmul_wide` runs it straight into its F32 output.
+///
+/// # Safety
+/// - `a` must be valid for reads of `m * lda` elements
+/// - `b` must be valid for reads of `k * ldb` elements
+/// - `out` must be valid for writes of `m * ldc` f32 elements
+/// - `out` must not alias with `a` or `b`
+/// - `a` and `b` must be aligned for type `T`
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn matmul_wide_via_f32<T: Element>(
+    a: *const T,
+    b: *const T,
+    out: *mut f32,
+    m: usize,
+    n: usize,
+    k: usize,
+    lda: usize,
+    ldb: usize,
+    ldc: usize,
+) {
     let mut a_f32 = vec![0.0f32; m * k];
     let mut b_f32 = vec![0.0f32; k * n];
-    let mut c_f32 = vec![0.0f32; m * n];
 
     convert_to_f32(a, a_f32.as_mut_ptr(), m, k, lda);
     convert_to_f32(b, b_f32.as_mut_ptr(), k, n, ldb);
 
-    super::matmul_f32(
-        a_f32.as_ptr(),
-        b_f32.as_ptr(),
-        c_f32.as_mut_ptr(),
-        m,
-        n,
-        k,
-        k,
-        n,
-        n,
-    );
-
-    convert_from_f32(c_f32.as_ptr(), out, m, n, ldc);
+    super::matmul_f32(a_f32.as_ptr(), b_f32.as_ptr(), out, m, n, k, k, n, ldc);
 }
 
 /// f16/bf16 fused matmul + bias via f32 SIMD path: C = A @ B + bias
