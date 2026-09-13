@@ -69,6 +69,7 @@ mod linalg;
 pub mod linalg_launchers;
 pub(in crate::runtime::cuda) mod loader;
 mod norm;
+mod pad_rows;
 mod quasirandom;
 mod reduce;
 mod scalar;

@@ -87,6 +87,7 @@ fn compile_cuda_kernels() {
         "matmul_fp8.cu",
         "matmul_int.cu",
         "norm.cu",
+        "pad_rows.cu",
         "semiring_matmul.cu",
         "quasirandom.cu",
         "reduce.cu",

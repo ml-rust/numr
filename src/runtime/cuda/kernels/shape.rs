@@ -12,6 +12,7 @@ use super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     launch_config,
 };
+use super::pad_rows::{PadFill, PadRowsGeometry, launch_pad_rows};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
@@ -223,6 +224,10 @@ pub unsafe fn launch_repeat(
 /// Shape/pad arrays are passed as individual scalar kernel arguments (not device
 /// pointers) so this launcher is safe for CUDA graph capture/replay.
 ///
+/// When only the last two dimensions carry padding the launch goes to the
+/// row-wise kernels in `pad_rows.rs`, which coalesce and, when alignment
+/// allows, move 16-byte chunks. Both kernel families write identical output.
+///
 /// # Arguments
 ///
 /// * `context` - CUDA context
@@ -285,25 +290,24 @@ pub unsafe fn launch_pad(
         pad_before_args[i] = pad_before[i] as u32;
     }
 
-    // Prepare fill values (all variants needed for borrow/dtype dispatch)
-    let fill_f32 = fill_value as f32;
-    let fill_f64 = fill_value;
-    let fill_i32 = fill_value as i32;
-    let fill_i64 = fill_value as i64;
-    let fill_u32 = fill_value as u32;
-    let fill_u64 = fill_value as u64;
-    let fill_i16 = fill_value as i16;
-    let fill_i8 = fill_value as i8;
-    let fill_u16 = fill_value as u16;
-    let fill_u8 = fill_value as u8;
-    #[cfg(feature = "f16")]
-    let fill_f16 = half::f16::from_f64(fill_value);
-    #[cfg(feature = "f16")]
-    let fill_bf16 = half::bf16::from_f64(fill_value);
-    #[cfg(feature = "fp8")]
-    let fill_fp8_e4m3 = crate::dtype::FP8E4M3::from_f32(fill_value as f32);
-    #[cfg(feature = "fp8")]
-    let fill_fp8_e5m2 = crate::dtype::FP8E5M2::from_f32(fill_value as f32);
+    let fill = PadFill::new(fill_value);
+
+    // Padding confined to the last two dims takes the coalesced row kernel;
+    // every other layout stays on the generic per-element decode below.
+    if let Some(geom) = PadRowsGeometry::from_pad(src_shape, out_shape, pad_before) {
+        return unsafe {
+            launch_pad_rows(
+                context,
+                stream,
+                device_index,
+                dtype,
+                src_ptr,
+                dst_ptr,
+                &fill,
+                geom,
+            )
+        };
+    }
 
     unsafe {
         let module = get_or_load_module(context, device_index, SHAPE_MODULE)?;
@@ -321,30 +325,7 @@ pub unsafe fn launch_pad(
         builder.arg(&src_ptr);
         builder.arg(&dst_ptr);
 
-        // Pass fill value based on dtype
-        match dtype {
-            DType::F32 => builder.arg(&fill_f32),
-            DType::F64 => builder.arg(&fill_f64),
-            DType::I32 => builder.arg(&fill_i32),
-            DType::I64 => builder.arg(&fill_i64),
-            DType::U32 => builder.arg(&fill_u32),
-            DType::U64 => builder.arg(&fill_u64),
-            DType::I16 => builder.arg(&fill_i16),
-            DType::I8 => builder.arg(&fill_i8),
-            DType::U16 => builder.arg(&fill_u16),
-            DType::U8 => builder.arg(&fill_u8),
-            #[cfg(feature = "f16")]
-            DType::F16 => builder.arg(&fill_f16),
-            #[cfg(feature = "f16")]
-            DType::BF16 => builder.arg(&fill_bf16),
-            #[cfg(feature = "fp8")]
-            DType::FP8E4M3 => builder.arg(&fill_fp8_e4m3),
-            #[cfg(feature = "fp8")]
-            DType::FP8E5M2 => builder.arg(&fill_fp8_e5m2),
-            _ => {
-                return Err(Error::UnsupportedDType { dtype, op: "pad" });
-            }
-        };
+        fill.push_arg(&mut builder, dtype)?;
 
         // Pass src_shape as 8 individual u32 args
         for i in 0..MAX_DIMS {
