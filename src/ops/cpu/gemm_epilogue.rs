@@ -2,7 +2,7 @@
 
 use crate::dtype::Element;
 use crate::error::{Error, Result};
-use crate::ops::matmul::matmul_mkn;
+use crate::ops::matmul::matmul_dims_and_batches;
 use crate::ops::{GemmActivation, GemmEpilogueOps};
 use crate::ops::{matmul_bias_output_shape, validate_gemm_epilogue_dtypes};
 use crate::runtime::cpu::helpers::{dispatch_dtype, ensure_contiguous};
@@ -36,18 +36,15 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let (m, k, n) = matmul_mkn(a_shape, b_shape);
+        // Batch dims broadcast per dimension, so each output batch reads its own
+        // source batch per operand; a wrapping batch count would read past a
+        // `[k, n]` operand paired with a batched `a`.
+        let (m, k, n, batch_size, a_idx, b_idx) =
+            matmul_dims_and_batches(a_shape, b_shape, &out_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
         let bias_contig = ensure_contiguous(bias)?;
-
-        // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
-        // so a clamp would only fabricate a batch for a genuinely zero batch dim.
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
 
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device)?;
 
@@ -81,8 +78,8 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
                             .with_min_len(min_len)
                             .for_each(|batch| unsafe {
                             matmul_bias_activation_kernel::<T>(
-                                (a_ptr as *const T).add(batch * m * k),
-                                (b_ptr as *const T).add(batch * k * n),
+                                (a_ptr as *const T).add(a_idx[batch] * m * k),
+                                (b_ptr as *const T).add(b_idx[batch] * k * n),
                                 bias_ptr as *const T,
                                 (out_ptr as *mut T).add(batch * m * n),
                                 m, n, k, lda, ldb, ldc,
@@ -108,8 +105,8 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
             unsafe {
                 for batch in 0..batch_size {
                     matmul_bias_activation_kernel::<T>(
-                        (a_ptr as *const T).add(batch * m * k),
-                        (b_ptr as *const T).add(batch * k * n),
+                        (a_ptr as *const T).add(a_idx[batch] * m * k),
+                        (b_ptr as *const T).add(b_idx[batch] * k * n),
                         bias_ptr as *const T,
                         (out_ptr as *mut T).add(batch * m * n),
                         m, n, k, lda, ldb, ldc,
@@ -159,19 +156,16 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let (m, k, n) = matmul_mkn(a_shape, b_shape);
+        // Batch dims broadcast per dimension, so each output batch reads its own
+        // source batch per operand; a wrapping batch count would read past a
+        // `[k, n]` operand paired with a batched `a`.
+        let (m, k, n, batch_size, a_idx, b_idx) =
+            matmul_dims_and_batches(a_shape, b_shape, &out_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
         let bias_contig = ensure_contiguous(bias)?;
         let residual_contig = ensure_contiguous(residual)?;
-
-        // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
-        // so a clamp would only fabricate a batch for a genuinely zero batch dim.
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
 
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device)?;
 
@@ -206,8 +200,8 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
                             .with_min_len(min_len)
                             .for_each(|batch| unsafe {
                             matmul_bias_residual_kernel::<T>(
-                                (a_ptr as *const T).add(batch * m * k),
-                                (b_ptr as *const T).add(batch * k * n),
+                                (a_ptr as *const T).add(a_idx[batch] * m * k),
+                                (b_ptr as *const T).add(b_idx[batch] * k * n),
                                 bias_ptr as *const T,
                                 (res_ptr as *const T).add(batch * m * n),
                                 (out_ptr as *mut T).add(batch * m * n),
@@ -233,8 +227,8 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
             unsafe {
                 for batch in 0..batch_size {
                     matmul_bias_residual_kernel::<T>(
-                        (a_ptr as *const T).add(batch * m * k),
-                        (b_ptr as *const T).add(batch * k * n),
+                        (a_ptr as *const T).add(a_idx[batch] * m * k),
+                        (b_ptr as *const T).add(b_idx[batch] * k * n),
                         bias_ptr as *const T,
                         (res_ptr as *const T).add(batch * m * n),
                         (out_ptr as *mut T).add(batch * m * n),
@@ -270,35 +264,46 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let (m, k, n) = matmul_mkn(a_shape, b_shape);
+        let out_shape = matmul_bias_output_shape(a_shape, b_shape, bias.shape()).ok_or(
+            Error::ShapeMismatch {
+                expected: a_shape.to_vec(),
+                got: b_shape.to_vec(),
+            },
+        )?;
+        if grad.shape() != out_shape.as_slice() {
+            return Err(Error::ShapeMismatch {
+                expected: out_shape,
+                got: grad.shape().to_vec(),
+            });
+        }
+        let (m, k, n, batch_size, a_idx, b_idx) =
+            matmul_dims_and_batches(a_shape, b_shape, &out_shape);
+        // An operand whose batch count equals the output's is read once per
+        // batch, so its gradient slice is written in place. A broadcast operand
+        // is read by several batches, so its slice accumulates their gradients.
+        let a_owns_batch = batch_count(a_shape) == batch_size;
+        let b_owns_batch = batch_count(b_shape) == batch_size;
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
         let bias_contig = ensure_contiguous(bias)?;
         let grad_contig = ensure_contiguous(grad)?;
 
-        // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
-        // so a clamp would only fabricate a batch for a genuinely zero batch dim.
-        let batch_size: usize = a_shape
-            .iter()
-            .take(a_shape.len().saturating_sub(2))
-            .product();
-
-        // Output gradients
-        let d_a = Tensor::<CpuRuntime>::empty(a_shape, dtype, &self.device)?;
+        // Output gradients. `d_b` and `d_bias` accumulate, so they start at zero;
+        // `d_a` starts at zero only when it accumulates.
+        let d_a = if a_owns_batch {
+            Tensor::<CpuRuntime>::empty(a_shape, dtype, &self.device)?
+        } else {
+            Tensor::<CpuRuntime>::zeros(a_shape, dtype, &self.device)?
+        };
         let d_b = Tensor::<CpuRuntime>::zeros(b_shape, dtype, &self.device)?;
+        let d_bias_full = Tensor::<CpuRuntime>::zeros(&[n], dtype, &self.device)?;
 
-        // No batch contributes. The batched branch below zeroes `d_b` over k*n
-        // elements before accumulating, which overruns `d_b` when its own batch dim
-        // is 0. Both gradients sum over nothing here, so both are the additive
-        // identity `d_b` was already seeded with.
+        // No batch contributes: every gradient sums over nothing and stays at the
+        // additive identity it was seeded with.
         if batch_size == 0 {
-            let d_bias_full = Tensor::<CpuRuntime>::zeros(&[n], dtype, &self.device)?;
             return Ok((d_a, d_b, d_bias_full));
         }
-
-        // d_bias is always [N] — we need to sum across batches
-        let d_bias_full = Tensor::<CpuRuntime>::empty(&[n], dtype, &self.device)?;
 
         let a_ptr = a_contig.ptr();
         let b_ptr = b_contig.ptr();
@@ -313,59 +318,50 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         let ld_grad = n;
 
         dispatch_dtype!(dtype, T => {
-            if batch_size == 1 {
+            // Per-batch scratch for whatever accumulates: `d_bias` always, `d_a`
+            // and `d_b` when the operand is broadcast.
+            let mut temp_d_a = vec![T::zero(); if a_owns_batch { 0 } else { m * k }];
+            let mut temp_d_b = vec![T::zero(); if b_owns_batch { 0 } else { k * n }];
+            let mut temp_d_bias = vec![T::zero(); n];
+
+            for batch in 0..batch_size {
+                let a_off = a_idx[batch] * m * k;
+                let b_off = b_idx[batch] * k * n;
                 unsafe {
+                    let d_a_dst = if a_owns_batch {
+                        (d_a_ptr as *mut T).add(a_off)
+                    } else {
+                        temp_d_a.as_mut_ptr()
+                    };
+                    let d_b_dst = if b_owns_batch {
+                        (d_b_ptr as *mut T).add(b_off)
+                    } else {
+                        temp_d_b.as_mut_ptr()
+                    };
                     matmul_bias_activation_bwd_kernel::<T>(
-                        grad_ptr as *const T,
-                        a_ptr as *const T,
-                        b_ptr as *const T,
+                        (grad_ptr as *const T).add(batch * m * n),
+                        (a_ptr as *const T).add(a_off),
+                        (b_ptr as *const T).add(b_off),
                         bias_ptr as *const T,
-                        d_a_ptr as *mut T,
-                        d_b_ptr as *mut T,
-                        d_bias_ptr as *mut T,
+                        d_a_dst,
+                        d_b_dst,
+                        temp_d_bias.as_mut_ptr(),
                         m, n, k, lda, ldb, ld_grad,
                         activation,
                     );
-                }
-            } else {
-                // For batched: compute per-batch, accumulate d_b and d_bias
-                // Zero out d_b and d_bias first
-                unsafe {
-                    for i in 0..k * n {
-                        *(d_b_ptr as *mut T).add(i) = T::zero();
-                    }
-                    for j in 0..n {
-                        *(d_bias_ptr as *mut T).add(j) = T::zero();
-                    }
-                }
 
-                let mut temp_d_b = vec![T::zero(); k * n];
-                let mut temp_d_bias = vec![T::zero(); n];
-
-                for batch in 0..batch_size {
-                    unsafe {
-                        matmul_bias_activation_bwd_kernel::<T>(
-                            (grad_ptr as *const T).add(batch * m * n),
-                            (a_ptr as *const T).add(batch * m * k),
-                            (b_ptr as *const T).add(batch * k * n),
-                            bias_ptr as *const T,
-                            (d_a_ptr as *mut T).add(batch * m * k),
-                            temp_d_b.as_mut_ptr(),
-                            temp_d_bias.as_mut_ptr(),
-                            m, n, k, lda, ldb, ld_grad,
-                            activation,
-                        );
-
-                        // Accumulate d_b
-                        for i in 0..k * n {
-                            let ptr = (d_b_ptr as *mut T).add(i);
-                            *ptr += temp_d_b[i];
+                    if !a_owns_batch {
+                        for (i, v) in temp_d_a.iter().enumerate() {
+                            *(d_a_ptr as *mut T).add(a_off + i) += *v;
                         }
-                        // Accumulate d_bias
-                        for j in 0..n {
-                            let ptr = (d_bias_ptr as *mut T).add(j);
-                            *ptr += temp_d_bias[j];
+                    }
+                    if !b_owns_batch {
+                        for (i, v) in temp_d_b.iter().enumerate() {
+                            *(d_b_ptr as *mut T).add(b_off + i) += *v;
                         }
+                    }
+                    for (j, v) in temp_d_bias.iter().enumerate() {
+                        *(d_bias_ptr as *mut T).add(j) += *v;
                     }
                 }
             }
@@ -373,4 +369,9 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         Ok((d_a, d_b, d_bias_full))
     }
+}
+
+/// Product of an operand's batch dims; 1 for a plain matrix.
+fn batch_count(shape: &[usize]) -> usize {
+    shape.iter().take(shape.len().saturating_sub(2)).product()
 }

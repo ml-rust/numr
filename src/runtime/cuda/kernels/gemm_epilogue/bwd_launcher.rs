@@ -68,15 +68,16 @@ pub unsafe fn launch_gemm_bias_act_bwd_kernel(
             n,
             k,
             activation,
-            false, // don't accumulate d_b/d_bias
+            false, // write d_bias
         )
     }
 }
 
-/// Launch batched GEMM backward pass.
+/// Launch batched GEMM backward pass over operands that both carry the full
+/// batch: `a` is `[batch, M, K]`, `b` is `[batch, K, N]`.
 ///
-/// Batch 0 writes d_b/d_bias, batches 1+ accumulate into d_b/d_bias.
-/// d_a is written per-batch at offset.
+/// `d_a` and `d_b` are written per batch slice. `d_bias` is one `[N]` sum:
+/// batch 0 writes it, batches 1+ accumulate into it.
 ///
 /// # Safety
 /// All pointers must be valid device memory with correct sizes.
@@ -111,7 +112,8 @@ pub unsafe fn launch_gemm_bias_act_bwd_batched_kernel(
         let a_off = a_ptr + batch_idx as u64 * mk_bytes;
         let b_off = b_ptr + batch_idx as u64 * kn_bytes;
         let d_a_off = d_a_ptr + batch_idx as u64 * mk_bytes;
-        let accumulate = batch_idx > 0;
+        let d_b_off = d_b_ptr + batch_idx as u64 * kn_bytes;
+        let accumulate_dbias = batch_idx > 0;
 
         unsafe {
             launch_gemm_bwd_kernels(
@@ -125,13 +127,13 @@ pub unsafe fn launch_gemm_bias_act_bwd_batched_kernel(
                 bias_ptr,
                 grad_pre_ptr,
                 d_a_off,
-                d_b_ptr,
+                d_b_off,
                 d_bias_ptr,
                 m,
                 n,
                 k,
                 activation,
-                accumulate,
+                accumulate_dbias,
             )?;
         }
     }
@@ -157,7 +159,7 @@ unsafe fn launch_gemm_bwd_kernels(
     n: usize,
     k: usize,
     activation: GemmActivation,
-    accumulate: bool,
+    accumulate_dbias: bool,
 ) -> Result<()> {
     let module = get_or_load_module(context, device_index, GEMM_EPILOGUE_BWD_MODULE)?;
 
@@ -211,14 +213,9 @@ unsafe fn launch_gemm_bwd_kernels(
                 .map_err(|e| Error::Internal(format!("CUDA gemm_bwd_da launch failed: {:?}", e)))?;
         }
 
-        // Kernel 3: d_b = A^T @ grad_pre (or d_b += for accumulate)
+        // Kernel 3: d_b = A^T @ grad_pre, one slice per batch (always write)
         if kn != 0 {
-            let base = if accumulate {
-                "gemm_bwd_db_accum"
-            } else {
-                "gemm_bwd_db"
-            };
-            let func_name = kernel_name(base, dtype);
+            let func_name = kernel_name("gemm_bwd_db", dtype);
             let func = get_kernel_function(&module, &func_name)?;
             let cfg = launch_config(grid_1d(kn), block_1d(), 0);
             let mut builder = stream.launch_builder(&func);
@@ -235,7 +232,7 @@ unsafe fn launch_gemm_bwd_kernels(
 
         // Kernel 4: d_bias = sum(grad_pre, dim=0) (or += for accumulate)
         if n_u32 != 0 {
-            let base = if accumulate {
+            let base = if accumulate_dbias {
                 "gemm_bwd_dbias_accum"
             } else {
                 "gemm_bwd_dbias"

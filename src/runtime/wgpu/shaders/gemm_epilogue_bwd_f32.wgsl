@@ -3,7 +3,7 @@
 // Given output = activation(A @ B + bias), with pre = A @ B + bias:
 //   grad_pre = grad * activation'(pre)         [batch, M, N]
 //   d_a      = grad_pre @ B^T                  [batch, M, K]
-//   d_b      = A^T @ grad_pre  (sum over batch)[K, N]
+//   d_b      = A^T @ grad_pre                  [batch, K, N]
 //   d_bias   = sum(grad_pre, dim=0,batch)      [N]
 //
 // activation_type: 0=None, 1=ReLU, 2=GELU, 3=SiLU, 4=Sigmoid, 5=Tanh
@@ -164,10 +164,12 @@ fn gemm_bwd_da_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
     }
 }
 
-// d_b[k, n] = sum_batch sum_m A[b, m, k] * grad_pre[b, m, n]
+// d_b[b, k, n] = sum_m A[b, m, k] * grad_pre[b, m, n], one slice per batch
 @compute @workgroup_size(16, 16, 1)
 fn gemm_bwd_db_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
                    @builtin(workgroup_id) group_id: vec3<u32>) {
+    let batch = group_id.z;
+    if (batch >= params.batch_size) { return; }
     let M = params.M;
     let K = params.K;
     let N = params.N;
@@ -177,7 +179,7 @@ fn gemm_bwd_db_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
 
     var sum: f32 = 0.0;
     let num_tiles = (M + TILE_SIZE - 1u) / TILE_SIZE;
-    for (var batch: u32 = 0u; batch < params.batch_size; batch = batch + 1u) {
+    {
         let a_off = batch * M * K;
         let gp_off = batch * M * N;
         for (var t: u32 = 0u; t < num_tiles; t = t + 1u) {
@@ -204,7 +206,7 @@ fn gemm_bwd_db_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
     }
 
     if (row < K && col < N) {
-        d_b[row * N + col] = sum;
+        d_b[batch * K * N + row * N + col] = sum;
     }
 }
 

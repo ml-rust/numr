@@ -16,6 +16,8 @@ use numr::runtime::cpu::CpuRuntime;
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
 #[cfg(feature = "cuda")]
 use crate::backend_parity::helpers::with_cuda_backend;
+#[cfg(feature = "wgpu")]
+use crate::backend_parity::helpers::with_wgpu_backend_or_skip;
 use crate::common::{create_cpu_client, is_dtype_supported, values_close};
 
 /// Which entry point a case runs.
@@ -170,7 +172,32 @@ fn assert_rank1_b(entry: Entry, dtype: DType, a_shape: &[usize]) {
             }
         });
     }
-    #[cfg(not(feature = "cuda"))]
+
+    // WebGPU promotes the rank-1 operand to its matrix form and runs the
+    // ordinary kernels; F32 is the one dtype every entry point carries there.
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        use numr::runtime::wgpu::WgpuRuntime;
+        with_wgpu_backend_or_skip(|client, device| {
+            let (shape, wgpu) = run_on::<WgpuRuntime>(
+                entry, dtype, &a, a_shape, &b, &bias, &device, &client, "WebGPU",
+            );
+            assert_eq!(
+                shape,
+                want_shape,
+                "WebGPU {} [{dtype:?}] a={a_shape:?}: output shape",
+                entry.name()
+            );
+            for (i, (g, c)) in wgpu.iter().zip(&cpu).enumerate() {
+                assert!(
+                    values_close(*g, *c, rtol, atol),
+                    "WebGPU {} [{dtype:?}] a={a_shape:?} at {i}: {g} vs CPU {c}",
+                    entry.name()
+                );
+            }
+        });
+    }
+    #[cfg(not(any(feature = "cuda", feature = "wgpu")))]
     let _ = is_dtype_supported;
 }
 
@@ -201,5 +228,98 @@ fn matmul_rank1_b_gemv_shape_matches_reference_and_cpu() {
             assert_rank1_b(entry, dtype, &[2, 1024]);
             assert_rank1_b(entry, dtype, &[3, 2, 1024]);
         }
+    }
+}
+
+/// `[k] @ [k, n]` is `[1, n]`, and `[k] @ [3, k, n]` is `[3, 1, n]`: the
+/// rank-1 `a` is a `[1, k]` row under the same rule.
+#[test]
+fn matmul_rank1_a_matches_reference_and_cpu() {
+    fn run<R>(
+        a: &[f64],
+        b: &[f64],
+        b_shape: &[usize],
+        device: &R::Device,
+        client: &(impl MatmulOps<R> + numr::ops::TypeConversionOps<R>),
+        backend: &str,
+    ) -> (Vec<usize>, Vec<f64>)
+    where
+        R: numr::runtime::Runtime<DType = DType>,
+    {
+        let a_t = tensor_from_f64(a, &[a.len()], DType::F32, device, client)
+            .unwrap_or_else(|e| panic!("{backend}: A failed: {e}"));
+        let b_t = tensor_from_f64(b, b_shape, DType::F32, device, client)
+            .unwrap_or_else(|e| panic!("{backend}: B failed: {e}"));
+        let out = client
+            .matmul(&a_t, &b_t)
+            .unwrap_or_else(|e| panic!("{backend} rank-1 a matmul failed: {e}"));
+        let values = client
+            .cast(&out, DType::F64)
+            .unwrap_or_else(|e| panic!("{backend}: cast failed: {e}"))
+            .to_vec::<f64>();
+        (out.shape().to_vec(), values)
+    }
+
+    let (k, n) = (21usize, 13usize);
+    let a = grid(k, 3);
+    for batch in [1usize, 3] {
+        let b = grid(batch * k * n, 4);
+        let (b_shape, want_shape) = if batch == 1 {
+            (vec![k, n], vec![1, n])
+        } else {
+            (vec![batch, k, n], vec![batch, 1, n])
+        };
+        let mut want = vec![0.0f64; batch * n];
+        for bi in 0..batch {
+            for j in 0..n {
+                want[bi * n + j] = (0..k).map(|p| a[p] * b[bi * k * n + p * n + j]).sum();
+            }
+        }
+        let (rtol, atol) = tolerance(DType::F32);
+
+        let (cpu_client, cpu_device) = create_cpu_client();
+        let (cpu_shape, cpu) = run::<CpuRuntime>(&a, &b, &b_shape, &cpu_device, &cpu_client, "CPU");
+        assert_eq!(
+            cpu_shape, want_shape,
+            "CPU rank-1 a b={b_shape:?}: output shape"
+        );
+        for (i, (g, w)) in cpu.iter().zip(&want).enumerate() {
+            assert!(
+                values_close(*g, *w, rtol, atol),
+                "CPU rank-1 a b={b_shape:?} at {i}: {g} vs F64 {w}"
+            );
+        }
+
+        #[cfg(feature = "cuda")]
+        with_cuda_backend(|client, device| {
+            use numr::runtime::cuda::CudaRuntime;
+            let (shape, got) = run::<CudaRuntime>(&a, &b, &b_shape, &device, &client, "CUDA");
+            assert_eq!(
+                shape, want_shape,
+                "CUDA rank-1 a b={b_shape:?}: output shape"
+            );
+            for (i, (g, c)) in got.iter().zip(&cpu).enumerate() {
+                assert!(
+                    values_close(*g, *c, rtol, atol),
+                    "CUDA rank-1 a b={b_shape:?} at {i}: {g} vs CPU {c}"
+                );
+            }
+        });
+
+        #[cfg(feature = "wgpu")]
+        with_wgpu_backend_or_skip(|client, device| {
+            use numr::runtime::wgpu::WgpuRuntime;
+            let (shape, got) = run::<WgpuRuntime>(&a, &b, &b_shape, &device, &client, "WebGPU");
+            assert_eq!(
+                shape, want_shape,
+                "WebGPU rank-1 a b={b_shape:?}: output shape"
+            );
+            for (i, (g, c)) in got.iter().zip(&cpu).enumerate() {
+                assert!(
+                    values_close(*g, *c, rtol, atol),
+                    "WebGPU rank-1 a b={b_shape:?} at {i}: {g} vs CPU {c}"
+                );
+            }
+        });
     }
 }

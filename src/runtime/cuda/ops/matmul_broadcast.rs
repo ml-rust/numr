@@ -111,6 +111,33 @@ pub(crate) fn resolve_batched_operands(
     })
 }
 
+/// Both operands expanded to the output's batch dims and made contiguous.
+///
+/// For kernels that read `A` and `B` with one shared batch stride and no
+/// wrapping: an operand whose batch dims differ from the output's is expanded
+/// on device, the rest pass through as they are. Operands are rank 2 or more.
+pub(crate) fn expand_batched_operands(
+    a: &Tensor<CudaRuntime>,
+    b: &Tensor<CudaRuntime>,
+    out_shape: &[usize],
+) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+    let out_batch = &out_shape[..out_shape.len().saturating_sub(2)];
+    let expand = |t: &Tensor<CudaRuntime>| -> Result<Tensor<CudaRuntime>> {
+        let shape = t.shape();
+        let mat_start = shape.len().saturating_sub(2);
+        if &shape[..mat_start] == out_batch {
+            return ensure_contiguous(t);
+        }
+        let target: Vec<usize> = out_batch
+            .iter()
+            .chain(&shape[mat_start..])
+            .copied()
+            .collect();
+        t.broadcast_to(&target)?.contiguous()
+    };
+    Ok((expand(a)?, expand(b)?))
+}
+
 impl BatchedOperands {
     /// Contiguous copies of both resolved operands.
     pub(crate) fn contiguous(&self) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {

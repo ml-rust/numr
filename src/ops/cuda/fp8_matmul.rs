@@ -2,13 +2,14 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::{Fp8MatmulOps, matmul_output_shape};
 use crate::runtime::cuda::kernels::{
     launch_fp8_matmul_e4m3, launch_fp8_matmul_e4m3_batched, launch_fp8_matmul_e5m2,
     launch_fp8_matmul_e5m2_batched,
 };
+use crate::runtime::cuda::ops::matmul_broadcast::expand_batched_operands;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
 /// Validate FP8 matmul inputs and extract dimensions.
@@ -43,6 +44,7 @@ fn validate_and_extract(
 
     let a_shape = a.shape();
     let b_shape = b.shape();
+    // Rank-1 operands are refused: the FP8 kernels take matrices only.
     if a_shape.len() < 2 || b_shape.len() < 2 {
         return Err(Error::ShapeMismatch {
             expected: a_shape.to_vec(),
@@ -50,22 +52,13 @@ fn validate_and_extract(
         });
     }
 
-    let m = a_shape[a_shape.len() - 2];
-    let k = a_shape[a_shape.len() - 1];
-    let k_b = b_shape[b_shape.len() - 2];
-    let n = b_shape[b_shape.len() - 1];
-
-    if k != k_b {
-        return Err(Error::ShapeMismatch {
-            expected: a_shape.to_vec(),
-            got: b_shape.to_vec(),
-        });
-    }
-
+    // `matmul_output_shape` checks `k` against `b`; the geometry then comes from
+    // the shared matmul rule.
     let out_shape = matmul_output_shape(a_shape, b_shape).ok_or(Error::ShapeMismatch {
         expected: a_shape.to_vec(),
         got: b_shape.to_vec(),
     })?;
+    let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
     let batch_size: usize = out_shape
         .iter()
@@ -89,8 +82,9 @@ impl Fp8MatmulOps<CudaRuntime> for CudaClient {
         let (out_shape, batch_size, m, k, n) =
             validate_and_extract(a, b, DType::FP8E4M3, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
+        // The batched kernels read both operands with the same batch stride and no
+        // wrapping, so a broadcast batch dim is expanded on device first.
+        let (a_contig, b_contig) = expand_batched_operands(a, b, &out_shape)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, out_dtype, &self.device)?;
 
         // A zero-element output has nothing to compute, and the launcher takes its
@@ -156,8 +150,9 @@ impl Fp8MatmulOps<CudaRuntime> for CudaClient {
         let (out_shape, batch_size, m, k, n) =
             validate_and_extract(a, b, DType::FP8E5M2, DType::FP8E4M3, out_dtype)?;
 
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
+        // The batched kernels read both operands with the same batch stride and no
+        // wrapping, so a broadcast batch dim is expanded on device first.
+        let (a_contig, b_contig) = expand_batched_operands(a, b, &out_shape)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, out_dtype, &self.device)?;
 
         // A zero-element output has nothing to compute, and the launcher takes its

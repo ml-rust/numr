@@ -325,3 +325,147 @@ fn test_batched_semiring_matmul_i32_wgpu_matches_cpu() {
         }
     });
 }
+
+// ============================================================================
+// Rank-1 operands
+// ============================================================================
+
+/// `min_k(a[i][k] + b[k][j])` in F64 over row-major `[m, k]` and `[k, n]`.
+fn min_plus_reference(a: &[f64], b: &[f64], m: usize, k: usize, n: usize) -> Vec<f64> {
+    let mut out = vec![0.0f64; m * n];
+    for i in 0..m {
+        for j in 0..n {
+            out[i * n + j] = (0..k)
+                .map(|p| a[i * k + p] + b[p * n + j])
+                .fold(f64::INFINITY, f64::min);
+        }
+    }
+    out
+}
+
+/// `[m, k] @ [k]` is `[m, 1]`, `[k] @ [k, n]` is `[1, n]` and `[2, m, k] @ [k]`
+/// is `[2, m, 1]`: the geometry every backend must derive from the shared
+/// rule (`matmul_mkn`) rather than the last dim of `b`, which is `k`. Checked
+/// against an F64 MinPlus reference on CPU, and CPU against the other backends.
+#[test]
+fn test_semiring_matmul_rank1_operands_match_reference() {
+    let (m, k, n) = (3usize, 4usize, 2usize);
+    let mat_a: Vec<f64> = (0..2 * m * k)
+        .map(|i| ((i * 7) % 11) as f64 - 5.0)
+        .collect();
+    let mat_b: Vec<f64> = (0..k * n).map(|i| ((i * 5) % 9) as f64 - 4.0).collect();
+    let vec_k: Vec<f64> = (0..k).map(|i| ((i * 3) % 7) as f64 - 2.0).collect();
+
+    struct Rank1Case {
+        a: Vec<f64>,
+        a_shape: Vec<usize>,
+        b: Vec<f64>,
+        b_shape: Vec<usize>,
+        want: Vec<f64>,
+        want_shape: Vec<usize>,
+    }
+    let cases = [
+        Rank1Case {
+            a: mat_a[..m * k].to_vec(),
+            a_shape: vec![m, k],
+            b: vec_k.clone(),
+            b_shape: vec![k],
+            want: min_plus_reference(&mat_a[..m * k], &vec_k, m, k, 1),
+            want_shape: vec![m, 1],
+        },
+        Rank1Case {
+            a: vec_k.clone(),
+            a_shape: vec![k],
+            b: mat_b.clone(),
+            b_shape: vec![k, n],
+            want: min_plus_reference(&vec_k, &mat_b, 1, k, n),
+            want_shape: vec![1, n],
+        },
+        Rank1Case {
+            a: mat_a.clone(),
+            a_shape: vec![2, m, k],
+            b: vec_k.clone(),
+            b_shape: vec![k],
+            want: [
+                min_plus_reference(&mat_a[..m * k], &vec_k, m, k, 1),
+                min_plus_reference(&mat_a[m * k..], &vec_k, m, k, 1),
+            ]
+            .concat(),
+            want_shape: vec![2, m, 1],
+        },
+    ];
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    for dtype in [DType::F32, DType::I32] {
+        for (idx, case) in cases.iter().enumerate() {
+            let Rank1Case {
+                a,
+                a_shape,
+                b,
+                b_shape,
+                want,
+                want_shape,
+            } = case;
+            let label = format!("semiring MinPlus rank-1 [{dtype:?}] case {idx}");
+            let cpu_a = tensor_from_f64(a, a_shape, dtype, &cpu_device, &cpu_client)
+                .expect("CPU a tensor failed");
+            let cpu_b = tensor_from_f64(b, b_shape, dtype, &cpu_device, &cpu_client)
+                .expect("CPU b tensor failed");
+            let cpu_result = cpu_client
+                .semiring_matmul(&cpu_a, &cpu_b, SemiringOp::MinPlus)
+                .unwrap_or_else(|e| panic!("CPU {label} failed: {e}"));
+            assert_eq!(
+                cpu_result.shape(),
+                want_shape.as_slice(),
+                "CPU {label}: shape"
+            );
+            let want_t =
+                tensor_from_f64(want, want_shape, dtype, &cpu_device, &cpu_client).unwrap();
+            assert_tensor_allclose(&cpu_result, &want_t, dtype, &format!("CPU {label} vs F64"));
+
+            #[cfg(feature = "cuda")]
+            if is_dtype_supported("cuda", dtype) {
+                with_cuda_backend(|cuda_client, cuda_device| {
+                    let ca = tensor_from_f64(a, a_shape, dtype, &cuda_device, &cuda_client)
+                        .expect("CUDA a tensor failed");
+                    let cb = tensor_from_f64(b, b_shape, dtype, &cuda_device, &cuda_client)
+                        .expect("CUDA b tensor failed");
+                    let result = cuda_client
+                        .semiring_matmul(&ca, &cb, SemiringOp::MinPlus)
+                        .unwrap_or_else(|e| panic!("CUDA {label} failed: {e}"));
+                    assert_eq!(result.shape(), want_shape.as_slice(), "CUDA {label}: shape");
+                    assert_tensor_allclose(
+                        &result,
+                        &cpu_result,
+                        dtype,
+                        &format!("CUDA {label} vs CPU"),
+                    );
+                });
+            }
+
+            #[cfg(feature = "wgpu")]
+            if is_dtype_supported("wgpu", dtype) {
+                with_wgpu_backend_or_skip(|wgpu_client, wgpu_device| {
+                    let wa = tensor_from_f64(a, a_shape, dtype, &wgpu_device, &wgpu_client)
+                        .expect("WebGPU a tensor failed");
+                    let wb = tensor_from_f64(b, b_shape, dtype, &wgpu_device, &wgpu_client)
+                        .expect("WebGPU b tensor failed");
+                    let result = wgpu_client
+                        .semiring_matmul(&wa, &wb, SemiringOp::MinPlus)
+                        .unwrap_or_else(|e| panic!("WebGPU {label} failed: {e}"));
+                    assert_eq!(
+                        result.shape(),
+                        want_shape.as_slice(),
+                        "WebGPU {label}: shape"
+                    );
+                    assert_tensor_allclose(
+                        &result,
+                        &cpu_result,
+                        dtype,
+                        &format!("WebGPU {label} vs CPU"),
+                    );
+                });
+            }
+        }
+    }
+}

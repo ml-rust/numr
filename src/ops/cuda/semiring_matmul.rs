@@ -3,6 +3,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::SemiringMatmulOps;
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::matmul_output_shape;
 use crate::ops::semiring::SemiringOp;
 use crate::runtime::cuda::ops::helpers::{semiring_matmul_batched_native, semiring_matmul_native};
@@ -55,13 +56,8 @@ impl SemiringMatmulOps<CudaRuntime> for CudaClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        // Shared rule: a rank-1 `b` is a `[k, 1]` column, so `n == 1`.
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let k_b = if b_shape.len() >= 2 {
             b_shape[b_shape.len() - 2]

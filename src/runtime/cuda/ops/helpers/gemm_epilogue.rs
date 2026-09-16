@@ -12,6 +12,7 @@ use crate::runtime::cuda::kernels::{
     launch_gemm_bias_act_batched_kernel, launch_gemm_bias_act_kernel,
     launch_gemm_bias_residual_batched_kernel, launch_gemm_bias_residual_kernel,
 };
+use crate::runtime::cuda::ops::matmul_broadcast::expand_batched_operands;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
@@ -74,8 +75,9 @@ pub(crate) fn gemm_bias_act_batched_native(
     k: usize,
     activation: GemmActivation,
 ) -> Result<Tensor<CudaRuntime>> {
-    let a_contig = ensure_contiguous(a)?;
-    let b_contig = ensure_contiguous(b)?;
+    // The batched kernels read both operands with one shared batch stride, so a
+    // broadcast batch dim is expanded on device first.
+    let (a_contig, b_contig) = expand_batched_operands(a, b, out_shape)?;
     let bias_contig = ensure_contiguous(bias)?;
     let out = Tensor::<CudaRuntime>::empty(out_shape, dtype, &client.device)?;
 
@@ -157,8 +159,8 @@ pub(crate) fn gemm_bias_residual_batched_native(
     n: usize,
     k: usize,
 ) -> Result<Tensor<CudaRuntime>> {
-    let a_contig = ensure_contiguous(a)?;
-    let b_contig = ensure_contiguous(b)?;
+    // Same shared batch stride as the activation kernel: expand first.
+    let (a_contig, b_contig) = expand_batched_operands(a, b, out_shape)?;
     let bias_contig = ensure_contiguous(bias)?;
     let res_contig = ensure_contiguous(residual)?;
     let out = Tensor::<CudaRuntime>::empty(out_shape, dtype, &client.device)?;

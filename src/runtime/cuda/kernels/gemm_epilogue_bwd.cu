@@ -3,10 +3,9 @@
 // Kernels per dtype:
 // 1. gemm_bias_act_bwd_grad_pre: grad_pre = grad * act'(A @ B + bias)
 // 2. gemm_bwd_da: d_a = grad_pre @ B^T
-// 3. gemm_bwd_db: d_b = A^T @ grad_pre  (write)
-// 4. gemm_bwd_db_accum: d_b += A^T @ grad_pre  (accumulate for batched)
-// 5. gemm_bwd_dbias: d_bias = sum(grad_pre, dim=0)  (write)
-// 6. gemm_bwd_dbias_accum: d_bias += sum(grad_pre, dim=0)  (accumulate for batched)
+// 3. gemm_bwd_db: d_b = A^T @ grad_pre  (write, once per batch slice)
+// 4. gemm_bwd_dbias: d_bias = sum(grad_pre, dim=0)  (write)
+// 5. gemm_bwd_dbias_accum: d_bias += sum(grad_pre, dim=0)  (accumulate for batched)
 //
 // activation_type: 0=None, 1=ReLU, 2=GELU, 3=SiLU, 4=Sigmoid, 5=Tanh
 
@@ -73,23 +72,6 @@ __global__ void gemm_bwd_db_f32(
         sum += (double)A[i * K + k] * (double)grad_pre[i * N + j];
     }
     d_b[idx] = (float)sum;
-}
-
-__global__ void gemm_bwd_db_accum_f32(
-    const float* __restrict__ A,
-    const float* __restrict__ grad_pre,
-    float* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    double sum = 0.0;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += (double)A[i * K + k] * (double)grad_pre[i * N + j];
-    }
-    d_b[idx] += (float)sum;
 }
 
 __global__ void gemm_bwd_dbias_f32(
@@ -178,23 +160,6 @@ __global__ void gemm_bwd_db_f64(
     d_b[idx] = sum;
 }
 
-__global__ void gemm_bwd_db_accum_f64(
-    const double* __restrict__ A,
-    const double* __restrict__ grad_pre,
-    double* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    double sum = 0.0;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += A[i * K + k] * grad_pre[i * N + j];
-    }
-    d_b[idx] += sum;
-}
-
 __global__ void gemm_bwd_dbias_f64(
     const double* __restrict__ grad_pre,
     double* __restrict__ d_bias,
@@ -281,23 +246,6 @@ __global__ void gemm_bwd_db_f16(
     d_b[idx] = __float2half(sum);
 }
 
-__global__ void gemm_bwd_db_accum_f16(
-    const __half* __restrict__ A,
-    const __half* __restrict__ grad_pre,
-    __half* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    float sum = 0.0f;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += __half2float(A[i * K + k]) * __half2float(grad_pre[i * N + j]);
-    }
-    d_b[idx] = __float2half(__half2float(d_b[idx]) + sum);
-}
-
 __global__ void gemm_bwd_dbias_f16(
     const __half* __restrict__ grad_pre,
     __half* __restrict__ d_bias,
@@ -382,23 +330,6 @@ __global__ void gemm_bwd_db_bf16(
         sum += __bfloat162float(A[i * K + k]) * __bfloat162float(grad_pre[i * N + j]);
     }
     d_b[idx] = __float2bfloat16(sum);
-}
-
-__global__ void gemm_bwd_db_accum_bf16(
-    const __nv_bfloat16* __restrict__ A,
-    const __nv_bfloat16* __restrict__ grad_pre,
-    __nv_bfloat16* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    float sum = 0.0f;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += __bfloat162float(A[i * K + k]) * __bfloat162float(grad_pre[i * N + j]);
-    }
-    d_b[idx] = __float2bfloat16(__bfloat162float(d_b[idx]) + sum);
 }
 
 __global__ void gemm_bwd_dbias_bf16(
@@ -488,23 +419,6 @@ __global__ void gemm_bwd_db_fp8_e4m3(
     d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(sum));
 }
 
-__global__ void gemm_bwd_db_accum_fp8_e4m3(
-    const numr_fp8_e4m3* __restrict__ A,
-    const numr_fp8_e4m3* __restrict__ grad_pre,
-    numr_fp8_e4m3* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    float sum = 0.0f;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += fp8_e4m3_to_f32(A[i * K + k].data) * fp8_e4m3_to_f32(grad_pre[i * N + j].data);
-    }
-    d_b[idx] = numr_fp8_e4m3(f32_to_fp8_e4m3(fp8_e4m3_to_f32(d_b[idx].data) + sum));
-}
-
 __global__ void gemm_bwd_dbias_fp8_e4m3(
     const numr_fp8_e4m3* __restrict__ grad_pre,
     numr_fp8_e4m3* __restrict__ d_bias,
@@ -590,23 +504,6 @@ __global__ void gemm_bwd_db_fp8_e5m2(
         sum += fp8_e5m2_to_f32(A[i * K + k].data) * fp8_e5m2_to_f32(grad_pre[i * N + j].data);
     }
     d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(sum));
-}
-
-__global__ void gemm_bwd_db_accum_fp8_e5m2(
-    const numr_fp8_e5m2* __restrict__ A,
-    const numr_fp8_e5m2* __restrict__ grad_pre,
-    numr_fp8_e5m2* __restrict__ d_b,
-    unsigned int M, unsigned int N, unsigned int K
-) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= K * N) return;
-    unsigned int k = idx / N;
-    unsigned int j = idx % N;
-    float sum = 0.0f;
-    for (unsigned int i = 0; i < M; i++) {
-        sum += fp8_e5m2_to_f32(A[i * K + k].data) * fp8_e5m2_to_f32(grad_pre[i * N + j].data);
-    }
-    d_b[idx] = numr_fp8_e5m2(f32_to_fp8_e5m2(fp8_e5m2_to_f32(d_b[idx].data) + sum));
 }
 
 __global__ void gemm_bwd_dbias_fp8_e5m2(

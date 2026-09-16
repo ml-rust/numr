@@ -1,8 +1,9 @@
 //! Native WebGPU semiring matrix multiplication implementation.
 
 use super::helpers::*;
-use super::matmul_broadcast::flatten_batched_operands;
+use super::matmul_broadcast::{flatten_batched_operands, promote_rank1_operands};
 use crate::error::{Error, Result};
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::matmul_output_shape;
 use crate::ops::semiring::SemiringOp;
 use crate::runtime::ensure_contiguous;
@@ -35,6 +36,11 @@ pub(crate) fn native_semiring_matmul(
     let out_shape = matmul_output_shape(a.shape(), b.shape())
         .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
+    // A rank-1 operand is the matrix the output shape already treats it as.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        return native_semiring_matmul(client, &a2, &b2, op);
+    }
+
     // A zero-element output has nothing to compute. The dispatches below derive
     // their workgroup counts from `m`, `n` and the batch extent, and every
     // buffer they bind comes from `get_tensor_buffer`, which has no buffer to
@@ -53,9 +59,7 @@ pub(crate) fn native_semiring_matmul(
 
     // Handle 2D case
     if a_shape.len() == 2 && b_shape.len() == 2 {
-        let m = a_shape[0];
-        let k = a_shape[1];
-        let n = b_shape[1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
@@ -93,9 +97,7 @@ pub(crate) fn native_semiring_matmul(
     // Handle batched (3D) case
     if a_shape.len() == 3 && b_shape.len() == 3 {
         let batch_size = a_shape[0];
-        let m = a_shape[1];
-        let k = a_shape[2];
-        let n = b_shape[2];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         if b_shape[0] != batch_size {
             return Err(Error::ShapeMismatch {

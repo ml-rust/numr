@@ -1423,3 +1423,317 @@ fn test_gemm_bias_residual_matches_unfused() {
         "gemm_bias_residual_matches_unfused",
     );
 }
+
+// ============================================================================
+// Rank-1 `b`: `[m, k] @ [k] + [1]` is `[m, 1]` on every backend
+// ============================================================================
+
+/// The shared rule (`matmul_mkn`) makes a rank-1 `b` a `[k, 1]` column, so the
+/// bias is `[1]` and the output `[m, 1]`. CPU is checked against an F64 sum,
+/// CUDA and WebGPU against CPU, for the activation and the residual epilogues.
+#[test]
+fn gemm_epilogue_rank1_b_match_reference_and_cpu() {
+    let (m, k) = (5usize, 7usize);
+    let a: Vec<f64> = (0..m * k)
+        .map(|i| ((i * 5) % 11) as f64 * 0.25 - 1.0)
+        .collect();
+    let b: Vec<f64> = (0..k).map(|i| ((i * 3) % 5) as f64 * 0.5 - 1.0).collect();
+    let bias = [0.125f64];
+    let residual: Vec<f64> = (0..m).map(|i| i as f64 * 0.1 - 0.2).collect();
+    let dtype = numr::dtype::DType::F32;
+
+    let pre: Vec<f64> = (0..m)
+        .map(|i| (0..k).map(|p| a[i * k + p] * b[p]).sum::<f64>() + bias[0])
+        .collect();
+    let want_relu: Vec<f64> = pre.iter().map(|v| v.max(0.0)).collect();
+    let want_res: Vec<f64> = pre.iter().zip(&residual).map(|(v, r)| v + r).collect();
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let a_t = tensor_from_f64(&a, &[m, k], dtype, &cpu_device, &cpu_client).unwrap();
+    let b_t = tensor_from_f64(&b, &[k], dtype, &cpu_device, &cpu_client).unwrap();
+    let bias_t = tensor_from_f64(&bias, &[1], dtype, &cpu_device, &cpu_client).unwrap();
+    let res_t = tensor_from_f64(&residual, &[m, 1], dtype, &cpu_device, &cpu_client).unwrap();
+    let cpu_relu = cpu_client
+        .matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU)
+        .expect("CPU rank-1 b matmul_bias_activation");
+    let cpu_res = cpu_client
+        .matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t)
+        .expect("CPU rank-1 b matmul_bias_residual");
+    assert_eq!(cpu_relu.shape(), &[m, 1]);
+    assert_eq!(cpu_res.shape(), &[m, 1]);
+    let want_relu_t =
+        tensor_from_f64(&want_relu, &[m, 1], dtype, &cpu_device, &cpu_client).unwrap();
+    let want_res_t = tensor_from_f64(&want_res, &[m, 1], dtype, &cpu_device, &cpu_client).unwrap();
+    assert_tensor_allclose(&cpu_relu, &want_relu_t, dtype, "rank-1 b ReLU CPU vs F64");
+    assert_tensor_allclose(&cpu_res, &want_res_t, dtype, "rank-1 b residual CPU vs F64");
+
+    #[cfg(feature = "cuda")]
+    with_cuda_backend(|client, device| {
+        let a_t = tensor_from_f64(&a, &[m, k], dtype, &device, &client).unwrap();
+        let b_t = tensor_from_f64(&b, &[k], dtype, &device, &client).unwrap();
+        let bias_t = tensor_from_f64(&bias, &[1], dtype, &device, &client).unwrap();
+        let res_t = tensor_from_f64(&residual, &[m, 1], dtype, &device, &client).unwrap();
+        let relu = client
+            .matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU)
+            .expect("CUDA rank-1 b matmul_bias_activation");
+        let res = client
+            .matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t)
+            .expect("CUDA rank-1 b matmul_bias_residual");
+        assert_tensor_allclose(&relu, &cpu_relu, dtype, "rank-1 b ReLU CUDA vs CPU");
+        assert_tensor_allclose(&res, &cpu_res, dtype, "rank-1 b residual CUDA vs CPU");
+    });
+
+    #[cfg(feature = "wgpu")]
+    with_wgpu_backend(|client, device| {
+        let a_t = tensor_from_f64(&a, &[m, k], dtype, &device, &client).unwrap();
+        let b_t = tensor_from_f64(&b, &[k], dtype, &device, &client).unwrap();
+        let bias_t = tensor_from_f64(&bias, &[1], dtype, &device, &client).unwrap();
+        let res_t = tensor_from_f64(&residual, &[m, 1], dtype, &device, &client).unwrap();
+        let relu = client
+            .matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU)
+            .expect("WebGPU rank-1 b matmul_bias_activation");
+        let res = client
+            .matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t)
+            .expect("WebGPU rank-1 b matmul_bias_residual");
+        assert_tensor_allclose(&relu, &cpu_relu, dtype, "rank-1 b ReLU WebGPU vs CPU");
+        assert_tensor_allclose(&res, &cpu_res, dtype, "rank-1 b residual WebGPU vs CPU");
+    });
+}
+
+// ============================================================================
+// Batch broadcast: `[2,m,k] @ [k,n]` and `[m,k] @ [2,k,n]`
+// ============================================================================
+
+/// F64 reference for one broadcast case, forward and backward.
+///
+/// `a_batch`/`b_batch` are 1 for a plain matrix and 2 for a batched operand;
+/// the output batch is 2. Returns `(out, d_a, d_b, d_bias)` with `d_a`/`d_b`
+/// summed back over a broadcast batch, as the gradient of a shared operand is.
+struct BroadcastRef {
+    out: Vec<f64>,
+    d_a: Vec<f64>,
+    d_b: Vec<f64>,
+    d_bias: Vec<f64>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn broadcast_reference(
+    a: &[f64],
+    a_batch: usize,
+    b: &[f64],
+    b_batch: usize,
+    bias: &[f64],
+    residual: Option<&[f64]>,
+    grad: &[f64],
+    relu: bool,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> BroadcastRef {
+    let batch = 2usize;
+    let mut out = vec![0.0f64; batch * m * n];
+    let mut d_a = vec![0.0f64; a_batch * m * k];
+    let mut d_b = vec![0.0f64; b_batch * k * n];
+    let mut d_bias = vec![0.0f64; n];
+    for bi in 0..batch {
+        let a_off = if a_batch == 1 { 0 } else { bi * m * k };
+        let b_off = if b_batch == 1 { 0 } else { bi * k * n };
+        for i in 0..m {
+            for j in 0..n {
+                let pre = (0..k)
+                    .map(|p| a[a_off + i * k + p] * b[b_off + p * n + j])
+                    .sum::<f64>()
+                    + bias[j];
+                let o = bi * m * n + i * n + j;
+                out[o] = match residual {
+                    Some(r) => pre + r[o],
+                    None if relu => pre.max(0.0),
+                    None => pre,
+                };
+                let deriv = if relu && pre <= 0.0 { 0.0 } else { 1.0 };
+                let gp = grad[o] * deriv;
+                d_bias[j] += gp;
+                for p in 0..k {
+                    d_a[a_off + i * k + p] += gp * b[b_off + p * n + j];
+                    d_b[b_off + p * n + j] += a[a_off + i * k + p] * gp;
+                }
+            }
+        }
+    }
+    BroadcastRef {
+        out,
+        d_a,
+        d_b,
+        d_bias,
+    }
+}
+
+/// Values exactly representable in F16 so the F64 reference sees the same
+/// operands the half run does.
+fn quarter_grid(len: usize, seed: usize) -> Vec<f64> {
+    (0..len)
+        .map(|i| ((i * 7 + seed * 3) % 9) as f64 * 0.25 - 1.0)
+        .collect()
+}
+
+/// One broadcast layout on one dtype: activation forward + backward and
+/// residual forward, CPU against the F64 reference, CUDA against CPU.
+fn assert_gemm_epilogue_broadcast(a_batch: usize, b_batch: usize, dtype: numr::dtype::DType) {
+    let (m, k, n) = (3usize, 4usize, 5usize);
+    let a = quarter_grid(a_batch * m * k, 1);
+    let b = quarter_grid(b_batch * k * n, 2);
+    let bias = quarter_grid(n, 3);
+    let residual = quarter_grid(2 * m * n, 4);
+    let grad = quarter_grid(2 * m * n, 5);
+    let a_shape: Vec<usize> = if a_batch == 1 {
+        vec![m, k]
+    } else {
+        vec![a_batch, m, k]
+    };
+    let b_shape: Vec<usize> = if b_batch == 1 {
+        vec![k, n]
+    } else {
+        vec![b_batch, k, n]
+    };
+    let out_shape = [2usize, m, n];
+    let label = format!("gemm epilogue broadcast a={a_shape:?} b={b_shape:?} [{dtype:?}]");
+
+    let act_ref = broadcast_reference(&a, a_batch, &b, b_batch, &bias, None, &grad, true, m, k, n);
+    let res_ref = broadcast_reference(
+        &a,
+        a_batch,
+        &b,
+        b_batch,
+        &bias,
+        Some(&residual),
+        &grad,
+        false,
+        m,
+        k,
+        n,
+    );
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let mk = |data: &[f64], shape: &[usize]| {
+        tensor_from_f64(data, shape, dtype, &cpu_device, &cpu_client).unwrap()
+    };
+    let (a_t, b_t, bias_t) = (mk(&a, &a_shape), mk(&b, &b_shape), mk(&bias, &[n]));
+    let (res_t, grad_t) = (mk(&residual, &out_shape), mk(&grad, &out_shape));
+
+    let cpu_act = cpu_client
+        .matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU)
+        .unwrap_or_else(|e| panic!("CPU {label}: activation forward: {e}"));
+    let cpu_res = cpu_client
+        .matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t)
+        .unwrap_or_else(|e| panic!("CPU {label}: residual forward: {e}"));
+    let (cpu_da, cpu_db, cpu_dbias) = cpu_client
+        .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, GemmActivation::ReLU)
+        .unwrap_or_else(|e| panic!("CPU {label}: backward: {e}"));
+    assert_eq!(cpu_act.shape(), &out_shape, "CPU {label}: activation shape");
+    assert_eq!(cpu_res.shape(), &out_shape, "CPU {label}: residual shape");
+    assert_eq!(cpu_da.shape(), a_shape.as_slice(), "CPU {label}: d_a shape");
+    assert_eq!(cpu_db.shape(), b_shape.as_slice(), "CPU {label}: d_b shape");
+    assert_eq!(cpu_dbias.shape(), &[n], "CPU {label}: d_bias shape");
+
+    type CpuTensor = numr::tensor::Tensor<numr::runtime::cpu::CpuRuntime>;
+    let checks: [(&CpuTensor, &[f64], &[usize], &str); 5] = [
+        (&cpu_act, &act_ref.out, &out_shape, "activation forward"),
+        (&cpu_res, &res_ref.out, &out_shape, "residual forward"),
+        (&cpu_da, &act_ref.d_a, &a_shape, "d_a"),
+        (&cpu_db, &act_ref.d_b, &b_shape, "d_b"),
+        (&cpu_dbias, &act_ref.d_bias, &[n], "d_bias"),
+    ];
+    for (got, want, shape, what) in checks {
+        let want_t = mk(want, shape);
+        assert_tensor_allclose(got, &want_t, dtype, &format!("CPU {label}: {what} vs F64"));
+    }
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|client, device| {
+            let mk = |data: &[f64], shape: &[usize]| {
+                tensor_from_f64(data, shape, dtype, &device, &client).unwrap()
+            };
+            let (a_t, b_t, bias_t) = (mk(&a, &a_shape), mk(&b, &b_shape), mk(&bias, &[n]));
+            let (res_t, grad_t) = (mk(&residual, &out_shape), mk(&grad, &out_shape));
+            let act = client
+                .matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU)
+                .unwrap_or_else(|e| panic!("CUDA {label}: activation forward: {e}"));
+            let res = client
+                .matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t)
+                .unwrap_or_else(|e| panic!("CUDA {label}: residual forward: {e}"));
+            let (da, db, dbias) = client
+                .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, GemmActivation::ReLU)
+                .unwrap_or_else(|e| panic!("CUDA {label}: backward: {e}"));
+            assert_eq!(da.shape(), a_shape.as_slice(), "CUDA {label}: d_a shape");
+            assert_eq!(db.shape(), b_shape.as_slice(), "CUDA {label}: d_b shape");
+            assert_tensor_allclose(&act, &cpu_act, dtype, &format!("CUDA {label}: activation"));
+            assert_tensor_allclose(&res, &cpu_res, dtype, &format!("CUDA {label}: residual"));
+            assert_tensor_allclose(&da, &cpu_da, dtype, &format!("CUDA {label}: d_a"));
+            assert_tensor_allclose(&db, &cpu_db, dtype, &format!("CUDA {label}: d_b"));
+            assert_tensor_allclose(&dbias, &cpu_dbias, dtype, &format!("CUDA {label}: d_bias"));
+        });
+    }
+
+    // WebGPU carries no batch broadcast: the broadcast layouts are refused
+    // outright, and the fully batched one must match CPU, per-slice `d_b`
+    // included.
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|client, device| {
+            let mk = |data: &[f64], shape: &[usize]| {
+                tensor_from_f64(data, shape, dtype, &device, &client).unwrap()
+            };
+            let (a_t, b_t, bias_t) = (mk(&a, &a_shape), mk(&b, &b_shape), mk(&bias, &[n]));
+            let (res_t, grad_t) = (mk(&residual, &out_shape), mk(&grad, &out_shape));
+            let act = client.matmul_bias_activation(&a_t, &b_t, &bias_t, GemmActivation::ReLU);
+            let res = client.matmul_bias_residual(&a_t, &b_t, &bias_t, &res_t);
+            let bwd = client.matmul_bias_activation_bwd(
+                &grad_t,
+                &a_t,
+                &b_t,
+                &bias_t,
+                GemmActivation::ReLU,
+            );
+            if a_batch != b_batch {
+                assert!(act.is_err(), "WebGPU {label}: activation must refuse");
+                assert!(res.is_err(), "WebGPU {label}: residual must refuse");
+                assert!(bwd.is_err(), "WebGPU {label}: backward must refuse");
+                return;
+            }
+            let act = act.unwrap_or_else(|e| panic!("WebGPU {label}: activation forward: {e}"));
+            let res = res.unwrap_or_else(|e| panic!("WebGPU {label}: residual forward: {e}"));
+            let (da, db, dbias) = bwd.unwrap_or_else(|e| panic!("WebGPU {label}: backward: {e}"));
+            assert_tensor_allclose(
+                &act,
+                &cpu_act,
+                dtype,
+                &format!("WebGPU {label}: activation"),
+            );
+            assert_tensor_allclose(&res, &cpu_res, dtype, &format!("WebGPU {label}: residual"));
+            assert_tensor_allclose(&da, &cpu_da, dtype, &format!("WebGPU {label}: d_a"));
+            assert_tensor_allclose(&db, &cpu_db, dtype, &format!("WebGPU {label}: d_b"));
+            assert_tensor_allclose(
+                &dbias,
+                &cpu_dbias,
+                dtype,
+                &format!("WebGPU {label}: d_bias"),
+            );
+        });
+    }
+}
+
+/// `[2,m,k] @ [k,n]`, `[m,k] @ [2,k,n]` and the fully batched `[2,m,k] @
+/// [2,k,n]`: every backend reads each operand at its own batch index, and a
+/// batched `b` gets one gradient slice per batch rather than a sum in slice 0.
+#[test]
+fn gemm_epilogue_batch_broadcast_match_reference_and_cpu() {
+    for dtype in [numr::dtype::DType::F32, numr::dtype::DType::F16] {
+        if !is_dtype_supported("cpu", dtype) {
+            continue;
+        }
+        assert_gemm_epilogue_broadcast(2, 1, dtype);
+        assert_gemm_epilogue_broadcast(1, 2, dtype);
+        assert_gemm_epilogue_broadcast(2, 2, dtype);
+    }
+}

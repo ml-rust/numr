@@ -11,10 +11,39 @@
 
 use super::super::super::WgpuRuntime;
 use crate::error::Result;
+use crate::ops::matmul::matmul_mkn;
+use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
+/// Rank-1 operands as the matrices `matmul_output_shape` treats them as: a
+/// `[k]` left operand becomes `[1, k]`, a `[k]` right operand `[k, 1]`.
+///
+/// The WebGPU kernels take matrices only, and their output shape is the same
+/// either way, so the promoted operands run through the ordinary paths.
+/// Returns `None` when neither operand is rank-1.
+pub(crate) fn promote_rank1_operands(
+    a: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+) -> Result<Option<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)>> {
+    if a.shape().len() != 1 && b.shape().len() != 1 {
+        return Ok(None);
+    }
+    let a2 = if a.shape().len() == 1 {
+        ensure_contiguous(a)?.reshape(&[1, a.shape()[0]])?
+    } else {
+        a.clone()
+    };
+    let b2 = if b.shape().len() == 1 {
+        ensure_contiguous(b)?.reshape(&[b.shape()[0], 1])?
+    } else {
+        b.clone()
+    };
+    Ok(Some((a2, b2)))
+}
+
 /// Operands flattened to `[batch, m, k]` and `[batch, k, n]`, when the batched
-/// kernels cannot take them as they are.
+/// kernels cannot take them as they are. Operands are rank 2 or more; a rank-1
+/// operand goes through [`promote_rank1_operands`] first.
 ///
 /// Returns `None` when both operands already match the output's batch shape, so
 /// shapes the kernels already handle keep their existing cost.
@@ -30,9 +59,7 @@ pub(crate) fn flatten_batched_operands(
     let a_shape = a.shape();
     let b_shape = b.shape();
     let out_batch = &out_shape[..out_shape.len() - 2];
-    let m = a_shape[a_shape.len() - 2];
-    let k = a_shape[a_shape.len() - 1];
-    let n = b_shape[b_shape.len() - 1];
+    let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
     let a_target: Vec<usize> = out_batch.iter().copied().chain([m, k]).collect();
     let b_target: Vec<usize> = out_batch.iter().copied().chain([k, n]).collect();

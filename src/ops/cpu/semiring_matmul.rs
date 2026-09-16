@@ -2,6 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::ops::SemiringMatmulOps;
+use crate::ops::matmul::matmul_dims_and_batches;
 use crate::ops::matmul_output_shape;
 use crate::ops::semiring::SemiringOp;
 use crate::runtime::cpu::{
@@ -42,33 +43,14 @@ impl SemiringMatmulOps<CpuRuntime> for CpuClient {
             got: b.shape().to_vec(),
         })?;
 
-        // Get matrix dimensions
-        let a_shape = a.shape();
-        let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        // Geometry and per-operand batch indices come from the shared matmul
+        // rule, so a rank-1 `b` is the `[k, 1]` column the output shape says it is.
+        let (m, k, n, batch_size, a_batch_idx, b_batch_idx) =
+            matmul_dims_and_batches(a.shape(), b.shape(), &out_shape);
 
         // Ensure contiguous layout
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
-
-        // Calculate batch size from output shape and per-input batch counts
-        let batch_size: usize = out_shape
-            .iter()
-            .take(out_shape.len().saturating_sub(2))
-            .product();
-        // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
-        // so a clamp would only fabricate a batch for a genuinely zero batch dim.
-
-        // Batch dims broadcast per dimension, so each output batch needs its own
-        // source index per operand rather than a wrapping batch count.
-        let (a_batch_idx, b_batch_idx) =
-            crate::ops::matmul::matmul_batch_indices(a_shape, b_shape, &out_shape);
 
         // Create output tensor
         let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &self.device)?;

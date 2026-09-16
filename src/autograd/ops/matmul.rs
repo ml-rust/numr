@@ -3,6 +3,7 @@
 //! Implements gradient computation for matmul: C = A @ B
 
 use super::broadcast::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
+use super::common::{as_matrix, as_matrix_shape, restore_shape, restore_var_shape};
 use crate::autograd::var_ops::var_matmul;
 use crate::autograd::{GradFn, Var};
 use crate::error::Result;
@@ -52,8 +53,10 @@ where
 {
     fn backward(&self, grad_output: &Tensor<R>, needed: &[bool]) -> Result<Vec<Option<Tensor<R>>>> {
         let client = R::default_client(grad_output.device());
-        let saved_a = &self.saved_tensors[0];
-        let saved_b = &self.saved_tensors[1];
+        let saved_a = &as_matrix(&self.saved_tensors[0], true)?;
+        let saved_b = &as_matrix(&self.saved_tensors[1], false)?;
+        let a_shape = self.saved_tensors[0].shape();
+        let b_shape = self.saved_tensors[1].shape();
 
         // C = A @ B
         // dL/dA = dL/dC @ B^T
@@ -68,10 +71,8 @@ where
             let grad_a_full = client.matmul(grad_output, &b_t)?;
             // Batch dims may have been broadcast during forward: sum the
             // gradient back over the dims where A had extent 1.
-            Some(reduce_grad_for_broadcast::<R>(
-                &grad_a_full,
-                saved_a.shape(),
-            )?)
+            let grad_a = reduce_grad_for_broadcast::<R>(&grad_a_full, saved_a.shape())?;
+            Some(restore_shape(grad_a, a_shape)?)
         } else {
             None
         };
@@ -80,10 +81,8 @@ where
             // Transpose A: swap last two dimensions
             let a_t = saved_a.t()?;
             let grad_b_full = client.matmul(&a_t, grad_output)?;
-            Some(reduce_grad_for_broadcast::<R>(
-                &grad_b_full,
-                saved_b.shape(),
-            )?)
+            let grad_b = reduce_grad_for_broadcast::<R>(&grad_b_full, saved_b.shape())?;
+            Some(restore_shape(grad_b, b_shape)?)
         } else {
             None
         };
@@ -100,25 +99,33 @@ where
         let client = R::default_client(grad_output.tensor().device());
         let saved_a = &self.saved_tensors[0];
         let saved_b = &self.saved_tensors[1];
+        let a_mat_shape = as_matrix_shape(saved_a.shape(), true);
+        let b_mat_shape = as_matrix_shape(saved_b.shape(), false);
 
         // C = A @ B
         // dL/dA = dL/dC @ B^T
         // dL/dB = A^T @ dL/dC
 
-        // Wrap saved tensors as Vars with original IDs AND grad_fns
-        // This is essential for second-order derivatives: if A or B themselves
-        // came from computations (e.g., A = X + Y), we need to continue the
-        // gradient chain through them.
-        let a_var = Var::with_id_and_grad_fn(
-            saved_a.clone(),
-            self.input_ids[0],
-            self.input_grad_fns[0].clone(),
-        );
-        let b_var = Var::with_id_and_grad_fn(
-            saved_b.clone(),
-            self.input_ids[1],
-            self.input_grad_fns[1].clone(),
-        );
+        // Saved tensors are wrapped as Vars with their original ids and grad_fns,
+        // so second-order gradients continue through A and B. A rank-1 operand is
+        // reshaped to its matrix form through the graph; the reshape needs a
+        // contiguous buffer, so a strided rank-1 view is copied first, keeping
+        // the same id and grad_fn (same value, same graph node).
+        let promote = |saved: &Tensor<R>, mat_shape: &[usize], slot: usize| -> Result<Var<R>> {
+            let tensor = if mat_shape != saved.shape() {
+                saved.contiguous()?
+            } else {
+                saved.clone()
+            };
+            let var = Var::with_id_and_grad_fn(
+                tensor,
+                self.input_ids[slot],
+                self.input_grad_fns[slot].clone(),
+            );
+            restore_var_shape(var, mat_shape)
+        };
+        let a_var = promote(saved_a, &a_mat_shape, 0)?;
+        let b_var = promote(saved_b, &b_mat_shape, 1)?;
 
         // Transpose B using var_transpose to maintain gradient chain
         let b_t_var = var_transpose(&b_var)?;
@@ -134,8 +141,10 @@ where
 
         // Batch dims may have been broadcast during forward: sum each operand's
         // gradient back over the dims where that operand had extent 1.
-        let grad_a = reduce_var_for_broadcast(&grad_a_full, saved_a.shape(), &client)?;
-        let grad_b = reduce_var_for_broadcast(&grad_b_full, saved_b.shape(), &client)?;
+        let grad_a = reduce_var_for_broadcast(&grad_a_full, &a_mat_shape, &client)?;
+        let grad_b = reduce_var_for_broadcast(&grad_b_full, &b_mat_shape, &client)?;
+        let grad_a = restore_var_shape(grad_a, saved_a.shape())?;
+        let grad_b = restore_var_shape(grad_b, saved_b.shape())?;
 
         Ok(vec![Some(grad_a), Some(grad_b)])
     }
@@ -472,5 +481,116 @@ mod tests {
         assert_eq!(grad_b.shape(), &[1, 3, 2]);
         let grad_b_data: Vec<f32> = grad_b.contiguous().unwrap().to_vec();
         assert_eq!(grad_b_data, vec![5.0, 5.0, 7.0, 7.0, 9.0, 9.0]);
+    }
+
+    /// A: [2,3] @ b: [3] -> [2,1]. `b` is the `[3, 1]` column the forward
+    /// treated it as; its gradient comes back as `[3]`, and `dL/dA` is the
+    /// gradient column times `b`, through both backward entry points.
+    #[test]
+    fn test_matmul_backward_rank1_b() {
+        let device = CpuDevice::new();
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device)
+                .unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&[10.0f32, 20.0, 30.0], &[3], &device).unwrap();
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2, 1], &device).unwrap();
+        let backward =
+            MatmulBackward::<CpuRuntime>::new(a.id(), b.id(), a.clone(), b.clone(), None, None);
+
+        let grads = backward.backward_all(&grad_out).unwrap();
+        let grad_a = grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        assert_eq!(
+            grad_a.to_vec::<f32>(),
+            vec![10.0, 20.0, 30.0, 20.0, 40.0, 60.0]
+        );
+        let grad_b = grads[1].as_ref().unwrap();
+        assert_eq!(grad_b.shape(), &[3]);
+        assert_eq!(grad_b.to_vec::<f32>(), vec![9.0, 12.0, 15.0]);
+
+        let grads = backward
+            .backward_var(&Var::new(grad_out.clone(), true))
+            .unwrap();
+        let grad_a = grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), &[2, 3]);
+        let grad_b = grads[1].as_ref().unwrap();
+        assert_eq!(grad_b.shape(), &[3]);
+        let grad_b_data: Vec<f32> = grad_b.tensor().contiguous().unwrap().to_vec();
+        assert_eq!(grad_b_data, vec![9.0, 12.0, 15.0]);
+    }
+
+    /// a: [3] @ B: [3,2] -> [1,2]. `a` is the `[1, 3]` row; its gradient comes
+    /// back as `[3]`.
+    #[test]
+    fn test_matmul_backward_rank1_a() {
+        let device = CpuDevice::new();
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device).unwrap();
+        let b =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[3, 2], &device)
+                .unwrap();
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 10.0], &[1, 2], &device).unwrap();
+        let backward =
+            MatmulBackward::<CpuRuntime>::new(a.id(), b.id(), a.clone(), b.clone(), None, None);
+
+        let grads = backward.backward_all(&grad_out).unwrap();
+        let grad_a = grads[0].as_ref().unwrap();
+        assert_eq!(grad_a.shape(), &[3]);
+        assert_eq!(grad_a.to_vec::<f32>(), vec![21.0, 43.0, 65.0]);
+        let grad_b = grads[1].as_ref().unwrap();
+        assert_eq!(grad_b.shape(), &[3, 2]);
+        assert_eq!(
+            grad_b.to_vec::<f32>(),
+            vec![1.0, 10.0, 2.0, 20.0, 3.0, 30.0]
+        );
+
+        let grads = backward
+            .backward_var(&Var::new(grad_out.clone(), true))
+            .unwrap();
+        assert_eq!(grads[0].as_ref().unwrap().shape(), &[3]);
+        assert_eq!(grads[1].as_ref().unwrap().shape(), &[3, 2]);
+    }
+
+    /// A strided rank-1 `b` (a `narrow` of a longer vector, so not offset-free):
+    /// both backward entry points copy it before promoting it to `[k, 1]`.
+    #[test]
+    fn test_matmul_backward_rank1_b_narrowed() {
+        let device = CpuDevice::new();
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], &device)
+                .unwrap();
+        let long =
+            Tensor::<CpuRuntime>::from_slice(&[99.0f32, 10.0, 20.0, 30.0, 99.0], &[5], &device)
+                .unwrap();
+        let b = long.narrow(0, 1, 3).unwrap();
+        assert_eq!(b.shape(), &[3]);
+        let grad_out = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0], &[2, 1], &device).unwrap();
+        let backward =
+            MatmulBackward::<CpuRuntime>::new(a.id(), b.id(), a.clone(), b.clone(), None, None);
+
+        let grads = backward.backward_all(&grad_out).unwrap();
+        assert_eq!(
+            grads[0].as_ref().unwrap().to_vec::<f32>(),
+            vec![10.0, 20.0, 30.0, 20.0, 40.0, 60.0]
+        );
+        assert_eq!(
+            grads[1].as_ref().unwrap().to_vec::<f32>(),
+            vec![9.0, 12.0, 15.0]
+        );
+
+        let grads = backward
+            .backward_var(&Var::new(grad_out.clone(), true))
+            .unwrap();
+        let grad_a: Vec<f32> = grads[0]
+            .as_ref()
+            .unwrap()
+            .tensor()
+            .contiguous()
+            .unwrap()
+            .to_vec();
+        assert_eq!(grad_a, vec![10.0, 20.0, 30.0, 20.0, 40.0, 60.0]);
+        let grad_b = grads[1].as_ref().unwrap();
+        assert_eq!(grad_b.shape(), &[3]);
+        let grad_b: Vec<f32> = grad_b.tensor().contiguous().unwrap().to_vec();
+        assert_eq!(grad_b, vec![9.0, 12.0, 15.0]);
     }
 }

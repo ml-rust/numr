@@ -29,7 +29,7 @@ pub struct GemmEpilogueBwdBuffers<'a> {
     pub grad_pre: &'a Buffer,
     /// Output gradient w.r.t. A `[batch, M, K]`.
     pub d_a: &'a Buffer,
-    /// Output gradient w.r.t. B `[K, N]` (summed over batch).
+    /// Output gradient w.r.t. B `[batch, K, N]`, one slice per batch.
     pub d_b: &'a Buffer,
     /// Output gradient w.r.t. bias `[N]` (summed over batch).
     pub d_bias: &'a Buffer,
@@ -132,7 +132,7 @@ pub fn launch_gemm_bias_activation_bwd(
         });
         pass.set_pipeline(&db_pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(tiles(n_u), tiles(k_u), 1);
+        pass.dispatch_workgroups(tiles(n_u), tiles(k_u), batch_u);
     }
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {

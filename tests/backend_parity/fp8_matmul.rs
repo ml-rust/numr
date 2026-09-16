@@ -357,4 +357,91 @@ mod cuda_parity {
             assert_fp8_parity(&cpu_vals, &cuda_vals, "fp8_e4m3_cuda_batched");
         });
     }
+
+    /// A batched `a` against an unbatched `b`, both entry points: CUDA must
+    /// broadcast `b` across the batch the way CPU does, rather than stride
+    /// past its end.
+    #[test]
+    fn test_fp8_matmul_cuda_broadcasts_unbatched_b() {
+        let (cpu_client, cpu_device) = create_cpu_client();
+        with_cuda_backend(|cuda_client, cuda_device| {
+            let a_data: Vec<f32> = (0..24).map(|i| (i % 7) as f32 - 3.0).collect();
+            let b_data: Vec<f32> = (0..12).map(|i| (i % 5) as f32 * 0.5 - 1.0).collect();
+            let (a_shape, b_shape) = ([2usize, 3, 4], [4usize, 3]);
+
+            let a_cpu =
+                create_fp8e4m3_tensor::<CpuRuntime>(&a_data, &a_shape, &cpu_device, &cpu_client)
+                    .unwrap();
+            let b_cpu =
+                create_fp8e4m3_tensor::<CpuRuntime>(&b_data, &b_shape, &cpu_device, &cpu_client)
+                    .unwrap();
+            let a_cuda =
+                create_fp8e4m3_tensor::<CudaRuntime>(&a_data, &a_shape, &cuda_device, &cuda_client)
+                    .unwrap();
+            let b_cuda =
+                create_fp8e4m3_tensor::<CudaRuntime>(&b_data, &b_shape, &cuda_device, &cuda_client)
+                    .unwrap();
+
+            let cpu_result = cpu_client
+                .fp8_matmul(&a_cpu, &b_cpu, 1.0, 1.0, DType::F32)
+                .unwrap();
+            let cuda_result = cuda_client
+                .fp8_matmul(&a_cuda, &b_cuda, 1.0, 1.0, DType::F32)
+                .unwrap();
+            assert_eq!(cuda_result.shape(), &[2, 3, 3]);
+            assert_fp8_parity(
+                &cpu_result.to_vec::<f32>(),
+                &cuda_result.to_vec::<f32>(),
+                "fp8_e4m3_cuda_broadcast_b",
+            );
+
+            let a5_cpu = cpu_client.cast(&a_cpu, DType::FP8E5M2).unwrap();
+            let a5_cuda = cuda_client.cast(&a_cuda, DType::FP8E5M2).unwrap();
+            let cpu_result = cpu_client
+                .fp8_matmul_e5m2(&a5_cpu, &b_cpu, 1.0, 1.0, DType::F32)
+                .unwrap();
+            let cuda_result = cuda_client
+                .fp8_matmul_e5m2(&a5_cuda, &b_cuda, 1.0, 1.0, DType::F32)
+                .unwrap();
+            assert_fp8_parity(
+                &cpu_result.to_vec::<f32>(),
+                &cuda_result.to_vec::<f32>(),
+                "fp8_e5m2_cuda_broadcast_b",
+            );
+        });
+    }
+
+    /// Rank-1 operands are refused on CUDA as on CPU.
+    #[test]
+    fn test_fp8_matmul_cuda_rejects_rank1_operands() {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            let mat = create_fp8e4m3_tensor::<CudaRuntime>(
+                &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                &[2, 3],
+                &cuda_device,
+                &cuda_client,
+            )
+            .unwrap();
+            let vec3 = create_fp8e4m3_tensor::<CudaRuntime>(
+                &[1.0, 2.0, 3.0],
+                &[3],
+                &cuda_device,
+                &cuda_client,
+            )
+            .unwrap();
+            let vec2 =
+                create_fp8e4m3_tensor::<CudaRuntime>(&[1.0, 2.0], &[2], &cuda_device, &cuda_client)
+                    .unwrap();
+            assert!(
+                cuda_client
+                    .fp8_matmul(&mat, &vec3, 1.0, 1.0, DType::F32)
+                    .is_err()
+            );
+            assert!(
+                cuda_client
+                    .fp8_matmul(&vec2, &mat, 1.0, 1.0, DType::F32)
+                    .is_err()
+            );
+        });
+    }
 }

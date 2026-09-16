@@ -1,10 +1,11 @@
 //! Matrix multiplication operation implementations for WebGPU.
 
 use super::helpers::*;
-use super::matmul_broadcast::flatten_batched_operands;
+use super::matmul_broadcast::{flatten_batched_operands, promote_rank1_operands};
 use crate::dtype::DType;
 use crate::error::Error;
 use crate::error::Result;
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::{
     BinaryOps, matmul_bias_output_shape, matmul_output_shape, validate_matmul_bias_dtypes,
 };
@@ -49,6 +50,11 @@ pub(crate) fn native_matmul(
     let out_shape = matmul_output_shape(a.shape(), b.shape())
         .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
+    // A rank-1 operand is the matrix the output shape already treats it as.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        return native_matmul(client, &a2, &b2);
+    }
+
     let a_shape = a.shape();
     let b_shape = b.shape();
 
@@ -74,9 +80,7 @@ pub(crate) fn native_matmul(
 
     // Handle 2D case
     if a_shape.len() == 2 && b_shape.len() == 2 {
-        let m = a_shape[0];
-        let k = a_shape[1];
-        let n = b_shape[1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // GEMV-BT fast path: transposed B with small M. F32-only, because the
         // GEMV-BT shader is; an integer operand falls through to the tiled and
@@ -162,9 +166,7 @@ pub(crate) fn native_matmul(
     // Handle batched (3D) matmul natively
     if a_shape.len() == 3 && b_shape.len() == 3 {
         let batch_size = a_shape[0];
-        let m = a_shape[1];
-        let k = a_shape[2];
-        let n = b_shape[2];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Validate batch dimensions match
         if b_shape[0] != batch_size {
@@ -257,9 +259,7 @@ pub(crate) fn native_matmul(
         });
     }
 
-    let m = a_shape[ndim_a - 2];
-    let k = a_shape[ndim_a - 1];
-    let n = b_shape[ndim_b - 1];
+    let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
     let batch_a: usize = a_shape[..ndim_a - 2].iter().product();
     let batch_b: usize = b_shape[..ndim_b - 2].iter().product();
@@ -346,6 +346,11 @@ pub(crate) fn native_matmul_bias(
     let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape())
         .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
+    // A rank-1 operand is the matrix the output shape already treats it as.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        return native_matmul_bias(client, &a2, &b2, bias);
+    }
+
     // Operands the batched kernel cannot index directly are flattened to 3D first;
     // bias is 1-D over N and is unaffected by batch normalization.
     if let Some((a3, b3)) = flatten_batched_operands(a, b, &out_shape)? {
@@ -370,9 +375,7 @@ pub(crate) fn native_matmul_bias(
 
     // Handle 2D case
     if a_shape.len() == 2 && b_shape.len() == 2 {
-        let m = a_shape[0];
-        let k = a_shape[1];
-        let n = b_shape[1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
@@ -412,9 +415,7 @@ pub(crate) fn native_matmul_bias(
     // Handle batched matmul_bias (3D tensors)
     if a_shape.len() == 3 && b_shape.len() == 3 {
         let batch_size = a_shape[0];
-        let m = a_shape[1];
-        let k = a_shape[2];
-        let n = b_shape[2];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Validate batch dimensions match
         if b_shape[0] != batch_size {

@@ -7,7 +7,7 @@ use crate::error::{Error, Result};
 use crate::ops::TypeConversionOps;
 use crate::ops::matmul::matmul_mkn;
 use crate::ops::{
-    GemmActivation, GemmEpilogueOps, ShapeOps, matmul_bias_output_shape,
+    GemmActivation, GemmEpilogueOps, ReduceOps, ShapeOps, matmul_bias_output_shape,
     validate_gemm_epilogue_dtypes,
 };
 use crate::runtime::cuda::kernels::{
@@ -17,6 +17,7 @@ use crate::runtime::cuda::ops::helpers::{
     gemm_bias_act_batched_native, gemm_bias_act_native, gemm_bias_residual_batched_native,
     gemm_bias_residual_native,
 };
+use crate::runtime::cuda::ops::matmul_broadcast::expand_batched_operands;
 use crate::runtime::cuda::ops::wmma_pad::pad_ab_for_wmma;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Device, ensure_contiguous};
@@ -308,32 +309,50 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
+        let out_shape = matmul_bias_output_shape(a_shape, b_shape, bias.shape()).ok_or(
+            Error::ShapeMismatch {
+                expected: a_shape.to_vec(),
+                got: b_shape.to_vec(),
+            },
+        )?;
+        if grad.shape() != out_shape.as_slice() {
+            return Err(Error::ShapeMismatch {
+                expected: out_shape,
+                got: grad.shape().to_vec(),
+            });
+        }
         let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Unclamped: an unbatched matmul takes 0 dims and already products to 1, so
         // a clamp would only fabricate a batch for a genuinely zero batch dim — and
         // then pick the single-matmul branch, writing one m*n tile into an empty
         // allocation.
-        let batch_size: usize = a_shape
+        let batch_size: usize = out_shape
             .iter()
-            .take(a_shape.len().saturating_sub(2))
+            .take(out_shape.len().saturating_sub(2))
             .product();
 
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
+        // The batched launcher reads both operands with one shared batch stride
+        // and writes one gradient slice per batch, so a broadcast operand is
+        // expanded on device first and its gradient summed back afterwards.
+        let (a_full, b_full) = expand_batched_operands(a, b, &out_shape)?;
         let bias_contig = ensure_contiguous(bias)?;
         let grad_contig = ensure_contiguous(grad)?;
 
-        let d_a = Tensor::<CudaRuntime>::empty(a_shape, dtype, &self.device)?;
-        let d_b = Tensor::<CudaRuntime>::zeros(b_shape, dtype, &self.device)?;
+        let d_a = Tensor::<CudaRuntime>::empty(a_full.shape(), dtype, &self.device)?;
+        let d_b = Tensor::<CudaRuntime>::empty(b_full.shape(), dtype, &self.device)?;
         let d_bias = Tensor::<CudaRuntime>::zeros(&[n], dtype, &self.device)?;
 
         // No batch contributes, so every gradient sums over nothing and stays at the
-        // additive identity `d_b` and `d_bias` were seeded with. A zero `m`, `n` or
-        // `k` still reaches the launcher, which skips only the individual kernels
-        // whose own output is empty — `d_bias` is a real sum even when `k == 0`.
+        // additive identity. A zero `m`, `n` or `k` still reaches the launcher,
+        // which skips only the individual kernels whose own output is empty —
+        // `d_bias` is a real sum even when `k == 0`.
         if batch_size == 0 {
-            return Ok((d_a, d_b, d_bias));
+            return Ok((
+                Tensor::<CudaRuntime>::zeros(a_shape, dtype, &self.device)?,
+                Tensor::<CudaRuntime>::zeros(b_shape, dtype, &self.device)?,
+                d_bias,
+            ));
         }
 
         // Temporary buffer for grad_pre (M * N elements, reused per batch)
@@ -347,8 +366,8 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                     self.device.index,
                     dtype,
                     grad_contig.ptr(),
-                    a_contig.ptr(),
-                    b_contig.ptr(),
+                    a_full.ptr(),
+                    b_full.ptr(),
                     bias_contig.ptr(),
                     grad_pre.ptr(),
                     d_a.ptr(),
@@ -367,8 +386,8 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                     self.device.index,
                     dtype,
                     grad_contig.ptr(),
-                    a_contig.ptr(),
-                    b_contig.ptr(),
+                    a_full.ptr(),
+                    b_full.ptr(),
                     bias_contig.ptr(),
                     grad_pre.ptr(),
                     d_a.ptr(),
@@ -382,6 +401,34 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             }
         }
 
+        let d_a = reduce_to_operand_shape(self, &d_a, a_shape)?;
+        let d_b = reduce_to_operand_shape(self, &d_b, b_shape)?;
         Ok((d_a, d_b, d_bias))
     }
+}
+
+/// Sum a per-batch gradient `[..out batch, r, c]` back over the batch dims
+/// the operand `[..own batch, r, c]` did not carry, or carried as 1.
+///
+/// Both shapes hold the same trailing two dims. The operand's batch dims are
+/// right-aligned against the gradient's; a gradient dim the operand lacks, or
+/// holds as 1 while the gradient's is larger, is summed away, and the result
+/// is reshaped to the operand's exact shape.
+fn reduce_to_operand_shape(
+    client: &CudaClient,
+    grad: &Tensor<CudaRuntime>,
+    operand_shape: &[usize],
+) -> Result<Tensor<CudaRuntime>> {
+    let grad_shape = grad.shape();
+    if grad_shape == operand_shape {
+        return Ok(grad.clone());
+    }
+    let grad_batch = grad_shape.len().saturating_sub(2);
+    let own_batch = operand_shape.len().saturating_sub(2);
+    let offset = grad_batch - own_batch;
+    let dims: Vec<usize> = (0..grad_batch)
+        .filter(|&d| d < offset || operand_shape[d - offset] != grad_shape[d])
+        .collect();
+    let summed = client.sum(grad, &dims, false)?;
+    summed.reshape(operand_shape)
 }

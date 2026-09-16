@@ -1,7 +1,9 @@
 //! Native WGPU GEMM epilogue operations.
 
 use super::helpers::*;
+use super::matmul_broadcast::promote_rank1_operands;
 use crate::error::{Error, Result};
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::{
     ActivationOps, BinaryOps, GemmActivation, UnaryOps, matmul_bias_output_shape,
     validate_gemm_epilogue_dtypes,
@@ -54,13 +56,16 @@ pub(crate) fn native_gemm_bias_activation(
     let out_shape = matmul_bias_output_shape(a.shape(), b.shape(), bias.shape())
         .ok_or_else(|| Error::shape_mismatch(a.shape(), b.shape()))?;
 
+    // A rank-1 operand is the matrix the output shape already treats it as.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        return native_gemm_bias_activation(client, &a2, &b2, bias, activation);
+    }
+
     let a_shape = a.shape();
     let b_shape = b.shape();
 
     if a_shape.len() == 2 && b_shape.len() == 2 {
-        let m = a_shape[0];
-        let k = a_shape[1];
-        let n = b_shape[1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_c = ensure_contiguous(a)?;
         let b_c = ensure_contiguous(b)?;
@@ -111,9 +116,7 @@ pub(crate) fn native_gemm_bias_activation(
 
     if a_shape.len() == 3 && b_shape.len() == 3 {
         let batch_size = a_shape[0];
-        let m = a_shape[1];
-        let k = a_shape[2];
-        let n = b_shape[2];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         if b_shape[0] != batch_size {
             return Err(Error::ShapeMismatch {
@@ -207,13 +210,16 @@ pub(crate) fn native_gemm_bias_residual(
         });
     }
 
+    // A rank-1 operand is the matrix the output shape already treats it as.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        return native_gemm_bias_residual(client, &a2, &b2, bias, residual);
+    }
+
     let a_shape = a.shape();
     let b_shape = b.shape();
 
     if a_shape.len() == 2 && b_shape.len() == 2 {
-        let m = a_shape[0];
-        let k = a_shape[1];
-        let n = b_shape[1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_c = ensure_contiguous(a)?;
         let b_c = ensure_contiguous(b)?;
@@ -268,9 +274,7 @@ pub(crate) fn native_gemm_bias_residual(
 
     if a_shape.len() == 3 && b_shape.len() == 3 {
         let batch_size = a_shape[0];
-        let m = a_shape[1];
-        let k = a_shape[2];
-        let n = b_shape[2];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         if b_shape[0] != batch_size {
             return Err(Error::ShapeMismatch {
@@ -367,19 +371,28 @@ pub(crate) fn native_gemm_bias_activation_bwd(
         });
     }
 
+    // A rank-1 operand is the matrix the forward treated it as; its gradient
+    // comes back in the operand's own shape.
+    if let Some((a2, b2)) = promote_rank1_operands(a, b)? {
+        let (d_a, d_b, d_bias) =
+            native_gemm_bias_activation_bwd(client, grad, &a2, &b2, bias, activation)?;
+        return Ok((d_a.reshape(a.shape())?, d_b.reshape(b.shape())?, d_bias));
+    }
+
     let a_shape = a.shape();
     let b_shape = b.shape();
 
-    let (batch_size, m, k, n) = match (a_shape.len(), b_shape.len()) {
-        (2, 2) => (1usize, a_shape[0], a_shape[1], b_shape[1]),
+    let (m, k, n) = matmul_mkn(a_shape, b_shape);
+    let batch_size = match (a_shape.len(), b_shape.len()) {
+        (2, 2) => 1usize,
         (3, 3) => {
             if b_shape[0] != a_shape[0] {
                 return Err(Error::ShapeMismatch {
-                    expected: vec![a_shape[0], a_shape[2], b_shape[2]],
+                    expected: vec![a_shape[0], k, n],
                     got: b_shape.to_vec(),
                 });
             }
-            (a_shape[0], a_shape[1], a_shape[2], b_shape[2])
+            a_shape[0]
         }
         _ => {
             return Err(Error::BackendLimitation {
@@ -393,8 +406,18 @@ pub(crate) fn native_gemm_bias_activation_bwd(
         }
     };
 
-    if a_shape[a_shape.len() - 1] != k || b_shape[b_shape.len() - 2] != k {
+    if b_shape[b_shape.len() - 2] != k {
         return Err(Error::shape_mismatch(a_shape, b_shape));
+    }
+    // The shaders read `grad` as `[batch, M, N]`, so its shape is checked, not
+    // assumed.
+    let mut out_shape = a_shape[..a_shape.len() - 2].to_vec();
+    out_shape.extend([m, n]);
+    if grad.shape() != out_shape.as_slice() {
+        return Err(Error::ShapeMismatch {
+            expected: out_shape,
+            got: grad.shape().to_vec(),
+        });
     }
 
     // No gradient element contributes: `d_a` and `d_b` are either empty or sum
@@ -440,17 +463,9 @@ pub(crate) fn native_gemm_bias_activation_bwd(
     let grad_c = ensure_contiguous(grad)?;
 
     let d_a = alloc_output(client, a_shape, dtype)?;
-    // The db shader sums the gradient over the batch dimension and writes only
-    // the leading [K, N] slice of d_b; the CPU and CUDA references explicitly
-    // allocate d_b with zeros, leaving the remaining [batch-1, K, N] elements
-    // at zero. We match that contract explicitly here instead of relying on the
-    // WebGPU allocator handing back freshly zero-initialized buffers, so the
-    // trailing slices stay correct even if buffer pooling is added later.
-    let d_b = if batch_size > 1 {
-        Tensor::<WgpuRuntime>::zeros(b_shape, dtype, RuntimeClient::device(client))?
-    } else {
-        alloc_output(client, b_shape, dtype)?
-    };
+    // The db shader writes one `[K, N]` slice per batch, so `d_b` is fully
+    // written and needs no seeding.
+    let d_b = alloc_output(client, b_shape, dtype)?;
     let d_bias = alloc_output(client, &[n], dtype)?;
     // grad_pre scratch has the same shape as grad/output: [batch, M, N].
     let grad_pre = alloc_output(client, grad.shape(), dtype)?;
