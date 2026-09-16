@@ -291,3 +291,114 @@ fn grouped_matmul_f16_narrow_output_parity() {
         48,
     );
 }
+
+/// Runs one grouped shape in a half dtype on CPU and CUDA from the same
+/// values and asserts they agree.
+///
+/// CPU runs the same dtype, so the two sides differ only by summation order
+/// and the rounding of the stored result.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+fn assert_grouped_half_cpu_parity(
+    label: &str,
+    dtype: numr::dtype::DType,
+    counts: &[usize],
+    k: usize,
+    n: usize,
+) {
+    use crate::backend_parity::dtype_helpers::tensor_from_f64;
+    use crate::common::assert_tensor_allclose;
+
+    let num_groups = counts.len();
+    let total_rows: usize = counts.iter().sum();
+    let offsets = offsets_from(counts);
+    let a_data: Vec<f64> = values(total_rows * k, 0.0)
+        .into_iter()
+        .map(f64::from)
+        .collect();
+    let b_data: Vec<f64> = values(num_groups * k * n, 1.3)
+        .into_iter()
+        .map(f64::from)
+        .collect();
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let a = tensor_from_f64(&a_data, &[total_rows, k], dtype, &cpu_device, &cpu_client).unwrap();
+    let b = tensor_from_f64(
+        &b_data,
+        &[num_groups, k, n],
+        dtype,
+        &cpu_device,
+        &cpu_client,
+    )
+    .unwrap();
+    let o = Tensor::<CpuRuntime>::from_slice(&offsets, &[num_groups + 1], &cpu_device).unwrap();
+    let cpu_out = cpu_client
+        .grouped_matmul(&a, &b, &o)
+        .unwrap_or_else(|e| panic!("CPU grouped matmul failed for {label}: {e}"));
+
+    with_cuda_backend(|client, device| {
+        let a_c = tensor_from_f64(&a_data, &[total_rows, k], dtype, &device, &client).unwrap();
+        let b_c = tensor_from_f64(&b_data, &[num_groups, k, n], dtype, &device, &client).unwrap();
+        let o_c = Tensor::from_slice(&offsets, &[num_groups + 1], &device).unwrap();
+        let out = client
+            .grouped_matmul(&a_c, &b_c, &o_c)
+            .unwrap_or_else(|e| panic!("CUDA grouped matmul failed for {label}: {e}"));
+        assert_tensor_allclose(&out, &cpu_out, dtype, &format!("{label} CUDA vs CPU"));
+    });
+}
+
+// N and K multiples of 8 but not of 16: `use_wmma_grouped` admits the shape,
+// so the WMMA kernel runs with a scalar-staged N edge tile and K tail. An N
+// that is not a multiple of 8 stays on the tiled kernel, as the grouped path
+// cannot pad.
+
+/// F16, n=40 k=24: WMMA, ragged against 16 but stride-aligned.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[test]
+fn grouped_matmul_f16_stride_aligned_n40_k24_match_cpu() {
+    assert_grouped_half_cpu_parity(
+        "grouped_f16_n40_k24",
+        numr::dtype::DType::F16,
+        &[5, 70, 33, 120],
+        24,
+        40,
+    );
+}
+
+/// BF16, n=40 k=24: WMMA, ragged against 16 but stride-aligned.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[test]
+fn grouped_matmul_bf16_stride_aligned_n40_k24_match_cpu() {
+    assert_grouped_half_cpu_parity(
+        "grouped_bf16_n40_k24",
+        numr::dtype::DType::BF16,
+        &[5, 70, 33, 120],
+        24,
+        40,
+    );
+}
+
+/// F16, n=35: not a multiple of 8, so the tiled grouped kernel runs.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[test]
+fn grouped_matmul_f16_ragged_n35_tiled_fallback_match_cpu() {
+    assert_grouped_half_cpu_parity(
+        "grouped_f16_n35",
+        numr::dtype::DType::F16,
+        &[5, 70, 33, 120],
+        24,
+        35,
+    );
+}
+
+/// BF16, n=35: not a multiple of 8, so the tiled grouped kernel runs.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[test]
+fn grouped_matmul_bf16_ragged_n35_tiled_fallback_match_cpu() {
+    assert_grouped_half_cpu_parity(
+        "grouped_bf16_n35",
+        numr::dtype::DType::BF16,
+        &[5, 70, 33, 120],
+        24,
+        35,
+    );
+}

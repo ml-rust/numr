@@ -10,22 +10,33 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::traits::profile::DeviceCaps;
 
-/// Returns true when the WMMA path should be taken for a grouped GEMM of this
+use super::matmul_wmma_policy::WMMA_STAGE_HALVES;
+
+/// Returns true when the WMMA path is taken for a grouped GEMM of this
 /// dtype, device, and `(N, K)` shape.
 ///
 /// Conditions:
 /// - dtype is F16 (needs `caps.f16_mma`) or BF16 (needs `caps.bf16` — the
 ///   BF16 WMMA symbols are compiled only from sm_80, see `matmul_wmma.cu`,
 ///   and `caps.bf16` already gates on that)
-/// - N and K are both multiples of 16 (WMMA fragment requirement)
+/// - N and K are both multiples of [`WMMA_STAGE_HALVES`], so both operands
+///   take the kernel's 128-bit staging path
 ///
-/// Does NOT test M, like the dense [`use_wmma`] (`matmul_wmma.rs`). Here M
-/// is a PER-GROUP row count read from `offsets` in device memory — the host
-/// sees only `total_rows`, the sum across groups, and cannot see any
-/// individual group's count. The grouped WMMA kernel is written for this:
-/// its A-tile staging and its epilogue store are both bounds-checked per row
-/// against the group's `count` (`matmul_wmma.cu`, `DEFINE_WMMA_GROUPED`), so
-/// a ragged M is masked off rather than mis-read or mis-written.
+/// The grouped WMMA kernels share `WMMA_KERNEL_BODY` with the dense ones
+/// (`matmul_wmma.cu`, `DEFINE_WMMA_GROUPED*`): the same `WMMA_STAGE_TILE`
+/// zero-fills past every edge and the same epilogue masks its store. So the
+/// stride test is the same speed policy the dense [`use_wmma`] applies, not
+/// a correctness condition. The dense path pads a ragged stride when the
+/// GEMM is heavy enough for the copy to pay; the grouped path cannot pad,
+/// because each group's row count lives in `offsets` in device memory and
+/// the host cannot re-lay the rows without reading it back. A ragged stride
+/// therefore stays on the tiled grouped kernel.
+///
+/// Does NOT test M, like the dense [`use_wmma`]. Here M is a PER-GROUP row
+/// count read from `offsets` — the host sees only `total_rows`, the sum
+/// across groups. The kernel's A-tile staging and epilogue store are both
+/// bounds-checked per row against the group's `count`, so a ragged M is
+/// masked off rather than mis-read or mis-written.
 ///
 /// [`use_wmma`]: super::matmul_wmma_policy::use_wmma
 #[inline]
@@ -35,7 +46,7 @@ pub(super) fn use_wmma_grouped(dtype: DType, caps: DeviceCaps, n: usize, k: usiz
         DType::BF16 => caps.bf16,
         _ => false,
     };
-    dtype_ok && n.is_multiple_of(16) && k.is_multiple_of(16)
+    dtype_ok && n.is_multiple_of(WMMA_STAGE_HALVES) && k.is_multiple_of(WMMA_STAGE_HALVES)
 }
 
 /// Tile-selection row hint: the ceiling average rows per group.
@@ -217,7 +228,19 @@ mod tests {
     }
 
     #[test]
-    fn unaligned_n_or_k_rejected() {
+    fn stage_aligned_but_not_16_takes_wmma() {
+        // A stride that is a multiple of WMMA_STAGE_HALVES keeps the 128-bit
+        // staging path, so 16-alignment is not required.
+        assert!(use_wmma_grouped(DType::F16, ampere_caps(), 40, 24));
+        assert!(use_wmma_grouped(DType::BF16, ampere_caps(), 8, 8));
+    }
+
+    #[test]
+    fn ragged_n_or_k_rejected() {
+        // The grouped path cannot pad, so a ragged stride stays on the tiled
+        // kernel.
+        assert!(!use_wmma_grouped(DType::F16, ampere_caps(), 35, 32));
+        assert!(!use_wmma_grouped(DType::F16, ampere_caps(), 32, 21));
         assert!(!use_wmma_grouped(DType::F16, ampere_caps(), 33, 32));
         assert!(!use_wmma_grouped(DType::F16, ampere_caps(), 32, 33));
     }

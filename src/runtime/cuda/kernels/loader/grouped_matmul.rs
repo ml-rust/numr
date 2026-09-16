@@ -1,5 +1,5 @@
-//! Grouped GEMM launcher: tiled core for F32, tensor-core WMMA for
-//! 16-aligned F16/BF16.
+//! Grouped GEMM launcher: tiled core for F32, tensor-core WMMA for F16/BF16
+//! whose N and K are multiples of `WMMA_STAGE_HALVES` (`use_wmma_grouped`).
 //!
 //! The tiled path wraps `kernels/grouped_matmul.cu`, which reuses the same
 //! compile-time-tiled core as the dense F32 path; tile choice mirrors the

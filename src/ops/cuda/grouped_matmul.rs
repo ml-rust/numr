@@ -1,10 +1,12 @@
 //! CUDA implementation of `GroupedMatmulOps`.
 //!
 //! Launches the grouped entry points in `kernels/grouped_matmul.cu` (tiled
-//! core, shared with the dense F32 path) or, for 16-aligned F16/BF16 on a
-//! capable device, the grouped tensor-core kernels in `kernels/matmul_wmma.cu`.
-//! The choice is made by the loader (`use_wmma_grouped`); this file only
-//! forwards the device's capability snapshot.
+//! core, shared with the dense F32 path) or, for F16/BF16 on a capable device
+//! with N and K multiples of `WMMA_STAGE_HALVES`, the grouped tensor-core
+//! kernels in `kernels/matmul_wmma.cu`. The choice is made by the loader
+//! (`use_wmma_grouped`); this file only forwards the device's capability
+//! snapshot. The grouped path never pads: per-group row counts live in
+//! device memory, so a ragged stride stays on the tiled kernel.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
