@@ -2,6 +2,7 @@
 
 use crate::dtype::Element;
 use crate::error::{Error, Result};
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::{GemmActivation, GemmEpilogueOps};
 use crate::ops::{matmul_bias_output_shape, validate_gemm_epilogue_dtypes};
 use crate::runtime::cpu::helpers::{dispatch_dtype, ensure_contiguous};
@@ -35,13 +36,7 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
@@ -164,13 +159,7 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;
@@ -281,13 +270,7 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let a_contig = ensure_contiguous(a)?;
         let b_contig = ensure_contiguous(b)?;

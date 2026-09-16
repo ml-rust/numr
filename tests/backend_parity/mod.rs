@@ -65,6 +65,7 @@ pub mod matmul;
 pub mod matmul_bias;
 pub mod matmul_bias_wmma;
 pub mod matmul_broadcast;
+pub mod matmul_rank1_b;
 pub mod matmul_wide;
 pub mod matrix_functions_expm;
 pub mod matrix_functions_logm;

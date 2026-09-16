@@ -337,7 +337,9 @@ pub unsafe fn launch_matmul_batched_kernel(
             );
         }
     }
-    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form.
+    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form;
+    // `src/ops/cuda/matmul.rs` applies the same pre-launch padding rule to
+    // the batched call.
     let caps = CudaDevice::new(device_index).profile().caps;
     if use_wmma(dtype, caps, m, n, k) {
         unsafe {

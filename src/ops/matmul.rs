@@ -176,6 +176,28 @@ pub fn matmul_batch_indices(
     (a_indices, b_indices)
 }
 
+/// `(m, k, n)` of a matmul from its operand shapes, under the same rank-1
+/// rule as [`validate_matmul_shapes`] and [`matmul_output_shape`]: a rank-1
+/// `a` is a `[1, k]` row and a rank-1 `b` is a `[k, 1]` column, so `n == 1`.
+///
+/// Every backend derives its kernel geometry from this, so an operand rank
+/// the output shape treats one way cannot be read another way by a kernel.
+/// Assumes the shapes already passed validation; `k` is read from `a`.
+pub fn matmul_mkn(a_shape: &[usize], b_shape: &[usize]) -> (usize, usize, usize) {
+    let m = if a_shape.len() >= 2 {
+        a_shape[a_shape.len() - 2]
+    } else {
+        1
+    };
+    let k = a_shape[a_shape.len() - 1];
+    let n = if b_shape.len() >= 2 {
+        b_shape[b_shape.len() - 1]
+    } else {
+        1
+    };
+    (m, k, n)
+}
+
 /// `m`, `k`, `n` and the per-operand batch indices shared by `matmul` and
 /// `matmul_wide` on every backend: both dispatch the same shape and batch
 /// arithmetic before picking a kernel path.
@@ -186,13 +208,7 @@ pub fn matmul_dims_and_batches(
     b_shape: &[usize],
     out_shape: &[usize],
 ) -> (usize, usize, usize, usize, Vec<usize>, Vec<usize>) {
-    let m = if a_shape.len() >= 2 {
-        a_shape[a_shape.len() - 2]
-    } else {
-        1
-    };
-    let k = a_shape[a_shape.len() - 1];
-    let n = b_shape[b_shape.len() - 1];
+    let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
     // No `.max(1)`: an unbatched matmul takes 0 dims and already products to 1,
     // so a clamp would only fabricate a batch for a genuinely zero batch dim.
@@ -290,6 +306,20 @@ pub fn matmul_bias_output_shape(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rank-1 `b` is a column: `n == 1`, matching `matmul_output_shape`.
+    #[test]
+    fn test_matmul_mkn_rank1_operands() {
+        assert_eq!(matmul_mkn(&[5, 7], &[7]), (5, 7, 1));
+        assert_eq!(matmul_mkn(&[7], &[7, 3]), (1, 7, 3));
+        assert_eq!(matmul_mkn(&[7], &[7]), (1, 7, 1));
+        assert_eq!(matmul_output_shape(&[5, 7], &[7]), Some(vec![5, 1]));
+        assert_eq!(matmul_output_shape(&[3, 5, 7], &[7]), Some(vec![3, 5, 1]));
+        let (m, k, n, batch, a_idx, b_idx) = matmul_dims_and_batches(&[3, 5, 7], &[7], &[3, 5, 1]);
+        assert_eq!((m, k, n, batch), (5, 7, 1, 3));
+        assert_eq!(a_idx, vec![0, 1, 2]);
+        assert_eq!(b_idx, vec![0, 0, 0]);
+    }
 
     /// A middle batch dim broadcasting under a leading batch > 1: B's index must
     /// advance once every 4 outputs, which a batch count alone cannot express.

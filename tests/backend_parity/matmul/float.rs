@@ -443,6 +443,35 @@ fn test_matmul_wmma_batched_ragged_m_n_bf16() {
     test_matmul_parity(&cases, numr::dtype::DType::BF16);
 }
 
+// Batched with both row strides ragged (not multiples of 8). The op applies
+// the same per-slice padding rule as the 2-D form:
+// - m=37, k=21, n=35: too light to pad, the batched WMMA launcher takes it
+//   as it is with both operands scalar-staged
+// - m=n=1040, k=4099: heavy enough, the op pads K to 4104 on both operands
+//   with the batch dim untouched
+#[cfg(feature = "f16")]
+fn wmma_batched_ragged_stride_cases() -> [MatmulTest; 2] {
+    [
+        make_f32_batched_test_data(3, 3, 37, 21, 35, 0.0013, 0.0017),
+        make_f32_batched_test_data(2, 2, 1040, 4099, 1040, 0.0011, 0.0019),
+    ]
+}
+
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_batched_ragged_strides_f16() {
+    test_matmul_parity(&wmma_batched_ragged_stride_cases(), numr::dtype::DType::F16);
+}
+
+#[test]
+#[cfg(feature = "f16")]
+fn test_matmul_wmma_batched_ragged_strides_bf16() {
+    test_matmul_parity(
+        &wmma_batched_ragged_stride_cases(),
+        numr::dtype::DType::BF16,
+    );
+}
+
 // ============================================================================
 // WMMA Determinism Test
 // ============================================================================

@@ -5,18 +5,19 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 #[cfg(feature = "fp8")]
 use crate::ops::TypeConversionOps;
+use crate::ops::matmul::matmul_mkn;
 use crate::ops::{
     GemmActivation, GemmEpilogueOps, ShapeOps, matmul_bias_output_shape,
     validate_gemm_epilogue_dtypes,
 };
 use crate::runtime::cuda::kernels::{
     launch_gemm_bias_act_bwd_batched_kernel, launch_gemm_bias_act_bwd_kernel,
-    use_wmma_after_padding, wmma_padded_dims,
 };
 use crate::runtime::cuda::ops::helpers::{
     gemm_bias_act_batched_native, gemm_bias_act_native, gemm_bias_residual_batched_native,
     gemm_bias_residual_native,
 };
+use crate::runtime::cuda::ops::wmma_pad::pad_ab_for_wmma;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Device, ensure_contiguous};
 use crate::tensor::Tensor;
@@ -55,13 +56,7 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         let out_shape = matmul_bias_output_shape(a_shape, b_shape, bias.shape()).ok_or(
             Error::ShapeMismatch {
@@ -86,12 +81,6 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             return Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
         }
 
-        if batch_size > 1 {
-            return gemm_bias_act_batched_native(
-                self, a, b, bias, dtype, &out_shape, batch_size, m, n, k, activation,
-            );
-        }
-
         // The WMMA kernel handles any M, N, K: it zero-fills past every edge and
         // masks its store. A row stride (K for A, N for B) that is not a multiple
         // of `WMMA_STAGE_HALVES` makes the kernel stage that operand one element
@@ -100,18 +89,24 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
         // enough per copied element for the copy to pay
         // (`WMMA_PAD_MIN_WORK_PER_COPIED_ELEMENT`); every other shape, ragged M
         // included, launches as it is. Same rule as plain matmul and matmul_bias
-        // (src/ops/cuda/matmul.rs). `use_wmma_after_padding` is the complement of
-        // the launcher's own `use_wmma`, so the padding decision cannot disagree
-        // with the dispatch decision.
+        // (src/ops/cuda/matmul.rs), and it applies per slice, so the batched form
+        // pads the same way: `pad` leaves the leading batch dims as they are.
+        // `use_wmma_after_padding` is the complement of the launcher's own
+        // `use_wmma`, so the padding decision cannot disagree with the dispatch
+        // decision.
         //
         // Zero-padding is exact: the extra K contributes 0 to the accumulator, and
         // the extra N columns, where the bias and the activation still apply, are
         // sliced off before the result is returned.
+        //
+        // Rank-1 operands never pad: the spec addresses two dims of each.
+        // `pad_ab_for_wmma` (runtime/cuda/ops/wmma_pad.rs) carries the decision
+        // and the pad itself, shared with matmul/matmul_bias, matmul_bias_residual
+        // below, and matmul_wide.
         let caps = self.device.profile().caps;
-        if use_wmma_after_padding(dtype, caps, m, n, k) {
-            let (n_pad, k_pad) = wmma_padded_dims(n, k);
-            let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
-            let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
+        if let Some((a_pad, b_pad, n_pad, k_pad)) =
+            pad_ab_for_wmma(self, a, b, dtype, caps, m, n, k)?
+        {
             // bias is 1-D [n], so it takes a two-element padding spec.
             let bias_pad = self.pad(bias, &[0, n_pad - n], 0.0)?;
             let out_pad_shape =
@@ -121,23 +116,44 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                         got: b_pad.shape().to_vec(),
                     },
                 )?;
-            let out_pad = gemm_bias_act_native(
-                self,
-                &a_pad,
-                &b_pad,
-                &bias_pad,
-                dtype,
-                &out_pad_shape,
-                m,
-                n_pad,
-                k_pad,
-                activation,
-            )?;
+            let out_pad = if batch_size > 1 {
+                gemm_bias_act_batched_native(
+                    self,
+                    &a_pad,
+                    &b_pad,
+                    &bias_pad,
+                    dtype,
+                    &out_pad_shape,
+                    batch_size,
+                    m,
+                    n_pad,
+                    k_pad,
+                    activation,
+                )?
+            } else {
+                gemm_bias_act_native(
+                    self,
+                    &a_pad,
+                    &b_pad,
+                    &bias_pad,
+                    dtype,
+                    &out_pad_shape,
+                    m,
+                    n_pad,
+                    k_pad,
+                    activation,
+                )?
+            };
             // Slice N (last dim) back via negative indexing, NOT dim 1: the output
             // can carry leading batch dims.
             return out_pad.narrow(-1, 0, n)?.contiguous();
         }
 
+        if batch_size > 1 {
+            return gemm_bias_act_batched_native(
+                self, a, b, bias, dtype, &out_shape, batch_size, m, n, k, activation,
+            );
+        }
         gemm_bias_act_native(self, a, b, bias, dtype, &out_shape, m, n, k, activation)
     }
 
@@ -190,13 +206,7 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             });
         }
 
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Unclamped: an unbatched matmul takes 0 dims and already products to 1, so
         // a clamp would only fabricate a batch for a genuinely zero batch dim — and
@@ -214,21 +224,15 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
             return Tensor::<CudaRuntime>::empty(&out_shape, dtype, &self.device);
         }
 
-        if batch_size > 1 {
-            return gemm_bias_residual_batched_native(
-                self, a, b, bias, residual, dtype, &out_shape, batch_size, m, n, k,
-            );
-        }
-
-        // Same WMMA padding rule as matmul_bias_activation above. The residual is
-        // [M,N]-shaped, so it takes the 2-D padding spec A and B take, NOT the 1-D
-        // one the bias takes: padding it as a vector would shift every row and
-        // corrupt the interior, not just the edge.
+        // Same WMMA padding rule as matmul_bias_activation above, batched
+        // included. The residual is shaped like the output, so it takes the 2-D
+        // padding spec A and B take, NOT the 1-D one the bias takes: padding it
+        // as a vector would shift every row and corrupt the interior, not just
+        // the edge.
         let caps = self.device.profile().caps;
-        if use_wmma_after_padding(dtype, caps, m, n, k) {
-            let (n_pad, k_pad) = wmma_padded_dims(n, k);
-            let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
-            let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
+        if let Some((a_pad, b_pad, n_pad, k_pad)) =
+            pad_ab_for_wmma(self, a, b, dtype, caps, m, n, k)?
+        {
             let bias_pad = self.pad(bias, &[0, n_pad - n], 0.0)?;
             let res_pad = self.pad(residual, &[0, n_pad - n, 0, 0], 0.0)?;
             let out_pad_shape =
@@ -238,21 +242,42 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
                         got: b_pad.shape().to_vec(),
                     },
                 )?;
-            let out_pad = gemm_bias_residual_native(
-                self,
-                &a_pad,
-                &b_pad,
-                &bias_pad,
-                &res_pad,
-                dtype,
-                &out_pad_shape,
-                m,
-                n_pad,
-                k_pad,
-            )?;
+            let out_pad = if batch_size > 1 {
+                gemm_bias_residual_batched_native(
+                    self,
+                    &a_pad,
+                    &b_pad,
+                    &bias_pad,
+                    &res_pad,
+                    dtype,
+                    &out_pad_shape,
+                    batch_size,
+                    m,
+                    n_pad,
+                    k_pad,
+                )?
+            } else {
+                gemm_bias_residual_native(
+                    self,
+                    &a_pad,
+                    &b_pad,
+                    &bias_pad,
+                    &res_pad,
+                    dtype,
+                    &out_pad_shape,
+                    m,
+                    n_pad,
+                    k_pad,
+                )?
+            };
             return out_pad.narrow(-1, 0, n)?.contiguous();
         }
 
+        if batch_size > 1 {
+            return gemm_bias_residual_batched_native(
+                self, a, b, bias, residual, dtype, &out_shape, batch_size, m, n, k,
+            );
+        }
         gemm_bias_residual_native(self, a, b, bias, residual, dtype, &out_shape, m, n, k)
     }
 
@@ -283,13 +308,7 @@ impl GemmEpilogueOps<CudaRuntime> for CudaClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Unclamped: an unbatched matmul takes 0 dims and already products to 1, so
         // a clamp would only fabricate a batch for a genuinely zero batch dim — and

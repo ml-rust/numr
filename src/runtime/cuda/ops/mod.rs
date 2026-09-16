@@ -8,6 +8,7 @@ pub(crate) mod matmul_broadcast;
 pub(crate) mod reduce_epilogue;
 mod statistics;
 mod tensor;
+pub(crate) mod wmma_pad;
 
 #[cfg(test)]
 mod tests {

@@ -308,9 +308,10 @@ pub unsafe fn launch_matmul_bias_batched_kernel(
             );
         }
     }
-    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form. The bias is
-    // [N] and broadcasts across rows and batch slices, matching the generic
-    // `matmul_bias_batched_*` kernels.
+    // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form, and
+    // `src/ops/cuda/matmul.rs` pads a ragged stride worth padding before the
+    // batched call too. The bias is [N] and broadcasts across rows and batch
+    // slices, matching the generic `matmul_bias_batched_*` kernels.
     let caps = CudaDevice::new(device_index).profile().caps;
     if use_wmma(dtype, caps, m, n, k) {
         unsafe {

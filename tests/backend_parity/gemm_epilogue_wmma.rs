@@ -635,3 +635,55 @@ fn gemm_epilogue_f16_wmma_batched_ragged_m_n_match_cpu() {
 fn gemm_epilogue_bf16_wmma_batched_ragged_m_n_match_cpu() {
     assert_gemm_epilogue_wmma_batched_ragged(DType::BF16, "bf16");
 }
+
+// --- batched with both row strides ragged: the op applies the same         ---
+// --- per-slice padding rule as the 2-D form.                               ---
+// ---   m=37, k=21, n=35: too light to pad, batched WMMA as it is           ---
+// ---   m=n=1040, k=4099: heavy enough, pads K on A and B and the residual  ---
+// ---   in 2-D, batch dims untouched                                        ---
+
+#[cfg(feature = "f16")]
+fn assert_gemm_epilogue_wmma_batched_ragged_strides(dtype: DType, tag: &str) {
+    for (batch, m, k, n, class) in [
+        (3usize, 37usize, 21usize, 35usize, "k21_n35_unpadded"),
+        (2, 1040, 4099, 1040, "k4099_padded"),
+    ] {
+        let a_data = deterministic_f64(batch * m * k, 0.0);
+        let b_data = deterministic_f64(batch * k * n, 1.7);
+        let bias_data = deterministic_f64(n, 3.1);
+        let res_data = deterministic_f64(batch * m * n, 0.9);
+        assert_bias_act_parity(
+            dtype,
+            GemmActivation::GELU,
+            &a_data,
+            &[batch, m, k],
+            &b_data,
+            &[batch, k, n],
+            &bias_data,
+            &format!("gemm_bias_act_{tag}_wmma_batched_{class} CUDA vs CPU"),
+        );
+        assert_bias_residual_parity(
+            dtype,
+            &a_data,
+            &[batch, m, k],
+            &b_data,
+            &[batch, k, n],
+            &bias_data,
+            &res_data,
+            &[batch, m, n],
+            &format!("gemm_bias_residual_{tag}_wmma_batched_{class} CUDA vs CPU"),
+        );
+    }
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_f16_wmma_batched_ragged_strides_match_cpu() {
+    assert_gemm_epilogue_wmma_batched_ragged_strides(DType::F16, "f16");
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn gemm_epilogue_bf16_wmma_batched_ragged_strides_match_cpu() {
+    assert_gemm_epilogue_wmma_batched_ragged_strides(DType::BF16, "bf16");
+}

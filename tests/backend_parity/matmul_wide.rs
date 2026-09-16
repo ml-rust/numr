@@ -343,6 +343,19 @@ fn matmul_wide_half_cuda_matches_reference_and_cpu() {
     let (cpu_client, cpu_device) = create_cpu_client();
     let mut all = cases();
     all.push(Case::new(&[8, 4096], &[4096, 24], "long-K cancellation"));
+    // Batched with both row strides ragged: the light one launches the
+    // batched f32out kernel as it is, the heavy one pads K first with the
+    // batch dim untouched.
+    all.push(Case::new(
+        &[3, 37, 21],
+        &[3, 21, 35],
+        "batched ragged k and n, unpadded",
+    ));
+    all.push(Case::new(
+        &[2, 1040, 4099],
+        &[2, 4099, 1040],
+        "batched ragged k, padded on CUDA",
+    ));
 
     for case in all {
         let a_len: usize = case.a_shape.iter().product();

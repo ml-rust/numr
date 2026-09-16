@@ -24,6 +24,7 @@ impl CpuClient {
         b: &Tensor<CpuRuntime>,
         bias: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
+        use crate::ops::matmul::matmul_mkn;
         use crate::ops::{matmul_bias_output_shape, validate_matmul_bias_dtypes};
         use crate::runtime::cpu::kernels::matmul_bias_kernel;
 
@@ -41,13 +42,7 @@ impl CpuClient {
         // Get matrix dimensions (last two dims)
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
 
         // Require row-major contiguous tensors for SIMD-optimized packing
         let a_contig = ensure_contiguous(a)?;

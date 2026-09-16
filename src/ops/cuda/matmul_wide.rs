@@ -14,12 +14,13 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{MatmulOps, ShapeOps, TypeConversionOps, matmul_output_shape};
+use crate::ops::matmul::matmul_mkn;
+use crate::ops::{MatmulOps, TypeConversionOps, matmul_output_shape};
 use crate::runtime::cuda::kernels::{
     launch_matmul_wmma_f32out_batched_kernel, launch_matmul_wmma_f32out_kernel, use_wmma,
-    use_wmma_after_padding, wmma_padded_dims,
 };
 use crate::runtime::cuda::ops::matmul_broadcast::resolve_batched_operands;
+use crate::runtime::cuda::ops::wmma_pad::pad_ab_for_wmma;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{Device, ensure_contiguous, validate_binary_dtypes};
 use crate::tensor::Tensor;
@@ -42,13 +43,7 @@ impl CudaClient {
 
         let a_shape = a.shape();
         let b_shape = b.shape();
-        let m = if a_shape.len() >= 2 {
-            a_shape[a_shape.len() - 2]
-        } else {
-            1
-        };
-        let k = a_shape[a_shape.len() - 1];
-        let n = b_shape[b_shape.len() - 1];
+        let (m, k, n) = matmul_mkn(a_shape, b_shape);
         let k_b = if b_shape.len() >= 2 {
             b_shape[b_shape.len() - 2]
         } else {
@@ -78,13 +73,14 @@ impl CudaClient {
         if use_wmma(dtype, caps, m, n, k) {
             return self.matmul_wide_wmma(a, b, dtype, &out_shape, m, n, k);
         }
-        if use_wmma_after_padding(dtype, caps, m, n, k) {
-            // Pad only the inputs: K is the last dim of A and the second-last
-            // of B, N the last dim of B. Zero-padding is exact, and the extra
-            // N columns are sliced off the F32 result.
-            let (n_pad, k_pad) = wmma_padded_dims(n, k);
-            let a_pad = self.pad(a, &[0, k_pad - k, 0, 0], 0.0)?;
-            let b_pad = self.pad(b, &[0, n_pad - n, 0, k_pad - k], 0.0)?;
+        // Rank-1 operands never pad: the spec addresses two dims of each. Zero-
+        // padding is exact, and the extra N columns are sliced off the F32
+        // result. `pad_ab_for_wmma` (runtime/cuda/ops/wmma_pad.rs) carries the
+        // decision and the pad itself, shared with matmul/matmul_bias and
+        // matmul_bias_activation/residual.
+        if let Some((a_pad, b_pad, n_pad, k_pad)) =
+            pad_ab_for_wmma(self, a, b, dtype, caps, m, n, k)?
+        {
             let mut pad_shape = out_shape.clone();
             let last = pad_shape.len() - 1;
             pad_shape[last] = n_pad;
