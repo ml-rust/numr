@@ -1229,6 +1229,119 @@ fn test_gemm_bias_activation_bwd_negative_values_parity() {
 }
 
 // ============================================================================
+// matmul_bias_activation_bwd: long-row sums in a half dtype
+// ============================================================================
+//
+// `d_b = A^T @ grad_pre` and `d_bias = sum(grad_pre, dim=0)` both sum over M.
+// With M = 4096 rows of `a = 1/4096` and `grad = 1`, the true `d_b` is 1.0
+// and the true `d_bias` is 4096. An accumulator held in the storage dtype
+// stalls long before that: BF16 counting 1.0 per row cannot pass 256, and its
+// 1/4096 steps stop moving a sum once it reaches about 1/16. Every operand
+// value is exact in F16 and BF16, so the F64 CPU run of the same values is
+// the reference and only the final rounding of each output separates them.
+
+/// Reads any float tensor back as `f64` via a CPU cast.
+#[cfg(feature = "f16")]
+fn read_f64<R: numr::runtime::Runtime<DType = numr::dtype::DType>>(
+    t: &numr::tensor::Tensor<R>,
+    client: &impl numr::ops::TypeConversionOps<R>,
+) -> Vec<f64> {
+    client
+        .cast(t, numr::dtype::DType::F64)
+        .unwrap()
+        .to_vec::<f64>()
+}
+
+#[cfg(feature = "f16")]
+fn assert_bwd_long_m_half(activation: GemmActivation, label: &str) {
+    use numr::dtype::DType;
+
+    let (m, k, n) = (4096usize, 8usize, 8usize);
+    let a = vec![1.0f64 / 4096.0; m * k];
+    let b = vec![0.5f64; k * n];
+    let bias = vec![0.0f64; n];
+    let grad = vec![1.0f64; m * n];
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let run_cpu = |dtype: DType| {
+        let a_t = tensor_from_f64(&a, &[m, k], dtype, &cpu_device, &cpu_client).unwrap();
+        let b_t = tensor_from_f64(&b, &[k, n], dtype, &cpu_device, &cpu_client).unwrap();
+        let bias_t = tensor_from_f64(&bias, &[n], dtype, &cpu_device, &cpu_client).unwrap();
+        let grad_t = tensor_from_f64(&grad, &[m, n], dtype, &cpu_device, &cpu_client).unwrap();
+        let (da, db, dbias) = cpu_client
+            .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+            .unwrap();
+        (
+            read_f64(&da, &cpu_client),
+            read_f64(&db, &cpu_client),
+            read_f64(&dbias, &cpu_client),
+        )
+    };
+    let (ref_da, ref_db, ref_dbias) = run_cpu(DType::F64);
+
+    // The outputs round once at the store: 2^-9 relative for BF16.
+    let check = |got: &[f64], want: &[f64], what: &str, dtype: DType, backend: &str| {
+        assert_eq!(
+            got.len(),
+            want.len(),
+            "{label} {what} {backend} [{dtype:?}]"
+        );
+        for (i, (g, w)) in got.iter().zip(want).enumerate() {
+            assert!(
+                values_close(*g, *w, 4e-3, 1e-6),
+                "{label} {what} {backend} [{dtype:?}] at {i}: {g} vs F64 {w}"
+            );
+        }
+    };
+
+    for dtype in [DType::F16, DType::BF16] {
+        if !is_dtype_supported("cpu", dtype) {
+            continue;
+        }
+        let (da, db, dbias) = run_cpu(dtype);
+        check(&da, &ref_da, "d_a", dtype, "CPU");
+        check(&db, &ref_db, "d_b", dtype, "CPU");
+        check(&dbias, &ref_dbias, "d_bias", dtype, "CPU");
+
+        #[cfg(feature = "cuda")]
+        if is_dtype_supported("cuda", dtype) {
+            with_cuda_backend(|cuda_client, cuda_device| {
+                let a_t = tensor_from_f64(&a, &[m, k], dtype, &cuda_device, &cuda_client).unwrap();
+                let b_t = tensor_from_f64(&b, &[k, n], dtype, &cuda_device, &cuda_client).unwrap();
+                let bias_t =
+                    tensor_from_f64(&bias, &[n], dtype, &cuda_device, &cuda_client).unwrap();
+                let grad_t =
+                    tensor_from_f64(&grad, &[m, n], dtype, &cuda_device, &cuda_client).unwrap();
+                let (da, db, dbias) = cuda_client
+                    .matmul_bias_activation_bwd(&grad_t, &a_t, &b_t, &bias_t, activation)
+                    .unwrap();
+                check(&read_f64(&da, &cuda_client), &ref_da, "d_a", dtype, "CUDA");
+                check(&read_f64(&db, &cuda_client), &ref_db, "d_b", dtype, "CUDA");
+                check(
+                    &read_f64(&dbias, &cuda_client),
+                    &ref_dbias,
+                    "d_bias",
+                    dtype,
+                    "CUDA",
+                );
+            });
+        }
+    }
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn test_gemm_bias_activation_bwd_long_m_half_none() {
+    assert_bwd_long_m_half(GemmActivation::None, "bwd_long_m_none");
+}
+
+#[cfg(feature = "f16")]
+#[test]
+fn test_gemm_bias_activation_bwd_long_m_half_gelu() {
+    assert_bwd_long_m_half(GemmActivation::GELU, "bwd_long_m_gelu");
+}
+
+// ============================================================================
 // CPU-only reference tests: fused == unfused
 // ============================================================================
 

@@ -37,6 +37,14 @@ pub unsafe fn matmul_bias_activation_kernel<T: Element>(
         return;
     }
 
+    // F16/BF16 are storage formats: the sum, the bias and the activation all
+    // run in F32 and round once at the store, as the CUDA kernels do. The
+    // scalar fallback below accumulates in T, which loses the sum at long K.
+    if T::DTYPE.is_narrow_float() {
+        matmul_bias_activation_via_f32(a, b, bias, out, m, n, k, lda, ldb, ldc, activation);
+        return;
+    }
+
     // SIMD dispatch for f32/f64 on x86_64: matmul_bias first, then apply activation via SIMD
     #[cfg(target_arch = "x86_64")]
     {
@@ -103,6 +111,12 @@ pub unsafe fn matmul_bias_residual_kernel<T: Element>(
     ldb: usize,
     ldc: usize,
 ) {
+    // Same F32 accumulation rule as `matmul_bias_activation_kernel`.
+    if T::DTYPE.is_narrow_float() {
+        matmul_bias_residual_via_f32(a, b, bias, residual, out, m, n, k, lda, ldb, ldc);
+        return;
+    }
+
     // Initialize output with bias + residual
     for i in 0..m {
         for j in 0..n {
@@ -120,6 +134,132 @@ pub unsafe fn matmul_bias_residual_kernel<T: Element>(
             }
         }
     }
+}
+
+// ============================================================================
+// Half-precision paths: F32 scratch, one rounding at the store
+// ============================================================================
+
+/// Copies a strided `rows x cols` matrix of `T` into a contiguous F32 buffer.
+///
+/// # Safety
+/// - `src` must be valid for reads of `rows * ld` elements
+/// - `dst` must be valid for writes of `rows * cols` elements
+unsafe fn widen_to_f32<T: Element>(
+    src: *const T,
+    dst: *mut f32,
+    rows: usize,
+    cols: usize,
+    ld: usize,
+) {
+    for i in 0..rows {
+        for j in 0..cols {
+            *dst.add(i * cols + j) = (*src.add(i * ld + j)).to_f32();
+        }
+    }
+}
+
+/// Rounds a contiguous F32 `rows x cols` buffer into a strided `T` matrix.
+///
+/// # Safety
+/// - `src` must be valid for reads of `rows * cols` elements
+/// - `dst` must be valid for writes of `rows * ld` elements
+unsafe fn narrow_from_f32<T: Element>(
+    src: *const f32,
+    dst: *mut T,
+    rows: usize,
+    cols: usize,
+    ld: usize,
+) {
+    for i in 0..rows {
+        for j in 0..cols {
+            *dst.add(i * ld + j) = T::from_f32(*src.add(i * cols + j));
+        }
+    }
+}
+
+/// `activation(A @ B + bias)` for a narrow float `T`, computed in F32.
+///
+/// # Safety
+/// Same as [`matmul_bias_activation_kernel`].
+#[allow(clippy::too_many_arguments)]
+unsafe fn matmul_bias_activation_via_f32<T: Element>(
+    a: *const T,
+    b: *const T,
+    bias: *const T,
+    out: *mut T,
+    m: usize,
+    n: usize,
+    k: usize,
+    lda: usize,
+    ldb: usize,
+    ldc: usize,
+    activation: GemmActivation,
+) {
+    let mut a_f32 = vec![0.0f32; m * k];
+    let mut b_f32 = vec![0.0f32; k * n];
+    let mut bias_f32 = vec![0.0f32; n];
+    let mut c_f32 = vec![0.0f32; m * n];
+    widen_to_f32(a, a_f32.as_mut_ptr(), m, k, lda);
+    widen_to_f32(b, b_f32.as_mut_ptr(), k, n, ldb);
+    widen_to_f32(bias, bias_f32.as_mut_ptr(), 1, n, n);
+    matmul_bias_activation_kernel::<f32>(
+        a_f32.as_ptr(),
+        b_f32.as_ptr(),
+        bias_f32.as_ptr(),
+        c_f32.as_mut_ptr(),
+        m,
+        n,
+        k,
+        k,
+        n,
+        n,
+        activation,
+    );
+    narrow_from_f32(c_f32.as_ptr(), out, m, n, ldc);
+}
+
+/// `A @ B + bias + residual` for a narrow float `T`, computed in F32.
+///
+/// # Safety
+/// Same as [`matmul_bias_residual_kernel`].
+#[allow(clippy::too_many_arguments)]
+unsafe fn matmul_bias_residual_via_f32<T: Element>(
+    a: *const T,
+    b: *const T,
+    bias: *const T,
+    residual: *const T,
+    out: *mut T,
+    m: usize,
+    n: usize,
+    k: usize,
+    lda: usize,
+    ldb: usize,
+    ldc: usize,
+) {
+    let mut a_f32 = vec![0.0f32; m * k];
+    let mut b_f32 = vec![0.0f32; k * n];
+    let mut bias_f32 = vec![0.0f32; n];
+    let mut res_f32 = vec![0.0f32; m * n];
+    let mut c_f32 = vec![0.0f32; m * n];
+    widen_to_f32(a, a_f32.as_mut_ptr(), m, k, lda);
+    widen_to_f32(b, b_f32.as_mut_ptr(), k, n, ldb);
+    widen_to_f32(bias, bias_f32.as_mut_ptr(), 1, n, n);
+    widen_to_f32(residual, res_f32.as_mut_ptr(), m, n, ldc);
+    matmul_bias_residual_kernel::<f32>(
+        a_f32.as_ptr(),
+        b_f32.as_ptr(),
+        bias_f32.as_ptr(),
+        res_f32.as_ptr(),
+        c_f32.as_mut_ptr(),
+        m,
+        n,
+        k,
+        k,
+        n,
+        n,
+    );
+    narrow_from_f32(c_f32.as_ptr(), out, m, n, ldc);
 }
 
 // ============================================================================
