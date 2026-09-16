@@ -1,13 +1,13 @@
 // Snake activation CUDA kernels: y = x + sin(alpha * x)^2 / (beta + eps)
-// Supports: f32, f64, f16, bf16
+// Supports: f32, f64, f16, bf16, fp8_e4m3, fp8_e5m2
 //
 // x, out and grad are contiguous [outer, channels, inner] buffers; alpha and
 // beta hold one value per channel. The flat index walks `inner` fastest, so a
 // warp reads consecutive addresses, and the channel of flat element i is
 // (i / inner) % channels. alpha[c] and beta[c] are read once per thread.
 //
-// Half widths compute in F32 through AccumTraits<dtype, acc>: one rounding at
-// the store, none in between. F32 and F64 compute natively.
+// Half and FP8 widths compute in F32 through AccumTraits<dtype, acc>: one
+// rounding at the store, none in between. F32 and F64 compute natively.
 //
 // snake_beta_dparams_* reduces the per-channel parameter gradients with one
 // block per channel: each thread strides over outer*inner, then a fixed
@@ -128,5 +128,7 @@ DEFINE_SNAKE_KERNELS(f32, float, float)
 DEFINE_SNAKE_KERNELS(f64, double, double)
 DEFINE_SNAKE_KERNELS(f16, __half, float)
 DEFINE_SNAKE_KERNELS(bf16, __nv_bfloat16, float)
+DEFINE_SNAKE_KERNELS(fp8_e4m3, numr_fp8_e4m3, float)
+DEFINE_SNAKE_KERNELS(fp8_e5m2, numr_fp8_e5m2, float)
 
 } // extern "C"

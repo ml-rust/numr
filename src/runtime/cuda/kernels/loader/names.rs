@@ -28,10 +28,16 @@ pub mod kernel_names {
     pub const SOFTMAX_MODULE: &str = "softmax";
     /// Snake activation forward + backward kernels
     pub const SNAKE_MODULE: &str = "snake";
-    /// Normalization operations (rms_norm, layer_norm)
-    pub const NORM_MODULE: &str = "norm";
-    /// Fused add + normalization operations
-    pub const FUSED_ADD_NORM_MODULE: &str = "fused_add_norm";
+    /// RMSNorm (two-pass and register-cached kernels)
+    pub const NORM_RMS_MODULE: &str = "norm_rms";
+    /// LayerNorm
+    pub const NORM_LAYER_MODULE: &str = "norm_layer";
+    /// GroupNorm
+    pub const NORM_GROUP_MODULE: &str = "norm_group";
+    /// Fused add + RMSNorm, forward and backward
+    pub const FUSED_ADD_RMS_NORM_MODULE: &str = "fused_add_rms_norm";
+    /// Fused add + LayerNorm, forward and backward
+    pub const FUSED_ADD_LAYER_NORM_MODULE: &str = "fused_add_layer_norm";
     /// Type casting operations (cast between dtypes)
     pub const CAST_MODULE: &str = "cast";
     /// Utility operations (fill, arange, linspace, eye)

@@ -1,6 +1,6 @@
-// Register-cached single-pass RMSNorm kernels (f32, f64, f16, bf16).
+// Register-cached single-pass RMSNorm kernels, one per norm dtype.
 //
-// WHY: the two-pass rms_norm kernel in norm.cu reads the row once to accumulate
+// WHY: the two-pass rms_norm kernel in norm_rms.cu reads the row once to accumulate
 // the sum of squares and again to scale it, so it moves 2 reads + 1 write where
 // 1 read + 1 write suffices. RMSNorm is bandwidth-bound, so the redundant read
 // is close to pure cost.
@@ -19,7 +19,7 @@
 #ifndef NUMR_RMS_NORM_REGS_CUH
 #define NUMR_RMS_NORM_REGS_CUH
 
-#include "dtype_traits.cuh"
+#include "norm_common.cuh"
 
 // 16 elements/thread covers hidden_size up to 4096 at the standard 256-thread
 // block, which is the common transformer width. Every element held costs
@@ -27,9 +27,6 @@
 // coverage at the price of fewer blocks in flight. Check ptxas -v (and for
 // spills, which would defeat the whole kernel) before changing it.
 #define NORM_MAX_REGS_PER_THREAD 16
-
-__device__ __forceinline__ float numr_norm_rsqrt(float x) { return rsqrtf(x); }
-__device__ __forceinline__ double numr_norm_rsqrt(double x) { return rsqrt(x); }
 
 // Sum of squares reduced across the block, in the same order as the two-pass
 // kernel: ascending element index per thread, then the same shared-memory tree.
@@ -93,40 +90,20 @@ __device__ __forceinline__ void rms_norm_regs_impl(
     }
 }
 
+// Half and FP8 widths accumulate in FP32, matching the two-pass kernels.
+#define DEFINE_RMS_NORM_REGS(suffix, dtype, acc) \
+__global__ void rms_norm_regs_##suffix( \
+    const dtype* input, const dtype* weight, dtype* output, \
+    unsigned int batch_size, unsigned int hidden_size, acc eps \
+) { \
+    extern __shared__ acc rms_regs_smem_##acc[]; \
+    rms_norm_regs_impl<dtype, acc>( \
+        input, weight, output, batch_size, hidden_size, eps, rms_regs_smem_##acc); \
+}
+
 extern "C" {
 
-__global__ void rms_norm_regs_f32(
-    const float* input, const float* weight, float* output,
-    unsigned int batch_size, unsigned int hidden_size, float eps
-) {
-    extern __shared__ float shared[];
-    rms_norm_regs_impl<float, float>(input, weight, output, batch_size, hidden_size, eps, shared);
-}
-
-__global__ void rms_norm_regs_f64(
-    const double* input, const double* weight, double* output,
-    unsigned int batch_size, unsigned int hidden_size, double eps
-) {
-    extern __shared__ double shared_f64[];
-    rms_norm_regs_impl<double, double>(input, weight, output, batch_size, hidden_size, eps, shared_f64);
-}
-
-// Half precision accumulates in FP32, matching the two-pass kernels.
-__global__ void rms_norm_regs_f16(
-    const __half* input, const __half* weight, __half* output,
-    unsigned int batch_size, unsigned int hidden_size, float eps
-) {
-    extern __shared__ float shared[];
-    rms_norm_regs_impl<__half, float>(input, weight, output, batch_size, hidden_size, eps, shared);
-}
-
-__global__ void rms_norm_regs_bf16(
-    const __nv_bfloat16* input, const __nv_bfloat16* weight, __nv_bfloat16* output,
-    unsigned int batch_size, unsigned int hidden_size, float eps
-) {
-    extern __shared__ float shared[];
-    rms_norm_regs_impl<__nv_bfloat16, float>(input, weight, output, batch_size, hidden_size, eps, shared);
-}
+NORM_DTYPES(DEFINE_RMS_NORM_REGS)
 
 } // extern "C"
 

@@ -36,7 +36,8 @@
 //! - `reduce.cu` - Reduction operations
 //! - `compare.cu` - Comparison operations
 //! - `activation.cu` - Activation functions
-//! - `norm.cu` - Normalization operations
+//! - `norm_rms.cu`, `norm_layer.cu`, `norm_group.cu` - Normalization operations
+//! - `fused_add_rms_norm.cu`, `fused_add_layer_norm.cu` - Fused residual add + norm
 //! - `cast.cu` - Type casting operations
 //! - `utility.cu` - Utility operations
 //! - `ternary.cu` - Ternary operations

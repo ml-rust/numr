@@ -1,7 +1,8 @@
 //! Normalization CUDA kernel launchers
 //!
-//! Provides launchers for normalization operations (RMSNorm, LayerNorm)
-//! commonly used in transformer architectures.
+//! Provides launchers for RMSNorm, LayerNorm and GroupNorm. One fatbin per op:
+//! `norm_rms`, `norm_layer`, `norm_group`. Every kernel is instantiated for
+//! f32, f64, f16, bf16, fp8_e4m3 and fp8_e5m2.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -21,7 +22,7 @@ const NORM_MAX_REGS_PER_THREAD: usize = 16;
 
 /// Shared-memory element size for a normalization reduction.
 ///
-/// F64 reduces in `double`; f32, f16 and bf16 all reduce in `float`.
+/// F64 reduces in `double`; every other dtype reduces in `float`.
 #[inline]
 fn norm_shared_elem_size(dtype: DType) -> u32 {
     match dtype {
@@ -83,7 +84,7 @@ pub unsafe fn launch_rms_norm(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module = get_or_load_module(context, device_index, kernel_names::NORM_MODULE)?;
+        let module = get_or_load_module(context, device_index, kernel_names::NORM_RMS_MODULE)?;
 
         let (grid_size, block_size) = norm_launch_config(batch_size, hidden_size);
 
@@ -92,8 +93,7 @@ pub unsafe fn launch_rms_norm(
         // whenever the row fits in each thread's register slice; wider rows would
         // spill that array to local memory, so they keep the two-pass kernel.
         let fits_in_regs = hidden_size <= NORM_MAX_REGS_PER_THREAD * block_size as usize;
-        let has_regs_kernel = matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16);
-        let base = if fits_in_regs && has_regs_kernel {
+        let base = if fits_in_regs {
             "rms_norm_regs"
         } else {
             "rms_norm"
@@ -166,7 +166,7 @@ pub unsafe fn launch_layer_norm(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module = get_or_load_module(context, device_index, kernel_names::NORM_MODULE)?;
+        let module = get_or_load_module(context, device_index, kernel_names::NORM_LAYER_MODULE)?;
         let func_name = kernel_name("layer_norm", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 
@@ -251,7 +251,7 @@ pub unsafe fn launch_group_norm(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module = get_or_load_module(context, device_index, kernel_names::NORM_MODULE)?;
+        let module = get_or_load_module(context, device_index, kernel_names::NORM_GROUP_MODULE)?;
         let func_name = kernel_name("group_norm", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 

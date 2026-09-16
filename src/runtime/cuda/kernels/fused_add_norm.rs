@@ -1,7 +1,8 @@
 //! Fused Add + Normalization CUDA kernel launchers
 //!
 //! Provides launchers for fused operations combining residual addition with normalization.
-//! These operations are common in transformer architectures for efficient computation.
+//! One fatbin per op: `fused_add_rms_norm` and `fused_add_layer_norm`, each holding
+//! forward and backward for f32, f64, f16, bf16, fp8_e4m3 and fp8_e5m2.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -28,7 +29,7 @@ fn fused_norm_launch_config(
     let grid_size = batch_size as u32;
     let elem_size = match dtype {
         DType::F64 => 8u32,
-        _ => 4u32, // f32, f16, bf16 all use f32 shared memory
+        _ => 4u32, // every other dtype reduces in f32 shared memory
     };
     let shared_mem = (shared_arrays as u32) * block_size * elem_size;
     (grid_size, block_size, shared_mem)
@@ -68,8 +69,11 @@ pub unsafe fn launch_fused_add_rms_norm(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module =
-            get_or_load_module(context, device_index, kernel_names::FUSED_ADD_NORM_MODULE)?;
+        let module = get_or_load_module(
+            context,
+            device_index,
+            kernel_names::FUSED_ADD_RMS_NORM_MODULE,
+        )?;
         let func_name = kernel_name("fused_add_rms_norm", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 
@@ -139,8 +143,11 @@ pub unsafe fn launch_fused_add_rms_norm_bwd(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module =
-            get_or_load_module(context, device_index, kernel_names::FUSED_ADD_NORM_MODULE)?;
+        let module = get_or_load_module(
+            context,
+            device_index,
+            kernel_names::FUSED_ADD_RMS_NORM_MODULE,
+        )?;
         let func_name = kernel_name("fused_add_rms_norm_bwd", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 
@@ -214,8 +221,11 @@ pub unsafe fn launch_fused_add_layer_norm(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module =
-            get_or_load_module(context, device_index, kernel_names::FUSED_ADD_NORM_MODULE)?;
+        let module = get_or_load_module(
+            context,
+            device_index,
+            kernel_names::FUSED_ADD_LAYER_NORM_MODULE,
+        )?;
         let func_name = kernel_name("fused_add_layer_norm", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 
@@ -289,8 +299,11 @@ pub unsafe fn launch_fused_add_layer_norm_bwd(
     eps: f32,
 ) -> Result<()> {
     unsafe {
-        let module =
-            get_or_load_module(context, device_index, kernel_names::FUSED_ADD_NORM_MODULE)?;
+        let module = get_or_load_module(
+            context,
+            device_index,
+            kernel_names::FUSED_ADD_LAYER_NORM_MODULE,
+        )?;
         let func_name = kernel_name("fused_add_layer_norm_bwd", dtype);
         let func = get_kernel_function(&module, &func_name)?;
 

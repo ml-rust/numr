@@ -52,7 +52,9 @@ impl SnakeLaunchDims {
 
 fn dtype_supported(dtype: DType, op: &'static str) -> Result<()> {
     match dtype {
-        DType::F32 | DType::F64 | DType::F16 | DType::BF16 => Ok(()),
+        DType::F32 | DType::F64 | DType::F16 | DType::BF16 | DType::FP8E4M3 | DType::FP8E5M2 => {
+            Ok(())
+        }
         other => Err(Error::UnsupportedDType { dtype: other, op }),
     }
 }
