@@ -105,3 +105,77 @@ pub unsafe fn conv2d_f64(
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     conv2d_scalar_f64(input, weight, bias, output, params);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dtype::DType;
+    use crate::ops::PaddingMode;
+    use crate::ops::conv_common::validate_conv2d;
+
+    #[test]
+    fn test_conv2d_simd_matches_scalar() {
+        // Input: (1, 16, 8, 8) - 16 channels to trigger SIMD
+        let c_in = 16;
+        let (h, w) = (8, 8);
+        let c_out = 4;
+        let (kh, kw) = (3, 3);
+
+        let input: Vec<f32> = (0..(c_in * h * w)).map(|x| (x as f32) * 0.01).collect();
+        let weight: Vec<f32> = (0..(c_out * c_in * kh * kw))
+            .map(|x| (x as f32) * 0.001 - 0.2)
+            .collect();
+
+        let params = validate_conv2d(
+            &[1, c_in, h, w],
+            &[c_out, c_in, kh, kw],
+            None,
+            (1, 1),
+            PaddingMode::Valid,
+            (1, 1),
+            1,
+            DType::F32,
+            DType::F32,
+            None,
+        )
+        .unwrap();
+
+        let output_len = c_out * params.output_h * params.output_w;
+        let mut out_simd = vec![0.0f32; output_len];
+        let mut out_scalar = vec![0.0f32; output_len];
+
+        unsafe {
+            conv2d_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_simd.as_mut_ptr(),
+                params,
+            );
+            conv2d_scalar_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_scalar.as_mut_ptr(),
+                params,
+            );
+        }
+
+        for i in 0..output_len {
+            let diff = (out_simd[i] - out_scalar[i]).abs();
+            let rel_err = if out_scalar[i].abs() > 1e-6 {
+                diff / out_scalar[i].abs()
+            } else {
+                diff
+            };
+            assert!(
+                rel_err < 1e-4,
+                "conv2d mismatch at {}: SIMD={} scalar={} (rel_err={})",
+                i,
+                out_simd[i],
+                out_scalar[i],
+                rel_err
+            );
+        }
+    }
+}

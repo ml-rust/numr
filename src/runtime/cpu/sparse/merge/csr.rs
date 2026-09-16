@@ -1,40 +1,186 @@
-//! Tests for sparse matrix operations
+//! Generic CSR merge operation for element-wise ops (add, sub, mul, div)
 
-use super::*;
+use super::super::super::CpuRuntime;
+use super::common::{MergeStrategy, OperationSemantics, handle_empty_compressed};
+use super::zero_tolerance;
+use crate::dtype::Element;
+use crate::error::Result;
+use crate::tensor::Tensor;
 
-mod tests {
-    use super::*;
-    use crate::runtime::Runtime;
-    use crate::sparse::SparseOps;
+/// Generic CSR merge operation for element-wise ops (add, sub, mul, div)
+///
+/// This function implements the sorted-merge algorithm for combining two
+/// CSR matrices element-wise. The operation is specified by the `op` function
+/// and the merge strategy determines which positions to keep.
+///
+/// # Arguments
+///
+/// * `strategy` - Whether to use Union (keep all positions) or Intersection (keep only common positions)
+/// * `semantics` - Operation semantics for handling empty matrices
+/// * `op` - Operation to apply when both matrices have values at a position
+/// * `only_a_op` - Transformation for values that only exist in A
+/// * `only_b_op` - Transformation for values that only exist in B
+///
+/// # Algorithm
+///
+/// For each row:
+/// 1. Merge the two sorted lists of column indices
+/// 2. Union strategy: Keep positions from either matrix
+/// 3. Intersection strategy: Keep only positions where both have values
+/// 4. Apply operation when both matrices have values
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_csr_impl<T: Element, F, FA, FB>(
+    a_row_ptrs: &Tensor<CpuRuntime>,
+    a_col_indices: &Tensor<CpuRuntime>,
+    a_values: &Tensor<CpuRuntime>,
+    b_row_ptrs: &Tensor<CpuRuntime>,
+    b_col_indices: &Tensor<CpuRuntime>,
+    b_values: &Tensor<CpuRuntime>,
+    shape: [usize; 2],
+    strategy: MergeStrategy,
+    semantics: OperationSemantics,
+    op: F,
+    only_a_op: FA,
+    only_b_op: FB,
+) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)>
+where
+    F: Fn(T, T) -> T,
+    FA: Fn(T) -> T,
+    FB: Fn(T) -> T,
+{
+    let [nrows, _ncols] = shape;
+    let device = a_values.device();
 
-    #[test]
-    fn test_spmv_csr_basic() {
-        let device = <CpuRuntime as Runtime>::Device::default();
-        let client = CpuClient::new(device.clone());
-
-        // Matrix:
-        // [1, 0, 2]
-        // [0, 0, 3]
-        // [4, 5, 0]
-        let row_ptrs = Tensor::from_slice(&[0i64, 2, 3, 5], &[4], &device).unwrap();
-        let col_indices = Tensor::from_slice(&[0i64, 2, 2, 0, 1], &[5], &device).unwrap();
-        let values = Tensor::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device).unwrap();
-
-        // x = [1, 2, 3]
-        let x = Tensor::from_slice(&[1.0f32, 2.0, 3.0], &[3], &device).unwrap();
-
-        // y = A * x
-        // y[0] = 1*1 + 2*3 = 7
-        // y[1] = 3*3 = 9
-        // y[2] = 4*1 + 5*2 = 14
-        let y = client
-            .spmv_csr::<f32>(&row_ptrs, &col_indices, &values, &x, [3, 3])
-            .unwrap();
-
-        assert_eq!(y.shape(), &[3]);
-        let y_data: Vec<f32> = y.to_vec();
-        assert_eq!(y_data, vec![7.0, 9.0, 14.0]);
+    // Handle empty inputs with centralized logic
+    if let Some(result) = handle_empty_compressed::<T>(
+        a_values.numel(),
+        b_values.numel(),
+        shape,
+        device,
+        a_row_ptrs,
+        a_col_indices,
+        a_values,
+        b_row_ptrs,
+        b_col_indices,
+        b_values,
+        semantics,
+        true, // CSR format
+    ) {
+        return result;
     }
+
+    // Read CSR data
+    let a_row_ptrs_data: Vec<i64> = a_row_ptrs.to_vec();
+    let a_col_indices_data: Vec<i64> = a_col_indices.to_vec();
+    let a_values_data: Vec<T> = a_values.to_vec();
+    let b_row_ptrs_data: Vec<i64> = b_row_ptrs.to_vec();
+    let b_col_indices_data: Vec<i64> = b_col_indices.to_vec();
+    let b_values_data: Vec<T> = b_values.to_vec();
+
+    // Build result CSR
+    let mut out_row_ptrs: Vec<i64> = Vec::with_capacity(nrows + 1);
+    let mut out_col_indices: Vec<i64> = Vec::new();
+    let mut out_values: Vec<T> = Vec::new();
+
+    out_row_ptrs.push(0);
+
+    for row in 0..nrows {
+        let a_start = a_row_ptrs_data[row] as usize;
+        let a_end = a_row_ptrs_data[row + 1] as usize;
+        let b_start = b_row_ptrs_data[row] as usize;
+        let b_end = b_row_ptrs_data[row + 1] as usize;
+
+        let mut i = a_start;
+        let mut j = b_start;
+
+        // Merge strategy determines the loop condition and handling
+        match strategy {
+            MergeStrategy::Union => {
+                // Union: Keep positions from either matrix (|| semantics)
+                while i < a_end || j < b_end {
+                    let a_col = if i < a_end {
+                        a_col_indices_data[i]
+                    } else {
+                        i64::MAX
+                    };
+                    let b_col = if j < b_end {
+                        b_col_indices_data[j]
+                    } else {
+                        i64::MAX
+                    };
+
+                    if a_col < b_col {
+                        // Only A has value at this column - apply only_a_op
+                        let result = only_a_op(a_values_data[i]);
+                        if result.to_f64().abs() > zero_tolerance::<T>() {
+                            out_col_indices.push(a_col);
+                            out_values.push(result);
+                        }
+                        i += 1;
+                    } else if a_col > b_col {
+                        // Only B has value at this column - apply only_b_op
+                        let result = only_b_op(b_values_data[j]);
+                        if result.to_f64().abs() > zero_tolerance::<T>() {
+                            out_col_indices.push(b_col);
+                            out_values.push(result);
+                        }
+                        j += 1;
+                    } else {
+                        // Both have values - apply operation
+                        let result = op(a_values_data[i], b_values_data[j]);
+                        if result.to_f64().abs() > zero_tolerance::<T>() {
+                            out_col_indices.push(a_col);
+                            out_values.push(result);
+                        }
+                        i += 1;
+                        j += 1;
+                    }
+                }
+            }
+            MergeStrategy::Intersection => {
+                // Intersection: Keep only positions where both have values (&& semantics)
+                while i < a_end && j < b_end {
+                    let a_col = a_col_indices_data[i];
+                    let b_col = b_col_indices_data[j];
+
+                    if a_col < b_col {
+                        // Only A has value - skip in intersection
+                        i += 1;
+                    } else if a_col > b_col {
+                        // Only B has value - skip in intersection
+                        j += 1;
+                    } else {
+                        // Both have values - apply operation
+                        let result = op(a_values_data[i], b_values_data[j]);
+                        if result.to_f64().abs() > zero_tolerance::<T>() {
+                            out_col_indices.push(a_col);
+                            out_values.push(result);
+                        }
+                        i += 1;
+                        j += 1;
+                    }
+                }
+            }
+        }
+
+        out_row_ptrs.push(out_col_indices.len() as i64);
+    }
+
+    // Create result tensors
+    let result_row_ptrs = Tensor::from_slice(&out_row_ptrs, &[nrows + 1], device)?;
+    let result_col_indices =
+        Tensor::from_slice(&out_col_indices, &[out_col_indices.len()], device)?;
+    let result_values = Tensor::from_slice(&out_values, &[out_values.len()], device)?;
+
+    Ok((result_row_ptrs, result_col_indices, result_values))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::runtime::Runtime;
+    use crate::runtime::cpu::{CpuClient, CpuRuntime};
+    use crate::sparse::SparseOps;
+    use crate::tensor::Tensor;
 
     #[test]
     fn test_add_csr_basic() {
@@ -212,96 +358,6 @@ mod tests {
         // F64 should preserve values down to 1e-15
         assert_eq!(values_data.len(), 1, "F64 preserves higher precision");
         assert!((values_data[0] - 1e-8).abs() < 1e-16);
-    }
-
-    #[test]
-    fn test_coo_f32_removes_values_below_tolerance() {
-        let device = <CpuRuntime as Runtime>::Device::default();
-        let client = CpuClient::new(device.clone());
-
-        // COO format test: Use multiplication to create predictable small values
-        // A has triplets: (0, 0, 1e-4), (1, 1, 2.0)
-        let a_row_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let a_col_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let a_values = Tensor::from_slice(&[1e-4f32, 2.0], &[2], &device).unwrap();
-
-        // B has triplets: (0, 0, 1e-5), (1, 1, 2.0)
-        let b_row_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let b_col_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let b_values = Tensor::from_slice(&[1e-5f32, 2.0], &[2], &device).unwrap();
-
-        // C = A .* B (element-wise multiply)
-        // (0,0): 1e-4 * 1e-5 = 1e-9 (< 1e-7, eliminated)
-        // (1,1): 2.0 * 2.0 = 4.0 (kept)
-        let (_row_indices, col_indices, values) = client
-            .mul_coo::<f32>(
-                &a_row_indices,
-                &a_col_indices,
-                &a_values,
-                &b_row_indices,
-                &b_col_indices,
-                &b_values,
-                [2, 2],
-            )
-            .unwrap();
-
-        let values_data: Vec<f32> = values.to_vec();
-        let col_indices_data: Vec<i64> = col_indices.to_vec();
-
-        assert_eq!(
-            values_data.len(),
-            1,
-            "COO zero elimination should remove near-zero values"
-        );
-        assert!((values_data[0] - 4.0).abs() < 1e-6);
-        assert_eq!(col_indices_data, vec![1]);
-    }
-
-    #[test]
-    fn test_csc_f32_removes_values_below_tolerance() {
-        let device = <CpuRuntime as Runtime>::Device::default();
-        let client = CpuClient::new(device.clone());
-
-        // CSC format test: Use multiplication to create predictable small values
-        // A (column-major):
-        // Col 0: [1e-4]
-        // Col 1: [2.0]
-        let a_col_ptrs = Tensor::from_slice(&[0i64, 1, 2], &[3], &device).unwrap();
-        let a_row_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let a_values = Tensor::from_slice(&[1e-4f32, 2.0], &[2], &device).unwrap();
-
-        // B (column-major):
-        // Col 0: [1e-5]
-        // Col 1: [2.0]
-        let b_col_ptrs = Tensor::from_slice(&[0i64, 1, 2], &[3], &device).unwrap();
-        let b_row_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
-        let b_values = Tensor::from_slice(&[1e-5f32, 2.0], &[2], &device).unwrap();
-
-        // C = A .* B (element-wise multiply)
-        // Col 0: 1e-4 * 1e-5 = 1e-9 (< 1e-7, eliminated)
-        // Col 1: 2.0 * 2.0 = 4.0 (kept)
-        let (_, row_indices, values) = client
-            .mul_csc::<f32>(
-                &a_col_ptrs,
-                &a_row_indices,
-                &a_values,
-                &b_col_ptrs,
-                &b_row_indices,
-                &b_values,
-                [2, 2],
-            )
-            .unwrap();
-
-        let values_data: Vec<f32> = values.to_vec();
-        let row_indices_data: Vec<i64> = row_indices.to_vec();
-
-        assert_eq!(
-            values_data.len(),
-            1,
-            "CSC zero elimination should work like CSR"
-        );
-        assert!((values_data[0] - 4.0).abs() < 1e-6);
-        assert_eq!(row_indices_data, vec![1]);
     }
 
     #[test]

@@ -1,9 +1,12 @@
 //! Tests for rms_norm, layer_norm, group_norm, and their fused-add variants.
 
-use super::*;
-use crate::autograd::backward;
-use crate::runtime::cpu::{CpuDevice, CpuRuntime};
-use crate::tensor::Tensor;
+use numr::autograd::{
+    Var, backward, var_fused_add_layer_norm, var_fused_add_rms_norm, var_group_norm,
+    var_layer_norm, var_rms_norm, var_sum,
+};
+use numr::runtime::Runtime;
+use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+use numr::tensor::Tensor;
 
 #[test]
 fn test_var_rms_norm_forward() {
@@ -25,13 +28,13 @@ fn test_var_rms_norm_forward() {
     // rms = sqrt(mean([1, 4, 9, 16]) + 1e-5) = sqrt(7.5 + 1e-5) ~ 2.7386
     // output = [1/rms, 2/rms, 3/rms, 4/rms] * [1,1,1,1]
     let rms = (7.5f32 + 1e-5).sqrt();
-    for i in 0..4 {
+    for (i, &d) in data.iter().enumerate() {
         let expected = (i as f32 + 1.0) / rms;
         assert!(
-            (data[i] - expected).abs() < 1e-5,
+            (d - expected).abs() < 1e-5,
             "data[{}] = {}, expected {}",
             i,
-            data[i],
+            d,
             expected,
         );
     }
@@ -55,7 +58,7 @@ fn test_var_rms_norm_backward() {
 
     // Sum the output to get a scalar for backward
     // Sum over all dims to get a scalar for backward
-    let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+    let loss = var_sum(&output, &[0, 1], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let grad_input = grads.get(input.id()).unwrap();
@@ -124,7 +127,7 @@ fn test_var_layer_norm_backward() {
     let output = var_layer_norm(&input, &weight, &bias, 1e-5, &client).unwrap();
 
     // Sum over all dims to get a scalar for backward
-    let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+    let loss = var_sum(&output, &[0, 1], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let grad_input = grads.get(input.id()).unwrap();
@@ -257,7 +260,7 @@ fn test_var_group_norm_backward() {
     );
 
     let output = var_group_norm(&input, &weight, &bias, 2, 1e-5, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
@@ -325,7 +328,7 @@ fn test_var_fused_add_rms_norm_backward() {
     );
 
     let output = var_fused_add_rms_norm(&x, &residual, &weight, 1e-5, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+    let loss = var_sum(&output, &[0, 1], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
@@ -426,7 +429,7 @@ fn test_var_fused_add_layer_norm_backward() {
     );
 
     let output = var_fused_add_layer_norm(&x, &residual, &weight, &bias, 1e-5, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[0, 1], false, &client).unwrap();
+    let loss = var_sum(&output, &[0, 1], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();

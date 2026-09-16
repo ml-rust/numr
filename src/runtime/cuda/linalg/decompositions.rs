@@ -217,3 +217,77 @@ pub fn qr_decompose_internal(
 
     Ok(QrDecomposition { q, r })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+    use crate::ops::MatmulOps;
+
+    #[test]
+    fn test_lu_decomposition() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
+
+        // 2x2 matrix: [[4, 3], [6, 3]]
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[4.0f32, 3.0, 6.0, 3.0], &[2, 2], device).unwrap();
+
+        let lu = client.lu_decompose(&a).unwrap();
+
+        assert_eq!(lu.lu.shape(), &[2, 2]);
+        assert_eq!(lu.pivots.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_cholesky() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
+
+        // Symmetric positive definite: [[4, 2], [2, 5]]
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[4.0f32, 2.0, 2.0, 5.0], &[2, 2], device).unwrap();
+
+        let chol = client.cholesky_decompose(&a).unwrap();
+
+        assert_eq!(chol.l.shape(), &[2, 2]);
+
+        // L should be lower triangular
+        let l_data: Vec<f32> = chol.l.to_vec();
+        assert!((l_data[1]).abs() < 1e-5); // Upper triangle should be 0
+    }
+
+    #[test]
+    fn test_qr_decomposition() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
+
+        // Test QR: A = Q @ R
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+
+        let qr = client.qr_decompose(&a).unwrap();
+
+        // Verify Q @ R == A
+        let reconstructed = client.matmul(&qr.q, &qr.r).unwrap();
+        let a_data: Vec<f32> = a.to_vec();
+        let reconstructed_data: Vec<f32> = reconstructed.to_vec();
+
+        for i in 0..4 {
+            assert!(
+                (a_data[i] - reconstructed_data[i]).abs() < 1e-4,
+                "Mismatch at {}: {} vs {}",
+                i,
+                a_data[i],
+                reconstructed_data[i]
+            );
+        }
+    }
+}

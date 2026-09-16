@@ -96,3 +96,77 @@ pub unsafe fn depthwise_conv2d_f64(
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     depthwise_conv2d_scalar_f64(input, weight, bias, output, params);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dtype::DType;
+    use crate::ops::PaddingMode;
+    use crate::ops::conv_common::validate_depthwise_conv2d;
+
+    #[test]
+    fn test_depthwise_conv2d_simd_matches_scalar() {
+        // Input: (1, 8, 16, 16) - wide enough to trigger SIMD
+        let channels = 8;
+        let (h, w) = (16, 16);
+        let (kh, kw) = (3, 3);
+
+        let input: Vec<f32> = (0..(channels * h * w))
+            .map(|x| (x as f32) * 0.01 - 1.0)
+            .collect();
+        let weight: Vec<f32> = (0..(channels * kh * kw))
+            .map(|x| (x as f32) * 0.01 - 0.3)
+            .collect();
+
+        let params = validate_depthwise_conv2d(
+            &[1, channels, h, w],
+            &[channels, 1, kh, kw],
+            None,
+            (1, 1),
+            PaddingMode::Valid,
+            (1, 1),
+            DType::F32,
+            DType::F32,
+            None,
+        )
+        .unwrap();
+
+        let output_len = channels * params.output_h * params.output_w;
+        let mut out_simd = vec![0.0f32; output_len];
+        let mut out_scalar = vec![0.0f32; output_len];
+
+        unsafe {
+            depthwise_conv2d_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_simd.as_mut_ptr(),
+                params,
+            );
+            depthwise_conv2d_scalar_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_scalar.as_mut_ptr(),
+                params,
+            );
+        }
+
+        for i in 0..output_len {
+            let diff = (out_simd[i] - out_scalar[i]).abs();
+            let rel_err = if out_scalar[i].abs() > 1e-6 {
+                diff / out_scalar[i].abs()
+            } else {
+                diff
+            };
+            assert!(
+                rel_err < 1e-5,
+                "depthwise conv2d mismatch at {}: SIMD={} scalar={} (rel_err={})",
+                i,
+                out_simd[i],
+                out_scalar[i],
+                rel_err
+            );
+        }
+    }
+}

@@ -374,4 +374,72 @@ mod tests {
             "f64-depthwise-strided",
         );
     }
+
+    #[test]
+    fn test_conv1d_simd_matches_scalar() {
+        // Input: (1, 16, 32) - 16 channels to trigger SIMD
+        let c_in = 16;
+        let length = 32;
+        let c_out = 8;
+        let kernel_size = 3;
+
+        let input: Vec<f32> = (0..(c_in * length))
+            .map(|x| (x as f32) * 0.01 - 0.5)
+            .collect();
+        let weight: Vec<f32> = (0..(c_out * c_in * kernel_size))
+            .map(|x| (x as f32) * 0.001 - 0.2)
+            .collect();
+
+        let params = validate_conv1d(
+            &[1, c_in, length],
+            &[c_out, c_in, kernel_size],
+            None,
+            1,
+            PaddingMode::Valid,
+            1,
+            1,
+            DType::F32,
+            DType::F32,
+            None,
+        )
+        .unwrap();
+
+        let output_len = c_out * params.output_length;
+        let mut out_simd = vec![0.0f32; output_len];
+        let mut out_scalar = vec![0.0f32; output_len];
+
+        unsafe {
+            conv1d_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_simd.as_mut_ptr(),
+                params,
+            );
+            conv1d_scalar_f32(
+                input.as_ptr(),
+                weight.as_ptr(),
+                None,
+                out_scalar.as_mut_ptr(),
+                params,
+            );
+        }
+
+        for i in 0..output_len {
+            let diff = (out_simd[i] - out_scalar[i]).abs();
+            let rel_err = if out_scalar[i].abs() > 1e-6 {
+                diff / out_scalar[i].abs()
+            } else {
+                diff
+            };
+            assert!(
+                rel_err < 1e-5,
+                "conv1d mismatch at {}: SIMD={} scalar={} (rel_err={})",
+                i,
+                out_simd[i],
+                out_scalar[i],
+                rel_err
+            );
+        }
+    }
 }

@@ -1,16 +1,12 @@
-//! Matrix operations for CUDA (inverse, det, trace, diag, diagflat, rank, norm)
+//! Matrix inverse, determinant, trace, diagonal, and diagflat for CUDA
 
-use super::super::CudaRuntime;
-use super::super::client::CudaClient;
-use super::super::kernels;
-use super::svd::svd_decompose_impl;
+use super::super::super::CudaRuntime;
+use super::super::super::client::CudaClient;
+use super::super::super::kernels;
 use crate::algorithm::linalg::{
-    LinearAlgebraAlgorithms, MatrixNormOrder, validate_linalg_dtype, validate_matrix_2d,
-    validate_square_matrix,
+    LinearAlgebraAlgorithms, validate_linalg_dtype, validate_matrix_2d, validate_square_matrix,
 };
-use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{CompareOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps};
 use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -287,224 +283,130 @@ pub fn diagflat_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Ten
     Ok(out)
 }
 
-/// Matrix rank via QR decomposition - runs entirely on GPU (zero CPU transfers)
-pub fn matrix_rank_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    tol: Option<f64>,
-) -> Result<Tensor<CudaRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (m, n) = validate_matrix_2d(a.shape())?;
-    let dtype = a.dtype();
-    let k = m.min(n);
+#[cfg(test)]
+mod tests {
+    use super::super::super::test_support::*;
+    use super::*;
+    use crate::ops::MatmulOps;
 
-    // Handle empty matrix
-    if k == 0 {
-        return Tensor::<CudaRuntime>::from_slice(&[0i64], &[], a.device());
-    }
-
-    // Compute tolerance factor (depends only on dimensions, no GPU data needed)
-    let base_tol = tol.unwrap_or_else(|| {
-        let eps = match dtype {
-            DType::F32 => f32::EPSILON as f64,
-            DType::F64 => f64::EPSILON,
-            _ => f32::EPSILON as f64,
+    #[test]
+    fn test_trace() {
+        let Some(client) = create_client() else {
+            return;
         };
-        (m.max(n) as f64) * eps
-    });
+        let device = client.device();
 
-    // Use QR decomposition to estimate rank
-    let qr = client.qr_decompose(a)?;
+        // 2x2 matrix: [[1, 2], [3, 4]]
+        // trace = 1 + 4 = 5
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
 
-    // Get diagonal of R
-    let r_diag = LinearAlgebraAlgorithms::diag(client, &qr.r)?;
+        let t = LinearAlgebraAlgorithms::trace(&client, &a).unwrap();
+        let result: Vec<f32> = t.to_vec();
 
-    // Compute abs(r_diag) on GPU
-    let abs_diag = client.abs(&r_diag)?;
-
-    // Compute max(abs(r_diag)) on GPU - returns scalar tensor
-    let max_val = client.max(&abs_diag, &[], false)?;
-
-    // Compute threshold = base_tol * max on GPU
-    let threshold = client.mul_scalar(&max_val, base_tol)?;
-
-    // Compare abs_diag > threshold on GPU (broadcasts threshold)
-    // CUDA comparisons return same dtype (0.0/1.0), not Bool
-    let above_mask = client.gt(&abs_diag, &threshold)?;
-
-    // Sum the mask directly (values are 0.0 or 1.0)
-    let rank_float = client.sum(&above_mask, &[], false)?;
-
-    // Cast to I64 for integer result
-    let rank_tensor = client.cast(&rank_float, DType::I64)?;
-
-    Ok(rank_tensor)
-}
-
-/// Matrix norm
-pub fn matrix_norm_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    ord: MatrixNormOrder,
-) -> Result<Tensor<CudaRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    let (_m, _n) = validate_matrix_2d(a.shape())?;
-
-    match ord {
-        MatrixNormOrder::Frobenius => {
-            // Frobenius norm: ||A||_F = sqrt(sum(A²))
-            // Use existing tensor ops to keep data on GPU
-            let squared = client.square(a)?;
-            let sum_sq = client.sum(&squared, &[], false)?;
-            client.sqrt(&sum_sq)
-        }
-        MatrixNormOrder::Spectral => {
-            // Spectral norm: ||A||_2 = max(singular_values(A))
-            let svd = svd_decompose_impl(client, a)?;
-            client.max(&svd.s, &[], false)
-        }
-        MatrixNormOrder::Nuclear => {
-            // Nuclear norm: ||A||_* = sum(singular_values(A))
-            let svd = svd_decompose_impl(client, a)?;
-            client.sum(&svd.s, &[], false)
-        }
-    }
-}
-
-/// Kronecker product: A ⊗ B
-pub fn kron_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    b: &Tensor<CudaRuntime>,
-) -> Result<Tensor<CudaRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
+        assert!((result[0] - 5.0).abs() < 1e-5);
     }
 
-    let (m_a, n_a) = validate_matrix_2d(a.shape())?;
-    let (m_b, n_b) = validate_matrix_2d(b.shape())?;
+    #[test]
+    fn test_diag() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
 
-    let dtype = a.dtype();
-    let device = client.device();
+        // 2x3 matrix
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3], device)
+                .unwrap();
 
-    let m_out = m_a * m_b;
-    let n_out = n_a * n_b;
-    let out_size = m_out * n_out * dtype.size_in_bytes();
-    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
-    let out_ptr = out_guard.ptr();
+        let d = LinearAlgebraAlgorithms::diag(&client, &a).unwrap();
+        let result: Vec<f32> = d.to_vec();
 
-    unsafe {
-        kernels::launch_kron(
-            client.context(),
-            client.stream(),
-            device.index,
-            dtype,
-            a.ptr(),
-            b.ptr(),
-            out_ptr,
-            m_a,
-            n_a,
-            m_b,
-            n_b,
-        )?;
+        assert_eq!(result.len(), 2);
+        assert!((result[0] - 1.0).abs() < 1e-5);
+        assert!((result[1] - 5.0).abs() < 1e-5);
     }
 
-    client.synchronize();
+    #[test]
+    fn test_diagflat() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
 
-    let out =
-        unsafe { CudaClient::tensor_from_raw(out_guard.release(), &[m_out, n_out], dtype, device) };
+        let a = Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device).unwrap();
 
-    Ok(out)
-}
+        let m = LinearAlgebraAlgorithms::diagflat(&client, &a).unwrap();
+        let result: Vec<f32> = m.to_vec();
 
-/// Khatri-Rao product (column-wise Kronecker): A ⊙ B
-///
-/// For A of shape [m, k] and B of shape [n, k],
-/// produces output of shape [m * n, k].
-///
-/// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
-pub fn khatri_rao_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    b: &Tensor<CudaRuntime>,
-) -> Result<Tensor<CudaRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
+        assert_eq!(m.shape(), &[3, 3]);
+        // Expected: [[1, 0, 0], [0, 2, 0], [0, 0, 3]]
+        assert!((result[0] - 1.0).abs() < 1e-5); // [0,0]
+        assert!((result[1]).abs() < 1e-5); // [0,1]
+        assert!((result[4] - 2.0).abs() < 1e-5); // [1,1]
+        assert!((result[8] - 3.0).abs() < 1e-5); // [2,2]
     }
 
-    let (m, k_a) = validate_matrix_2d(a.shape())?;
-    let (n, k_b) = validate_matrix_2d(b.shape())?;
+    #[test]
+    fn test_det() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
 
-    if k_a != k_b {
-        return Err(Error::Internal(format!(
-            "khatri_rao: column count mismatch. A has shape [{}, {}], B has shape [{}, {}]. \
-             Matrices must have the same number of columns.",
-            m, k_a, n, k_b
-        )));
+        // 2x2 matrix: [[1, 2], [3, 4]]
+        // det = 1*4 - 2*3 = -2
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+
+        let d = LinearAlgebraAlgorithms::det(&client, &a).unwrap();
+        let result: Vec<f32> = d.to_vec();
+
+        assert!((result[0] - (-2.0)).abs() < 1e-4);
     }
 
-    let k = k_a;
-    let dtype = a.dtype();
-    let device = client.device();
+    #[test]
+    fn test_inverse() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
 
-    let m_out = m * n;
-    let out_size = m_out * k * dtype.size_in_bytes();
-    let out_guard = AllocGuard::new(client.allocator(), out_size)?;
-    let out_ptr = out_guard.ptr();
+        // Test 2x2 matrix: [[4, 7], [2, 6]]
+        // Inverse: [[0.6, -0.7], [-0.2, 0.4]]
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device).unwrap();
 
-    unsafe {
-        kernels::launch_khatri_rao(
-            client.context(),
-            client.stream(),
-            device.index,
-            dtype,
-            a.ptr(),
-            b.ptr(),
-            out_ptr,
-            m,
-            n,
-            k,
-        )?;
+        let inv = LinearAlgebraAlgorithms::inverse(&client, &a).unwrap();
+        let result: Vec<f32> = inv.to_vec();
+
+        // Check inverse values (det = 4*6 - 7*2 = 10)
+        // inv = (1/10) * [[6, -7], [-2, 4]]
+        assert!((result[0] - 0.6).abs() < 1e-4); // [0,0]
+        assert!((result[1] - (-0.7)).abs() < 1e-4); // [0,1]
+        assert!((result[2] - (-0.2)).abs() < 1e-4); // [1,0]
+        assert!((result[3] - 0.4).abs() < 1e-4); // [1,1]
     }
 
-    client.synchronize();
+    #[test]
+    fn test_inverse_identity() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
 
-    let out =
-        unsafe { CudaClient::tensor_from_raw(out_guard.release(), &[m_out, k], dtype, device) };
+        // A @ A^-1 should equal I
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&[4.0f32, 7.0, 2.0, 6.0], &[2, 2], device).unwrap();
 
-    Ok(out)
-}
+        let inv = LinearAlgebraAlgorithms::inverse(&client, &a).unwrap();
+        let product = client.matmul(&a, &inv).unwrap();
+        let result: Vec<f32> = product.to_vec();
 
-/// Upper triangular part of a matrix — delegates to impl_generic
-pub fn triu_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    diagonal: i64,
-) -> Result<Tensor<CudaRuntime>> {
-    crate::ops::impl_generic::triu_impl(client, a, diagonal)
-}
-
-/// Lower triangular part of a matrix — delegates to impl_generic
-pub fn tril_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-    diagonal: i64,
-) -> Result<Tensor<CudaRuntime>> {
-    crate::ops::impl_generic::tril_impl(client, a, diagonal)
-}
-
-/// Sign and log-absolute-determinant — delegates to impl_generic
-pub fn slogdet_impl(
-    client: &CudaClient,
-    a: &Tensor<CudaRuntime>,
-) -> Result<crate::algorithm::linalg::SlogdetResult<CudaRuntime>> {
-    crate::ops::impl_generic::slogdet_impl(client, a)
+        // Should be identity matrix
+        assert!((result[0] - 1.0).abs() < 1e-4); // [0,0]
+        assert!((result[1]).abs() < 1e-4); // [0,1]
+        assert!((result[2]).abs() < 1e-4); // [1,0]
+        assert!((result[3] - 1.0).abs() < 1e-4); // [1,1]
+    }
 }

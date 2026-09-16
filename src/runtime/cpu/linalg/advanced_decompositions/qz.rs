@@ -687,3 +687,252 @@ fn extract_generalized_eigenvalues<T: Element + LinalgElement>(
 
     (real_parts, imag_parts)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_qz_identity_matrices() {
+        let client = create_client();
+        let device = client.device();
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 1.0], &[2, 2], device).unwrap();
+        let b =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 1.0], &[2, 2], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+
+        let eig_real: Vec<f64> = result.eigenvalues_real.to_vec();
+        let eig_imag: Vec<f64> = result.eigenvalues_imag.to_vec();
+
+        for i in 0..2 {
+            assert_close(eig_real[i], 1.0, 1e-6);
+            assert_close(eig_imag[i], 0.0, 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_qz_diagonal_matrices() {
+        let client = create_client();
+        let device = client.device();
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f64, 0.0, 0.0, 6.0], &[2, 2], device).unwrap();
+        let b =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 2.0], &[2, 2], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+
+        let eig_real: Vec<f64> = result.eigenvalues_real.to_vec();
+
+        let mut eigs: Vec<f64> = eig_real.clone();
+        eigs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        assert_close(eigs[0], 2.0, 1e-6);
+        assert_close(eigs[1], 3.0, 1e-6);
+    }
+
+    #[test]
+    fn test_qz_orthogonality() {
+        let client = create_client();
+        let device = client.device();
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+        let b =
+            Tensor::<CpuRuntime>::from_slice(&[5.0f64, 6.0, 7.0, 8.0], &[2, 2], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+
+        let q: Vec<f64> = result.q.to_vec();
+        let z: Vec<f64> = result.z.to_vec();
+
+        assert!(is_orthogonal(&q, 2, 1e-6), "Q is not orthogonal");
+        assert!(is_orthogonal(&z, 2, 1e-6), "Z is not orthogonal");
+    }
+
+    #[test]
+    fn test_qz_empty_matrix() {
+        let client = create_client();
+        let device = client.device();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[] as &[f64], &[0, 0], device).unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&[] as &[f64], &[0, 0], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+        assert_eq!(result.s.shape(), &[0, 0]);
+        assert_eq!(result.eigenvalues_real.shape(), &[0]);
+    }
+
+    fn is_upper_triangular(mat: &[f64], n: usize, tol: f64) -> bool {
+        for i in 0..n {
+            for j in 0..i {
+                if mat[i * n + j].abs() > tol {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn test_qz_t_upper_triangular() {
+        let client = create_client();
+        let device = client.device();
+
+        // 3×3 non-trivial matrices
+        #[rustfmt::skip]
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f64, 2.0, 3.0,
+              4.0, 5.0, 6.0,
+              7.0, 8.0, 10.0],
+            &[3, 3], device).unwrap();
+        #[rustfmt::skip]
+        let b = Tensor::<CpuRuntime>::from_slice(
+            &[2.0f64, 1.0, 0.0,
+              1.0, 3.0, 1.0,
+              0.0, 1.0, 2.0],
+            &[3, 3], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+        let t_data: Vec<f64> = result.t.to_vec();
+        assert!(
+            is_upper_triangular(&t_data, 3, 1e-10),
+            "T is not upper triangular: {:?}",
+            t_data
+        );
+    }
+
+    #[test]
+    fn test_qz_factorization_identity() {
+        let client = create_client();
+        let device = client.device();
+
+        #[rustfmt::skip]
+        let a_data = [1.0f64, 2.0, 3.0,
+                      4.0, 5.0, 6.0,
+                      7.0, 8.0, 10.0];
+        #[rustfmt::skip]
+        let b_data = [2.0f64, 1.0, 0.0,
+                      1.0, 3.0, 1.0,
+                      0.0, 1.0, 2.0];
+
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[3, 3], device).unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&b_data, &[3, 3], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+        let q_vec: Vec<f64> = result.q.to_vec();
+        let z_vec: Vec<f64> = result.z.to_vec();
+        let s_vec: Vec<f64> = result.s.to_vec();
+        let t_vec: Vec<f64> = result.t.to_vec();
+
+        let n = 3;
+        // Verify A = Q * S * Z^T
+        let zt = transpose(&z_vec, n);
+        let qs = matrix_multiply(&q_vec, &s_vec, n);
+        let qszt = matrix_multiply(&qs, &zt, n);
+        for i in 0..n * n {
+            assert!(
+                (qszt[i] - a_data[i]).abs() < 1e-8,
+                "A = Q*S*Z^T failed at {}: {} vs {}",
+                i,
+                qszt[i],
+                a_data[i]
+            );
+        }
+
+        // Verify B = Q * T * Z^T
+        let qt_b = matrix_multiply(&q_vec, &t_vec, n);
+        let qtzt = matrix_multiply(&qt_b, &zt, n);
+        for i in 0..n * n {
+            assert!(
+                (qtzt[i] - b_data[i]).abs() < 1e-8,
+                "B = Q*T*Z^T failed at {}: {} vs {}",
+                i,
+                qtzt[i],
+                b_data[i]
+            );
+        }
+
+        // Verify Q and Z are orthogonal
+        assert!(is_orthogonal(&q_vec, n, 1e-10), "Q not orthogonal");
+        assert!(is_orthogonal(&z_vec, n, 1e-10), "Z not orthogonal");
+
+        // Verify T is upper triangular
+        assert!(
+            is_upper_triangular(&t_vec, n, 1e-10),
+            "T not upper triangular"
+        );
+    }
+
+    #[test]
+    fn test_qz_5x5_upper_triangular_t() {
+        let client = create_client();
+        let device = client.device();
+
+        // 5×5 test with a mix of real and potentially complex eigenvalues
+        #[rustfmt::skip]
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[4.0f64, 1.0, 2.0, 0.0, 1.0,
+              1.0, 3.0, 1.0, 1.0, 0.0,
+              2.0, 1.0, 5.0, 2.0, 1.0,
+              0.0, 1.0, 2.0, 6.0, 3.0,
+              1.0, 0.0, 1.0, 3.0, 7.0],
+            &[5, 5], device).unwrap();
+        #[rustfmt::skip]
+        let b = Tensor::<CpuRuntime>::from_slice(
+            &[2.0f64, 0.5, 0.0, 0.0, 0.0,
+              0.5, 3.0, 0.5, 0.0, 0.0,
+              0.0, 0.5, 2.0, 0.5, 0.0,
+              0.0, 0.0, 0.5, 3.0, 0.5,
+              0.0, 0.0, 0.0, 0.5, 2.0],
+            &[5, 5], device).unwrap();
+
+        let result = client.qz_decompose(&a, &b).unwrap();
+        let t_data: Vec<f64> = result.t.to_vec();
+        let q_data: Vec<f64> = result.q.to_vec();
+        let z_data: Vec<f64> = result.z.to_vec();
+        let s_data: Vec<f64> = result.s.to_vec();
+
+        let n = 5;
+        assert!(
+            is_upper_triangular(&t_data, n, 1e-8),
+            "T not upper triangular for 5×5"
+        );
+        assert!(is_orthogonal(&q_data, n, 1e-8), "Q not orthogonal for 5×5");
+        assert!(is_orthogonal(&z_data, n, 1e-8), "Z not orthogonal for 5×5");
+
+        // Verify A = Q * S * Z^T
+        let a_orig: Vec<f64> = a.to_vec();
+        let zt = transpose(&z_data, n);
+        let qs = matrix_multiply(&q_data, &s_data, n);
+        let qszt = matrix_multiply(&qs, &zt, n);
+        for i in 0..n * n {
+            assert!(
+                (qszt[i] - a_orig[i]).abs() < 1e-6,
+                "A = Q*S*Z^T failed at {}: {} vs {}",
+                i,
+                qszt[i],
+                a_orig[i]
+            );
+        }
+
+        // Verify B = Q * T * Z^T
+        let b_orig: Vec<f64> = b.to_vec();
+        let qt_b = matrix_multiply(&q_data, &t_data, n);
+        let qtzt = matrix_multiply(&qt_b, &zt, n);
+        for i in 0..n * n {
+            assert!(
+                (qtzt[i] - b_orig[i]).abs() < 1e-6,
+                "B = Q*T*Z^T failed at {}: {} vs {}",
+                i,
+                qtzt[i],
+                b_orig[i]
+            );
+        }
+    }
+}

@@ -202,3 +202,69 @@ fn convert_2x2_block<T: Element + LinalgElement>(
         t_imag[row * n + (i + 1)] = T::from_f64(t1_im * u0_re + t2_im * u1_re - t2_re * u1_im);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_rsf2csf_1x1_real_eigenvalue() {
+        let client = create_client();
+        let device = client.device();
+
+        let t = Tensor::<CpuRuntime>::from_slice(&[3.0f64], &[1, 1], device).unwrap();
+        let z = Tensor::<CpuRuntime>::from_slice(&[1.0f64], &[1, 1], device).unwrap();
+        let schur = SchurDecomposition { z, t };
+
+        let result = client.rsf2csf(&schur).unwrap();
+
+        let t_real: Vec<f64> = result.t_real.to_vec();
+        let t_imag: Vec<f64> = result.t_imag.to_vec();
+
+        assert_close(t_real[0], 3.0, 1e-10);
+        assert_close(t_imag[0], 0.0, 1e-10);
+    }
+
+    #[test]
+    fn test_rsf2csf_2x2_complex_block() {
+        let client = create_client();
+        let device = client.device();
+
+        // 2x2 block with complex eigenvalues: eigenvalues are 2 ± i
+        let t =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f64, -1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+        let z =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 1.0], &[2, 2], device).unwrap();
+        let schur = SchurDecomposition { z, t };
+
+        let result = client.rsf2csf(&schur).unwrap();
+
+        let t_real: Vec<f64> = result.t_real.to_vec();
+        let t_imag: Vec<f64> = result.t_imag.to_vec();
+
+        // Diagonal should have eigenvalues 2 + i and 2 - i
+        assert_close(t_real[0], 2.0, 1e-6);
+        assert_close(t_imag[0], 1.0, 1e-6);
+        assert_close(t_real[3], 2.0, 1e-6);
+        assert_close(t_imag[3], -1.0, 1e-6);
+
+        // Subdiagonal should be zero
+        assert_close(t_real[2], 0.0, 1e-10);
+        assert_close(t_imag[2], 0.0, 1e-10);
+    }
+
+    #[test]
+    fn test_rsf2csf_empty_matrix() {
+        let client = create_client();
+        let device = client.device();
+
+        let t = Tensor::<CpuRuntime>::from_slice(&[] as &[f64], &[0, 0], device).unwrap();
+        let z = Tensor::<CpuRuntime>::from_slice(&[] as &[f64], &[0, 0], device).unwrap();
+        let schur = SchurDecomposition { z, t };
+
+        let result = client.rsf2csf(&schur).unwrap();
+        assert_eq!(result.t_real.shape(), &[0, 0]);
+    }
+}

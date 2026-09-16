@@ -18,7 +18,7 @@ mod svd;
 mod tensor_decompose;
 
 #[cfg(test)]
-mod tests;
+mod test_support;
 
 use super::{CpuClient, CpuRuntime};
 use crate::algorithm::linalg::{

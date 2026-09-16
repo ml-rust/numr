@@ -360,3 +360,133 @@ pub unsafe fn stockham_fft_batched_c128(
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fft_impulse() {
+        // FFT of [1, 0, 0, 0] should be [1, 1, 1, 1]
+        let input = [
+            Complex64::new(1.0, 0.0),
+            Complex64::new(0.0, 0.0),
+            Complex64::new(0.0, 0.0),
+            Complex64::new(0.0, 0.0),
+        ];
+        let mut output = [Complex64::default(); 4];
+
+        unsafe {
+            stockham_fft_c64(&input, &mut output, false, 1.0);
+        }
+
+        for c in &output {
+            assert!((c.re - 1.0).abs() < 1e-5, "Expected 1.0, got {}", c.re);
+            assert!(c.im.abs() < 1e-5, "Expected 0.0i, got {}i", c.im);
+        }
+    }
+
+    #[test]
+    fn test_fft_ifft_roundtrip() {
+        // FFT followed by IFFT should recover original signal
+        let input = [
+            Complex64::new(1.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(5.0, 6.0),
+            Complex64::new(7.0, 8.0),
+        ];
+        let mut fft_output = [Complex64::default(); 4];
+        let mut ifft_output = [Complex64::default(); 4];
+
+        unsafe {
+            // Forward FFT (no normalization)
+            stockham_fft_c64(&input, &mut fft_output, false, 1.0);
+            // Inverse FFT (normalize by 1/N = 0.25)
+            stockham_fft_c64(&fft_output, &mut ifft_output, true, 0.25);
+        }
+
+        for i in 0..4 {
+            assert!(
+                (ifft_output[i].re - input[i].re).abs() < 1e-5,
+                "Real mismatch at {}: {} vs {}",
+                i,
+                ifft_output[i].re,
+                input[i].re
+            );
+            assert!(
+                (ifft_output[i].im - input[i].im).abs() < 1e-5,
+                "Imag mismatch at {}: {} vs {}",
+                i,
+                ifft_output[i].im,
+                input[i].im
+            );
+        }
+    }
+
+    #[test]
+    fn test_fft_parseval() {
+        // Parseval's theorem: sum(|x|^2) = (1/N) * sum(|X|^2)
+        let input = [
+            Complex64::new(1.0, 0.5),
+            Complex64::new(2.0, 1.0),
+            Complex64::new(0.5, 0.5),
+            Complex64::new(1.5, 0.0),
+        ];
+        let mut output = [Complex64::default(); 4];
+
+        unsafe {
+            stockham_fft_c64(&input, &mut output, false, 1.0);
+        }
+
+        let energy_time: f32 = input.iter().map(|c| c.re * c.re + c.im * c.im).sum();
+        let energy_freq: f32 = output.iter().map(|c| c.re * c.re + c.im * c.im).sum();
+
+        // energy_time = (1/N) * energy_freq
+        let expected_freq_energy = energy_time * 4.0;
+        assert!(
+            (energy_freq - expected_freq_energy).abs() < 1e-4,
+            "Parseval failed: {} vs {}",
+            energy_freq,
+            expected_freq_energy
+        );
+    }
+
+    #[test]
+    fn test_fft_size_2() {
+        // Simple N=2 case
+        let input = [Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0)];
+        let mut output = [Complex64::default(); 2];
+
+        unsafe {
+            stockham_fft_c64(&input, &mut output, false, 1.0);
+        }
+
+        // X[0] = x[0] + x[1] = 3
+        // X[1] = x[0] - x[1] = -1
+        assert!((output[0].re - 3.0).abs() < 1e-5);
+        assert!(output[0].im.abs() < 1e-5);
+        assert!((output[1].re - (-1.0)).abs() < 1e-5);
+        assert!(output[1].im.abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_fft_c128() {
+        // Test f64 precision FFT
+        let input = [
+            Complex128::new(1.0, 0.0),
+            Complex128::new(0.0, 0.0),
+            Complex128::new(0.0, 0.0),
+            Complex128::new(0.0, 0.0),
+        ];
+        let mut output = [Complex128::default(); 4];
+
+        unsafe {
+            stockham_fft_c128(&input, &mut output, false, 1.0);
+        }
+
+        for c in &output {
+            assert!((c.re - 1.0).abs() < 1e-10);
+            assert!(c.im.abs() < 1e-10);
+        }
+    }
+}

@@ -443,6 +443,3 @@ where
         "Conv2dBackward"
     }
 }
-
-#[cfg(test)]
-mod tests;

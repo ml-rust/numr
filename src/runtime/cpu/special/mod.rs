@@ -11,9 +11,6 @@
 
 mod helpers;
 
-#[cfg(test)]
-mod tests;
-
 use crate::algorithm::special::scalar::{
     airy_ai_scalar, airy_bi_scalar, bessel_k0_scalar, bessel_k1_scalar, bessel_y0_scalar,
     bessel_y1_scalar, beta_scalar, betainc_scalar, betaincinv_scalar, ellipe_scalar, ellipk_scalar,

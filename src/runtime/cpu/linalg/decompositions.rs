@@ -309,3 +309,111 @@ fn qr_decompose_typed<T: Element + LinalgElement>(
         r: r_tensor,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_lu_decomposition_2x2() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[4, 3], [6, 3]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[4.0f32, 3.0, 6.0, 3.0], &[2, 2], device).unwrap();
+
+        let lu = client.lu_decompose(&a).unwrap();
+
+        // Verify dimensions
+        assert_eq!(lu.lu.shape(), &[2, 2]);
+        assert_eq!(lu.pivots.shape(), &[2]);
+    }
+
+    #[test]
+    fn test_lu_decomposition_3x3() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[2, -1, 0], [-1, 2, -1], [0, -1, 2]] (tridiagonal matrix)
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[2.0f32, -1.0, 0.0, -1.0, 2.0, -1.0, 0.0, -1.0, 2.0],
+            &[3, 3],
+            device,
+        )
+        .unwrap();
+
+        let result = client.lu_decompose(&a);
+        assert!(result.is_ok());
+
+        let lu = result.unwrap();
+        assert_eq!(lu.lu.shape(), &[3, 3]);
+        assert_eq!(lu.pivots.shape(), &[3]);
+    }
+
+    #[test]
+    fn test_cholesky_2x2() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[4, 2], [2, 2]] - symmetric positive definite
+        // L = [[2, 0], [1, 1]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[4.0f32, 2.0, 2.0, 2.0], &[2, 2], device).unwrap();
+
+        let chol = client.cholesky_decompose(&a).unwrap();
+        let l_data: Vec<f32> = chol.l.to_vec();
+
+        // Check L is approximately [[2, 0], [1, 1]]
+        assert!((l_data[0] - 2.0).abs() < 1e-5); // L[0,0]
+        assert!((l_data[1]).abs() < 1e-5); // L[0,1] = 0
+        assert!((l_data[2] - 1.0).abs() < 1e-5); // L[1,0]
+        assert!((l_data[3] - 1.0).abs() < 1e-5); // L[1,1]
+    }
+
+    #[test]
+    fn test_qr_decomposition_2x2() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[1, 2], [3, 4]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+
+        let qr = client.qr_decompose(&a).unwrap();
+
+        // Check dimensions
+        assert_eq!(qr.q.shape(), &[2, 2]);
+        assert_eq!(qr.r.shape(), &[2, 2]);
+
+        // Q should be orthogonal: Q^T @ Q ≈ I
+        let q_data: Vec<f32> = qr.q.to_vec();
+        // Check Q^T @ Q diagonal is ~1 and off-diagonal is ~0
+        let q00 = q_data[0];
+        let q01 = q_data[1];
+        let q10 = q_data[2];
+        let q11 = q_data[3];
+
+        let qtq_00 = q00 * q00 + q10 * q10; // Should be 1
+        let qtq_11 = q01 * q01 + q11 * q11; // Should be 1
+        let qtq_01 = q00 * q01 + q10 * q11; // Should be 0
+
+        assert!(
+            (qtq_00 - 1.0).abs() < 1e-4,
+            "Q^T@Q[0,0] = {} should be 1",
+            qtq_00
+        );
+        assert!(
+            (qtq_11 - 1.0).abs() < 1e-4,
+            "Q^T@Q[1,1] = {} should be 1",
+            qtq_11
+        );
+        assert!((qtq_01).abs() < 1e-4, "Q^T@Q[0,1] = {} should be 0", qtq_01);
+
+        // R should be upper triangular (R[1,0] = 0)
+        let r_data: Vec<f32> = qr.r.to_vec();
+        assert!((r_data[2]).abs() < 1e-4, "R[1,0] should be 0");
+    }
+}

@@ -33,7 +33,7 @@ mod tensor_decompose;
 mod triangular_solve;
 
 #[cfg(test)]
-mod tests;
+mod test_support;
 
 use super::{WgpuClient, WgpuRuntime};
 use crate::algorithm::linalg::{

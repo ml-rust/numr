@@ -1,4 +1,6 @@
-use super::*;
+use numr::algorithm::fft_bluestein::{BluesteinTables, chirp_sequence};
+use numr::dtype::Complex128;
+use std::f64::consts::PI;
 
 /// Naive O(M^2) DFT, used only to give the tables a reference that shares no
 /// code with the backends under test.
@@ -68,24 +70,6 @@ fn integer_recurrence_beats_direct_k_squared_at_large_n() {
         chirp[k],
         expected
     );
-}
-
-#[test]
-fn kernel_is_mirrored_without_self_collision() {
-    let n = 5;
-    let chirp = chirp_sequence(n, false);
-    let m = (2 * n - 1).next_power_of_two();
-    let kernel = kernel_from_chirp(&chirp, m);
-    for t in 1..n {
-        assert_eq!(kernel[t].re, kernel[m - t].re, "t={t}");
-        assert_eq!(kernel[t].im, kernel[m - t].im, "t={t}");
-    }
-    // Everything between the head and the mirrored tail stays zero; a collision
-    // would show up here as a nonzero entry.
-    for slot in kernel.iter().take(m - n + 1).skip(n) {
-        assert_eq!(slot.re, 0.0);
-        assert_eq!(slot.im, 0.0);
-    }
 }
 
 #[test]

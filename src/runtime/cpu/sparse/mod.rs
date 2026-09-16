@@ -16,8 +16,7 @@ mod iterative;
 mod linalg;
 pub(crate) mod merge;
 mod sparse_highlevel;
-#[cfg(test)]
-mod tests;
+mod spmv;
 
 // Re-export merge types for use via path in fallback.rs (e.g. cpu::sparse::MergeStrategy)
 // Lint false positive: accessed via path resolution, not `use` imports

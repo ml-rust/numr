@@ -93,3 +93,95 @@ fn polar_decompose_typed<T: Element + LinalgElement>(
         p: Tensor::<CpuRuntime>::from_slice(&p_data, &[n, n], device)?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+
+    #[test]
+    fn test_polar_orthogonal_input() {
+        let client = create_client();
+        let device = client.device();
+
+        let angle = std::f64::consts::PI / 4.0;
+        let c = angle.cos();
+        let s = angle.sin();
+        let a = Tensor::<CpuRuntime>::from_slice(&[c, -s, s, c], &[2, 2], device).unwrap();
+
+        let result = client.polar_decompose(&a).unwrap();
+
+        let u: Vec<f64> = result.u.to_vec();
+        let p: Vec<f64> = result.p.to_vec();
+
+        assert!(is_orthogonal(&u, 2, 1e-6), "U is not orthogonal");
+
+        assert_close(p[0], 1.0, 1e-6);
+        assert_close(p[1], 0.0, 1e-6);
+        assert_close(p[2], 0.0, 1e-6);
+        assert_close(p[3], 1.0, 1e-6);
+    }
+
+    #[test]
+    fn test_polar_symmetric_input() {
+        let client = create_client();
+        let device = client.device();
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+
+        let result = client.polar_decompose(&a).unwrap();
+
+        let u: Vec<f64> = result.u.to_vec();
+        let p: Vec<f64> = result.p.to_vec();
+
+        assert!(is_orthogonal(&u, 2, 1e-6), "U is not orthogonal");
+        assert_close(p[1], p[2], 1e-6);
+    }
+
+    #[test]
+    fn test_polar_reconstruction() {
+        let client = create_client();
+        let device = client.device();
+
+        let a_data = [1.0f64, 2.0, 3.0, 4.0];
+        let a = Tensor::<CpuRuntime>::from_slice(&a_data, &[2, 2], device).unwrap();
+
+        let result = client.polar_decompose(&a).unwrap();
+
+        let u: Vec<f64> = result.u.to_vec();
+        let p: Vec<f64> = result.p.to_vec();
+
+        let reconstructed = matrix_multiply(&u, &p, 2);
+
+        for i in 0..4 {
+            assert_close(reconstructed[i], a_data[i], 1e-6);
+        }
+    }
+
+    #[test]
+    fn test_polar_p_symmetric() {
+        let client = create_client();
+        let device = client.device();
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+
+        let result = client.polar_decompose(&a).unwrap();
+        let p: Vec<f64> = result.p.to_vec();
+
+        assert_close(p[1], p[2], 1e-6);
+    }
+
+    #[test]
+    fn test_polar_empty_matrix() {
+        let client = create_client();
+        let device = client.device();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[] as &[f64], &[0, 0], device).unwrap();
+
+        let result = client.polar_decompose(&a).unwrap();
+        assert_eq!(result.u.shape(), &[0, 0]);
+        assert_eq!(result.p.shape(), &[0, 0]);
+    }
+}

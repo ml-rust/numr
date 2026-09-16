@@ -252,3 +252,34 @@ unsafe fn gemv_bt_via_f32<T: Element, O: Element>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Same accumulator defect through the GEMV-BT decode fast path, which has
+    /// its own dot-product loop and its own accumulator.
+    #[test]
+    fn test_gemv_bt_i32_saturates_instead_of_wrapping() {
+        // B is stored as [N, K] = [[1, 1], [1, -1]].
+        let a = [2_000_000_000i32, 2_000_000_000];
+        let b_nk = [1i32, 1, 1, -1];
+        let mut c = [0i32; 2];
+
+        unsafe { gemv_bt_kernel(a.as_ptr(), b_nk.as_ptr(), c.as_mut_ptr(), 1, 2, 2, 2) };
+        assert_eq!(c, [i32::MAX, 0]);
+    }
+
+    /// Catches an FP8 accumulator in the GEMV-BT dot product.
+    #[test]
+    fn test_gemv_bt_fp8_accumulates_in_f32() {
+        use crate::dtype::FP8E4M3;
+
+        let a = [FP8E4M3::from_f32(1.0); 32];
+        let b_nk = [FP8E4M3::from_f32(1.0); 32];
+        let mut c = [FP8E4M3::from_f32(0.0); 1];
+
+        unsafe { gemv_bt_kernel(a.as_ptr(), b_nk.as_ptr(), c.as_mut_ptr(), 1, 1, 32, 1) };
+        assert_eq!(c[0].to_f32(), 32.0);
+    }
+}

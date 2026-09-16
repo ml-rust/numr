@@ -170,3 +170,27 @@ impl BluesteinPlan {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bluestein_plan_direct_three_point() {
+        // A 3-point plan used directly, checked against the closed-form DFT.
+        let plan = BluesteinPlan::new(3, false);
+        assert_eq!(plan.n(), 3);
+        let x = [
+            Complex128::new(1.0, 0.0),
+            Complex128::new(2.0, 0.0),
+            Complex128::new(3.0, 0.0),
+        ];
+        let mut y = [Complex128::default(); 3];
+        plan.execute_c128(&x, &mut y, 1.0);
+
+        // numpy.fft.fft([1,2,3]) == [6, -1.5+0.8660254j, -1.5-0.8660254j]
+        assert!((y[0].re - 6.0).abs() < 1e-12 && y[0].im.abs() < 1e-12);
+        assert!((y[1].re + 1.5).abs() < 1e-12 && (y[1].im - 0.866_025_403_784_438_6).abs() < 1e-12);
+        assert!((y[2].re + 1.5).abs() < 1e-12 && (y[2].im + 0.866_025_403_784_438_6).abs() < 1e-12);
+    }
+}

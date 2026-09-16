@@ -423,6 +423,3 @@ where
         "Conv1dBackward"
     }
 }
-
-#[cfg(test)]
-mod tests;

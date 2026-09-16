@@ -1,7 +1,7 @@
 //! Unit tests for special function scalar implementations
 
-use crate::algorithm::special::scalar::*;
-use crate::algorithm::special::{EULER_MASCHERONI, SQRT_PI};
+use numr::algorithm::special::scalar::*;
+use numr::algorithm::special::{EULER_MASCHERONI, SQRT_PI};
 
 // A&S approximation has ~1e-7 relative error
 const TOL: f64 = 1e-6;

@@ -201,4 +201,24 @@ pub fn cached_tables(n: usize, inverse: bool) -> Result<Arc<BluesteinTables>> {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kernel_is_mirrored_without_self_collision() {
+        let n = 5;
+        let chirp = chirp_sequence(n, false);
+        let m = (2 * n - 1).next_power_of_two();
+        let kernel = kernel_from_chirp(&chirp, m);
+        for t in 1..n {
+            assert_eq!(kernel[t].re, kernel[m - t].re, "t={t}");
+            assert_eq!(kernel[t].im, kernel[m - t].im, "t={t}");
+        }
+        // Everything between the head and the mirrored tail stays zero; a collision
+        // would show up here as a nonzero entry.
+        for slot in kernel.iter().take(m - n + 1).skip(n) {
+            assert_eq!(slot.re, 0.0);
+            assert_eq!(slot.im, 0.0);
+        }
+    }
+}

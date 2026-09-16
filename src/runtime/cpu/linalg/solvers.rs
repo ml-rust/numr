@@ -399,3 +399,57 @@ fn lstsq_typed<T: Element + LinalgElement>(
         Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_solve_2x2() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[2, 1], [1, 2]], b = [3, 3]
+        // Solution: x = [1, 1]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device).unwrap();
+
+        let x = client.solve(&a, &b).unwrap();
+        let x_data: Vec<f32> = x.to_vec();
+
+        // Check solution is approximately [1, 1]
+        assert!((x_data[0] - 1.0).abs() < 1e-5);
+        assert!((x_data[1] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_lstsq_exact() {
+        let client = create_client();
+        let device = client.device();
+
+        // Exact system: A @ x = b with unique solution
+        // A = [[2, 1], [1, 2]], b = [3, 3]
+        // Solution: x = [1, 1]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device).unwrap();
+
+        let x = client.lstsq(&a, &b).unwrap();
+        let x_data: Vec<f32> = x.to_vec();
+
+        // Solution should be approximately [1, 1]
+        assert!(
+            (x_data[0] - 1.0).abs() < 1e-4,
+            "x[0] = {} should be 1.0",
+            x_data[0]
+        );
+        assert!(
+            (x_data[1] - 1.0).abs() < 1e-4,
+            "x[1] = {} should be 1.0",
+            x_data[1]
+        );
+    }
+}

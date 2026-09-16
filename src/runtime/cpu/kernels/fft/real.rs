@@ -222,3 +222,168 @@ pub unsafe fn irfft_c128(input: &[Complex128], output: &mut [f64], normalize_fac
         output[i] = ifft_result[i].re;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+
+    #[test]
+    fn test_rfft() {
+        // Real FFT of [1, 2, 3, 4]
+        let input = [1.0f32, 2.0, 3.0, 4.0];
+        let mut output = [Complex64::default(); 3]; // N/2 + 1
+
+        unsafe {
+            rfft_c64(&input, &mut output, 1.0);
+        }
+
+        // Expected (from numpy.fft.rfft):
+        // [10+0j, -2+2j, -2+0j]
+        assert!((output[0].re - 10.0).abs() < 1e-4);
+        assert!(output[0].im.abs() < 1e-4);
+        assert!((output[1].re - (-2.0)).abs() < 1e-4);
+        assert!((output[1].im - 2.0).abs() < 1e-4);
+        assert!((output[2].re - (-2.0)).abs() < 1e-4);
+        assert!(output[2].im.abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_irfft_roundtrip() {
+        let original = [1.0f32, 2.0, 3.0, 4.0];
+        let mut rfft_out = [Complex64::default(); 3];
+        let mut recovered = [0.0f32; 4];
+
+        unsafe {
+            rfft_c64(&original, &mut rfft_out, 1.0);
+            irfft_c64(&rfft_out, &mut recovered, 0.25); // normalize by 1/N
+        }
+
+        for i in 0..4 {
+            assert!(
+                (recovered[i] - original[i]).abs() < 1e-4,
+                "Mismatch at {}: {} vs {}",
+                i,
+                recovered[i],
+                original[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_rfft_arbitrary_size_matches_naive_dft() {
+        for &n in &ARBITRARY_SIZES {
+            let real_f64: Vec<f64> = deterministic_samples(n, 0xabcd_0001 ^ n as u64)
+                .iter()
+                .map(|c| c.re)
+                .collect();
+            let as_complex: Vec<Complex128> =
+                real_f64.iter().map(|&x| Complex128::new(x, 0.0)).collect();
+            let full = naive_dft(&as_complex, false);
+            let expected = &full[..n / 2 + 1];
+            let scale = signal_scale(&as_complex);
+
+            let mut out_c128 = vec![Complex128::default(); n / 2 + 1];
+            unsafe {
+                rfft_c128(&real_f64, &mut out_c128, 1.0);
+            }
+            assert_close_c128(
+                &out_c128,
+                expected,
+                1e-11 * scale + 1e-11,
+                &format!("rfft c128 n={}", n),
+            );
+
+            let real_f32: Vec<f32> = real_f64.iter().map(|&x| x as f32).collect();
+            let as_complex_f32: Vec<Complex128> = real_f32
+                .iter()
+                .map(|&x| Complex128::new(x as f64, 0.0))
+                .collect();
+            let full_f32 = naive_dft(&as_complex_f32, false);
+            let expected_f32 = &full_f32[..n / 2 + 1];
+
+            let mut out_c64 = vec![Complex64::default(); n / 2 + 1];
+            unsafe {
+                rfft_c64(&real_f32, &mut out_c64, 1.0);
+            }
+            assert_close_c64(
+                &out_c64,
+                expected_f32,
+                1e-6 * scale + 1e-5,
+                &format!("rfft c64 n={}", n),
+            );
+        }
+    }
+
+    #[test]
+    fn test_rfft_irfft_roundtrip_400() {
+        let n = 400;
+        let original_f64: Vec<f64> = deterministic_samples(n, 0x1122_3344)
+            .iter()
+            .map(|c| c.re)
+            .collect();
+
+        let mut spectrum_c128 = vec![Complex128::default(); n / 2 + 1];
+        let mut recovered_f64 = vec![0.0f64; n];
+        unsafe {
+            rfft_c128(&original_f64, &mut spectrum_c128, 1.0);
+            irfft_c128(&spectrum_c128, &mut recovered_f64, 1.0 / n as f64);
+        }
+        for i in 0..n {
+            assert!(
+                (recovered_f64[i] - original_f64[i]).abs() < 1e-12,
+                "c128 sample {}: got {}, want {}",
+                i,
+                recovered_f64[i],
+                original_f64[i]
+            );
+        }
+
+        let original_f32: Vec<f32> = original_f64.iter().map(|&x| x as f32).collect();
+        let mut spectrum_c64 = vec![Complex64::default(); n / 2 + 1];
+        let mut recovered_f32 = vec![0.0f32; n];
+        unsafe {
+            rfft_c64(&original_f32, &mut spectrum_c64, 1.0);
+            irfft_c64(&spectrum_c64, &mut recovered_f32, 1.0 / n as f32);
+        }
+        for i in 0..n {
+            assert!(
+                (recovered_f32[i] - original_f32[i]).abs() < 1e-5,
+                "c64 sample {}: got {}, want {}",
+                i,
+                recovered_f32[i],
+                original_f32[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_rfft_irfft_roundtrip_odd_sizes() {
+        // Odd N cannot be inferred from the spectrum length, so the kernels take
+        // N from the output slice. Cover both parities of `N/2`.
+        for &n in &[3usize, 5, 7, 101] {
+            let original: Vec<f64> = deterministic_samples(n, 0x9988_7766 ^ n as u64)
+                .iter()
+                .map(|c| c.re)
+                .collect();
+
+            let mut spectrum = vec![Complex128::default(); n / 2 + 1];
+            let mut recovered = vec![0.0f64; n];
+            unsafe {
+                rfft_c128(&original, &mut spectrum, 1.0);
+                irfft_c128(&spectrum, &mut recovered, 1.0 / n as f64);
+            }
+
+            for i in 0..n {
+                assert!(
+                    (recovered[i] - original[i]).abs() < 1e-12,
+                    "n={} sample {}: got {}, want {}",
+                    n,
+                    i,
+                    recovered[i],
+                    original[i]
+                );
+            }
+        }
+    }
+}

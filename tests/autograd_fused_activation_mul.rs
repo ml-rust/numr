@@ -1,9 +1,12 @@
 //! Tests for the fused activation-multiply autograd op.
 
-use super::*;
-use crate::autograd::backward;
-use crate::runtime::cpu::{CpuDevice, CpuRuntime};
-use crate::tensor::Tensor;
+use numr::autograd::{
+    Var, backward, var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul, var_sum,
+};
+use numr::ops::{ActivationOps, BinaryOps};
+use numr::runtime::Runtime;
+use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+use numr::tensor::Tensor;
 
 #[test]
 fn test_silu_mul_forward() {
@@ -84,7 +87,7 @@ fn test_silu_mul_backward() {
     );
 
     let output = var_silu_mul(&a, &b, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_a: Vec<f32> = grads.get(a.id()).unwrap().to_vec();
@@ -150,7 +153,7 @@ fn test_sigmoid_mul_backward() {
     );
 
     let output = var_sigmoid_mul(&a, &b, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_a: Vec<f32> = grads.get(a.id()).unwrap().to_vec();

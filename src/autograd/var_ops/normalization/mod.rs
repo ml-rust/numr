@@ -239,6 +239,3 @@ where
         Ok(Var::new(output, false))
     }
 }
-
-#[cfg(test)]
-mod tests;

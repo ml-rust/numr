@@ -14,4 +14,4 @@ pub use qz::qz_decompose_impl;
 pub use rsf2csf::rsf2csf_impl;
 
 #[cfg(test)]
-mod tests;
+mod test_support;

@@ -24,6 +24,3 @@ pub use bt::{matmul_bt_kernel, matmul_bt_matches_contiguous};
 pub use gemv::{gemv_bt_kernel, gemv_bt_wide_kernel};
 pub use kernel::{matmul_bias_kernel, matmul_kernel};
 pub use wide::matmul_wide_kernel;
-
-#[cfg(test)]
-mod tests;

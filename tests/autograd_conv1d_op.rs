@@ -1,10 +1,11 @@
 //! Tests for conv1d forward/backward, including value-correctness checks
 //! against an independently computed reference gradient.
 
-use super::*;
-use crate::autograd::backward;
-use crate::runtime::cpu::{CpuDevice, CpuRuntime};
-use crate::tensor::Tensor;
+use numr::autograd::{Var, backward, var_conv1d, var_sum};
+use numr::ops::PaddingMode;
+use numr::runtime::Runtime;
+use numr::runtime::cpu::{CpuDevice, CpuRuntime};
+use numr::tensor::Tensor;
 
 #[test]
 fn test_var_conv1d_forward() {
@@ -41,7 +42,7 @@ fn test_var_conv1d_backward_input() {
     );
 
     let output = var_conv1d(&input, &weight, None, 1, PaddingMode::Valid, 1, 1, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
@@ -82,7 +83,7 @@ fn test_var_conv1d_backward_with_bias() {
         &client,
     )
     .unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_bias: Vec<f32> = grads.get(bias.id()).unwrap().to_vec();
@@ -111,7 +112,7 @@ fn test_var_conv1d_kernel3() {
     // [1+2+3, 2+3+4, 3+4+5] = [6, 9, 12]
     assert_eq!(data, vec![6.0, 9.0, 12.0]);
 
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
@@ -156,7 +157,7 @@ fn conv1d_input_gradient_multichannel_matches_reference() {
     );
 
     let output = var_conv1d(&input, &weight, None, 1, PaddingMode::Valid, 1, 1, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
@@ -197,7 +198,7 @@ fn conv1d_input_gradient_asymmetric_channels_matches_reference() {
     );
 
     let output = var_conv1d(&input, &weight, None, 1, PaddingMode::Valid, 1, 1, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();
@@ -232,7 +233,7 @@ fn conv1d_input_gradient_asymmetric_channels_matches_reference() {
         &client,
     )
     .unwrap();
-    let loss_b = crate::autograd::var_sum(&output_b, &[], false, &client).unwrap();
+    let loss_b = var_sum(&output_b, &[], false, &client).unwrap();
     let grads_b = backward(&loss_b, &client).unwrap();
     let d_bias: Vec<f32> = grads_b.get(bias.id()).unwrap().to_vec();
     // d_bias = batch * output_length = 2 * 2 = 4
@@ -263,7 +264,7 @@ fn conv1d_input_gradient_grouped_matches_reference() {
     );
 
     let output = var_conv1d(&input, &weight, None, 1, PaddingMode::Valid, 1, 2, &client).unwrap();
-    let loss = crate::autograd::var_sum(&output, &[], false, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
     let grads = backward(&loss, &client).unwrap();
 
     let d_input: Vec<f32> = grads.get(input.id()).unwrap().to_vec();

@@ -301,3 +301,167 @@ fn solve_schur_eigenvector_complex<T: Element + LinalgElement>(
 
     (y_real, y_imag)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_eig_1x1() {
+        let client = create_client();
+        let device = client.device();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[5.0f64], &[1, 1], device).unwrap();
+        let eig = client.eig_decompose(&a).unwrap();
+
+        let eval_real: Vec<f64> = eig.eigenvalues_real.to_vec();
+        let eval_imag: Vec<f64> = eig.eigenvalues_imag.to_vec();
+
+        // Eigenvalue should be 5.0 (real)
+        assert!((eval_real[0] - 5.0).abs() < 1e-10);
+        assert!(eval_imag[0].abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eig_2x2_real_eigenvalues() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[2, 1], [1, 2]] - symmetric with real eigenvalues 3 and 1
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+        let eig = client.eig_decompose(&a).unwrap();
+
+        let eval_real: Vec<f64> = eig.eigenvalues_real.to_vec();
+        let eval_imag: Vec<f64> = eig.eigenvalues_imag.to_vec();
+
+        // Both eigenvalues should be real
+        assert!(eval_imag[0].abs() < 1e-6, "Eigenvalue 0 should be real");
+        assert!(eval_imag[1].abs() < 1e-6, "Eigenvalue 1 should be real");
+
+        // Check eigenvalues are 3 and 1 (in some order)
+        let mut evals = vec![eval_real[0], eval_real[1]];
+        evals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        assert!(
+            (evals[0] - 3.0).abs() < 1e-5,
+            "Larger eigenvalue should be 3"
+        );
+        assert!(
+            (evals[1] - 1.0).abs() < 1e-5,
+            "Smaller eigenvalue should be 1"
+        );
+    }
+
+    #[test]
+    fn test_eig_2x2_complex_eigenvalues() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[0, -1], [1, 0]] - rotation matrix with eigenvalues ±i
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[0.0f64, -1.0, 1.0, 0.0], &[2, 2], device).unwrap();
+        let eig = client.eig_decompose(&a).unwrap();
+
+        let eval_real: Vec<f64> = eig.eigenvalues_real.to_vec();
+        let eval_imag: Vec<f64> = eig.eigenvalues_imag.to_vec();
+
+        // Real parts should be 0
+        assert!(eval_real[0].abs() < 1e-6, "Real part should be 0");
+        assert!(eval_real[1].abs() < 1e-6, "Real part should be 0");
+
+        // Imaginary parts should be ±1 (conjugate pair)
+        let imag_sum = eval_imag[0] + eval_imag[1];
+        let imag_prod = eval_imag[0] * eval_imag[1];
+        assert!(imag_sum.abs() < 1e-6, "Imaginary parts should sum to 0");
+        assert!(
+            (imag_prod - (-1.0)).abs() < 1e-6,
+            "Imaginary parts should multiply to -1"
+        );
+    }
+
+    #[test]
+    fn test_eig_eigenvector_equation() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[1, 2], [3, 4]] - non-symmetric with real eigenvalues
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+        let a_data: Vec<f64> = a.to_vec();
+        let eig = client.eig_decompose(&a).unwrap();
+
+        let eval_real: Vec<f64> = eig.eigenvalues_real.to_vec();
+        let eval_imag: Vec<f64> = eig.eigenvalues_imag.to_vec();
+        let evec_real: Vec<f64> = eig.eigenvectors_real.to_vec();
+
+        // For each real eigenvalue, verify A @ v = λ @ v
+        for i in 0..2 {
+            if eval_imag[i].abs() < 1e-6 {
+                let lambda = eval_real[i];
+                let v0 = evec_real[0 * 2 + i]; // eigenvectors_real[0, i]
+                let v1 = evec_real[1 * 2 + i]; // eigenvectors_real[1, i]
+
+                // A @ v
+                let av0 = a_data[0] * v0 + a_data[1] * v1;
+                let av1 = a_data[2] * v0 + a_data[3] * v1;
+
+                // λ * v
+                let lv0 = lambda * v0;
+                let lv1 = lambda * v1;
+
+                // Normalize check (handle zero eigenvectors)
+                let v_norm = (v0 * v0 + v1 * v1).sqrt();
+                if v_norm > 1e-6 {
+                    assert!(
+                        (av0 - lv0).abs() < 1e-4,
+                        "A @ v[0] = {} but λ * v[0] = {}",
+                        av0,
+                        lv0
+                    );
+                    assert!(
+                        (av1 - lv1).abs() < 1e-4,
+                        "A @ v[1] = {} but λ * v[1] = {}",
+                        av1,
+                        lv1
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_eig_3x3_diagonal() {
+        let client = create_client();
+        let device = client.device();
+
+        // Diagonal matrix - eigenvalues are the diagonal elements
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f64, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 3.0],
+            &[3, 3],
+            device,
+        )
+        .unwrap();
+        let eig = client.eig_decompose(&a).unwrap();
+
+        let eval_real: Vec<f64> = eig.eigenvalues_real.to_vec();
+        let eval_imag: Vec<f64> = eig.eigenvalues_imag.to_vec();
+
+        // All eigenvalues should be real
+        for i in 0..3 {
+            assert!(
+                eval_imag[i].abs() < 1e-10,
+                "Eigenvalue {} should be real",
+                i
+            );
+        }
+
+        // Eigenvalues should be 1, 2, 3 (in some order)
+        let mut evals = eval_real.clone();
+        evals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!((evals[0] - 1.0).abs() < 1e-6);
+        assert!((evals[1] - 2.0).abs() < 1e-6);
+        assert!((evals[2] - 3.0).abs() < 1e-6);
+    }
+}

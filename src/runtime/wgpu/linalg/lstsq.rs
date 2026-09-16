@@ -207,3 +207,37 @@ pub fn lstsq(
         x.contiguous()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+    use crate::runtime::wgpu::is_wgpu_available;
+
+    #[test]
+    fn test_lstsq() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+
+        let client = create_client();
+        let device = client.device();
+
+        // Overdetermined system: A is 3x2, b is 3x1
+        // A = [[1, 1], [1, 2], [1, 3]], b = [1, 2, 3]
+        let a =
+            Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 2.0, 1.0, 3.0], &[3, 2], device)
+                .unwrap();
+        let b = Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0], &[3], device).unwrap();
+
+        let x = client.lstsq(&a, &b).unwrap();
+        assert_eq!(x.shape(), &[2]);
+        let result: Vec<f32> = x.to_vec();
+
+        // Verify the solution is reasonable by checking residual
+        assert!(!result[0].is_nan() && !result[0].is_infinite());
+        assert!(!result[1].is_nan() && !result[1].is_infinite());
+    }
+}

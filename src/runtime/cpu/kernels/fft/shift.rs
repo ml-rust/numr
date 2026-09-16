@@ -64,3 +64,51 @@ pub unsafe fn ifftshift_c128(input: &[Complex128], output: &mut [Complex128]) {
         output[shift + i] = input[i];
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fftshift() {
+        let input = [
+            Complex64::new(0.0, 0.0),
+            Complex64::new(1.0, 0.0),
+            Complex64::new(2.0, 0.0),
+            Complex64::new(3.0, 0.0),
+        ];
+        let mut output = [Complex64::default(); 4];
+
+        unsafe {
+            fftshift_c64(&input, &mut output);
+        }
+
+        // [0, 1, 2, 3] -> [2, 3, 0, 1]
+        assert!((output[0].re - 2.0).abs() < 1e-5);
+        assert!((output[1].re - 3.0).abs() < 1e-5);
+        assert!((output[2].re - 0.0).abs() < 1e-5);
+        assert!((output[3].re - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_fftshift_ifftshift_roundtrip() {
+        let original = [
+            Complex64::new(1.0, 2.0),
+            Complex64::new(3.0, 4.0),
+            Complex64::new(5.0, 6.0),
+            Complex64::new(7.0, 8.0),
+        ];
+        let mut shifted = [Complex64::default(); 4];
+        let mut unshifted = [Complex64::default(); 4];
+
+        unsafe {
+            fftshift_c64(&original, &mut shifted);
+            ifftshift_c64(&shifted, &mut unshifted);
+        }
+
+        for i in 0..4 {
+            assert!((unshifted[i].re - original[i].re).abs() < 1e-5);
+            assert!((unshifted[i].im - original[i].im).abs() < 1e-5);
+        }
+    }
+}

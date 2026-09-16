@@ -241,3 +241,34 @@ pub fn solve(
         x.contiguous()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+    use crate::runtime::wgpu::is_wgpu_available;
+
+    #[test]
+    fn test_solve() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+
+        let client = create_client();
+        let device = client.device();
+
+        // Solve [[2, 1], [1, 2]] @ x = [3, 3]
+        // Solution: x = [1, 1]
+        let a =
+            Tensor::<WgpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
+        let b = Tensor::<WgpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device).unwrap();
+
+        let x = client.solve(&a, &b).unwrap();
+        let result: Vec<f32> = x.to_vec();
+
+        assert!((result[0] - 1.0).abs() < 1e-4);
+        assert!((result[1] - 1.0).abs() < 1e-4);
+    }
+}

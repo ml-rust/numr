@@ -276,3 +276,146 @@ pub fn qr_iteration_step<T: Element + LinalgElement>(h: &mut [T], q: &mut [T], n
         h[i * n + i] = T::from_f64(h[i * n + i].to_f64() + shift);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+
+    #[test]
+    fn test_schur_1x1() {
+        let client = create_client();
+        let device = client.device();
+
+        let a = Tensor::<CpuRuntime>::from_slice(&[5.0f64], &[1, 1], device).unwrap();
+        let schur = client.schur_decompose(&a).unwrap();
+
+        let z_data: Vec<f64> = schur.z.to_vec();
+        let t_data: Vec<f64> = schur.t.to_vec();
+
+        // For 1x1, Z = [1] and T = A
+        assert!((z_data[0] - 1.0).abs() < 1e-10);
+        assert!((t_data[0] - 5.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_schur_2x2_reconstruction() {
+        let client = create_client();
+        let device = client.device();
+
+        // A = [[1, 2], [3, 4]]
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0, 4.0], &[2, 2], device).unwrap();
+        let schur = client.schur_decompose(&a).unwrap();
+
+        let z_data: Vec<f64> = schur.z.to_vec();
+        let t_data: Vec<f64> = schur.t.to_vec();
+
+        // Verify Z is orthogonal: Z^T @ Z = I
+        let ztza = z_data[0] * z_data[0] + z_data[2] * z_data[2];
+        let ztzb = z_data[0] * z_data[1] + z_data[2] * z_data[3];
+        let ztzd = z_data[1] * z_data[1] + z_data[3] * z_data[3];
+
+        assert!((ztza - 1.0).abs() < 1e-6, "Z^T Z [0,0] should be 1");
+        assert!(ztzb.abs() < 1e-6, "Z^T Z [0,1] should be 0");
+        assert!((ztzd - 1.0).abs() < 1e-6, "Z^T Z [1,1] should be 1");
+
+        // Verify reconstruction: A = Z @ T @ Z^T
+        // Z @ T
+        let zt00 = z_data[0] * t_data[0] + z_data[1] * t_data[2];
+        let zt01 = z_data[0] * t_data[1] + z_data[1] * t_data[3];
+        let zt10 = z_data[2] * t_data[0] + z_data[3] * t_data[2];
+        let zt11 = z_data[2] * t_data[1] + z_data[3] * t_data[3];
+
+        // (Z @ T) @ Z^T
+        let rec00 = zt00 * z_data[0] + zt01 * z_data[1];
+        let rec01 = zt00 * z_data[2] + zt01 * z_data[3];
+        let rec10 = zt10 * z_data[0] + zt11 * z_data[1];
+        let rec11 = zt10 * z_data[2] + zt11 * z_data[3];
+
+        assert!(
+            (rec00 - 1.0).abs() < 1e-5,
+            "Reconstruction [0,0] failed: {} != 1.0",
+            rec00
+        );
+        assert!(
+            (rec01 - 2.0).abs() < 1e-5,
+            "Reconstruction [0,1] failed: {} != 2.0",
+            rec01
+        );
+        assert!(
+            (rec10 - 3.0).abs() < 1e-5,
+            "Reconstruction [1,0] failed: {} != 3.0",
+            rec10
+        );
+        assert!(
+            (rec11 - 4.0).abs() < 1e-5,
+            "Reconstruction [1,1] failed: {} != 4.0",
+            rec11
+        );
+    }
+
+    #[test]
+    fn test_schur_symmetric_diagonal() {
+        let client = create_client();
+        let device = client.device();
+
+        // For a symmetric matrix, Schur form is diagonal (eigenvalue decomposition)
+        // A = [[2, 1], [1, 3]] (symmetric)
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[2.0f64, 1.0, 1.0, 3.0], &[2, 2], device).unwrap();
+        let schur = client.schur_decompose(&a).unwrap();
+
+        let t_data: Vec<f64> = schur.t.to_vec();
+
+        // T[1,0] should be small (quasi-triangular becomes diagonal for symmetric)
+        assert!(
+            t_data[2].abs() < 0.1, // Use looser tolerance for QR iteration
+            "T should be quasi-triangular: T[1,0] = {}",
+            t_data[2]
+        );
+    }
+
+    #[test]
+    fn test_schur_3x3() {
+        let client = create_client();
+        let device = client.device();
+
+        // A 3x3 upper triangular matrix is already in Schur form
+        let a = Tensor::<CpuRuntime>::from_slice(
+            &[1.0f64, 2.0, 3.0, 0.0, 4.0, 5.0, 0.0, 0.0, 6.0],
+            &[3, 3],
+            device,
+        )
+        .unwrap();
+        let schur = client.schur_decompose(&a).unwrap();
+
+        let z_data: Vec<f64> = schur.z.to_vec();
+        let t_data: Vec<f64> = schur.t.to_vec();
+
+        // Z should be close to identity
+        let diag_sum = z_data[0] * z_data[0] + z_data[4] * z_data[4] + z_data[8] * z_data[8];
+        assert!(
+            diag_sum > 2.5,
+            "For upper triangular input, Z should be close to identity"
+        );
+
+        // T should have small subdiagonal elements
+        assert!(
+            t_data[3].abs() < 0.1,
+            "T[1,0] should be small: {}",
+            t_data[3]
+        );
+        assert!(
+            t_data[6].abs() < 0.1,
+            "T[2,0] should be small: {}",
+            t_data[6]
+        );
+        assert!(
+            t_data[7].abs() < 0.1,
+            "T[2,1] should be small: {}",
+            t_data[7]
+        );
+    }
+}

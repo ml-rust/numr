@@ -15,8 +15,6 @@ mod depthwise_conv2d;
 #[cfg(feature = "f16")]
 mod half;
 mod scalar;
-#[cfg(test)]
-mod tests;
 mod threshold;
 mod transpose1d;
 
