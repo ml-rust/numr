@@ -3,7 +3,8 @@
 use super::super::helpers::{dispatch_dtype, ensure_contiguous};
 use super::super::sort::sort_impl;
 use super::super::{CpuClient, CpuRuntime};
-use super::{Interpolation, quantile_kernel};
+use super::Interpolation;
+use super::kernels::quantile_kernel;
 use crate::error::{Error, Result};
 use crate::ops::{compute_reduce_strides, reduce_dim_output_shape};
 use crate::runtime::normalize_dim;

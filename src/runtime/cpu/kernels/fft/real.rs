@@ -4,8 +4,8 @@ use crate::dtype::{Complex64, Complex128};
 use std::f64::consts::PI;
 
 use super::bluestein::BluesteinPlan;
+use super::dispatch::{fft_c64, fft_c128};
 use super::stockham::{stockham_fft_c64, stockham_fft_c128};
-use super::{fft_c64, fft_c128};
 
 // ============================================================================
 // Real FFT Kernels (rfft/irfft)

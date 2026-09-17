@@ -6,7 +6,8 @@ use crate::ops::{BinaryOps, ReduceOps, ScalarOps, TypeConversionOps, UnaryOps, U
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
 
-use super::{create_bin_edges, read_scalar_f64};
+use super::bin_edges::create_bin_edges;
+use super::scalar_read::read_scalar_f64;
 
 /// Compute histogram of values entirely on GPU.
 ///

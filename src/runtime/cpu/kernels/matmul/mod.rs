@@ -13,6 +13,7 @@
 //! except through the `*_wide_kernel` entry points, which store the F32
 //! accumulator of a half matmul instead of narrowing it (`matmul_wide`).
 
+mod bias;
 mod bt;
 mod dot;
 mod gemv;
@@ -20,7 +21,8 @@ mod half_batch;
 mod kernel;
 mod wide;
 
+pub use bias::matmul_bias_kernel;
 pub use bt::{matmul_bt_kernel, matmul_bt_matches_contiguous};
 pub use gemv::{gemv_bt_kernel, gemv_bt_wide_kernel};
-pub use kernel::{matmul_bias_kernel, matmul_kernel};
+pub use kernel::matmul_kernel;
 pub use wide::matmul_wide_kernel;

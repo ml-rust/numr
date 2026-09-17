@@ -70,3 +70,15 @@ pub unsafe fn pcg64_randn_kernel<T: Element>(out: *mut T, n: usize, seed: u64, s
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pcg64_uniform_range() {
+        let mut out = vec![0.0f32; 1000];
+        unsafe { pcg64_uniform_kernel(out.as_mut_ptr(), 1000, 42, 0) };
+        assert!(out.iter().all(|&x| x >= 0.0 && x < 1.0));
+    }
+}

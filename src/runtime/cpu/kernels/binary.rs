@@ -434,3 +434,47 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_binary_add() {
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [5.0f32, 6.0, 7.0, 8.0];
+        let mut out = [0.0f32; 4];
+
+        unsafe {
+            binary_op_kernel(BinaryOp::Add, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 4);
+        }
+
+        assert_eq!(out, [6.0, 8.0, 10.0, 12.0]);
+    }
+
+    #[test]
+    fn test_binary_mul() {
+        let a = [1.0f32, 2.0, 3.0, 4.0];
+        let b = [2.0f32, 3.0, 4.0, 5.0];
+        let mut out = [0.0f32; 4];
+
+        unsafe {
+            binary_op_kernel(BinaryOp::Mul, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 4);
+        }
+
+        assert_eq!(out, [2.0, 6.0, 12.0, 20.0]);
+    }
+
+    #[test]
+    fn test_i32_binary_add() {
+        let a = [1i32, 2, 3, 4];
+        let b = [5i32, 6, 7, 8];
+        let mut out = [0i32; 4];
+
+        unsafe {
+            binary_op_kernel(BinaryOp::Add, a.as_ptr(), b.as_ptr(), out.as_mut_ptr(), 4);
+        }
+
+        assert_eq!(out, [6, 8, 10, 12]);
+    }
+}

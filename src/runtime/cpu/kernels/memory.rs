@@ -635,3 +635,31 @@ mod rand_uniform_range_tests {
         check_range_and_bound::<crate::dtype::FP8E5M2>(DType::FP8E5M2.largest_value_below_one());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fill() {
+        let mut out = [0.0f32; 4];
+
+        unsafe {
+            fill_kernel(out.as_mut_ptr(), 7.5f32, 4);
+        }
+
+        assert_eq!(out, [7.5, 7.5, 7.5, 7.5]);
+    }
+
+    #[test]
+    fn test_copy() {
+        let src = [1.0f32, 2.0, 3.0, 4.0];
+        let mut dst = [0.0f32; 4];
+
+        unsafe {
+            copy_kernel(src.as_ptr(), dst.as_mut_ptr(), 4);
+        }
+
+        assert_eq!(dst, src);
+    }
+}

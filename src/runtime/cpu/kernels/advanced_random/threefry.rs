@@ -140,3 +140,15 @@ pub unsafe fn threefry_randn_kernel<T: Element>(
         i += 4;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_threefry_uniform_range() {
+        let mut out = vec![0.0f32; 1000];
+        unsafe { threefry_uniform_kernel(out.as_mut_ptr(), 1000, 42, 0) };
+        assert!(out.iter().all(|&x| x >= 0.0 && x < 1.0));
+    }
+}

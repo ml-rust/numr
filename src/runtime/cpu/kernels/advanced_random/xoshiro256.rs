@@ -97,3 +97,15 @@ pub unsafe fn xoshiro256_randn_kernel<T: Element>(out: *mut T, n: usize, seed: u
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_xoshiro256_uniform_range() {
+        let mut out = vec![0.0f32; 1000];
+        unsafe { xoshiro256_uniform_kernel(out.as_mut_ptr(), 1000, 42) };
+        assert!(out.iter().all(|&x| x >= 0.0 && x < 1.0));
+    }
+}

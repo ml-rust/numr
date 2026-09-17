@@ -63,7 +63,7 @@ pub unsafe fn reduce_f32(
         }
         ReduceOp::All | ReduceOp::Any => {
             // Boolean operations - use scalar
-            super::super::reduce_scalar_f32(op, a, out, reduce_size, outer_size);
+            super::super::scalar::reduce_scalar_f32(op, a, out, reduce_size, outer_size);
         }
     }
 }
@@ -103,7 +103,7 @@ pub unsafe fn reduce_f64(
             }
         }
         ReduceOp::All | ReduceOp::Any => {
-            super::super::reduce_scalar_f64(op, a, out, reduce_size, outer_size);
+            super::super::scalar::reduce_scalar_f64(op, a, out, reduce_size, outer_size);
         }
     }
 }

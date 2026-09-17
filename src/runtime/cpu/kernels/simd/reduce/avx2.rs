@@ -5,8 +5,8 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::reduce_scalar_f32;
-use super::reduce_scalar_f64;
+use super::scalar::reduce_scalar_f32;
+use super::scalar::reduce_scalar_f64;
 use crate::ops::ReduceOp;
 
 const F32_LANES: usize = 8;

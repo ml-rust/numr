@@ -7,7 +7,7 @@ use crate::runtime::RuntimeClient;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
-use super::{create_bin_edges, tensor_to_f64};
+use super::shared_helpers::{create_bin_edges, tensor_to_f64};
 
 /// Compute histogram of values entirely on GPU.
 ///

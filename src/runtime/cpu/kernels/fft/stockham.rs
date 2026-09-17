@@ -5,7 +5,7 @@ use std::f64::consts::PI;
 
 use super::bluestein::BluesteinPlan;
 #[cfg(feature = "rayon")]
-use super::{fft_c64, fft_c128};
+use super::dispatch::{fft_c64, fft_c128};
 
 // ============================================================================
 // Complex64 (f32) FFT Kernels

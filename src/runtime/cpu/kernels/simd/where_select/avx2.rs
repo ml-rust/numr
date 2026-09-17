@@ -5,7 +5,7 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::{where_scalar_f32, where_scalar_f64};
+use super::scalar::{where_scalar_f32, where_scalar_f64};
 
 const F32_LANES: usize = 8;
 const F64_LANES: usize = 4;

@@ -306,3 +306,20 @@ unsafe fn elu_scalar<T: Element>(a: *const T, out: *mut T, len: usize, alpha: f6
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sigmoid() {
+        let a = [0.0f32];
+        let mut out = [0.0f32; 1];
+
+        unsafe {
+            sigmoid_kernel(a.as_ptr(), out.as_mut_ptr(), 1);
+        }
+
+        assert!((out[0] - 0.5).abs() < 1e-6);
+    }
+}

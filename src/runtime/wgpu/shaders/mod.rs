@@ -60,13 +60,7 @@ mod linalg_shaders;
 mod pipeline;
 
 #[cfg(feature = "sparse")]
-/// GPU-native level computation kernels for sparse factorization
-pub mod sparse_level_compute {
-    pub use crate::runtime::wgpu::shaders::sparse_level_compute_launcher::{
-        launch_cast_i64_to_i32, launch_compute_levels_ilu_iter, launch_compute_levels_lower_iter,
-        launch_compute_levels_upper_iter, launch_scatter_by_level,
-    };
-}
+pub mod sparse_level_compute;
 
 pub use activation_launcher::{launch_clamp_op, launch_elu, launch_leaky_relu};
 pub mod fused_activation_mul;

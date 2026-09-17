@@ -400,3 +400,26 @@ pub unsafe fn variance_kernel<T: Element>(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_softmax() {
+        let a = [1.0f32, 2.0, 3.0];
+        let mut out = [0.0f32; 3];
+
+        unsafe {
+            softmax_kernel(a.as_ptr(), out.as_mut_ptr(), 1, 3);
+        }
+
+        // Check that outputs sum to 1
+        let sum: f32 = out.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-6);
+
+        // Check monotonicity: out[0] < out[1] < out[2]
+        assert!(out[0] < out[1]);
+        assert!(out[1] < out[2]);
+    }
+}

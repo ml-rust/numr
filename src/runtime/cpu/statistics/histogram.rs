@@ -2,7 +2,8 @@
 
 use super::super::helpers::{dispatch_dtype, ensure_contiguous};
 use super::super::{CpuClient, CpuRuntime};
-use super::{create_bin_edges, histogram_kernel, tensor_to_f64};
+use super::kernels::histogram_kernel;
+use super::tensor_helpers::{create_bin_edges, tensor_to_f64};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ReduceOps;

@@ -41,7 +41,13 @@ pub unsafe fn clamp_f32(a: *const f32, out: *mut f32, len: usize, min_val: f32, 
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F32_LANES;
-        super::super::clamp_scalar_f32(a.add(offset), out.add(offset), remainder, min_val, max_val);
+        super::super::scalar::clamp_scalar_f32(
+            a.add(offset),
+            out.add(offset),
+            remainder,
+            min_val,
+            max_val,
+        );
     }
 }
 
@@ -69,6 +75,12 @@ pub unsafe fn clamp_f64(a: *const f64, out: *mut f64, len: usize, min_val: f64, 
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F64_LANES;
-        super::super::clamp_scalar_f64(a.add(offset), out.add(offset), remainder, min_val, max_val);
+        super::super::scalar::clamp_scalar_f64(
+            a.add(offset),
+            out.add(offset),
+            remainder,
+            min_val,
+            max_val,
+        );
     }
 }

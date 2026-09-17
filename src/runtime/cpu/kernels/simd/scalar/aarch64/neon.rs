@@ -88,7 +88,7 @@ pub unsafe fn scalar_f32(op: BinaryOp, a: *const f32, scalar: f32, out: *mut f32
         }
         BinaryOp::Pow | BinaryOp::Atan2 => {
             // Fallback to scalar for unsupported ops
-            super::super::scalar_scalar_f32(op, a, scalar, out, len);
+            super::super::scalar::scalar_scalar_f32(op, a, scalar, out, len);
             return;
         }
     }
@@ -96,7 +96,13 @@ pub unsafe fn scalar_f32(op: BinaryOp, a: *const f32, scalar: f32, out: *mut f32
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F32_LANES;
-        super::super::scalar_scalar_f32(op, a.add(offset), scalar, out.add(offset), remainder);
+        super::super::scalar::scalar_scalar_f32(
+            op,
+            a.add(offset),
+            scalar,
+            out.add(offset),
+            remainder,
+        );
     }
 }
 
@@ -164,7 +170,7 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
         }
         BinaryOp::Pow | BinaryOp::Atan2 => {
             // Fallback to scalar for unsupported ops
-            super::super::scalar_scalar_f64(op, a, scalar, out, len);
+            super::super::scalar::scalar_scalar_f64(op, a, scalar, out, len);
             return;
         }
     }
@@ -172,7 +178,13 @@ pub unsafe fn scalar_f64(op: BinaryOp, a: *const f64, scalar: f64, out: *mut f64
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F64_LANES;
-        super::super::scalar_scalar_f64(op, a.add(offset), scalar, out.add(offset), remainder);
+        super::super::scalar::scalar_scalar_f64(
+            op,
+            a.add(offset),
+            scalar,
+            out.add(offset),
+            remainder,
+        );
     }
 }
 

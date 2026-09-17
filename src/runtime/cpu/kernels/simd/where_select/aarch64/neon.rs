@@ -61,7 +61,7 @@ pub unsafe fn where_f32(cond: *const u8, x: *const f32, y: *const f32, out: *mut
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F32_LANES;
-        super::super::where_scalar_f32(
+        super::super::scalar::where_scalar_f32(
             cond.add(offset),
             x.add(offset),
             y.add(offset),
@@ -108,7 +108,7 @@ pub unsafe fn where_f64(cond: *const u8, x: *const f64, y: *const f64, out: *mut
     // Scalar tail
     if remainder > 0 {
         let offset = chunks * F64_LANES;
-        super::super::where_scalar_f64(
+        super::super::scalar::where_scalar_f64(
             cond.add(offset),
             x.add(offset),
             y.add(offset),
