@@ -22,5 +22,6 @@ mod half;
 mod scalar;
 
 pub use dispatch::*;
+#[cfg(feature = "f16")]
 pub use half::*;
 pub use scalar::*;

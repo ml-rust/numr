@@ -16,7 +16,6 @@ mod avx512;
 mod aarch64;
 
 mod dispatch;
-#[cfg(feature = "f16")]
 mod half;
 mod scalar;
 

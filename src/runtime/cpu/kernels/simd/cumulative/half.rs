@@ -2,6 +2,7 @@
 //!
 //! Converts to f32, runs the f32 SIMD kernel, converts the result back.
 
+#[cfg(feature = "f16")]
 use super::dispatch::{cumprod_strided_f32, cumsum_strided_f32};
 
 #[cfg(feature = "f16")]
