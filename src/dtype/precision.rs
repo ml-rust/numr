@@ -43,3 +43,13 @@ pub enum ComputePrecision {
     #[default]
     BF16,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_precision_default() {
+        assert_eq!(ComputePrecision::default(), ComputePrecision::BF16);
+    }
+}

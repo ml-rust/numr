@@ -89,3 +89,19 @@ impl DTypeSet {
         self.bits == 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dtype_set() {
+        assert!(DTypeSet::FLOATS.contains(DType::F32));
+        assert!(!DTypeSet::FLOATS.contains(DType::I32));
+        assert!(DTypeSet::INTS.contains(DType::I32));
+        assert!(DTypeSet::NUMERIC.contains(DType::F32));
+        assert!(DTypeSet::NUMERIC.contains(DType::I32));
+        assert!(DTypeSet::FLOATS.contains(DType::FP8E4M3));
+        assert!(DTypeSet::FLOATS.contains(DType::FP8E5M2));
+    }
+}

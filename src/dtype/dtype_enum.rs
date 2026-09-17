@@ -310,6 +310,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_dtype_size() {
+        assert_eq!(DType::F64.size_in_bytes(), 8);
+        assert_eq!(DType::F32.size_in_bytes(), 4);
+        assert_eq!(DType::F16.size_in_bytes(), 2);
+        assert_eq!(DType::I8.size_in_bytes(), 1);
+        assert_eq!(DType::Bool.size_in_bytes(), 1);
+        assert_eq!(DType::FP8E4M3.size_in_bytes(), 1);
+        assert_eq!(DType::FP8E5M2.size_in_bytes(), 1);
+    }
+
+    #[test]
+    fn test_dtype_categories() {
+        assert!(DType::F32.is_float());
+        assert!(!DType::I32.is_float());
+        assert!(DType::I32.is_signed_int());
+        assert!(DType::U32.is_unsigned_int());
+        assert!(!DType::U32.is_signed());
+        assert!(DType::FP8E4M3.is_float());
+        assert!(DType::FP8E5M2.is_float());
+        assert!(DType::FP8E4M3.is_signed());
+        assert!(DType::FP8E5M2.is_signed());
+    }
+
+    #[test]
+    fn test_fp8_dtype_values() {
+        assert_eq!(DType::FP8E4M3.min_value(), -448.0);
+        assert_eq!(DType::FP8E4M3.max_value(), 448.0);
+        assert_eq!(DType::FP8E5M2.min_value(), -57344.0);
+        assert_eq!(DType::FP8E5M2.max_value(), 57344.0);
+    }
+
+    #[test]
+    fn test_fp8_short_names() {
+        assert_eq!(DType::FP8E4M3.short_name(), "fp8e4m3");
+        assert_eq!(DType::FP8E5M2.short_name(), "fp8e5m2");
+    }
+
+    #[test]
     fn f32_largest_value_below_one_is_predecessor_of_one() {
         let bound = DType::F32.largest_value_below_one().unwrap();
         let bound_f32 = bound as f32;
