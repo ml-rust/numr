@@ -23,6 +23,23 @@ pub trait NormalizationOps<R: Runtime> {
         })
     }
 
+    /// L2 normalization along `dim`: `output = input / max(sqrt(sum(input^2, dim)), eps)`.
+    ///
+    /// `eps` floors the norm. It is not added under the square root. A zero
+    /// vector maps to zero. Matches `ggml_l2_norm`.
+    ///
+    /// # Arguments
+    ///
+    /// * `input` - Input tensor of any shape
+    /// * `dim` - Dimension to normalize along (negative indexes from the end)
+    /// * `eps` - Lower bound on the norm
+    fn l2_normalize(&self, input: &Tensor<R>, dim: isize, eps: f32) -> Result<Tensor<R>> {
+        let _ = (input, dim, eps);
+        Err(Error::NotImplemented {
+            feature: "NormalizationOps::l2_normalize",
+        })
+    }
+
     /// Layer Normalization: output = (input - mean) / sqrt(variance + eps) * weight + bias
     ///
     /// LayerNorm normalizes across the last dimension for each batch element.

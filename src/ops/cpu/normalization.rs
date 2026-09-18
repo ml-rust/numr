@@ -3,6 +3,7 @@
 use crate::error::{Error, Result};
 use crate::ops::NormalizationOps;
 use crate::ops::common::group_norm_channels_per_group;
+use crate::ops::impl_generic::l2_normalize_impl;
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{dispatch_dtype, ensure_contiguous},
@@ -65,6 +66,15 @@ impl NormalizationOps<CpuRuntime> for CpuClient {
         }, "rms_norm");
 
         Ok(out)
+    }
+
+    fn l2_normalize(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        dim: isize,
+        eps: f32,
+    ) -> Result<Tensor<CpuRuntime>> {
+        l2_normalize_impl(self, input, dim, eps)
     }
 
     fn layer_norm(

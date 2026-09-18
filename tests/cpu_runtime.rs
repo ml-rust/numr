@@ -376,6 +376,39 @@ fn test_tensor_rms_norm() {
 }
 
 #[test]
+fn test_tensor_l2_normalize() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    // Row 1: [3, 4] has norm 5. Row 2: [0, 0] hits the eps floor and stays 0.
+    let input =
+        Tensor::<CpuRuntime>::from_slice(&[3.0f32, 4.0, 0.0, 0.0], &[2, 2], &device).unwrap();
+
+    let out = client.l2_normalize(&input, -1, 1e-6).unwrap();
+    let result: Vec<f32> = out.to_vec();
+
+    assert!((result[0] - 0.6).abs() < 1e-6);
+    assert!((result[1] - 0.8).abs() < 1e-6);
+    assert_eq!(result[2], 0.0);
+    assert_eq!(result[3], 0.0);
+
+    // eps floors the norm: [0.003, 0.004] has norm 0.005 < eps 0.01, so it divides by 0.01.
+    let small = Tensor::<CpuRuntime>::from_slice(&[0.003f32, 0.004], &[1, 2], &device).unwrap();
+    let out = client.l2_normalize(&small, 1, 0.01).unwrap();
+    let result: Vec<f32> = out.to_vec();
+    assert!((result[0] - 0.3).abs() < 1e-6);
+    assert!((result[1] - 0.4).abs() < 1e-6);
+
+    // dim 0 normalizes columns: column [3, 0] -> [1, 0], column [4, 0] -> [1, 0].
+    let out = client.l2_normalize(&input, 0, 1e-6).unwrap();
+    let result: Vec<f32> = out.to_vec();
+    assert!((result[0] - 1.0).abs() < 1e-6);
+    assert!((result[1] - 1.0).abs() < 1e-6);
+    assert_eq!(result[2], 0.0);
+    assert_eq!(result[3], 0.0);
+}
+
+#[test]
 fn test_tensor_layer_norm() {
     let device = CpuDevice::new();
     let client = CpuRuntime::default_client(&device);

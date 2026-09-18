@@ -2,6 +2,7 @@
 
 use crate::error::Result;
 use crate::ops::NormalizationOps;
+use crate::ops::impl_generic::l2_normalize_impl;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::native::{
@@ -18,6 +19,15 @@ impl NormalizationOps<WgpuRuntime> for WgpuClient {
         eps: f32,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_rms_norm(self, a, weight, eps)
+    }
+
+    fn l2_normalize(
+        &self,
+        input: &Tensor<WgpuRuntime>,
+        dim: isize,
+        eps: f32,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        l2_normalize_impl(self, input, dim, eps)
     }
 
     fn layer_norm(

@@ -23,6 +23,7 @@ pub mod activation;
 pub mod einsum;
 pub mod linalg;
 pub mod multivariate;
+pub mod normalization;
 pub mod random;
 pub mod shape;
 pub mod utility;
@@ -33,6 +34,7 @@ pub use multivariate::{
     DTypeSupport, MultinomialSamplingOps, dirichlet_impl, multinomial_samples_impl,
     multivariate_normal_impl, wishart_impl,
 };
+pub use normalization::l2_normalize_impl;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use random::randperm_impl;
 pub use shape::{repeat_interleave_impl, unfold_impl};
