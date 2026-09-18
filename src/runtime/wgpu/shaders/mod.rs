@@ -14,6 +14,7 @@ pub mod distance;
 pub mod distributions;
 pub mod dtype_support;
 pub mod fft;
+pub mod fwht;
 pub mod index;
 pub mod linalg;
 pub mod logical;
@@ -100,6 +101,7 @@ pub use fused_add_norm::{
 pub use fused_elementwise::{
     launch_fused_add_mul, launch_fused_mul_add, launch_fused_mul_add_scalar,
 };
+pub use fwht::{FWHT_MAX_CHUNK, FWHT_MIN_CHUNK, launch_fwht_global, launch_fwht_local};
 pub use index::{
     launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
     launch_scatter_reduce_count, launch_scatter_reduce_mean_div, launch_scatter_reduce_prod,

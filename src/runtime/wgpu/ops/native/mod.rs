@@ -12,6 +12,7 @@ mod compare;
 mod conditional;
 mod cumulative;
 mod fused_elementwise;
+mod fwht;
 mod gemm_epilogue;
 mod indexing;
 pub(crate) mod logical;
@@ -36,6 +37,7 @@ pub(crate) use cumulative::{native_cumprod, native_cumsum, native_logsumexp};
 pub(crate) use fused_elementwise::{
     native_fused_add_mul, native_fused_mul_add, native_fused_mul_add_scalar,
 };
+pub(crate) use fwht::native_fwht;
 pub(crate) use gemm_epilogue::{
     native_gemm_bias_activation, native_gemm_bias_activation_bwd, native_gemm_bias_residual,
 };
