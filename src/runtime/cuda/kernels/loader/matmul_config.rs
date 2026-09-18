@@ -83,16 +83,22 @@ pub fn default_tile_config(dtype: DType) -> TileConfig {
     }
 }
 
-/// Shape-aware tile configuration for F32 batched matmul.
+/// Shape-aware tile configuration for F32 matmul.
+///
+/// Every tile of the compile-time family accumulates each output element as
+/// one FMA per k, in k order, so the choice moves no bits: a row's result is
+/// the same at every M and in every tile. The rule below is speed only.
 ///
 /// The default 128×128×8 tile is badly inefficient when N or M is small (e.g.
 /// N=64 in the context-attention path): half the columns in every block are
 /// wasted, and block_k=8 forces 64+ __syncthreads barriers for K=512.
 ///
 /// Rules (all tiles keep smem ≤ 24KB per buffer, 48KB total for double-buffer):
+/// - Small-M (M ≤ 64): 16×64 block tile, block_k=32, thread_m=4, thread_n=4.
+///   The decode regime: ceil(M/16) × N/64 blocks of 64 threads keep the
+///   device busy, and at most 15 rows of each tile are padding.
 /// - Small-N (N ≤ 64): use 64×64 block tile, block_k=32, thread_m=8, thread_n=4
 ///   (64×32 + 32×64 = 4096 floats × 2 buffers = 32KB — fits in 48KB limit)
-/// - Small-M (M ≤ 64, N large): mirror the small-N tile transposed
 /// - Large square (default): 128×128, block_k=16, thread_m=8, thread_n=8
 ///   (128×16 + 16×128 = 4096 floats × 2 buffers = 32KB — fits in 48KB limit)
 ///
@@ -100,7 +106,17 @@ pub fn default_tile_config(dtype: DType) -> TileConfig {
 /// shared memory is allocated as 2 × (block_m*block_k + block_k*block_n) floats.
 #[inline]
 pub fn f32_batched_tile_config(m: usize, n: usize, _k: usize) -> TileConfig {
-    if n <= 64 || m <= 64 {
+    if m <= 64 {
+        // Decode shapes: one to a few dozen rows against a wide weight. Smem
+        // per buffer: (16×32 + 32×64) × 4 = 10 240 bytes. Two buffers = 20KB.
+        TileConfig {
+            block_m: 16,
+            block_n: 64,
+            block_k: 32,
+            thread_m: 4,
+            thread_n: 4,
+        }
+    } else if n <= 64 {
         // Attention shapes: Scores Q@Kᵀ (M=512, N=512 but K=64 so inner loop short)
         // and Context attn@V (M=512, N=64, K=512).
         // For N≤64: block_n=64 so no wasted columns; block_k=32 halves sync count.
@@ -155,6 +171,7 @@ pub fn f32_tiled_suffix(cfg: &TileConfig) -> Option<&'static str> {
     ) {
         (128, 128, 8, 8, 8) => Some("128x128x8_8x8"),
         (64, 64, 32, 8, 4) => Some("64x64x32_8x4"),
+        (16, 64, 32, 4, 4) => Some("16x64x32_4x4"),
         _ => None,
     }
 }

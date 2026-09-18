@@ -3,7 +3,7 @@
 // `float` holds the dtype-parameterized coverage, now over the whole numeric
 // domain. The CPU backend scope stops at 32 bits, so `integer_cuda` holds the
 // hand-built CUDA-vs-CPU signed coverage that reaches past it, and
-// `integer_gemv_cuda` covers the small-M GEMV kernels those shapes route to.
+// `integer_gemv_cuda` covers the small-M (decode) shapes of the same kernel.
 // `integer_dtypes_cuda` holds the unsigned widths, where the widening into the
 // 128-bit accumulator must zero-extend rather than sign-extend.
 //

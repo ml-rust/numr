@@ -1,8 +1,8 @@
 // Integer reduction CUDA kernels (I64, I32, I16, I8, U64, U32, U16, U8)
 //
 // These are the integer counterparts of the float kernels in `reduce.cu`, split
-// into their own translation unit for the same reason `gemv_int.cu` and
-// `matmul_int.cu` were split out: they accumulate in `Numr128` rather than in a
+// into their own translation unit for the same reason `matmul_int.cu` was
+// split out: they accumulate in `Numr128` rather than in a
 // float register, and `reduce.cu` is already at its size limit.
 //
 // The grid geometry, the block-level tree reduction, and the [outer, reduce,

@@ -1,9 +1,12 @@
 //! Dense matmul dispatch.
 //!
-//! `launch_matmul_kernel` and its batched form pick between the FP8, GEMV,
-//! WMMA, integer, and F32 specialisations before falling back to the generic
-//! tiled kernel. The `_with_config` entry points skip that choice and launch
-//! the generic kernel at an explicit tile.
+//! `launch_matmul_kernel` and its batched form pick between the FP8, WMMA,
+//! integer, and F32 specialisations before falling back to the generic
+//! tiled kernel. The choice reads the dtype and the shape, never M alone:
+//! every M of a dtype runs one kernel family, whose per-element float
+//! sequence is fixed, so a row's result does not depend on the batch it is
+//! in. The `_with_config` entry points skip that choice and launch the
+//! generic kernel at an explicit tile.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -15,7 +18,6 @@ use crate::error::{Error, Result};
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaDevice;
 
-use super::gemv::launch_gemv_kernel;
 use super::launch_dims::{LaunchConfig, check_shared_mem_fits};
 use super::matmul_config::{
     default_tile_config, f32_batched_tile_config, matmul_batched_launch_config,
@@ -30,25 +32,6 @@ use super::matmul_wmma::{launch_matmul_wmma_batched_kernel, launch_matmul_wmma_k
 use super::matmul_wmma_policy::use_wmma;
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::{kernel_name, kernel_names};
-
-/// Largest `m` routed to the GEMV kernel instead of a tiled GEMM.
-///
-/// Dtype-dependent, because what the alternative IS differs by dtype.
-///
-/// F32 has a tiled kernel that handles small `m` well, and it beats GEMV from
-/// about `m == 8` upward — GEMV was measurably worse at 8, 12 and 16.
-///
-/// F16/BF16 route every `m >= 1` to the WMMA kernel: `use_wmma` does not test
-/// M, and the kernel zero-fills and masks the M edge. The tensor-core path
-/// beats GEMV at every small `m`, so the GEMV threshold is 0 for them. F64 and
-/// the integer dtypes have no specialised small-`m` path and keep 16.
-fn gemv_m_max(dtype: DType) -> usize {
-    match dtype {
-        DType::F32 => 4,
-        DType::F16 | DType::BF16 => 0,
-        _ => 16,
-    }
-}
 
 /// Launch native tiled matmul kernel: C[M,N] = A[M,K] @ B[K,N]
 ///
@@ -70,8 +53,7 @@ pub unsafe fn launch_matmul_kernel(
     n: usize,
     k: usize,
 ) -> Result<()> {
-    // FP8 first: `gemv.cu` has no FP8 kernels, so the small-M fast path below
-    // would look up a name that does not exist.
+    // FP8 has its own tiled family.
     if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
         unsafe {
             return launch_matmul_fp8_tiled(
@@ -92,31 +74,11 @@ pub unsafe fn launch_matmul_kernel(
             );
         }
     }
-    // Use GEMV kernel for small M (single-token decode in LLM inference)
-    // The tiled GEMM wastes 99%+ compute when M < block_m (typically 128)
+    // No small-M GEMV switch here: every M of a dtype takes the same kernel
+    // family, so a row's result never depends on how many rows share the
+    // launch. The F32 family serves small M with its 16-row tile
+    // (`f32_batched_tile_config`).
     //
-    // I8 is excluded: its matmul writes I32, and `gemv_int.cu` has no
-    // kernel that widens. CPU excludes I8 from its own GEMV-BT fast path for the
-    // same reason, so both backends reach the tiled kernel at every M.
-    if m <= gemv_m_max(dtype) && dtype != DType::I8 {
-        unsafe {
-            return launch_gemv_kernel(
-                context,
-                stream,
-                device_index,
-                dtype,
-                a_ptr,
-                b_ptr,
-                c_ptr,
-                1,
-                m,
-                n,
-                k,
-                1,
-                1,
-            );
-        }
-    }
     // Tensor-core WMMA path: F16/BF16 at any shape, unless padding the row
     // strides pays and the op has not done it yet (see `use_wmma`).
     // CudaDevice::new is a zero-cost index wrapper; profile() serves the
@@ -294,7 +256,7 @@ pub unsafe fn launch_matmul_batched_kernel(
     a_batch: usize,
     b_batch: usize,
 ) -> Result<()> {
-    // FP8 first: `gemv.cu` has no FP8 kernels (see launch_matmul_kernel).
+    // FP8 has its own tiled family (see launch_matmul_kernel).
     if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
         unsafe {
             return launch_matmul_fp8_tiled(
@@ -315,28 +277,8 @@ pub unsafe fn launch_matmul_batched_kernel(
             );
         }
     }
-    // Use GEMV kernel for small M (batched case). I8 is excluded for the same
-    // reason as in `launch_matmul_kernel`: it widens to I32 and `gemv_int.cu`
-    // has no widening kernel.
-    if m <= gemv_m_max(dtype) && dtype != DType::I8 {
-        unsafe {
-            return launch_gemv_kernel(
-                context,
-                stream,
-                device_index,
-                dtype,
-                a_ptr,
-                b_ptr,
-                c_ptr,
-                batch,
-                m,
-                n,
-                k,
-                a_batch,
-                b_batch,
-            );
-        }
-    }
+    // No small-M GEMV switch, as in `launch_matmul_kernel`.
+    //
     // Tensor-core WMMA path for F16/BF16, same predicate as the 2-D form;
     // `src/ops/cuda/matmul.rs` applies the same pre-launch padding rule to
     // the batched call.

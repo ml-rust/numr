@@ -2,7 +2,7 @@
 // U32, U16, U8).
 //
 // Split into their own translation unit for the same reason `reduce_int.cu` and
-// `gemv_int.cu` were: the running total lives in `Numr128` rather than in a
+// `matmul_int.cu` were: the running total lives in `Numr128` rather than in a
 // float register, and nothing else about the loop differs. There is no integer
 // logsumexp, so `cumulative.cu` keeps that operation to itself.
 //

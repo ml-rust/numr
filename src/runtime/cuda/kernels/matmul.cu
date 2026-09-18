@@ -1947,6 +1947,12 @@ extern "C" __global__ void matmul_bias_batched_bf16(
 // Configs dispatched from Rust (loader/matmul_f32.rs, loader/matmul_bias_f32.rs):
 //   128x128x8_8x8   BM=128 BN=128 BK=8  TM=8 TN=8 -> 256 threads
 //   64x64x32_8x4    BM=64  BN=64  BK=32 TM=8 TN=4 -> 128 threads
+//   16x64x32_4x4    BM=16  BN=64  BK=32 TM=4 TN=4 -> 64 threads
+//
+// Every config accumulates each output element as one FMA per k, k in order,
+// so the three form the same bits for the same element; the host picks by
+// shape alone and no element's value depends on which tile it landed in or
+// on how many rows share the launch.
 // ============================================================================
 
 // Bias epilogue: bias is a length-N vector broadcast across rows and batches.
@@ -1969,7 +1975,14 @@ struct MatmulEpilogueBias {
 //
 // Config 2: BM=64,  BN=64,  BK=32, TM=8, TN=4  → 128 threads/block
 //   Smem per buffer: (64*32 + 32*64)*4 = 16 384 bytes.  Two buffers = 32 KB.
-//   Optimal for small-N / small-M shapes (attention score/context paths).
+//   Optimal for small-N shapes (attention score/context paths).
+//
+// Config 3: BM=16,  BN=64,  BK=32, TM=4, TN=4  → 64 threads/block
+//   Smem per buffer: (16*32 + 32*64)*4 = 10 240 bytes.  Two buffers = 20 KB.
+//   The decode tile, for M <= 64: a 16-row tile keeps ceil(M/16) x N/64
+//   blocks in flight and wastes at most 15 rows of FMAs, where the 64-row
+//   tile ran N/64 blocks and left the device idle. Two warps per block
+//   keep the shared-memory traffic per k-step at 5 loads per 16 FMAs.
 // ---------------------------------------------------------------------------
 
 extern "C" __global__ void matmul_f32_tiled_128x128x8_8x8(
@@ -1994,8 +2007,19 @@ extern "C" __global__ void matmul_f32_tiled_64x64x32_8x4(
     matmul_f32_tiled_impl<64, 64, 32, 8, 4>(A, B, C, M, N, K);
 }
 
+extern "C" __global__ void matmul_f32_tiled_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4>(A, B, C, M, N, K);
+}
+
 // Transposed-B entry points: B is the contiguous [N, K] weight itself, so
-// `x @ W.T` runs without a copy of W. Same two tiles.
+// `x @ W.T` runs without a copy of W. Same three tiles.
 extern "C" __global__ void matmul_f32_tiled_bt_128x128x8_8x8(
     const float* __restrict__ A,
     const float* __restrict__ B,
@@ -2016,6 +2040,17 @@ extern "C" __global__ void matmul_f32_tiled_bt_64x64x32_8x4(
     unsigned int K
 ) {
     matmul_f32_tiled_impl<64, 64, 32, 8, 4, MatmulEpilogueNone, float, true>(A, B, C, M, N, K);
+}
+
+extern "C" __global__ void matmul_f32_tiled_bt_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4, MatmulEpilogueNone, float, true>(A, B, C, M, N, K);
 }
 
 extern "C" __global__ void matmul_batched_f32_tiled_bt_128x128x8_8x8(
@@ -2062,7 +2097,29 @@ extern "C" __global__ void matmul_batched_f32_tiled_bt_64x64x32_8x4(
         A_batch, B_batch, C_batch, M, N, K);
 }
 
-// Batched entry points, same two tiles. Batch index is blockIdx.z, and
+extern "C" __global__ void matmul_batched_f32_tiled_bt_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
+    unsigned int batch,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
+) {
+    const unsigned int b = blockIdx.z;
+    if (b >= batch) return;
+
+    const float* A_batch = A + (b % a_batch_count) * (M * K);
+    const float* B_batch = B + (b % b_batch_count) * (K * N);
+    float* C_batch = C + b * (M * N);
+
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4, MatmulEpilogueNone, float, true>(
+        A_batch, B_batch, C_batch, M, N, K);
+}
+
+// Batched entry points, same three tiles. Batch index is blockIdx.z, and
 // `a_batch_count` / `b_batch_count` let one operand broadcast over the batch.
 // Before these existed the F32 batched path ran the runtime-tile
 // `matmul_batched_f32` above, whose accumulators spill to local memory.
@@ -2108,6 +2165,27 @@ extern "C" __global__ void matmul_batched_f32_tiled_64x64x32_8x4(
     matmul_f32_tiled_impl<64, 64, 32, 8, 4>(A_batch, B_batch, C_batch, M, N, K);
 }
 
+extern "C" __global__ void matmul_batched_f32_tiled_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
+    unsigned int batch,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
+) {
+    const unsigned int b = blockIdx.z;
+    if (b >= batch) return;
+
+    const float* A_batch = A + (b % a_batch_count) * (M * K);
+    const float* B_batch = B + (b % b_batch_count) * (K * N);
+    float* C_batch = C + b * (M * N);
+
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4>(A_batch, B_batch, C_batch, M, N, K);
+}
+
 // ---------------------------------------------------------------------------
 // Fused matmul + bias entry points
 // ---------------------------------------------------------------------------
@@ -2140,6 +2218,19 @@ extern "C" __global__ void matmul_bias_f32_tiled_64x64x32_8x4(
 ) {
     MatmulEpilogueBias epi{bias};
     matmul_f32_tiled_impl<64, 64, 32, 8, 4>(A, B, C, M, N, K, epi);
+}
+
+extern "C" __global__ void matmul_bias_f32_tiled_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    const float* __restrict__ bias,
+    float* __restrict__ C,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K
+) {
+    MatmulEpilogueBias epi{bias};
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4>(A, B, C, M, N, K, epi);
 }
 
 // Batched forms: blockIdx.z selects the batch, A and B repeat with modulo
@@ -2190,4 +2281,27 @@ extern "C" __global__ void matmul_bias_batched_f32_tiled_64x64x32_8x4(
 
     MatmulEpilogueBias epi{bias};
     matmul_f32_tiled_impl<64, 64, 32, 8, 4>(A_batch, B_batch, C_batch, M, N, K, epi);
+}
+
+extern "C" __global__ void matmul_bias_batched_f32_tiled_16x64x32_4x4(
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    const float* __restrict__ bias,
+    float* __restrict__ C,
+    unsigned int batch,
+    unsigned int M,
+    unsigned int N,
+    unsigned int K,
+    unsigned int a_batch_count,
+    unsigned int b_batch_count
+) {
+    const unsigned int b = blockIdx.z;
+    if (b >= batch) return;
+
+    const float* A_batch = A + (b % a_batch_count) * (M * K);
+    const float* B_batch = B + (b % b_batch_count) * (K * N);
+    float* C_batch = C + b * (M * N);
+
+    MatmulEpilogueBias epi{bias};
+    matmul_f32_tiled_impl<16, 64, 32, 4, 4>(A_batch, B_batch, C_batch, M, N, K, epi);
 }

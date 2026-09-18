@@ -23,9 +23,8 @@ use super::names::{dtype_suffix, kernel_names};
 /// point on this. Bool is the only integer-adjacent dtype left out, and
 /// `DType::is_int` already excludes it.
 ///
-/// `gemv_int.cu` instantiates the same list except I8, so the small-M GEMV fast
-/// paths carry their own I8 guard — see [`int_matmul_output_dtype`] for why an
-/// I8 GEMV kernel would be the wrong shape to write.
+/// Every M reaches this kernel; there is no small-M GEMV for integers. See
+/// [`int_matmul_output_dtype`] for the I8 widening this kernel performs.
 #[inline]
 pub fn int_matmul_has_kernel(dtype: DType) -> bool {
     dtype.is_int()

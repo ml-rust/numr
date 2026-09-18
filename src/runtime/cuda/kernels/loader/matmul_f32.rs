@@ -26,6 +26,7 @@ use super::names::kernel_names;
 /// Supported configs (must match the extern "C" instantiations in matmul.cu):
 ///   128×128×8  TM=8 TN=8  → kernel `matmul_f32_tiled_128x128x8_8x8`  (256 threads)
 ///   64×64×32   TM=8 TN=4  → kernel `matmul_f32_tiled_64x64x32_8x4`   (128 threads)
+///   16×64×32   TM=4 TN=4  → kernel `matmul_f32_tiled_16x64x32_4x4`   (64 threads)
 ///
 /// Any other tile_cfg falls back to the generic `matmul_f32` kernel.
 ///

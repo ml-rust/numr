@@ -79,7 +79,7 @@ pub unsafe fn launch_matmul_bias_kernel(
     // Integers likewise: `matmul.cu` has no integer kernels at all, and the
     // fused form is required rather than merely faster - the bias has to join
     // the 128-bit accumulator before it saturates, which a separate add cannot
-    // do. There is no small-M shortcut here because `gemv_int.cu` takes no bias.
+    // do. There is no small-M shortcut here; every M runs the tiled kernel.
     if int_matmul_has_kernel(dtype) {
         unsafe {
             return launch_matmul_int_tiled(

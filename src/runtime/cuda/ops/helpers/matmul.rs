@@ -36,15 +36,26 @@ fn is_simple_transpose_2d(tensor: &Tensor<CudaRuntime>) -> bool {
     strides[0] == 1 && strides[1] == shape[0] as isize
 }
 
-/// Whether this dtype may take the small-M GEMV fast path in a plain matmul.
+/// Whether this dtype still takes the small-M GEMV path against a transposed
+/// weight.
 ///
-/// FP8 has no GEMV kernel at all. I8 has none either, and could not use one: its
-/// matmul widens to I32 (see `int_matmul_output_dtype`) while every GEMV kernel
-/// writes the element type. CPU excludes I8 from its own GEMV-BT path for
-/// the same reason, so both backends run the tiled kernel at every M.
+/// Only the half dtypes do, and only because their tensor-core kernel has no
+/// transposed-B loader yet: past the GEMV rows the op copies the weight to
+/// `[K, N]` per call, which is too slow for a decode step. The GEMV reduces
+/// each output along K lane-strided and then through a shuffle tree, so a
+/// row of a 17-row product is NOT the same bits as its 1-row product for
+/// these dtypes. Closing that needs a WMMA tile that stages `B` from `[N, K]`
+/// (`col_major` fragments) with a 16-row block for the decode regime.
+///
+/// F32 takes the transposed-B tiled kernel at every M: one FMA per k in k
+/// order per element in every tile, so its rows are batch-invariant. F64 and
+/// the integer dtypes take the generic tiled kernel at every M for the same
+/// reason. FP8 has no GEMV kernel at all, and I8 could not use one: its matmul
+/// widens to I32 (see `int_matmul_output_dtype`) while every GEMV kernel
+/// writes the element type.
 #[inline]
-fn has_gemv_kernel(dtype: DType) -> bool {
-    !matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2 | DType::I8)
+fn gemv_only_half(dtype: DType) -> bool {
+    matches!(dtype, DType::F16 | DType::BF16)
 }
 
 pub(crate) fn matmul_native(
@@ -61,10 +72,10 @@ pub(crate) fn matmul_native(
         got: b.shape().to_vec(),
     })?;
 
-    // Fast path: if B is a transposed view of contiguous [N,K] and M is small,
-    // use gemv_bt kernel directly — avoids copying the entire weight matrix.
-    // FP8 and I8 are excluded: see `has_gemv_kernel`.
-    if m <= 16 && has_gemv_kernel(dtype) && is_simple_transpose_2d(b) {
+    // Half dtypes against a transposed [N,K] weight at small M: the gemv_bt
+    // kernel, which reads the weight in place. See `gemv_only_half` for why
+    // this switch survives for them alone.
+    if m <= 16 && gemv_only_half(dtype) && is_simple_transpose_2d(b) {
         let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
 
@@ -89,10 +100,10 @@ pub(crate) fn matmul_native(
         return Ok(out);
     }
 
-    // Larger M against the same transposed weight: the tiled F32 kernel reads
-    // the `[N, K]` buffer in place. Making `b` contiguous here would copy the
-    // whole weight on every call. F32 only: the other dtypes have no
-    // transposed-B tile loader.
+    // F32 against a transposed weight, at every M: the tiled F32 kernel reads
+    // the `[N, K]` buffer in place, and its 16-row tile serves the decode
+    // shapes. Making `b` contiguous here would copy the whole weight on every
+    // call. F32 only: the other dtypes have no transposed-B tile loader.
     if dtype == DType::F32 && is_simple_transpose_2d(b) {
         let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
@@ -179,9 +190,9 @@ pub(crate) fn matmul_batched_native(
     let (a, b) = (&operands.a, &operands.b);
     let (a_batch, b_batch) = (operands.a_batch, operands.b_batch);
 
-    // Fast path: transposed B with small M → gemv_bt. FP8 and I8 are excluded
-    // for the same reason as in matmul_native.
-    if m <= 16 && has_gemv_kernel(dtype) && is_batched_transpose_last2(b) {
+    // Half dtypes against a transposed weight at small M: gemv_bt, for the
+    // reason `gemv_only_half` gives.
+    if m <= 16 && gemv_only_half(dtype) && is_batched_transpose_last2(b) {
         let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
 

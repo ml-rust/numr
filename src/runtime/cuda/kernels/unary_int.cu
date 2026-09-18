@@ -1,7 +1,7 @@
 // Integer unary CUDA kernels (I8, I16, I32, I64, U8, U16, U32, U64)
 //
 // Split out of `unary.cu` for the same reason `reduce_int.cu`,
-// `cumulative_int.cu`, `matmul_int.cu` and `gemv_int.cu` were: the integer
+// `cumulative_int.cu` and `matmul_int.cu` were: the integer
 // dtypes need different arithmetic from the float ones, and `unary.cu` is far
 // past its size limit. `unary_module` in
 // `runtime/cuda/kernels/loader/dtype_modules.rs` routes every integer dtype

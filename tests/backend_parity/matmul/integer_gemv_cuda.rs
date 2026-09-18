@@ -1,17 +1,17 @@
-// Backend parity tests for the I32 / I64 CUDA GEMV path - CUDA vs CPU.
+// Backend parity tests for the I32 / I64 CUDA matmul at small M - CUDA vs CPU.
 //
-// `integer_cuda.rs` covers the tiled integer GEMM. This file covers the small-M
-// shortcut: `m <= 16` routes to `gemv_i32` / `gemv_i64`, and a transposed B
-// operand routes to `gemv_bt_mr_i32` / `gemv_bt_mr_i64` (see
-// `runtime/cuda/kernels/gemv_int.cu`). Those are separate implementations of the
-// same product, so three things must hold and are tested here:
+// `integer_cuda.rs` covers the tiled integer GEMM at GEMM-sized shapes. This
+// file covers the decode shapes, `m <= 16`, with a plain and a transposed B
+// operand. Those shapes once routed to separate small-M GEMV kernels; every M
+// now runs the same tiled kernel (a transposed B is copied first), and the
+// three properties the shortcut had to hold still do:
 //
-// 1. Each GEMV kernel matches CPU, which accumulates in i128.
-// 2. The GEMV path and the tiled path agree on the same operands. Both
-//    accumulate in a 128-bit accumulator and saturate once at the store, and
-//    128-bit integer addition is exact, so "agree" means bit for bit.
+// 1. The small-M launch matches CPU, which accumulates in i128.
+// 2. Small M and GEMM-sized M agree on the same operands. Both accumulate in
+//    a 128-bit accumulator and saturate once at the store, and 128-bit
+//    integer addition is exact, so "agree" means bit for bit.
 // 3. The accumulator survives a partial sum that leaves the output dtype's range
-//    and returns, on the GEMV path as well as the tiled one.
+//    and returns, at small M as well as at GEMM size.
 //
 // Every test is `#[cfg(feature = "cuda")]`, so these imports are too.
 #[cfg(feature = "cuda")]

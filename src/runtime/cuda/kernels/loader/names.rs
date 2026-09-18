@@ -96,10 +96,8 @@ pub mod kernel_names {
     pub const GROUPED_MATMUL_MODULE: &str = "grouped_matmul";
     /// Tensor-core WMMA GEMM for F16/BF16 (sm_70+)
     pub const MATMUL_WMMA_MODULE: &str = "matmul_wmma";
-    /// GEMV operations (matrix-vector multiply for small M)
+    /// Half-precision GEMV against a transposed weight (small M)
     pub const GEMV_MODULE: &str = "gemv";
-    /// Integer GEMV operations, which accumulate in `Numr128`
-    pub const GEMV_INT_MODULE: &str = "gemv_int";
     /// Compile-time-tiled integer GEMM
     pub const MATMUL_INT_MODULE: &str = "matmul_int";
     /// Compile-time-tiled FP8 GEMM (FP8E4M3, FP8E5M2), F32 accumulation

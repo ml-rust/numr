@@ -84,7 +84,6 @@ fn compile_cuda_kernels() {
         "linalg_svd.cu",
         "fp8_matmul.cu",
         "gemv.cu",
-        "gemv_int.cu",
         "matmul.cu",
         "matmul_fp8.cu",
         "matmul_int.cu",
