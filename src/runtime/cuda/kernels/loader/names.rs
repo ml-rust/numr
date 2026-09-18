@@ -106,6 +106,8 @@ pub mod kernel_names {
     pub const CUMULATIVE_MODULE: &str = "cumulative";
     /// Integer cumulative operations, which accumulate in `Numr128`
     pub const CUMULATIVE_INT_MODULE: &str = "cumulative_int";
+    /// Normalized Walsh-Hadamard transform (shared-memory butterfly)
+    pub const FWHT_MODULE: &str = "fwht";
     /// Distribution sampling operations (bernoulli, beta, gamma, etc.)
     pub const DISTRIBUTIONS_MODULE: &str = "distributions";
     /// Quasi-random sequence generation (sobol, halton, latin_hypercube)

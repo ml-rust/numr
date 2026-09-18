@@ -1,8 +1,8 @@
 // Backend parity tests for FwhtOps.
 //
-// CPU is the only backend with a kernel today, so this file checks CPU against
-// an explicit O(n^2) Sylvester-Hadamard matrix product instead of another
-// backend. `cuda.rs` and `wgpu.rs` are stubs until those kernels land.
+// This file checks CPU, the reference backend, against an explicit O(n^2)
+// Sylvester-Hadamard matrix product. `cuda.rs` checks CUDA against CPU.
+// `wgpu.rs` is a stub until that kernel lands.
 
 pub mod cuda;
 pub mod wgpu;

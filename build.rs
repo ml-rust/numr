@@ -67,6 +67,7 @@ fn compile_cuda_kernels() {
         "fused_add_layer_norm.cu",
         "fused_add_rms_norm.cu",
         "fused_elementwise.cu",
+        "fwht.cu",
         "im2col.cu",
         "im2col2d.cu",
         "index.cu",
