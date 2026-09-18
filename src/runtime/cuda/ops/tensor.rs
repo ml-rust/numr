@@ -49,6 +49,9 @@ mod conv2d_im2col;
 #[path = "../../../ops/cuda/cumulative.rs"]
 mod cumulative;
 
+#[path = "../../../ops/cuda/fwht.rs"]
+mod fwht;
+
 #[path = "../../../ops/cuda/activation.rs"]
 mod activation;
 

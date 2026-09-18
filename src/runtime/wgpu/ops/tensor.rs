@@ -35,6 +35,9 @@ mod conv;
 #[path = "../../../ops/wgpu/cumulative.rs"]
 mod cumulative;
 
+#[path = "../../../ops/wgpu/fwht.rs"]
+mod fwht;
+
 #[path = "../../../ops/wgpu/activation.rs"]
 mod activation;
 

@@ -42,6 +42,7 @@ pub mod fft;
 #[cfg(feature = "fp8")]
 pub mod fp8_matmul;
 pub mod fused_elementwise;
+pub mod fwht;
 pub mod gemm_epilogue;
 pub mod gemm_epilogue_wmma;
 pub mod group_norm;

@@ -18,6 +18,7 @@ pub mod distributions;
 pub mod fft;
 pub mod fused_add_norm;
 pub mod fused_elementwise;
+pub mod fwht;
 pub mod gemm_epilogue;
 pub mod index;
 pub mod ipow;
@@ -79,6 +80,7 @@ pub use fused_add_norm::{
 pub use fused_elementwise::{
     fused_add_mul_kernel, fused_mul_add_kernel, fused_mul_add_scalar_kernel,
 };
+pub use fwht::fwht_kernel;
 pub use gemm_epilogue::{
     matmul_bias_activation_bwd_kernel, matmul_bias_activation_kernel, matmul_bias_residual_kernel,
 };

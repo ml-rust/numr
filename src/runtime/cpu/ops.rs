@@ -57,6 +57,9 @@ mod conv;
 #[path = "../../ops/cpu/cumulative.rs"]
 mod cumulative;
 
+#[path = "../../ops/cpu/fwht.rs"]
+mod fwht;
+
 #[path = "../../ops/cpu/activation.rs"]
 mod activation;
 
