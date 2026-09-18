@@ -96,7 +96,9 @@ pub fn default_tile_config(dtype: DType) -> TileConfig {
 /// Rules (all tiles keep smem ≤ 24KB per buffer, 48KB total for double-buffer):
 /// - Small-M (M ≤ 64): 16×64 block tile, block_k=32, thread_m=4, thread_n=4.
 ///   The decode regime: ceil(M/16) × N/64 blocks of 64 threads keep the
-///   device busy, and at most 15 rows of each tile are padding.
+///   device busy, and at most 15 rows of each tile are padding. The
+///   transposed-weight path at M ≤ `MAX_SMALL_M` takes the one-thread-per-
+///   output kernel (`matmul_f32_smallm.rs`) before this rule is consulted.
 /// - Small-N (N ≤ 64): use 64×64 block tile, block_k=32, thread_m=8, thread_n=4
 ///   (64×32 + 32×64 = 4096 floats × 2 buffers = 32KB — fits in 48KB limit)
 /// - Large square (default): 128×128, block_k=16, thread_m=8, thread_n=8

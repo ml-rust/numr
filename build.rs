@@ -272,6 +272,8 @@ fn compile_cuda_kernels() {
         "rng_xorshift.cuh",
         "gemm_activation.cuh",
         "matmul_f32_tiled.cuh",
+        "matmul_f32_tiled_fetch.cuh",
+        "matmul_f32_smallm.cuh",
         "rms_norm_regs.cuh",
         "norm_common.cuh",
         "block_reduce.cuh",

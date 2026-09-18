@@ -20,6 +20,7 @@ mod matmul_bias;
 mod matmul_bias_f32;
 mod matmul_config;
 mod matmul_f32;
+mod matmul_f32_smallm;
 mod matmul_fp8;
 mod matmul_int;
 mod matmul_wmma;
@@ -56,6 +57,10 @@ pub use matmul_bias::{launch_matmul_bias_batched_kernel, launch_matmul_bias_kern
 pub use matmul_config::{
     default_tile_config, f32_batched_tile_config, f32_tiled_launch_config, f32_tiled_suffix,
     matmul_batched_launch_config, matmul_launch_config,
+};
+pub use matmul_f32_smallm::{
+    MAX_SMALL_M, MAX_SMALL_N, launch_matmul_batched_smallm_bt_kernel,
+    launch_matmul_smallm_bt_kernel,
 };
 pub use matmul_int::{int_matmul_has_kernel, int_matmul_output_dtype};
 pub(crate) use matmul_wmma_f32out::{

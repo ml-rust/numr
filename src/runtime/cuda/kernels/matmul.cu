@@ -17,6 +17,9 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "matmul_f32_tiled.cuh"
+// Small-M transposed-B kernels (M <= 4, one thread per output) and their
+// extern "C" entry points; bit-identical to the tiled family, see the header.
+#include "matmul_f32_smallm.cuh"
 
 // ============================================================================
 // Configurable Register-Tiled GEMM Kernel (F32)

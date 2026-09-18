@@ -2,11 +2,14 @@
 //! launch.
 //!
 //! Every F32 shape runs the compile-time tiled family, whose tiles all
-//! accumulate one FMA per k in k order per output element. So row `r` of an
-//! M-row product must be the same bits as the 1-row product of row `r` alone,
-//! across the tile boundaries the shape rule crosses (16, 64, 128 rows), for
-//! a contiguous `[K, N]` operand and for the transposed `[N, K]` weight view
-//! `Linear` multiplies by, in the 2-D and the batched forms.
+//! accumulate one FMA per k in k order per output element, and the
+//! transposed-weight path at M <= 4 runs the one-thread-per-output kernel,
+//! which forms the same chain. So row `r` of an M-row product must be the
+//! same bits as the 1-row product of row `r` alone, across the kernel
+//! boundary (4 rows) and the tile boundaries the shape rule crosses (16, 64,
+//! 128 rows), for a contiguous `[K, N]` operand and for the transposed
+//! `[N, K]` weight view `Linear` multiplies by, in the 2-D and the batched
+//! forms.
 //!
 //! Run with:
 //!   cd numr && cargo test --features cuda --test cuda_matmul_batch_invariance
@@ -18,9 +21,10 @@ use numr::runtime::RuntimeClient;
 use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 use numr::tensor::Tensor;
 
-/// Row counts on both sides of every tile boundary the shape rule has, plus
-/// the decode batches and the DiT CFG pair.
-const ROW_COUNTS: [usize; 10] = [1, 2, 4, 8, 16, 17, 22, 64, 65, 200];
+/// Row counts on both sides of the small-M kernel cutoff (4 | 5) and of every
+/// tile boundary the shape rule has, plus the decode batches and the DiT CFG
+/// pair.
+const ROW_COUNTS: [usize; 12] = [1, 2, 3, 4, 5, 8, 16, 17, 22, 64, 65, 200];
 
 /// Widths and depths: a wide weight, a narrow one, and ragged sizes that
 /// leave partial tiles on every axis.

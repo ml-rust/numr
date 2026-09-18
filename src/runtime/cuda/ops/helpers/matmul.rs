@@ -1,16 +1,17 @@
 //! Native tiled GEMM entry points for the CUDA client.
 //!
 //! Handles the operand preparation the kernels cannot: transpose-view
-//! detection so a `[K,N]` view reaches GEMV or the transposed-B tiled GEMM
-//! without materialising the copy, batch broadcasting, and the integer
-//! output-dtype widening.
+//! detection so a `[K,N]` view reaches GEMV, the small-M F32 kernel or the
+//! transposed-B tiled GEMM without materialising the copy, batch
+//! broadcasting, and the integer output-dtype widening.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::matmul_output_shape;
 use crate::runtime::cuda::kernels::{
-    int_matmul_output_dtype, launch_gemv_kernel_bt_mr, launch_matmul_batched_kernel,
-    launch_matmul_batched_kernel_bt, launch_matmul_kernel, launch_matmul_kernel_bt,
+    MAX_SMALL_M, int_matmul_output_dtype, launch_gemv_kernel_bt_mr, launch_matmul_batched_kernel,
+    launch_matmul_batched_kernel_bt, launch_matmul_batched_smallm_bt_kernel, launch_matmul_kernel,
+    launch_matmul_kernel_bt, launch_matmul_smallm_bt_kernel,
 };
 use crate::runtime::cuda::ops::matmul_broadcast::resolve_batched_operands;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
@@ -98,6 +99,33 @@ pub(crate) fn matmul_native(
         }
 
         return Ok(out);
+    }
+
+    // F32 against a transposed weight at M <= MAX_SMALL_M: one thread per
+    // output, reading the `[N, K]` buffer in place. Same FMA chain per element
+    // as the tiled kernel below, so the same bits (see `MAX_SMALL_M`); it
+    // only skips the 16-row tile's padding rows. The launcher declines a
+    // weight wider than `MAX_SMALL_N`, where its uncoalesced row reads lose.
+    if dtype == DType::F32 && m <= MAX_SMALL_M && is_simple_transpose_2d(b) {
+        let a_contig = ensure_contiguous(a)?;
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
+        let launched = unsafe {
+            launch_matmul_smallm_bt_kernel(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(),
+                out.ptr(),
+                m,
+                n,
+                k,
+            )?
+        };
+        if launched {
+            return Ok(out);
+        }
     }
 
     // F32 against a transposed weight, at every M: the tiled F32 kernel reads
@@ -215,6 +243,33 @@ pub(crate) fn matmul_batched_native(
         }
 
         return Ok(out);
+    }
+
+    // Same small-M one-thread-per-output path as `matmul_native`, over a
+    // transposed `[batch, N, K]` operand.
+    if dtype == DType::F32 && m <= MAX_SMALL_M && is_batched_transpose_last2(b) {
+        let a_contig = ensure_contiguous(a)?;
+        let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
+        let launched = unsafe {
+            launch_matmul_batched_smallm_bt_kernel(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                dtype,
+                a_contig.ptr(),
+                b.ptr(),
+                out.ptr(),
+                batch,
+                m,
+                n,
+                k,
+                a_batch,
+                b_batch,
+            )?
+        };
+        if launched {
+            return Ok(out);
+        }
     }
 
     // Same in-place read of a transposed `[batch, N, K]` operand as
