@@ -40,9 +40,8 @@ use super::names::kernel_names;
 /// `tests/cuda_matmul_batch_invariance.rs` checks. The cutoff is speed only.
 ///
 /// 64 is the widest M measured (`examples/cuda_matmul_smallm_profile.rs`,
-/// Ampere-class GPU, nsys medians of 8, K = 5120). Past 64 the tiled
-/// family's shape rule moves off the 16-row tile, so the comparison is
-/// unmeasured.
+/// nsys medians of 8, K = 5120). Past 64 the tiled family's shape rule
+/// moves off the 16-row tile, so the comparison is unmeasured.
 pub const MAX_SMALL_M: usize = 64;
 
 /// Widest `N` the one-thread-per-output kernel serves; wider weights take
@@ -51,19 +50,11 @@ pub const MAX_SMALL_M: usize = 64;
 ///
 /// The tiled kernel reuses each staged B element across its 16 A rows, so
 /// past a few thousand outputs it moves less memory per output. Measured
-/// (`examples/cuda_matmul_smallm_profile.rs`, Ampere-class GPU, nsys medians
-/// of 8, K = 5120) as `small-M / tiled` in us:
-///
-/// | M  | N = 48  | N = 256 | N = 512 | N = 1024 |
-/// |----|---------|---------|---------|----------|
-/// | 1  | 19/246  | 27/254  | 47/254  | 76/255   |
-/// | 4  | 20/241  | 66/251  | 132/251 | 262/251  |
-/// | 16 | 43/246  | 210/255 | 508/255 | -        |
-/// | 64 | 147/247 | 777/255 | -       | -        |
-///
-/// The tiled kernel is flat to N = 1024 at these M (344 us at N = 5120);
-/// small-M grows with `M x N`, which is why the wave bound in
-/// [`SmallmLimits`] is the cutoff that matters.
+/// with `examples/cuda_matmul_smallm_profile.rs` (nsys medians of 8, K =
+/// 5120) across M in {1, 4, 16, 64} and N in {48, 256, 512, 1024, 5120}:
+/// the tiled kernel is flat in N over this range while small-M grows with
+/// `M x N`, so the wave bound in [`SmallmLimits`] is the cutoff that
+/// matters.
 pub const MAX_SMALL_N: usize = 1024;
 
 /// The device-side bounds [`smallm_applies`] checks the grid against: the
@@ -332,7 +323,7 @@ mod tests {
         );
     }
 
-    /// The part the wave rule was measured on: 28 SMs, 12 waves.
+    /// Fixture limits for this test module: 28 SMs, 12 waves.
     const LIMITS: SmallmLimits = SmallmLimits {
         sm_count: 28,
         max_waves: 12,

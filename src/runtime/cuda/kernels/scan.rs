@@ -6,7 +6,7 @@
 //!
 //! # Performance
 //!
-//! - Small arrays (n ≤ 512): Single-block scan, ~10-100 µs
+//! - Small arrays (n ≤ 512): Single-block scan
 //! - Large arrays (n > 512): Multi-block scan with recursive block sum scan
 //! - **Unlimited size support**: Recursive multi-level scan handles arbitrarily large arrays
 //! - Zero CPU-GPU transfers (fully on-device)

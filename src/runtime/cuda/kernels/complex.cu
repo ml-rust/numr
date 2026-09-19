@@ -23,10 +23,8 @@
 // - Grid size: Computed as ceil(n / 256)
 // - No shared memory required (memory-bound operations)
 //
-// Throughput Estimates (memory bandwidth limited):
-// - Complex64 operations: ~450 GB/s on A100 (80GB), ~250 GB/s on RTX 3090
-// - Complex128 operations: ~400 GB/s on A100 (80GB), ~200 GB/s on RTX 3090
-// - Real operations: ~500 GB/s (single read/write, less data movement)
+// These ops are memory-bandwidth bound, not compute bound: each element
+// does one read and one write with no shared memory.
 //
 // Optimal Data Sizes:
 // - Minimum: 4096 elements (enough to hide kernel launch overhead)

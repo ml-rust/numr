@@ -542,7 +542,7 @@ fn test_matmul_wmma_determinism_f16() {
 //
 // These tests specifically exercise the compile-time-tiled FP32 GEMM path
 // (`matmul_f32_tiled_*` extern "C" kernels) added to fix the local-memory
-// spill that caused ~61 GFLOP/s on the generic `matmul_f32` kernel.
+// spill that throttled throughput on the generic `matmul_f32` kernel.
 //
 // - 256×192×320: large square, uses the 128×128×8 config.  All dims are
 //   multiples of the block tile so no boundary masking is needed.

@@ -5,9 +5,9 @@
 // WHY: the tiled family serves M <= 64 with its 16-row tile
 // (`matmul_f32_tiled_bt_16x64x32_4x4`). At the decode shapes, M in 1..=4,
 // 12 to 15 of those 16 rows are padding, so most of the FMAs, the shared
-// memory traffic and the barriers do nothing. `[1,5120] x [5120,48]ᵀ` takes
-// ~0.24 ms there. This kernel launches only the threads that own an output,
-// and uses the threads that own none to keep the weight stream in flight.
+// memory traffic and the barriers do nothing. This kernel launches only
+// the threads that own an output, and uses the threads that own none to
+// keep the weight stream in flight.
 //
 // BIT IDENTITY: the tiled kernel forms each output as ONE FMA PER k, k
 // ascending (`accum[i][j] += reg_a[i] * reg_b[j]`, contracted to `fma.rn`

@@ -42,7 +42,8 @@ mod wmma_bench {
         start.elapsed().as_secs_f64() / iters as f64
     }
 
-    // Ampere-class consumer GPU F16 tensor-core theoretical peak: ~101 TFLOPS
+    // Assumed peak for the "% of peak" figures printed below, not this
+    // device's measured peak.
     const PEAK_TFLOPS: f64 = 101.0;
 
     #[ignore = "perf benchmark; prints throughput, asserts nothing - run explicitly with --ignored"]

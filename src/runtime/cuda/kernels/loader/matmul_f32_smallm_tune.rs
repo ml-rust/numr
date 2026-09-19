@@ -21,18 +21,18 @@ use super::matmul_f32_smallm::{launch_matmul_smallm_bt_f32_ungated, smallm_block
 
 /// Wave bound when tuning is off (`NUMR_CUDA_TUNE=0`) or the probe fails.
 ///
-/// Measured on one Ampere-class part (`examples/cuda_matmul_smallm_profile.rs`,
-/// nsys medians of 8, K = 5120): every product `M x N` at or under 3072
-/// outputs wins, and 3072 outputs are 384 blocks, 13.7 waves of that
-/// part's 28 SMs; 12 rounds down for safety. On other parts it is a
-/// heuristic, which is why the probe exists.
+/// Measured with `examples/cuda_matmul_smallm_profile.rs` (nsys medians of
+/// 8, K = 5120) on one part: every product `M x N` at or under 3072
+/// outputs wins; 12 rounds that wave count down for safety on that part.
+/// On other parts it is a heuristic fallback only — [`smallm_max_waves`]
+/// re-probes the real bound per device at runtime.
 pub const SMALLM_MAX_WAVES_FALLBACK: usize = 12;
 
 /// Tune-cache key of the wave bound.
 pub const SMALLM_MAX_WAVES_KEY: &str = "matmul_f32_smallm_bt.max_waves";
 
 /// Largest wave bound the probe returns: past it every shape inside
-/// `MAX_SMALL_M x MAX_SMALL_N` is admitted on any part with 128 SMs or more.
+/// `MAX_SMALL_M x MAX_SMALL_N` is admitted on any part with enough SMs.
 pub const SMALLM_MAX_WAVES_CEILING: usize = 64;
 
 /// Depth of every probe rung: the FFN width the kernel was measured at.
