@@ -38,7 +38,7 @@ pub const MAX_SMALL_M: usize = 4;
 ///
 /// Adjacent threads read B rows `K` floats apart, so a warp's loads at one k
 /// touch 32 lines and nothing coalesces; the tiled kernel stages B through
-/// shared memory and does not pay that. Per launch on an RTX 3060 (nsys),
+/// shared memory and does not pay that. Per launch on an Ampere-class GPU (nsys),
 /// small-M kernel vs tiled, M <= 4:
 ///
 /// | N       | K      | small-M | tiled   |

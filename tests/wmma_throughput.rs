@@ -42,7 +42,7 @@ mod wmma_bench {
         start.elapsed().as_secs_f64() / iters as f64
     }
 
-    // RTX 3060 F16 tensor-core theoretical peak: ~101 TFLOPS
+    // Ampere-class consumer GPU F16 tensor-core theoretical peak: ~101 TFLOPS
     const PEAK_TFLOPS: f64 = 101.0;
 
     #[ignore = "perf benchmark; prints throughput, asserts nothing - run explicitly with --ignored"]
@@ -59,7 +59,7 @@ mod wmma_bench {
         let tf = tflops(m, n, k, batch, elapsed);
         println!(
             "WMMA Scores  [64,512,64]@[64,64,512]→[64,512,512]: \
-             {:.3}ms  {:.2} TFLOPS  ({:.1}% of 3060 F16 TC peak {:.0}T)",
+             {:.3}ms  {:.2} TFLOPS  ({:.1}% of F16 TC peak {:.0}T)",
             elapsed * 1e3,
             tf,
             tf / PEAK_TFLOPS * 100.0,
@@ -81,7 +81,7 @@ mod wmma_bench {
         let tf = tflops(m, n, k, batch, elapsed);
         println!(
             "WMMA Context [64,512,512]@[64,512,64]→[64,512,64]: \
-             {:.3}ms  {:.2} TFLOPS  ({:.1}% of 3060 F16 TC peak {:.0}T)",
+             {:.3}ms  {:.2} TFLOPS  ({:.1}% of F16 TC peak {:.0}T)",
             elapsed * 1e3,
             tf,
             tf / PEAK_TFLOPS * 100.0,

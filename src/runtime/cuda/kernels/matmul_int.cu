@@ -41,7 +41,7 @@
 // rather than a second copy of the kernel.
 //
 // Single-buffered, not double-buffered: a double-buffered variant was
-// implemented and benchmarked on an RTX 3060 and lost - I32 1024x1024 was 26%
+// implemented and benchmarked on an Ampere-class GPU and lost - I32 1024x1024 was 26%
 // SLOWER double-buffered (14.81ms vs 11.72ms single), every other case within
 // 3% (noise). `Numr128` accumulation is a software 128-bit multiply-add, so
 // this kernel is compute-bound: there is already enough arithmetic to hide the

@@ -81,7 +81,9 @@ fn matmul_efficiency() {
     let device = CudaDevice::new(0);
     let client = CudaRuntime::default_client(&device);
 
-    println!("RTX 3060 FP32 peak ~13 TFLOP/s, F16 tensor-core peak ~50-100 TFLOP/s");
+    println!(
+        "Ampere-class consumer GPU: FP32 peak ~13 TFLOP/s, F16 tensor-core peak ~50-100 TFLOP/s"
+    );
     for &(m, k, n, tag) in &[
         (2048, 2048, 2048, "square-2048"),
         (4096, 4096, 4096, "square-4096"),
