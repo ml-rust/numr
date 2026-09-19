@@ -282,6 +282,14 @@ impl CudaAllocator {
         let guard = self.arena.lock().unwrap_or_else(|p| p.into_inner());
         guard.is_some()
     }
+
+    /// Peak bytes the installed arena has handed out, or `None` when no
+    /// arena is installed. Read this before `unfreeze()`, which clears the
+    /// arena.
+    pub fn arena_high_water(&self) -> Option<usize> {
+        let guard = self.arena.lock().unwrap_or_else(|p| p.into_inner());
+        guard.as_ref().map(CudaArena::high_water)
+    }
 }
 
 impl Allocator for CudaAllocator {

@@ -54,6 +54,9 @@ pub struct CapturedGraph<R: Runtime> {
     /// `None` for graphs captured without an arena (the original path).
     /// `Some` for graphs captured via `capture_graph_into_with_arena`.
     arena: Option<Tensor<R>>,
+    /// Peak bytes the arena handed out during capture. `None` without an
+    /// arena.
+    arena_bytes_used: Option<usize>,
 }
 
 impl<R: Runtime> CapturedGraph<R> {
@@ -68,6 +71,7 @@ impl<R: Runtime> CapturedGraph<R> {
             inputs,
             outputs,
             arena: None,
+            arena_bytes_used: None,
         }
     }
 
@@ -77,6 +81,7 @@ impl<R: Runtime> CapturedGraph<R> {
     /// graph-internal intermediate tensors captured during the freeze window.
     /// The device addresses baked into the graph's kernel-parameter blocks
     /// point inside this buffer; the buffer must outlive the graph handle.
+    /// `arena_bytes_used` is the arena's peak footprint at the end of capture.
     ///
     /// # Drop ordering
     ///
@@ -88,13 +93,25 @@ impl<R: Runtime> CapturedGraph<R> {
         inputs: Vec<Tensor<R>>,
         outputs: Vec<Tensor<R>>,
         arena: Tensor<R>,
+        arena_bytes_used: usize,
     ) -> Self {
         Self {
             graph,
             inputs,
             outputs,
             arena: Some(arena),
+            arena_bytes_used: Some(arena_bytes_used),
         }
+    }
+
+    /// Peak bytes the capture arena handed out while recording this graph.
+    ///
+    /// `Some(n)` for a graph from `capture_graph_into_with_arena`, where `n`
+    /// counts every graph-internal allocation with its 256-byte alignment
+    /// padding. A caller sizes a recapture from it. `None` for a graph
+    /// captured without an arena.
+    pub fn arena_bytes_used(&self) -> Option<usize> {
+        self.arena_bytes_used
     }
 
     /// Replay the captured computation.
@@ -150,6 +167,7 @@ where
             .field("inputs_len", &self.inputs.len())
             .field("outputs_len", &self.outputs.len())
             .field("has_arena", &self.arena.is_some())
+            .field("arena_bytes_used", &self.arena_bytes_used)
             .finish()
     }
 }
@@ -167,6 +185,7 @@ mod tests {
         let captured: CapturedGraph<crate::runtime::cpu::CpuRuntime> =
             CapturedGraph::new(graph, vec![], vec![]);
         assert!(captured.launch().is_ok());
+        assert_eq!(captured.arena_bytes_used(), None);
     }
 
     /// Verify that `Send + Sync` bounds hold for `CapturedGraph<CpuRuntime>`.

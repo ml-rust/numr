@@ -414,8 +414,13 @@ impl CudaRuntime {
     ///   `capture_graph_into`).
     /// * `arena_bytes` — size in bytes of the pre-allocated scratch arena.
     ///   Must be large enough to hold all intermediate tensors created inside
-    ///   `f`.  Returns `Err(OutOfMemory)` inside the closure if the arena is
-    ///   exhausted; the graph is not produced in that case.
+    ///   `f`.  When the arena is exhausted the closure fails with a `Backend`
+    ///   error naming the requested bytes, the bytes used and `arena_bytes`;
+    ///   the graph is not produced in that case.
+    ///
+    /// The returned graph reports the peak arena footprint through
+    /// [`CapturedGraph::arena_bytes_used`](crate::runtime::CapturedGraph::arena_bytes_used),
+    /// so a caller can recapture with a tighter arena.
     /// * `f` — the closure to capture.  Same contract as `capture_graph_into`.
     ///
     /// # Errors
@@ -499,6 +504,10 @@ impl CudaRuntime {
         let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
         let graph_result = client.stream.end_capture(flags);
 
+        // Peak arena footprint of the recorded closure. Read before unfreeze,
+        // which clears the arena bookkeeping.
+        let arena_bytes_used = client.allocator.arena_high_water();
+
         // Restore the allocator (clears the arena bookkeeping, resets frozen).
         client.allocator.unfreeze();
 
@@ -520,6 +529,7 @@ impl CudaRuntime {
             owned_inputs,
             owned_outputs,
             arena_tensor,
+            arena_bytes_used.unwrap_or(0),
         ))
     }
 }

@@ -23,7 +23,7 @@
 /// allocation hand out a device address already baked into a captured kernel
 /// node (see [`CudaArena::deallocate`] for the full rationale).  The arena is
 /// bounded by `size` bytes; if capacity is exceeded `allocate()` returns
-/// `Err(OutOfMemory)`.
+/// `Err(Backend)` naming the request, the bytes used and the arena size.
 ///
 /// ## Lifetime
 ///
@@ -64,14 +64,26 @@ impl CudaArena {
         (n + ALIGN - 1) & !(ALIGN - 1)
     }
 
+    /// Bytes handed out so far, including alignment padding. Monotone: a
+    /// `deallocate` never lowers it, so after a capture this is the peak
+    /// arena footprint of the recorded graph.
+    pub(super) fn high_water(&self) -> usize {
+        self.high_water
+    }
+
     /// Bump-allocate `size_bytes` from the arena.
     ///
-    /// Returns `Ok(device_ptr)` on success or `Err(OutOfMemory)` if the arena
-    /// would overflow.
+    /// Returns `Ok(device_ptr)` on success. When the arena would overflow,
+    /// returns `Err(Backend)` naming the requested bytes, the bytes already
+    /// used and the arena size, so a caller can size the next capture.
     pub(super) fn allocate(&mut self, size_bytes: usize) -> crate::error::Result<u64> {
         let aligned = Self::align_up(size_bytes.max(1));
         if self.high_water + aligned > self.size {
-            return Err(crate::error::Error::OutOfMemory { size: size_bytes });
+            return Err(crate::error::Error::Backend(format!(
+                "CUDA graph arena exhausted: requested {size_bytes} bytes, \
+                 {} of {} arena bytes used",
+                self.high_water, self.size
+            )));
         }
         let offset = self.high_water;
         self.high_water += aligned;
@@ -205,6 +217,39 @@ mod tests {
         assert!(
             oom.is_err(),
             "allocation beyond arena capacity must return OOM"
+        );
+    }
+
+    /// `high_water` reports the aligned bytes handed out, never lowers on
+    /// deallocate, and the overflow error names the request and the arena.
+    #[test]
+    fn arena_high_water_reporting() {
+        let base: u64 = 0x2_0000_0000;
+        let mut arena = CudaArena::new(base, 1024);
+        assert_eq!(arena.high_water(), 0);
+
+        let p0 = arena.allocate(1).expect("alloc 1 byte");
+        assert_eq!(arena.high_water(), 256, "1 byte aligns up to 256");
+        let _p1 = arena.allocate(300).expect("alloc 300 bytes");
+        assert_eq!(arena.high_water(), 768, "300 bytes aligns up to 512");
+
+        arena.deallocate(p0);
+        assert_eq!(
+            arena.high_water(),
+            768,
+            "deallocate never lowers high_water"
+        );
+
+        let err = arena
+            .allocate(512)
+            .expect_err("512 bytes overflows 1024 - 768");
+        let msg = err.to_string();
+        assert!(msg.contains("requested 512 bytes"), "{msg}");
+        assert!(msg.contains("768 of 1024 arena bytes used"), "{msg}");
+        assert_eq!(
+            arena.high_water(),
+            768,
+            "a failed allocate leaves high_water"
         );
     }
 }
