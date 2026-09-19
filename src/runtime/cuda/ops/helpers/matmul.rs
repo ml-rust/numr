@@ -105,16 +105,14 @@ pub(crate) fn matmul_native(
     // output, reading the `[N, K]` buffer in place. Same FMA chain per element
     // as the tiled kernel below, so the same bits (see `MAX_SMALL_M`); it
     // only skips the 16-row tile's padding rows. The launcher declines a
-    // weight wider than `MAX_SMALL_N` and a grid past `SMALLM_MAX_WAVES`
-    // waves of this device's SMs, where the tiled kernel's B reuse wins.
+    // weight wider than `MAX_SMALL_N` and a grid past this device's tuned
+    // wave bound (`SmallmLimits`), where the tiled kernel's B reuse wins.
     if dtype == DType::F32 && m <= MAX_SMALL_M && is_simple_transpose_2d(b) {
         let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
         let launched = unsafe {
             launch_matmul_smallm_bt_kernel(
-                &client.context,
-                &client.stream,
-                client.device.index,
+                client,
                 dtype,
                 a_contig.ptr(),
                 b.ptr(),
@@ -253,9 +251,7 @@ pub(crate) fn matmul_batched_native(
         let out = Tensor::<CudaRuntime>::empty(&out_shape, dtype, &client.device)?;
         let launched = unsafe {
             launch_matmul_batched_smallm_bt_kernel(
-                &client.context,
-                &client.stream,
-                client.device.index,
+                client,
                 dtype,
                 a_contig.ptr(),
                 b.ptr(),

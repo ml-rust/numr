@@ -98,7 +98,7 @@ pub fn default_tile_config(dtype: DType) -> TileConfig {
 ///   The decode regime: ceil(M/16) × N/64 blocks of 64 threads keep the
 ///   device busy, and at most 15 rows of each tile are padding. The
 ///   transposed-weight path at M ≤ `MAX_SMALL_M`, N ≤ `MAX_SMALL_N` and a
-///   grid within `SMALLM_MAX_WAVES` waves of the device's SMs takes the
+///   grid within the device's tuned wave bound (`SmallmLimits`) takes the
 ///   one-thread-per-output kernel (`matmul_f32_smallm.rs`) before this rule
 ///   is consulted.
 /// - Small-N (N ≤ 64): use 64×64 block tile, block_k=32, thread_m=8, thread_n=4

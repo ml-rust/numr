@@ -31,7 +31,7 @@ fn main() {
     use numr::dtype::DType;
     use numr::ops::RandomOps;
     use numr::runtime::cuda::kernels::{
-        launch_matmul_kernel_bt, launch_matmul_smallm_bt_kernel, smallm_applies,
+        SmallmLimits, launch_matmul_kernel_bt, launch_matmul_smallm_bt_kernel, smallm_applies,
     };
     use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
     use numr::runtime::{Device, RuntimeClient};
@@ -62,8 +62,9 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let sm_count = device.profile().compute_units as usize;
-    println!("SMs: {sm_count}");
+    let limits = SmallmLimits::of(&client);
+    println!("SMs: {}", limits.sm_count);
+    println!("tuned max waves: {}", limits.max_waves);
 
     for &m in &ROWS {
         for &(n, k) in &SHAPES {
@@ -72,7 +73,7 @@ fn main() {
             let out = Tensor::<CudaRuntime>::empty(&[m, n], DType::F32, &device).expect("C");
             client.synchronize();
 
-            let small = smallm_applies(DType::F32, m, n, 1, sm_count);
+            let small = smallm_applies(DType::F32, m, n, 1, limits);
             println!(
                 "M={m} N={n} K={k}: {} x{ITERS}, then tiled bt x{ITERS}",
                 if small {
@@ -86,9 +87,7 @@ fn main() {
                 for _ in 0..ITERS {
                     let ran = unsafe {
                         launch_matmul_smallm_bt_kernel(
-                            client.context(),
-                            client.stream(),
-                            device.id(),
+                            &client,
                             DType::F32,
                             a.ptr(),
                             w.ptr(),
