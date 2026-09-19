@@ -1,6 +1,6 @@
 //! Run a schedule probe once per device and key, then serve the cached pick.
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use super::cache;
 use crate::error::Result;
@@ -10,6 +10,12 @@ use crate::error::Result;
 pub const ENV_VAR: &str = "NUMR_CUDA_TUNE";
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
+
+/// Serialises probes. Two threads that miss the same key at once would
+/// otherwise both measure, each under the other's launches, and the later
+/// insert would replace the earlier value after callers had read it. The
+/// lock covers the miss-to-insert window; hits never take it.
+static PROBE: Mutex<()> = Mutex::new(());
 
 /// Whether runtime tuning is on for this process.
 ///
@@ -70,6 +76,14 @@ fn tuned_with<T: Copy + Send + Sync + 'static>(
     if let Some(value) = cache::get::<T>(device_index, key) {
         return value;
     }
+    // A poisoned lock only means another probe panicked; the cache holds
+    // whole values or none, so measuring is still safe.
+    let _serial = PROBE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(value) = cache::get::<T>(device_index, key) {
+        return value;
+    }
     match probe() {
         Ok(value) => {
             cache::insert(device_index, key, value);
@@ -122,6 +136,36 @@ mod tests {
         assert_eq!(tuned_with(true, DEV, "once.runs_once", 0u32, probe), 42);
         assert_eq!(tuned_with(true, DEV, "once.runs_once", 0u32, probe), 42);
         assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn concurrent_misses_probe_once_and_agree() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::thread;
+
+        let calls = Arc::new(AtomicU32::new(0));
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let calls = Arc::clone(&calls);
+                thread::spawn(move || {
+                    tuned_with(true, DEV, "once.concurrent", 0u32, || {
+                        let n = calls.fetch_add(1, Ordering::SeqCst);
+                        thread::sleep(std::time::Duration::from_millis(20));
+                        Ok(100 + n)
+                    })
+                })
+            })
+            .collect();
+        let values: Vec<u32> = handles
+            .into_iter()
+            .map(|h| h.join().expect("thread"))
+            .collect();
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "probe ran more than once");
+        assert!(
+            values.iter().all(|&v| v == 100),
+            "threads disagree: {values:?}"
+        );
     }
 
     #[test]
