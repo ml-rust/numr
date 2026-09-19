@@ -1,7 +1,7 @@
 //! SIMD-accelerated f32 dot products for the half-precision GEMV-BT path.
 //!
-//! Split out of the matmul kernel module: these dispatch by ISA and carry no
-//! matmul-specific logic. Only `gemv_bt_via_f32` uses them.
+//! These dispatch by ISA and carry no matmul-specific logic. Only
+//! `gemv_bt_via_f32` uses them.
 
 /// SIMD-accelerated f32 dot product for use in half-precision GEMV-BT.
 ///

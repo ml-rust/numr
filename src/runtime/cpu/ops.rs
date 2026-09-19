@@ -1,14 +1,13 @@
 //! CPU runtime tensor operation implementations
 //!
 //! This module loads all operation implementations from the src/ops/cpu/ directory.
-//! Each operation type (unary, binary, reduce, etc.) is implemented in its own module.
+//! One file per operation type (unary, binary, reduce, etc.).
 
 use super::{CpuClient, CpuRuntime};
 use crate::ops::TensorOps;
 
 // TensorOps is a supertrait that composes all individual operation traits.
-// Since we implement all the component traits in separate files, we just need
-// this empty impl to satisfy the supertrait requirement.
+// This empty impl satisfies the supertrait requirement.
 impl TensorOps<CpuRuntime> for CpuClient {}
 
 // Load all CPU operation implementations from src/ops/cpu/.
@@ -36,8 +35,7 @@ mod grouped_matmul;
 #[path = "../../ops/cpu/matmul_bias.rs"]
 mod matmul_bias;
 
-// I8 matmul widens to I32, so it cannot share `matmul`'s same-dtype
-// generic path and lives in its own module.
+// I8 matmul widens to I32, so it cannot share `matmul`'s same-dtype generic path.
 #[path = "../../ops/cpu/matmul_i8.rs"]
 pub mod matmul_i8;
 

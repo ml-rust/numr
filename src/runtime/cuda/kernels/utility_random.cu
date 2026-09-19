@@ -1,7 +1,7 @@
 // Random-sampling CUDA kernels: rand, randn, randint, multinomial.
 //
-// Split out of utility.cu, which now holds only the deterministic creation
-// kernels. This is PTX module "utility_random"
+// `utility.cu` holds the deterministic creation kernels; this file holds the
+// random-sampling ones. This is PTX module "utility_random"
 // (kernel_names::UTILITY_RANDOM_MODULE); the generator itself lives in
 // rng_xorshift.cuh.
 

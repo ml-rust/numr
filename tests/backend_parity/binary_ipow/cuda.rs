@@ -1,7 +1,7 @@
 // Backend parity tests for integer `pow` / `pow_scalar` - CUDA vs CPU.
 //
-// Split out of `binary.rs`, which holds the float/macro-driven BinaryOps
-// parity tests. These tests cover the same-shape integer pow kernels, i32/i64
+// `binary.rs` holds the float/macro-driven BinaryOps parity tests. These
+// tests cover the same-shape integer pow kernels, i32/i64
 // overflow saturation, exactness past f64's mantissa, and `pow_scalar`'s
 // integer-to-F64 promotion rule - none of which reuse the `BinaryOp` enum or
 // `TestCase` machinery from `binary.rs`.

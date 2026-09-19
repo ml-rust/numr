@@ -1,8 +1,8 @@
 // Backend parity tests for the WebGPU integer kernels that used to be F32-only:
 // clamp, linspace, topk, searchsorted, and the three fused elementwise ops.
 //
-// WebGPU is a first-class backend for F32, I32 and U32 (numr/CLAUDE.md, "Backend
-// Status"), so every one of these must answer what CPU answers. Two of them have
+// WebGPU is a first-class backend for F32, I32 and U32, so every one of these
+// must answer what CPU answers. Two of them have
 // a semantic trap worth pinning here:
 //
 // - The fused ops must equal the unfused sequence exactly, INCLUDING at the wrap

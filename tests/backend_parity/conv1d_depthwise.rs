@@ -6,9 +6,7 @@
 // c_out_per_group = 1, so it stays on the scalar `conv1d` kernel regardless
 // of channel count (`CONV1D_OC_BLOCK` in `src/runtime/cuda/kernels/conv.rs`
 // is never reached). This file pins that shape ahead of any change targeting
-// it, split out from `conv.rs` because the added cases would push that file
-// past its 600-line integration-test limit (mirrors why `conv_oc4.rs` exists
-// as its own file).
+// it, as its own test category alongside `conv_oc4.rs`.
 
 use numr::ops::PaddingMode;
 

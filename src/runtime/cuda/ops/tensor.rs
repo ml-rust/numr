@@ -1,14 +1,13 @@
 //! CUDA runtime tensor operation implementations
 //!
 //! This module loads all operation implementations from the src/ops/cuda/ directory.
-//! Each operation type (type conversion, complex, normalization, etc.) is implemented in its own module.
+//! One file per operation type (type conversion, complex, normalization, etc.).
 
 use super::super::{CudaClient, CudaRuntime};
 use crate::ops::TensorOps;
 
 // TensorOps is a supertrait that composes all individual operation traits.
-// Since we implement all the component traits in separate files, we just need
-// this empty impl to satisfy the supertrait requirement.
+// This empty impl satisfies the supertrait requirement.
 impl TensorOps<CudaRuntime> for CudaClient {}
 
 // Load all CUDA operation implementations from src/ops/cuda/

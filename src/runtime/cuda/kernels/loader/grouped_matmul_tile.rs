@@ -3,8 +3,8 @@
 //! `grouped_matmul.rs` owns the launchers; this module owns the decisions
 //! that pick what they launch — the tiled-core tile/suffix/block-dim choice
 //! and the `use_wmma_grouped` gate that routes between the tiled and WMMA
-//! paths. Split out to mirror `matmul_wmma.rs` / `matmul_wmma_tile.rs`, where
-//! the dense path already separates launchers from selection.
+//! paths, as `matmul_wmma_tile.rs` does for the dense launchers in
+//! `matmul_wmma.rs`.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};

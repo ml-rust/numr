@@ -1,7 +1,6 @@
 //! Wide-accumulator integer scatter launchers. I32, U32.
 //!
-//! Split from `index.rs`, which was already well past this crate's file-size
-//! limit. Three kernels run in sequence for one integer `scatter_reduce` sum or
+//! Three kernels run in sequence for one integer `scatter_reduce` sum or
 //! mean: seed the 64-bit accumulator from the destination, add every source
 //! element into it atomically, then narrow (dividing first, for mean).
 //!

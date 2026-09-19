@@ -1,6 +1,6 @@
 //! Advanced PRNG WGSL kernel launchers
 //!
-//! Split into separate modules per algorithm for maintainability:
+//! Submodules, one per algorithm:
 //! - `philox`: Philox4x32-10 (JAX/TensorFlow default)
 //! - `threefry`: ThreeFry4x32-20 (cryptographic quality)
 //! - `pcg64`: PCG64 (NumPy default, emulated 64-bit)

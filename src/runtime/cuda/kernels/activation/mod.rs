@@ -1,6 +1,6 @@
 //! Activation CUDA kernel launchers
 //!
-//! Split into submodules:
+//! Submodules:
 //! - `elementwise` - relu, sigmoid, silu, gelu, leaky_relu, elu
 //! - `softmax` - softmax forward + backward (last-dim and non-last-dim)
 //! - `snake` - snake_beta forward, `d_x`, and per-channel parameter gradients

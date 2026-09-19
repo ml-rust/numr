@@ -1,12 +1,9 @@
 // Integer unary CUDA kernels (I8, I16, I32, I64, U8, U16, U32, U64)
 //
-// Split out of `unary.cu` for the same reason `reduce_int.cu`,
-// `cumulative_int.cu` and `matmul_int.cu` were: the integer
-// dtypes need different arithmetic from the float ones, and `unary.cu` is far
-// past its size limit. `unary_module` in
-// `runtime/cuda/kernels/loader/dtype_modules.rs` routes every integer dtype
-// here. The kernel names and the launch ABI are identical to `unary.cu`'s, so
-// that is a swap of module, never of kernel name.
+// The integer dtypes need different arithmetic from the float ones in
+// `unary.cu`. `unary_module` in `runtime/cuda/kernels/loader/dtype_modules.rs`
+// routes every integer dtype here. The kernel names and the launch ABI are
+// identical to `unary.cu`'s, so that is a swap of module, never of kernel name.
 //
 // Which unary ops an integer dtype gets:
 //

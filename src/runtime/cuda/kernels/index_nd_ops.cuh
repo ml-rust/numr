@@ -1,9 +1,8 @@
 // Shared machinery for the coordinate-addressed indexing kernels instantiated
 // in index_nd.cu: gather_nd, gather_2d, and slice_assign.
 //
-// These are split out of index_ops.cuh because they take a different argument
-// shape — gather_nd reads a whole coordinate vector per output slice — and
-// because index.cu is at its size limit with the per-element family alone.
+// These take a different argument shape than index_ops.cuh's per-element
+// family — gather_nd reads a whole coordinate vector per output slice.
 //
 // Semantics match the CPU reference in src/runtime/cpu/kernels/index.rs
 // (`gather_nd_kernel`, `gather_2d_kernel`, `slice_assign_kernel`): an

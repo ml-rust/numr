@@ -1,7 +1,7 @@
 //! Backend parity coverage for `DType::Bool`.
 //!
-//! `Bool` is listed as a supported dtype on CPU, CUDA, and WebGPU (see
-//! numr/CLAUDE.md's dtype matrix), but almost no operation actually computes
+//! `Bool` is a supported dtype on CPU, CUDA, and WebGPU, but almost no
+//! operation actually computes
 //! on it: `dispatch_dtype!` has no Bool arm, so unary/binary/reduce/compare
 //! all reject it, and the "boolean tensor" operations (logical ops, masking)
 //! use `U8` (CPU/CUDA) or `U32` (WebGPU) by design instead. What actually

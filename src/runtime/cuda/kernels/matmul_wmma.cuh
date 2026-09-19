@@ -201,9 +201,10 @@ static_assert(WMMA_STAGES >= 2,
 
 
 // Staging macros (WMMA_VEC_HALVES, WMMA_VEC_OK, WMMA_VEC_STAGE,
-// WMMA_STAGE_TILE) live in matmul_wmma_stage.cuh, split out to keep this
-// file under the line cap. They expand against the tile constants declared
-// above (SMEM_STRIDE_A, SMEM_STRIDE_B, BLOCK_K, ...).
+// WMMA_STAGE_TILE) live in matmul_wmma_stage.cuh, the shared-memory staging
+// concern, distinct from the compute backends below. They
+// expand against the tile constants declared above (SMEM_STRIDE_A,
+// SMEM_STRIDE_B, BLOCK_K, ...).
 #include "matmul_wmma_stage.cuh"
 
 // Compute backends (NUMR_WMMA_ACC_DECL_*, NUMR_WMMA_KSTEP_*,

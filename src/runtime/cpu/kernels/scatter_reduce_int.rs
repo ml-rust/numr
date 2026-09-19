@@ -1,7 +1,7 @@
 //! Integer scatter-with-reduction, accumulated wide.
 //!
-//! Split from the generic [`super::index::scatter_reduce_kernel`] because an
-//! integer reduction cannot keep its running total in the element type. A
+//! An integer reduction cannot keep its running total in the element type,
+//! unlike the generic [`super::index::scatter_reduce_kernel`]. A
 //! scatter that sums two `i32`s near the type's limit overflows — a panic in
 //! debug, a wrapped total in release — and `mean` then divides a total that is
 //! already wrong. `mean([2_000_000_000, 2_000_000_000])` as I32 is

@@ -1,9 +1,8 @@
 //! Matmul against a transposed B operand: `matmul_bt_kernel`.
 //!
-//! Split out of the general matmul kernel: B arrives as the contiguous `[N, K]`
-//! buffer a transposed weight matrix already owns, so the index arithmetic and
-//! the dispatch differ from [`super::matmul_kernel`] even though the
-//! result is the same.
+//! B arrives as the contiguous `[N, K]` buffer a transposed weight matrix
+//! already owns, so the index arithmetic and the dispatch differ from
+//! [`super::matmul_kernel`] even though the result is the same.
 
 use crate::dtype::{DType, Element};
 

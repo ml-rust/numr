@@ -1,6 +1,5 @@
 //! Top-k and searchsorted WGSL kernel launchers. F32, I32, U32.
 //!
-//! Split from `sort.rs`, which was already past this crate's file-size limit.
 //! Both ops read a sorted or sortable run, so they share the ordering helpers
 //! that `sort_cmp.rs` also gives the sort shaders.
 

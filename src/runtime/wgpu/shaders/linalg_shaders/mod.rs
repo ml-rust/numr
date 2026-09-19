@@ -1,6 +1,6 @@
 //! Linear algebra WGSL shader modules
 //!
-//! Split into focused submodules to maintain file size limits.
+//! Submodules, one per family of related operations.
 //! Each submodule contains shader source code for related operations.
 //!
 //! # Module Organization

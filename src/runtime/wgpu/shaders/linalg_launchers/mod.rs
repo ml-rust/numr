@@ -1,6 +1,6 @@
 //! Linear algebra WGSL kernel launchers
 //!
-//! Split into focused submodules for maintainability:
+//! Submodules:
 //! - `banded` - banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - trace, diag, diagflat, create_identity
 //! - `solvers` - forward/backward substitution

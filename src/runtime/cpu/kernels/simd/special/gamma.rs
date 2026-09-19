@@ -1,8 +1,7 @@
 //! Gamma family special functions (gamma, lgamma, digamma) — scalar only, no
 //! SIMD implementation yet.
 //!
-//! Split out of `dispatch.rs` to keep that file under the kernel-file line
-//! cap once its own tests were inlined.
+//! Scalar-only dispatch for the gamma family, separate from `dispatch.rs`.
 
 use super::dispatch::impl_scalar_fallback;
 use crate::algorithm::special::scalar::{digamma_scalar, gamma_scalar, lgamma_scalar};

@@ -1,8 +1,7 @@
 //! Wide-accumulator epilogues for integer `sum`, `prod`, and `mean` reductions.
 //!
-//! Split out of `reduce/mod.rs` to keep that file under its line limit; these
-//! two kernels are the integer counterpart of the SIMD float paths that live
-//! beside them.
+//! These two kernels are the integer counterpart of the SIMD float paths
+//! that live beside them, with their own wide-accumulator epilogue.
 
 use super::super::wide_acc::{WideAcc, int_mean_from_sum};
 use crate::dtype::Element;

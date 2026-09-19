@@ -1,8 +1,8 @@
 //! GEMV with a transposed B operand.
 //!
-//! Split out of the matmul kernel module: the matrix-vector case has its own
-//! dispatch, wide-accumulator, and half-precision paths, sharing nothing with
-//! the general matmul beyond the accumulator convention.
+//! The matrix-vector case has its own dispatch, wide-accumulator, and
+//! half-precision paths, sharing nothing with the general matmul beyond the
+//! accumulator convention.
 
 use super::super::wide_acc::WideAcc;
 #[cfg(feature = "f16")]
