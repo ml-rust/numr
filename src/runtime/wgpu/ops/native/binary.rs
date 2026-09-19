@@ -5,7 +5,9 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::elementwise;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
-use crate::runtime::{compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes};
+use crate::runtime::{
+    compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes, validate_copy_into,
+};
 use crate::tensor::Tensor;
 
 pub(crate) fn native_binary_op(
@@ -57,6 +59,41 @@ pub(crate) fn native_binary_op_into(
     }
 
     run_binary(client, op, a, b, out, &out_shape, dtype)
+}
+
+/// Destination-passing copy: writes `src` into the caller-owned `out` tensor
+/// with one buffer-to-buffer copy on the queue. `out` must be contiguous and
+/// share `src`'s shape and dtype; a strided `src` is made contiguous first.
+pub(crate) fn native_copy_into(
+    client: &WgpuClient,
+    out: &Tensor<WgpuRuntime>,
+    src: &Tensor<WgpuRuntime>,
+) -> Result<()> {
+    validate_copy_into(out, src, "native_copy_into")?;
+    if out.numel() == 0 {
+        return Ok(());
+    }
+    let src_contig = ensure_contiguous(src)?;
+    let src_buf = get_tensor_buffer(&src_contig)?;
+    let out_buf = get_tensor_buffer(out)?;
+
+    // `copy_buffer_to_buffer` rejects a size that is not a multiple of 4.
+    // `allocate` rounds every buffer up the same way, so the padded tail is
+    // in bounds on both sides.
+    let size_bytes = src.numel() * src.dtype().size_in_bytes();
+    let aligned_len = size_bytes.div_ceil(4) * 4;
+
+    let mut encoder =
+        client
+            .wgpu_device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("copy_into"),
+            });
+    encoder.copy_buffer_to_buffer(&src_buf, 0, &out_buf, 0, aligned_len as u64);
+    client
+        .wgpu_queue()
+        .submit(std::iter::once(encoder.finish()));
+    Ok(())
 }
 
 /// Shared dispatch for both the allocating and destination-passing paths.

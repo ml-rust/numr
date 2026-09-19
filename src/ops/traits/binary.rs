@@ -304,4 +304,27 @@ pub trait BinaryOps<R: Runtime> {
     /// Returns an error if dtypes mismatch, if `out` is not contiguous, or if
     /// `broadcast(a, b)` does not equal `out`'s shape.
     fn add_into(&self, out: &Tensor<R>, a: &Tensor<R>, b: &Tensor<R>) -> Result<()>;
+
+    /// Copy into a pre-allocated destination: `out = src`.
+    ///
+    /// Unlike [`contiguous`](Tensor::contiguous), this writes into the
+    /// caller-owned `out` tensor instead of allocating a new one. This is
+    /// required for destination-passing workflows such as CUDA graph
+    /// capture, where a state buffer must keep its device address across
+    /// replays. On CUDA the copy is a stream-ordered device-to-device
+    /// memcpy on the client's compute stream, so it captures as a memcpy
+    /// node.
+    ///
+    /// `src` may be non-contiguous; it is read through its strides. `out`
+    /// must be contiguous, have exactly `src`'s shape and dtype, and must
+    /// not overlap `src`.
+    ///
+    /// # Arguments
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    /// * `src` - Source tensor
+    ///
+    /// # Errors
+    /// Returns an error if dtypes mismatch, if `out` is not contiguous, or if
+    /// `src`'s shape does not equal `out`'s shape.
+    fn copy_into(&self, out: &Tensor<R>, src: &Tensor<R>) -> Result<()>;
 }

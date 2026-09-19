@@ -35,7 +35,8 @@ pub(crate) use common::compute_contiguous_strides;
 pub use common::{AllocationStats, Allocator, Graph, NoOpGraph, TrackingAllocator};
 pub(crate) use common::{
     cap_ipow_exponent, compute_broadcast_shape, ensure_contiguous, normalize_dim,
-    pow_scalar_output_dtype, validate_arange, validate_binary_dtypes, validate_eye,
+    pow_scalar_output_dtype, validate_arange, validate_binary_dtypes, validate_copy_into,
+    validate_eye,
 };
 
 // Communicator re-exports

@@ -265,6 +265,42 @@ pub fn compute_broadcast_shape<R: Runtime<DType = DType>>(
     })
 }
 
+/// Validate a destination-passing copy `out <- src`.
+///
+/// `out` must be contiguous and match `src` in dtype and shape exactly.
+/// Shared by the CPU, CUDA, and WebGPU `copy_into` implementations.
+///
+/// # Errors
+///
+/// Returns `Error::DTypeMismatch` when the dtypes differ,
+/// `Error::ShapeMismatch` when the shapes differ, and `Error::Backend`
+/// when `out` is not contiguous.
+#[inline]
+pub fn validate_copy_into<R: Runtime<DType = DType>>(
+    out: &Tensor<R>,
+    src: &Tensor<R>,
+    op_name: &'static str,
+) -> Result<()> {
+    if out.dtype() != src.dtype() {
+        return Err(Error::DTypeMismatch {
+            lhs: src.dtype(),
+            rhs: out.dtype(),
+        });
+    }
+    if out.shape() != src.shape() {
+        return Err(Error::ShapeMismatch {
+            expected: src.shape().to_vec(),
+            got: out.shape().to_vec(),
+        });
+    }
+    if !out.is_contiguous() {
+        return Err(Error::Backend(format!(
+            "{op_name}: destination tensor must be contiguous"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
