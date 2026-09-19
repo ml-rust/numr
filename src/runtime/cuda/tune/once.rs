@@ -4,6 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use super::cache;
 use crate::error::Result;
+use crate::runtime::cuda::CudaClient;
 
 /// Environment variable that turns tuning off. Unset, or any value other
 /// than `0`, `false` or `off`, leaves it on.
@@ -49,22 +50,34 @@ fn enabled_from(value: Option<&str>) -> bool {
 ///
 /// - Tuning disabled (`enabled()` is false): return `fallback`, no cache write.
 /// - Cache hit: return the cached value.
+/// - `client`'s stream is inside a CUDA graph capture: return `fallback`
+///   without probing or caching. A probe records events and synchronizes,
+///   which would invalidate the capture; the value is measured on the next
+///   call outside capture. A warmup pass before capture fills the cache.
 /// - Cache miss: run `probe`. On `Ok(v)`, cache and return `v`. On `Err`, log
 ///   to stderr and return `fallback` without caching, so the next call
 ///   retries a transient failure.
 pub fn tuned<T: Copy + Send + Sync + 'static>(
-    device_index: usize,
+    client: &CudaClient,
     key: &'static str,
     fallback: T,
     probe: impl FnOnce() -> Result<T>,
 ) -> T {
-    tuned_with(enabled(), device_index, key, fallback, probe)
+    tuned_with(
+        enabled(),
+        client.is_capturing(),
+        client.device.index,
+        key,
+        fallback,
+        probe,
+    )
 }
 
 /// `tuned` with the enable switch passed in, so tests cover both paths
 /// without touching the process-wide `OnceLock`.
 fn tuned_with<T: Copy + Send + Sync + 'static>(
     enabled: bool,
+    capturing: bool,
     device_index: usize,
     key: &'static str,
     fallback: T,
@@ -75,6 +88,9 @@ fn tuned_with<T: Copy + Send + Sync + 'static>(
     }
     if let Some(value) = cache::get::<T>(device_index, key) {
         return value;
+    }
+    if capturing {
+        return fallback;
     }
     // A poisoned lock only means another probe panicked; the cache holds
     // whole values or none, so measuring is still safe.
@@ -133,8 +149,14 @@ mod tests {
             calls.set(calls.get() + 1);
             Ok(42u32)
         };
-        assert_eq!(tuned_with(true, DEV, "once.runs_once", 0u32, probe), 42);
-        assert_eq!(tuned_with(true, DEV, "once.runs_once", 0u32, probe), 42);
+        assert_eq!(
+            tuned_with(true, false, DEV, "once.runs_once", 0u32, probe),
+            42
+        );
+        assert_eq!(
+            tuned_with(true, false, DEV, "once.runs_once", 0u32, probe),
+            42
+        );
         assert_eq!(calls.get(), 1);
     }
 
@@ -149,7 +171,7 @@ mod tests {
             .map(|_| {
                 let calls = Arc::clone(&calls);
                 thread::spawn(move || {
-                    tuned_with(true, DEV, "once.concurrent", 0u32, || {
+                    tuned_with(true, false, DEV, "once.concurrent", 0u32, || {
                         let n = calls.fetch_add(1, Ordering::SeqCst);
                         thread::sleep(std::time::Duration::from_millis(20));
                         Ok(100 + n)
@@ -169,18 +191,45 @@ mod tests {
     }
 
     #[test]
+    fn capturing_returns_fallback_without_probing_or_caching() {
+        let calls = Cell::new(0u32);
+        let probe = || {
+            calls.set(calls.get() + 1);
+            Ok(7u32)
+        };
+        assert_eq!(
+            tuned_with(true, true, DEV, "once.capturing", 3u32, probe),
+            3
+        );
+        assert_eq!(calls.get(), 0, "a probe ran inside capture");
+        assert_eq!(cache::get::<u32>(DEV, "once.capturing"), None);
+        assert_eq!(
+            tuned_with(true, false, DEV, "once.capturing", 3u32, probe),
+            7
+        );
+        assert_eq!(
+            tuned_with(true, true, DEV, "once.capturing", 3u32, probe),
+            7
+        );
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
     fn err_returns_fallback_and_retries() {
         let calls = Cell::new(0u32);
         let failing = || {
             calls.set(calls.get() + 1);
             Err::<u32, _>(Error::Msg("probe failed".into()))
         };
-        assert_eq!(tuned_with(true, DEV, "once.retry", 5u32, failing), 5);
-        assert_eq!(tuned_with(true, DEV, "once.retry", 5u32, failing), 5);
+        assert_eq!(tuned_with(true, false, DEV, "once.retry", 5u32, failing), 5);
+        assert_eq!(tuned_with(true, false, DEV, "once.retry", 5u32, failing), 5);
         assert_eq!(calls.get(), 2, "a failed probe must not be cached");
         assert_eq!(cache::get::<u32>(DEV, "once.retry"), None);
-        assert_eq!(tuned_with(true, DEV, "once.retry", 5u32, || Ok(9u32)), 9);
-        assert_eq!(tuned_with(true, DEV, "once.retry", 5u32, failing), 9);
+        assert_eq!(
+            tuned_with(true, false, DEV, "once.retry", 5u32, || Ok(9u32)),
+            9
+        );
+        assert_eq!(tuned_with(true, false, DEV, "once.retry", 5u32, failing), 9);
         assert_eq!(calls.get(), 2);
     }
 
@@ -191,7 +240,10 @@ mod tests {
             calls.set(calls.get() + 1);
             Ok(1u32)
         };
-        assert_eq!(tuned_with(false, DEV, "once.disabled", 3u32, probe), 3);
+        assert_eq!(
+            tuned_with(false, false, DEV, "once.disabled", 3u32, probe),
+            3
+        );
         assert_eq!(calls.get(), 0);
         assert_eq!(cache::get::<u32>(DEV, "once.disabled"), None);
     }

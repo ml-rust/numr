@@ -204,6 +204,17 @@ impl CudaClient {
         &self.stream
     }
 
+    /// Whether the compute stream is inside a CUDA graph capture. Work that
+    /// synchronizes or records timing events must not run then. A failed
+    /// status query reads as "not capturing".
+    pub fn is_capturing(&self) -> bool {
+        use cudarc::driver::sys::CUstreamCaptureStatus;
+        self.stream
+            .capture_status()
+            .map(|s| s != CUstreamCaptureStatus::CU_STREAM_CAPTURE_STATUS_NONE)
+            .unwrap_or(false)
+    }
+
     /// Get the Arc-wrapped CUDA stream for operations that need ownership.
     #[inline]
     pub fn stream_arc(&self) -> &Arc<CudaStream> {

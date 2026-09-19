@@ -66,7 +66,7 @@ const PROBE_RUNGS: [(usize, usize); 10] = [
 /// returns `Err`, this is [`SMALLM_MAX_WAVES_FALLBACK`].
 pub fn smallm_max_waves(client: &CudaClient) -> usize {
     tuned(
-        client.device.index,
+        client,
         SMALLM_MAX_WAVES_KEY,
         SMALLM_MAX_WAVES_FALLBACK,
         || probe_max_waves(client),
