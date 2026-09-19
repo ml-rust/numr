@@ -1,17 +1,30 @@
 //! The small-M transposed-weight kernel is bit-identical to the tiled one.
 //!
-//! `matmul_f32_smallm_bt` runs one thread per output for `x @ Wᵀ` at M <= 4
-//! and forms each element as `fmaf(a[k], b[k], acc)` for k ascending, the
+//! `matmul_f32_smallm_bt` runs one thread per output for `x @ Wᵀ` at small
+//! M and forms each element as `fmaf(a[k], b[k], acc)` for k ascending, the
 //! chain the tiled `matmul_f32_tiled_bt_*` kernels form by contraction. Both
 //! launchers run here on the same device buffers, and every element must
 //! match to the bit: that is what keeps a row's result independent of M when
 //! the dispatch crosses from one kernel to the other.
 //!
+//! Which shapes the small-M launcher serves depends on the device's SM
+//! count (`smallm_applies`), so every shape is checked against that oracle:
+//! a served shape must launch and match, a declined shape must not touch
+//! the output. The rows cover the decode batches and `MAX_SMALL_M`; the
+//! widest column at the widest row is past the wave bound on any part, so
+//! both branches run.
+//!
 //! Depths cover a multiple of 32 (whole tiles), the FFN width, a depth that
-//! is not a multiple of 32 (ragged last tile) and an odd depth (scalar loads
-//! in the small-M kernel; every multiple of four takes its float4 path).
-//! Widths run up to `MAX_SMALL_N`; one past it, and the 5120-wide weight the
-//! kernel loses on, must make the launcher decline so the tiled kernel runs.
+//! is not a multiple of 32 (ragged last tile), odd depths (scalar loads in
+//! the small-M kernel; every multiple of four takes its float4 path), and
+//! the small-M kernel's chunk edges: K equal to one chunk (512), whole
+//! chunks (5120, 17408), one chunk plus a partial one (1000, 1001), K under
+//! one chunk (128, 100, 129) and K under one float4 (3). Widths cover
+//! N = 1, a width that crosses a warp (33), whole row groups of the
+//! kernel's 8-row blocks (48, 64, 96, 128, `MAX_SMALL_N`) and partial last
+//! groups (33, 65, 129, 40); one past `MAX_SMALL_N`, and the 5120-wide
+//! weight the kernel loses on, must make the launcher decline so the tiled
+//! kernel runs.
 //!
 //! Run with:
 //!   cd numr && cargo test --features cuda --test cuda_matmul_smallm_bt_parity
@@ -22,22 +35,43 @@ use numr::dtype::DType;
 use numr::runtime::Device;
 use numr::runtime::RuntimeClient;
 use numr::runtime::cuda::kernels::{
-    MAX_SMALL_N, launch_matmul_batched_kernel_bt, launch_matmul_batched_smallm_bt_kernel,
-    launch_matmul_kernel_bt, launch_matmul_smallm_bt_kernel,
+    MAX_SMALL_M, MAX_SMALL_N, launch_matmul_batched_kernel_bt,
+    launch_matmul_batched_smallm_bt_kernel, launch_matmul_kernel_bt,
+    launch_matmul_smallm_bt_kernel, smallm_applies,
 };
 use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 use numr::tensor::Tensor;
 
-const ROWS: [usize; 3] = [1, 2, 4];
-const COLS: [usize; 3] = [48, 96, MAX_SMALL_N];
+const ROWS: [usize; 4] = [1, 2, 4, MAX_SMALL_M];
+const COLS: [usize; 10] = [1, 33, 40, 48, 64, 65, 96, 128, 129, MAX_SMALL_N];
 /// Widths the launcher must decline: one past the cutoff, and the wide
-/// weight where the uncoalesced row reads lose to the tiled kernel.
+/// weight where the tiled kernel's B reuse wins.
 const WIDE_COLS: [usize; 2] = [MAX_SMALL_N + 1, 5120];
-const DEPTHS: [usize; 4] = [5120, 17408, 1000, 1001];
+const DEPTHS: [usize; 9] = [5120, 17408, 1000, 1001, 512, 128, 100, 129, 3];
 
 fn cuda() -> Option<(CudaClient, CudaDevice)> {
     let device = CudaDevice::new(0);
     CudaClient::new(device.clone()).ok().map(|c| (c, device))
+}
+
+/// Whether the small-M launcher serves `[m, k] x [n, k]ᵀ` on this device.
+fn served(device: &CudaDevice, m: usize, n: usize, batch: usize) -> bool {
+    smallm_applies(
+        DType::F32,
+        m,
+        n,
+        batch,
+        device.profile().compute_units as usize,
+    )
+}
+
+/// Compare when the launcher serves the shape, otherwise check it declines.
+fn check_2d(client: &CudaClient, device: &CudaDevice, m: usize, n: usize, k: usize) {
+    if served(device, m, n, 1) {
+        compare_2d(client, device, m, n, k);
+    } else {
+        declines_2d(client, device, m, n, k);
+    }
 }
 
 /// Deterministic pseudo-random floats in `[-1, 1)` with full mantissas, so
@@ -180,7 +214,14 @@ fn compare_batched(
     client.synchronize();
     let what = format!("batch={batch} a_batch={a_batch} b_batch={b_batch} M={m} N={n} K={k}");
     assert!(ran_tiled, "{what}: tiled bt launcher declined");
-    assert!(ran_smallm, "{what}: small-M launcher declined");
+    assert_eq!(
+        ran_smallm,
+        served(device, m, n, batch),
+        "{what}: small-M launcher disagrees with smallm_applies"
+    );
+    if !ran_smallm {
+        return;
+    }
 
     check_bits(
         &what,
@@ -216,7 +257,7 @@ fn declines_2d(client: &CudaClient, device: &CudaDevice, m: usize, n: usize, k: 
     client.synchronize();
     assert!(
         !ran,
-        "M={m} N={n} K={k}: small-M launcher ran past MAX_SMALL_N"
+        "M={m} N={n} K={k}: small-M launcher ran past its bound"
     );
     assert!(
         out.to_vec::<f32>().iter().all(|v| v.is_nan()),
@@ -235,6 +276,22 @@ fn smallm_bt_declines_past_max_small_n() {
             declines_2d(&client, &device, m, n, 1000);
         }
     }
+    declines_2d(&client, &device, MAX_SMALL_M + 1, 1, 1000);
+}
+
+#[test]
+fn smallm_bt_declines_past_the_wave_bound() {
+    let Some((client, device)) = cuda() else {
+        eprintln!("CUDA not available, skipping");
+        return;
+    };
+    // `MAX_SMALL_M x MAX_SMALL_N` is 8192 blocks: past 12 waves on any
+    // part with fewer than 683 SMs.
+    assert!(
+        !served(&device, MAX_SMALL_M, MAX_SMALL_N, 1),
+        "the widest shape is inside the wave bound on this device"
+    );
+    declines_2d(&client, &device, MAX_SMALL_M, MAX_SMALL_N, 1000);
 }
 
 #[test]
@@ -243,13 +300,17 @@ fn smallm_bt_matches_tiled_bt_to_the_bit() {
         eprintln!("CUDA not available, skipping");
         return;
     };
+    let mut compared = 0usize;
     for &m in &ROWS {
         for &n in &COLS {
+            let runs = served(&device, m, n, 1);
+            compared += usize::from(runs);
             for &k in &DEPTHS {
-                compare_2d(&client, &device, m, n, k);
+                check_2d(&client, &device, m, n, k);
             }
         }
     }
+    assert!(compared > 0, "the launcher served no shape on this device");
 }
 
 #[test]

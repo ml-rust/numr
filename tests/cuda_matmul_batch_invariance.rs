@@ -3,13 +3,15 @@
 //!
 //! Every F32 shape runs the compile-time tiled family, whose tiles all
 //! accumulate one FMA per k in k order per output element, and the
-//! transposed-weight path at M <= 4 runs the one-thread-per-output kernel,
-//! which forms the same chain. So row `r` of an M-row product must be the
-//! same bits as the 1-row product of row `r` alone, across the kernel
-//! boundary (4 rows) and the tile boundaries the shape rule crosses (16, 64,
-//! 128 rows), for a contiguous `[K, N]` operand and for the transposed
-//! `[N, K]` weight view `Linear` multiplies by, in the 2-D and the batched
-//! forms.
+//! transposed-weight path at small M runs the one-thread-per-output kernel,
+//! which forms the same chain. Where that kernel hands over to the tiled
+//! one depends on the device's SM count (`smallm_applies`): on the narrow
+//! shapes here it is somewhere inside `ROW_COUNTS`, so the row counts cross
+//! it. So row `r` of an M-row product must be the same bits as the 1-row
+//! product of row `r` alone, across the kernel boundary and the tile
+//! boundaries the shape rule crosses (16, 64, 128 rows), for a contiguous
+//! `[K, N]` operand and for the transposed `[N, K]` weight view `Linear`
+//! multiplies by, in the 2-D and the batched forms.
 //!
 //! Run with:
 //!   cd numr && cargo test --features cuda --test cuda_matmul_batch_invariance
@@ -21,14 +23,23 @@ use numr::runtime::RuntimeClient;
 use numr::runtime::cuda::{CudaClient, CudaDevice, CudaRuntime};
 use numr::tensor::Tensor;
 
-/// Row counts on both sides of the small-M kernel cutoff (4 | 5) and of every
-/// tile boundary the shape rule has, plus the decode batches and the DiT CFG
-/// pair.
+/// Row counts through the small-M kernel's wave bound and on both sides of
+/// every tile boundary the shape rule has, plus the decode batches and the
+/// DiT CFG pair.
 const ROW_COUNTS: [usize; 12] = [1, 2, 3, 4, 5, 8, 16, 17, 22, 64, 65, 200];
 
-/// Widths and depths: a wide weight, a narrow one, and ragged sizes that
-/// leave partial tiles on every axis.
-const SHAPES: [(usize, usize); 4] = [(1024, 1024), (1000, 1000), (64, 4096), (1536, 100)];
+/// Widths and depths: a wide weight, narrow ones the small-M kernel serves
+/// at small M (whole and partial 8-row groups, a width that crosses a warp,
+/// a depth under one 512-wide chunk and a depth that leaves a partial
+/// chunk), and ragged sizes that leave partial tiles on every axis.
+const SHAPES: [(usize, usize); 6] = [
+    (1024, 1024),
+    (1000, 1000),
+    (64, 4096),
+    (1536, 100),
+    (200, 1000),
+    (33, 100),
+];
 
 fn cuda() -> Option<(CudaClient, CudaDevice)> {
     let device = CudaDevice::new(0);

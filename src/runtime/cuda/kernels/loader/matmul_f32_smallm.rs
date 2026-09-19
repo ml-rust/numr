@@ -1,10 +1,14 @@
 //! Small-M FP32 launcher against a transposed weight.
 //!
 //! `matmul_f32_smallm_bt` and its batched form run one thread per output
-//! element, for `M <= MAX_SMALL_M` rows against a `[N, K]` weight. The tiled
-//! family's 16-row tile pads 12 to 15 of its rows at these shapes. The kernel
-//! forms each output as the same ascending FMA chain the tiled kernels do, so
-//! the bits are identical and a row's result stays independent of M.
+//! element, for `M <= MAX_SMALL_M` rows against a `[N, K]` weight. A block
+//! owns `SMALLM_ROWS_PER_BLOCK` rows of the weight and stages them through
+//! static shared memory with all 256 of its threads, so the weight stream is
+//! spread over `ceil(N / SMALLM_ROWS_PER_BLOCK)` SMs. The tiled family's
+//! 16-row tile pads 12 to 15 of its rows at
+//! these shapes. The kernel forms each output as the same ascending FMA
+//! chain the tiled kernels do, so the bits are identical and a row's result
+//! stays independent of M.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::{CudaContext, CudaStream};
@@ -12,13 +16,16 @@ use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::Device;
+use crate::runtime::cuda::CudaDevice;
 
 use super::launch_dims::{BLOCK_SIZE, LaunchConfig, MAX_GRID_DIM_YZ};
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::kernel_names;
 
 /// Widest `M` the one-thread-per-output kernel serves; wider rows take the
-/// tiled family.
+/// tiled family. This is the range the wave rule ([`SMALLM_MAX_WAVES`]) was
+/// checked over, not a tuned cutoff: the rule itself decides inside it.
 ///
 /// The cutoff moves no bits. Every kernel on the F32 `x @ Wᵀ` path forms an
 /// output element as one `fma` per k, k ascending, from a +0 accumulator
@@ -28,64 +35,112 @@ use super::names::kernel_names;
 /// bits at every M whichever side of this cutoff it lands on, which is what
 /// `tests/cuda_matmul_batch_invariance.rs` checks. The cutoff is speed only.
 ///
-/// 4 is the widest M where one thread per output beats the 16-row tile on
-/// `[M, 5120] x [5120, 48]ᵀ`. That figure is unconfirmed: the timing run
-/// that fixes it is still to come. Measure both kernels before moving it.
-pub const MAX_SMALL_M: usize = 4;
+/// 64 is the widest M measured (`examples/cuda_matmul_smallm_profile.rs`,
+/// Ampere-class GPU, nsys medians of 8, K = 5120). Past 64 the tiled
+/// family's shape rule moves off the 16-row tile, so the comparison is
+/// unmeasured.
+pub const MAX_SMALL_M: usize = 64;
 
 /// Widest `N` the one-thread-per-output kernel serves; wider weights take
-/// the tiled family.
+/// the tiled family. This is the range the wave rule ([`SMALLM_MAX_WAVES`])
+/// was checked over, not a tuned cutoff: the rule itself decides inside it.
 ///
-/// Adjacent threads read B rows `K` floats apart, so a warp's loads at one k
-/// touch 32 lines and nothing coalesces; the tiled kernel stages B through
-/// shared memory and does not pay that. Per launch on an Ampere-class GPU (nsys),
-/// small-M kernel vs tiled, M <= 4:
+/// The kernel reads each B element once per A row, from a shared-memory
+/// tile the whole block stages with coalesced float4 loads; the tiled kernel
+/// reuses each staged B element across its 16 A rows, so past a few
+/// thousand outputs it moves less memory per output. 1024 is the widest N
+/// measured (`examples/cuda_matmul_smallm_profile.rs`, Ampere-class GPU,
+/// nsys medians of 8, K = 5120), small-M against
+/// `matmul_f32_tiled_bt_16x64x32_4x4`:
 ///
-/// | N       | K      | small-M | tiled   |
-/// |---------|--------|---------|---------|
-/// | 48, 96  | 1000   | 27 us   | 51 us   |
-/// | 48, 96  | 5120   | 140 us  | 247 us  |
-/// | 48, 96  | 17408  | 887 us  | 836 us  |
-/// | 5120    | 5120   | 1120 us | 346 us  |
-/// | 5120    | 17408  | 3790 us | 1160 us |
+/// | M  | N = 48  | N = 96  | N = 256 | N = 512 | N = 1024 |
+/// |----|---------|---------|---------|---------|----------|
+/// | 1  | 19/246  | -       | 27/254  | 47/254  | 76/255   |
+/// | 4  | 20/241  | -       | 66/251  | 132/251 | 262/251  |
+/// | 8  | 24/242  | 44/249  | 109/251 | 263/251 | -        |
+/// | 16 | 43/246  | 84/254  | 210/255 | 508/255 | -        |
+/// | 32 | 84/246  | 148/255 | 399/255 | -       | -        |
+/// | 64 | 147/247 | 292/255 | 777/255 | -       | -        |
 ///
-/// The kernel wins while the row count is small enough that its per-row
-/// stream stays in cache and loses once the uncoalesced traffic dominates,
-/// which on these shapes is past a few hundred rows. 256 is one block of
-/// threads; the boundary between 96 and 5120 is unmeasured, so re-measure
-/// before moving it.
-pub const MAX_SMALL_N: usize = 256;
+/// Cells are `small-M / tiled` in us. At N = 48 and M = 1 the kernel takes
+/// 5 us at K = 1000 (tiled 50) and 62 us at K = 17408 (tiled 836). The
+/// tiled kernel takes 344 us at N = 5120 at every M. The tiled kernel is
+/// flat to N = 1024 at these M; small-M grows with `M x N`, which is why
+/// [`SMALLM_MAX_WAVES`] is the cutoff that matters.
+pub const MAX_SMALL_N: usize = 1024;
 
-/// Threads per block, over `n`.
+/// Most waves of small-M blocks over the device's SMs the kernel serves:
+/// the launch applies when `ceil(N / SMALLM_ROWS_PER_BLOCK) x M` is at most
+/// `SMALLM_MAX_WAVES x compute_units`.
+///
+/// The small-M kernel runs one block of 256 threads per
+/// `SMALLM_ROWS_PER_BLOCK` rows of B per A row, each block streaming its
+/// rows in full, so its time grows with the block count while the tiled
+/// kernel stays flat over the range in the table on [`MAX_SMALL_N`]. The
+/// crossover there is a product: `16 x 256 = 4096` outputs still win
+/// (210 us against 255) but `8 x 512 = 4096` lose (263 against 251), and
+/// every measured product at or under 3072 wins. 3072 outputs are 384
+/// blocks, which on the 28-SM part measured is 13.7 waves; 12 rounds that
+/// down for safety.
+///
+/// Measured on one Ampere-class part. On other parts the wave bound is a
+/// heuristic: blocks per SM is the right axis, but the crossover wave count
+/// is unverified there. Both kernels give identical bits, so a wrong choice
+/// costs speed only. The batch axis is not in the bound: it multiplies both
+/// kernels' grids alike and is unmeasured.
+pub const SMALLM_MAX_WAVES: usize = 12;
+
+/// Threads per block: the first `SMALLM_ROWS_PER_BLOCK` own an output, all
+/// of them load the block's B rows.
 const SMALLM_BLOCK: u32 = BLOCK_SIZE;
 
-/// Grid `(ceil(N/256), M, batch)`, block `(256, 1, 1)`, no shared memory.
+/// Rows of B, so output columns, per block; `SMALLM_ROWS` in
+/// `matmul_f32_smallm.cuh`. Small so that a narrow weight still spreads
+/// over several SMs: N = 48 runs six blocks, N = `MAX_SMALL_N` thirty-two.
+pub const SMALLM_ROWS_PER_BLOCK: u32 = 8;
+
+/// Grid `(ceil(N / SMALLM_ROWS_PER_BLOCK), M, batch)`, block `(256, 1, 1)`.
+/// The kernel's shared tile is static (`SMALLM_SMEM_FLOATS` in
+/// `matmul_f32_smallm.cuh`), so no dynamic shared memory is requested.
 #[inline]
 fn smallm_launch_config(m: usize, n: usize, batch: usize) -> LaunchConfig {
     LaunchConfig {
-        grid_dim: ((n as u32).div_ceil(SMALLM_BLOCK), m as u32, batch as u32),
+        grid_dim: (
+            (n as u32).div_ceil(SMALLM_ROWS_PER_BLOCK),
+            m as u32,
+            batch as u32,
+        ),
         block_dim: (SMALLM_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     }
 }
 
 /// Whether the small-M kernel takes this launch: F32, `1..=MAX_SMALL_M` rows,
-/// `1..=MAX_SMALL_N` columns, and a batch the grid's `z` axis can hold.
+/// `1..=MAX_SMALL_N` columns, at most [`SMALLM_MAX_WAVES`] waves of blocks
+/// over `sm_count` SMs, and a batch the grid's `z` axis can hold.
 ///
-/// `n == 0` is left to the tiled path so an empty output keeps the behaviour
-/// it has there. `k == 0` is served: the kernel writes the +0 accumulator.
+/// `sm_count` is the device's `compute_units`; 0 (profile not read) never
+/// applies, so the launch falls to the tiled kernel. `n == 0` is left to
+/// the tiled path so an empty output keeps the behaviour it has there.
+/// `k == 0` is served: the kernel writes the +0 accumulator.
 #[inline]
-fn smallm_applies(dtype: DType, m: usize, n: usize, batch: usize) -> bool {
+pub fn smallm_applies(dtype: DType, m: usize, n: usize, batch: usize, sm_count: usize) -> bool {
     dtype == DType::F32
         && (1..=MAX_SMALL_M).contains(&m)
         && (1..=MAX_SMALL_N).contains(&n)
+        && n.div_ceil(SMALLM_ROWS_PER_BLOCK as usize) * m <= SMALLM_MAX_WAVES * sm_count
         && (1..=MAX_GRID_DIM_YZ as usize).contains(&batch)
 }
 
+/// The device's SM count for [`smallm_applies`], from the cached profile.
+#[inline]
+fn smallm_sm_count(device_index: usize) -> usize {
+    CudaDevice::new(device_index).profile().compute_units as usize
+}
+
 /// Launch `C[M,N] = A[M,K] · Bᵀ` with `b_ptr` the contiguous `[N, K]` matrix,
-/// one thread per output. Returns `Ok(false)` when the shape or dtype is not
-/// the small-M, small-N F32 case, so the caller falls through to the tiled
-/// kernel.
+/// one thread per output. Returns `Ok(false)` when [`smallm_applies`] says
+/// no for this device, so the caller falls through to the tiled kernel.
 ///
 /// # Safety
 ///
@@ -105,7 +160,7 @@ pub unsafe fn launch_matmul_smallm_bt_kernel(
     n: usize,
     k: usize,
 ) -> Result<bool> {
-    if !smallm_applies(dtype, m, n, 1) {
+    if !smallm_applies(dtype, m, n, 1, smallm_sm_count(device_index)) {
         return Ok(false);
     }
     let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
@@ -161,7 +216,7 @@ pub unsafe fn launch_matmul_batched_smallm_bt_kernel(
     a_batch: usize,
     b_batch: usize,
 ) -> Result<bool> {
-    if !smallm_applies(dtype, m, n, batch) {
+    if !smallm_applies(dtype, m, n, batch, smallm_sm_count(device_index)) {
         return Ok(false);
     }
     let module = get_or_load_module(context, device_index, kernel_names::MATMUL_MODULE)?;
@@ -202,41 +257,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn launch_config_is_one_block_row_per_m_and_256_threads_over_n() {
+    fn launch_config_is_one_block_per_row_group_and_m_with_256_threads() {
         let cfg = smallm_launch_config(4, 5120, 3);
-        assert_eq!(cfg.grid_dim, (20, 4, 3));
+        assert_eq!(cfg.grid_dim, (640, 4, 3));
         assert_eq!(cfg.block_dim, (256, 1, 1));
         assert_eq!(cfg.shared_mem_bytes, 0);
     }
 
     #[test]
-    fn launch_config_rounds_a_partial_block_up() {
-        assert_eq!(smallm_launch_config(1, 48, 1).grid_dim, (1, 1, 1));
-        assert_eq!(smallm_launch_config(1, 257, 1).grid_dim, (2, 1, 1));
+    fn launch_config_rounds_a_partial_row_group_up() {
+        assert_eq!(smallm_launch_config(1, 48, 1).grid_dim, (6, 1, 1));
+        assert_eq!(smallm_launch_config(1, 49, 1).grid_dim, (7, 1, 1));
+        assert_eq!(smallm_launch_config(1, 1, 1).grid_dim, (1, 1, 1));
+        assert_eq!(
+            smallm_launch_config(1, MAX_SMALL_N, 1).grid_dim,
+            (128, 1, 1)
+        );
     }
+
+    /// SM count of the part the wave rule was measured on.
+    const SMS: usize = 28;
 
     #[test]
     fn applies_only_to_f32_at_one_to_max_rows() {
-        assert!(smallm_applies(DType::F32, 1, 48, 1));
-        assert!(smallm_applies(DType::F32, MAX_SMALL_M, 48, 1));
-        assert!(!smallm_applies(DType::F32, MAX_SMALL_M + 1, 48, 1));
-        assert!(!smallm_applies(DType::F32, 0, 48, 1));
-        assert!(!smallm_applies(DType::F32, 1, 0, 1));
-        assert!(smallm_applies(DType::F32, 1, MAX_SMALL_N, 1));
-        assert!(!smallm_applies(DType::F32, 1, MAX_SMALL_N + 1, 1));
-        assert!(!smallm_applies(DType::F16, 1, 48, 1));
-        assert!(!smallm_applies(DType::F64, 1, 48, 1));
+        assert!(smallm_applies(DType::F32, 1, 48, 1, SMS));
+        assert!(smallm_applies(DType::F32, MAX_SMALL_M, 40, 1, SMS));
+        assert!(!smallm_applies(DType::F32, MAX_SMALL_M + 1, 1, 1, SMS));
+        assert!(!smallm_applies(DType::F32, 0, 48, 1, SMS));
+        assert!(!smallm_applies(DType::F32, 1, 0, 1, SMS));
+        assert!(smallm_applies(DType::F32, 1, MAX_SMALL_N, 1, SMS));
+        assert!(!smallm_applies(DType::F32, 1, MAX_SMALL_N + 1, 1, SMS));
+        assert!(!smallm_applies(DType::F16, 1, 48, 1, SMS));
+        assert!(!smallm_applies(DType::F64, 1, 48, 1, SMS));
+    }
+
+    #[test]
+    fn applies_only_within_the_wave_bound() {
+        // 28 SMs x 12 waves = 336 blocks. 2 x 1024: 256 blocks fit; 3 x 1024:
+        // 384 do not. 64 x 40: 320 fit; 64 x 48: 384 do not.
+        assert!(smallm_applies(DType::F32, 2, MAX_SMALL_N, 1, SMS));
+        assert!(!smallm_applies(DType::F32, 3, MAX_SMALL_N, 1, SMS));
+        assert!(smallm_applies(DType::F32, MAX_SMALL_M, 40, 1, SMS));
+        assert!(!smallm_applies(DType::F32, MAX_SMALL_M, 48, 1, SMS));
+        // A partial row group is a whole block: 41 columns are 6 blocks.
+        assert!(!smallm_applies(DType::F32, MAX_SMALL_M, 41, 1, SMS));
+        // More SMs admit more blocks; an unread profile admits none.
+        assert!(smallm_applies(DType::F32, MAX_SMALL_M, 48, 1, 32));
+        assert!(!smallm_applies(DType::F32, 1, 1, 1, 0));
     }
 
     #[test]
     fn applies_only_when_the_batch_fits_grid_z() {
-        assert!(smallm_applies(DType::F32, 1, 48, MAX_GRID_DIM_YZ as usize));
+        assert!(smallm_applies(
+            DType::F32,
+            1,
+            48,
+            MAX_GRID_DIM_YZ as usize,
+            SMS
+        ));
         assert!(!smallm_applies(
             DType::F32,
             1,
             48,
-            MAX_GRID_DIM_YZ as usize + 1
+            MAX_GRID_DIM_YZ as usize + 1,
+            SMS
         ));
-        assert!(!smallm_applies(DType::F32, 1, 48, 0));
+        assert!(!smallm_applies(DType::F32, 1, 48, 0, SMS));
     }
 }

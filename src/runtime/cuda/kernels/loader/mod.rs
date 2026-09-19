@@ -59,8 +59,8 @@ pub use matmul_config::{
     matmul_batched_launch_config, matmul_launch_config,
 };
 pub use matmul_f32_smallm::{
-    MAX_SMALL_M, MAX_SMALL_N, launch_matmul_batched_smallm_bt_kernel,
-    launch_matmul_smallm_bt_kernel,
+    MAX_SMALL_M, MAX_SMALL_N, SMALLM_MAX_WAVES, SMALLM_ROWS_PER_BLOCK,
+    launch_matmul_batched_smallm_bt_kernel, launch_matmul_smallm_bt_kernel, smallm_applies,
 };
 pub use matmul_int::{int_matmul_has_kernel, int_matmul_output_dtype};
 pub(crate) use matmul_wmma_f32out::{
