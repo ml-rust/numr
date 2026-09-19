@@ -42,6 +42,7 @@ mod sobol_cache;
 #[cfg(feature = "sparse")]
 mod sparse;
 mod special;
+pub mod tune;
 
 pub use crate::tensor::Tensor;
 pub use allocator::CudaAllocator;
@@ -51,3 +52,4 @@ pub use communicator::NcclCommunicator;
 pub use device::{CudaDevice, CudaError};
 pub use graph::CudaGraph;
 pub use runtime::{CudaRuntime, cuda_device, cuda_device_id, is_cuda_available};
+pub use tune::{time_launches, tuned};
