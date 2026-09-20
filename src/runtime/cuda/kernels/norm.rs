@@ -20,6 +20,33 @@ use crate::error::{Error, Result};
 /// the gate below is what keeps the launch inside the kernel's register array.
 const NORM_MAX_REGS_PER_THREAD: usize = 32;
 
+/// Threads per row for the RMSNorm kernels.
+///
+/// A function of the row width only, never of the batch, so a row normalizes
+/// to the same bits whether it arrives alone or inside a batch. One thread per
+/// quad of elements, rounded up to whole warps (the block sum shuffles with a
+/// full warp mask), capped at `BLOCK_SIZE`. A wider block spreads a decode
+/// row over more warps but costs the prefill grid resident blocks; the cap is
+/// where the two meet.
+#[inline]
+fn rms_norm_block_size(hidden_size: usize) -> u32 {
+    let quads = hidden_size.div_ceil(4);
+    let warps = quads.div_ceil(32).max(1);
+    (warps * 32).min(BLOCK_SIZE as usize) as u32
+}
+
+/// Whether every RMSNorm operand can be moved four elements per access.
+///
+/// Needs the row width to be a multiple of four and each base pointer to be
+/// aligned to the packed type; 16 bytes covers every dtype's packed width.
+#[inline]
+fn rms_norm_packed(hidden_size: usize, input_ptr: u64, weight_ptr: u64, output_ptr: u64) -> bool {
+    hidden_size.is_multiple_of(4)
+        && input_ptr.is_multiple_of(16)
+        && weight_ptr.is_multiple_of(16)
+        && output_ptr.is_multiple_of(16)
+}
+
 /// Shared-memory element size for a normalization reduction.
 ///
 /// F64 reduces in `double`; every other dtype reduces in `float`.
@@ -54,8 +81,11 @@ fn norm_launch_config(batch_size: usize, hidden_size: usize) -> (u32, u32) {
 /// It's simpler and faster than LayerNorm as it doesn't require computing mean.
 ///
 /// Rows narrow enough to fit in a thread's register slice take the single-pass
-/// `rms_norm_regs` kernel, which reads the row once. Wider rows take the
-/// two-pass `rms_norm` kernel. Both accumulate in the same order.
+/// `rms_norm_quad` kernel (packed four-element accesses) or, when the width or
+/// a base pointer rules packing out, `rms_norm_regs` (scalar accesses, same
+/// bits). Wider rows take the two-pass `rms_norm` kernel. The block size and
+/// kernel choice depend on the row width and the operand alignment, never on
+/// the batch.
 ///
 /// # Arguments
 ///
@@ -86,24 +116,26 @@ pub unsafe fn launch_rms_norm(
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::NORM_RMS_MODULE)?;
 
-        let (grid_size, block_size) = norm_launch_config(batch_size, hidden_size);
+        let grid_size = batch_size as u32;
+        let block_size = rms_norm_block_size(hidden_size);
 
         // RMSNorm is bandwidth-bound, so the two-pass kernel's second read of the
         // row is close to pure cost. Take the register-cached single-pass kernel
         // whenever the row fits in each thread's register slice; wider rows would
         // spill that array to local memory, so they keep the two-pass kernel.
         let fits_in_regs = hidden_size <= NORM_MAX_REGS_PER_THREAD * block_size as usize;
-        let base = if fits_in_regs {
-            "rms_norm_regs"
-        } else {
+        let base = if !fits_in_regs {
             "rms_norm"
+        } else if rms_norm_packed(hidden_size, input_ptr, weight_ptr, output_ptr) {
+            "rms_norm_quad"
+        } else {
+            "rms_norm_regs"
         };
         let func_name = kernel_name(base, dtype);
         let func = get_kernel_function(&module, &func_name)?;
 
-        // Sized from the reduction's accumulator, not always f32: the F64 kernels
-        // index `blockDim.x` doubles of dynamic shared memory.
-        let shared_mem = block_size * norm_shared_elem_size(dtype);
+        // One accumulator slot per warp; the F64 kernels index doubles.
+        let shared_mem = block_size.div_ceil(32) * norm_shared_elem_size(dtype);
         let batch = batch_size as u32;
         let hidden = hidden_size as u32;
         let eps_f64 = eps as f64;

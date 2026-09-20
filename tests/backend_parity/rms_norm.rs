@@ -35,8 +35,8 @@ fn rms_weight(n: usize) -> Vec<f64> {
 
 /// Runs `rms_norm` on CPU and each GPU backend and asserts they agree.
 ///
-/// The CUDA block is `min(256, hidden)` and the register-cached kernel holds 16
-/// elements per thread, so the dispatch gate sits at `hidden == 4096`. Each
+/// The CUDA block is at most 256 threads and the register-cached kernels hold
+/// 32 elements per thread, so the dispatch gate sits at `hidden == 8192`. Each
 /// test below states which side of that gate it exercises; a shape on the wrong
 /// side silently covers the other kernel.
 fn assert_rms_norm_parity(label: &str, batch: usize, hidden: usize) {
@@ -95,18 +95,24 @@ fn assert_rms_norm_parity(label: &str, batch: usize, hidden: usize) {
     }
 }
 
-/// Register path with a block narrower than a warp.
+/// Register path with fewer quads than a warp has lanes.
 #[test]
 fn rms_norm_narrow_block_parity() {
     assert_rms_norm_parity("rms_norm_narrow_block", 3, 24);
 }
 
-/// Register path with a block size that is NOT a power of two, so the
-/// reduction runs its ragged branch. The two-pass kernel drops an element for
-/// such block sizes; every shape this small now takes the register path.
+/// Register path with a block of three warps, so the per-warp partials fold
+/// with idle lanes in the second reduction.
 #[test]
 fn rms_norm_non_power_of_two_block_parity() {
     assert_rms_norm_parity("rms_norm_non_power_of_two_block", 2, 100);
+}
+
+/// Register path with a width that is not a multiple of four, so the scalar
+/// kernel runs with a partial last quad.
+#[test]
+fn rms_norm_ragged_width_parity() {
+    assert_rms_norm_parity("rms_norm_ragged_width", 3, 101);
 }
 
 /// Register path with a partial last grid-stride iteration, so the bound on
@@ -116,16 +122,16 @@ fn rms_norm_partial_stride_parity() {
     assert_rms_norm_parity("rms_norm_partial_stride", 2, 300);
 }
 
-/// Register path exactly at the gate: 16 elements per thread, the maximum the
+/// Register path exactly at the gate: 32 elements per thread, the maximum the
 /// register array holds. One element wider falls back.
 #[test]
 fn rms_norm_at_gate_parity() {
-    assert_rms_norm_parity("rms_norm_at_gate", 2, 4096);
+    assert_rms_norm_parity("rms_norm_at_gate", 2, 8192);
 }
 
 /// One block-stride past the gate, so the two-pass fallback runs. This is the
 /// case that must NOT change when the register kernel does.
 #[test]
 fn rms_norm_past_gate_falls_back_parity() {
-    assert_rms_norm_parity("rms_norm_past_gate_falls_back", 2, 4352);
+    assert_rms_norm_parity("rms_norm_past_gate_falls_back", 2, 8448);
 }

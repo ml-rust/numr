@@ -3,11 +3,14 @@
 // One templated body, instantiated per dtype through DEFINE_RMS_NORM. The
 // accumulator is F32 for f32, f16, bf16 and FP8, F64 for f64.
 //
-// Two kernels per dtype, picked by the launcher on row width:
-// - rms_norm_regs_*  (rms_norm_regs.cuh): single pass, row held in registers
+// Three kernels per dtype, picked by the launcher on row width and alignment:
+// - rms_norm_quad_*  (rms_norm_regs.cuh): single pass, row held in registers,
+//                    packed four-element accesses
+// - rms_norm_regs_*  (rms_norm_regs.cuh): the same with scalar accesses
 // - rms_norm_*       (here): two passes over the row, any width
 //
-// Shared memory: blockDim.x accumulator elements for either kernel.
+// Shared memory: ceil(blockDim.x / 32) accumulator elements for either kernel,
+// one per warp. blockDim.x must be a multiple of 32.
 
 #include "norm_common.cuh"
 #include "rms_norm_regs.cuh"
@@ -16,7 +19,7 @@
 template <typename T, typename Acc>
 __device__ __forceinline__ void rms_norm_impl(
     const T* input, const T* weight, T* output,
-    unsigned int batch_size, unsigned int hidden_size, Acc eps, Acc* shared
+    unsigned int batch_size, unsigned int hidden_size, Acc eps, Acc* warp_sums
 ) {
     typedef AccumTraits<T, Acc> AT;
     unsigned int row = blockIdx.x;
@@ -31,13 +34,8 @@ __device__ __forceinline__ void rms_norm_impl(
         Acc val = AT::load(row_in, (int)i);
         thread_sum += val * val;
     }
-    shared[threadIdx.x] = thread_sum;
-    __syncthreads();
-
-    block_sum_reduce<Acc>(shared);
-
-    Acc rms_inv = numr_norm_rsqrt(shared[0] / hidden_size + eps);
-    __syncthreads();
+    Acc total = rms_norm_block_sum<Acc>(thread_sum, warp_sums);
+    Acc rms_inv = numr_norm_rsqrt(total / hidden_size + eps);
 
     // Phase 2: normalize and apply weight
     for (unsigned int i = threadIdx.x; i < hidden_size; i += blockDim.x) {

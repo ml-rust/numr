@@ -275,6 +275,7 @@ fn compile_cuda_kernels() {
         "matmul_f32_tiled_fetch.cuh",
         "matmul_f32_smallm.cuh",
         "rms_norm_regs.cuh",
+        "norm_quad.cuh",
         "norm_common.cuh",
         "block_reduce.cuh",
         "matmul_wmma.cuh",
