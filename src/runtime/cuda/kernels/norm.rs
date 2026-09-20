@@ -18,7 +18,7 @@ use crate::error::{Error, Result};
 ///
 /// Must stay equal to `NORM_MAX_REGS_PER_THREAD` in `kernels/rms_norm_regs.cuh`;
 /// the gate below is what keeps the launch inside the kernel's register array.
-const NORM_MAX_REGS_PER_THREAD: usize = 16;
+const NORM_MAX_REGS_PER_THREAD: usize = 32;
 
 /// Shared-memory element size for a normalization reduction.
 ///

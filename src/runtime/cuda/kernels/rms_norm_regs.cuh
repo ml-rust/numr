@@ -26,7 +26,7 @@
 // registers, and registers cost resident blocks, so raising this buys wider
 // coverage at the price of fewer blocks in flight. Check ptxas -v (and for
 // spills, which would defeat the whole kernel) before changing it.
-#define NORM_MAX_REGS_PER_THREAD 16
+#define NORM_MAX_REGS_PER_THREAD 32
 
 // Sum of squares reduced across the block, in the same order as the two-pass
 // kernel: ascending element index per thread, then the same shared-memory tree.
