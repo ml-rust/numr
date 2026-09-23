@@ -7,6 +7,7 @@
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+use crate::runtime::row_layout;
 use crate::tensor::Tensor;
 
 use super::scalar::apply_unary;
@@ -32,15 +33,28 @@ macro_rules! impl_simd_special_fn {
                 return apply_unary(x, device, $scalar_fn);
             }
 
+            // Unused on architectures without a SIMD kernel, where every
+            // branch below falls back to `apply_unary`.
+            #[allow(unused)]
+            let total = x.numel();
+            #[allow(unused)]
+            let (rows, row_len) = row_layout(x.shape(), total);
+
             match x.dtype() {
                 DType::F32 => {
                     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                     {
-                        let len = x.numel();
-                        let mut result = vec![0.0f32; len];
+                        let mut result = vec![0.0f32; total];
                         let input_ptr = x.ptr() as *const f32;
                         unsafe {
-                            simd_special::$simd_f32(input_ptr, result.as_mut_ptr(), len);
+                            for row in 0..rows {
+                                let off = row * row_len;
+                                simd_special::$simd_f32(
+                                    input_ptr.add(off),
+                                    result.as_mut_ptr().add(off),
+                                    row_len,
+                                );
+                            }
                         }
                         return Tensor::from_slice(&result, x.shape(), device);
                     }
@@ -51,11 +65,17 @@ macro_rules! impl_simd_special_fn {
                 DType::F64 => {
                     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                     {
-                        let len = x.numel();
-                        let mut result = vec![0.0f64; len];
+                        let mut result = vec![0.0f64; total];
                         let input_ptr = x.ptr() as *const f64;
                         unsafe {
-                            simd_special::$simd_f64(input_ptr, result.as_mut_ptr(), len);
+                            for row in 0..rows {
+                                let off = row * row_len;
+                                simd_special::$simd_f64(
+                                    input_ptr.add(off),
+                                    result.as_mut_ptr().add(off),
+                                    row_len,
+                                );
+                            }
                         }
                         return Tensor::from_slice(&result, x.shape(), device);
                     }
@@ -67,11 +87,17 @@ macro_rules! impl_simd_special_fn {
                 DType::F16 => {
                     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                     {
-                        let len = x.numel();
-                        let mut result = vec![half::f16::ZERO; len];
+                        let mut result = vec![half::f16::ZERO; total];
                         let input_ptr = x.ptr() as *const half::f16;
                         unsafe {
-                            simd_special::$simd_f16(input_ptr, result.as_mut_ptr(), len);
+                            for row in 0..rows {
+                                let off = row * row_len;
+                                simd_special::$simd_f16(
+                                    input_ptr.add(off),
+                                    result.as_mut_ptr().add(off),
+                                    row_len,
+                                );
+                            }
                         }
                         return Tensor::from_slice(&result, x.shape(), device);
                     }
@@ -83,11 +109,17 @@ macro_rules! impl_simd_special_fn {
                 DType::BF16 => {
                     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
                     {
-                        let len = x.numel();
-                        let mut result = vec![half::bf16::ZERO; len];
+                        let mut result = vec![half::bf16::ZERO; total];
                         let input_ptr = x.ptr() as *const half::bf16;
                         unsafe {
-                            simd_special::$simd_bf16(input_ptr, result.as_mut_ptr(), len);
+                            for row in 0..rows {
+                                let off = row * row_len;
+                                simd_special::$simd_bf16(
+                                    input_ptr.add(off),
+                                    result.as_mut_ptr().add(off),
+                                    row_len,
+                                );
+                            }
                         }
                         return Tensor::from_slice(&result, x.shape(), device);
                     }

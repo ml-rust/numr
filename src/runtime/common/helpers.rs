@@ -122,6 +122,29 @@ pub fn validate_eye(n: usize, m: Option<usize>) -> (usize, usize) {
     (n, cols)
 }
 
+/// Split a contiguous elementwise op into `(rows, row_len)` at the last axis.
+///
+/// The SIMD/scalar crossover a kernel picks keys off the length it is
+/// handed, so a per-row result must not depend on how many other rows ride
+/// along in the same call. Callers loop `0..rows`, offsetting by
+/// `row * row_len` into each buffer, and dispatch the kernel once per row.
+///
+/// # Arguments
+///
+/// * `shape` - The tensor's shape
+/// * `total` - The tensor's element count (`shape.iter().product()`)
+///
+/// # Returns
+///
+/// `(rows, row_len)`, where `row_len` is the last axis (or `total` for a
+/// 0-dim tensor) and `rows` is `total / row_len` (`0` when `row_len` is `0`).
+#[inline]
+pub fn row_layout(shape: &[usize], total: usize) -> (usize, usize) {
+    let row_len = *shape.last().unwrap_or(&total);
+    let rows = total.checked_div(row_len).unwrap_or(0);
+    (rows, row_len)
+}
+
 /// Ensure a tensor is contiguous in memory.
 ///
 /// If the tensor is already contiguous (elements laid out consecutively in memory),
