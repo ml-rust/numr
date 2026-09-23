@@ -43,6 +43,9 @@ mod activation;
 #[path = "../../../ops/wgpu/binary.rs"]
 mod binary;
 
+#[path = "../../../ops/wgpu/host_copy.rs"]
+mod host_copy;
+
 #[path = "../../../ops/wgpu/unary.rs"]
 mod unary;
 

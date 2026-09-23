@@ -60,6 +60,9 @@ mod snake;
 #[path = "../../../ops/cuda/binary.rs"]
 mod binary;
 
+#[path = "../../../ops/cuda/host_copy.rs"]
+mod host_copy;
+
 #[path = "../../../ops/cuda/unary.rs"]
 mod unary;
 

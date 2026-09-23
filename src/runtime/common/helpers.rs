@@ -324,6 +324,47 @@ pub fn validate_copy_into<R: Runtime<DType = DType>>(
     Ok(())
 }
 
+/// Validate a host-to-device write `out <- host slice`.
+///
+/// `out` must be contiguous, carry `src_dtype`, and hold exactly `src_len`
+/// elements. Shared by the CPU, CUDA, and WebGPU `write_host_slice`
+/// implementations.
+///
+/// # Errors
+///
+/// Returns `Error::DTypeMismatch` when the dtypes differ,
+/// `Error::ShapeMismatch` when the element counts differ, and
+/// `Error::Backend` when `out` is not contiguous.
+#[inline]
+pub fn validate_host_write<R: Runtime<DType = DType>>(
+    out: &Tensor<R>,
+    src_dtype: DType,
+    src_len: usize,
+    op_name: &'static str,
+) -> Result<()> {
+    if out.dtype() != src_dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: src_dtype,
+            rhs: out.dtype(),
+        });
+    }
+    if out.numel() != src_len {
+        return Err(Error::ShapeMismatch {
+            expected: vec![out.numel()],
+            got: vec![src_len],
+        });
+    }
+    if !out.is_contiguous() {
+        return Err(Error::Backend(format!(
+            "{op_name}: destination tensor of shape {:?} with strides {:?} is not contiguous; \
+             pass the owning tensor instead of a strided view",
+            out.shape(),
+            out.strides()
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

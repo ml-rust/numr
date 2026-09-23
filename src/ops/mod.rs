@@ -111,8 +111,9 @@ pub use traits::Fp8MatmulOps;
 pub use traits::{
     ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
     DistanceMetric, DistanceOps, EinsumOps, FwhtOps, GemmActivation, GemmEpilogueOps,
-    GroupedMatmulOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing,
-    NormalizationOps, PaddingMode, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps,
-    ShapeOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    GroupedMatmulOps, HostCopyOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
+    MeshgridIndexing, NormalizationOps, PaddingMode, ReduceOps, ScalarOps, ScatterReduceOp,
+    SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps,
+    UnaryOps, UtilityOps,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

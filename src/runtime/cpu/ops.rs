@@ -64,6 +64,9 @@ mod activation;
 #[path = "../../ops/cpu/binary.rs"]
 mod binary;
 
+#[path = "../../ops/cpu/host_copy.rs"]
+mod host_copy;
+
 #[path = "../../ops/cpu/unary.rs"]
 mod unary;
 

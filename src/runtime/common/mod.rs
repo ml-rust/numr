@@ -21,7 +21,7 @@ pub use graph::{Graph, NoOpGraph};
 pub(crate) use helpers::{
     cap_ipow_exponent, compute_broadcast_shape, ensure_contiguous, normalize_dim,
     pow_scalar_output_dtype, row_layout, validate_arange, validate_binary_dtypes,
-    validate_copy_into, validate_eye,
+    validate_copy_into, validate_eye, validate_host_write,
 };
 
 /// Compute contiguous (row-major) strides for a given shape.
