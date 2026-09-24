@@ -48,6 +48,8 @@
 //! - `U16` -> `u16`
 //! - `U8` -> `u8`
 //! - `Bool` -> Returns `UnsupportedDType` error
+//! - Any other `DType` variant (including ones added to the `#[non_exhaustive]`
+//!   enum after this crate was built) -> Returns `UnsupportedDType` error
 
 // Feature-Gated Type Dispatch Helpers
 //
@@ -104,6 +106,12 @@ macro_rules! dispatch_fp8_type {
 /// This macro takes a `DType` value and executes a code block with `T` bound
 /// to the corresponding Rust type. Feature-gated types (F16, BF16, FP8) use
 /// parameterized helper macros to avoid code duplication.
+///
+/// Usable from any crate that depends on numr, not only from within numr
+/// itself. `DType` is `#[non_exhaustive]`, so the expansion ends with a
+/// wildcard arm that returns `Error::UnsupportedDType` for any dtype not
+/// matched above it — this covers both `Bool` and any variant numr adds
+/// after a downstream crate was compiled against an older numr version.
 #[macro_export]
 macro_rules! dispatch_dtype {
     ($dtype:expr, $T:ident => $body:block, $error_op:expr) => {
@@ -173,6 +181,16 @@ macro_rules! dispatch_dtype {
             $crate::dtype::DType::Complex128 => {
                 type $T = $crate::dtype::Complex128;
                 $body
+            }
+            // Unreachable in-crate, where every DType variant is matched above;
+            // required for downstream crates, where #[non_exhaustive] forbids
+            // an exhaustive match. The allow suppresses only the in-crate case.
+            #[allow(unreachable_patterns)]
+            _ => {
+                return Err($crate::error::Error::UnsupportedDType {
+                    dtype: $dtype,
+                    op: $error_op,
+                })
             }
         }
     };
