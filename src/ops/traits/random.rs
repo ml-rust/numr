@@ -68,6 +68,58 @@ pub trait RandomOps<R: Runtime> {
         })
     }
 
+    /// Generate uniform random values in [0, 1) into a pre-allocated destination.
+    ///
+    /// Unlike [`rand`](RandomOps::rand), this writes into the caller-owned
+    /// `out` tensor instead of allocating a new one. This is required for
+    /// destination-passing workflows such as a per-decode-step sampling loop,
+    /// where allocating a fresh tensor on every draw is pure churn, and for
+    /// CUDA graph capture, where a state buffer must keep its device address
+    /// across replays.
+    ///
+    /// `out`'s shape and dtype are the request — there is no separate shape
+    /// or dtype argument. `out` must be contiguous and floating point.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::UnsupportedDType` if `out`'s dtype is not floating
+    /// point, and an error if `out` is not contiguous.
+    fn rand_into(&self, out: &Tensor<R>) -> Result<()> {
+        let _ = out;
+        Err(Error::NotImplemented {
+            feature: "RandomOps::rand_into",
+        })
+    }
+
+    /// Generate uniform random values in [0, 1) into a pre-allocated
+    /// destination, with a deterministic seed.
+    ///
+    /// Same as [`rand_into`](RandomOps::rand_into) but uses the provided
+    /// seed for reproducible output. Calling with the same seed and shape on
+    /// the SAME BACKEND always produces the same values. See
+    /// [`rand_seeded`](RandomOps::rand_seeded) for why reproducibility is
+    /// per-backend, not across backends.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    /// * `seed` - Deterministic seed for the PRNG
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::UnsupportedDType` if `out`'s dtype is not floating
+    /// point, and an error if `out` is not contiguous.
+    fn rand_seeded_into(&self, out: &Tensor<R>, seed: u64) -> Result<()> {
+        let _ = (out, seed);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::rand_seeded_into",
+        })
+    }
+
     /// Generate standard normal random values (mean=0, std=1)
     ///
     /// Creates a tensor filled with random values from standard normal distribution N(0, 1).
@@ -109,6 +161,60 @@ pub trait RandomOps<R: Runtime> {
         let _ = (shape, dtype, seed);
         Err(Error::NotImplemented {
             feature: "RandomOps::randn_seeded",
+        })
+    }
+
+    /// Generate standard normal random values (mean=0, std=1) into a
+    /// pre-allocated destination.
+    ///
+    /// Unlike [`randn`](RandomOps::randn), this writes into the caller-owned
+    /// `out` tensor instead of allocating a new one. This is required for
+    /// destination-passing workflows such as a per-decode-step sampling loop,
+    /// where allocating a fresh tensor on every draw is pure churn, and for
+    /// CUDA graph capture, where a state buffer must keep its device address
+    /// across replays.
+    ///
+    /// `out`'s shape and dtype are the request — there is no separate shape
+    /// or dtype argument. `out` must be contiguous and floating point.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::UnsupportedDType` if `out`'s dtype is not floating
+    /// point, and an error if `out` is not contiguous.
+    fn randn_into(&self, out: &Tensor<R>) -> Result<()> {
+        let _ = out;
+        Err(Error::NotImplemented {
+            feature: "RandomOps::randn_into",
+        })
+    }
+
+    /// Generate standard normal random values (mean=0, std=1) into a
+    /// pre-allocated destination, with a deterministic seed.
+    ///
+    /// Same as [`randn_into`](RandomOps::randn_into) but uses the provided
+    /// seed for reproducible output. Calling with the same seed and shape on
+    /// the SAME BACKEND always produces the same values. Reproducibility is
+    /// per-backend — see [`rand_seeded`](RandomOps::rand_seeded) for why a
+    /// CPU and a CUDA run of one seed differ, and what that means for a
+    /// pinned baseline.
+    ///
+    /// # Arguments
+    ///
+    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
+    /// * `seed` - Deterministic seed for the PRNG
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::UnsupportedDType` if `out`'s dtype is not floating
+    /// point, and an error if `out` is not contiguous.
+    fn randn_seeded_into(&self, out: &Tensor<R>, seed: u64) -> Result<()> {
+        let _ = (out, seed);
+        Err(Error::NotImplemented {
+            feature: "RandomOps::randn_seeded_into",
         })
     }
 

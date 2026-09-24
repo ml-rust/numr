@@ -4,6 +4,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::RandomOps;
 use crate::runtime::RuntimeClient;
+use crate::runtime::validate_rand_into;
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
@@ -23,49 +24,49 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             return Err(Error::UnsupportedDType { dtype, op: "rand" });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Tensor::empty(shape, dtype, self.device());
+        let out = alloc_output(self, shape, dtype)?;
+        self.rand_into(&out)?;
+        Ok(out)
+    }
+
+    fn rand_into(&self, out: &Tensor<WgpuRuntime>) -> Result<()> {
+        if validate_rand_into(out, "rand_into")? {
+            return Ok(());
+        }
+        // WebGPU rand only supports F32
+        if !matches!(out.dtype(), DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype: out.dtype(),
+                op: "rand_into",
+            });
         }
 
-        // Allocate output
-        let out = alloc_output(self, shape, dtype)?;
-        let out_buf = get_tensor_buffer(&out)?;
+        let numel = out.numel();
+        let out_buf = get_tensor_buffer(out)?;
 
-        // Create params with random seed
-        // Note: WGSL doesn't support u64 natively, so we use u32 seed (truncated from timestamp).
-        // This limits the seed space but is sufficient for most use cases.
-        // For reproducible results, users should use explicit seeding (future API).
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
-        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let time_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u32)
-            .unwrap_or(12345u32);
-        let seed = time_seed.wrapping_add(counter);
-
-        // seed_hi stays 0: the internally generated seed above is already a
-        // single u32, so there is no high word to carry.
+        // Note: WGSL doesn't support u64 natively, so we use u32 seed
+        // (truncated from timestamp). This limits the seed space but is
+        // sufficient for most use cases. For reproducible results, users
+        // should use explicit seeding via `rand_seeded_into`.
+        //
+        // seed_hi stays 0: the internally generated seed is already a single
+        // u32, so there is no high word to carry.
         let params = RandParams {
             numel: numel as u32,
-            seed,
+            seed: generate_wgpu_seed(),
             seed_hi: 0,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
 
-        // Launch kernel
         shape::launch_rand(
             self.pipeline_cache(),
             self.wgpu_queue(),
             &out_buf,
             &params_buf,
             numel,
-            dtype,
-        )?;
-
-        Ok(out)
+            out.dtype(),
+        )
     }
 
     fn rand_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<WgpuRuntime>> {
@@ -76,23 +77,31 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Tensor::empty(shape, dtype, self.device());
+        let out = alloc_output(self, shape, dtype)?;
+        self.rand_seeded_into(&out, seed)?;
+        Ok(out)
+    }
+
+    fn rand_seeded_into(&self, out: &Tensor<WgpuRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "rand_seeded_into")? {
+            return Ok(());
+        }
+        if !matches!(out.dtype(), DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype: out.dtype(),
+                op: "rand_seeded_into",
+            });
         }
 
-        let out = alloc_output(self, shape, dtype)?;
-        let out_buf = get_tensor_buffer(&out)?;
+        let numel = out.numel();
+        let out_buf = get_tensor_buffer(out)?;
 
         // WGSL has no native u64. Split the seed into low/high u32 words so
         // the shader consumes the full 64 bits instead of truncating.
-        let seed_lo = seed as u32;
-        let seed_hi = (seed >> 32) as u32;
-
         let params = RandParams {
             numel: numel as u32,
-            seed: seed_lo,
-            seed_hi,
+            seed: seed as u32,
+            seed_hi: (seed >> 32) as u32,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -103,10 +112,8 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             &out_buf,
             &params_buf,
             numel,
-            dtype,
-        )?;
-
-        Ok(out)
+            out.dtype(),
+        )
     }
 
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<WgpuRuntime>> {
@@ -115,46 +122,43 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             return Err(Error::UnsupportedDType { dtype, op: "randn" });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Tensor::empty(shape, dtype, self.device());
+        let out = alloc_output(self, shape, dtype)?;
+        self.randn_into(&out)?;
+        Ok(out)
+    }
+
+    fn randn_into(&self, out: &Tensor<WgpuRuntime>) -> Result<()> {
+        if validate_rand_into(out, "randn_into")? {
+            return Ok(());
+        }
+        // WebGPU randn only supports F32
+        if !matches!(out.dtype(), DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype: out.dtype(),
+                op: "randn_into",
+            });
         }
 
-        // Allocate output
-        let out = alloc_output(self, shape, dtype)?;
-        let out_buf = get_tensor_buffer(&out)?;
+        let numel = out.numel();
+        let out_buf = get_tensor_buffer(out)?;
 
-        // Create params with random seed (see rand() for seed design notes)
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
-        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let time_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u32)
-            .unwrap_or(12345u32);
-        let seed = time_seed.wrapping_add(counter);
-
-        // seed_hi stays 0: the internally generated seed above is already a
-        // single u32, so there is no high word to carry.
+        // seed_hi stays 0 (see rand_into() for seed design notes).
         let params = RandnParams {
             numel: numel as u32,
-            seed,
+            seed: generate_wgpu_seed(),
             seed_hi: 0,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
 
-        // Launch kernel
         shape::launch_randn(
             self.pipeline_cache(),
             self.wgpu_queue(),
             &out_buf,
             &params_buf,
             numel,
-            dtype,
-        )?;
-
-        Ok(out)
+            out.dtype(),
+        )
     }
 
     fn randn_seeded(
@@ -170,23 +174,31 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Tensor::empty(shape, dtype, self.device());
+        let out = alloc_output(self, shape, dtype)?;
+        self.randn_seeded_into(&out, seed)?;
+        Ok(out)
+    }
+
+    fn randn_seeded_into(&self, out: &Tensor<WgpuRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "randn_seeded_into")? {
+            return Ok(());
+        }
+        if !matches!(out.dtype(), DType::F32) {
+            return Err(Error::UnsupportedDType {
+                dtype: out.dtype(),
+                op: "randn_seeded_into",
+            });
         }
 
-        let out = alloc_output(self, shape, dtype)?;
-        let out_buf = get_tensor_buffer(&out)?;
+        let numel = out.numel();
+        let out_buf = get_tensor_buffer(out)?;
 
         // WGSL has no native u64. Split the seed into low/high u32 words so
         // the shader consumes the full 64 bits instead of truncating.
-        let seed_lo = seed as u32;
-        let seed_hi = (seed >> 32) as u32;
-
         let params = RandnParams {
             numel: numel as u32,
-            seed: seed_lo,
-            seed_hi,
+            seed: seed as u32,
+            seed_hi: (seed >> 32) as u32,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -197,10 +209,8 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             &out_buf,
             &params_buf,
             numel,
-            dtype,
-        )?;
-
-        Ok(out)
+            out.dtype(),
+        )
     }
 
     fn randint(
@@ -931,5 +941,38 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         )?;
 
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+    use crate::runtime::wgpu::WgpuDevice;
+
+    fn client() -> WgpuClient {
+        WgpuRuntime::default_client(&WgpuDevice::new(0))
+    }
+
+    #[test]
+    fn rand_into_rejects_integer_dtype() {
+        let client = client();
+        let out = Tensor::<WgpuRuntime>::zeros(&[4], DType::I32, client.device()).unwrap();
+        assert!(matches!(
+            client.rand_into(&out),
+            Err(Error::UnsupportedDType { .. })
+        ));
+    }
+
+    #[test]
+    fn rand_seeded_into_rejects_non_contiguous_destination() {
+        let client = client();
+        let out = Tensor::<WgpuRuntime>::zeros(&[2, 3], DType::F32, client.device()).unwrap();
+        let transposed = out.transpose(0, 1).unwrap();
+        assert!(!transposed.is_contiguous());
+        assert!(matches!(
+            client.rand_seeded_into(&transposed, 7),
+            Err(Error::Backend(_))
+        ));
     }
 }

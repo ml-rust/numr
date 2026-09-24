@@ -5,7 +5,9 @@
 // properties rather than exact value parity.
 //
 // Split by seam: `distributions` covers unseeded shape/dtype/statistical invariants,
-// `seeded` covers seed reproducibility and the seed-derivation regression coverage.
+// `seeded` covers seed reproducibility and the seed-derivation regression coverage,
+// `seeded_into` covers the destination-passing `rand_seeded_into`/`randn_seeded_into`.
 
 pub mod distributions;
 pub mod seeded;
+pub mod seeded_into;

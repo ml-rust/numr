@@ -365,6 +365,41 @@ pub fn validate_host_write<R: Runtime<DType = DType>>(
     Ok(())
 }
 
+/// Validate a destination-passing random draw: `out <- random values`.
+///
+/// `out` must be contiguous and carry a floating-point dtype. Shared by the
+/// CPU, CUDA, and WebGPU `rand_into`/`rand_seeded_into`/`randn_into`/
+/// `randn_seeded_into` implementations.
+///
+/// # Returns
+///
+/// `true` when `out` has zero elements, in which case the caller must treat
+/// the draw as a no-op and return `Ok(())` without touching `out` or the
+/// PRNG state.
+///
+/// # Errors
+///
+/// Returns `Error::UnsupportedDType` when `out`'s dtype is not floating
+/// point, and `Error::Backend` when `out` is not contiguous.
+#[inline]
+pub fn validate_rand_into<R: Runtime<DType = DType>>(
+    out: &Tensor<R>,
+    op_name: &'static str,
+) -> Result<bool> {
+    if !out.dtype().is_float() {
+        return Err(Error::UnsupportedDType {
+            dtype: out.dtype(),
+            op: op_name,
+        });
+    }
+    if !out.is_contiguous() {
+        return Err(Error::Backend(format!(
+            "{op_name}: destination tensor must be contiguous"
+        )));
+    }
+    Ok(out.numel() == 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

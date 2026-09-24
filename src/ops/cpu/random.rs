@@ -8,6 +8,7 @@ use crate::runtime::cpu::{
     helpers::{dispatch_dtype, ensure_contiguous},
     kernels,
 };
+use crate::runtime::validate_rand_into;
 use crate::tensor::Tensor;
 
 /// RandomOps implementation for CPU runtime.
@@ -19,22 +20,26 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device)?;
-        let numel = out.numel();
+        self.rand_into(&out)?;
+        Ok(out)
+    }
 
-        // Handle empty tensor
-        if numel == 0 {
-            return Ok(out);
+    fn rand_into(&self, out: &Tensor<CpuRuntime>) -> Result<()> {
+        if validate_rand_into(out, "rand_into")? {
+            return Ok(());
         }
 
+        let dtype = out.dtype();
+        let numel = out.numel();
         let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
                 kernels::rand_uniform_kernel::<T>(out_ptr as *mut T, numel);
             }
-        }, "rand");
+        }, "rand_into");
 
-        Ok(out)
+        Ok(())
     }
 
     fn rand_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<CpuRuntime>> {
@@ -46,12 +51,17 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device)?;
-        let numel = out.numel();
+        self.rand_seeded_into(&out, seed)?;
+        Ok(out)
+    }
 
-        if numel == 0 {
-            return Ok(out);
+    fn rand_seeded_into(&self, out: &Tensor<CpuRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "rand_seeded_into")? {
+            return Ok(());
         }
 
+        let dtype = out.dtype();
+        let numel = out.numel();
         let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
@@ -60,9 +70,9 @@ impl RandomOps<CpuRuntime> for CpuClient {
                     out_ptr as *mut T, numel, seed,
                 );
             }
-        }, "rand_seeded");
+        }, "rand_seeded_into");
 
-        Ok(out)
+        Ok(())
     }
 
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CpuRuntime>> {
@@ -72,22 +82,26 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device)?;
-        let numel = out.numel();
+        self.randn_into(&out)?;
+        Ok(out)
+    }
 
-        // Handle empty tensor
-        if numel == 0 {
-            return Ok(out);
+    fn randn_into(&self, out: &Tensor<CpuRuntime>) -> Result<()> {
+        if validate_rand_into(out, "randn_into")? {
+            return Ok(());
         }
 
+        let dtype = out.dtype();
+        let numel = out.numel();
         let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
             unsafe {
                 kernels::rand_normal_kernel::<T>(out_ptr as *mut T, numel);
             }
-        }, "randn");
+        }, "randn_into");
 
-        Ok(out)
+        Ok(())
     }
 
     fn randn_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<CpuRuntime>> {
@@ -99,12 +113,17 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }
 
         let out = Tensor::<CpuRuntime>::empty(shape, dtype, &self.device)?;
-        let numel = out.numel();
+        self.randn_seeded_into(&out, seed)?;
+        Ok(out)
+    }
 
-        if numel == 0 {
-            return Ok(out);
+    fn randn_seeded_into(&self, out: &Tensor<CpuRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "randn_seeded_into")? {
+            return Ok(());
         }
 
+        let dtype = out.dtype();
+        let numel = out.numel();
         let out_ptr = out.ptr();
 
         dispatch_dtype!(dtype, T => {
@@ -113,9 +132,9 @@ impl RandomOps<CpuRuntime> for CpuClient {
                     out_ptr as *mut T, numel, seed,
                 );
             }
-        }, "randn_seeded");
+        }, "randn_seeded_into");
 
-        Ok(out)
+        Ok(())
     }
 
     fn randint(
@@ -677,5 +696,38 @@ impl RandomOps<CpuRuntime> for CpuClient {
         }, "f_distribution");
 
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::cpu::CpuDevice;
+    use crate::runtime::{Runtime, RuntimeClient};
+
+    fn client() -> CpuClient {
+        CpuRuntime::default_client(&CpuDevice::new())
+    }
+
+    #[test]
+    fn rand_into_rejects_integer_dtype() {
+        let client = client();
+        let out = Tensor::<CpuRuntime>::zeros(&[4], DType::I32, client.device()).unwrap();
+        assert!(matches!(
+            client.rand_into(&out),
+            Err(Error::UnsupportedDType { .. })
+        ));
+    }
+
+    #[test]
+    fn rand_seeded_into_rejects_non_contiguous_destination() {
+        let client = client();
+        let out = Tensor::<CpuRuntime>::zeros(&[2, 3], DType::F32, client.device()).unwrap();
+        let transposed = out.transpose(0, 1).unwrap();
+        assert!(!transposed.is_contiguous());
+        assert!(matches!(
+            client.rand_seeded_into(&transposed, 7),
+            Err(Error::Backend(_))
+        ));
     }
 }

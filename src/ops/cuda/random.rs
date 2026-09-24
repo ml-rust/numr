@@ -1,6 +1,8 @@
 //! Random number generation for CUDA runtime
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+#[cfg(feature = "fp8")]
+use crate::ops::BinaryOps;
 use crate::ops::RandomOps;
 #[cfg(feature = "fp8")]
 use crate::ops::TypeConversionOps;
@@ -13,9 +15,13 @@ use crate::runtime::cuda::kernels::{
     launch_randn, launch_student_t,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
+use crate::runtime::validate_rand_into;
 use crate::tensor::Tensor;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Dtypes the native CUDA rand/randn kernels accept directly.
+const NATIVE_FLOAT_DTYPES: [DType; 4] = [DType::F32, DType::F64, DType::F16, DType::BF16];
 
 impl RandomOps<CudaRuntime> for CudaClient {
     fn rand(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
@@ -28,36 +34,20 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         // Supported: F32, F64, F16, BF16
-        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+        if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
             return Err(Error::UnsupportedDType { dtype, op: "rand" });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            // Empty tensor - just allocate
-            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?);
-        }
-
-        // Allocate output tensor
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-
-        // Generate seed using atomic counter + time for better entropy
-        let seed = generate_random_seed();
-
-        // Launch native CUDA rand kernel
-        unsafe {
-            launch_rand(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                seed,
-                out.ptr(),
-                numel,
-            )?;
-        }
-
+        self.rand_into(&out)?;
         Ok(out)
+    }
+
+    fn rand_into(&self, out: &Tensor<CudaRuntime>) -> Result<()> {
+        if validate_rand_into(out, "rand_into")? {
+            return Ok(());
+        }
+        rand_into_impl(self, out, None, "rand_into")
     }
 
     fn rand_seeded(&self, shape: &[usize], dtype: DType, seed: u64) -> Result<Tensor<CudaRuntime>> {
@@ -68,33 +58,23 @@ impl RandomOps<CudaRuntime> for CudaClient {
             return self.cast(&clamped, dtype);
         }
 
-        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+        if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "rand_seeded",
             });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?);
-        }
-
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-
-        unsafe {
-            launch_rand(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                seed,
-                out.ptr(),
-                numel,
-            )?;
-        }
-
+        self.rand_seeded_into(&out, seed)?;
         Ok(out)
+    }
+
+    fn rand_seeded_into(&self, out: &Tensor<CudaRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "rand_seeded_into")? {
+            return Ok(());
+        }
+        rand_into_impl(self, out, Some(seed), "rand_seeded_into")
     }
 
     fn randn(&self, shape: &[usize], dtype: DType) -> Result<Tensor<CudaRuntime>> {
@@ -106,36 +86,20 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         // Supported: F32, F64, F16, BF16
-        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+        if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
             return Err(Error::UnsupportedDType { dtype, op: "randn" });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            // Empty tensor - just allocate
-            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?);
-        }
-
-        // Allocate output tensor
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-
-        // Generate seed using atomic counter + time for better entropy
-        let seed = generate_random_seed();
-
-        // Launch native CUDA randn kernel (uses Box-Muller transform)
-        unsafe {
-            launch_randn(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                seed,
-                out.ptr(),
-                numel,
-            )?;
-        }
-
+        self.randn_into(&out)?;
         Ok(out)
+    }
+
+    fn randn_into(&self, out: &Tensor<CudaRuntime>) -> Result<()> {
+        if validate_rand_into(out, "randn_into")? {
+            return Ok(());
+        }
+        randn_into_impl(self, out, None, "randn_into")
     }
 
     fn randn_seeded(
@@ -152,36 +116,23 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         // Supported: F32, F64, F16, BF16
-        if !matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16) {
+        if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
             return Err(Error::UnsupportedDType {
                 dtype,
                 op: "randn_seeded",
             });
         }
 
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            // Empty tensor - just allocate
-            return Ok(Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?);
-        }
-
-        // Allocate output tensor
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-
-        // Launch native CUDA randn kernel (uses Box-Muller transform) with the caller's seed
-        unsafe {
-            launch_randn(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                dtype,
-                seed,
-                out.ptr(),
-                numel,
-            )?;
-        }
-
+        self.randn_seeded_into(&out, seed)?;
         Ok(out)
+    }
+
+    fn randn_seeded_into(&self, out: &Tensor<CudaRuntime>, seed: u64) -> Result<()> {
+        if validate_rand_into(out, "randn_seeded_into")? {
+            return Ok(());
+        }
+        randn_into_impl(self, out, Some(seed), "randn_seeded_into")
     }
 
     fn randint(
@@ -804,6 +755,109 @@ impl RandomOps<CudaRuntime> for CudaClient {
 }
 
 // ============================================================================
+// Shared `_into` Bodies
+// ============================================================================
+//
+// `rand_into`/`rand_seeded_into` and `randn_into`/`randn_seeded_into` differ
+// only in whether the seed is caller-supplied or freshly generated; both
+// still need the same FP8 detour, native-dtype check, and kernel launch.
+// `out`'s zero-element/dtype/contiguity checks already ran in the caller via
+// `validate_rand_into`.
+
+/// Shared body for `rand_into` and `rand_seeded_into`. `seed` is the
+/// caller's seed when seeded, `None` to draw a fresh one.
+fn rand_into_impl(
+    client: &CudaClient,
+    out: &Tensor<CudaRuntime>,
+    seed: Option<u64>,
+    op_name: &'static str,
+) -> Result<()> {
+    let dtype = out.dtype();
+
+    // FP8: generate F32 rand, clamp below FP8's 1.0 bound, cast down, and
+    // copy into `out` (the native kernel writes F32/F64/F16/BF16 only).
+    #[cfg(feature = "fp8")]
+    if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+        let f32_result = match seed {
+            Some(seed) => client.rand_seeded(out.shape(), DType::F32, seed)?,
+            None => client.rand(out.shape(), DType::F32)?,
+        };
+        let clamped = clamp_below_one_for_narrowing(client, &f32_result, dtype)?;
+        let casted = client.cast(&clamped, dtype)?;
+        return client.copy_into(out, &casted);
+    }
+
+    if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
+        return Err(Error::UnsupportedDType { dtype, op: op_name });
+    }
+
+    let numel = out.numel();
+    // Generate seed using atomic counter + time for better entropy when none
+    // was supplied.
+    let seed = seed.unwrap_or_else(generate_random_seed);
+
+    unsafe {
+        launch_rand(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            seed,
+            out.ptr(),
+            numel,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Shared body for `randn_into` and `randn_seeded_into`. `seed` is the
+/// caller's seed when seeded, `None` to draw a fresh one.
+fn randn_into_impl(
+    client: &CudaClient,
+    out: &Tensor<CudaRuntime>,
+    seed: Option<u64>,
+    op_name: &'static str,
+) -> Result<()> {
+    let dtype = out.dtype();
+
+    // FP8: generate F32 randn, cast down, and copy into `out` (the
+    // native kernel writes F32/F64/F16/BF16 only).
+    #[cfg(feature = "fp8")]
+    if matches!(dtype, DType::FP8E4M3 | DType::FP8E5M2) {
+        let f32_result = match seed {
+            Some(seed) => client.randn_seeded(out.shape(), DType::F32, seed)?,
+            None => client.randn(out.shape(), DType::F32)?,
+        };
+        let casted = client.cast(&f32_result, dtype)?;
+        return client.copy_into(out, &casted);
+    }
+
+    if !NATIVE_FLOAT_DTYPES.contains(&dtype) {
+        return Err(Error::UnsupportedDType { dtype, op: op_name });
+    }
+
+    let numel = out.numel();
+    // Generate seed using atomic counter + time for better entropy when none
+    // was supplied.
+    let seed = seed.unwrap_or_else(generate_random_seed);
+
+    unsafe {
+        launch_randn(
+            &client.context,
+            &client.stream,
+            client.device.index,
+            dtype,
+            seed,
+            out.ptr(),
+            numel,
+        )?;
+    }
+
+    Ok(())
+}
+
+// ============================================================================
 // Random Seed Generation Helper
 // ============================================================================
 
@@ -845,4 +899,55 @@ fn clamp_below_one_for_narrowing(
 ) -> Result<Tensor<CudaRuntime>> {
     let bound = dtype.largest_value_below_one().unwrap_or(1.0);
     client.clamp(f32_result, f64::MIN, bound)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::cuda::CudaDevice;
+    use crate::runtime::{Runtime, RuntimeClient};
+
+    fn setup() -> Option<CudaClient> {
+        if !crate::runtime::cuda::is_cuda_available() {
+            return None;
+        }
+        Some(CudaRuntime::default_client(&CudaDevice::new(0)))
+    }
+
+    #[test]
+    fn rand_into_rejects_integer_dtype() {
+        let Some(client) = setup() else {
+            return;
+        };
+        let out = Tensor::<CudaRuntime>::zeros(&[4], DType::I32, client.device()).unwrap();
+        assert!(matches!(
+            client.rand_into(&out),
+            Err(Error::UnsupportedDType { .. })
+        ));
+    }
+
+    #[test]
+    fn rand_seeded_into_rejects_non_contiguous_destination() {
+        let Some(client) = setup() else {
+            return;
+        };
+        let out = Tensor::<CudaRuntime>::zeros(&[2, 3], DType::F32, client.device()).unwrap();
+        let transposed = out.transpose(0, 1).unwrap();
+        assert!(!transposed.is_contiguous());
+        assert!(matches!(
+            client.rand_seeded_into(&transposed, 7),
+            Err(Error::Backend(_))
+        ));
+    }
+
+    #[test]
+    fn rand_into_keeps_destination_address() {
+        let Some(client) = setup() else {
+            return;
+        };
+        let out = Tensor::<CudaRuntime>::zeros(&[4], DType::F32, client.device()).unwrap();
+        let before = out.ptr();
+        client.rand_into(&out).unwrap();
+        assert_eq!(out.ptr(), before);
+    }
 }
