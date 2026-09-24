@@ -280,7 +280,10 @@ mod cuda_parity {
         });
     }
 
+    /// Casting the F16 result back to F32 for comparison needs the `f16`
+    /// feature, so this case only runs when it is on.
     #[test]
+    #[cfg(feature = "f16")]
     fn test_fp8_matmul_e4m3_cuda_parity_f16_output() {
         let (cpu_client, cpu_device) = create_cpu_client();
         with_cuda_backend(|cuda_client, cuda_device| {
