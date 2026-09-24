@@ -23,7 +23,8 @@
 /// allocation hand out a device address already baked into a captured kernel
 /// node (see [`CudaArena::deallocate`] for the full rationale).  The arena is
 /// bounded by `size` bytes; if capacity is exceeded `allocate()` returns
-/// `Err(Backend)` naming the request, the bytes used and the arena size.
+/// `Err(Error::ArenaExhausted)` naming the request, the bytes used and the
+/// arena size.
 ///
 /// ## Lifetime
 ///
@@ -74,16 +75,17 @@ impl CudaArena {
     /// Bump-allocate `size_bytes` from the arena.
     ///
     /// Returns `Ok(device_ptr)` on success. When the arena would overflow,
-    /// returns `Err(Backend)` naming the requested bytes, the bytes already
-    /// used and the arena size, so a caller can size the next capture.
+    /// returns `Err(Error::ArenaExhausted)` naming the requested bytes, the
+    /// bytes already used and the arena size, so a caller can size the next
+    /// capture.
     pub(super) fn allocate(&mut self, size_bytes: usize) -> crate::error::Result<u64> {
         let aligned = Self::align_up(size_bytes.max(1));
         if self.high_water + aligned > self.size {
-            return Err(crate::error::Error::Backend(format!(
-                "CUDA graph arena exhausted: requested {size_bytes} bytes, \
-                 {} of {} arena bytes used",
-                self.high_water, self.size
-            )));
+            return Err(crate::error::Error::ArenaExhausted {
+                requested: size_bytes,
+                used: self.high_water,
+                capacity: self.size,
+            });
         }
         let offset = self.high_water;
         self.high_water += aligned;
@@ -250,6 +252,34 @@ mod tests {
             arena.high_water(),
             768,
             "a failed allocate leaves high_water"
+        );
+    }
+
+    /// Overflow returns the typed `ArenaExhausted` variant, with fields a
+    /// caller can size a retry from, not only a formatted string.
+    #[test]
+    fn arena_exhaustion_is_typed() {
+        let base: u64 = 0x3_0000_0000;
+        let mut arena = CudaArena::new(base, 1024);
+        let _p0 = arena.allocate(768).expect("alloc 768 bytes");
+
+        let err = arena.allocate(512).expect_err("512 overflows 1024 - 768");
+        match &err {
+            crate::error::Error::ArenaExhausted {
+                requested,
+                used,
+                capacity,
+            } => {
+                assert_eq!(*requested, 512);
+                assert_eq!(*used, 768);
+                assert_eq!(*capacity, 1024);
+            }
+            other => panic!("expected Error::ArenaExhausted, got {other:?}"),
+        }
+        assert_eq!(
+            err.as_arena_exhausted(),
+            Some((512, 768, 1024)),
+            "as_arena_exhausted must expose the same fields"
         );
     }
 }

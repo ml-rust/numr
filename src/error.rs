@@ -165,6 +165,51 @@ pub enum Error {
     /// Allocator is frozen — no new allocations permitted
     #[error("Allocator frozen: allocation rejected while frozen")]
     AllocatorFrozen,
+
+    /// A CUDA graph capture arena ran out of room for an intermediate
+    /// allocation.
+    ///
+    /// Carries the numbers a caller needs to size a retry: the request that
+    /// failed, the bytes the arena had already handed out, and the arena's
+    /// total capacity. Raised during `capture_graph_into_with_arena` when an
+    /// intermediate allocation inside the capture overruns the pre-sized
+    /// arena; the caller can recapture with a larger arena sized from
+    /// `used + requested`.
+    #[error(
+        "CUDA graph arena exhausted: requested {requested} bytes, {used} of {capacity} arena \
+         bytes used; recapture with a larger arena sized from these numbers"
+    )]
+    ArenaExhausted {
+        /// Bytes the failing allocation asked for
+        requested: usize,
+        /// Bytes already handed out by the arena before this request
+        used: usize,
+        /// Total arena capacity in bytes
+        capacity: usize,
+    },
+}
+
+impl Error {
+    /// The arena-exhaustion fields, if this error is
+    /// [`Error::ArenaExhausted`] or wraps one as an
+    /// [`Error::AllocFailed`] source.
+    ///
+    /// A CUDA graph intermediate is normally allocated through
+    /// `Tensor::empty`/`Tensor::zeros`, which wraps every allocation failure
+    /// in `AllocFailed` for shape/dtype/device context. This walks that one
+    /// layer of wrapping so a caller can react to arena exhaustion without
+    /// matching on message text.
+    pub fn as_arena_exhausted(&self) -> Option<(usize, usize, usize)> {
+        match self {
+            Error::ArenaExhausted {
+                requested,
+                used,
+                capacity,
+            } => Some((*requested, *used, *capacity)),
+            Error::AllocFailed { source, .. } => source.as_arena_exhausted(),
+            _ => None,
+        }
+    }
 }
 
 impl Error {
