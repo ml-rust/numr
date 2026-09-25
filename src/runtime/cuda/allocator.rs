@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use super::arena::CudaArena;
-use super::capture::GuardedStream;
+use super::capture::{GuardedStream, thread_is_capturing};
 use crate::runtime::Allocator;
 
 /// Maximum number of cached buffers per exact byte-size bucket.
@@ -185,6 +185,24 @@ impl CudaAllocator {
         }
     }
 
+    /// Whether THIS thread is the one capturing a graph on this device.
+    ///
+    /// The freeze flag alone is not the question. It is shared by every
+    /// thread on the device, while the graph arena and `captured_ptrs`
+    /// belong to the ONE thread inside the capture region. A thread that
+    /// merely allocates while another captures must not be served from that
+    /// capture's arena — it would hand two threads the same device address —
+    /// and its pointer must not be recorded as graph-owned, because it is
+    /// freed on the ordinary path and would then be read back as corruption.
+    ///
+    /// Both conditions are required. The thread-local says who is inside a
+    /// capture region; the flag says the allocator is actually serving one,
+    /// which is what `freeze` and `unfreeze` bracket.
+    fn thread_owns_capture(&self) -> bool {
+        self.frozen.load(std::sync::atomic::Ordering::Relaxed)
+            && thread_is_capturing(self.stream.device_index())
+    }
+
     /// Allocate directly from the driver (no free-list lookup).
     ///
     /// On failure, drains the Rust free list back to the driver pool so those
@@ -317,7 +335,7 @@ impl Allocator for CudaAllocator {
         //
         // Either way, record the pointer in `captured_ptrs` so `unfreeze()`
         // can assert it never migrated into the free list.
-        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.thread_owns_capture() {
             let ptr = {
                 let mut arena_guard = self.arena.lock().unwrap_or_else(|p| p.into_inner());
                 if let Some(ref mut arena) = *arena_guard {
@@ -354,7 +372,7 @@ impl Allocator for CudaAllocator {
 
         // Graph-capture path: handle differently depending on whether the
         // pointer came from the arena or from the driver.
-        if self.frozen.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.thread_owns_capture() {
             let mut arena_guard = self.arena.lock().unwrap_or_else(|p| p.into_inner());
             if let Some(ref mut arena) = *arena_guard {
                 // Pointer came from the arena: record the logical free
@@ -494,6 +512,7 @@ impl Allocator for CudaAllocator {
 
 #[cfg(test)]
 mod tests {
+    use super::super::capture::CapturePermit;
     use super::super::client::CudaClient;
     use super::super::device::CudaDevice;
     use crate::runtime::Allocator;
@@ -531,6 +550,10 @@ mod tests {
         let _p2 = alloc.allocate(512).expect("alloc p2");
 
         // Transition into freeze mode (simulates start of CUDA graph capture).
+        // The permit is what marks THIS thread as the capturing one, which is
+        // half of what puts `allocate` on the graph path — see
+        // [`CudaAllocator::thread_owns_capture`].
+        let _permit = CapturePermit::acquire(alloc.stream.capture_lock(), 0).expect("permit");
         alloc.freeze();
         assert!(alloc.is_frozen(), "allocator should be frozen");
 
@@ -605,6 +628,7 @@ mod tests {
             CudaClient::new_uncached(device).expect("CudaClient creation requires a CUDA GPU");
         let alloc = &client.allocator;
 
+        let _permit = CapturePermit::acquire(alloc.stream.capture_lock(), 0).expect("permit");
         alloc.freeze();
         let p = alloc.allocate(64).expect("alloc during freeze");
         assert_ne!(p, 0);
@@ -627,6 +651,49 @@ mod tests {
 
         // frozen flag must be cleared.
         assert!(!alloc.is_frozen(), "allocator must be unfrozen");
+    }
+
+    /// A thread that is NOT capturing allocates off the ordinary path even
+    /// while another thread holds a freeze window open.
+    ///
+    /// This is the case the corruption guard was firing on. One client per
+    /// device means one allocator shared by every thread, so a second render
+    /// running beside a graph capture used to see the freeze flag, take the
+    /// graph path, and be served an offset into the CAPTURING thread's arena
+    /// — two threads holding one device address. Its later free then landed
+    /// in the ordinary free list and `unfreeze` reported it as corruption,
+    /// which is the symptom rather than the fault.
+    ///
+    /// The freeze flag stays on for the whole test: what decides the path is
+    /// whether this thread owns the capture.
+    #[cfg(feature = "cuda")]
+    #[test]
+    #[ignore = "requires a live CUDA GPU"]
+    fn a_non_capturing_thread_is_not_served_from_the_capture_arena() {
+        let device = CudaDevice { index: 0 };
+        let client =
+            CudaClient::new_uncached(device).expect("CudaClient creation requires a CUDA GPU");
+        let alloc = &client.allocator;
+
+        alloc.freeze();
+        assert!(alloc.is_frozen(), "the window is open");
+
+        // No permit was taken, so this thread does not own the capture.
+        let p = alloc.allocate(256).expect("alloc beside a capture");
+        assert_ne!(p, 0);
+        assert!(
+            !alloc
+                .captured_ptrs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .contains(&p),
+            "a pointer from a non-capturing thread is not graph-owned"
+        );
+
+        // It frees back to the ordinary free list, which is now the matching
+        // path rather than the corruption the guard used to report.
+        alloc.deallocate(p, 256);
+        alloc.unfreeze();
     }
 
     /// A panic while the free-list mutex is held must not disable the allocator.
