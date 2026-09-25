@@ -51,7 +51,8 @@
 #include <cuda_bf16.h>
 #include "dtype_traits.cuh"
 
-// Must match DEPTHWISE_CONV2D_OX_BLOCK in src/runtime/cuda/kernels/conv.rs.
+// Must match DEPTHWISE_CONV2D_OX_BLOCK in
+// src/runtime/cuda/kernels/conv/tuning.rs.
 #define DEPTHWISE_CONV2D_OX_BLOCK 4u
 
 #define DEPTHWISE_CONV2D_OX_PARAMS(dtype) \

@@ -129,7 +129,7 @@ __global__ void conv1d_##suffix(CONV1D_PARAMS(dtype)) { \
 // Output channels each thread of conv1d_oc4_* accumulates. The launcher sizes
 // the grid from the same figure, so the two must agree; a mismatch silently
 // leaves output channels uncomputed rather than failing to build.
-// Must match CONV1D_OC_BLOCK in src/runtime/cuda/kernels/conv.rs.
+// Must match CONV1D_OC_BLOCK in src/runtime/cuda/kernels/conv/tuning.rs.
 #define CONV1D_OC_BLOCK 4u
 
 // ----------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 use super::conv_transpose1d_gemm::{conv_transpose1d_gemm, use_conv_transpose1d_gemm};
 use super::conv_transpose1d_gemm_first::{
-    conv_transpose1d_gemm_first, gemm_first_col_elements, use_conv_transpose1d_gemm_first,
+    conv_transpose1d_gemm_first, gemm_first_row_col_elements, use_conv_transpose1d_gemm_first,
 };
 use super::conv1d_im2col::{
     conv1d_im2col, conv1d_pointwise_gemm, use_conv1d_im2col, use_conv1d_pointwise_gemm,
@@ -160,15 +160,20 @@ impl ConvOps<CudaRuntime> for CudaClient {
         // output, so a long output never sends a deep contraction to the
         // direct kernel; the direct kernel below stays the path for every
         // shape neither GEMM gate admits.
+        //
+        // Both sides are counted for ONE batch row. The batch scales them
+        // equally, so it cannot change which is smaller, and leaving it out
+        // keeps the choice — and so a row's bits — independent of how many
+        // rows share the launch even where the batched product would
+        // overflow.
         let gemm_first = use_conv_transpose1d_gemm_first(&params, dtype);
         let gather_first = use_conv_transpose1d_gemm(&params, dtype);
         if gemm_first {
             let gather_col = params
-                .batch
-                .checked_mul(params.c_in)
-                .and_then(|v| v.checked_mul(params.kernel_size))
+                .c_in
+                .checked_mul(params.kernel_size)
                 .and_then(|v| v.checked_mul(params.output_length));
-            let smaller = match (gemm_first_col_elements(&params), gather_col) {
+            let smaller = match (gemm_first_row_col_elements(&params), gather_col) {
                 (Some(first), Some(gather)) => first <= gather,
                 (Some(_), None) => true,
                 (None, _) => false,

@@ -78,10 +78,17 @@ pub fn use_conv1d_im2col(params: &Conv1dParams, dtype: DType) -> bool {
     let c_out_per_group = params.c_out / params.groups;
     let contraction = c_in_per_group * params.kernel_size;
 
-    // One output position's column must fit the chunk budget; the length is
-    // chunked, so it does not enter here.
-    if max_chunk_length(params) == 0 {
-        return false;
+    // One output position's column for ONE batch row must fit the budget. The
+    // length does not enter: it is chunked. The batch must not enter either —
+    // a gate that reads it hands the same row to the GEMM at one batch size
+    // and to the direct kernel at another, and the two do not sum a row in
+    // the same order, so a row's bits would depend on how many rows share the
+    // launch. The chunk LENGTH still divides the budget by the batch; that is
+    // a memory bound only, and chunking is bit-identical (see
+    // `chunked_columns_match_one_chunk_bitwise`).
+    match params.c_in.checked_mul(params.kernel_size) {
+        Some(n) if n <= MAX_COL_ELEMENTS => {}
+        _ => return false,
     }
 
     // Grouped convolution splits the GEMM into one small problem per group, each
@@ -104,8 +111,12 @@ pub fn use_conv1d_im2col(params: &Conv1dParams, dtype: DType) -> bool {
             && params.output_length >= LONG_OUTPUT_LENGTH)
 }
 
-/// Output positions per column chunk under `MAX_COL_ELEMENTS`; zero when a
-/// single position's column already exceeds it.
+/// Output positions per column chunk under `MAX_COL_ELEMENTS`, at least one.
+///
+/// This bounds the buffer, never the shapes admitted: the gate above already
+/// decided the path. A batch that leaves no room for a whole position still
+/// runs, one position at a time, because a chunk boundary moves no work
+/// between columns.
 fn max_chunk_length(params: &Conv1dParams) -> usize {
     params
         .batch

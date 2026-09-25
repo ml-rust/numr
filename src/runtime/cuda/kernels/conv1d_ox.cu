@@ -60,7 +60,7 @@
 #include "dtype_traits.cuh"
 #include "conv1d_common.cuh"
 
-// Must match CONV1D_OX_BLOCK in src/runtime/cuda/kernels/conv.rs.
+// Must match CONV1D_OX_BLOCK in src/runtime/cuda/kernels/conv/tuning.rs.
 #define CONV1D_OX_BLOCK 4u
 
 #define DEFINE_CONV1D_OX_KERNEL(suffix, dtype, acc) \

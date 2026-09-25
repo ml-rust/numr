@@ -92,16 +92,28 @@ pub fn use_conv_transpose1d_gemm(params: &ConvTranspose1dParams, dtype: DType) -
         return false;
     }
 
-    if max_chunk_length(params) == 0 {
+    let contraction = params.c_in * params.kernel_size;
+
+    // One output position's column for ONE batch row must fit the budget. The
+    // batch must not enter: a gate that reads it hands the same row to the
+    // GEMM at one batch size and to the direct kernel at another, and the two
+    // do not sum a row in the same order. The chunk LENGTH still divides the
+    // budget by the batch; that is a memory bound only, and chunking is
+    // bit-identical (see `chunked_columns_match_one_chunk_bitwise`).
+    if contraction > MAX_COL_ELEMENTS {
         return false;
     }
 
-    let contraction = params.c_in * params.kernel_size;
     contraction >= MIN_CONTRACTION && params.c_out >= MIN_C_OUT
 }
 
-/// Output positions per column chunk under `MAX_COL_ELEMENTS`; zero when a
-/// single position's column already exceeds it.
+/// Output positions per column chunk under `MAX_COL_ELEMENTS`, at least one
+/// once the caller clamps it.
+///
+/// This bounds the buffer, never the shapes admitted: the gate above already
+/// decided the path. A batch that leaves no room for a whole position still
+/// runs, one position at a time, because a chunk boundary moves no work
+/// between columns.
 fn max_chunk_length(params: &ConvTranspose1dParams) -> usize {
     params
         .batch
