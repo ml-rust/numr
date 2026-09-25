@@ -41,14 +41,17 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
         // region) whose address is stable across replays. The buffer is stored
         // in `self.sobol_dv_cache` and keyed by `dimension`.
         //
-        // If the allocator is currently frozen (we are inside a capture region)
-        // and the dimension is not cached yet, we cannot safely do the H2D copy
-        // here. The caller must call `client.warmup_sobol(dimension)` first.
+        // If THIS thread is inside a capture region and the dimension is not
+        // cached yet, we cannot safely do the H2D copy here. The caller must
+        // call `client.warmup_sobol(dimension)` first. The question is whether
+        // this thread captures, not whether the device does: the allocator's
+        // freeze flag is shared, so asking it would refuse the copy on every
+        // other thread for as long as any one thread holds a capture.
         let dim_u32 = dimension as u32;
         let dv_ptr: u64 = match self.sobol_dv_cache.get(dim_u32) {
             Some((ptr, _)) => ptr,
             None => {
-                if self.allocator.is_frozen() {
+                if self.is_capturing() {
                     return Err(crate::error::Error::BackendLimitation {
                         backend: "cuda",
                         operation: "sobol",
