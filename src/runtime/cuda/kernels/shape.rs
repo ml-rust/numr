@@ -4,7 +4,7 @@
 //! split and chunk are zero-copy operations using narrow() and don't need kernels.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::CudaRuntime;
@@ -16,6 +16,7 @@ use super::pad_rows::{PadFill, PadRowsGeometry, launch_pad_rows};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for shape operations
 pub const SHAPE_MODULE: &str = "shape";
@@ -50,7 +51,7 @@ pub const SHAPE_MODULE: &str = "shape";
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_cat_copy(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,
@@ -134,7 +135,7 @@ const MAX_DIMS: usize = 8;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_repeat(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     _device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -251,7 +252,7 @@ pub unsafe fn launch_repeat(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_pad(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     _device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -375,7 +376,7 @@ pub unsafe fn launch_pad(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_roll(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,

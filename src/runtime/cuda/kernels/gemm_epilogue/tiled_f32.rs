@@ -7,7 +7,7 @@
 //! accumulator spills to local memory.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -16,6 +16,7 @@ use super::super::loader::{
 use super::launcher::GEMM_EPILOGUE_MODULE;
 use crate::algorithm::TileConfig;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Specialised kernel name for `base` at `tile_cfg`, `None` when unspecialised.
 ///
@@ -39,7 +40,7 @@ pub(super) fn tiled_f32_kernel_name(base: &str, tile_cfg: &TileConfig) -> Option
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn launch_gemm_bias_act_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_fn_name: &str,
     a_ptr: u64,
@@ -98,7 +99,7 @@ pub(super) unsafe fn launch_gemm_bias_act_f32_tiled(
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn launch_gemm_bias_residual_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_fn_name: &str,
     a_ptr: u64,

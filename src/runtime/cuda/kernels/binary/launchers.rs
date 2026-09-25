@@ -6,7 +6,7 @@
 //! Also supports broadcasting operations using strided access patterns.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -20,6 +20,7 @@ use super::broadcast_strides::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch a binary operation kernel.
 ///
@@ -54,7 +55,7 @@ use crate::runtime::cuda::CudaDevice;
 /// * `numel` - Number of elements
 pub unsafe fn launch_binary_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -100,7 +101,7 @@ pub unsafe fn launch_binary_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_logical_and_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -152,7 +153,7 @@ pub unsafe fn launch_logical_and_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_logical_or_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -204,7 +205,7 @@ pub unsafe fn launch_logical_or_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_logical_xor_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -279,7 +280,7 @@ pub unsafe fn launch_logical_xor_op(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_broadcast_binary_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     _device: &CudaDevice,
     op: &str,

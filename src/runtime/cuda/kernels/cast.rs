@@ -3,7 +3,7 @@
 //! Provides launchers for casting tensors between different dtypes.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -12,6 +12,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// DTypes the `cast.cu` instantiation matrix covers.
 ///
@@ -69,7 +70,7 @@ const CAST_DTYPES: &[DType] = &[
 /// * `numel` - Number of elements
 pub unsafe fn launch_cast(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_dtype: DType,
     dst_dtype: DType,

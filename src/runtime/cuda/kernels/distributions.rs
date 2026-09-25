@@ -6,7 +6,8 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::{CudaContext, PushKernelArg};
 use std::sync::Arc;
 
 /// Launch a Bernoulli sampling kernel.
@@ -15,7 +16,7 @@ use std::sync::Arc;
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_bernoulli(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     p: f64,
@@ -56,7 +57,7 @@ pub unsafe fn launch_bernoulli(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_beta_dist(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     alpha: f64,
@@ -99,7 +100,7 @@ pub unsafe fn launch_beta_dist(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_gamma_dist(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     shape_param: f64,
@@ -142,7 +143,7 @@ pub unsafe fn launch_gamma_dist(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_exponential(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     rate: f64,
@@ -183,7 +184,7 @@ pub unsafe fn launch_exponential(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_poisson(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     lambda: f64,
@@ -224,7 +225,7 @@ pub unsafe fn launch_poisson(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_binomial(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     n_trials: u64,
@@ -267,7 +268,7 @@ pub unsafe fn launch_binomial(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_laplace(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     loc: f64,
@@ -310,7 +311,7 @@ pub unsafe fn launch_laplace(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_chi_squared(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     df: f64,
@@ -351,7 +352,7 @@ pub unsafe fn launch_chi_squared(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_student_t(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     df: f64,
@@ -392,7 +393,7 @@ pub unsafe fn launch_student_t(
 /// - `out_ptr` must be a valid device pointer with at least `numel` elements
 pub unsafe fn launch_f_distribution(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     df1: f64,
@@ -447,7 +448,7 @@ pub unsafe fn launch_f_distribution(
 /// - All pointers must be valid device pointers with correct sizes
 pub unsafe fn launch_multinomial_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     cdf_ptr: u64,

@@ -1,12 +1,13 @@
 //! Banded solver kernel launchers
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch banded solver kernel.
 ///
@@ -21,7 +22,7 @@ use crate::error::{Error, Result};
 ///   (only used for general banded solver, not for Thomas algorithm)
 pub unsafe fn launch_banded_solve(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     ab_ptr: u64,

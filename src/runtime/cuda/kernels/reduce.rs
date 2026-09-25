@@ -6,7 +6,7 @@
 //! See [`AccumulationPrecision`] for documentation on accumulation precision options.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -18,6 +18,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 // Re-export AccumulationPrecision from ops for convenience
 pub(crate) use crate::ops::AccumulationPrecision;
+use crate::runtime::cuda::GuardedStream;
 
 /// Reduction ops whose F16/BF16 kernels ship an `_fp32acc` variant.
 ///
@@ -192,7 +193,7 @@ pub(crate) fn reduce_dim_split_count(
 #[allow(dead_code)] // Kept for potential future optimization of global reductions
 pub unsafe fn launch_reduce_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -260,7 +261,7 @@ pub unsafe fn launch_reduce_op(
 /// * `acc_precision` - Accumulation precision (affects F16/BF16 only)
 pub unsafe fn launch_reduce_dim_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -342,7 +343,7 @@ pub unsafe fn launch_reduce_dim_op(
 ///   zero divisor to 1, mirroring the CPU epilogue's `count.max(1)`
 pub unsafe fn launch_reduce_mean_dim_int_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -407,7 +408,7 @@ pub unsafe fn launch_reduce_mean_dim_int_op(
 /// * `inner_size` - Product of dimensions after the reduction dimension
 pub unsafe fn launch_argmax_dim(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -467,7 +468,7 @@ pub unsafe fn launch_argmax_dim(
 /// * `inner_size` - Product of dimensions after the reduction dimension
 pub unsafe fn launch_argmin_dim(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

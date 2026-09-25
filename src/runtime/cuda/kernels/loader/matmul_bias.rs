@@ -5,7 +5,7 @@
 //! to enter the wide accumulator before the narrowing store.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::algorithm::TileConfig;
@@ -13,6 +13,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::check_shared_mem_fits;
 use super::matmul_bias_f32::{
@@ -44,7 +45,7 @@ use super::names::{kernel_name, kernel_names};
 /// - C: M * N elements (output)
 pub unsafe fn launch_matmul_bias_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -154,7 +155,7 @@ pub unsafe fn launch_matmul_bias_kernel(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_matmul_bias_kernel_with_config(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -252,7 +253,7 @@ pub unsafe fn launch_matmul_bias_kernel_with_config(
 /// - C: batch * M * N elements (output)
 pub unsafe fn launch_matmul_bias_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -365,7 +366,7 @@ pub unsafe fn launch_matmul_bias_batched_kernel(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_matmul_bias_batched_kernel_with_config(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

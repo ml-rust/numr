@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 use super::helpers::{launch_count_kernel, launch_csr_compute_kernel};
@@ -34,7 +35,7 @@ use super::helpers::{launch_count_kernel, launch_csr_compute_kernel};
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_merge_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -68,7 +69,7 @@ pub(super) unsafe fn launch_csr_merge_count(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_mul_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -106,7 +107,7 @@ pub(super) unsafe fn launch_csr_mul_count(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_add_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -148,7 +149,7 @@ pub(super) unsafe fn launch_csr_add_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_sub_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -190,7 +191,7 @@ pub(super) unsafe fn launch_csr_sub_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_mul_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -232,7 +233,7 @@ pub(super) unsafe fn launch_csr_mul_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_div_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs_a: u64,
     col_indices_a: u64,
@@ -278,7 +279,7 @@ pub(super) unsafe fn launch_csr_div_compute<T: CudaTypeName>(
 /// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_add_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -321,7 +322,7 @@ pub unsafe fn csr_add_merge<T: CudaTypeName>(
 /// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_sub_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -364,7 +365,7 @@ pub unsafe fn csr_sub_merge<T: CudaTypeName>(
 /// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_mul_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -405,7 +406,7 @@ pub unsafe fn csr_mul_merge<T: CudaTypeName>(
 /// for the given sparse CSR format. `nrows` must match the sparse matrix dimensions.
 pub unsafe fn csr_div_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,

@@ -7,7 +7,7 @@
 //! - angle: Compute phase angle
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -15,6 +15,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for complex operations
 const COMPLEX_MODULE: &str = "complex";
@@ -33,7 +34,7 @@ const COMPLEX_MODULE: &str = "complex";
 /// - Input and output tensors must have at least `numel` elements of appropriate dtype
 pub unsafe fn launch_conj(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -85,7 +86,7 @@ pub unsafe fn launch_conj(
 /// - Output tensor must have at least `numel` float elements
 pub unsafe fn launch_real(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     a_ptr: u64,
@@ -142,7 +143,7 @@ pub unsafe fn launch_real(
 /// - Output tensor must have at least `numel` float elements
 pub unsafe fn launch_imag(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     a_ptr: u64,
@@ -200,7 +201,7 @@ pub unsafe fn launch_imag(
 /// - Output tensor must have at least `numel` float elements
 pub unsafe fn launch_angle(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     a_ptr: u64,
@@ -256,7 +257,7 @@ pub unsafe fn launch_angle(
 /// - Input and output tensors must have at least `numel` elements
 pub unsafe fn launch_angle_real(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -313,7 +314,7 @@ pub unsafe fn launch_angle_real(
 /// - Output tensor must have at least `numel` complex elements
 pub unsafe fn launch_from_real_imag(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     real_ptr: u64,
@@ -373,7 +374,7 @@ pub unsafe fn launch_from_real_imag(
 /// - Output tensor must have at least `numel` complex elements
 pub unsafe fn launch_complex_mul_real(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     complex_dtype: DType,
     complex_ptr: u64,
@@ -433,7 +434,7 @@ pub unsafe fn launch_complex_mul_real(
 /// - Output tensor must have at least `numel` complex elements
 pub unsafe fn launch_complex_div_real(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     complex_dtype: DType,
     complex_ptr: u64,

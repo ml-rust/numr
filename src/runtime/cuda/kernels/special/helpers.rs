@@ -8,7 +8,8 @@ use super::super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::{CudaContext, PushKernelArg};
 use std::sync::Arc;
 
 pub(crate) const SPECIAL_MODULE: &str = "special";
@@ -39,7 +40,7 @@ pub(crate) fn special_kernel_name(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_unary_special(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -79,7 +80,7 @@ pub(crate) unsafe fn launch_unary_special(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_binary_special(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -121,7 +122,7 @@ pub(crate) unsafe fn launch_binary_special(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_ternary_special(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -169,7 +170,7 @@ pub(crate) unsafe fn launch_ternary_special(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_unary_special_with_int(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -211,7 +212,7 @@ pub(crate) unsafe fn launch_unary_special_with_int(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_unary_special_with_two_ints(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -255,7 +256,7 @@ pub(crate) unsafe fn launch_unary_special_with_two_ints(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_binary_special_with_two_ints(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -301,7 +302,7 @@ pub(crate) unsafe fn launch_binary_special_with_two_ints(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_unary_special_with_2f64(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,
@@ -353,7 +354,7 @@ pub(crate) unsafe fn launch_unary_special_with_2f64(
 /// Pointers must be valid GPU memory of correct size.
 pub(crate) unsafe fn launch_unary_special_with_3f64(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kernel_base: &str,

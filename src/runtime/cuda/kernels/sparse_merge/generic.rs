@@ -7,7 +7,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 use super::super::loader::{
@@ -46,7 +47,7 @@ use super::helpers::exclusive_scan_i32;
 /// The CUDA stream and context must be valid and associated with the correct device.
 pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -187,7 +188,7 @@ pub unsafe fn generic_csr_merge<T: CudaTypeName, S: MergeStrategy>(
 /// The CUDA stream and context must be valid and associated with the correct device.
 pub unsafe fn generic_csc_merge<T: CudaTypeName, S: MergeStrategy>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,

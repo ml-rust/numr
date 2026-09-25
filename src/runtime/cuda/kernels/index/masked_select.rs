@@ -2,7 +2,7 @@
 //! select depends on, in both the same-shape and broadcast-mask forms.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -12,6 +12,7 @@ use super::dtype_gate::index_dtype_suffix;
 use super::gather::INDEX_MODULE;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch masked_count kernel to count true elements in mask.
 ///
@@ -21,7 +22,7 @@ use crate::error::{Error, Result};
 /// - count_ptr must be valid device memory with 1 u32 element (initialized to 0)
 pub unsafe fn launch_masked_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     mask_ptr: u64,
     count_ptr: u64,
@@ -62,7 +63,7 @@ pub unsafe fn launch_masked_count(
 /// - prefix_sum_ptr must be valid device memory with n u32 elements
 pub unsafe fn launch_masked_prefix_sum(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     mask_ptr: u64,
     prefix_sum_ptr: u64,
@@ -108,7 +109,7 @@ pub unsafe fn launch_masked_prefix_sum(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_masked_select(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -165,7 +166,7 @@ pub unsafe fn launch_masked_select(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_masked_count_broadcast(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     mask_ptr: u64,
     count_ptr: u64,
@@ -218,7 +219,7 @@ pub unsafe fn launch_masked_count_broadcast(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_masked_prefix_sum_broadcast(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     mask_ptr: u64,
     prefix_sum_ptr: u64,
@@ -268,7 +269,7 @@ pub unsafe fn launch_masked_prefix_sum_broadcast(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_masked_select_broadcast(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

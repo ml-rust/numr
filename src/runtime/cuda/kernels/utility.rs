@@ -6,7 +6,7 @@
 //! - `randn` - Generate normal random values (mean=0, std=1)
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -15,6 +15,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Value representation for fill operations.
 ///
@@ -143,7 +144,7 @@ impl FillValue {
 /// ```
 pub unsafe fn launch_fill(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     _dtype: DType,
     value: FillValue,
@@ -283,7 +284,7 @@ pub unsafe fn launch_fill(
 /// Same requirements as [`launch_fill`].
 pub unsafe fn launch_fill_with_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     value: f64,
@@ -329,7 +330,7 @@ pub unsafe fn launch_fill_with_f64(
 /// * `numel` - Number of elements
 pub unsafe fn launch_rand(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,
@@ -383,7 +384,7 @@ pub unsafe fn launch_rand(
 /// * `numel` - Number of elements
 pub unsafe fn launch_randn(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,
@@ -441,7 +442,7 @@ pub unsafe fn launch_randn(
 /// * `numel` - Number of elements
 pub unsafe fn launch_randint(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     low: i64,
@@ -502,7 +503,7 @@ pub unsafe fn launch_randint(
 /// * `numel` - Number of elements
 pub unsafe fn launch_arange(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     start: f64,
@@ -588,7 +589,7 @@ pub unsafe fn launch_arange(
 /// * `steps` - Number of values to generate
 pub unsafe fn launch_linspace(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     start: f64,
@@ -669,7 +670,7 @@ pub unsafe fn launch_linspace(
 /// * `out_ptr` - Device pointer to output tensor
 pub unsafe fn launch_eye(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     n: usize,
@@ -734,7 +735,7 @@ pub unsafe fn launch_eye(
 /// * `num_samples` - Number of samples to draw per distribution
 pub unsafe fn launch_multinomial_with_replacement(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     probs_ptr: u64,
@@ -803,7 +804,7 @@ pub unsafe fn launch_multinomial_with_replacement(
 /// * `num_samples` - Number of samples to draw per distribution
 pub unsafe fn launch_multinomial_without_replacement(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     probs_ptr: u64,

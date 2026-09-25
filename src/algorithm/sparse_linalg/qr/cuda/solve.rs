@@ -73,7 +73,7 @@ trait SolveScalar: Sized {
 
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -85,7 +85,7 @@ trait SolveScalar: Sized {
 
     unsafe fn launch_trsv_upper_level(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         level_cols: u64,
         level_size: i32,
@@ -99,7 +99,7 @@ trait SolveScalar: Sized {
 
     unsafe fn launch_perm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         b: u64,
         perm: u64,
@@ -113,7 +113,7 @@ impl SolveScalar for f32 {
 
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -131,7 +131,7 @@ impl SolveScalar for f32 {
 
     unsafe fn launch_trsv_upper_level(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         level_cols: u64,
         level_size: i32,
@@ -161,7 +161,7 @@ impl SolveScalar for f32 {
 
     unsafe fn launch_perm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         b: u64,
         perm: u64,
@@ -177,7 +177,7 @@ impl SolveScalar for f64 {
 
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -195,7 +195,7 @@ impl SolveScalar for f64 {
 
     unsafe fn launch_trsv_upper_level(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         level_cols: u64,
         level_size: i32,
@@ -225,7 +225,7 @@ impl SolveScalar for f64 {
 
     unsafe fn launch_perm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         b: u64,
         perm: u64,

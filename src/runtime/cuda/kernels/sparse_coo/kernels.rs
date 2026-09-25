@@ -7,11 +7,12 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
     BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_names, launch_config,
 };
@@ -32,7 +33,7 @@ pub(crate) fn compute_launch_config(
 /// keys[i] = row_indices[i] * ncols + col_indices[i]
 pub(crate) unsafe fn launch_coo_compute_keys(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_indices: u64,
     col_indices: u64,
@@ -70,7 +71,7 @@ pub(crate) unsafe fn launch_coo_compute_keys(
 /// row_indices[i] = keys[i] / ncols, col_indices[i] = keys[i] % ncols
 pub(crate) unsafe fn launch_coo_extract_indices(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     keys: u64,
     row_indices_out: u64,
@@ -111,7 +112,7 @@ pub(crate) unsafe fn launch_coo_extract_indices(
 /// Launch key concatenation kernel
 pub(crate) unsafe fn launch_coo_concat_keys(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     keys_a: u64,
     keys_b: u64,
@@ -150,7 +151,7 @@ pub(crate) unsafe fn launch_coo_concat_keys(
 /// Launch value concatenation with source flags kernel
 pub(crate) unsafe fn launch_coo_concat_values_with_source<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values_a: u64,
     values_b: u64,
@@ -204,7 +205,7 @@ pub(crate) unsafe fn launch_coo_concat_values_with_source<T: CudaTypeName>(
 /// Launch unique position marking kernel
 pub(crate) unsafe fn launch_coo_mark_unique(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     keys: u64,
     unique_flags: u64,
@@ -241,7 +242,7 @@ pub(crate) unsafe fn launch_coo_mark_unique(
 /// Launch COO merge add kernel (union semantics)
 pub(crate) unsafe fn launch_coo_merge_add<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     sorted_values: u64,
@@ -294,7 +295,7 @@ pub(crate) unsafe fn launch_coo_merge_add<T: CudaTypeName>(
 /// Launch COO merge sub kernel (union semantics)
 pub(crate) unsafe fn launch_coo_merge_sub<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     sorted_values: u64,
@@ -347,7 +348,7 @@ pub(crate) unsafe fn launch_coo_merge_sub<T: CudaTypeName>(
 /// Launch intersection counting kernel
 pub(crate) unsafe fn launch_coo_count_intersections(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     source_flags: u64,
@@ -382,7 +383,7 @@ pub(crate) unsafe fn launch_coo_count_intersections(
 /// Launch COO merge mul kernel (intersection semantics)
 pub(crate) unsafe fn launch_coo_merge_mul<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     sorted_values: u64,
@@ -434,7 +435,7 @@ pub(crate) unsafe fn launch_coo_merge_mul<T: CudaTypeName>(
 /// Launch COO merge div kernel (intersection semantics)
 pub(crate) unsafe fn launch_coo_merge_div<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     sorted_values: u64,
@@ -490,7 +491,7 @@ pub(crate) unsafe fn launch_coo_merge_div<T: CudaTypeName>(
 /// Launch non-zero marking kernel
 pub(crate) unsafe fn launch_coo_mark_nonzero<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values: u64,
     nonzero_flags: u64,
@@ -539,7 +540,7 @@ pub(crate) unsafe fn launch_coo_mark_nonzero<T: CudaTypeName>(
 /// Launch compaction kernel
 pub(crate) unsafe fn launch_coo_compact<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     keys_in: u64,
     values_in: u64,
@@ -601,7 +602,7 @@ pub(crate) unsafe fn launch_coo_compact<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_thrust_sort_pairs_i64_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     keys: u64,
     indices: u64,
@@ -644,7 +645,7 @@ pub unsafe fn launch_thrust_sort_pairs_i64_i32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_init_indices(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     indices: u64,
     n: usize,
@@ -681,7 +682,7 @@ pub unsafe fn launch_coo_init_indices(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_gather<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values_in: u64,
     indices: u64,
@@ -724,7 +725,7 @@ pub unsafe fn launch_coo_gather<T: CudaTypeName>(
 /// Gather i32 values using indices
 pub(crate) unsafe fn launch_coo_gather_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values_in: u64,
     indices: u64,
@@ -767,7 +768,7 @@ pub(crate) unsafe fn launch_coo_gather_i32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_coo_gather_i64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values_in: u64,
     indices: u64,
@@ -801,7 +802,7 @@ pub unsafe fn launch_coo_gather_i64(
 /// Merge duplicates with add operation
 pub(crate) unsafe fn launch_coo_merge_duplicates_add<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_keys: u64,
     sorted_values: u64,

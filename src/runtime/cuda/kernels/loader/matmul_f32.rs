@@ -6,11 +6,12 @@
 //! unspecialised tiles.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::algorithm::TileConfig;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::{LaunchConfig, check_shared_mem_fits};
 use super::matmul_config::{f32_tiled_launch_config, f32_tiled_suffix, matmul_launch_config};
@@ -35,7 +36,7 @@ use super::names::kernel_names;
 /// All pointers must be valid device memory with correct sizes.
 pub(super) unsafe fn launch_matmul_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -163,7 +164,7 @@ impl BLayout {
 /// All pointers must be valid device memory with correct sizes.
 pub(super) unsafe fn launch_matmul_f32_tiled_bt(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -217,7 +218,7 @@ pub(super) unsafe fn launch_matmul_f32_tiled_bt(
 /// All pointers must be valid device memory with correct sizes.
 pub(super) unsafe fn launch_matmul_batched_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,

@@ -1,7 +1,7 @@
 //! Gather kernel launchers (gather, gather_nd, gather_2d)
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -11,6 +11,7 @@ use super::super::loader::{
 use super::dtype_gate::index_dtype_suffix;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for indexing operations
 pub const INDEX_MODULE: &str = "index";
@@ -37,7 +38,7 @@ const MAX_DIMS: usize = 8;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gather(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -141,7 +142,7 @@ pub unsafe fn launch_gather(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gather_nd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -229,7 +230,7 @@ pub unsafe fn launch_gather_nd(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gather_2d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

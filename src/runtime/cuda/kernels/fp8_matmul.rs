@@ -4,12 +4,13 @@
 //! Output can be F32, F16, or BF16.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{get_kernel_function, get_or_load_module, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 const FP8_MATMUL_MODULE: &str = "fp8_matmul";
 
@@ -50,7 +51,7 @@ fn out_dtype_suffix(out_dtype: DType) -> Result<&'static str> {
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_fp8_matmul_e4m3(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_dtype: DType,
     a_ptr: u64,
@@ -100,7 +101,7 @@ pub unsafe fn launch_fp8_matmul_e4m3(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_fp8_matmul_e5m2(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_dtype: DType,
     a_ptr: u64,
@@ -150,7 +151,7 @@ pub unsafe fn launch_fp8_matmul_e5m2(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_fp8_matmul_e4m3_batched(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_dtype: DType,
     a_ptr: u64,
@@ -203,7 +204,7 @@ pub unsafe fn launch_fp8_matmul_e4m3_batched(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_fp8_matmul_e5m2_batched(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_dtype: DType,
     a_ptr: u64,

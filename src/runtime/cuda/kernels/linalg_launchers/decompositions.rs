@@ -1,12 +1,13 @@
 //! Decomposition kernel launchers: LU, Cholesky, QR
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch LU decomposition kernel with partial pivoting.
 ///
@@ -20,7 +21,7 @@ use crate::error::{Error, Result};
 /// - `singular_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_lu_decompose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     lu_ptr: u64,
@@ -75,7 +76,7 @@ pub unsafe fn launch_lu_decompose(
 /// - `not_pd_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_cholesky_decompose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     l_ptr: u64,
@@ -126,7 +127,7 @@ pub unsafe fn launch_cholesky_decompose(
 /// - `workspace_ptr` must have space for m elements (Householder vector)
 pub unsafe fn launch_qr_decompose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     q_ptr: u64,

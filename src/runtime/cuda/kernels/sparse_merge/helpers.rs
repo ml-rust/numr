@@ -10,12 +10,13 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 use super::super::loader::{
@@ -56,7 +57,7 @@ pub(super) fn dtype_suffix<T: CudaTypeName>() -> Result<&'static str> {
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_count_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_name: &str,
     row_ptrs_a: u64,
@@ -104,7 +105,7 @@ pub(super) unsafe fn launch_count_kernel(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_base_name: &str,
     row_ptrs_a: u64,
@@ -163,7 +164,7 @@ pub(super) unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_compute_kernel<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_base_name: &str,
     col_ptrs_a: u64,
@@ -220,7 +221,7 @@ pub(super) unsafe fn launch_csc_compute_kernel<T: CudaTypeName>(
 /// Uses GPU-native parallel scan (no CPU transfer)
 pub(super) fn exclusive_scan_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input: &Tensor<CudaRuntime>,
 ) -> Result<(Tensor<CudaRuntime>, usize)> {

@@ -5,7 +5,7 @@
 //! - fused_mul_add_scalar: out = a * scale + bias
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -14,6 +14,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 const MODULE: &str = "fused_elementwise";
 
@@ -23,7 +24,7 @@ const MODULE: &str = "fused_elementwise";
 /// All pointers must be valid device memory with at least `numel` elements.
 pub unsafe fn launch_fused_mul_add(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -54,7 +55,7 @@ pub unsafe fn launch_fused_mul_add(
 /// All pointers must be valid device memory with at least `numel` elements.
 pub unsafe fn launch_fused_add_mul(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -85,7 +86,7 @@ pub unsafe fn launch_fused_add_mul(
 /// All pointers must be valid device memory with at least `numel` elements.
 pub unsafe fn launch_fused_mul_add_scalar(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -189,7 +190,7 @@ pub unsafe fn launch_fused_mul_add_scalar(
 /// Internal helper for ternary kernels (a, b, c -> out)
 unsafe fn launch_ternary_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,

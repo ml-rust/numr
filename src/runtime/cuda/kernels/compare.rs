@@ -6,7 +6,7 @@
 //! Also supports broadcasting operations using strided access patterns.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::binary::compute_broadcast_strides;
@@ -16,7 +16,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::runtime::cuda::{CudaDevice, CudaRuntime, GuardedStream};
 use crate::tensor::Tensor;
 
 /// Launch a comparison operation kernel.
@@ -55,7 +55,7 @@ use crate::tensor::Tensor;
 /// * `numel` - Number of elements
 pub unsafe fn launch_compare_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -116,7 +116,7 @@ pub unsafe fn launch_compare_op(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_broadcast_compare_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     op: &str,

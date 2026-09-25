@@ -3,11 +3,12 @@
 //! Kernel source: activation.cu
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     kernel_names, launch_config, launch_unary_kernel,
@@ -23,7 +24,7 @@ use crate::runtime::cuda::kernels::loader::{
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_relu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -55,7 +56,7 @@ pub unsafe fn launch_relu(
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_silu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -87,7 +88,7 @@ pub unsafe fn launch_silu(
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_gelu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -119,7 +120,7 @@ pub unsafe fn launch_gelu(
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_sigmoid(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -151,7 +152,7 @@ pub unsafe fn launch_sigmoid(
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_leaky_relu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -193,7 +194,7 @@ pub unsafe fn launch_leaky_relu(
 /// - Tensors must have at least `numel` elements
 pub unsafe fn launch_elu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

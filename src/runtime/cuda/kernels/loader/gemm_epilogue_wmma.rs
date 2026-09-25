@@ -9,11 +9,12 @@
 //! and matmul_bias use.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::matmul_wmma_tile::{select_wmma_tile, wmma_kernel_name, wmma_launch_config};
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -34,7 +35,7 @@ use super::names::kernel_names;
 /// of `dtype`, and `bias_ptr` N elements. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_gemm_bias_act_wmma_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -92,7 +93,7 @@ pub unsafe fn launch_gemm_bias_act_wmma_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_wmma_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -154,7 +155,7 @@ pub unsafe fn launch_gemm_bias_act_wmma_batched_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_wmma_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -212,7 +213,7 @@ pub unsafe fn launch_gemm_bias_residual_wmma_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_wmma_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

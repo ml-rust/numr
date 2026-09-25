@@ -7,7 +7,7 @@
 //! copy runs one 128-bit chunk per thread instead of one element.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream, LaunchArgs};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -16,6 +16,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::{GuardedLaunchBuilder, GuardedStream};
 
 /// Module name for the row-wise pad kernels.
 pub const PAD_ROWS_MODULE: &str = "pad_rows";
@@ -75,7 +76,11 @@ impl PadFill {
     }
 
     /// Push the fill value for `dtype` as the next kernel argument.
-    pub fn push_arg<'a>(&'a self, builder: &mut LaunchArgs<'a>, dtype: DType) -> Result<()> {
+    pub fn push_arg<'a>(
+        &'a self,
+        builder: &mut GuardedLaunchBuilder<'a>,
+        dtype: DType,
+    ) -> Result<()> {
         match dtype {
             DType::F32 => builder.arg(&self.f32),
             DType::F64 => builder.arg(&self.f64),
@@ -178,7 +183,7 @@ impl PadRowsGeometry {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_pad_rows(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,

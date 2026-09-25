@@ -7,7 +7,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -15,6 +15,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 use super::super::loader::{
@@ -35,7 +36,7 @@ use super::super::loader::{
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_intersect_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs_a: u64,
     row_indices_a: u64,
@@ -86,7 +87,7 @@ pub(super) unsafe fn launch_csc_intersect_count(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_add_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs_a: u64,
     row_indices_a: u64,
@@ -154,7 +155,7 @@ pub(super) unsafe fn launch_csc_add_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_sub_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs_a: u64,
     row_indices_a: u64,
@@ -222,7 +223,7 @@ pub(super) unsafe fn launch_csc_sub_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_mul_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs_a: u64,
     row_indices_a: u64,
@@ -290,7 +291,7 @@ pub(super) unsafe fn launch_csc_mul_compute<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub(super) unsafe fn launch_csc_div_compute<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs_a: u64,
     row_indices_a: u64,
@@ -360,7 +361,7 @@ pub(super) unsafe fn launch_csc_div_compute<T: CudaTypeName>(
 /// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_add_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -401,7 +402,7 @@ pub unsafe fn csc_add_merge<T: CudaTypeName>(
 /// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_sub_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -442,7 +443,7 @@ pub unsafe fn csc_sub_merge<T: CudaTypeName>(
 /// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_mul_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -483,7 +484,7 @@ pub unsafe fn csc_mul_merge<T: CudaTypeName>(
 /// for the given sparse CSC format. `ncols` must match the sparse matrix dimensions.
 pub unsafe fn csc_div_merge<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,

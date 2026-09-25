@@ -9,11 +9,15 @@ use crate::tensor::Tensor;
 /// Checks every index is in `[0, dim_size)`, or returns `IndexOutOfBounds`.
 ///
 /// The check runs on the device and reads one count back, which is a
-/// stream synchronization. Inside a CUDA graph capture a synchronization is
-/// not allowed, so the check is skipped there and the kernels' own rule
-/// applies: an out-of-range index reads a zero row and writes nothing (see
-/// `kernels/index_ops.cuh`). A captured graph therefore never fails on an
-/// index; it produces zeros for a bad one.
+/// stream synchronization. A synchronization is not allowed inside a CUDA
+/// graph capture, so the check is skipped when THIS thread is capturing and
+/// the kernels' own rule applies: an out-of-range index reads a zero row and
+/// writes nothing (see `kernels/index_ops.cuh`). A captured graph therefore
+/// never fails on an index; it produces zeros for a bad one.
+///
+/// A thread that is not capturing always runs the check, even while another
+/// thread captures on the same device — its enqueues wait for that capture
+/// to end rather than skipping validation.
 pub(super) fn validate_indices_or_capture(
     client: &CudaClient,
     index_contig: &Tensor<CudaRuntime>,

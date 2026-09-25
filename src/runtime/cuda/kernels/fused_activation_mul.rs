@@ -4,7 +4,7 @@
 //! Backward: d_a = grad * b * activation'(a), d_b = grad * activation(a)
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 const FUSED_ACTIVATION_MUL_MODULE: &str = "fused_activation_mul";
 const FUSED_ACTIVATION_MUL_BWD_MODULE: &str = "fused_activation_mul_bwd";
@@ -26,7 +27,7 @@ const FUSED_ACTIVATION_MUL_BWD_MODULE: &str = "fused_activation_mul_bwd";
 /// All pointers must be valid device memory with at least `numel` elements.
 unsafe fn launch_fused_activation_mul_fwd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -68,7 +69,7 @@ unsafe fn launch_fused_activation_mul_fwd(
 /// All pointers must be valid device memory with at least `numel` elements.
 unsafe fn launch_fused_activation_mul_bwd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -119,7 +120,7 @@ macro_rules! fused_activation_mul_fwd {
             /// All pointers must be valid device memory with at least `numel` elements.
             pub unsafe fn $name(
                 context: &Arc<CudaContext>,
-                stream: &CudaStream,
+                stream: &GuardedStream,
                 device_index: usize,
                 dtype: DType,
                 a_ptr: u64,
@@ -162,7 +163,7 @@ macro_rules! fused_activation_mul_bwd {
             /// All pointers must be valid device memory with at least `numel` elements.
             pub unsafe fn $name(
                 context: &Arc<CudaContext>,
-                stream: &CudaStream,
+                stream: &GuardedStream,
                 device_index: usize,
                 dtype: DType,
                 grad_ptr: u64,

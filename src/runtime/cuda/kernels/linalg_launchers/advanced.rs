@@ -1,12 +1,13 @@
 //! Advanced decomposition kernel launchers: rsf2csf (from linalg_advanced.cu), QZ (from linalg_qz.cu)
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch rsf2csf kernel to convert real Schur form to complex Schur form.
 ///
@@ -21,7 +22,7 @@ use crate::error::{Error, Result};
 /// - `t_real_ptr`, `t_imag_ptr` must have space for [n, n] matrices (complex T output)
 pub unsafe fn launch_rsf2csf(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     z_in_ptr: u64,
@@ -87,7 +88,7 @@ pub unsafe fn launch_rsf2csf(
 /// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_qz_decompose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     s_ptr: u64,

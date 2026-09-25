@@ -5,7 +5,7 @@
 //! forward and backward for f32, f64, f16, bf16, fp8_e4m3 and fp8_e5m2.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Calculate launch configuration for fused normalization kernels.
 ///
@@ -56,7 +57,7 @@ fn fused_norm_launch_config(
 /// - All tensors must have `batch_size * hidden_size` elements
 pub unsafe fn launch_fused_add_rms_norm(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -130,7 +131,7 @@ pub unsafe fn launch_fused_add_rms_norm(
 /// - d_weight_ptr must be pre-zeroed with `hidden_size` elements
 pub unsafe fn launch_fused_add_rms_norm_bwd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,
@@ -207,7 +208,7 @@ pub unsafe fn launch_fused_add_rms_norm_bwd(
 /// - All tensors must have `batch_size * hidden_size` elements
 pub unsafe fn launch_fused_add_layer_norm(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -285,7 +286,7 @@ pub unsafe fn launch_fused_add_layer_norm(
 /// - d_weight_ptr and d_bias_ptr must be pre-zeroed with `hidden_size` elements each
 pub unsafe fn launch_fused_add_layer_norm_bwd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,

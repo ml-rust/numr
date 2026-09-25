@@ -15,7 +15,8 @@ use super::helpers::{
 };
 use crate::dtype::DType;
 use crate::error::Result;
-use cudarc::driver::{CudaContext, CudaStream};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::CudaContext;
 use std::sync::Arc;
 
 // ============================================================================
@@ -27,7 +28,7 @@ use std::sync::Arc;
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_ellipk(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     m_ptr: u64,
@@ -54,7 +55,7 @@ pub unsafe fn launch_ellipk(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_ellipe(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     m_ptr: u64,
@@ -85,7 +86,7 @@ pub unsafe fn launch_ellipe(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_hyp2f1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a: f64,
@@ -118,7 +119,7 @@ pub unsafe fn launch_hyp2f1(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_hyp1f1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a: f64,
@@ -153,7 +154,7 @@ pub unsafe fn launch_hyp1f1(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_airy_ai(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -180,7 +181,7 @@ pub unsafe fn launch_airy_ai(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_airy_bi(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -211,7 +212,7 @@ pub unsafe fn launch_airy_bi(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_legendre_p(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     n: i32,
@@ -240,7 +241,7 @@ pub unsafe fn launch_legendre_p(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_legendre_p_assoc(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     n: i32,
@@ -275,7 +276,7 @@ pub unsafe fn launch_legendre_p_assoc(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_sph_harm(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     n: i32,
@@ -312,7 +313,7 @@ pub unsafe fn launch_sph_harm(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_fresnel_s(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -339,7 +340,7 @@ pub unsafe fn launch_fresnel_s(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_fresnel_c(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,

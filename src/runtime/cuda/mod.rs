@@ -25,6 +25,7 @@
 mod allocator;
 mod arena;
 mod cache;
+pub mod capture;
 mod client;
 #[cfg(feature = "nccl")]
 mod communicator;
@@ -46,6 +47,7 @@ pub mod tune;
 
 pub use crate::tensor::Tensor;
 pub use allocator::CudaAllocator;
+pub use capture::{GuardedLaunchBuilder, GuardedStream};
 pub use client::{CudaClient, CudaRawHandle};
 #[cfg(feature = "nccl")]
 pub use communicator::NcclCommunicator;

@@ -1,7 +1,7 @@
 //! ILU(0) and IC(0) factorization kernel launchers
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -9,6 +9,7 @@ use super::{
     launch_config, launch_error,
 };
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // ILU(0) Level Kernel Launchers
@@ -27,7 +28,7 @@ use crate::error::Result;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ilu0_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -69,7 +70,7 @@ pub unsafe fn launch_ilu0_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ilu0_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -115,7 +116,7 @@ pub unsafe fn launch_ilu0_level_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ic0_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -157,7 +158,7 @@ pub unsafe fn launch_ic0_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_ic0_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,

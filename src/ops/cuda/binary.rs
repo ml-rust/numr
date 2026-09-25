@@ -161,13 +161,16 @@ impl BinaryOps<CudaRuntime> for CudaClient {
         let size_bytes = src.numel() * elem_size;
         // Async on the compute stream: stream-ordered after the producer of
         // `src`, and recorded as a memcpy node under graph capture.
-        let result = unsafe {
-            cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
-                out.ptr(),
-                src.ptr(),
-                size_bytes,
-                self.stream.cu_stream(),
-            )
+        let result = {
+            let _permit = self.stream.enqueue_permit();
+            unsafe {
+                cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
+                    out.ptr(),
+                    src.ptr(),
+                    size_bytes,
+                    self.stream.raw().cu_stream(),
+                )
+            }
         };
         if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             return Err(Error::Backend(format!(

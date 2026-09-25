@@ -13,7 +13,7 @@
 //! Grid-based kernels (extract_r, clear) scale to arbitrary sizes.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -21,6 +21,7 @@ use super::{
     launch_config, launch_error,
 };
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // Apply Householder Reflector (single block, fused dot + axpy)
@@ -41,7 +42,7 @@ use crate::error::Result;
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_apply_reflector_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     v: u64,
     v_start: i32,
@@ -80,7 +81,7 @@ pub unsafe fn launch_sparse_qr_apply_reflector_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_apply_reflector_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     v: u64,
     v_start: i32,
@@ -118,7 +119,7 @@ pub unsafe fn launch_sparse_qr_apply_reflector_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_norm_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     start: i32,
@@ -148,7 +149,7 @@ pub unsafe fn launch_sparse_qr_norm_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_norm_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     start: i32,
@@ -182,7 +183,7 @@ pub unsafe fn launch_sparse_qr_norm_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_householder_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     start: i32,
@@ -218,7 +219,7 @@ pub unsafe fn launch_sparse_qr_householder_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_householder_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     start: i32,
@@ -257,7 +258,7 @@ pub unsafe fn launch_sparse_qr_householder_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_extract_r_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     count: i32,
@@ -284,7 +285,7 @@ pub unsafe fn launch_sparse_qr_extract_r_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_extract_r_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     count: i32,
@@ -314,7 +315,7 @@ pub unsafe fn launch_sparse_qr_extract_r_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_clear_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     n: i32,
@@ -338,7 +339,7 @@ pub unsafe fn launch_sparse_qr_clear_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_qr_clear_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     n: i32,

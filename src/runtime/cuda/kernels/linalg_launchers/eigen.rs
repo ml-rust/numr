@@ -1,12 +1,13 @@
 //! Eigendecomposition kernel launchers: symmetric, general, Schur
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch eigendecomposition kernel for symmetric matrices.
 ///
@@ -23,7 +24,7 @@ use crate::error::{Error, Result};
 /// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_eig_jacobi_symmetric(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     work_ptr: u64,
@@ -81,7 +82,7 @@ pub unsafe fn launch_eig_jacobi_symmetric(
 /// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_schur_decompose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,
@@ -141,7 +142,7 @@ pub unsafe fn launch_schur_decompose(
 /// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_eig_general(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,

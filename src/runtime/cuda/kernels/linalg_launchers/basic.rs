@@ -1,7 +1,7 @@
 //! Basic linear algebra kernel launchers: trace, diag, diagflat, copy, identity, transpose
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -10,6 +10,7 @@ use super::super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch trace kernel to compute sum of diagonal elements.
 ///
@@ -20,7 +21,7 @@ use crate::error::{Error, Result};
 /// - Output should be zero-initialized before launch
 pub unsafe fn launch_trace(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -68,7 +69,7 @@ pub unsafe fn launch_trace(
 /// - `output_ptr` must have space for min(m, n) elements
 pub unsafe fn launch_diag(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -114,7 +115,7 @@ pub unsafe fn launch_diag(
 /// - `output_ptr` must have space for n*n elements
 pub unsafe fn launch_diagflat(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -163,7 +164,7 @@ pub unsafe fn launch_diagflat(
 #[allow(dead_code)]
 pub unsafe fn launch_matrix_copy(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,
@@ -212,7 +213,7 @@ pub unsafe fn launch_matrix_copy(
 /// - `col` must be < n
 pub unsafe fn launch_scatter_column(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     vec_ptr: u64,
@@ -263,7 +264,7 @@ pub unsafe fn launch_scatter_column(
 /// - `out_ptr` must have space for n*n elements
 pub unsafe fn launch_create_identity(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     out_ptr: u64,
@@ -315,7 +316,7 @@ pub unsafe fn launch_create_identity(
 /// - `col` must be < n_cols
 pub unsafe fn launch_extract_column(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     matrix_ptr: u64,
@@ -370,7 +371,7 @@ pub unsafe fn launch_extract_column(
 /// - `output_ptr` must point to allocated [cols, rows] matrix
 pub unsafe fn launch_transpose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -430,7 +431,7 @@ pub unsafe fn launch_transpose(
 /// - `out_ptr` must have space for m_a * m_b * n_a * n_b elements
 pub unsafe fn launch_kron(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -487,7 +488,7 @@ pub unsafe fn launch_kron(
 /// - `out_ptr` must have space for m * n * k elements
 pub unsafe fn launch_khatri_rao(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

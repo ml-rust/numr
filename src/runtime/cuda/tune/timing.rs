@@ -34,13 +34,23 @@ pub fn time_launches(
     launch()?;
     stream.synchronize()?;
 
+    // Each event record is an enqueue on the shared compute stream and takes
+    // its own permit. The permit cannot span the `launch()` between them:
+    // that launch takes a permit of its own, and two read sides on one
+    // thread deadlock against a waiting writer.
     let mut pairs: Vec<(CudaEvent, CudaEvent)> = Vec::with_capacity(iters);
     for _ in 0..iters {
         let start = context.new_event(Some(CUevent_flags::CU_EVENT_DEFAULT))?;
         let end = context.new_event(Some(CUevent_flags::CU_EVENT_DEFAULT))?;
-        start.record(stream)?;
+        {
+            let _permit = stream.enqueue_permit();
+            start.record(stream.raw())?;
+        }
         launch()?;
-        end.record(stream)?;
+        {
+            let _permit = stream.enqueue_permit();
+            end.record(stream.raw())?;
+        }
         pairs.push((start, end));
     }
     stream.synchronize()?;

@@ -1,13 +1,14 @@
 //! CUDA kernel launchers for GEMM epilogue backward operations.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_name, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::GemmActivation;
+use crate::runtime::cuda::GuardedStream;
 
 const GEMM_EPILOGUE_BWD_MODULE: &str = "gemm_epilogue_bwd";
 const BLOCK_SIZE: u32 = 256;
@@ -34,7 +35,7 @@ fn block_1d() -> (u32, u32, u32) {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_bwd_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,
@@ -85,7 +86,7 @@ pub unsafe fn launch_gemm_bias_act_bwd_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_bwd_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,
@@ -144,7 +145,7 @@ pub unsafe fn launch_gemm_bias_act_bwd_batched_kernel(
 #[allow(clippy::too_many_arguments)]
 unsafe fn launch_gemm_bwd_kernels(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,

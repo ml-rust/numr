@@ -84,7 +84,7 @@ pub(super) fn try_get_cached_stream(device_index: usize) -> Option<cudarc::drive
     let guard = lock_client_cache(cache);
     guard
         .get(&device_index)
-        .map(|client| client.stream.cu_stream())
+        .map(|client| client.stream.raw().cu_stream())
 }
 
 /// Log a CUDA memory operation failure.

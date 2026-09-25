@@ -4,7 +4,7 @@
 //! Supports Complex64 (float2) and Complex128 (double2) types.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -12,6 +12,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// FFT module name
 pub const FFT_MODULE: &str = "fft";
@@ -32,7 +33,7 @@ pub const MAX_SHARED_MEM_FFT_SIZE: usize = 1024;
 /// - Input and output must have at least `batch_size * n` elements
 pub unsafe fn launch_stockham_fft_batched(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -129,7 +130,7 @@ pub unsafe fn launch_stockham_fft_batched(
 /// - `n` must be a power of 2
 pub unsafe fn launch_stockham_fft_stage(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,
@@ -216,7 +217,7 @@ pub unsafe fn launch_stockham_fft_stage(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_scale_complex(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     data_ptr: u64,
@@ -282,7 +283,7 @@ pub unsafe fn launch_scale_complex(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_rfft_pack(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     input_ptr: u64,
@@ -353,7 +354,7 @@ pub unsafe fn launch_rfft_pack(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_irfft_unpack(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     output_dtype: DType,
     input_ptr: u64,
@@ -428,7 +429,7 @@ pub unsafe fn launch_irfft_unpack(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_hermitian_extend(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -510,7 +511,7 @@ pub unsafe fn launch_hermitian_extend(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_rfft_truncate(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -586,7 +587,7 @@ pub unsafe fn launch_rfft_truncate(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_fftshift(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -657,7 +658,7 @@ pub unsafe fn launch_fftshift(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_ifftshift(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -729,7 +730,7 @@ pub unsafe fn launch_ifftshift(
 #[allow(dead_code)]
 pub unsafe fn launch_copy_complex(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,

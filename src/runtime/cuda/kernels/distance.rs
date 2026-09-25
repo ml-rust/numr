@@ -3,7 +3,7 @@
 //! Provides launchers for pairwise distance computation using various metrics.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::DistanceMetric;
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for distance kernels
 pub const DISTANCE_MODULE: &str = "distance";
@@ -71,7 +72,7 @@ fn metric_p_value_f64(metric: DistanceMetric) -> f64 {
 /// * `metric` - Distance metric to use
 pub unsafe fn launch_cdist(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -144,7 +145,7 @@ pub unsafe fn launch_cdist(
 /// * `metric` - Distance metric to use
 pub unsafe fn launch_pdist(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -209,7 +210,7 @@ pub unsafe fn launch_pdist(
 /// * `n` - Number of points
 pub unsafe fn launch_squareform(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     condensed_ptr: u64,
@@ -260,7 +261,7 @@ pub unsafe fn launch_squareform(
 /// * `n` - Number of points
 pub unsafe fn launch_squareform_inverse(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     square_ptr: u64,

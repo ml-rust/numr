@@ -9,11 +9,12 @@
 //! either output width.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::matmul_wmma_tile::{select_wmma_tile, wmma_kernel_name_f32out, wmma_launch_config};
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -28,7 +29,7 @@ use super::names::kernel_names;
 /// `c_ptr` `M×N` f32 elements. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_matmul_wmma_f32out_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -78,7 +79,7 @@ pub unsafe fn launch_matmul_wmma_f32out_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_matmul_wmma_f32out_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

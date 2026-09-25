@@ -4,7 +4,7 @@
 //! column buffer the GEMM formulation of conv2d contracts over.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::launch_dims::launch_config;
@@ -12,6 +12,7 @@ use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::{kernel_name, kernel_names};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// CUDA caps the y and z grid dimensions at 65535 blocks. Both axes carry a
 /// grid-stride loop in the kernel, so the extents are clamped rather than
@@ -45,7 +46,7 @@ pub fn im2col2d_has_kernel(dtype: DType) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_im2col2d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

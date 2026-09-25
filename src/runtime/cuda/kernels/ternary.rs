@@ -4,7 +4,7 @@
 //! where(cond, x, y) = cond ? x : y
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::binary::compute_broadcast_strides;
@@ -14,6 +14,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::{CudaDevice, CudaRuntime};
 use crate::tensor::Tensor;
 
@@ -40,7 +41,7 @@ use crate::tensor::Tensor;
 /// * `numel` - Number of elements
 pub unsafe fn launch_where_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     cond_ptr: u64,
@@ -106,7 +107,7 @@ pub unsafe fn launch_where_op(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_where_broadcast_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     dtype: DType,
@@ -208,7 +209,7 @@ pub unsafe fn launch_where_broadcast_op(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_where_generic_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     cond_dtype: DType,
     dtype: DType,
@@ -282,7 +283,7 @@ pub unsafe fn launch_where_generic_op(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_where_broadcast_generic_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     cond_dtype: DType,

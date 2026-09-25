@@ -12,10 +12,10 @@ use crate::runtime::cuda::kernels::{
     launch_sigmoid_mul_bwd, launch_silu, launch_silu_mul, launch_silu_mul_bwd, launch_softmax,
     launch_softmax_bwd, launch_softmax_bwd_dim, launch_softmax_dim, launch_softmax_with_bias,
 };
-use crate::runtime::cuda::{CudaClient, CudaRuntime};
+use crate::runtime::cuda::{CudaClient, CudaRuntime, GuardedStream};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 impl ActivationOps<CudaRuntime> for CudaClient {
@@ -436,12 +436,12 @@ impl ActivationOps<CudaRuntime> for CudaClient {
 
 /// Signature shared by the fused activation-mul forward launchers.
 type FusedMulFwdLaunch =
-    unsafe fn(&Arc<CudaContext>, &CudaStream, usize, DType, u64, u64, u64, usize) -> Result<()>;
+    unsafe fn(&Arc<CudaContext>, &GuardedStream, usize, DType, u64, u64, u64, usize) -> Result<()>;
 
 /// Signature shared by the fused activation-mul backward launchers.
 type FusedMulBwdLaunch = unsafe fn(
     &Arc<CudaContext>,
-    &CudaStream,
+    &GuardedStream,
     usize,
     DType,
     u64,

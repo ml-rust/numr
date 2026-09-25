@@ -3,11 +3,12 @@
 //! Kernel source: snake.cu
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
     BLOCK_SIZE, MAX_GRID_DIM_X, elementwise_launch_config, get_kernel_function, get_or_load_module,
     kernel_name, kernel_names, launch_config,
@@ -68,7 +69,7 @@ fn dtype_supported(dtype: DType, op: &'static str) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_snake_beta(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -114,7 +115,7 @@ pub unsafe fn launch_snake_beta(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_snake_beta_dx(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,
@@ -164,7 +165,7 @@ pub unsafe fn launch_snake_beta_dx(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_snake_beta_dparams(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,

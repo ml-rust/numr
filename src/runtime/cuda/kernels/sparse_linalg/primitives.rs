@@ -4,7 +4,7 @@
 //! scatter, axpy, gather_clear, divide_pivot, clear, apply_row_perm
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -12,6 +12,7 @@ use super::{
     launch_config, launch_error,
 };
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // Scatter Operations
@@ -28,7 +29,7 @@ use crate::error::Result;
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_scatter_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values: u64,
     row_indices: u64,
@@ -60,7 +61,7 @@ pub unsafe fn launch_sparse_scatter_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_scatter_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values: u64,
     row_indices: u64,
@@ -96,7 +97,7 @@ pub unsafe fn launch_sparse_scatter_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_axpy_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     scale: f32,
     values: u64,
@@ -130,7 +131,7 @@ pub unsafe fn launch_sparse_axpy_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_axpy_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     scale: f64,
     values: u64,
@@ -168,7 +169,7 @@ pub unsafe fn launch_sparse_axpy_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_gather_clear_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     row_indices: u64,
@@ -200,7 +201,7 @@ pub unsafe fn launch_sparse_gather_clear_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_gather_clear_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     row_indices: u64,
@@ -236,7 +237,7 @@ pub unsafe fn launch_sparse_gather_clear_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_divide_pivot_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     row_indices: u64,
@@ -268,7 +269,7 @@ pub unsafe fn launch_sparse_divide_pivot_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_sparse_divide_pivot_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     work: u64,
     row_indices: u64,
@@ -304,7 +305,7 @@ pub unsafe fn launch_sparse_divide_pivot_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_apply_row_perm_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     b: u64,
     perm: u64,
@@ -336,7 +337,7 @@ pub unsafe fn launch_apply_row_perm_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_apply_row_perm_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     b: u64,
     perm: u64,

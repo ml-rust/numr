@@ -3,12 +3,13 @@
 //! This module provides Rust wrappers for CUDA sparse matrix kernels.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
 use super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // SpMV Launchers (Row-per-thread)
@@ -28,7 +29,7 @@ use crate::error::{Error, Result};
 /// - y has length nrows
 pub unsafe fn launch_csr_spmv<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -88,7 +89,7 @@ pub unsafe fn launch_csr_spmv<T: CudaTypeName>(
 /// Same safety requirements as `launch_csr_spmv`
 pub unsafe fn launch_csr_spmv_warp<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -154,7 +155,7 @@ pub unsafe fn launch_csr_spmv_warp<T: CudaTypeName>(
 /// - C has shape [nrows, ncols_B] stored row-major
 pub unsafe fn launch_csr_spmm<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -234,7 +235,7 @@ pub fn should_use_warp_kernel(avg_nnz_per_row: f32) -> bool {
 /// - All pointers are device pointers
 pub unsafe fn launch_dsmm_csc<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a: u64,           // Dense [M, K]
     col_ptrs: u64,    // CSC [N+1]

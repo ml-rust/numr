@@ -1,12 +1,13 @@
 //! SVD kernel launcher: Jacobi algorithm
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch SVD Jacobi decomposition kernel.
 ///
@@ -24,7 +25,7 @@ use crate::error::{Error, Result};
 /// - `converged_flag_ptr` must point to a single i32 (zero-initialized)
 pub unsafe fn launch_svd_jacobi(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     b_ptr: u64,

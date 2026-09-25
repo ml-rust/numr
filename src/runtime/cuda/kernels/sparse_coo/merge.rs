@@ -5,7 +5,7 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -13,7 +13,7 @@ use super::kernels::*;
 use crate::dtype::{DType, Element};
 use crate::error::Result;
 use crate::runtime::Runtime;
-use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::{CudaRuntime, GuardedStream};
 use crate::tensor::Tensor;
 
 /// Perform COO add merge (A + B) on GPU (union semantics)
@@ -36,7 +36,7 @@ use crate::tensor::Tensor;
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -288,7 +288,7 @@ pub unsafe fn coo_add_merge<T: CudaTypeName + Element>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -537,7 +537,7 @@ pub unsafe fn coo_sub_merge<T: CudaTypeName + Element>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -783,7 +783,7 @@ pub unsafe fn coo_mul_merge<T: CudaTypeName + Element>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn coo_div_merge<T: CudaTypeName + Element>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,

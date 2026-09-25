@@ -10,7 +10,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 // ============================================================================
@@ -58,7 +59,7 @@ fn dtype_suffix<T: CudaTypeName>() -> Result<&'static str> {
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn cast_i32_to_i64_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     input: &Tensor<CudaRuntime>,
@@ -103,7 +104,7 @@ unsafe fn cast_i32_to_i64_gpu(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_filter_csr_count<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     values: u64,
@@ -150,7 +151,7 @@ unsafe fn launch_filter_csr_count<T: CudaTypeName + Copy + cudarc::driver::Devic
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_filter_csr_compute<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -205,7 +206,7 @@ unsafe fn launch_filter_csr_compute<T: CudaTypeName + Copy + cudarc::driver::Dev
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -292,7 +293,7 @@ pub unsafe fn filter_csr_values_gpu<T: CudaTypeName + Copy + cudarc::driver::Dev
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_sum_rows_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -341,7 +342,7 @@ pub unsafe fn csr_sum_rows_gpu<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csc_sum_cols_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -394,7 +395,7 @@ pub unsafe fn csc_sum_cols_gpu<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_nnz_per_row_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     row_ptrs: &Tensor<CudaRuntime>,
@@ -439,7 +440,7 @@ pub unsafe fn csr_nnz_per_row_gpu(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csc_nnz_per_col_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     col_ptrs: &Tensor<CudaRuntime>,
@@ -489,7 +490,7 @@ pub unsafe fn csc_nnz_per_col_gpu(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn csr_to_dense_gpu<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -549,7 +550,7 @@ pub unsafe fn csr_to_dense_gpu<T: CudaTypeName>(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_dense_to_coo_count<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input: u64,
     row_counts: u64,
@@ -597,7 +598,7 @@ unsafe fn launch_dense_to_coo_count<T: CudaTypeName + Copy + cudarc::driver::Dev
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 unsafe fn launch_dense_to_coo_extract<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input: u64,
     offsets: u64,
@@ -652,7 +653,7 @@ unsafe fn launch_dense_to_coo_extract<T: CudaTypeName + Copy + cudarc::driver::D
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     dtype: DType,
@@ -741,7 +742,7 @@ pub unsafe fn dense_to_coo_gpu<T: CudaTypeName + Copy + cudarc::driver::DeviceRe
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_csr_extract_diagonal<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,

@@ -4,7 +4,7 @@
 //! on Schur quasi-triangular matrices without GPU→CPU→GPU transfers.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -12,6 +12,7 @@ use super::super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch eigenvalue validation kernel for log or sqrt.
 ///
@@ -25,7 +26,7 @@ use crate::error::{Error, Result};
 /// - `result_ptr` must point to 2 elements ([has_error, problematic_value])
 pub unsafe fn launch_validate_eigenvalues(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,
@@ -91,7 +92,7 @@ pub unsafe fn launch_validate_eigenvalues(
 /// - `f_ptr` must point to allocated [n, n] output matrix (will be zeroed and filled)
 pub unsafe fn launch_diagonal_func(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,
@@ -160,7 +161,7 @@ pub unsafe fn launch_diagonal_func(
 /// - `f_ptr` must point to [n, n] output matrix with diagonal blocks already computed
 pub unsafe fn launch_parlett_column(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,
@@ -228,7 +229,7 @@ pub unsafe fn launch_parlett_column(
 /// - `f_ptr` must point to allocated [n, n] output matrix
 pub unsafe fn compute_schur_func_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     t_ptr: u64,

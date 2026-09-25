@@ -215,7 +215,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_clear(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         n: i32,
@@ -223,7 +223,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_scatter(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         values: u64,
         indices: u64,
@@ -233,7 +233,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -245,7 +245,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_norm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -255,7 +255,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_householder(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -268,7 +268,7 @@ pub(super) trait GpuQrScalar: Sized {
 
     unsafe fn launch_extract_r(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         count: i32,
@@ -285,7 +285,7 @@ impl GpuQrScalar for f32 {
 
     unsafe fn launch_clear(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         n: i32,
@@ -294,7 +294,7 @@ impl GpuQrScalar for f32 {
     }
     unsafe fn launch_scatter(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         values: u64,
         indices: u64,
@@ -305,7 +305,7 @@ impl GpuQrScalar for f32 {
     }
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -322,7 +322,7 @@ impl GpuQrScalar for f32 {
     }
     unsafe fn launch_norm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -333,7 +333,7 @@ impl GpuQrScalar for f32 {
     }
     unsafe fn launch_householder(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -351,7 +351,7 @@ impl GpuQrScalar for f32 {
     }
     unsafe fn launch_extract_r(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         count: i32,
@@ -377,7 +377,7 @@ impl GpuQrScalar for f64 {
 
     unsafe fn launch_clear(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         n: i32,
@@ -386,7 +386,7 @@ impl GpuQrScalar for f64 {
     }
     unsafe fn launch_scatter(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         values: u64,
         indices: u64,
@@ -397,7 +397,7 @@ impl GpuQrScalar for f64 {
     }
     unsafe fn launch_apply_reflector(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         v: u64,
         v_start: i32,
@@ -414,7 +414,7 @@ impl GpuQrScalar for f64 {
     }
     unsafe fn launch_norm(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -425,7 +425,7 @@ impl GpuQrScalar for f64 {
     }
     unsafe fn launch_householder(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         start: i32,
@@ -443,7 +443,7 @@ impl GpuQrScalar for f64 {
     }
     unsafe fn launch_extract_r(
         ctx: &std::sync::Arc<cudarc::driver::safe::CudaContext>,
-        stream: &cudarc::driver::safe::CudaStream,
+        stream: &crate::runtime::cuda::GuardedStream,
         dev: usize,
         work: u64,
         count: i32,

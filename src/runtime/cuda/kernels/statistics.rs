@@ -4,7 +4,7 @@
 //! without CPU fallback.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch mode_dim kernel for dimension-wise mode computation.
 ///
@@ -42,7 +43,7 @@ use crate::error::{Error, Result};
 /// * `inner_size` - Product of dimensions after the reduction dimension
 pub unsafe fn launch_mode_dim(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     sorted_ptr: u64,
@@ -115,7 +116,7 @@ pub unsafe fn launch_mode_dim(
 #[allow(dead_code)]
 pub unsafe fn launch_mode_full(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     sorted_ptr: u64,

@@ -6,7 +6,7 @@
 //! - `logsumexp` - Numerically stable log-sum-exp reduction
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -15,6 +15,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // Cumulative Sum
@@ -41,7 +42,7 @@ use crate::error::{Error, Result};
 /// * `outer_size` - Number of independent scans
 pub unsafe fn launch_cumsum(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -90,7 +91,7 @@ pub unsafe fn launch_cumsum(
 /// * `inner_size` - Stride between consecutive elements in scan dimension
 pub unsafe fn launch_cumsum_strided(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -144,7 +145,7 @@ pub unsafe fn launch_cumsum_strided(
 /// - `output_ptr` must be valid device memory with at least `scan_size * outer_size` elements
 pub unsafe fn launch_cumprod(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -189,7 +190,7 @@ pub unsafe fn launch_cumprod(
 /// Same as `launch_cumprod`.
 pub unsafe fn launch_cumprod_strided(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -249,7 +250,7 @@ pub unsafe fn launch_cumprod_strided(
 /// * `outer_size` - Number of independent reductions
 pub unsafe fn launch_logsumexp(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -301,7 +302,7 @@ pub unsafe fn launch_logsumexp(
 /// * `inner_size` - Number of inner dimensions
 pub unsafe fn launch_logsumexp_strided(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

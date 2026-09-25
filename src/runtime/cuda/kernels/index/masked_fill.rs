@@ -2,7 +2,7 @@
 //! forms.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -12,6 +12,7 @@ use super::dtype_gate::index_dtype_suffix;
 use super::gather::INDEX_MODULE;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// A fill value as the raw bit pattern of its element type, widened to the
 /// unsigned integer of the same width.
@@ -79,7 +80,7 @@ fn fill_bits(dtype: DType, value: f64, op: &'static str) -> Result<FillBits> {
 /// - input and output must have n elements
 pub unsafe fn launch_masked_fill(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -134,7 +135,7 @@ pub unsafe fn launch_masked_fill(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_masked_fill_broadcast(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

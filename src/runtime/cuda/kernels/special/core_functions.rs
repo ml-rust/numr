@@ -3,7 +3,8 @@
 use super::helpers::{launch_binary_special, launch_ternary_special, launch_unary_special};
 use crate::dtype::DType;
 use crate::error::Result;
-use cudarc::driver::{CudaContext, CudaStream};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::CudaContext;
 use std::sync::Arc;
 
 // ============================================================================
@@ -15,7 +16,7 @@ use std::sync::Arc;
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_erf(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -42,7 +43,7 @@ pub unsafe fn launch_erf(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_erfc(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -69,7 +70,7 @@ pub unsafe fn launch_erfc(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_erfinv(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -100,7 +101,7 @@ pub unsafe fn launch_erfinv(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_gamma(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -127,7 +128,7 @@ pub unsafe fn launch_gamma(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_lgamma(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -154,7 +155,7 @@ pub unsafe fn launch_lgamma(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_digamma(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -185,7 +186,7 @@ pub unsafe fn launch_digamma(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_beta(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -214,7 +215,7 @@ pub unsafe fn launch_beta(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_gammainc(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -243,7 +244,7 @@ pub unsafe fn launch_gammainc(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_gammaincc(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -272,7 +273,7 @@ pub unsafe fn launch_gammaincc(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_betainc(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -303,7 +304,7 @@ pub unsafe fn launch_betainc(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_gammaincinv(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -332,7 +333,7 @@ pub unsafe fn launch_gammaincinv(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_betaincinv(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

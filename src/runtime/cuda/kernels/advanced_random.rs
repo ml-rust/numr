@@ -6,7 +6,8 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::{CudaContext, PushKernelArg};
 use std::sync::Arc;
 
 /// Get kernel suffix for dtype
@@ -32,7 +33,7 @@ fn dtype_suffix(dtype: DType) -> Result<&'static str> {
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_philox_uniform(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     key: u64,
@@ -73,7 +74,7 @@ pub unsafe fn launch_philox_uniform(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_philox_randn(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     key: u64,
@@ -118,7 +119,7 @@ pub unsafe fn launch_philox_randn(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_threefry_uniform(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     key: u64,
@@ -159,7 +160,7 @@ pub unsafe fn launch_threefry_uniform(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_threefry_randn(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     key: u64,
@@ -204,7 +205,7 @@ pub unsafe fn launch_threefry_randn(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_pcg64_uniform(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,
@@ -245,7 +246,7 @@ pub unsafe fn launch_pcg64_uniform(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_pcg64_randn(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,
@@ -290,7 +291,7 @@ pub unsafe fn launch_pcg64_randn(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_xoshiro256_uniform(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,
@@ -329,7 +330,7 @@ pub unsafe fn launch_xoshiro256_uniform(
 /// - `out_ptr` must be a valid device pointer to `numel` elements
 pub unsafe fn launch_xoshiro256_randn(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seed: u64,

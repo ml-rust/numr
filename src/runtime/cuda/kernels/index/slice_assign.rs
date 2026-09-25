@@ -1,7 +1,7 @@
 //! Slice assign kernel launcher
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -11,6 +11,7 @@ use super::super::loader::{
 use super::dtype_gate::index_dtype_suffix;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch slice_assign kernel: copies src into a region of output (pre-copied from dst).
 ///
@@ -23,7 +24,7 @@ use crate::error::{Error, Result};
 /// - output_ptr: valid device memory with outer_size * dst_dim_size * inner_size elements
 pub unsafe fn launch_slice_assign(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,

@@ -3,13 +3,14 @@
 //! Kernel source: softmax.cu
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
     BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_name, kernel_names, launch_config,
     softmax_launch_config,
@@ -26,7 +27,7 @@ use crate::runtime::cuda::kernels::loader::{
 /// - `output_ptr` must have `outer_size * dim_size` elements
 pub unsafe fn launch_softmax(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -130,7 +131,7 @@ fn softmax_dim_grid(
 /// - Tensors must have `outer_size * dim_size * inner_size` elements
 pub unsafe fn launch_softmax_dim(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -173,7 +174,7 @@ pub unsafe fn launch_softmax_dim(
 /// - All pointers must be valid device memory of `outer_size * dim_size` elements
 pub unsafe fn launch_softmax_bwd(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,
@@ -226,7 +227,7 @@ pub unsafe fn launch_softmax_bwd(
 /// - `bias_ptr` must have at least `dim_size` elements (bias cycles by `dim_size`)
 pub unsafe fn launch_softmax_with_bias(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -275,7 +276,7 @@ pub unsafe fn launch_softmax_with_bias(
 /// - All pointers must be valid device memory
 pub unsafe fn launch_softmax_bwd_dim(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     grad_ptr: u64,

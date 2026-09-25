@@ -6,12 +6,13 @@
 //! callers gate on before reaching the launcher.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::algorithm::TileConfig;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::LaunchConfig;
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -75,7 +76,7 @@ const INT_TILE: TileConfig = TileConfig {
 /// All pointers must be valid device memory with correct sizes.
 pub(super) unsafe fn launch_matmul_int_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

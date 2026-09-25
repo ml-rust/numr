@@ -7,11 +7,12 @@
 //! local memory.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::algorithm::TileConfig;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::matmul_config::{f32_tiled_launch_config, f32_tiled_suffix};
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -38,7 +39,7 @@ pub(super) fn matmul_bias_batched_f32_tiled_name(tile_cfg: &TileConfig) -> Optio
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn launch_matmul_bias_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_fn_name: &str,
     a_ptr: u64,
@@ -89,7 +90,7 @@ pub(super) unsafe fn launch_matmul_bias_f32_tiled(
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn launch_matmul_bias_batched_f32_tiled(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     kernel_fn_name: &str,
     a_ptr: u64,

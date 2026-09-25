@@ -1,7 +1,7 @@
 //! Embedding lookup and bincount kernel launchers
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -11,6 +11,7 @@ use super::dtype_gate::index_dtype_suffix;
 use super::gather::INDEX_MODULE;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch embedding_lookup kernel.
 ///
@@ -25,7 +26,7 @@ use crate::error::{Error, Result};
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_embedding_lookup(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     embeddings_ptr: u64,
@@ -84,7 +85,7 @@ pub unsafe fn launch_embedding_lookup(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_bincount_weighted(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     weights_dtype: Option<DType>,

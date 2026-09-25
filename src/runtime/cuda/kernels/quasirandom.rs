@@ -5,7 +5,8 @@ use super::loader::{
     launch_config,
 };
 use crate::error::{Error, Result};
-use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::{CudaContext, PushKernelArg};
 use std::sync::Arc;
 
 /// Launch Sobol sequence generation kernel (F32).
@@ -27,7 +28,7 @@ use std::sync::Arc;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sobol_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dv_ptr: u64,
     out_ptr: u64,
@@ -81,7 +82,7 @@ pub unsafe fn launch_sobol_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sobol_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dv_ptr: u64,
     out_ptr: u64,
@@ -122,7 +123,7 @@ pub unsafe fn launch_sobol_f64(
 /// - `out_ptr` must be a valid device pointer with at least `n_points * dimension` elements
 pub unsafe fn launch_halton_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_ptr: u64,
     n_points: usize,
@@ -161,7 +162,7 @@ pub unsafe fn launch_halton_f32(
 /// - `out_ptr` must be a valid device pointer with at least `n_points * dimension` elements
 pub unsafe fn launch_halton_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_ptr: u64,
     n_points: usize,
@@ -200,7 +201,7 @@ pub unsafe fn launch_halton_f64(
 /// - `out_ptr` must be a valid device pointer with at least `n_samples * dimension` elements
 pub unsafe fn launch_latin_hypercube_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_ptr: u64,
     n_samples: usize,
@@ -245,7 +246,7 @@ pub unsafe fn launch_latin_hypercube_f32(
 /// - `out_ptr` must be a valid device pointer with at least `n_samples * dimension` elements
 pub unsafe fn launch_latin_hypercube_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     out_ptr: u64,
     n_samples: usize,

@@ -7,7 +7,7 @@
 //! - extract_lower_scatter
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -15,6 +15,7 @@ use super::{
     launch_config, launch_error,
 };
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // Diagonal Index Finding
@@ -34,7 +35,7 @@ use crate::error::Result;
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_find_diag_indices(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -69,7 +70,7 @@ pub unsafe fn launch_find_diag_indices(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_find_diag_indices_csc(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs: u64,
     row_indices: u64,
@@ -105,7 +106,7 @@ pub unsafe fn launch_find_diag_indices_csc(
 #[allow(dead_code)]
 pub unsafe fn launch_copy_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src: u64,
     dst: u64,
@@ -135,7 +136,7 @@ pub unsafe fn launch_copy_f32(
 #[allow(dead_code)]
 pub unsafe fn launch_copy_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src: u64,
     dst: u64,
@@ -177,7 +178,7 @@ pub unsafe fn launch_copy_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_split_lu_scatter_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_values: u64,
     l_values: u64,
@@ -213,7 +214,7 @@ pub unsafe fn launch_split_lu_scatter_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_split_lu_scatter_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_values: u64,
     l_values: u64,
@@ -259,7 +260,7 @@ pub unsafe fn launch_split_lu_scatter_f64(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_extract_lower_scatter_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_values: u64,
     dst_values: u64,
@@ -291,7 +292,7 @@ pub unsafe fn launch_extract_lower_scatter_f32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_extract_lower_scatter_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_values: u64,
     dst_values: u64,

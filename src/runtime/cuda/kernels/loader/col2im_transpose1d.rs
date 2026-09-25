@@ -6,7 +6,7 @@
 //! involved. The gather-first sibling is `col_transpose1d`.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::launch_dims::launch_config;
@@ -14,6 +14,7 @@ use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::kernel_names;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// CUDA caps the y and z grid dimensions at 65535 blocks. Both axes carry a
 /// grid-stride loop in the kernel, so the extents are clamped rather than
@@ -56,7 +57,7 @@ fn col2im_transpose1d_kernel_name(col_dtype: DType, out_dtype: DType) -> Option<
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_col2im_transpose1d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_dtype: DType,
     out_dtype: DType,

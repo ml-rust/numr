@@ -8,7 +8,7 @@
 //! - LU/IC structure analysis
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -18,6 +18,7 @@ use super::{
 /// Module name for sparse level computation kernels
 const SPARSE_LEVELS_MODULE: &str = "sparse_levels";
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // Type Casting
@@ -33,7 +34,7 @@ use crate::error::Result;
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_cast_i64_to_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input: u64,
     output: u64,
@@ -67,7 +68,7 @@ pub unsafe fn launch_cast_i64_to_i32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_compute_levels_lower_iter(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -101,7 +102,7 @@ pub unsafe fn launch_compute_levels_lower_iter(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_compute_levels_upper_iter(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -136,7 +137,7 @@ pub unsafe fn launch_compute_levels_upper_iter(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_reduce_max_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     data: u64,
     result: u64,
@@ -170,7 +171,7 @@ pub unsafe fn launch_reduce_max_i32(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_histogram_levels(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     levels: u64,
     counts: u64,
@@ -200,7 +201,7 @@ pub unsafe fn launch_histogram_levels(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn launch_scatter_by_level(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     levels: u64,
     level_ptrs: u64,

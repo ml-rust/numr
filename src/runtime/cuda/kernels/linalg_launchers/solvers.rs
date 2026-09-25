@@ -1,12 +1,13 @@
 //! Solver kernel launchers: forward/backward substitution, determinant, permutation
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch forward substitution kernel to solve Lx = b.
 ///
@@ -17,7 +18,7 @@ use crate::error::{Error, Result};
 /// - `x_ptr` must have space for n elements
 pub unsafe fn launch_forward_sub(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     l_ptr: u64,
@@ -69,7 +70,7 @@ pub unsafe fn launch_forward_sub(
 /// - `x_ptr` must have space for n elements
 pub unsafe fn launch_backward_sub(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     u_ptr: u64,
@@ -117,7 +118,7 @@ pub unsafe fn launch_backward_sub(
 /// - `det_ptr` must point to a single element
 pub unsafe fn launch_det_from_lu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     lu_ptr: u64,
@@ -166,7 +167,7 @@ pub unsafe fn launch_det_from_lu(
 /// - `pivots_ptr` must point to pivot indices
 pub unsafe fn launch_apply_lu_permutation(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     in_ptr: u64,

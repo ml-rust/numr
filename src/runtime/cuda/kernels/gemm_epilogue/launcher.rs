@@ -1,7 +1,7 @@
 //! CUDA kernel launchers for GEMM epilogue operations.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -18,6 +18,7 @@ use crate::error::{Error, Result};
 use crate::ops::GemmActivation;
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::GuardedStream;
 
 pub(super) const GEMM_EPILOGUE_MODULE: &str = "gemm_epilogue";
 
@@ -34,7 +35,7 @@ fn activation_to_u32(activation: GemmActivation) -> u32 {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -153,7 +154,7 @@ pub unsafe fn launch_gemm_bias_act_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_act_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -279,7 +280,7 @@ pub unsafe fn launch_gemm_bias_act_batched_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -400,7 +401,7 @@ pub unsafe fn launch_gemm_bias_residual_kernel(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_gemm_bias_residual_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

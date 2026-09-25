@@ -4,7 +4,7 @@
 //! on a single tensor.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch a unary operation kernel.
 ///
@@ -51,7 +52,7 @@ use crate::error::{Error, Result};
 /// * `numel` - Number of elements
 pub unsafe fn launch_unary_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -100,7 +101,7 @@ pub unsafe fn launch_unary_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_isnan_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     a_ptr: u64,
@@ -159,7 +160,7 @@ pub unsafe fn launch_isnan_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_isinf_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_dtype: DType,
     a_ptr: u64,
@@ -212,7 +213,7 @@ pub unsafe fn launch_isinf_op(
 /// * `numel` - Number of elements
 pub unsafe fn launch_logical_not_op(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     out_ptr: u64,

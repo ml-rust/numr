@@ -4,11 +4,12 @@
 //! compare, and activation kernels: one thread per element, no shared memory.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::{BLOCK_SIZE, elementwise_launch_config, launch_config};
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -36,7 +37,7 @@ use super::names::kernel_name;
 /// * `numel` - Number of elements
 pub unsafe fn launch_unary_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     module_name: &'static str,
     op: &str,
@@ -93,7 +94,7 @@ pub unsafe fn launch_unary_kernel(
 /// * `numel` - Number of elements
 pub unsafe fn launch_binary_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     module_name: &'static str,
     op: &str,

@@ -1,7 +1,7 @@
 //! Level-scheduled sparse triangular solve launchers (CSR and CSC formats)
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::{
@@ -9,6 +9,7 @@ use super::{
     launch_config, launch_error,
 };
 use crate::error::Result;
+use crate::runtime::cuda::GuardedStream;
 
 // ============================================================================
 // CSR Format - Single RHS
@@ -22,7 +23,7 @@ use crate::error::Result;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -65,7 +66,7 @@ pub unsafe fn launch_sparse_trsv_lower_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -108,7 +109,7 @@ pub unsafe fn launch_sparse_trsv_lower_level_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -148,7 +149,7 @@ pub unsafe fn launch_sparse_trsv_upper_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -193,7 +194,7 @@ pub unsafe fn launch_sparse_trsv_upper_level_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -241,7 +242,7 @@ pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -289,7 +290,7 @@ pub unsafe fn launch_sparse_trsv_lower_level_multi_rhs_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -334,7 +335,7 @@ pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_rows: u64,
     level_size: i32,
@@ -383,7 +384,7 @@ pub unsafe fn launch_sparse_trsv_upper_level_multi_rhs_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_lower_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_cols: u64,
     level_size: i32,
@@ -428,7 +429,7 @@ pub unsafe fn launch_sparse_trsv_csc_lower_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_lower_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_cols: u64,
     level_size: i32,
@@ -473,7 +474,7 @@ pub unsafe fn launch_sparse_trsv_csc_lower_level_f64(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_upper_level_f32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_cols: u64,
     level_size: i32,
@@ -515,7 +516,7 @@ pub unsafe fn launch_sparse_trsv_csc_upper_level_f32(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_sparse_trsv_csc_upper_level_f64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     level_cols: u64,
     level_size: i32,

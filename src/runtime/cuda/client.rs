@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use super::CudaRuntime;
 use super::allocator::CudaAllocator;
+use super::capture::GuardedStream;
 use super::device::{CudaDevice, CudaError};
 use super::sobol_cache::SobolDvCache;
 use crate::runtime::RuntimeClient;
@@ -45,8 +46,13 @@ pub struct CudaClient {
     /// CUDA context for this device (owns GPU context)
     pub(crate) context: Arc<CudaContext>,
 
-    /// Stream on which all kernels launch (compute stream)
-    pub(crate) stream: Arc<CudaStream>,
+    /// Stream on which all kernels launch (compute stream).
+    ///
+    /// Typed as [`GuardedStream`] so a kernel launcher cannot reach the bare
+    /// stream: every launch made through it takes the device's capture lock
+    /// for the enqueue. Work that is not such an enqueue goes through
+    /// `GuardedStream::raw`.
+    pub(crate) stream: GuardedStream,
 
     /// Dedicated stream for D2H copies (overlaps with compute stream)
     pub(crate) copy_stream: Arc<CudaStream>,
@@ -177,12 +183,13 @@ impl CudaClient {
             }
         }
 
-        let allocator = CudaAllocator::new(stream.clone(), pool_handle);
-
         let raw_handle = CudaRawHandle {
             context: context.clone(),
             stream: stream.clone(),
         };
+
+        let stream = GuardedStream::new(stream, device.index);
+        let allocator = CudaAllocator::new(stream.clone(), pool_handle);
 
         Ok(Self {
             device,
@@ -196,20 +203,36 @@ impl CudaClient {
         })
     }
 
-    /// Get reference to the CUDA stream.
+    /// Get reference to the CUDA compute stream.
     ///
     /// **CRITICAL**: All kernel launches MUST use this stream for correct ordering.
     #[inline]
-    pub fn stream(&self) -> &CudaStream {
+    pub fn stream(&self) -> &GuardedStream {
         &self.stream
     }
 
-    /// Whether the compute stream is inside a CUDA graph capture. Work that
-    /// synchronizes or records timing events must not run then. A failed
-    /// status query reads as "not capturing".
+    /// Whether THIS thread is inside a CUDA graph capture region on this
+    /// client's device.
+    ///
+    /// Work that synchronizes, reads a result back, or records timing events
+    /// cannot be recorded into a graph and asks this. It answers for the
+    /// calling thread only, so a thread that merely shares the device's
+    /// compute stream with a capture running elsewhere gets `false` and does
+    /// its full work — that thread's enqueues wait for the capture to end.
+    #[inline]
     pub fn is_capturing(&self) -> bool {
+        super::capture::thread_is_capturing(self.device.index)
+    }
+
+    /// Whether the DRIVER reports the compute stream in capture mode.
+    ///
+    /// True on every thread once any thread starts capturing, so it cannot
+    /// answer "may this call synchronize" — use [`CudaClient::is_capturing`]
+    /// for that. A failed status query reads as "not capturing".
+    pub fn stream_capture_active(&self) -> bool {
         use cudarc::driver::sys::CUstreamCaptureStatus;
         self.stream
+            .raw()
             .capture_status()
             .map(|s| s != CUstreamCaptureStatus::CU_STREAM_CAPTURE_STATUS_NONE)
             .unwrap_or(false)
@@ -218,7 +241,7 @@ impl CudaClient {
     /// Get the Arc-wrapped CUDA stream for operations that need ownership.
     #[inline]
     pub fn stream_arc(&self) -> &Arc<CudaStream> {
-        &self.stream
+        self.stream.arc()
     }
 
     /// Get reference to the CUDA context.
@@ -253,7 +276,7 @@ impl CudaClient {
                     r
                 )));
             }
-            let r = cuEventRecord(event, self.stream.cu_stream());
+            let r = cuEventRecord(event, self.stream.raw().cu_stream());
             if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
                 cudarc::driver::sys::cuEventDestroy_v2(event);
                 return Err(CudaError::ContextError(format!(
@@ -356,42 +379,49 @@ impl CudaClient {
 
         let dv_bytes = bytemuck::cast_slice::<u32, u8>(&direction_vectors);
 
-        // Allocate a device buffer directly via the driver (bypassing the
-        // caching allocator's frozen path) so the address survives across
-        // graph replays.  We use `cuMemAllocAsync` on the compute stream
-        // for proper pool membership and synchronise before returning.
-        let dv_ptr: u64 = unsafe {
-            let mut ptr: u64 = 0;
-            let r = cudarc::driver::sys::cuMemAllocAsync(
-                &mut ptr,
-                dv_bytes.len(),
-                self.stream.cu_stream(),
-            );
-            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                return Err(crate::error::Error::OutOfMemory {
-                    size: dv_bytes.len(),
-                });
+        let cu_stream = self.stream.raw().cu_stream();
+
+        // One permit covers the allocation and the copy, so no capture can
+        // open between them. The wait below takes its own; nesting two read
+        // sides on one thread would deadlock against a waiting writer.
+        let dv_ptr: u64 = {
+            let _permit = self.stream.enqueue_permit();
+
+            // Allocate a device buffer directly via the driver (bypassing the
+            // caching allocator's frozen path) so the address survives across
+            // graph replays.  We use `cuMemAllocAsync` on the compute stream
+            // for proper pool membership and synchronise before returning.
+            let ptr: u64 = unsafe {
+                let mut ptr: u64 = 0;
+                let r = cudarc::driver::sys::cuMemAllocAsync(&mut ptr, dv_bytes.len(), cu_stream);
+                if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                    return Err(crate::error::Error::OutOfMemory {
+                        size: dv_bytes.len(),
+                    });
+                }
+                ptr
+            };
+
+            // H2D copy.
+            unsafe {
+                let r = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
+                    ptr,
+                    dv_bytes.as_ptr() as *const std::ffi::c_void,
+                    dv_bytes.len(),
+                    cu_stream,
+                );
+                if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                    // Free the buffer we just allocated before returning the error.
+                    let _ = cudarc::driver::sys::cuMemFreeAsync(ptr, cu_stream);
+                    return Err(crate::error::Error::Backend(format!(
+                        "Sobol warmup H2D copy failed: {:?}",
+                        r
+                    )));
+                }
             }
+
             ptr
         };
-
-        // H2D copy.
-        unsafe {
-            let r = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                dv_ptr,
-                dv_bytes.as_ptr() as *const std::ffi::c_void,
-                dv_bytes.len(),
-                self.stream.cu_stream(),
-            );
-            if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                // Free the buffer we just allocated before returning the error.
-                let _ = cudarc::driver::sys::cuMemFreeAsync(dv_ptr, self.stream.cu_stream());
-                return Err(crate::error::Error::Backend(format!(
-                    "Sobol warmup H2D copy failed: {:?}",
-                    r
-                )));
-            }
-        }
 
         // Synchronise: the buffer must be fully uploaded before any subsequent
         // capture region references the pointer.
@@ -434,7 +464,7 @@ impl RuntimeClient<CudaRuntime> for CudaClient {
     }
 
     fn compute_stream_handle(&self) -> Option<u64> {
-        Some(self.stream.cu_stream() as u64)
+        Some(self.stream.raw().cu_stream() as u64)
     }
 }
 

@@ -1,10 +1,10 @@
 //! CUDA stream-ordered allocator with a Rust-side free list.
 
-use cudarc::driver::safe::CudaStream;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use super::arena::CudaArena;
+use super::capture::GuardedStream;
 use crate::runtime::Allocator;
 
 /// Maximum number of cached buffers per exact byte-size bucket.
@@ -115,7 +115,10 @@ impl FreeList {
 /// The OOM-retry path additionally trims the pool to 0.
 #[derive(Clone)]
 pub struct CudaAllocator {
-    stream: Arc<CudaStream>,
+    /// The device's compute stream. `cuMemAllocAsync` and `cuMemFreeAsync`
+    /// are stream-ordered enqueues, so the driver paths below take the
+    /// device's capture lock through it.
+    stream: GuardedStream,
     /// Per-size free list with a running cached-byte total.
     ///
     /// VecDeque gives O(1) push_back / pop_front so the oldest entry is
@@ -170,7 +173,7 @@ impl CudaAllocator {
     /// `pool_handle` is the raw `CUmemoryPool` pointer value for the device's
     /// default pool (zero if it could not be obtained), used only by the OOM
     /// retry path.
-    pub(super) fn new(stream: Arc<CudaStream>, pool_handle: u64) -> Self {
+    pub(super) fn new(stream: GuardedStream, pool_handle: u64) -> Self {
         Self {
             stream,
             free_list: Arc::new(Mutex::new(FreeList::default())),
@@ -187,10 +190,13 @@ impl CudaAllocator {
     /// On failure, drains the Rust free list back to the driver pool so those
     /// segments become available for reuse, syncs the stream, then retries once.
     unsafe fn driver_alloc(&self, size_bytes: usize) -> crate::error::Result<u64> {
+        // One permit covers the alloc, the drain, the sync and the retry:
+        // every one of them is stream-ordered on the compute stream.
+        let _permit = self.stream.enqueue_permit();
+        let cu_stream = self.stream.raw().cu_stream();
         let mut ptr: u64 = 0;
-        let result = unsafe {
-            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream())
-        };
+        let result =
+            unsafe { cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, cu_stream) };
         if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             return Ok(ptr);
         }
@@ -207,11 +213,13 @@ impl CudaAllocator {
                 .collect()
         };
         for p in drained {
-            let _ = unsafe { cudarc::driver::sys::cuMemFreeAsync(p, self.stream.cu_stream()) };
+            let _ = unsafe { cudarc::driver::sys::cuMemFreeAsync(p, cu_stream) };
         }
 
-        // Sync so the pool can process the frees before the retry alloc.
-        let _ = self.stream.synchronize();
+        // Sync so the pool can process the frees before the retry alloc. The
+        // permit taken at entry already covers this wait, so it goes through
+        // the bare stream rather than taking a second read side.
+        let _ = self.stream.raw().synchronize();
 
         // Trim the pool to release cached segments back to the OS. The
         // pool retains freed allocations (per the release threshold) which
@@ -224,9 +232,8 @@ impl CudaAllocator {
             let _ = unsafe { cudarc::driver::sys::cuMemPoolTrimTo(pool, 0) };
         }
 
-        let result = unsafe {
-            cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, self.stream.cu_stream())
-        };
+        let result =
+            unsafe { cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, cu_stream) };
         if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             Ok(ptr)
         } else {
@@ -236,7 +243,8 @@ impl CudaAllocator {
 
     /// Free directly to the driver (no free-list insertion).
     unsafe fn driver_free(&self, ptr: u64) {
-        let _ = unsafe { cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.cu_stream()) };
+        let _permit = self.stream.enqueue_permit();
+        let _ = unsafe { cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.raw().cu_stream()) };
     }
 
     /// Install a bump-pointer arena for the next freeze window.

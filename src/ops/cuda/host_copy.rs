@@ -18,13 +18,16 @@ impl HostCopyOps<CudaRuntime> for CudaClient {
         // kernels that read `out` and records as a memcpy node under graph
         // capture. `src` is pageable host memory, which the driver stages
         // before returning, so the caller may drop it on return.
-        let result = unsafe {
-            cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-                out.ptr(),
-                bytes.as_ptr() as *const std::ffi::c_void,
-                bytes.len(),
-                self.stream().cu_stream(),
-            )
+        let result = {
+            let _permit = self.stream().enqueue_permit();
+            unsafe {
+                cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
+                    out.ptr(),
+                    bytes.as_ptr() as *const std::ffi::c_void,
+                    bytes.len(),
+                    self.stream().raw().cu_stream(),
+                )
+            }
         };
         if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             return Err(Error::Backend(format!(

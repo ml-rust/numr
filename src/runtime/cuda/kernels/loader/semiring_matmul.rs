@@ -4,11 +4,12 @@
 //! argument rather than specialised into the kernel name.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::LaunchConfig;
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -23,7 +24,7 @@ use super::names::{kernel_name, kernel_names};
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_semiring_matmul_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -82,7 +83,7 @@ pub unsafe fn launch_semiring_matmul_kernel(
 /// All pointers must be valid device memory with correct sizes.
 pub unsafe fn launch_semiring_matmul_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

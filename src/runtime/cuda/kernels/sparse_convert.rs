@@ -6,7 +6,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -14,6 +14,7 @@ use super::loader::{
     BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_names, launch_config,
 };
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Helper to compute launch config from element count
 fn compute_launch_config(n: usize) -> super::loader::LaunchConfig {
@@ -39,7 +40,7 @@ fn compute_launch_config(n: usize) -> super::loader::LaunchConfig {
 /// - indices_out has length nnz
 pub unsafe fn launch_expand_ptrs(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     ptrs: u64,
     indices_out: u64,
@@ -82,7 +83,7 @@ pub unsafe fn launch_expand_ptrs(
 /// - CSR output arrays properly allocated
 pub unsafe fn launch_csc_to_csr_transpose<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     csc_col_ptrs: u64,
     csc_row_indices: u64,
@@ -145,7 +146,7 @@ pub unsafe fn launch_csc_to_csr_transpose<T: CudaTypeName>(
 /// - Both values arrays have length nnz
 pub unsafe fn launch_sparse_scale<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values_in: u64,
     values_out: u64,
@@ -205,7 +206,7 @@ pub unsafe fn launch_sparse_scale<T: CudaTypeName>(
 /// - result points to single element
 pub unsafe fn launch_sparse_sum<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     values: u64,
     result: u64,
@@ -255,7 +256,7 @@ pub unsafe fn launch_sparse_sum<T: CudaTypeName>(
 /// - row_sums has length nrows
 pub unsafe fn launch_sparse_sum_rows_csr<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     values: u64,
@@ -306,7 +307,7 @@ pub unsafe fn launch_sparse_sum_rows_csr<T: CudaTypeName>(
 /// - row_nnz has length nrows
 pub unsafe fn launch_sparse_nnz_per_row_csr(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     row_nnz: u64,
@@ -351,7 +352,7 @@ pub unsafe fn launch_sparse_nnz_per_row_csr(
 /// - col_counts is zero-initialized and has length ncols
 pub unsafe fn launch_histogram_csr_columns(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     row_ptrs: u64,
     col_indices: u64,
@@ -394,7 +395,7 @@ pub unsafe fn launch_histogram_csr_columns(
 /// - row_counts is zero-initialized and has length nrows
 pub unsafe fn launch_histogram_csc_rows(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     col_ptrs: u64,
     row_indices: u64,
@@ -443,7 +444,7 @@ pub unsafe fn launch_histogram_csc_rows(
 /// - CSC output arrays properly allocated
 pub unsafe fn launch_csr_to_csc_transpose<T: CudaTypeName>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     csr_row_ptrs: u64,
     csr_col_indices: u64,
@@ -511,7 +512,7 @@ pub unsafe fn launch_csr_to_csc_transpose<T: CudaTypeName>(
 /// - All pointers are valid device pointers
 pub unsafe fn launch_build_ptrs_from_sorted(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     sorted_indices: u64,
     ptrs_out: u64,

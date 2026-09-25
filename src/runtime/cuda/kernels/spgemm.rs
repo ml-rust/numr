@@ -4,7 +4,7 @@
 // This implements the SAME algorithm as CPU for backend parity
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
@@ -13,6 +13,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
 use crate::runtime::cuda::CudaRuntime;
+use crate::runtime::cuda::GuardedStream;
 use crate::tensor::Tensor;
 
 /// CUDA module name for sparse matrix-matrix multiplication (SpGEMM) kernels.
@@ -32,7 +33,7 @@ pub const SPGEMM_MODULE: &str = "spgemm";
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_symbolic_phase(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &<CudaRuntime as Runtime>::Device,
     a_row_ptrs: &Tensor<CudaRuntime>,
@@ -107,7 +108,7 @@ pub unsafe fn spgemm_symbolic_phase(
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
 pub unsafe fn spgemm_numeric_phase<T: CudaTypeName + Copy + cudarc::driver::DeviceRepr>(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_row_ptrs: &Tensor<CudaRuntime>,
     a_col_indices: &Tensor<CudaRuntime>,

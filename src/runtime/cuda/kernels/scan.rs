@@ -22,9 +22,9 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::cuda::{CudaDevice, CudaRuntime};
+use crate::runtime::cuda::{CudaDevice, CudaRuntime, GuardedStream};
 use crate::tensor::Tensor;
-use cudarc::driver::{CudaContext, CudaStream, PushKernelArg};
+use cudarc::driver::{CudaContext, PushKernelArg};
 use std::sync::Arc;
 
 use super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
@@ -69,7 +69,7 @@ const MAX_SCAN_RECURSION_DEPTH: usize = 10;
 ///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i32_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     input: &Tensor<CudaRuntime>,
@@ -140,7 +140,7 @@ pub unsafe fn exclusive_scan_i32_gpu(
 /// Launch single-block exclusive scan kernel
 unsafe fn launch_scan_single_block_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_ptr: u64,
     output_ptr: u64,
@@ -178,7 +178,7 @@ unsafe fn launch_scan_single_block_i32(
 /// Caller must ensure input_ptr and output_ptr point to valid device memory.
 unsafe fn launch_scan_multi_block_i32(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     input_ptr: u64,
@@ -334,7 +334,7 @@ unsafe fn launch_scan_multi_block_i32(
 ///   intentional and documented as acceptable for control-flow purposes.
 pub unsafe fn exclusive_scan_i64_gpu(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     input: &Tensor<CudaRuntime>,
@@ -405,7 +405,7 @@ pub unsafe fn exclusive_scan_i64_gpu(
 /// Launch single-block exclusive scan kernel for i64
 unsafe fn launch_scan_single_block_i64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     input_ptr: u64,
     output_ptr: u64,
@@ -443,7 +443,7 @@ unsafe fn launch_scan_single_block_i64(
 /// Caller must ensure input_ptr and output_ptr point to valid device memory.
 unsafe fn launch_scan_multi_block_i64(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     device: &CudaDevice,
     input_ptr: u64,

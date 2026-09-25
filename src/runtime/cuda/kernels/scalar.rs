@@ -4,7 +4,7 @@
 //! (add_scalar, mul_scalar, etc.).
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Macro to generate scalar operation launcher functions.
 ///
@@ -30,7 +31,7 @@ macro_rules! define_scalar_launcher {
         $(#[$meta])*
         $vis unsafe fn $name(
             context: &Arc<CudaContext>,
-            stream: &CudaStream,
+            stream: &GuardedStream,
             device_index: usize,
             op: &str,
             a_ptr: u64,
@@ -187,7 +188,7 @@ define_scalar_launcher!(
 /// Same requirements as `launch_scalar_op_f32`.
 pub unsafe fn launch_scalar_op_half(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -265,7 +266,7 @@ define_scalar_launcher!(
 /// Same requirements as `launch_scalar_op_f32`.
 pub unsafe fn launch_scalar_op_int(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     op: &str,
     dtype: DType,
@@ -319,7 +320,7 @@ pub unsafe fn launch_scalar_op_int(
 /// Same requirements as `launch_scalar_op_f32`.
 pub unsafe fn launch_pow_scalar_int(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

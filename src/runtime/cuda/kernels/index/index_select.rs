@@ -1,7 +1,7 @@
 //! Index select and index bounds validation kernel launchers
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -11,6 +11,7 @@ use super::dtype_gate::index_dtype_suffix;
 use super::gather::INDEX_MODULE;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Launch index_select kernel.
 ///
@@ -23,7 +24,7 @@ use crate::error::{Error, Result};
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_index_select(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -83,7 +84,7 @@ pub unsafe fn launch_index_select(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_index_put(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     indices_ptr: u64,
@@ -141,7 +142,7 @@ pub unsafe fn launch_index_put(
 /// - error_count_ptr must be valid device memory with 1 u32 element (initialized to 0)
 pub unsafe fn launch_validate_indices(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     indices_ptr: u64,
     error_count_ptr: u64,

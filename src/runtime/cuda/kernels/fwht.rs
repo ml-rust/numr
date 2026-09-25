@@ -5,7 +5,7 @@
 //! per-block budget every CUDA device guarantees.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -14,6 +14,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Dynamic shared memory every CUDA device grants a block without opt-in.
 const FWHT_SHARED_MEM_BUDGET: usize = 48 * 1024;
@@ -69,7 +70,7 @@ pub fn fwht_max_block_size(dtype: DType) -> Result<usize> {
 /// * `block_size` - Transform width, a power of two
 pub unsafe fn launch_fwht(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

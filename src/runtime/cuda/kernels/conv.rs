@@ -3,7 +3,7 @@
 //! Provides launchers for convolution operations: conv1d, conv2d, depthwise_conv2d.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -14,6 +14,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaDevice;
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for convolution operations
 pub const CONV_MODULE: &str = "conv";
@@ -137,7 +138,7 @@ fn position_block_width(x_extent: usize) -> u32 {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_conv1d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -322,7 +323,7 @@ pub unsafe fn launch_conv1d(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_conv_transpose1d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -416,7 +417,7 @@ pub unsafe fn launch_conv_transpose1d(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_conv2d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -525,7 +526,7 @@ pub unsafe fn launch_conv2d(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_depthwise_conv2d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,

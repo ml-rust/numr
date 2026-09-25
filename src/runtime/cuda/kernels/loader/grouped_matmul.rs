@@ -9,11 +9,12 @@
 //! selection and launch-geometry helpers rather than re-deriving them.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::traits::profile::DeviceCaps;
 
 use super::grouped_matmul_tile::{
@@ -38,7 +39,7 @@ use super::names::kernel_names;
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_grouped_matmul(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,
@@ -140,7 +141,7 @@ pub unsafe fn launch_grouped_matmul(
 #[allow(clippy::too_many_arguments)]
 unsafe fn launch_grouped_matmul_wmma(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,

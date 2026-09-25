@@ -3,11 +3,12 @@
 //! Kernel source: sparse_24.cu
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     launch_config,
@@ -21,7 +22,7 @@ const MODULE_NAME: &str = "sparse_24";
 /// All pointers must be valid device memory of correct size.
 pub unsafe fn launch_sparse_24_prune(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     dense_ptr: u64,
@@ -63,7 +64,7 @@ pub unsafe fn launch_sparse_24_prune(
 /// All pointers must be valid device memory of correct size.
 pub unsafe fn launch_sparse_24_decompress(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     compressed_ptr: u64,
@@ -105,7 +106,7 @@ pub unsafe fn launch_sparse_24_decompress(
 /// All pointers must be valid device memory of correct size.
 pub unsafe fn launch_sparse_24_matmul(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,            // [N, K]

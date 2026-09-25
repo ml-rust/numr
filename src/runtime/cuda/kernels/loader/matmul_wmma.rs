@@ -9,11 +9,12 @@
 //! static shared memory, so the dynamic request is always zero.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 use super::matmul_wmma_tile::{select_wmma_tile, wmma_kernel_name, wmma_launch_config};
 use super::module_cache::{get_kernel_function, get_or_load_module};
@@ -27,7 +28,7 @@ use super::names::kernel_names;
 /// of `dtype`. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_matmul_wmma_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -72,7 +73,7 @@ pub unsafe fn launch_matmul_wmma_kernel(
 /// and `batch×M×N` elements of `dtype`. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_matmul_wmma_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -132,7 +133,7 @@ pub unsafe fn launch_matmul_wmma_batched_kernel(
 /// of `dtype`, and `bias_ptr` N elements. Any M, N, K >= 1 is accepted.
 pub unsafe fn launch_matmul_bias_wmma_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,
@@ -184,7 +185,7 @@ pub unsafe fn launch_matmul_bias_wmma_kernel(
 /// M, N, K >= 1 is accepted.
 pub unsafe fn launch_matmul_bias_wmma_batched_kernel(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     a_ptr: u64,

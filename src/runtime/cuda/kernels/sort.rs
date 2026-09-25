@@ -5,11 +5,12 @@ use super::loader::{
     get_kernel_function, get_or_load_module, kernel_name, launch_config,
 };
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for sort kernels
 pub const SORT_MODULE: &str = "sort";
@@ -45,7 +46,7 @@ fn sort_shared_mem_size(sort_size: usize, elem_size: usize) -> Result<u32> {
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_sort(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -104,7 +105,7 @@ pub unsafe fn launch_sort(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_sort_values_only(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -163,7 +164,7 @@ pub unsafe fn launch_sort_values_only(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_argsort(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -219,7 +220,7 @@ pub unsafe fn launch_argsort(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_topk(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -283,7 +284,7 @@ pub unsafe fn launch_topk(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_count_nonzero(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -324,7 +325,7 @@ pub unsafe fn launch_count_nonzero(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_gather_nonzero(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     input_ptr: u64,
@@ -367,7 +368,7 @@ pub unsafe fn launch_gather_nonzero(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_flat_to_multi_index(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     flat_indices_ptr: u64,
     multi_indices_ptr: u64,
@@ -412,7 +413,7 @@ pub unsafe fn launch_flat_to_multi_index(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_searchsorted(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     seq_ptr: u64,
@@ -459,7 +460,7 @@ pub unsafe fn launch_searchsorted(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_count_unique(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     sorted_input_ptr: u64,
@@ -498,7 +499,7 @@ pub unsafe fn launch_count_unique(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_extract_unique(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     sorted_input_ptr: u64,
@@ -539,7 +540,7 @@ pub unsafe fn launch_extract_unique(
 /// allocated on `device_index` with sufficient size for the operation.
 pub unsafe fn launch_bincount(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     indices_ptr: u64,
     counts_ptr: u64,

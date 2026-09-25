@@ -3,7 +3,8 @@
 use super::helpers::launch_unary_special;
 use crate::dtype::DType;
 use crate::error::Result;
-use cudarc::driver::{CudaContext, CudaStream};
+use crate::runtime::cuda::GuardedStream;
+use cudarc::driver::CudaContext;
 use std::sync::Arc;
 
 /// Launch bessel_j0 kernel
@@ -11,7 +12,7 @@ use std::sync::Arc;
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_j0(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -38,7 +39,7 @@ pub unsafe fn launch_bessel_j0(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_j1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -65,7 +66,7 @@ pub unsafe fn launch_bessel_j1(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_y0(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -92,7 +93,7 @@ pub unsafe fn launch_bessel_y0(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_y1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -119,7 +120,7 @@ pub unsafe fn launch_bessel_y1(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_i0(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -146,7 +147,7 @@ pub unsafe fn launch_bessel_i0(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_i1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -173,7 +174,7 @@ pub unsafe fn launch_bessel_i1(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_k0(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,
@@ -200,7 +201,7 @@ pub unsafe fn launch_bessel_k0(
 /// Pointers must be valid GPU memory of correct size.
 pub unsafe fn launch_bessel_k1(
     ctx: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     x_ptr: u64,

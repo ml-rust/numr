@@ -50,10 +50,12 @@ fn enabled_from(value: Option<&str>) -> bool {
 ///
 /// - Tuning disabled (`enabled()` is false): return `fallback`, no cache write.
 /// - Cache hit: return the cached value.
-/// - `client`'s stream is inside a CUDA graph capture: return `fallback`
-///   without probing or caching. A probe records events and synchronizes,
-///   which would invalidate the capture; the value is measured on the next
-///   call outside capture. A warmup pass before capture fills the cache.
+/// - The CALLING THREAD is inside a CUDA graph capture on `client`'s device:
+///   return `fallback` without probing or caching. A probe records events and
+///   synchronizes, which would invalidate the capture; the value is measured
+///   on the next call outside capture. A warmup pass before capture fills the
+///   cache. A thread that is not capturing still probes, even while another
+///   thread captures on the same device.
 /// - Cache miss: run `probe`. On `Ok(v)`, cache and return `v`. On `Err`, log
 ///   to stderr and return `fallback` without caching, so the next call
 ///   retries a transient failure.
@@ -65,6 +67,8 @@ pub fn tuned<T: Copy + Send + Sync + 'static>(
 ) -> T {
     tuned_with(
         enabled(),
+        // The calling thread's capture state, not the driver's view of the
+        // shared stream: a thread that is not capturing must still probe.
         client.is_capturing(),
         client.device.index,
         key,
@@ -77,7 +81,7 @@ pub fn tuned<T: Copy + Send + Sync + 'static>(
 /// without touching the process-wide `OnceLock`.
 fn tuned_with<T: Copy + Send + Sync + 'static>(
     enabled: bool,
-    capturing: bool,
+    thread_is_capturing: bool,
     device_index: usize,
     key: &'static str,
     fallback: T,
@@ -89,7 +93,7 @@ fn tuned_with<T: Copy + Send + Sync + 'static>(
     if let Some(value) = cache::get::<T>(device_index, key) {
         return value;
     }
-    if capturing {
+    if thread_is_capturing {
         return fallback;
     }
     // A poisoned lock only means another probe panicked; the cache holds

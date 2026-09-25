@@ -43,67 +43,7 @@ impl Runtime for CudaRuntime {
     where
         F: FnOnce(&Self::Client) -> crate::error::Result<()>,
     {
-        use cudarc::driver::sys::CUstreamCaptureMode;
-
-        // Clone each I/O tensor (cheap Arc bump on Storage).  Holding these
-        // clones prevents the underlying device memory from being freed for
-        // the lifetime of the resulting CapturedGraph.
-        let owned_inputs: Vec<crate::tensor::Tensor<Self>> =
-            inputs.iter().map(|t| (*t).clone()).collect();
-        let owned_outputs: Vec<crate::tensor::Tensor<Self>> =
-            outputs.iter().map(|t| (*t).clone()).collect();
-
-        // Freeze the caching allocator: alloc/free calls go directly through
-        // cuMemAllocAsync/cuMemFreeAsync, creating proper graph nodes.
-        // (Same rationale as the allocator freeze in capture_graph_into.)
-        client.allocator.freeze();
-
-        // Begin stream capture — all ops on this stream are recorded. A failed
-        // begin must unfreeze, or every later allocation on this client would
-        // bypass the pool as if a capture were still open.
-        if let Err(e) = client
-            .stream
-            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)
-        {
-            client.allocator.unfreeze();
-            return Err(e.into());
-        }
-
-        // Execute the closure — ops are recorded into the graph.
-        let closure_result = f(client);
-
-        // End capture — MUST happen even if the closure failed, otherwise the
-        // stream is left in capture mode and all subsequent operations fail.
-        //
-        // AUTO_FREE_ON_LAUNCH: graph-managed memory allocated during capture is
-        // freed on each launch. Intermediate tensors (scratch buffers) created
-        // inside the closure are subject to this. The caller-supplied output
-        // tensors are allocated OUTSIDE the closure (before capture begins) and
-        // are NOT subject to auto-free — their lifetime is controlled by the
-        // Arc-clones held in owned_outputs.
-        let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
-        let graph_result = client.stream.end_capture(flags);
-
-        // Restore caching allocator for normal (non-capture) operations.
-        client.allocator.unfreeze();
-
-        // Propagate closure error (after restoring stream/allocator state).
-        closure_result?;
-
-        // Propagate capture error.
-        let graph_opt = graph_result?;
-
-        let cudarc_graph = graph_opt.ok_or_else(|| {
-            crate::error::Error::Backend(
-                "CUDA graph capture produced no operations — closure recorded nothing".into(),
-            )
-        })?;
-
-        Ok(crate::runtime::CapturedGraph::new(
-            super::CudaGraph::new(cudarc_graph),
-            owned_inputs,
-            owned_outputs,
-        ))
+        super::capture::entry::capture_graph_into(client, inputs, outputs, f)
     }
 
     /// Allocate GPU memory.
@@ -163,13 +103,17 @@ impl Runtime for CudaRuntime {
         }
 
         let client = get_or_create_client(device);
+        // The copy is an enqueue on the shared compute stream: hold the
+        // device's capture lock for it so it cannot land in another thread's
+        // graph.
+        let _permit = client.stream.enqueue_permit();
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
                 dst,
                 src.as_ptr() as *const std::ffi::c_void,
                 src.len(),
-                client.stream.cu_stream(),
+                client.stream.raw().cu_stream(),
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
@@ -201,13 +145,16 @@ impl Runtime for CudaRuntime {
         }
 
         let client = get_or_create_client(device);
+        // The copy and the synchronization both touch the shared compute
+        // stream; one permit covers them so no capture opens between them.
+        let _permit = client.stream.enqueue_permit();
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
                 dst.as_mut_ptr() as *mut std::ffi::c_void,
                 src,
                 dst.len(),
-                client.stream.cu_stream(),
+                client.stream.raw().cu_stream(),
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
@@ -221,7 +168,17 @@ impl Runtime for CudaRuntime {
             // With pageable host memory, cuMemcpyDtoHAsync blocks the host until
             // the copy completes. However, we still need to synchronize the stream
             // to ensure all prior GPU kernels have finished producing the data.
-            let _ = client.stream.synchronize();
+            //
+            // A capturing thread must not synchronize: that would invalidate
+            // its own capture. Reading a device value back is not recordable
+            // work in any case, so the copy stands alone there.
+            //
+            // The permit taken above already covers this wait, so it goes
+            // through the bare stream: `GuardedStream::synchronize` would
+            // take a second read side on this thread.
+            if !client.is_capturing() {
+                let _ = client.stream.raw().synchronize();
+            }
         }
         Ok(())
     }
@@ -229,6 +186,8 @@ impl Runtime for CudaRuntime {
     /// Record an event on the compute stream.
     fn record_compute_event(device: &Self::Device) -> crate::error::Result<u64> {
         let client = get_or_create_client(device);
+        // Recording an event enqueues on the shared compute stream.
+        let _permit = client.stream.enqueue_permit();
         client
             .record_event_on_compute()
             .map_err(|e| crate::error::Error::Backend(format!("Event record failed: {}", e)))
@@ -247,6 +206,9 @@ impl Runtime for CudaRuntime {
         }
 
         let client = get_or_create_client(device);
+        // The event being waited on was recorded on the shared compute
+        // stream; hold the capture lock while the copy stream is tied to it.
+        let _permit = client.stream.enqueue_permit();
 
         unsafe {
             // 1. Copy stream waits for event (waits for argmax to finish)
@@ -294,13 +256,17 @@ impl Runtime for CudaRuntime {
         }
 
         let client = get_or_create_client(device);
+        // Enqueue on the shared compute stream. Consumers call this from
+        // inside capture closures, where the permit is a no-op because the
+        // capturing thread already owns the device.
+        let _permit = client.stream.enqueue_permit();
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
                 dst,
                 src,
                 size_bytes,
-                client.stream.cu_stream(),
+                client.stream.raw().cu_stream(),
             );
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
@@ -334,6 +300,10 @@ impl Runtime for CudaRuntime {
         let ndim = shape.len();
         let client = get_or_create_client(device);
 
+        // The only enqueue here is the kernel launch, which takes the device's
+        // capture lock itself. Taking a permit here as well would hold the
+        // read side twice on one thread.
+        //
         // Shape and strides are passed as kernel arguments (by value), not device
         // memory pointers.  This is critical for CUDA graph capture compatibility:
         // H2D copies of temporary host data create graph memcpy nodes that re-read
@@ -445,92 +415,13 @@ impl CudaRuntime {
     where
         F: FnOnce(&CudaClient) -> crate::error::Result<()>,
     {
-        use crate::dtype::DType;
-        use crate::tensor::Tensor;
-        use cudarc::driver::sys::CUstreamCaptureMode;
-
-        // Allocate the arena buffer OUTSIDE the capture region so its address
-        // is NOT baked into graph-managed memory and is NOT subject to
-        // AUTO_FREE_ON_LAUNCH.  We use F32 storage (4 bytes/element) as a
-        // neutral dtype; the arena is only accessed as raw bytes by the
-        // bump-pointer logic.
-        let arena_elems = arena_bytes.div_ceil(std::mem::size_of::<f32>());
-        let arena_tensor = Tensor::<CudaRuntime>::empty(&[arena_elems], DType::F32, &client.device)
-            .map_err(|e| {
-                crate::error::Error::Backend(format!(
-                    "capture_graph_into_with_arena: arena allocation failed \
-                         ({arena_bytes} bytes): {e}"
-                ))
-            })?;
-        let arena_ptr = arena_tensor.ptr();
-
-        // Install the arena so freeze-time allocations go into it. Fails if a
-        // capture is already in progress on this client (arena already present);
-        // `arena_tensor` is dropped here, freeing its buffer.
-        client.allocator.install_arena(arena_ptr, arena_bytes)?;
-
-        // Clone each I/O tensor (cheap Arc bump).
-        let owned_inputs: Vec<Tensor<CudaRuntime>> = inputs.iter().map(|t| (*t).clone()).collect();
-        let owned_outputs: Vec<Tensor<CudaRuntime>> =
-            outputs.iter().map(|t| (*t).clone()).collect();
-
-        // Freeze: allocations now serve from the arena.
-        client.allocator.freeze();
-
-        // Begin stream capture. A failed begin must unfreeze (which also clears
-        // the arena), or the client stays frozen with a stale arena installed.
-        if let Err(e) = client
-            .stream
-            .begin_capture(CUstreamCaptureMode::CU_STREAM_CAPTURE_MODE_GLOBAL)
-        {
-            client.allocator.unfreeze();
-            return Err(e.into());
-        }
-
-        // Execute the closure — ops are recorded into the graph.
-        let closure_result = f(client);
-
-        // End capture — MUST happen even if the closure failed.
-        //
-        // With the arena approach, ALL intermediate allocations go into the
-        // pre-allocated bump-pointer buffer (no `cuMemAllocAsync` inside the
-        // capture region), so there are normally NO graph-managed allocation
-        // nodes for AUTO_FREE_ON_LAUNCH to act on. We deliberately pass it
-        // anyway: cudarc's safe `end_capture` requires a flag from
-        // `CUgraphInstantiate_flags` (which has no zero/NONE variant), and
-        // AUTO_FREE_ON_LAUNCH is the correct, defensive choice — a no-op when
-        // there are no alloc nodes, and the safe behavior (free on replay) if a
-        // future op ever does allocate inside the capture region.
-        let flags = cudarc::driver::sys::CUgraphInstantiate_flags::CUDA_GRAPH_INSTANTIATE_FLAG_AUTO_FREE_ON_LAUNCH;
-        let graph_result = client.stream.end_capture(flags);
-
-        // Peak arena footprint of the recorded closure. Read before unfreeze,
-        // which clears the arena bookkeeping.
-        let arena_bytes_used = client.allocator.arena_high_water();
-
-        // Restore the allocator (clears the arena bookkeeping, resets frozen).
-        client.allocator.unfreeze();
-
-        // Propagate closure error after restoring stream/allocator state.
-        closure_result?;
-
-        // Propagate capture error.
-        let graph_opt = graph_result?;
-        let cudarc_graph = graph_opt.ok_or_else(|| {
-            crate::error::Error::Backend(
-                "CUDA graph capture (with_arena) produced no operations — \
-                 closure recorded nothing"
-                    .into(),
-            )
-        })?;
-
-        Ok(crate::runtime::CapturedGraph::new_with_arena(
-            super::CudaGraph::new(cudarc_graph),
-            owned_inputs,
-            owned_outputs,
-            arena_tensor,
-            arena_bytes_used.unwrap_or(0),
-        ))
+        super::capture::entry::capture_graph_into_with_arena(
+            client,
+            inputs,
+            outputs,
+            arena_bytes,
+            f,
+        )
     }
 }
 

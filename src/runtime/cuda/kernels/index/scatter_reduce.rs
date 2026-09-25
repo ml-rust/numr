@@ -10,7 +10,7 @@
 //!   element and dividing once at the end.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::super::loader::{
@@ -20,6 +20,7 @@ use super::super::loader::{
 use super::dtype_gate::index_dtype_suffix;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Scatter reduce operation type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +69,7 @@ impl ScatterReduceOpCuda {
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_scatter_reduce(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,
@@ -153,7 +154,7 @@ pub unsafe fn launch_scatter_reduce(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_scatter_reduce_int(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     src_ptr: u64,
@@ -229,7 +230,7 @@ pub unsafe fn launch_scatter_reduce_int(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_scatter_reduce_count(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     indices_ptr: u64,
@@ -301,7 +302,7 @@ pub unsafe fn launch_scatter_reduce_count(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_scatter_reduce_mean_div(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     sum_ptr: u64,

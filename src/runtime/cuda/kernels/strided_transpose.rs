@@ -16,12 +16,13 @@
 //! the general kernel, which is always correct.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{MAX_GRID_DIM_YZ, get_kernel_function, get_or_load_module, launch_config};
 use super::strided_copy::MAX_DIMS;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for the tiled transpose kernels
 pub const STRIDED_TRANSPOSE_MODULE: &str = "strided_transpose";
@@ -256,7 +257,7 @@ impl TransposePlan {
 /// `batch * rows * cols * elem_size` bytes.
 pub unsafe fn launch_strided_transpose(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_ptr: u64,
     dst_ptr: u64,

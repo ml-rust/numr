@@ -14,13 +14,14 @@
 //! (`matmul_f32_smallm_tune.rs`) with a measured fallback.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Device;
 use crate::runtime::cuda::CudaClient;
+use crate::runtime::cuda::GuardedStream;
 
 use super::launch_dims::{BLOCK_SIZE, LaunchConfig, MAX_GRID_DIM_YZ};
 use super::matmul_f32_smallm_tune::smallm_max_waves;
@@ -202,7 +203,7 @@ pub unsafe fn launch_matmul_smallm_bt_kernel(
 /// As [`launch_matmul_smallm_bt_kernel`], and the operands are F32.
 pub unsafe fn launch_matmul_smallm_bt_f32_ungated(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     a_ptr: u64,
     b_ptr: u64,

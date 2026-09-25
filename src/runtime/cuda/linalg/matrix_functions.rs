@@ -158,11 +158,13 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     // Zero-initialize the result buffer
     let zero_data: [f64; 2] = [0.0, 0.0];
     unsafe {
+        // The permit covers this memcpy only; the launch below takes its own.
+        let _permit = client.stream().enqueue_permit();
         cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
             result_buffer,
             zero_data.as_ptr() as *const std::ffi::c_void,
             2 * std::mem::size_of::<f64>(),
-            client.stream().cu_stream(),
+            client.stream().raw().cu_stream(),
         );
     }
 
@@ -269,11 +271,13 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     // Zero-initialize the result buffer
     let zero_data: [f64; 2] = [0.0, 0.0];
     unsafe {
+        // The permit covers this memcpy only; the launch below takes its own.
+        let _permit = client.stream().enqueue_permit();
         cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
             result_buffer,
             zero_data.as_ptr() as *const std::ffi::c_void,
             2 * std::mem::size_of::<f64>(),
-            client.stream().cu_stream(),
+            client.stream().raw().cu_stream(),
         );
     }
 

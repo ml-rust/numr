@@ -9,7 +9,7 @@
 //! device pointers to temporary host-allocated data become stale on graph replay.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -17,6 +17,7 @@ use super::loader::{
 };
 use super::strided_transpose::{TransposePlan, launch_strided_transpose};
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Module name for strided copy operations
 pub const STRIDED_COPY_MODULE: &str = "strided_copy";
@@ -53,7 +54,7 @@ pub const MAX_DIMS: usize = 8;
 /// * `src_byte_offset` - Byte offset into source buffer
 pub unsafe fn launch_strided_copy(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_ptr: u64,
     dst_ptr: u64,
@@ -150,7 +151,7 @@ pub unsafe fn launch_strided_copy(
 #[allow(dead_code)] // Available for future optimization
 pub unsafe fn launch_strided_copy_2d(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     src_ptr: u64,
     dst_ptr: u64,

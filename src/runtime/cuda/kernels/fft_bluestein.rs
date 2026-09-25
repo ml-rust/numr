@@ -5,7 +5,7 @@
 //! provide. See that `.cu` file for the algorithm.
 
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::safe::{CudaContext, CudaStream};
+use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
@@ -13,6 +13,7 @@ use super::loader::{
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::cuda::GuardedStream;
 
 /// Bluestein kernel module name.
 pub const FFT_BLUESTEIN_MODULE: &str = "fft_bluestein";
@@ -41,7 +42,7 @@ pub enum BluesteinInput {
 /// `chirp` holds `n` complex elements, and `out` holds `batch_size * m`.
 pub unsafe fn launch_bluestein_premultiply(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     kind: BluesteinInput,
@@ -100,7 +101,7 @@ pub unsafe fn launch_bluestein_premultiply(
 /// `kernel_spectrum` holds `m`, both on `device_index`.
 pub unsafe fn launch_bluestein_pointwise_mul(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     spectrum_ptr: u64,
@@ -158,7 +159,7 @@ pub unsafe fn launch_bluestein_pointwise_mul(
 #[allow(clippy::too_many_arguments)]
 pub unsafe fn launch_bluestein_postmultiply(
     context: &Arc<CudaContext>,
-    stream: &CudaStream,
+    stream: &GuardedStream,
     device_index: usize,
     dtype: DType,
     conv_ptr: u64,
