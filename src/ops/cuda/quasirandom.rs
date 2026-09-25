@@ -6,7 +6,6 @@ use crate::ops::common::quasirandom::{
     validate_halton_params, validate_latin_hypercube_params, validate_sobol_params,
 };
 use crate::ops::traits::QuasiRandomOps;
-use crate::runtime::Allocator;
 use crate::runtime::cuda::kernels::{
     launch_halton_f32, launch_halton_f64, launch_latin_hypercube_f32, launch_latin_hypercube_f64,
     launch_sobol_f32, launch_sobol_f64,
@@ -68,11 +67,19 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
                 // device pointer. Subsequent calls (including inside capture) will
                 // hit the fast path above.
                 self.warmup_sobol(dimension)?;
-                // The entry is now guaranteed to be present.
-                self.sobol_dv_cache
-                    .get(dim_u32)
-                    .expect("warmup_sobol succeeded but cache entry is missing")
-                    .0
+                // `warmup_sobol` inserts the entry, so a miss here means the
+                // cache was cleared between the two calls rather than that the
+                // caller did anything wrong. Reported rather than panicked:
+                // this is library code on a path a concurrent reset can reach.
+                match self.sobol_dv_cache.get(dim_u32) {
+                    Some(entry) => entry.0,
+                    None => {
+                        return Err(crate::error::Error::Internal(format!(
+                            "Sobol direction vectors for dimension {dimension} went missing \
+                             immediately after warmup; the cache was cleared concurrently"
+                        )));
+                    }
+                }
             }
         };
 
