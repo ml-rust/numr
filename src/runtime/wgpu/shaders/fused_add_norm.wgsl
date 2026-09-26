@@ -133,9 +133,9 @@ fn fused_add_layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 
     // Step 1: Add input + residual -> pre_norm (unshifted, the caller reads
     // this as the residual sum) and stash the shifted value in faln_output
-    // (unused until step 3) so steps 2 and 3 read it back instead of
-    // recomputing `pre_val - ref_val`, which stops the compiler folding that
-    // subtraction into the later `- shifted_mean` one.
+    // (unused until step 3). Steps 2 and 3 read the stored value, so the
+    // compiler cannot merge `- ref_val` and `- shifted_mean` into one
+    // subtraction that cancels in f32.
     var sum: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {
@@ -311,10 +311,10 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
     let ref_val = falnb_pre_norm[base_offset];
 
     // Phase 1: Compute mean of pre_norm, stashing the shifted value in
-    // falnb_d_input_residual (not written until phase 3) so every later phase
-    // reads it back instead of recomputing `pre_norm - ref_val`, which stops
-    // the compiler folding that subtraction into the later `- shifted_mean`
-    // one. Each thread only ever reads the index it wrote here.
+    // falnb_d_input_residual (not written until phase 3). Later phases read
+    // the stored value, so the compiler cannot merge `- ref_val` and
+    // `- shifted_mean` into one subtraction that cancels in f32. Each thread
+    // only reads the indices it wrote here.
     var sum: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {

@@ -132,9 +132,9 @@ fn layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let ref_val = ln_input[base_offset];
 
     // Step 1: Per-thread Welford accumulation (single pass over input).
-    // The shifted value is stashed in ln_output (unused until step 3) so step 3
-    // reads it back instead of recomputing `x - ref_val`, which stops the
-    // compiler folding that subtraction into the later `- shifted_mean` one.
+    // The shifted value is stashed in ln_output (unused until step 3). Step 3
+    // reads the stored value, so the compiler cannot merge `- ref_val` and
+    // `- shifted_mean` into one subtraction that cancels in f32.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
@@ -228,9 +228,9 @@ fn layer_norm_no_bias_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let ref_val = ln_nb_input[base_offset];
 
     // Step 1: Per-thread Welford accumulation (single pass). The shifted value
-    // is stashed in ln_nb_output (unused until step 3) so step 3 reads it back
-    // instead of recomputing `x - ref_val`, which stops the compiler folding
-    // that subtraction into the later `- shifted_mean` one.
+    // is stashed in ln_nb_output (unused until step 3). Step 3 reads the stored
+    // value, so the compiler cannot merge `- ref_val` and `- shifted_mean` into
+    // one subtraction that cancels in f32.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
@@ -350,9 +350,9 @@ fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let ref_val = gn_input[group_offset];
 
     // Step 1: Per-thread Welford accumulation (single pass). The shifted value
-    // is stashed in gn_output (unused until step 3) so step 3 reads it back
-    // instead of recomputing `x - ref_val`, which stops the compiler folding
-    // that subtraction into the later `- shifted_mean` one.
+    // is stashed in gn_output (unused until step 3). Step 3 reads the stored
+    // value, so the compiler cannot merge `- ref_val` and `- shifted_mean` into
+    // one subtraction that cancels in f32.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
