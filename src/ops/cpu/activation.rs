@@ -2,7 +2,8 @@
 
 use crate::error::{Error, Result};
 use crate::ops::impl_generic::activation::{
-    dropout_impl, log_softmax_impl, softmax_with_bias_impl, softplus_impl,
+    dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
+    softmax_with_bias_impl, softplus_impl,
 };
 use crate::ops::{
     ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps,
@@ -37,6 +38,10 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
     }
 
+    fn gelu_erf(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+        gelu_erf_impl(self, a)
+    }
+
     fn silu_mul(
         &self,
         a: &Tensor<CpuRuntime>,
@@ -51,6 +56,14 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         b: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
         fused_activation_mul_impl(self, a, b, FusedActivationMulOp::GeluMul, "gelu_mul")
+    }
+
+    fn gelu_erf_mul(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        gelu_erf_mul_impl(self, a, b)
     }
 
     fn relu_mul(
@@ -125,6 +138,15 @@ impl ActivationOps<CpuRuntime> for CpuClient {
         let grad_times_b = self.mul(grad, b)?;
         let d_a = self.mul(&grad_times_b, &gelu_deriv)?;
         Ok((d_a, d_b))
+    }
+
+    fn gelu_erf_mul_bwd(
+        &self,
+        grad: &Tensor<CpuRuntime>,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+    ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+        gelu_erf_mul_bwd_impl(self, grad, a, b)
     }
 
     fn relu_mul_bwd(

@@ -1,12 +1,30 @@
 //! Tests for the fused activation-multiply autograd op.
 
 use numr::autograd::{
-    Var, backward, var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul, var_sum,
+    Var, backward, var_gelu_erf_mul, var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul,
+    var_sum,
 };
 use numr::ops::{ActivationOps, BinaryOps};
 use numr::runtime::Runtime;
 use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 use numr::tensor::Tensor;
+
+/// Standard normal CDF: `Phi(x) = 0.5 * (1 + erf(x / sqrt(2)))`.
+fn standard_normal_cdf_ref(x: f64) -> f64 {
+    use numr::algorithm::special::scalar::erf_scalar;
+    0.5 * (1.0 + erf_scalar(x / std::f64::consts::SQRT_2))
+}
+
+/// Reference exact GELU: `x * Phi(x)`.
+fn gelu_erf_ref(x: f64) -> f64 {
+    x * standard_normal_cdf_ref(x)
+}
+
+/// Reference exact GELU derivative: `Phi(x) + x * phi(x)`.
+fn gelu_erf_deriv_ref(x: f64) -> f64 {
+    let pdf = (-0.5 * x * x).exp() / (2.0 * std::f64::consts::PI).sqrt();
+    standard_normal_cdf_ref(x) + x * pdf
+}
 
 #[test]
 fn test_silu_mul_forward() {
@@ -164,6 +182,75 @@ fn test_sigmoid_mul_backward() {
 
     // d_a = b * sigmoid'(0) = 2 * sigmoid(0)*(1-sigmoid(0)) = 2 * 0.25 = 0.5
     assert!((d_a[0] - 0.5).abs() < 1e-4);
+}
+
+#[test]
+fn test_gelu_erf_mul_forward() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Var::new(
+        Tensor::<CpuRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device).unwrap(),
+        false,
+    );
+    let b = Var::new(
+        Tensor::<CpuRuntime>::from_slice(&[1.0f32, 1.0, 1.0, 1.0, 1.0], &[5], &device).unwrap(),
+        false,
+    );
+
+    let output = var_gelu_erf_mul(&a, &b, &client).unwrap();
+    let data: Vec<f32> = output.tensor().to_vec();
+
+    for (i, &x) in [-2.0f64, -1.0, 0.0, 1.0, 2.0].iter().enumerate() {
+        let expected = gelu_erf_ref(x) as f32;
+        assert!(
+            (data[i] - expected).abs() < 1e-4,
+            "gelu_erf_mul[{i}]: got {}, expected {expected}",
+            data[i]
+        );
+    }
+}
+
+#[test]
+fn test_gelu_erf_mul_backward() {
+    let device = CpuDevice::new();
+    let client = CpuRuntime::default_client(&device);
+
+    let a = Var::new(
+        Tensor::<CpuRuntime>::from_slice(&[1.0f32, -1.0], &[2], &device).unwrap(),
+        true,
+    );
+    let b = Var::new(
+        Tensor::<CpuRuntime>::from_slice(&[2.0f32, 3.0], &[2], &device).unwrap(),
+        true,
+    );
+
+    let output = var_gelu_erf_mul(&a, &b, &client).unwrap();
+    let loss = var_sum(&output, &[], false, &client).unwrap();
+    let grads = backward(&loss, &client).unwrap();
+
+    let d_a: Vec<f32> = grads.get(a.id()).unwrap().to_vec();
+    let d_b: Vec<f32> = grads.get(b.id()).unwrap().to_vec();
+
+    // d_b = gelu_erf(a)
+    for (i, &x) in [1.0f64, -1.0].iter().enumerate() {
+        let expected = gelu_erf_ref(x) as f32;
+        assert!(
+            (d_b[i] - expected).abs() < 1e-4,
+            "d_b[{i}]: got {}, expected {expected}",
+            d_b[i]
+        );
+    }
+
+    // d_a = b * gelu_erf'(a)
+    for (i, (&x, &u)) in [1.0f64, -1.0].iter().zip([2.0f64, 3.0].iter()).enumerate() {
+        let expected = (u * gelu_erf_deriv_ref(x)) as f32;
+        assert!(
+            (d_a[i] - expected).abs() < 1e-4,
+            "d_a[{i}]: got {}, expected {expected}",
+            d_a[i]
+        );
+    }
 }
 
 #[test]

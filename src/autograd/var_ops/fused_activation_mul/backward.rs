@@ -7,6 +7,11 @@
 //! Derivatives:
 //! - silu'(x)    = sigmoid(x) * (1 + x - silu(x))
 //! - gelu'(x)    = 0.5*(1+tanh(inner)) + 0.5*x*sech²(inner)*sqrt(2/π)*(1+3*0.044715*x²)
+//! - gelu_erf'(x) = Phi(x) + x*phi(x), Phi the standard normal CDF, phi the standard normal PDF.
+//!   `Phi` needs `erf`, which this `GradFn` deliberately does NOT require (requiring it forces
+//!   every SiLU/GELU-tanh/ReLU/Sigmoid caller to satisfy `SpecialFunctions<R>` too). Instead
+//!   `var_gelu_erf_mul` precomputes `Phi` at forward time and saves it in `saved_cdf`, exactly
+//!   like `saved_activation_a` is already precomputed and saved for every kind.
 //! - relu'(x)    = 1 if x > 0, else 0
 //! - sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
 
@@ -27,6 +32,10 @@ pub struct FusedActivationMulBackward<R: Runtime> {
     saved_a: crate::tensor::Tensor<R>,
     saved_b: crate::tensor::Tensor<R>,
     saved_activation_a: crate::tensor::Tensor<R>,
+    /// Extra constant a specific kind's backward needs beyond `activation_a`.
+    /// Only `FusedKind::GeluErf` populates this (the standard normal CDF
+    /// `Phi(a)`, precomputed by `var_gelu_erf_mul`). Every other kind is `None`.
+    saved_cdf: Option<crate::tensor::Tensor<R>>,
     kind: FusedKind,
     a_grad_fn: Option<Arc<dyn crate::autograd::GradFn<R>>>,
     b_grad_fn: Option<Arc<dyn crate::autograd::GradFn<R>>>,
@@ -40,6 +49,7 @@ impl<R: Runtime> FusedActivationMulBackward<R> {
         a: crate::tensor::Tensor<R>,
         b: crate::tensor::Tensor<R>,
         activation_a: crate::tensor::Tensor<R>,
+        saved_cdf: Option<crate::tensor::Tensor<R>>,
         kind: FusedKind,
         a_grad_fn: Option<Arc<dyn crate::autograd::GradFn<R>>>,
         b_grad_fn: Option<Arc<dyn crate::autograd::GradFn<R>>>,
@@ -49,6 +59,7 @@ impl<R: Runtime> FusedActivationMulBackward<R> {
             saved_a: a,
             saved_b: b,
             saved_activation_a: activation_a,
+            saved_cdf,
             kind,
             a_grad_fn,
             b_grad_fn,
@@ -81,6 +92,9 @@ where
         let (d_a, d_b) = match self.kind {
             FusedKind::Silu => client.silu_mul_bwd(grad_output, &self.saved_a, &self.saved_b)?,
             FusedKind::Gelu => client.gelu_mul_bwd(grad_output, &self.saved_a, &self.saved_b)?,
+            FusedKind::GeluErf => {
+                client.gelu_erf_mul_bwd(grad_output, &self.saved_a, &self.saved_b)?
+            }
             FusedKind::Relu => client.relu_mul_bwd(grad_output, &self.saved_a, &self.saved_b)?,
             FusedKind::Sigmoid => {
                 client.sigmoid_mul_bwd(grad_output, &self.saved_a, &self.saved_b)?
@@ -107,11 +121,13 @@ where
         let act_var = Var::new(self.saved_activation_a.clone(), false);
         let d_b = var_mul(grad_output, &act_var, &client)?;
 
-        // d_a = grad_output * b * activation'(a)
+        // d_a = grad_output * b * activation'(a). `saved_cdf` (Phi(a), constant
+        // w.r.t. higher-order, same as activation_a) is only Some for GeluErf.
         let activation_deriv = compute_activation_derivative(
             &client,
             &self.saved_a,
             &self.saved_activation_a,
+            self.saved_cdf.as_ref(),
             self.kind,
         )?;
         let deriv_var = Var::new(activation_deriv, false);
@@ -138,6 +154,7 @@ where
         match self.kind {
             FusedKind::Silu => "SiluMulBackward",
             FusedKind::Gelu => "GeluMulBackward",
+            FusedKind::GeluErf => "GeluErfMulBackward",
             FusedKind::Relu => "ReluMulBackward",
             FusedKind::Sigmoid => "SigmoidMulBackward",
         }

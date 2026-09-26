@@ -2,17 +2,23 @@
 
 use super::fused_kind::FusedKind;
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::ops::{
     ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, TensorOps, UnaryOps,
 };
 use crate::runtime::Runtime;
 
-/// Compute activation'(x) for the backward pass
+/// Compute activation'(x) for the backward pass.
+///
+/// `saved_cdf` is the standard normal CDF `Phi(a)`, precomputed at forward
+/// time by `var_gelu_erf_mul` (it needs `erf`, which this function's own
+/// bounds deliberately exclude — see `backward.rs`'s module doc). It is
+/// `Some` only for `FusedKind::GeluErf` and unused otherwise.
 pub(super) fn compute_activation_derivative<R, C>(
     client: &C,
     a: &crate::tensor::Tensor<R>,
     activation_a: &crate::tensor::Tensor<R>,
+    saved_cdf: Option<&crate::tensor::Tensor<R>>,
     kind: FusedKind,
 ) -> Result<crate::tensor::Tensor<R>>
 where
@@ -80,6 +86,26 @@ where
             let term2 = client.mul_scalar(&x_sech_sq_inner_d, 0.5)?;
 
             client.add(&term1, &term2)
+        }
+        FusedKind::GeluErf => {
+            // gelu_erf'(x) = Phi(x) + x * phi(x), phi(x) = exp(-x^2/2) / sqrt(2*pi).
+            // Phi(a) is precomputed by var_gelu_erf_mul (it needs erf) and passed
+            // in as saved_cdf — this function never calls erf itself.
+            const INV_SQRT_2PI: f64 = 0.3989422804014327;
+
+            let cdf = saved_cdf.ok_or_else(|| {
+                Error::Internal(
+                    "gelu_erf_mul backward_var: missing saved Phi(x); \
+                     var_gelu_erf_mul must always save it"
+                        .to_string(),
+                )
+            })?;
+
+            let neg_half_x_sq = client.mul_scalar(&client.mul(a, a)?, -0.5)?;
+            let pdf = client.mul_scalar(&client.exp(&neg_half_x_sq)?, INV_SQRT_2PI)?;
+
+            let x_pdf = client.mul(a, &pdf)?;
+            client.add(cdf, &x_pdf)
         }
         FusedKind::Relu => {
             // relu'(x) = 1 if x > 0, else 0

@@ -4,7 +4,8 @@ use crate::error::{Error, Result};
 use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
 use crate::ops::impl_generic::activation::{
-    dropout_impl, log_softmax_impl, softmax_with_bias_impl, softplus_impl,
+    dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
+    softmax_with_bias_impl, softplus_impl,
 };
 use crate::runtime::cuda::kernels::{
     launch_elu, launch_gelu, launch_gelu_mul, launch_gelu_mul_bwd, launch_leaky_relu, launch_relu,
@@ -99,6 +100,10 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         Ok(out)
     }
 
+    fn gelu_erf(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
+        gelu_erf_impl(self, a)
+    }
+
     fn silu_mul(
         &self,
         a: &Tensor<CudaRuntime>,
@@ -113,6 +118,14 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
         self.fused_activation_mul(a, b, launch_gelu_mul)
+    }
+
+    fn gelu_erf_mul(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        gelu_erf_mul_impl(self, a, b)
     }
 
     fn relu_mul(
@@ -147,6 +160,15 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
     ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
         self.fused_activation_mul_bwd(grad, a, b, launch_gelu_mul_bwd)
+    }
+
+    fn gelu_erf_mul_bwd(
+        &self,
+        grad: &Tensor<CudaRuntime>,
+        a: &Tensor<CudaRuntime>,
+        b: &Tensor<CudaRuntime>,
+    ) -> Result<(Tensor<CudaRuntime>, Tensor<CudaRuntime>)> {
+        gelu_erf_mul_bwd_impl(self, grad, a, b)
     }
 
     fn relu_mul_bwd(

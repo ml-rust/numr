@@ -3,7 +3,8 @@
 use crate::error::Result;
 use crate::ops::ActivationOps;
 use crate::ops::impl_generic::activation::{
-    dropout_impl, log_softmax_impl, softmax_with_bias_impl, softplus_impl,
+    dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
+    softmax_with_bias_impl, softplus_impl,
 };
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
@@ -58,6 +59,10 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
         native_unary_op(self, "gelu", a)
     }
 
+    fn gelu_erf(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
+        gelu_erf_impl(self, a)
+    }
+
     fn leaky_relu(
         &self,
         a: &Tensor<WgpuRuntime>,
@@ -84,6 +89,14 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
         b: &Tensor<WgpuRuntime>,
     ) -> Result<Tensor<WgpuRuntime>> {
         native_fused_activation_mul_fwd(self, "gelu_mul", a, b)
+    }
+
+    fn gelu_erf_mul(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        gelu_erf_mul_impl(self, a, b)
     }
 
     fn relu_mul(
@@ -118,6 +131,15 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
         b: &Tensor<WgpuRuntime>,
     ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
         native_fused_activation_mul_bwd(self, "gelu_mul_bwd", grad, a, b)
+    }
+
+    fn gelu_erf_mul_bwd(
+        &self,
+        grad: &Tensor<WgpuRuntime>,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+    ) -> Result<(Tensor<WgpuRuntime>, Tensor<WgpuRuntime>)> {
+        gelu_erf_mul_bwd_impl(self, grad, a, b)
     }
 
     fn relu_mul_bwd(

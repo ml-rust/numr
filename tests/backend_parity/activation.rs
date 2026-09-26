@@ -1,7 +1,8 @@
 // Backend parity tests for fused activation-mul operations (ActivationOps trait)
 //
-// Tests: silu_mul, gelu_mul, relu_mul, sigmoid_mul (forward)
-//        silu_mul_bwd, gelu_mul_bwd, relu_mul_bwd, sigmoid_mul_bwd (backward)
+// Tests: silu_mul, gelu_mul, gelu_erf_mul, relu_mul, sigmoid_mul (forward)
+//        silu_mul_bwd, gelu_mul_bwd, gelu_erf_mul_bwd, relu_mul_bwd, sigmoid_mul_bwd (backward)
+//        gelu_erf (plain unary, not part of the fused-mul family)
 //
 // Dtype-parameterized: each test runs for all supported dtypes across all backends.
 
@@ -42,6 +43,7 @@ impl FusedTestCase {
 enum FusedActivationOp {
     SiluMul,
     GeluMul,
+    GeluErfMul,
     ReluMul,
     SigmoidMul,
 }
@@ -55,6 +57,7 @@ fn apply_fused_fwd<R: Runtime>(
     match op {
         FusedActivationOp::SiluMul => client.silu_mul(a, b),
         FusedActivationOp::GeluMul => client.gelu_mul(a, b),
+        FusedActivationOp::GeluErfMul => client.gelu_erf_mul(a, b),
         FusedActivationOp::ReluMul => client.relu_mul(a, b),
         FusedActivationOp::SigmoidMul => client.sigmoid_mul(a, b),
     }
@@ -70,6 +73,7 @@ fn apply_fused_bwd<R: Runtime>(
     match op {
         FusedActivationOp::SiluMul => client.silu_mul_bwd(grad, a, b),
         FusedActivationOp::GeluMul => client.gelu_mul_bwd(grad, a, b),
+        FusedActivationOp::GeluErfMul => client.gelu_erf_mul_bwd(grad, a, b),
         FusedActivationOp::ReluMul => client.relu_mul_bwd(grad, a, b),
         FusedActivationOp::SigmoidMul => client.sigmoid_mul_bwd(grad, a, b),
     }
@@ -303,6 +307,14 @@ fn test_gelu_mul_parity() {
 }
 
 #[test]
+fn test_gelu_erf_mul_parity() {
+    let cases = standard_test_cases();
+    for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
+        test_fused_fwd_parity(FusedActivationOp::GeluErfMul, &cases, dtype);
+    }
+}
+
+#[test]
 fn test_relu_mul_parity() {
     let cases = standard_test_cases();
     for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
@@ -335,6 +347,14 @@ fn test_gelu_mul_bwd_parity() {
     let cases = standard_test_cases();
     for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
         test_fused_bwd_parity(FusedActivationOp::GeluMul, &cases, dtype);
+    }
+}
+
+#[test]
+fn test_gelu_erf_mul_bwd_parity() {
+    let cases = standard_test_cases();
+    for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
+        test_fused_bwd_parity(FusedActivationOp::GeluErfMul, &cases, dtype);
     }
 }
 
@@ -747,6 +767,71 @@ fn test_softmax_with_bias_parity_for_dtype(dtype: DType) {
                 );
             });
         }
+    }
+}
+
+// ============================================================================
+// Exact GELU (erf-based) parity: unary op, not part of FusedActivationOp
+// ============================================================================
+
+fn test_gelu_erf_parity_for_dtype(dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let cases = standard_test_cases();
+
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = cases
+        .iter()
+        .map(|tc| {
+            let a = tensor_from_f64(&tc.a, &tc.shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            cpu_client
+                .gelu_erf(&a)
+                .unwrap_or_else(|e| panic!("CPU gelu_erf failed for {dtype:?}: {e}"))
+        })
+        .collect();
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.a, &tc.shape, dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let result = cuda_client
+                    .gelu_erf(&a)
+                    .unwrap_or_else(|e| panic!("CUDA gelu_erf failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("gelu_erf CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.a, &tc.shape, dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let result = wgpu_client
+                    .gelu_erf(&a)
+                    .unwrap_or_else(|e| panic!("WebGPU gelu_erf failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("gelu_erf WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn test_gelu_erf_parity() {
+    for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
+        test_gelu_erf_parity_for_dtype(dtype);
     }
 }
 

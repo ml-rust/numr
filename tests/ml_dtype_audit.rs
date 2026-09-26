@@ -175,6 +175,10 @@ fn audit_dtype(dtype: DType) {
         let a = t1(&[-1.0, 0.0, 1.0, 2.0], &[4])?;
         let _ = client.gelu(&a)?;
     }));
+    tally!(audit_op!("gelu_erf", {
+        let a = t1(&[-1.0, 0.0, 1.0, 2.0], &[4])?;
+        let _ = client.gelu_erf(&a)?;
+    }));
     tally!(audit_op!("silu", {
         let a = t1(&[-1.0, 0.0, 1.0, 2.0], &[4])?;
         let _ = client.silu(&a)?;

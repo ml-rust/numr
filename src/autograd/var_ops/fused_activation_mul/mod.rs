@@ -10,4 +10,4 @@ mod derivative;
 mod forward;
 mod fused_kind;
 
-pub use forward::{var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul};
+pub use forward::{var_gelu_erf_mul, var_gelu_mul, var_relu_mul, var_sigmoid_mul, var_silu_mul};

@@ -5,6 +5,7 @@
 pub(super) enum FusedKind {
     Silu,
     Gelu,
+    GeluErf,
     Relu,
     Sigmoid,
 }

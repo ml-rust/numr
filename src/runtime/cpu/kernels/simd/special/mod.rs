@@ -5,14 +5,14 @@
 //!
 //! # Supported Functions
 //!
-//! | Function  | Algorithm                        | Accuracy        |
-//! |-----------|----------------------------------|-----------------|
-//! | erf       | A&S 7.1.26 polynomial            | ~1e-7 rel err   |
-//! | erfc      | 1 - erf(x)                       | ~1e-7 rel err   |
-//! | bessel_j0 | Rational poly + asymptotic       | ~1e-8 rel err   |
-//! | bessel_j1 | Rational poly + asymptotic       | ~1e-8 rel err   |
-//! | bessel_i0 | Power series + asymptotic        | ~1e-8 rel err   |
-//! | bessel_i1 | Power series + asymptotic        | ~1e-8 rel err   |
+//! | Function  | Algorithm                                      | Accuracy                          |
+//! |-----------|-------------------------------------------------|-----------------------------------|
+//! | erf       | f32: A&S 7.1.26 polynomial; f64: Maclaurin + CF  | f32 ~1.5e-7 abs err; f64 ~1e-15    |
+//! | erfc      | 1 - erf(x), same per-dtype algorithm as erf      | f32 ~1.5e-7 abs err; f64 ~1e-15    |
+//! | bessel_j0 | Rational poly + asymptotic                       | ~1e-8 rel err                     |
+//! | bessel_j1 | Rational poly + asymptotic                       | ~1e-8 rel err                     |
+//! | bessel_i0 | Power series + asymptotic                        | ~1e-8 rel err                     |
+//! | bessel_i1 | Power series + asymptotic                        | ~1e-8 rel err                     |
 
 #[cfg(target_arch = "x86_64")]
 mod avx2;

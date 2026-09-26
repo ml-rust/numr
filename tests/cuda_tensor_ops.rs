@@ -151,6 +151,25 @@ fn test_cuda_tensor_gelu() {
 }
 
 #[test]
+fn test_cuda_tensor_gelu_erf() {
+    if !is_cuda_available() {
+        return;
+    }
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+
+    let a =
+        Tensor::<CudaRuntime>::from_slice(&[-2.0f32, -1.0, 0.0, 1.0, 2.0], &[5], &device).unwrap();
+    let b = client.gelu_erf(&a).unwrap();
+
+    let result: Vec<f32> = b.to_vec();
+    // Exact GELU (erf form): 0.5 * x * (1 + erf(x / sqrt(2)))
+    assert!((result[2] - 0.0).abs() < 1e-5); // gelu_erf(0) = 0
+    assert!((result[3] - 0.8413447).abs() < 1e-4); // gelu_erf(1) ≈ 0.84134
+    assert!((result[4] - 1.9544997).abs() < 1e-4); // gelu_erf(2) ≈ 1.95450
+}
+
+#[test]
 fn test_cuda_tensor_rms_norm() {
     if !is_cuda_available() {
         return;

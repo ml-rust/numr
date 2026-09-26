@@ -42,6 +42,19 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// GELU, exact form: 0.5 * a * (1 + erf(a / sqrt(2)))
+    ///
+    /// Matches PyTorch `F.gelu(x, approximate="none")` and HF `hidden_act: "gelu"`
+    /// (Whisper, BERT). Use this instead of [`gelu`](Self::gelu) when loading a
+    /// checkpoint trained with the exact form — the tanh approximation shifts
+    /// outputs systematically.
+    fn gelu_erf(&self, a: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = a;
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_erf",
+        })
+    }
+
     /// Leaky ReLU: max(negative_slope * a, a)
     ///
     /// Allows small gradients for negative inputs, helping prevent "dying ReLU" problem.
@@ -136,6 +149,17 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// Fused exact GELU-Mul: `gelu_erf(a) * b`.
+    ///
+    /// Computes `(0.5 * a * (1 + erf(a / sqrt(2)))) * b` element-wise. Use in
+    /// GeGLU gated architectures loaded from a checkpoint trained with exact GELU.
+    fn gelu_erf_mul(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_erf_mul",
+        })
+    }
+
     /// Fused ReLU-Mul: `relu(a) * b` in a single pass.
     ///
     /// Computes `max(0, a) * b` element-wise. Used in ReGLU gated architectures.
@@ -189,6 +213,24 @@ pub trait ActivationOps<R: Runtime> {
         let _ = (grad, a, b);
         Err(Error::NotImplemented {
             feature: "ActivationOps::gelu_mul_bwd",
+        })
+    }
+
+    /// Fused exact GELU-Mul backward: computes gradients for `output = gelu_erf(a) * b`.
+    ///
+    /// Returns `(d_a, d_b)` where:
+    /// - `d_a = grad * b * gelu_erf'(a)` with `gelu_erf'(x) = Phi(x) + x * phi(x)`,
+    ///   `Phi` the standard normal CDF and `phi` the standard normal PDF
+    /// - `d_b = grad * gelu_erf(a)`
+    fn gelu_erf_mul_bwd(
+        &self,
+        grad: &Tensor<R>,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+    ) -> Result<(Tensor<R>, Tensor<R>)> {
+        let _ = (grad, a, b);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::gelu_erf_mul_bwd",
         })
     }
 
