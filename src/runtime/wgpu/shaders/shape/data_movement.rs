@@ -176,6 +176,61 @@ pub fn launch_pad(
     Ok(())
 }
 
+/// Launch a reflect-mode pad operation kernel.
+///
+/// # Arguments
+///
+/// * `cache` - Pipeline cache for shader compilation
+/// * `queue` - WGPU command queue
+/// * `src` - Source tensor buffer
+/// * `dst` - Destination tensor buffer
+/// * `params_buffer` - Uniform buffer containing PadReflectParams
+/// * `total_elements` - Total elements in output tensor
+/// * `dtype` - Data type of tensors
+pub fn launch_pad_reflect(
+    cache: &PipelineCache,
+    queue: &Queue,
+    src: &Buffer,
+    dst: &Buffer,
+    params_buffer: &Buffer,
+    total_elements: usize,
+    dtype: DType,
+) -> Result<()> {
+    if total_elements == 0 {
+        return Ok(());
+    }
+
+    let (shader, module_key, entry_point) = shader_info("pad_reflect", dtype)?;
+    let module = cache.get_or_create_module(module_key, shader);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 2,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
+
+    let bind_group = cache.create_bind_group(&layout, &[src, dst, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("pad_reflect"),
+        });
+
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("pad_reflect"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+    }
+
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
 /// Launch a roll operation kernel.
 ///
 /// # Arguments

@@ -2,15 +2,16 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
+use crate::ops::{PadMode, ShapeOps};
 use crate::runtime::common::shape_ops;
 use crate::runtime::common::shape_ops::{validate_cat, validate_stack};
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
-    CatShaderParams, MAX_DIMS, PadParamsF32, PadParamsI32, PadParamsU32, RepeatParams, RollParams,
-    alloc_output, create_params_buffer, get_tensor_buffer, pack_u32_array,
+    CatShaderParams, MAX_DIMS, PadParamsF32, PadParamsI32, PadParamsU32, PadReflectParams,
+    RepeatParams, RollParams, alloc_output, create_params_buffer, get_tensor_buffer,
+    pack_u32_array,
 };
 use crate::runtime::wgpu::shaders::shape;
 use crate::tensor::Tensor;
@@ -143,12 +144,9 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
             ));
         }
 
-        // Ensure contiguous input
-        let tensor_contig = if tensor.is_contiguous() {
-            tensor.clone()
-        } else {
-            tensor.contiguous()?
-        };
+        // `contiguous()` handles both non-contiguous strides and nonzero
+        // storage offsets; a bare `is_contiguous()` check misses the latter.
+        let tensor_contig = tensor.contiguous()?;
 
         let total_elements: usize = params.out_shape.iter().product();
 
@@ -222,12 +220,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
             ));
         }
 
-        // Ensure contiguous input
-        let tensor_contig = if tensor.is_contiguous() {
-            tensor.clone()
-        } else {
-            tensor.contiguous()?
-        };
+        let tensor_contig = tensor.contiguous()?;
 
         let total_elements: usize = params.out_shape.iter().product();
 
@@ -306,6 +299,90 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         Ok(out)
     }
 
+    fn pad_mode(
+        &self,
+        tensor: &Tensor<WgpuRuntime>,
+        padding: &[usize],
+        mode: PadMode,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        if let PadMode::Constant(value) = mode {
+            return self.pad(tensor, padding, value);
+        }
+
+        let params = shape_ops::validate_reflect_pad(tensor, padding)?;
+
+        // No-op if all padding is zero
+        if padding.iter().all(|&p| p == 0) {
+            return tensor.contiguous();
+        }
+
+        let dtype = tensor.dtype();
+
+        // Check dtype is supported by WebGPU
+        if !matches!(dtype, DType::F32 | DType::I32 | DType::U32) {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "pad_reflect",
+            });
+        }
+
+        // Check ndim doesn't exceed shader limit
+        if params.out_shape.len() > MAX_DIMS {
+            return Err(Error::backend_limitation(
+                "WebGPU",
+                "pad_reflect",
+                format!(
+                    "max {} dimensions, got {}",
+                    MAX_DIMS,
+                    params.out_shape.len()
+                ),
+            ));
+        }
+
+        let tensor_contig = tensor.contiguous()?;
+
+        let total_elements: usize = params.out_shape.iter().product();
+
+        // Allocate output
+        let out = alloc_output(self, &params.out_shape, dtype)?;
+        let out_buf = get_tensor_buffer(&out)?;
+        let src_buf = get_tensor_buffer(&tensor_contig)?;
+
+        // Build flat shape arrays, then pack for WGSL uniform buffer alignment
+        let ndim = params.out_shape.len();
+        let mut src_shape_flat = [0u32; 8];
+        let mut out_shape_flat = [0u32; 8];
+        let mut pad_before_flat = [0u32; 8];
+        for i in 0..ndim {
+            src_shape_flat[i] = tensor.shape()[i] as u32;
+            out_shape_flat[i] = params.out_shape[i] as u32;
+            pad_before_flat[i] = params.pad_per_dim[i].0 as u32;
+        }
+
+        let shader_params = PadReflectParams {
+            ndim: ndim as u32,
+            total_elements: total_elements as u32,
+            _pad0: 0,
+            _pad1: 0,
+            src_shape: pack_u32_array(&src_shape_flat),
+            out_shape: pack_u32_array(&out_shape_flat),
+            pad_before: pack_u32_array(&pad_before_flat),
+        };
+        let params_buf = create_params_buffer(self, &shader_params);
+
+        shape::launch_pad_reflect(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &src_buf,
+            &out_buf,
+            &params_buf,
+            total_elements,
+            dtype,
+        )?;
+
+        Ok(out)
+    }
+
     fn roll(
         &self,
         tensor: &Tensor<WgpuRuntime>,
@@ -327,12 +404,7 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
             });
         }
 
-        // Ensure contiguous input
-        let tensor_contig = if tensor.is_contiguous() {
-            tensor.clone()
-        } else {
-            tensor.contiguous()?
-        };
+        let tensor_contig = tensor.contiguous()?;
 
         let total_elements = tensor.numel();
         let shape = tensor.shape();

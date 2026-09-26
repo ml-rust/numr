@@ -91,6 +91,7 @@ fn compile_cuda_kernels() {
         "norm_group.cu",
         "norm_layer.cu",
         "norm_rms.cu",
+        "pad_reflect.cu",
         "pad_rows.cu",
         "semiring_matmul.cu",
         "quasirandom.cu",

@@ -381,12 +381,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             ));
         }
 
-        // Ensure input is contiguous
-        let probs_contig = if probs.is_contiguous() {
-            probs.clone()
-        } else {
-            probs.contiguous()?
-        };
+        let probs_contig = probs.contiguous()?;
 
         // Output dtype: I32 for WebGPU (no I64 support in WGSL)
         let out_dtype = DType::I32;

@@ -67,7 +67,7 @@ pub use random::RandomOps;
 pub use reduce::ReduceOps;
 pub use scalar::ScalarOps;
 pub use semiring_matmul::SemiringMatmulOps;
-pub use shape::ShapeOps;
+pub use shape::{PadMode, ShapeOps};
 pub use sorting::SortingOps;
 #[cfg(feature = "sparse")]
 pub use sparse_24::Sparse24Ops;

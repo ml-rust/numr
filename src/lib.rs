@@ -109,8 +109,8 @@ pub mod prelude {
     pub use crate::ops::{
         ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
         DistanceMetric, DistanceOps, FwhtOps, HostCopyOps, IndexingOps, LinalgOps, LogicalOps,
-        MatmulOps, MeshgridIndexing, NormalizationOps, PaddingMode, ReduceOps, ScalarOps, ShapeOps,
-        SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+        MatmulOps, MeshgridIndexing, NormalizationOps, PadMode, PaddingMode, ReduceOps, ScalarOps,
+        ShapeOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
     };
     pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 

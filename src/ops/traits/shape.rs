@@ -4,6 +4,16 @@ use crate::error::Result;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
+/// How [`ShapeOps::pad_mode`] fills the padded region of a tensor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PadMode {
+    /// Fill the padded region with a constant value, as [`ShapeOps::pad`] does.
+    Constant(f64),
+    /// Mirror the interior of the tensor into the padded region, excluding
+    /// the edge element. Matches PyTorch's `F.pad(mode="reflect")`.
+    Reflect,
+}
+
 /// Shape manipulation operations
 pub trait ShapeOps<R: Runtime> {
     /// Concatenate tensors along a dimension
@@ -181,6 +191,32 @@ pub trait ShapeOps<R: Runtime> {
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn pad(&self, tensor: &Tensor<R>, padding: &[usize], value: f64) -> Result<Tensor<R>>;
+
+    /// Pad tensor under an explicit [`PadMode`].
+    ///
+    /// `padding` uses the same convention as [`ShapeOps::pad`]: pairs of
+    /// `(before, after)` sizes starting from the last dimension.
+    ///
+    /// [`PadMode::Reflect`] mirrors the interior of each padded dimension
+    /// without repeating the edge element, matching PyTorch's
+    /// `F.pad(mode="reflect")`. Each `before`/`after` pad size on a padded
+    /// dimension must be strictly less than that dimension's size; an equal
+    /// or larger pad returns [`crate::error::Error::InvalidArgument`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// use numr::ops::{PadMode, ShapeOps};
+    ///
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0, 5.0], &[5], &device)?;
+    /// let padded = client.pad_mode(&a, &[2, 2], PadMode::Reflect)?; // Shape: [9]
+    /// // Result: [3, 2, 1, 2, 3, 4, 5, 4, 3]
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    fn pad_mode(&self, tensor: &Tensor<R>, padding: &[usize], mode: PadMode) -> Result<Tensor<R>>;
 
     /// Roll tensor elements along a dimension
     ///

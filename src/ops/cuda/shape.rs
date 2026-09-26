@@ -1,8 +1,10 @@
 //! Shape operations for CUDA runtime
 use crate::error::Result;
-use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
-use crate::runtime::cuda::kernels::{launch_cat_copy, launch_pad, launch_repeat, launch_roll};
+use crate::ops::{PadMode, ShapeOps};
+use crate::runtime::cuda::kernels::{
+    launch_cat_copy, launch_pad, launch_pad_reflect, launch_repeat, launch_roll,
+};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{common::shape_ops, ensure_contiguous};
 use crate::tensor::Tensor;
@@ -135,6 +137,45 @@ impl ShapeOps<CudaRuntime> for CudaClient {
                 tensor_contig.ptr(),
                 out.ptr(),
                 value,
+                tensor.shape(),
+                &params.out_shape,
+                &pad_before,
+            )?;
+        }
+
+        Ok(out)
+    }
+
+    fn pad_mode(
+        &self,
+        tensor: &Tensor<CudaRuntime>,
+        padding: &[usize],
+        mode: PadMode,
+    ) -> Result<Tensor<CudaRuntime>> {
+        if let PadMode::Constant(value) = mode {
+            return self.pad(tensor, padding, value);
+        }
+
+        let params = shape_ops::validate_reflect_pad(tensor, padding)?;
+
+        // Handle no-op case (all padding is zero)
+        if params.pad_per_dim.iter().all(|&(b, a)| b == 0 && a == 0) {
+            return tensor.contiguous();
+        }
+
+        let tensor_contig = ensure_contiguous(tensor)?;
+        let out = Tensor::<CudaRuntime>::empty(&params.out_shape, tensor.dtype(), &self.device)?;
+
+        let pad_before: Vec<usize> = params.pad_per_dim.iter().map(|(b, _)| *b).collect();
+
+        unsafe {
+            launch_pad_reflect(
+                &self.context,
+                &self.stream,
+                self.device.index,
+                tensor.dtype(),
+                tensor_contig.ptr(),
+                out.ptr(),
                 tensor.shape(),
                 &params.out_shape,
                 &pad_before,

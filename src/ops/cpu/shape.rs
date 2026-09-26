@@ -1,11 +1,14 @@
 //! CPU implementation of shape operations.
 
 use crate::error::Result;
-use crate::ops::ShapeOps;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
+use crate::ops::{PadMode, ShapeOps};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
-    helpers::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_impl, stack_impl},
+    helpers::{
+        cat_impl, chunk_impl, pad_impl, pad_reflect_impl, repeat_impl, roll_impl, split_impl,
+        stack_impl,
+    },
 };
 use crate::tensor::Tensor;
 
@@ -48,6 +51,18 @@ impl ShapeOps<CpuRuntime> for CpuClient {
         value: f64,
     ) -> Result<Tensor<CpuRuntime>> {
         pad_impl(self, tensor, padding, value)
+    }
+
+    fn pad_mode(
+        &self,
+        tensor: &Tensor<CpuRuntime>,
+        padding: &[usize],
+        mode: PadMode,
+    ) -> Result<Tensor<CpuRuntime>> {
+        match mode {
+            PadMode::Constant(value) => pad_impl(self, tensor, padding, value),
+            PadMode::Reflect => pad_reflect_impl(self, tensor, padding),
+        }
     }
 
     fn roll(

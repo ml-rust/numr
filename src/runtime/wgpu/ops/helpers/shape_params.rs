@@ -84,6 +84,20 @@ pub(crate) struct PadParamsU32 {
     pub(crate) pad_before: [[u32; 4]; 2],
 }
 
+/// Params for reflect-mode pad (no fill value: every output element gathers
+/// from a mirrored source coordinate instead)
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct PadReflectParams {
+    pub(crate) ndim: u32,
+    pub(crate) total_elements: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) src_shape: [[u32; 4]; 2],
+    pub(crate) out_shape: [[u32; 4]; 2],
+    pub(crate) pad_before: [[u32; 4]; 2],
+}
+
 /// Params for roll operation (circular shift along a dimension)
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]

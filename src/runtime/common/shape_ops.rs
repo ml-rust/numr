@@ -410,6 +410,40 @@ pub fn validate_pad<R: Runtime>(tensor: &Tensor<R>, padding: &[usize]) -> Result
     })
 }
 
+/// Validate inputs for reflect-mode pad and compute output parameters.
+///
+/// Same `padding` convention as [`validate_pad`]. Additionally requires every
+/// padded dimension's `before`/`after` size to be strictly less than that
+/// dimension's size — reflecting a pad of `size` or more would reflect past
+/// the tensor's own interior, which has no defined source element.
+pub fn validate_reflect_pad<R: Runtime>(
+    tensor: &Tensor<R>,
+    padding: &[usize],
+) -> Result<PadParams> {
+    let params = validate_pad(tensor, padding)?;
+
+    let ndim = tensor.ndim();
+    let shape = tensor.shape();
+    let num_padded_dims = padding.len() / 2;
+
+    for i in 0..num_padded_dims {
+        let dim = ndim - 1 - i;
+        let (before, after) = params.pad_per_dim[dim];
+        let size = shape[dim];
+        if (before > 0 && before >= size) || (after > 0 && after >= size) {
+            return Err(Error::InvalidArgument {
+                arg: "padding",
+                reason: format!(
+                    "reflect pad (before={before}, after={after}) on dim {dim} must be \
+                     strictly less than that dimension's size ({size})"
+                ),
+            });
+        }
+    }
+
+    Ok(params)
+}
+
 // ============================================================================
 // Roll Validation
 // ============================================================================
