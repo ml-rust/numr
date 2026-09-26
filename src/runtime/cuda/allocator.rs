@@ -187,17 +187,16 @@ impl CudaAllocator {
 
     /// Whether THIS thread is the one capturing a graph on this device.
     ///
-    /// The freeze flag alone is not the question. It is shared by every
-    /// thread on the device, while the graph arena and `captured_ptrs`
-    /// belong to the ONE thread inside the capture region. A thread that
-    /// merely allocates while another captures must not be served from that
-    /// capture's arena — it would hand two threads the same device address —
-    /// and its pointer must not be recorded as graph-owned, because it is
-    /// freed on the ordinary path and would then be read back as corruption.
+    /// The freeze flag alone is not the question. Every thread on the device
+    /// shares it, while the graph arena and `captured_ptrs` belong to the ONE
+    /// thread inside the capture region. Serving another thread from that
+    /// arena hands two threads the same device address. Recording its pointer
+    /// as graph-owned reads back as corruption, because the ordinary path
+    /// frees it.
     ///
     /// Both conditions are required. The thread-local says who is inside a
-    /// capture region; the flag says the allocator is actually serving one,
-    /// which is what `freeze` and `unfreeze` bracket.
+    /// capture region. The flag says the allocator is serving one, which
+    /// `freeze` and `unfreeze` bracket.
     fn thread_owns_capture(&self) -> bool {
         self.frozen.load(std::sync::atomic::Ordering::Relaxed)
             && thread_is_capturing(self.stream.device_index())
@@ -520,21 +519,21 @@ mod tests {
     /// Verify that `unfreeze()` fires the corruption assertion when a pointer
     /// that was allocated during a freeze window is found in the free list.
     ///
-    /// This test simulates the bug: a freeze-allocated pointer is injected
-    /// directly into the free list (mimicking a future op that accidentally
-    /// routes a graph-internal address through the un-frozen deallocate path).
-    /// `unfreeze()` must detect the overlap and panic.
+    /// A freeze-allocated pointer is injected directly into the free list,
+    /// standing in for an op that routes a graph-internal address through the
+    /// un-frozen deallocate path. `unfreeze()` must detect the overlap and
+    /// panic.
     ///
-    /// The test is `#[ignore]` because `CudaAllocator::driver_alloc` requires a
-    /// live CUDA context and GPU. Run with:
+    /// `#[ignore]` because `CudaAllocator::driver_alloc` needs a live CUDA
+    /// context and GPU. Run with:
     ///
     /// ```text
     /// cargo test --features cuda captured_ptrs_unfreeze_detects_corruption -- --ignored
     /// ```
     ///
-    /// In CI without a GPU the structural invariant can be verified by
-    /// inspection: the debug_assert in `unfreeze()` iterates `free_list` and
-    /// panics on any pointer that appears in `captured_ptrs`.
+    /// Without a GPU, read the invariant off the code: the debug_assert in
+    /// `unfreeze()` iterates `free_list` and panics on any pointer in
+    /// `captured_ptrs`.
     #[cfg(feature = "cuda")]
     #[test]
     #[ignore = "requires a live CUDA GPU"]
@@ -549,9 +548,9 @@ mod tests {
         let _p1 = alloc.allocate(256).expect("alloc p1");
         let _p2 = alloc.allocate(512).expect("alloc p2");
 
-        // Transition into freeze mode (simulates start of CUDA graph capture).
-        // The permit is what marks THIS thread as the capturing one, which is
-        // half of what puts `allocate` on the graph path — see
+        // Transition into freeze mode, standing in for the start of a CUDA
+        // graph capture. The permit marks THIS thread as the capturing one,
+        // half of what puts `allocate` on the graph path. See
         // [`CudaAllocator::thread_owns_capture`].
         let _permit = CapturePermit::acquire(alloc.stream.capture_lock(), 0).expect("permit");
         alloc.freeze();
@@ -611,14 +610,12 @@ mod tests {
     /// Verify that `captured_ptrs` is properly cleared after a clean freeze
     /// window where the closure frees everything it allocated.
     ///
-    /// This test exercises the non-buggy path: allocate during freeze, free
-    /// during freeze (driver_free, does NOT touch free_list), then unfreeze.
-    /// `captured_ptrs` should be non-empty at unfreeze time (the closure did
-    /// not explicitly call deallocate — typical for graph-internal scratch whose
-    /// lifetime the CUDA runtime manages), but no overlap with free_list exists,
-    /// so no panic occurs.
+    /// Allocate during freeze, free during freeze (driver_free, which does NOT
+    /// touch free_list), then unfreeze. `captured_ptrs` is non-empty at
+    /// unfreeze time, which is typical for graph-internal scratch the CUDA
+    /// runtime owns, but it never overlaps free_list, so nothing panics.
     ///
-    /// This test is also `#[ignore]` as it requires a live GPU.
+    /// `#[ignore]`: needs a live GPU.
     #[cfg(feature = "cuda")]
     #[test]
     #[ignore = "requires a live CUDA GPU"]
@@ -656,15 +653,12 @@ mod tests {
     /// A thread that is NOT capturing allocates off the ordinary path even
     /// while another thread holds a freeze window open.
     ///
-    /// This is the case the corruption guard was firing on. One client per
-    /// device means one allocator shared by every thread, so a second render
-    /// running beside a graph capture used to see the freeze flag, take the
-    /// graph path, and be served an offset into the CAPTURING thread's arena
-    /// — two threads holding one device address. Its later free then landed
-    /// in the ordinary free list and `unfreeze` reported it as corruption,
-    /// which is the symptom rather than the fault.
+    /// One client per device means one allocator shared by every thread. A
+    /// second render served from the CAPTURING thread's arena gives two
+    /// threads one device address, and its later free lands in the ordinary
+    /// free list, which `unfreeze` reports as corruption.
     ///
-    /// The freeze flag stays on for the whole test: what decides the path is
+    /// The freeze flag stays on for the whole test. What decides the path is
     /// whether this thread owns the capture.
     #[cfg(feature = "cuda")]
     #[test]
@@ -690,23 +684,20 @@ mod tests {
             "a pointer from a non-capturing thread is not graph-owned"
         );
 
-        // It frees back to the ordinary free list, which is now the matching
-        // path rather than the corruption the guard used to report.
+        // It frees back to the ordinary free list, the matching path.
         alloc.deallocate(p, 256);
         alloc.unfreeze();
     }
 
     /// A panic while the free-list mutex is held must not disable the allocator.
     ///
-    /// Before the fix every `free_list.lock()` was `.unwrap()`, so one poisoned
-    /// lock turned every subsequent allocation into a panic — the exact cascade
-    /// an OOM panic could trigger mid-training. Recovery is sound because the
-    /// free list is a cache: the worst a torn mutation leaves behind is a
-    /// `total_bytes` that disagrees with the bucket contents.
+    /// One poisoned lock must not turn every later allocation into a panic.
+    /// Recovery is sound because the free list is a cache: the worst a torn
+    /// mutation leaves behind is a `total_bytes` that disagrees with the
+    /// bucket contents.
     ///
-    /// Sabotage check: restore `.unwrap()` on the `free_list` locks and this
-    /// test fails with
-    /// `called `Result::unwrap()` on an `Err` value: PoisonError { .. }`.
+    /// Sabotage check: `.unwrap()` the `free_list` locks and this test fails
+    /// with `called `Result::unwrap()` on an `Err` value: PoisonError { .. }`.
     ///
     /// `#[ignore]` for the same reason as the tests above — `driver_alloc`
     /// needs a live CUDA context.
