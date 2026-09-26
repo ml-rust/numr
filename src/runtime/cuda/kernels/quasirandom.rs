@@ -17,7 +17,7 @@ use std::sync::Arc;
 /// `cuMemcpyHtoD` memcpy node referencing freed host memory and cause
 /// `CUDA_ERROR_ILLEGAL_ADDRESS` on graph replay.
 ///
-/// Use [`CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
+/// Use [`crate::runtime::cuda::CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
 /// before entering a capture region.
 ///
 /// # Safety
@@ -71,7 +71,7 @@ pub unsafe fn launch_sobol_f32(
 /// `cuMemcpyHtoD` memcpy node referencing freed host memory and cause
 /// `CUDA_ERROR_ILLEGAL_ADDRESS` on graph replay.
 ///
-/// Use [`CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
+/// Use [`crate::runtime::cuda::CudaClient::warmup_sobol`] to pre-populate the persistent device buffer
 /// before entering a capture region.
 ///
 /// # Safety
