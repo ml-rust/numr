@@ -131,13 +131,19 @@ fn fused_add_layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     // shift in exact arithmetic, and f32 is all this backend has.
     let ref_val = faln_input[base_offset] + faln_residual[base_offset];
 
-    // Step 1: Add input + residual -> pre_norm, compute sum for mean
+    // Step 1: Add input + residual -> pre_norm (unshifted, the caller reads
+    // this as the residual sum) and stash the shifted value in faln_output
+    // (unused until step 3) so steps 2 and 3 read it back instead of
+    // recomputing `pre_val - ref_val`, which stops the compiler folding that
+    // subtraction into the later `- shifted_mean` one.
     var sum: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {
         let pre_val = faln_input[base_offset + i] + faln_residual[base_offset + i];
         faln_pre_norm[base_offset + i] = pre_val;
-        sum = sum + (pre_val - ref_val);
+        let shifted = pre_val - ref_val;
+        faln_output[base_offset + i] = shifted;
+        sum = sum + shifted;
         i = i + WORKGROUP_SIZE;
     }
 
@@ -153,12 +159,14 @@ fn fused_add_layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 
     let shifted_mean = faln_shared_mean[0] / f32(hidden_size);
     workgroupBarrier();
+    storageBarrier();
 
-    // Step 2: Compute variance
+    // Step 2: Compute variance. Reads the shifted value each thread wrote to
+    // faln_output at its own index in step 1.
     var var_sum: f32 = 0.0;
     i = tid;
     while (i < hidden_size) {
-        let diff = (faln_pre_norm[base_offset + i] - ref_val) - shifted_mean;
+        let diff = faln_output[base_offset + i] - shifted_mean;
         var_sum = var_sum + diff * diff;
         i = i + WORKGROUP_SIZE;
     }
@@ -177,10 +185,12 @@ fn fused_add_layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let inv_std = 1.0 / sqrt(variance + eps);
     workgroupBarrier();
 
-    // Step 3: Normalize and apply affine transformation
+    // Step 3: Normalize and apply affine transformation. Reads the shifted
+    // value each thread wrote to faln_output at its own index in step 1, then
+    // overwrites it with the final result in place.
     i = tid;
     while (i < hidden_size) {
-        let normalized = (faln_pre_norm[base_offset + i] - ref_val - shifted_mean) * inv_std;
+        let normalized = (faln_output[base_offset + i] - shifted_mean) * inv_std;
         faln_output[base_offset + i] = normalized * faln_weight[i] + faln_bias[i];
         i = i + WORKGROUP_SIZE;
     }
@@ -300,11 +310,17 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
     // exact arithmetic. `mean_gs` needs no shift: it averages `grad * weight`.
     let ref_val = falnb_pre_norm[base_offset];
 
-    // Phase 1: Compute mean of pre_norm
+    // Phase 1: Compute mean of pre_norm, stashing the shifted value in
+    // falnb_d_input_residual (not written until phase 3) so every later phase
+    // reads it back instead of recomputing `pre_norm - ref_val`, which stops
+    // the compiler folding that subtraction into the later `- shifted_mean`
+    // one. Each thread only ever reads the index it wrote here.
     var sum: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {
-        sum = sum + (falnb_pre_norm[base_offset + i] - ref_val);
+        let shifted = falnb_pre_norm[base_offset + i] - ref_val;
+        falnb_d_input_residual[base_offset + i] = shifted;
+        sum = sum + shifted;
         i = i + WORKGROUP_SIZE;
     }
 
@@ -320,12 +336,14 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
 
     let shifted_mean = falnb_shared_mean[0] / f32(hidden_size);
     workgroupBarrier();
+    storageBarrier();
 
-    // Phase 2: Compute variance
+    // Phase 2: Compute variance. Reads the shifted value each thread wrote to
+    // falnb_d_input_residual at its own index in phase 1.
     var var_sum: f32 = 0.0;
     i = tid;
     while (i < hidden_size) {
-        let diff = (falnb_pre_norm[base_offset + i] - ref_val) - shifted_mean;
+        let diff = falnb_d_input_residual[base_offset + i] - shifted_mean;
         var_sum = var_sum + diff * diff;
         i = i + WORKGROUP_SIZE;
     }
@@ -343,12 +361,13 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
     let variance = falnb_shared_var[0] / f32(hidden_size);
     let inv_std = 1.0 / sqrt(variance + eps);
 
-    // Compute grad_scaled = grad * weight sums
+    // Compute grad_scaled = grad * weight sums. Reads the shifted value each
+    // thread wrote to falnb_d_input_residual at its own index in phase 1.
     var sum_gs: f32 = 0.0;
     var sum_gs_n: f32 = 0.0;
     i = tid;
     while (i < hidden_size) {
-        let normalized = (falnb_pre_norm[base_offset + i] - ref_val - shifted_mean) * inv_std;
+        let normalized = (falnb_d_input_residual[base_offset + i] - shifted_mean) * inv_std;
         let gs = falnb_grad[base_offset + i] * falnb_weight[i];
         sum_gs = sum_gs + gs;
         sum_gs_n = sum_gs_n + gs * normalized;
@@ -371,10 +390,12 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
     let total_sum_gs_n = falnb_shared_var[0];
     workgroupBarrier();
 
-    // Phase 3: Compute d_input_residual, d_weight_scratch, d_bias_scratch
+    // Phase 3: Compute d_input_residual, d_weight_scratch, d_bias_scratch.
+    // Reads the shifted value each thread wrote to falnb_d_input_residual at
+    // its own index in phase 1, then overwrites it with the final result.
     i = tid;
     while (i < hidden_size) {
-        let normalized = (falnb_pre_norm[base_offset + i] - ref_val - shifted_mean) * inv_std;
+        let normalized = (falnb_d_input_residual[base_offset + i] - shifted_mean) * inv_std;
 
         // d_input_residual = inv_std * (grad*weight - mean_gs - normalized * mean_gs_n)
         let mean_gs_val = total_sum_gs / f32(hidden_size);

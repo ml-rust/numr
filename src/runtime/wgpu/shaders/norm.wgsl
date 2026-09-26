@@ -131,13 +131,17 @@ fn layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     // arithmetic, and f32 is all this backend has.
     let ref_val = ln_input[base_offset];
 
-    // Step 1: Per-thread Welford accumulation (single pass over input)
+    // Step 1: Per-thread Welford accumulation (single pass over input).
+    // The shifted value is stashed in ln_output (unused until step 3) so step 3
+    // reads it back instead of recomputing `x - ref_val`, which stops the
+    // compiler folding that subtraction into the later `- shifted_mean` one.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {
         let x = ln_input[base_offset + i] - ref_val;
+        ln_output[base_offset + i] = x;
         count = count + 1.0;
         let delta = x - mean;
         mean = mean + delta / count;
@@ -177,11 +181,14 @@ fn layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let variance = ln_shared_m2[0] / f32(hidden_size);
     let inv_std = 1.0 / sqrt(variance + eps);
     workgroupBarrier();
+    storageBarrier();
 
-    // Step 3: Normalize and apply affine transformation (second pass over input)
+    // Step 3: Normalize and apply affine transformation (second pass over input).
+    // Reads the shifted value each thread wrote to ln_output at its own index in
+    // step 1, then overwrites it with the final result in place.
     i = tid;
     while (i < hidden_size) {
-        let normalized = (ln_input[base_offset + i] - ref_val - shifted_mean) * inv_std;
+        let normalized = (ln_output[base_offset + i] - shifted_mean) * inv_std;
         ln_output[base_offset + i] = normalized * ln_weight[i] + ln_bias[i];
         i = i + WORKGROUP_SIZE;
     }
@@ -220,13 +227,17 @@ fn layer_norm_no_bias_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     // arithmetic, and f32 is all this backend has.
     let ref_val = ln_nb_input[base_offset];
 
-    // Step 1: Per-thread Welford accumulation (single pass)
+    // Step 1: Per-thread Welford accumulation (single pass). The shifted value
+    // is stashed in ln_nb_output (unused until step 3) so step 3 reads it back
+    // instead of recomputing `x - ref_val`, which stops the compiler folding
+    // that subtraction into the later `- shifted_mean` one.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
     var i: u32 = tid;
     while (i < hidden_size) {
         let x = ln_nb_input[base_offset + i] - ref_val;
+        ln_nb_output[base_offset + i] = x;
         count = count + 1.0;
         let delta = x - mean;
         mean = mean + delta / count;
@@ -265,11 +276,14 @@ fn layer_norm_no_bias_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let variance = ln_shared_m2[0] / f32(hidden_size);
     let inv_std = 1.0 / sqrt(variance + eps);
     workgroupBarrier();
+    storageBarrier();
 
-    // Step 3: Normalize and apply weight only (second pass)
+    // Step 3: Normalize and apply weight only (second pass). Reads the shifted
+    // value each thread wrote to ln_nb_output at its own index in step 1, then
+    // overwrites it with the final result in place.
     i = tid;
     while (i < hidden_size) {
-        let normalized = (ln_nb_input[base_offset + i] - ref_val - shifted_mean) * inv_std;
+        let normalized = (ln_nb_output[base_offset + i] - shifted_mean) * inv_std;
         ln_nb_output[base_offset + i] = normalized * ln_nb_weight[i];
         i = i + WORKGROUP_SIZE;
     }
@@ -335,7 +349,10 @@ fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     // backend has.
     let ref_val = gn_input[group_offset];
 
-    // Step 1: Per-thread Welford accumulation (single pass)
+    // Step 1: Per-thread Welford accumulation (single pass). The shifted value
+    // is stashed in gn_output (unused until step 3) so step 3 reads it back
+    // instead of recomputing `x - ref_val`, which stops the compiler folding
+    // that subtraction into the later `- shifted_mean` one.
     var count: f32 = 0.0;
     var mean: f32 = 0.0;
     var m2: f32 = 0.0;
@@ -345,6 +362,7 @@ fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
         let s_offset = i % spatial;
         let idx = group_offset + c_offset * spatial + s_offset;
         let x = gn_input[idx] - ref_val;
+        gn_output[idx] = x;
         count = count + 1.0;
         let delta = x - mean;
         mean = mean + delta / count;
@@ -382,15 +400,18 @@ fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
     let variance = gn_shared_m2[0] / f32(group_size);
     let inv_std = 1.0 / sqrt(variance + eps);
     workgroupBarrier();
+    storageBarrier();
 
-    // Step 3: Normalize and apply per-channel weight and bias (second pass)
+    // Step 3: Normalize and apply per-channel weight and bias (second pass).
+    // Reads the shifted value each thread wrote to gn_output at its own index
+    // in step 1, then overwrites it with the final result in place.
     i = tid;
     while (i < group_size) {
         let c_offset = i / spatial;
         let s_offset = i % spatial;
         let idx = group_offset + c_offset * spatial + s_offset;
         let channel = c_start + c_offset;
-        let normalized = (gn_input[idx] - ref_val - shifted_mean) * inv_std;
+        let normalized = (gn_output[idx] - shifted_mean) * inv_std;
         gn_output[idx] = normalized * gn_weight[channel] + gn_bias[channel];
         i = i + WORKGROUP_SIZE;
     }
