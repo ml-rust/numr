@@ -129,8 +129,8 @@ pub fn get_kernel_function(module: &Arc<CudaModule>, kernel_name: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::names::kernel_names::*;
+    use super::*;
 
     /// Every module name constant `names::kernel_names` defines — the
     /// central list of names a launcher can request. A name gated behind
