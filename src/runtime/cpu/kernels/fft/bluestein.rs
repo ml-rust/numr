@@ -11,7 +11,8 @@
 use crate::algorithm::fft_bluestein::BluesteinTables;
 use crate::dtype::{Complex64, Complex128};
 
-use super::stockham::stockham_fft_c128;
+use super::stockham::stockham_fft_c128_with;
+use super::twiddles::StockhamTwiddles;
 
 /// A [`BluesteinTables`] plus the CPU convolution that executes it.
 ///
@@ -19,8 +20,13 @@ use super::stockham::stockham_fft_c128;
 /// `M = (2N - 1).next_power_of_two()`, which the radix-2 Stockham kernel
 /// evaluates directly. This makes every size `N >= 1` available without padding
 /// the signal, which would change the frequency grid.
+///
+/// The plan also owns the forward and inverse M-point twiddle tables, so the
+/// two radix-2 transforms per row reuse them instead of rebuilding them.
 pub(super) struct BluesteinPlan {
     tables: BluesteinTables,
+    forward_m: StockhamTwiddles<Complex128>,
+    inverse_m: StockhamTwiddles<Complex128>,
 }
 
 impl BluesteinPlan {
@@ -29,22 +35,28 @@ impl BluesteinPlan {
     /// # Panics
     ///
     /// Panics if `n == 0`.
-    /// Build a plan for an N-point transform.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `n == 0`.
     pub(super) fn new(n: usize, inverse: bool) -> Self {
+        let mut kernel_twiddles = None;
         let tables = BluesteinTables::new(n, inverse, |kernel| {
+            let twiddles = StockhamTwiddles::new_c128(kernel.len(), false);
             let mut spectrum = vec![Complex128::default(); kernel.len()];
             // SAFETY: `kernel.len()` is a power of two by construction of M, and
             // `spectrum` is allocated to exactly that length.
             unsafe {
-                stockham_fft_c128(kernel, &mut spectrum, false, 1.0);
+                stockham_fft_c128_with(kernel, &mut spectrum, &twiddles, 1.0);
             }
+            kernel_twiddles = Some(twiddles);
             spectrum
         });
-        Self { tables }
+        // The kernel spectrum above is a forward M-point transform, so its table is reused.
+        let forward_m =
+            kernel_twiddles.unwrap_or_else(|| StockhamTwiddles::new_c128(tables.m, false));
+        let inverse_m = StockhamTwiddles::new_c128(tables.m, true);
+        Self {
+            tables,
+            forward_m,
+            inverse_m,
+        }
     }
 
     /// Transform length. Kept as an accessor because the tables own the field.
@@ -67,7 +79,7 @@ impl BluesteinPlan {
 
         let mut spectrum = vec![Complex128::default(); m];
         unsafe {
-            stockham_fft_c128(a, &mut spectrum, false, 1.0);
+            stockham_fft_c128_with(a, &mut spectrum, &self.forward_m, 1.0);
         }
 
         for (s, k) in spectrum.iter_mut().zip(self.tables.kernel_spectrum.iter()) {
@@ -76,7 +88,7 @@ impl BluesteinPlan {
 
         let mut conv = vec![Complex128::default(); m];
         unsafe {
-            stockham_fft_c128(&spectrum, &mut conv, true, 1.0 / m as f64);
+            stockham_fft_c128_with(&spectrum, &mut conv, &self.inverse_m, 1.0 / m as f64);
         }
         conv
     }

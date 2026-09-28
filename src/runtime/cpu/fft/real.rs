@@ -1,5 +1,6 @@
 //! Real FFT helpers (rfft, irfft)
 
+use super::super::parallel_gate::fft_work;
 use super::super::{CpuClient, CpuRuntime, kernels};
 use crate::algorithm::fft::{
     FftDirection, FftNormalization, complex_dtype_for_real, real_dtype_for_complex,
@@ -56,6 +57,9 @@ pub(super) fn rfft_impl(
     let batch_size: usize = input_contig.shape()[..ndim - 1].iter().product();
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
+    // Rows are independent, so a small batch runs on this thread with the same
+    // per-row arithmetic and no fork-join.
+    let parallel = batch_size > 1 && client.parallel_worthwhile(fft_work(batch_size, n));
 
     let input_ptr = input_contig.ptr();
     let output_ptr = output.ptr();
@@ -71,10 +75,11 @@ pub(super) fn rfft_impl(
                 )
             };
             let norm_f32 = normalize_factor as f32;
+            let plan = kernels::RfftPlanC64::new(n);
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(n / 2 + 1)
                         .enumerate()
@@ -82,7 +87,7 @@ pub(super) fn rfft_impl(
                         .for_each(|(batch_idx, out_chunk)| {
                             let in_start = batch_idx * n;
                             unsafe {
-                                kernels::rfft_c64(
+                                plan.execute(
                                     &input_slice[in_start..in_start + n],
                                     out_chunk,
                                     norm_f32,
@@ -96,7 +101,7 @@ pub(super) fn rfft_impl(
                     let in_start = batch_idx * n;
                     let out_start = batch_idx * (n / 2 + 1);
                     unsafe {
-                        kernels::rfft_c64(
+                        plan.execute(
                             &input_slice[in_start..in_start + n],
                             &mut output_slice[out_start..out_start + n / 2 + 1],
                             norm_f32,
@@ -114,10 +119,11 @@ pub(super) fn rfft_impl(
                     batch_size * (n / 2 + 1),
                 )
             };
+            let plan = kernels::RfftPlanC128::new(n);
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(n / 2 + 1)
                         .enumerate()
@@ -125,7 +131,7 @@ pub(super) fn rfft_impl(
                         .for_each(|(batch_idx, out_chunk)| {
                             let in_start = batch_idx * n;
                             unsafe {
-                                kernels::rfft_c128(
+                                plan.execute(
                                     &input_slice[in_start..in_start + n],
                                     out_chunk,
                                     normalize_factor,
@@ -139,7 +145,7 @@ pub(super) fn rfft_impl(
                     let in_start = batch_idx * n;
                     let out_start = batch_idx * (n / 2 + 1);
                     unsafe {
-                        kernels::rfft_c128(
+                        plan.execute(
                             &input_slice[in_start..in_start + n],
                             &mut output_slice[out_start..out_start + n / 2 + 1],
                             normalize_factor,
@@ -220,6 +226,9 @@ pub(super) fn irfft_impl(
     let batch_size: usize = input_contig.shape()[..ndim - 1].iter().product();
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
+    // Rows are independent, so a small batch runs on this thread with the same
+    // per-row arithmetic and no fork-join.
+    let parallel = batch_size > 1 && client.parallel_worthwhile(fft_work(batch_size, output_n));
 
     let input_ptr = input_contig.ptr();
     let output_ptr = output.ptr();
@@ -233,10 +242,11 @@ pub(super) fn irfft_impl(
                 std::slice::from_raw_parts_mut(output_ptr as *mut f32, batch_size * output_n)
             };
             let norm_f32 = normalize_factor as f32;
+            let plan = kernels::IrfftPlanC64::new(output_n);
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(output_n)
                         .enumerate()
@@ -244,7 +254,7 @@ pub(super) fn irfft_impl(
                         .for_each(|(batch_idx, out_chunk)| {
                             let in_start = batch_idx * input_n;
                             unsafe {
-                                kernels::irfft_c64(
+                                plan.execute(
                                     &input_slice[in_start..in_start + input_n],
                                     out_chunk,
                                     norm_f32,
@@ -258,7 +268,7 @@ pub(super) fn irfft_impl(
                     let in_start = batch_idx * input_n;
                     let out_start = batch_idx * output_n;
                     unsafe {
-                        kernels::irfft_c64(
+                        plan.execute(
                             &input_slice[in_start..in_start + input_n],
                             &mut output_slice[out_start..out_start + output_n],
                             norm_f32,
@@ -274,10 +284,11 @@ pub(super) fn irfft_impl(
             let output_slice: &mut [f64] = unsafe {
                 std::slice::from_raw_parts_mut(output_ptr as *mut f64, batch_size * output_n)
             };
+            let plan = kernels::IrfftPlanC128::new(output_n);
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(output_n)
                         .enumerate()
@@ -285,7 +296,7 @@ pub(super) fn irfft_impl(
                         .for_each(|(batch_idx, out_chunk)| {
                             let in_start = batch_idx * input_n;
                             unsafe {
-                                kernels::irfft_c128(
+                                plan.execute(
                                     &input_slice[in_start..in_start + input_n],
                                     out_chunk,
                                     normalize_factor,
@@ -299,7 +310,7 @@ pub(super) fn irfft_impl(
                     let in_start = batch_idx * input_n;
                     let out_start = batch_idx * output_n;
                     unsafe {
-                        kernels::irfft_c128(
+                        plan.execute(
                             &input_slice[in_start..in_start + input_n],
                             &mut output_slice[out_start..out_start + output_n],
                             normalize_factor,

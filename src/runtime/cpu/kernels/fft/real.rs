@@ -1,193 +1,27 @@
-//! Real FFT kernels (rfft/irfft)
+//! One-shot real FFT entry points (rfft/irfft) and their kernel tests.
+//!
+//! Each function builds a plan from [`super::real_plan`] for a single row.
+//! Runtime code builds the plan once per batch, so this module is test-only.
 
 use crate::dtype::{Complex64, Complex128};
-use std::f64::consts::PI;
 
-use super::bluestein::BluesteinPlan;
-use super::dispatch::{fft_c64, fft_c128};
-use super::stockham::{stockham_fft_c64, stockham_fft_c128};
+use super::real_plan::{IrfftPlanC64, IrfftPlanC128, RfftPlanC64, RfftPlanC128};
 
-// ============================================================================
-// Real FFT Kernels (rfft/irfft)
-// ============================================================================
-
-/// Real-to-complex FFT using the "packing" trick
+/// Real-to-complex FFT (f32 precision)
 ///
-/// For N real inputs, we pack them as N/2 complex values:
-///   z[k] = x[2k] + i*x[2k+1]
-///
-/// Then compute N/2-point complex FFT and unpack to get N/2+1 complex outputs.
-///
-/// # Arguments
-///
-/// * `input` - Real input data of length N (must be power of 2)
-/// * `output` - Complex output buffer of length N/2 + 1
+/// Power-of-two N >= 2 uses the half-size packing trick. Every other size
+/// falls back to a full complex Bluestein transform, keeping the first
+/// N/2 + 1 bins.
 ///
 /// # Safety
 ///
 /// * N must be >= 1
 /// * `output` must have length N/2 + 1
-///
-/// Sizes that are not a power of two >= 2 fall back to a full complex Bluestein
-/// transform, keeping the first N/2 + 1 bins.
-pub unsafe fn rfft_c64(input: &[f32], output: &mut [Complex64], normalize_factor: f32) {
-    let n = input.len();
-    debug_assert!(n >= 1, "N must be >= 1");
-    debug_assert_eq!(output.len(), n / 2 + 1);
-
-    if !(n >= 2 && n.is_power_of_two()) {
-        BluesteinPlan::new(n, false).execute_rfft_f32(input, output, normalize_factor);
-        return;
-    }
-
-    let half_n = n / 2;
-
-    // Step 1: Pack real values into complex
-    let mut packed: Vec<Complex64> = Vec::with_capacity(half_n);
-    for k in 0..half_n {
-        packed.push(Complex64::new(input[2 * k], input[2 * k + 1]));
-    }
-
-    // Step 2: Compute half-size complex FFT (no normalization yet)
-    let mut fft_result = vec![Complex64::default(); half_n];
-    stockham_fft_c64(&packed, &mut fft_result, false, 1.0);
-
-    // Step 3: Unpack to get full rfft output
-    // X[0] = Z[0].re + Z[0].im (DC component)
-    // X[N/2] = Z[0].re - Z[0].im (Nyquist component)
-    // X[k] = (Z[k] + conj(Z[N/2-k])) / 2 - i * (Z[k] - conj(Z[N/2-k])) / 2 * W_N^k
-    //
-    // Simplified unpack formula:
-    // Xe[k] = (Z[k] + conj(Z[N/2-k])) / 2
-    // Xo[k] = (Z[k] - conj(Z[N/2-k])) / 2i
-    // X[k] = Xe[k] + W_N^(-k) * Xo[k]
-
-    // DC component (k=0)
-    output[0] = Complex64::new(
-        (fft_result[0].re + fft_result[0].im) * normalize_factor,
-        0.0,
-    );
-
-    // Middle components (k = 1 to N/2 - 1)
-    for k in 1..half_n {
-        let z_k = fft_result[k];
-        let z_nk = fft_result[half_n - k].conj();
-
-        let x_even = (z_k + z_nk) * Complex64::new(0.5, 0.0);
-        let x_odd = (z_k - z_nk) * Complex64::new(0.0, -0.5);
-
-        // Twiddle factor W_N^(-k)
-        let theta = -2.0 * PI * (k as f64) / (n as f64);
-        let twiddle = Complex64::new(theta.cos() as f32, theta.sin() as f32);
-
-        let result = x_even + x_odd * twiddle;
-        output[k] = Complex64::new(result.re * normalize_factor, result.im * normalize_factor);
-    }
-
-    // Nyquist component (k = N/2)
-    output[half_n] = Complex64::new(
-        (fft_result[0].re - fft_result[0].im) * normalize_factor,
-        0.0,
-    );
+pub(super) unsafe fn rfft_c64(input: &[f32], output: &mut [Complex64], normalize_factor: f32) {
+    RfftPlanC64::new(input.len()).execute(input, output, normalize_factor);
 }
 
-/// Complex-to-real inverse FFT
-///
-/// Takes Hermitian-symmetric complex input (N/2+1 values) and produces N real values.
-///
-/// # Safety
-///
-/// * `input` must have length N/2 + 1
-/// * `output` must have length N
-/// * N must be >= 1
-///
-/// The output length is authoritative: N is taken from `output`, so odd N (which
-/// cannot be recovered from `input.len()`) is handled correctly.
-pub unsafe fn irfft_c64(input: &[Complex64], output: &mut [f32], normalize_factor: f32) {
-    let n = output.len();
-    debug_assert!(n >= 1, "N must be >= 1");
-    let half_n = n / 2;
-    debug_assert_eq!(input.len(), half_n + 1);
-
-    // Step 1: Extend Hermitian-symmetric input to full complex spectrum.
-    // For even N the Nyquist bin (k == N - k) is stored once, without conjugation.
-    let mut full_spectrum = vec![Complex64::default(); n];
-    full_spectrum[0] = input[0];
-    for k in 1..=half_n {
-        full_spectrum[k] = input[k];
-        if n - k != k {
-            full_spectrum[n - k] = input[k].conj();
-        }
-    }
-
-    // Step 2: Compute inverse FFT (with normalization 1/N built-in)
-    let mut ifft_result = vec![Complex64::default(); n];
-    fft_c64(&full_spectrum, &mut ifft_result, true, normalize_factor);
-
-    // Step 3: Extract real parts
-    for i in 0..n {
-        output[i] = ifft_result[i].re;
-    }
-}
-
-/// Real-to-complex FFT (f64 precision)
-///
-/// Sizes that are not a power of two >= 2 fall back to a full complex Bluestein
-/// transform, keeping the first N/2 + 1 bins.
-///
-/// # Safety
-///
-/// * N must be >= 1
-/// * `output` must have length N/2 + 1
-pub unsafe fn rfft_c128(input: &[f64], output: &mut [Complex128], normalize_factor: f64) {
-    let n = input.len();
-    debug_assert!(n >= 1, "N must be >= 1");
-    debug_assert_eq!(output.len(), n / 2 + 1);
-
-    if !(n >= 2 && n.is_power_of_two()) {
-        BluesteinPlan::new(n, false).execute_rfft_f64(input, output, normalize_factor);
-        return;
-    }
-
-    let half_n = n / 2;
-
-    // Pack real values into complex
-    let mut packed: Vec<Complex128> = Vec::with_capacity(half_n);
-    for k in 0..half_n {
-        packed.push(Complex128::new(input[2 * k], input[2 * k + 1]));
-    }
-
-    // Compute half-size complex FFT
-    let mut fft_result = vec![Complex128::default(); half_n];
-    stockham_fft_c128(&packed, &mut fft_result, false, 1.0);
-
-    // Unpack to get full rfft output
-    output[0] = Complex128::new(
-        (fft_result[0].re + fft_result[0].im) * normalize_factor,
-        0.0,
-    );
-
-    for k in 1..half_n {
-        let z_k = fft_result[k];
-        let z_nk = fft_result[half_n - k].conj();
-
-        let x_even = (z_k + z_nk) * Complex128::new(0.5, 0.0);
-        let x_odd = (z_k - z_nk) * Complex128::new(0.0, -0.5);
-
-        let theta = -2.0 * PI * (k as f64) / (n as f64);
-        let twiddle = Complex128::new(theta.cos(), theta.sin());
-
-        let result = x_even + x_odd * twiddle;
-        output[k] = Complex128::new(result.re * normalize_factor, result.im * normalize_factor);
-    }
-
-    output[half_n] = Complex128::new(
-        (fft_result[0].re - fft_result[0].im) * normalize_factor,
-        0.0,
-    );
-}
-
-/// Complex-to-real inverse FFT (f64 precision)
+/// Complex-to-real inverse FFT (f32 precision)
 ///
 /// The output length is authoritative: N is taken from `output`, so odd N (which
 /// cannot be recovered from `input.len()`) is handled correctly.
@@ -196,31 +30,28 @@ pub unsafe fn rfft_c128(input: &[f64], output: &mut [Complex128], normalize_fact
 ///
 /// * `input` must have length N/2 + 1
 /// * `output` must have length N >= 1
-pub unsafe fn irfft_c128(input: &[Complex128], output: &mut [f64], normalize_factor: f64) {
-    let n = output.len();
-    debug_assert!(n >= 1, "N must be >= 1");
-    let half_n = n / 2;
-    debug_assert_eq!(input.len(), half_n + 1);
+pub(super) unsafe fn irfft_c64(input: &[Complex64], output: &mut [f32], normalize_factor: f32) {
+    IrfftPlanC64::new(output.len()).execute(input, output, normalize_factor);
+}
 
-    // Extend Hermitian-symmetric input.
-    // For even N the Nyquist bin (k == N - k) is stored once, without conjugation.
-    let mut full_spectrum = vec![Complex128::default(); n];
-    full_spectrum[0] = input[0];
-    for k in 1..=half_n {
-        full_spectrum[k] = input[k];
-        if n - k != k {
-            full_spectrum[n - k] = input[k].conj();
-        }
-    }
+/// Real-to-complex FFT (f64 precision)
+///
+/// # Safety
+///
+/// * N must be >= 1
+/// * `output` must have length N/2 + 1
+pub(super) unsafe fn rfft_c128(input: &[f64], output: &mut [Complex128], normalize_factor: f64) {
+    RfftPlanC128::new(input.len()).execute(input, output, normalize_factor);
+}
 
-    // Compute inverse FFT
-    let mut ifft_result = vec![Complex128::default(); n];
-    fft_c128(&full_spectrum, &mut ifft_result, true, normalize_factor);
-
-    // Extract real parts
-    for i in 0..n {
-        output[i] = ifft_result[i].re;
-    }
+/// Complex-to-real inverse FFT (f64 precision)
+///
+/// # Safety
+///
+/// * `input` must have length N/2 + 1
+/// * `output` must have length N >= 1
+pub(super) unsafe fn irfft_c128(input: &[Complex128], output: &mut [f64], normalize_factor: f64) {
+    IrfftPlanC128::new(output.len()).execute(input, output, normalize_factor);
 }
 
 #[cfg(test)]
@@ -383,6 +214,119 @@ mod tests {
                     recovered[i],
                     original[i]
                 );
+            }
+        }
+    }
+
+    /// Power-of-two rfft with the unpack twiddle evaluated inline per bin, as
+    /// the kernel did before the plan cached it.
+    fn rfft_c64_inline_reference(input: &[f32]) -> Vec<Complex64> {
+        use super::super::stockham::stockham_fft_c64;
+        let n = input.len();
+        let half_n = n / 2;
+        let packed: Vec<Complex64> = (0..half_n)
+            .map(|k| Complex64::new(input[2 * k], input[2 * k + 1]))
+            .collect();
+        let mut z = vec![Complex64::default(); half_n];
+        unsafe { stockham_fft_c64(&packed, &mut z, false, 1.0) };
+        let mut out = vec![Complex64::default(); half_n + 1];
+        out[0] = Complex64::new(z[0].re + z[0].im, 0.0);
+        for k in 1..half_n {
+            let z_k = z[k];
+            let z_nk = z[half_n - k].conj();
+            let x_even = (z_k + z_nk) * Complex64::new(0.5, 0.0);
+            let x_odd = (z_k - z_nk) * Complex64::new(0.0, -0.5);
+            let theta = -2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+            let twiddle = Complex64::new(theta.cos() as f32, theta.sin() as f32);
+            out[k] = x_even + x_odd * twiddle;
+        }
+        out[half_n] = Complex64::new(z[0].re - z[0].im, 0.0);
+        out
+    }
+
+    #[test]
+    fn test_rfft_plan_bit_identical_to_inline_unpack() {
+        for &n in &[2usize, 4, 16, 256, 1024] {
+            let x: Vec<f32> = deterministic_samples(n, 0x4242 ^ n as u64)
+                .iter()
+                .map(|c| c.re as f32)
+                .collect();
+            let want = rfft_c64_inline_reference(&x);
+            let mut got = vec![Complex64::default(); n / 2 + 1];
+            unsafe { rfft_c64(&x, &mut got, 1.0) };
+            for k in 0..=n / 2 {
+                assert_eq!(got[k].re.to_bits(), want[k].re.to_bits(), "n={n} bin {k}");
+                assert_eq!(got[k].im.to_bits(), want[k].im.to_bits(), "n={n} bin {k}");
+            }
+        }
+    }
+
+    /// One plan reused across rows gives every row the bits of a one-shot call.
+    #[test]
+    fn test_real_plans_reused_across_rows_are_bit_identical() {
+        for &n in &[1usize, 2, 7, 64, 400, 512] {
+            let rfft64 = RfftPlanC64::new(n);
+            let rfft128 = RfftPlanC128::new(n);
+            let irfft64 = IrfftPlanC64::new(n);
+            let irfft128 = IrfftPlanC128::new(n);
+            let bins = n / 2 + 1;
+            for row in 0..3u64 {
+                let wide: Vec<f64> = deterministic_samples(n, 0x5150 ^ (n as u64) ^ (row << 32))
+                    .iter()
+                    .map(|c| c.re)
+                    .collect();
+                let narrow: Vec<f32> = wide.iter().map(|&v| v as f32).collect();
+
+                let (mut a64, mut b64) = (
+                    vec![Complex64::default(); bins],
+                    vec![Complex64::default(); bins],
+                );
+                let (mut a128, mut b128) = (
+                    vec![Complex128::default(); bins],
+                    vec![Complex128::default(); bins],
+                );
+                let (mut r64, mut s64) = (vec![0.0f32; n], vec![0.0f32; n]);
+                let (mut r128, mut s128) = (vec![0.0f64; n], vec![0.0f64; n]);
+                unsafe {
+                    rfft64.execute(&narrow, &mut a64, 0.5);
+                    rfft_c64(&narrow, &mut b64, 0.5);
+                    rfft128.execute(&wide, &mut a128, 0.5);
+                    rfft_c128(&wide, &mut b128, 0.5);
+                    irfft64.execute(&a64, &mut r64, 0.25);
+                    irfft_c64(&a64, &mut s64, 0.25);
+                    irfft128.execute(&a128, &mut r128, 0.25);
+                    irfft_c128(&a128, &mut s128, 0.25);
+                }
+                for k in 0..bins {
+                    assert_eq!(
+                        a64[k].re.to_bits(),
+                        b64[k].re.to_bits(),
+                        "rfft c64 n={n} bin {k}"
+                    );
+                    assert_eq!(
+                        a64[k].im.to_bits(),
+                        b64[k].im.to_bits(),
+                        "rfft c64 n={n} bin {k}"
+                    );
+                    assert_eq!(
+                        a128[k].re.to_bits(),
+                        b128[k].re.to_bits(),
+                        "rfft c128 n={n} bin {k}"
+                    );
+                    assert_eq!(
+                        a128[k].im.to_bits(),
+                        b128[k].im.to_bits(),
+                        "rfft c128 n={n} bin {k}"
+                    );
+                }
+                for i in 0..n {
+                    assert_eq!(r64[i].to_bits(), s64[i].to_bits(), "irfft c64 n={n} i={i}");
+                    assert_eq!(
+                        r128[i].to_bits(),
+                        s128[i].to_bits(),
+                        "irfft c128 n={n} i={i}"
+                    );
+                }
             }
         }
     }

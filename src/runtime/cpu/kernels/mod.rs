@@ -71,8 +71,8 @@ pub use distributions::{
     f_distribution_kernel, gamma_kernel, laplace_kernel, poisson_kernel, student_t_kernel,
 };
 pub use fft::{
-    fftshift_c64, fftshift_c128, ifftshift_c64, ifftshift_c128, irfft_c64, irfft_c128, rfft_c64,
-    rfft_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
+    IrfftPlanC64, IrfftPlanC128, RfftPlanC64, RfftPlanC128, fftshift_c64, fftshift_c128,
+    ifftshift_c64, ifftshift_c128, stockham_fft_batched_c64, stockham_fft_batched_c128,
 };
 pub use fused_add_norm::{
     fused_add_layer_norm_bwd_kernel, fused_add_layer_norm_kernel, fused_add_rms_norm_bwd_kernel,

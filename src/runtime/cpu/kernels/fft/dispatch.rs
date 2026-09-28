@@ -1,61 +1,139 @@
-//! Size-dispatching FFT entry points.
+//! Size-dispatching FFT plans and entry points.
 //!
 //! Power-of-two sizes take the Stockham path unchanged; every other size uses
-//! Bluestein's algorithm built on that same Stockham kernel.
+//! Bluestein's algorithm built on that same Stockham kernel. A plan holds the
+//! per-size tables, so a batch of rows of one length builds them once.
 
 use super::bluestein::BluesteinPlan;
-use super::stockham::{stockham_fft_c64, stockham_fft_c128};
+use super::stockham::{stockham_fft_c64_with, stockham_fft_c128_with};
+use super::twiddles::StockhamTwiddles;
 use crate::dtype::{Complex64, Complex128};
 
-/// Complex64 FFT for any size `N >= 1`.
-///
-/// Power-of-two sizes take the Stockham path unchanged; every other size uses
-/// Bluestein's algorithm built on that same Stockham kernel.
+enum PlanKindC64 {
+    Stockham(StockhamTwiddles<Complex64>),
+    Bluestein(BluesteinPlan),
+}
+
+/// Complex64 FFT plan for one size `N >= 1` and one direction.
+pub(super) struct FftPlanC64 {
+    n: usize,
+    kind: PlanKindC64,
+}
+
+impl FftPlanC64 {
+    /// Build the tables for an N-point transform.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n == 0`.
+    pub(super) fn new(n: usize, inverse: bool) -> Self {
+        let kind = if n.is_power_of_two() {
+            PlanKindC64::Stockham(StockhamTwiddles::new_c64(n, inverse))
+        } else {
+            PlanKindC64::Bluestein(BluesteinPlan::new(n, inverse))
+        };
+        Self { n, kind }
+    }
+
+    /// Transform length.
+    pub(super) fn n(&self) -> usize {
+        self.n
+    }
+
+    /// Transform one row.
+    ///
+    /// # Safety
+    ///
+    /// * `input` and `output` must both have length `self.n()`
+    pub(super) unsafe fn execute(&self, input: &[Complex64], output: &mut [Complex64], nf: f32) {
+        debug_assert_eq!(input.len(), self.n);
+        debug_assert_eq!(output.len(), self.n);
+        match &self.kind {
+            PlanKindC64::Stockham(twiddles) => stockham_fft_c64_with(input, output, twiddles, nf),
+            PlanKindC64::Bluestein(plan) => plan.execute_c64(input, output, nf),
+        }
+    }
+}
+
+enum PlanKindC128 {
+    Stockham(StockhamTwiddles<Complex128>),
+    Bluestein(BluesteinPlan),
+}
+
+/// Complex128 FFT plan for one size `N >= 1` and one direction.
+pub(super) struct FftPlanC128 {
+    n: usize,
+    kind: PlanKindC128,
+}
+
+impl FftPlanC128 {
+    /// Build the tables for an N-point transform.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n == 0`.
+    pub(super) fn new(n: usize, inverse: bool) -> Self {
+        let kind = if n.is_power_of_two() {
+            PlanKindC128::Stockham(StockhamTwiddles::new_c128(n, inverse))
+        } else {
+            PlanKindC128::Bluestein(BluesteinPlan::new(n, inverse))
+        };
+        Self { n, kind }
+    }
+
+    /// Transform length.
+    pub(super) fn n(&self) -> usize {
+        self.n
+    }
+
+    /// Transform one row.
+    ///
+    /// # Safety
+    ///
+    /// * `input` and `output` must both have length `self.n()`
+    pub(super) unsafe fn execute(&self, input: &[Complex128], output: &mut [Complex128], nf: f64) {
+        debug_assert_eq!(input.len(), self.n);
+        debug_assert_eq!(output.len(), self.n);
+        match &self.kind {
+            PlanKindC128::Stockham(twiddles) => stockham_fft_c128_with(input, output, twiddles, nf),
+            PlanKindC128::Bluestein(plan) => plan.execute_c128(input, output, nf),
+        }
+    }
+}
+
+/// Complex64 FFT for any size `N >= 1`. Builds a one-shot [`FftPlanC64`].
 ///
 /// # Safety
 ///
 /// * `input` and `output` must be valid slices of the same length `N >= 1`
+#[cfg(test)]
 pub(super) unsafe fn fft_c64(
     input: &[Complex64],
     output: &mut [Complex64],
     inverse: bool,
     normalize_factor: f32,
 ) {
-    let n = input.len();
-    debug_assert_eq!(n, output.len());
-    debug_assert!(n >= 1, "N must be >= 1");
-
-    if n.is_power_of_two() {
-        stockham_fft_c64(input, output, inverse, normalize_factor);
-    } else {
-        BluesteinPlan::new(n, inverse).execute_c64(input, output, normalize_factor);
-    }
+    FftPlanC64::new(input.len(), inverse).execute(input, output, normalize_factor);
 }
 
-/// Complex128 FFT for any size `N >= 1`.
+/// Complex128 FFT for any size `N >= 1`. Builds a one-shot [`FftPlanC128`].
 ///
 /// # Safety
 ///
 /// * `input` and `output` must be valid slices of the same length `N >= 1`
+#[cfg(test)]
 pub(super) unsafe fn fft_c128(
     input: &[Complex128],
     output: &mut [Complex128],
     inverse: bool,
     normalize_factor: f64,
 ) {
-    let n = input.len();
-    debug_assert_eq!(n, output.len());
-    debug_assert!(n >= 1, "N must be >= 1");
-
-    if n.is_power_of_two() {
-        stockham_fft_c128(input, output, inverse, normalize_factor);
-    } else {
-        BluesteinPlan::new(n, inverse).execute_c128(input, output, normalize_factor);
-    }
+    FftPlanC128::new(input.len(), inverse).execute(input, output, normalize_factor);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::stockham::{stockham_fft_c64, stockham_fft_c128};
     use super::super::test_support::*;
     use super::*;
 

@@ -47,6 +47,8 @@ fn shift_impl(
     let batch_size: usize = input_contig.shape()[..ndim - 1].iter().product();
     #[cfg(feature = "rayon")]
     let min_len = client.rayon_min_len();
+    // A shift is a copy: a small batch runs on this thread, row for row.
+    let parallel = batch_size > 1 && client.parallel_worthwhile(batch_size * n);
 
     let input_ptr = input_contig.ptr();
     let output_ptr = output.ptr();
@@ -68,9 +70,9 @@ fn shift_impl(
                 kernels::fftshift_c64
             };
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(n)
                         .enumerate()
@@ -109,9 +111,9 @@ fn shift_impl(
                 kernels::fftshift_c128
             };
 
-            client.install_parallelism(|| {
+            client.install_parallelism_if(parallel, || {
                 #[cfg(feature = "rayon")]
-                if batch_size > 1 {
+                if parallel {
                     output_slice
                         .par_chunks_mut(n)
                         .enumerate()

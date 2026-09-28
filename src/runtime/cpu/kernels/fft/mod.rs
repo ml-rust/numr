@@ -22,14 +22,18 @@
 //!     swap(src, dst)
 //! ```
 
+mod batched;
 mod bluestein;
 mod dispatch;
+#[cfg(test)]
 mod real;
+mod real_plan;
 mod shift;
 mod stockham;
 #[cfg(test)]
 mod test_support;
+mod twiddles;
 
-pub use real::{irfft_c64, irfft_c128, rfft_c64, rfft_c128};
+pub use batched::{stockham_fft_batched_c64, stockham_fft_batched_c128};
+pub use real_plan::{IrfftPlanC64, IrfftPlanC128, RfftPlanC64, RfftPlanC128};
 pub use shift::{fftshift_c64, fftshift_c128, ifftshift_c64, ifftshift_c128};
-pub use stockham::{stockham_fft_batched_c64, stockham_fft_batched_c128};

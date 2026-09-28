@@ -1,5 +1,6 @@
 //! Last-dimension contiguous FFT dispatch via the Stockham autosort kernels.
 
+use super::super::parallel_gate::fft_work;
 use super::super::{CpuClient, CpuRuntime, kernels};
 use crate::algorithm::fft::{FftDirection, FftNormalization};
 use crate::dtype::{Complex64, Complex128, DType};
@@ -27,6 +28,9 @@ impl CpuClient {
         // would build a `from_raw_parts` slice longer than the empty allocation.
         let batch_size: usize = input.shape()[..ndim - 1].iter().product();
         let min_len = self.chunk_size_hint();
+        // Rows are independent, so a small batch runs on this thread with the
+        // same per-row arithmetic.
+        let parallel = batch_size > 1 && self.parallel_worthwhile(fft_work(batch_size, n));
 
         let input_ptr = input.ptr();
         let output_ptr = output.ptr();
@@ -40,7 +44,7 @@ impl CpuClient {
                     std::slice::from_raw_parts_mut(output_ptr as *mut Complex64, batch_size * n)
                 };
 
-                if batch_size > 1 {
+                if parallel {
                     self.install_parallelism(|| unsafe {
                         kernels::stockham_fft_batched_c64(
                             input_slice,
@@ -50,6 +54,7 @@ impl CpuClient {
                             inverse,
                             normalize_factor as f32,
                             min_len,
+                            true,
                         );
                     });
                 } else {
@@ -62,6 +67,7 @@ impl CpuClient {
                             inverse,
                             normalize_factor as f32,
                             min_len,
+                            false,
                         );
                     }
                 }
@@ -74,7 +80,7 @@ impl CpuClient {
                     std::slice::from_raw_parts_mut(output_ptr as *mut Complex128, batch_size * n)
                 };
 
-                if batch_size > 1 {
+                if parallel {
                     self.install_parallelism(|| unsafe {
                         kernels::stockham_fft_batched_c128(
                             input_slice,
@@ -84,6 +90,7 @@ impl CpuClient {
                             inverse,
                             normalize_factor,
                             min_len,
+                            true,
                         );
                     });
                 } else {
@@ -96,6 +103,7 @@ impl CpuClient {
                             inverse,
                             normalize_factor,
                             min_len,
+                            false,
                         );
                     }
                 }

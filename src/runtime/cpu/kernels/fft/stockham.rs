@@ -1,11 +1,8 @@
 //! Stockham autosort radix-2 FFT kernels (power-of-two sizes)
 
 use crate::dtype::{Complex64, Complex128};
-use std::f64::consts::PI;
 
-use super::bluestein::BluesteinPlan;
-#[cfg(feature = "rayon")]
-use super::dispatch::{fft_c64, fft_c128};
+use super::twiddles::StockhamTwiddles;
 
 // ============================================================================
 // Complex64 (f32) FFT Kernels
@@ -13,26 +10,43 @@ use super::dispatch::{fft_c64, fft_c128};
 
 /// Stockham FFT for Complex64 data
 ///
-/// # Arguments
-///
-/// * `input` - Input complex data slice of length N (must be power of 2)
-/// * `output` - Output buffer, will be filled with FFT result
-/// * `inverse` - If true, compute inverse FFT
-/// * `normalize_factor` - Scale factor to apply to each output element
+/// Builds the twiddle table for this call. A caller that transforms many rows
+/// of the same length builds one [`StockhamTwiddles`] and calls
+/// [`stockham_fft_c64_with`] per row instead.
 ///
 /// # Safety
 ///
 /// * `input` and `output` must be valid slices of length N
 /// * N must be a power of 2
+#[cfg(test)]
 pub(super) unsafe fn stockham_fft_c64(
     input: &[Complex64],
     output: &mut [Complex64],
     inverse: bool,
     normalize_factor: f32,
 ) {
+    let twiddles = StockhamTwiddles::new_c64(input.len(), inverse);
+    stockham_fft_c64_with(input, output, &twiddles, normalize_factor);
+}
+
+/// Stockham FFT for Complex64 data with a prebuilt twiddle table.
+///
+/// The direction is the one `twiddles` was built for (its sign is in the table).
+///
+/// # Safety
+///
+/// * `input` and `output` must be valid slices of length N
+/// * N must be a power of 2 and equal `twiddles.n()`
+pub(super) unsafe fn stockham_fft_c64_with(
+    input: &[Complex64],
+    output: &mut [Complex64],
+    twiddles: &StockhamTwiddles<Complex64>,
+    normalize_factor: f32,
+) {
     let n = input.len();
     debug_assert!(n > 0 && (n & (n - 1)) == 0, "N must be power of 2");
     debug_assert_eq!(input.len(), output.len());
+    debug_assert_eq!(twiddles.n(), n);
 
     if n == 1 {
         output[0] = Complex64::new(
@@ -43,7 +57,6 @@ pub(super) unsafe fn stockham_fft_c64(
     }
 
     let log_n = n.trailing_zeros() as usize;
-    let sign = if inverse { 1.0f64 } else { -1.0f64 };
 
     // Double buffering - allocate working buffers
     let mut buf_a: Vec<Complex64> = input.to_vec();
@@ -58,14 +71,12 @@ pub(super) unsafe fn stockham_fft_c64(
         let m = 1 << (stage + 1); // 2, 4, 8, ..., N
         let half_m = 1 << stage; // 1, 2, 4, ..., N/2
         let groups = n / m;
+        // Twiddle factor: W_m^b = exp(sign * 2πi * b / m), indexed by b
+        let stage_twiddles = twiddles.stage(half_m);
 
         // Process all butterflies in this stage
         for g in 0..groups {
-            for b in 0..half_m {
-                // Twiddle factor: W_m^b = exp(sign * 2πi * b / m)
-                let theta = sign * 2.0 * PI * (b as f64) / (m as f64);
-                let twiddle = Complex64::new(theta.cos() as f32, theta.sin() as f32);
-
+            for (b, &twiddle) in stage_twiddles.iter().enumerate() {
                 // Stockham addressing:
                 // Even elements: src[g * half_m + b]
                 // Odd elements:  src[N/2 + g * half_m + b]
@@ -95,127 +106,46 @@ pub(super) unsafe fn stockham_fft_c64(
     }
 }
 
-/// Batched FFT for Complex64 data
-///
-/// Processes multiple independent FFTs in parallel. Power-of-two sizes use the
-/// Stockham kernel; any other size uses Bluestein's algorithm with a single plan
-/// shared across the batch.
-///
-/// # Safety
-///
-/// * `input` and `output` must have length `batch_size * n`
-/// * n must be >= 1
-#[cfg(feature = "rayon")]
-pub unsafe fn stockham_fft_batched_c64(
-    input: &[Complex64],
-    output: &mut [Complex64],
-    n: usize,
-    batch_size: usize,
-    inverse: bool,
-    normalize_factor: f32,
-    min_batch_len: usize,
-) {
-    use rayon::prelude::*;
-
-    debug_assert_eq!(input.len(), batch_size * n);
-    debug_assert_eq!(output.len(), batch_size * n);
-
-    // Single-batch: call directly to avoid Rayon thread pool overhead (~15-20%)
-    if batch_size == 1 {
-        fft_c64(input, output, inverse, normalize_factor);
-        return;
-    }
-
-    if n.is_power_of_two() {
-        output
-            .par_chunks_mut(n)
-            .enumerate()
-            .with_min_len(min_batch_len.max(1))
-            .for_each(|(batch_idx, out_chunk)| {
-                let in_start = batch_idx * n;
-                let in_chunk = &input[in_start..in_start + n];
-                stockham_fft_c64(in_chunk, out_chunk, inverse, normalize_factor);
-            });
-        return;
-    }
-
-    let plan = BluesteinPlan::new(n, inverse);
-    output
-        .par_chunks_mut(n)
-        .enumerate()
-        .with_min_len(min_batch_len.max(1))
-        .for_each(|(batch_idx, out_chunk)| {
-            let in_start = batch_idx * n;
-            let in_chunk = &input[in_start..in_start + n];
-            plan.execute_c64(in_chunk, out_chunk, normalize_factor);
-        });
-}
-
-#[cfg(not(feature = "rayon"))]
-pub unsafe fn stockham_fft_batched_c64(
-    input: &[Complex64],
-    output: &mut [Complex64],
-    n: usize,
-    batch_size: usize,
-    inverse: bool,
-    normalize_factor: f32,
-    _min_batch_len: usize,
-) {
-    debug_assert_eq!(input.len(), batch_size * n);
-    debug_assert_eq!(output.len(), batch_size * n);
-
-    if n.is_power_of_two() {
-        for batch_idx in 0..batch_size {
-            let start = batch_idx * n;
-            let end = start + n;
-            stockham_fft_c64(
-                &input[start..end],
-                &mut output[start..end],
-                inverse,
-                normalize_factor,
-            );
-        }
-        return;
-    }
-
-    let plan = BluesteinPlan::new(n, inverse);
-    for batch_idx in 0..batch_size {
-        let start = batch_idx * n;
-        let end = start + n;
-        plan.execute_c64(
-            &input[start..end],
-            &mut output[start..end],
-            normalize_factor,
-        );
-    }
-}
-
 // ============================================================================
 // Complex128 (f64) FFT Kernels
 // ============================================================================
 
 /// Stockham FFT for Complex128 data
 ///
-/// # Arguments
-///
-/// * `input` - Input complex data slice of length N (must be power of 2)
-/// * `output` - Output buffer, will be filled with FFT result
-/// * `inverse` - If true, compute inverse FFT
-/// * `normalize_factor` - Scale factor to apply to each output element
+/// Builds the twiddle table for this call. See [`stockham_fft_c128_with`] to
+/// reuse one table across rows.
 ///
 /// # Safety
 ///
 /// * `input` and `output` must be valid slices of length N
 /// * N must be a power of 2
+#[cfg(test)]
 pub(super) unsafe fn stockham_fft_c128(
     input: &[Complex128],
     output: &mut [Complex128],
     inverse: bool,
     normalize_factor: f64,
 ) {
+    let twiddles = StockhamTwiddles::new_c128(input.len(), inverse);
+    stockham_fft_c128_with(input, output, &twiddles, normalize_factor);
+}
+
+/// Stockham FFT for Complex128 data with a prebuilt twiddle table.
+///
+/// # Safety
+///
+/// * `input` and `output` must be valid slices of length N
+/// * N must be a power of 2 and equal `twiddles.n()`
+pub(super) unsafe fn stockham_fft_c128_with(
+    input: &[Complex128],
+    output: &mut [Complex128],
+    twiddles: &StockhamTwiddles<Complex128>,
+    normalize_factor: f64,
+) {
     let n = input.len();
     debug_assert!(n > 0 && (n & (n - 1)) == 0, "N must be power of 2");
     debug_assert_eq!(input.len(), output.len());
+    debug_assert_eq!(twiddles.n(), n);
 
     if n == 1 {
         output[0] = Complex128::new(
@@ -226,7 +156,6 @@ pub(super) unsafe fn stockham_fft_c128(
     }
 
     let log_n = n.trailing_zeros() as usize;
-    let sign = if inverse { 1.0f64 } else { -1.0f64 };
 
     // Double buffering
     let mut buf_a: Vec<Complex128> = input.to_vec();
@@ -239,12 +168,10 @@ pub(super) unsafe fn stockham_fft_c128(
         let m = 1 << (stage + 1);
         let half_m = 1 << stage;
         let groups = n / m;
+        let stage_twiddles = twiddles.stage(half_m);
 
         for g in 0..groups {
-            for b in 0..half_m {
-                let theta = sign * 2.0 * PI * (b as f64) / (m as f64);
-                let twiddle = Complex128::new(theta.cos(), theta.sin());
-
+            for (b, &twiddle) in stage_twiddles.iter().enumerate() {
                 let even_idx = g * half_m + b;
                 let odd_idx = n / 2 + g * half_m + b;
 
@@ -264,100 +191,6 @@ pub(super) unsafe fn stockham_fft_c128(
 
     for i in 0..n {
         output[i] = Complex128::new(src[i].re * normalize_factor, src[i].im * normalize_factor);
-    }
-}
-
-/// Batched FFT for Complex128 data
-///
-/// Power-of-two sizes use the Stockham kernel; any other size uses Bluestein's
-/// algorithm with a single plan shared across the batch.
-///
-/// # Safety
-///
-/// * `input` and `output` must have length `batch_size * n`
-/// * n must be >= 1
-#[cfg(feature = "rayon")]
-pub unsafe fn stockham_fft_batched_c128(
-    input: &[Complex128],
-    output: &mut [Complex128],
-    n: usize,
-    batch_size: usize,
-    inverse: bool,
-    normalize_factor: f64,
-    min_batch_len: usize,
-) {
-    use rayon::prelude::*;
-
-    debug_assert_eq!(input.len(), batch_size * n);
-    debug_assert_eq!(output.len(), batch_size * n);
-
-    // Single-batch: call directly to avoid Rayon thread pool overhead (~15-20%)
-    if batch_size == 1 {
-        fft_c128(input, output, inverse, normalize_factor);
-        return;
-    }
-
-    if n.is_power_of_two() {
-        output
-            .par_chunks_mut(n)
-            .enumerate()
-            .with_min_len(min_batch_len.max(1))
-            .for_each(|(batch_idx, out_chunk)| {
-                let in_start = batch_idx * n;
-                let in_chunk = &input[in_start..in_start + n];
-                stockham_fft_c128(in_chunk, out_chunk, inverse, normalize_factor);
-            });
-        return;
-    }
-
-    let plan = BluesteinPlan::new(n, inverse);
-    output
-        .par_chunks_mut(n)
-        .enumerate()
-        .with_min_len(min_batch_len.max(1))
-        .for_each(|(batch_idx, out_chunk)| {
-            let in_start = batch_idx * n;
-            let in_chunk = &input[in_start..in_start + n];
-            plan.execute_c128(in_chunk, out_chunk, normalize_factor);
-        });
-}
-
-#[cfg(not(feature = "rayon"))]
-pub unsafe fn stockham_fft_batched_c128(
-    input: &[Complex128],
-    output: &mut [Complex128],
-    n: usize,
-    batch_size: usize,
-    inverse: bool,
-    normalize_factor: f64,
-    _min_batch_len: usize,
-) {
-    debug_assert_eq!(input.len(), batch_size * n);
-    debug_assert_eq!(output.len(), batch_size * n);
-
-    if n.is_power_of_two() {
-        for batch_idx in 0..batch_size {
-            let start = batch_idx * n;
-            let end = start + n;
-            stockham_fft_c128(
-                &input[start..end],
-                &mut output[start..end],
-                inverse,
-                normalize_factor,
-            );
-        }
-        return;
-    }
-
-    let plan = BluesteinPlan::new(n, inverse);
-    for batch_idx in 0..batch_size {
-        let start = batch_idx * n;
-        let end = start + n;
-        plan.execute_c128(
-            &input[start..end],
-            &mut output[start..end],
-            normalize_factor,
-        );
     }
 }
 
@@ -487,6 +320,90 @@ mod tests {
         for c in &output {
             assert!((c.re - 1.0).abs() < 1e-10);
             assert!(c.im.abs() < 1e-10);
+        }
+    }
+
+    /// Butterfly loop that evaluates each twiddle inline, as the kernel did
+    /// before the per-stage table. Generic over the complex type through `tw`.
+    fn inline_twiddle_reference<C>(input: &[C], inverse: bool, tw: impl Fn(f64) -> C) -> Vec<C>
+    where
+        C: Copy
+            + Default
+            + std::ops::Add<Output = C>
+            + std::ops::Sub<Output = C>
+            + std::ops::Mul<Output = C>,
+    {
+        let n = input.len();
+        let sign = if inverse { 1.0f64 } else { -1.0f64 };
+        let mut src = input.to_vec();
+        let mut dst = vec![C::default(); n];
+        for stage in 0..n.trailing_zeros() as usize {
+            let m: usize = 1 << (stage + 1);
+            let half_m: usize = 1 << stage;
+            for g in 0..n / m {
+                for b in 0..half_m {
+                    let theta = sign * 2.0 * std::f64::consts::PI * (b as f64) / (m as f64);
+                    let twiddle = tw(theta);
+                    let even = src[g * half_m + b];
+                    let odd = src[n / 2 + g * half_m + b] * twiddle;
+                    dst[g * m + b] = even + odd;
+                    dst[g * m + b + half_m] = even - odd;
+                }
+            }
+            std::mem::swap(&mut src, &mut dst);
+        }
+        src
+    }
+
+    #[test]
+    fn test_twiddle_table_is_bit_identical_to_inline_twiddles() {
+        for &n in &[2usize, 4, 8, 64, 256, 1024] {
+            let wide: Vec<Complex128> = (0..n)
+                .map(|i| {
+                    let x = i as f64;
+                    Complex128::new((x * 0.37).sin() + 0.1 * x, (x * 1.13).cos() - 0.05 * x)
+                })
+                .collect();
+            let narrow: Vec<Complex64> = wide
+                .iter()
+                .map(|c| Complex64::new(c.re as f32, c.im as f32))
+                .collect();
+            for &inverse in &[false, true] {
+                let want64 = inline_twiddle_reference(&narrow, inverse, |t| {
+                    Complex64::new(t.cos() as f32, t.sin() as f32)
+                });
+                let mut got64 = vec![Complex64::default(); n];
+                unsafe { stockham_fft_c64(&narrow, &mut got64, inverse, 1.0) };
+                for i in 0..n {
+                    assert_eq!(
+                        got64[i].re.to_bits(),
+                        want64[i].re.to_bits(),
+                        "c64 n={n} i={i}"
+                    );
+                    assert_eq!(
+                        got64[i].im.to_bits(),
+                        want64[i].im.to_bits(),
+                        "c64 n={n} i={i}"
+                    );
+                }
+
+                let want128 =
+                    inline_twiddle_reference(&wide, inverse, |t| Complex128::new(t.cos(), t.sin()));
+                let mut got128 = vec![Complex128::default(); n];
+                unsafe { stockham_fft_c128(&wide, &mut got128, inverse, 1.0) };
+                for i in 0..n {
+                    assert_eq!(
+                        got128[i].re.to_bits(),
+                        want128[i].re.to_bits(),
+                        "c128 n={n} i={i}"
+                    );
+                    assert_eq!(
+                        got128[i].im.to_bits(),
+                        want128[i].im.to_bits(),
+                        "c128 n={n} i={i}"
+                    );
+                }
+            }
         }
     }
 }
