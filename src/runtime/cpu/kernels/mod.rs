@@ -8,6 +8,7 @@
 pub mod advanced_random;
 pub mod binary;
 pub mod binary_int;
+mod binary_rows;
 pub mod compare;
 pub mod complex;
 pub mod conv;

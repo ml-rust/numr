@@ -5,6 +5,7 @@
 //! On aarch64, f32 and f64 operations use NEON when available.
 
 use super::binary_int::{binary_int_elem, binary_int_kernel};
+use super::binary_rows::try_binary_rows;
 use super::ipow::pow_elem;
 use crate::dtype::Element;
 use crate::ops::BinaryOp;
@@ -377,6 +378,13 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
 
     if is_simple {
         binary_op_kernel(op, a, b, out, total);
+        return;
+    }
+
+    // Row broadcast (`[N, D] + [D]`): one contiguous SIMD call per row.
+    if try_binary_rows(
+        op, a, b, out, out_shape, a_strides, b_strides, a_offset, b_offset,
+    ) {
         return;
     }
 
