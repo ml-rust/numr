@@ -256,7 +256,7 @@ mod tests {
         );
     }
 
-    /// Depthwise with a stride: exercises the manual input gather.
+    /// Depthwise with a stride: exercises the phase-buffer path.
     #[test]
     fn simd_matches_scalar_depthwise_strided() {
         compare(

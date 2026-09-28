@@ -1,49 +1,20 @@
 //! AVX2 + FMA 1D convolution kernels.
 //!
 //! Vectorises over OUTPUT POSITIONS (see the `driver` module): the weight is a
-//! scalar broadcast and, for `stride == 1`, the input is a contiguous vector
-//! load. Two accumulators covering `2 * LANES` neighbouring outputs are carried
-//! through the whole `(ic, kx)` reduction so two independent FMA chains stay in
-//! flight, hiding the 4-5 cycle FMA latency.
+//! scalar broadcast and the input a contiguous vector load, from the input for
+//! `stride == 1` and from the driver's phase buffers for `stride > 1`. Four
+//! accumulators covering `4 * LANES` neighbouring outputs keep four
+//! independent FMA chains in flight, hiding the 4-5 cycle FMA latency. They
+//! use 4 of the 16 vector registers.
 //!
-//! - f32: 8 lanes per vector, 16 output positions per unrolled iteration
-//! - f64: 4 lanes per vector, 8 output positions per unrolled iteration
+//! - f32: 8 lanes per vector, 32 output positions per unrolled iteration
+//! - f64: 4 lanes per vector, 16 output positions per unrolled iteration
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
 
-use super::driver::conv1d_body;
+use super::driver::{conv1d_body, conv1d_interior};
 use crate::ops::conv_common::Conv1dParams;
-
-/// Packs 8 f32 spaced `stride` apart into a vector (`stride > 1` case only).
-///
-/// # Safety
-/// - `p .. p + 7 * stride` must be readable
-/// - CPU must support AVX2
-#[target_feature(enable = "avx2")]
-#[inline]
-unsafe fn gather8_f32(p: *const f32, stride: usize) -> __m256 {
-    let mut xs = [0.0f32; 8];
-    for t in 0..8 {
-        xs[t] = *p.add(t * stride);
-    }
-    _mm256_loadu_ps(xs.as_ptr())
-}
-
-/// Packs 4 f64 spaced `stride` apart into a vector (`stride > 1` case only).
-///
-/// # Safety
-/// - `p .. p + 3 * stride` must be readable
-/// - CPU must support AVX2
-#[target_feature(enable = "avx2")]
-#[inline]
-unsafe fn gather4_f64(p: *const f64, stride: usize) -> __m256d {
-    let mut xs = [0.0f64; 4];
-    for t in 0..4 {
-        xs[t] = *p.add(t * stride);
-    }
-    _mm256_loadu_pd(xs.as_ptr())
-}
 
 /// AVX2 `conv1d` for f32.
 ///
@@ -65,99 +36,26 @@ pub unsafe fn conv1d_f32(
         bias,
         output,
         params,
-        |op, ip, wp, n, nic, bv| {
-            let Conv1dParams {
-                length,
-                kernel_size,
-                stride,
-                dilation,
-                ..
-            } = params;
-            let bias_vec = _mm256_set1_ps(bv);
-            let mut j = 0usize;
-
-            if stride == 1 {
-                while j + 16 <= n {
-                    let mut acc0 = _mm256_setzero_ps();
-                    let mut acc1 = _mm256_setzero_ps();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_ps(*w_row.add(kx));
-                            let xb = x_row.add(kx * dilation);
-                            acc0 = _mm256_fmadd_ps(_mm256_loadu_ps(xb), wv, acc0);
-                            acc1 = _mm256_fmadd_ps(_mm256_loadu_ps(xb.add(8)), wv, acc1);
-                        }
-                    }
-                    _mm256_storeu_ps(op.add(j), _mm256_add_ps(acc0, bias_vec));
-                    _mm256_storeu_ps(op.add(j + 8), _mm256_add_ps(acc1, bias_vec));
-                    j += 16;
-                }
-                while j + 8 <= n {
-                    let mut acc0 = _mm256_setzero_ps();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_ps(*w_row.add(kx));
-                            let xb = x_row.add(kx * dilation);
-                            acc0 = _mm256_fmadd_ps(_mm256_loadu_ps(xb), wv, acc0);
-                        }
-                    }
-                    _mm256_storeu_ps(op.add(j), _mm256_add_ps(acc0, bias_vec));
-                    j += 8;
-                }
-            } else {
-                while j + 16 <= n {
-                    let mut acc0 = _mm256_setzero_ps();
-                    let mut acc1 = _mm256_setzero_ps();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j * stride);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_ps(*w_row.add(kx));
-                            let xb = x_row.add(kx * dilation);
-                            acc0 = _mm256_fmadd_ps(gather8_f32(xb, stride), wv, acc0);
-                            acc1 =
-                                _mm256_fmadd_ps(gather8_f32(xb.add(8 * stride), stride), wv, acc1);
-                        }
-                    }
-                    _mm256_storeu_ps(op.add(j), _mm256_add_ps(acc0, bias_vec));
-                    _mm256_storeu_ps(op.add(j + 8), _mm256_add_ps(acc1, bias_vec));
-                    j += 16;
-                }
-                while j + 8 <= n {
-                    let mut acc0 = _mm256_setzero_ps();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j * stride);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_ps(*w_row.add(kx));
-                            acc0 = _mm256_fmadd_ps(
-                                gather8_f32(x_row.add(kx * dilation), stride),
-                                wv,
-                                acc0,
-                            );
-                        }
-                    }
-                    _mm256_storeu_ps(op.add(j), _mm256_add_ps(acc0, bias_vec));
-                    j += 8;
-                }
-            }
-
-            while j < n {
-                let mut sum = 0.0f32;
-                for ic in 0..nic {
-                    let x_row = ip.add(ic * length + j * stride);
-                    let w_row = wp.add(ic * kernel_size);
-                    for kx in 0..kernel_size {
-                        sum += *x_row.add(kx * dilation) * *w_row.add(kx);
-                    }
-                }
-                *op.add(j) = sum + bv;
-                j += 1;
-            }
+        |op, ip, wp, n, nic, bv, rs, taps| {
+            conv1d_interior!(
+                f32,
+                lanes = 8,
+                zero = _mm256_setzero_ps(),
+                splat = _mm256_set1_ps,
+                load = _mm256_loadu_ps,
+                store = _mm256_storeu_ps,
+                add = _mm256_add_ps,
+                fma = |acc, x, w| _mm256_fmadd_ps(x, w, acc),
+                op,
+                ip,
+                wp,
+                n,
+                nic,
+                bv,
+                rs,
+                taps,
+                params.kernel_size
+            );
         }
     );
 }
@@ -182,102 +80,26 @@ pub unsafe fn conv1d_f64(
         bias,
         output,
         params,
-        |op, ip, wp, n, nic, bv| {
-            let Conv1dParams {
-                length,
-                kernel_size,
-                stride,
-                dilation,
-                ..
-            } = params;
-            let bias_vec = _mm256_set1_pd(bv);
-            let mut j = 0usize;
-
-            if stride == 1 {
-                while j + 8 <= n {
-                    let mut acc0 = _mm256_setzero_pd();
-                    let mut acc1 = _mm256_setzero_pd();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_pd(*w_row.add(kx));
-                            let xb = x_row.add(kx * dilation);
-                            acc0 = _mm256_fmadd_pd(_mm256_loadu_pd(xb), wv, acc0);
-                            acc1 = _mm256_fmadd_pd(_mm256_loadu_pd(xb.add(4)), wv, acc1);
-                        }
-                    }
-                    _mm256_storeu_pd(op.add(j), _mm256_add_pd(acc0, bias_vec));
-                    _mm256_storeu_pd(op.add(j + 4), _mm256_add_pd(acc1, bias_vec));
-                    j += 8;
-                }
-                while j + 4 <= n {
-                    let mut acc0 = _mm256_setzero_pd();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_pd(*w_row.add(kx));
-                            acc0 = _mm256_fmadd_pd(
-                                _mm256_loadu_pd(x_row.add(kx * dilation)),
-                                wv,
-                                acc0,
-                            );
-                        }
-                    }
-                    _mm256_storeu_pd(op.add(j), _mm256_add_pd(acc0, bias_vec));
-                    j += 4;
-                }
-            } else {
-                while j + 8 <= n {
-                    let mut acc0 = _mm256_setzero_pd();
-                    let mut acc1 = _mm256_setzero_pd();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j * stride);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_pd(*w_row.add(kx));
-                            let xb = x_row.add(kx * dilation);
-                            acc0 = _mm256_fmadd_pd(gather4_f64(xb, stride), wv, acc0);
-                            acc1 =
-                                _mm256_fmadd_pd(gather4_f64(xb.add(4 * stride), stride), wv, acc1);
-                        }
-                    }
-                    _mm256_storeu_pd(op.add(j), _mm256_add_pd(acc0, bias_vec));
-                    _mm256_storeu_pd(op.add(j + 4), _mm256_add_pd(acc1, bias_vec));
-                    j += 8;
-                }
-                while j + 4 <= n {
-                    let mut acc0 = _mm256_setzero_pd();
-                    for ic in 0..nic {
-                        let x_row = ip.add(ic * length + j * stride);
-                        let w_row = wp.add(ic * kernel_size);
-                        for kx in 0..kernel_size {
-                            let wv = _mm256_set1_pd(*w_row.add(kx));
-                            acc0 = _mm256_fmadd_pd(
-                                gather4_f64(x_row.add(kx * dilation), stride),
-                                wv,
-                                acc0,
-                            );
-                        }
-                    }
-                    _mm256_storeu_pd(op.add(j), _mm256_add_pd(acc0, bias_vec));
-                    j += 4;
-                }
-            }
-
-            while j < n {
-                let mut sum = 0.0f64;
-                for ic in 0..nic {
-                    let x_row = ip.add(ic * length + j * stride);
-                    let w_row = wp.add(ic * kernel_size);
-                    for kx in 0..kernel_size {
-                        sum += *x_row.add(kx * dilation) * *w_row.add(kx);
-                    }
-                }
-                *op.add(j) = sum + bv;
-                j += 1;
-            }
+        |op, ip, wp, n, nic, bv, rs, taps| {
+            conv1d_interior!(
+                f64,
+                lanes = 4,
+                zero = _mm256_setzero_pd(),
+                splat = _mm256_set1_pd,
+                load = _mm256_loadu_pd,
+                store = _mm256_storeu_pd,
+                add = _mm256_add_pd,
+                fma = |acc, x, w| _mm256_fmadd_pd(x, w, acc),
+                op,
+                ip,
+                wp,
+                n,
+                nic,
+                bv,
+                rs,
+                taps,
+                params.kernel_size
+            );
         }
     );
 }
