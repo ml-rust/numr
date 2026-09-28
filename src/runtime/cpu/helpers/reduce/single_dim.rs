@@ -258,7 +258,9 @@ unsafe fn reduce_non_last_dim_runtime<T: Element>(
 ) {
     #[cfg(feature = "rayon")]
     {
-        if outer_size > 1 {
+        // Each outer index reduces in the same order on either branch, so the
+        // gate changes scheduling only.
+        if outer_size > 1 && client.parallel_worthwhile(outer_size * reduce_size * inner_size) {
             return reduce_non_last_dim_parallel(
                 client,
                 op,

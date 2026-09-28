@@ -107,24 +107,31 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                             let out_send = (out_ptr as usize) + out_offset * std::mem::size_of::<T>();
                             let elem_size = std::mem::size_of::<T>();
 
-                            self.install_parallelism(|| {
-                                (0..n).into_par_iter().step_by(chunk_size).for_each(|col_start| {
-                                    let col_end = (col_start + chunk_size).min(n);
-                                    let chunk_n = col_end - col_start;
-                                    unsafe {
-                                        let a_base = a_send as *const T;
-                                        let b_chunk = (b_send + col_start * k * elem_size) as *const T;
-                                        let out_chunk = (out_send + col_start * elem_size) as *mut T;
+                            let run_chunk = |col_start: usize| {
+                                let col_end = (col_start + chunk_size).min(n);
+                                let chunk_n = col_end - col_start;
+                                unsafe {
+                                    let a_base = a_send as *const T;
+                                    let b_chunk = (b_send + col_start * k * elem_size) as *const T;
+                                    let out_chunk = (out_send + col_start * elem_size) as *mut T;
 
-                                        crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
-                                            a_base,
-                                            b_chunk,
-                                            out_chunk,
-                                            m, chunk_n, k, n,
-                                        );
-                                    }
+                                    crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
+                                        a_base,
+                                        b_chunk,
+                                        out_chunk,
+                                        m, chunk_n, k, n,
+                                    );
+                                }
+                            };
+                            // A small GEMV walks the same chunk list on this
+                            // thread: same boundaries, no fork-join.
+                            if self.parallel_worthwhile(m * n * k) {
+                                self.install_parallelism(|| {
+                                    (0..n).into_par_iter().step_by(chunk_size).for_each(run_chunk);
                                 });
-                            });
+                            } else {
+                                (0..n).step_by(chunk_size).for_each(run_chunk);
+                            }
                         } else {
                             unsafe {
                                 crate::runtime::cpu::kernels::gemv_bt_kernel::<T>(
@@ -180,8 +187,6 @@ impl MatmulOps<CpuRuntime> for CpuClient {
             dispatch_dtype!(dtype, T => {
                 #[cfg(feature = "rayon")]
                 {
-                    use rayon::prelude::*;
-
                     // Column split when the columns offer more units than the
                     // batches — every decode shape on this path is
                     // single-batch. Never both, and never a thread count in the
@@ -200,19 +205,13 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                             }
                         }
                     } else if batch_size > 1 {
-                        let min_len = self.rayon_min_len();
-                        self.install_parallelism(|| {
-                            (0..batch_size)
-                                .into_par_iter()
-                                .with_min_len(min_len)
-                                .for_each(|batch| unsafe {
-                                    crate::runtime::cpu::kernels::matmul_bt_kernel::<T>(
-                                        (a_ptr as *const T).add(a_batch_idx[batch] * m * k),
-                                        (b_ptr as *const T).add(b_batch_idx[batch] * n * k),
-                                        (out_ptr as *mut T).add(batch * m * n),
-                                        m, n, k, ldc,
-                                    );
-                                });
+                        self.par_for_each(batch_size, batch_size * m * n * k, |batch| unsafe {
+                            crate::runtime::cpu::kernels::matmul_bt_kernel::<T>(
+                                (a_ptr as *const T).add(a_batch_idx[batch] * m * k),
+                                (b_ptr as *const T).add(b_batch_idx[batch] * n * k),
+                                (out_ptr as *mut T).add(batch * m * n),
+                                m, n, k, ldc,
+                            );
                         });
                     } else {
                         unsafe {
@@ -289,8 +288,6 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         dispatch_dtype!(dtype, T => {
             #[cfg(feature = "rayon")]
             {
-                use rayon::prelude::*;
-
                 // Same axis rule as the transposed-B path above: columns when
                 // they offer more units than the batch axis, batches otherwise,
                 // never both.
@@ -307,29 +304,23 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                         }
                     }
                 } else if batch_size > 1 {
-                    let min_len = self.rayon_min_len();
-                    self.install_parallelism(|| {
-                        (0..batch_size)
-                            .into_par_iter()
-                            .with_min_len(min_len)
-                            .for_each(|batch| unsafe {
-                            let a_offset = a_batch_idx[batch] * m * k;
-                            let b_offset = b_batch_idx[batch] * k * n;
-                            let out_offset = batch * m * n;
+                    self.par_for_each(batch_size, batch_size * m * n * k, |batch| unsafe {
+                        let a_offset = a_batch_idx[batch] * m * k;
+                        let b_offset = b_batch_idx[batch] * k * n;
+                        let out_offset = batch * m * n;
 
-                            <Self as Kernel<CpuRuntime>>::matmul::<T>(
-                                self,
-                                (a_ptr as *const T).add(a_offset),
-                                (b_ptr as *const T).add(b_offset),
-                                (out_ptr as *mut T).add(out_offset),
-                                m,
-                                n,
-                                k,
-                                lda,
-                                ldb,
-                                ldc,
-                            );
-                        });
+                        <Self as Kernel<CpuRuntime>>::matmul::<T>(
+                            self,
+                            (a_ptr as *const T).add(a_offset),
+                            (b_ptr as *const T).add(b_offset),
+                            (out_ptr as *mut T).add(out_offset),
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
                     });
                 } else {
                     unsafe {

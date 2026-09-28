@@ -122,7 +122,6 @@ impl CpuClient {
 
             #[cfg(feature = "rayon")]
             {
-                use rayon::prelude::*;
                 use super::matmul_columns::{column_chunk_count, matmul_wide_columns};
 
                 // Same axis rule as `matmul`: columns when they offer more
@@ -140,13 +139,7 @@ impl CpuClient {
                         }
                     }
                 } else if batch_size > 1 {
-                    let min_len = self.rayon_min_len();
-                    self.install_parallelism(|| {
-                        (0..batch_size)
-                            .into_par_iter()
-                            .with_min_len(min_len)
-                            .for_each(run_batch);
-                    });
+                    self.par_for_each(batch_size, batch_size * m * n * k, run_batch);
                 } else {
                     run_batch(0);
                 }
@@ -194,22 +187,28 @@ impl CpuClient {
                 let out_elem = std::mem::size_of::<f32>();
                 let (a_addr, b_addr, out_addr) = (a as usize, b_nk as usize, out as usize);
 
-                self.install_parallelism(|| {
-                    (0..n).into_par_iter().step_by(chunk).for_each(|col_start| {
-                        let cols = (col_start + chunk).min(n) - col_start;
-                        unsafe {
-                            gemv_bt_wide_kernel::<T>(
-                                a_addr as *const T,
-                                (b_addr + col_start * k * elem) as *const T,
-                                (out_addr + col_start * out_elem) as *mut f32,
-                                m,
-                                cols,
-                                k,
-                                ldc,
-                            );
-                        }
+                let run_chunk = |col_start: usize| {
+                    let cols = (col_start + chunk).min(n) - col_start;
+                    unsafe {
+                        gemv_bt_wide_kernel::<T>(
+                            a_addr as *const T,
+                            (b_addr + col_start * k * elem) as *const T,
+                            (out_addr + col_start * out_elem) as *mut f32,
+                            m,
+                            cols,
+                            k,
+                            ldc,
+                        );
+                    }
+                };
+                // A small GEMV walks the same chunk list on this thread.
+                if self.parallel_worthwhile(m * n * k) {
+                    self.install_parallelism(|| {
+                        (0..n).into_par_iter().step_by(chunk).for_each(run_chunk);
                     });
-                });
+                } else {
+                    (0..n).step_by(chunk).for_each(run_chunk);
+                }
                 return;
             }
         }

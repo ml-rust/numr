@@ -88,31 +88,7 @@ pub(super) fn matmul_i8_i32(
         }
     };
 
-    #[cfg(feature = "rayon")]
-    {
-        use rayon::prelude::*;
-
-        if batch_size > 1 {
-            let min_len = client.rayon_min_len();
-            client.install_parallelism(|| {
-                (0..batch_size)
-                    .into_par_iter()
-                    .with_min_len(min_len)
-                    .for_each(run_batch);
-            });
-        } else {
-            for batch in 0..batch_size {
-                run_batch(batch);
-            }
-        }
-    }
-
-    #[cfg(not(feature = "rayon"))]
-    {
-        for batch in 0..batch_size {
-            run_batch(batch);
-        }
-    }
+    client.par_for_each(batch_size, batch_size * m * n * k, run_batch);
 
     Ok(out)
 }

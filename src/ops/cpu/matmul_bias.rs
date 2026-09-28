@@ -96,32 +96,24 @@ impl CpuClient {
         dispatch_dtype!(dtype, T => {
             #[cfg(feature = "rayon")]
             {
-                use rayon::prelude::*;
-
                 if batch_size > 1 {
-                    let min_len = self.rayon_min_len();
-                    self.install_parallelism(|| {
-                        (0..batch_size)
-                            .into_par_iter()
-                            .with_min_len(min_len)
-                            .for_each(|batch| unsafe {
-                            let a_offset = a_batch_idx[batch] * m * k;
-                            let b_offset = b_batch_idx[batch] * k * n;
-                            let out_offset = batch * m * n;
+                    self.par_for_each(batch_size, batch_size * m * n * k, |batch| unsafe {
+                        let a_offset = a_batch_idx[batch] * m * k;
+                        let b_offset = b_batch_idx[batch] * k * n;
+                        let out_offset = batch * m * n;
 
-                            matmul_bias_kernel::<T>(
-                                (a_ptr as *const T).add(a_offset),
-                                (b_ptr as *const T).add(b_offset),
-                                bias_ptr as *const T, // bias is 1D, same for all batches
-                                (out_ptr as *mut T).add(out_offset),
-                                m,
-                                n,
-                                k,
-                                lda,
-                                ldb,
-                                ldc,
-                            );
-                        });
+                        matmul_bias_kernel::<T>(
+                            (a_ptr as *const T).add(a_offset),
+                            (b_ptr as *const T).add(b_offset),
+                            bias_ptr as *const T, // bias is 1D, same for all batches
+                            (out_ptr as *mut T).add(out_offset),
+                            m,
+                            n,
+                            k,
+                            lda,
+                            ldb,
+                            ldc,
+                        );
                     });
                 } else {
                     unsafe {

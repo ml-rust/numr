@@ -109,21 +109,21 @@ pub(crate) fn column_chunk_count(batch_size: usize, m: usize, n: usize, k: usize
 /// floor, which uniform striding cannot do (a stride leaves a remainder chunk
 /// of arbitrary width). Each range writes `out + col_start` with the full
 /// output row stride, so destinations are disjoint and nothing synchronises.
-fn for_each_column_chunk<F>(client: &CpuClient, n: usize, chunks: usize, f: F)
+///
+/// `work` is the multiply-add count `m * n * k`. Below the fork-join bound the
+/// same ranges run in order on the calling thread, so the boundaries, and the
+/// arithmetic, are unchanged.
+fn for_each_column_chunk<F>(client: &CpuClient, n: usize, chunks: usize, work: usize, f: F)
 where
     F: Fn(usize, usize) + Send + Sync,
 {
-    use rayon::prelude::*;
-
     let base = n / chunks;
     let remainder = n % chunks;
 
-    client.install_parallelism(|| {
-        (0..chunks).into_par_iter().for_each(|chunk| {
-            let start = chunk * base + chunk.min(remainder);
-            let width = base + usize::from(chunk < remainder);
-            f(start, width);
-        });
+    client.par_for_each(chunks, work, |chunk| {
+        let start = chunk * base + chunk.min(remainder);
+        let width = base + usize::from(chunk < remainder);
+        f(start, width);
     });
 }
 
@@ -154,7 +154,7 @@ pub(crate) unsafe fn matmul_columns<T: Element>(
     let elem = std::mem::size_of::<T>();
     let (a_addr, b_addr, out_addr) = (a as usize, b as usize, out as usize);
 
-    for_each_column_chunk(client, n, chunks, |col_start, cols| unsafe {
+    for_each_column_chunk(client, n, chunks, m * n * k, |col_start, cols| unsafe {
         <CpuClient as Kernel<CpuRuntime>>::matmul::<T>(
             client,
             a_addr as *const T,
@@ -196,7 +196,7 @@ pub(crate) unsafe fn matmul_wide_columns<T: Element>(
     let out_elem = std::mem::size_of::<f32>();
     let (a_addr, b_addr, out_addr) = (a as usize, b as usize, out as usize);
 
-    for_each_column_chunk(client, n, chunks, |col_start, cols| unsafe {
+    for_each_column_chunk(client, n, chunks, m * n * k, |col_start, cols| unsafe {
         matmul_wide_kernel::<T>(
             a_addr as *const T,
             (b_addr + col_start * elem) as *const T,
@@ -235,7 +235,7 @@ pub(crate) unsafe fn matmul_bt_columns<T: Element>(
     let elem = std::mem::size_of::<T>();
     let (a_addr, b_addr, out_addr) = (a as usize, b_nk as usize, out as usize);
 
-    for_each_column_chunk(client, n, chunks, |col_start, cols| unsafe {
+    for_each_column_chunk(client, n, chunks, m * n * k, |col_start, cols| unsafe {
         matmul_bt_kernel::<T>(
             a_addr as *const T,
             (b_addr + col_start * k * elem) as *const T,

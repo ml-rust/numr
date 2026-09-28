@@ -68,24 +68,16 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         dispatch_dtype!(dtype, T => {
             #[cfg(feature = "rayon")]
             {
-                use rayon::prelude::*;
-
                 if batch_size > 1 {
-                    let min_len = self.rayon_min_len();
-                    self.install_parallelism(|| {
-                        (0..batch_size)
-                            .into_par_iter()
-                            .with_min_len(min_len)
-                            .for_each(|batch| unsafe {
-                            matmul_bias_activation_kernel::<T>(
-                                (a_ptr as *const T).add(a_idx[batch] * m * k),
-                                (b_ptr as *const T).add(b_idx[batch] * k * n),
-                                bias_ptr as *const T,
-                                (out_ptr as *mut T).add(batch * m * n),
-                                m, n, k, lda, ldb, ldc,
-                                activation,
-                            );
-                        });
+                    self.par_for_each(batch_size, batch_size * m * n * k, |batch| unsafe {
+                        matmul_bias_activation_kernel::<T>(
+                            (a_ptr as *const T).add(a_idx[batch] * m * k),
+                            (b_ptr as *const T).add(b_idx[batch] * k * n),
+                            bias_ptr as *const T,
+                            (out_ptr as *mut T).add(batch * m * n),
+                            m, n, k, lda, ldb, ldc,
+                            activation,
+                        );
                     });
                 } else {
                     unsafe {
@@ -190,24 +182,16 @@ impl GemmEpilogueOps<CpuRuntime> for CpuClient {
         dispatch_dtype!(dtype, T => {
             #[cfg(feature = "rayon")]
             {
-                use rayon::prelude::*;
-
                 if batch_size > 1 {
-                    let min_len = self.rayon_min_len();
-                    self.install_parallelism(|| {
-                        (0..batch_size)
-                            .into_par_iter()
-                            .with_min_len(min_len)
-                            .for_each(|batch| unsafe {
-                            matmul_bias_residual_kernel::<T>(
-                                (a_ptr as *const T).add(a_idx[batch] * m * k),
-                                (b_ptr as *const T).add(b_idx[batch] * k * n),
-                                bias_ptr as *const T,
-                                (res_ptr as *const T).add(batch * m * n),
-                                (out_ptr as *mut T).add(batch * m * n),
-                                m, n, k, lda, ldb, ldc,
-                            );
-                        });
+                    self.par_for_each(batch_size, batch_size * m * n * k, |batch| unsafe {
+                        matmul_bias_residual_kernel::<T>(
+                            (a_ptr as *const T).add(a_idx[batch] * m * k),
+                            (b_ptr as *const T).add(b_idx[batch] * k * n),
+                            bias_ptr as *const T,
+                            (res_ptr as *const T).add(batch * m * n),
+                            (out_ptr as *mut T).add(batch * m * n),
+                            m, n, k, lda, ldb, ldc,
+                        );
                     });
                 } else {
                     unsafe {

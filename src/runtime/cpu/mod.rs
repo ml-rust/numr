@@ -26,6 +26,7 @@ mod kernel;
 pub(crate) mod kernels;
 mod linalg;
 mod ops;
+mod parallel_gate;
 mod polynomial;
 mod runtime;
 pub(crate) mod sort;
