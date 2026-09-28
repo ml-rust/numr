@@ -11,11 +11,16 @@
 //! specialized. The destination is always freshly allocated row-major storage,
 //! so it can never alias the source and `copy_nonoverlapping` is sound.
 //!
+//! Before any tier runs, [`coalesce`] drops extent-1 dimensions and merges
+//! each pair of adjacent dimensions that walk memory as one. The merged layout
+//! visits the same source elements in the same order, so every tier produces
+//! the bytes the uncoalesced layout would.
+//!
 //! | Tier | Condition | Cost |
 //! | ---- | --------- | ---- |
 //! | 1 | the whole layout is row-major contiguous | one `memcpy` |
 //! | 2 | a trailing block of dimensions is contiguous | one `memcpy` per outer index |
-//! | 3 | anything else | one typed load/store per element |
+//! | 3 | anything else | one typed load/store per element, odometer per row |
 //!
 //! # Why the fast paths are safe
 //!
@@ -33,6 +38,42 @@
 //! A dimension of extent 1 is accepted regardless of its stride, because its
 //! index is always 0 and the stride is therefore never applied. This is what
 //! lets a squeezed or unsqueezed view still take tier 1.
+
+/// Drop extent-1 dimensions and merge adjacent dimensions that form one walk.
+///
+/// An outer dimension `(n0, s0)` followed by an inner `(n1, s1)` merges into
+/// `(n0 * n1, s1)` exactly when `s0 == s1 * n1`: stepping the outer index is
+/// then the same as stepping the inner index past its end. This holds for
+/// negative and zero strides too, so a broadcast over two dimensions merges
+/// into one stride-0 dimension. The result is never empty: an all-unit layout
+/// becomes a single `(1, 1)` dimension.
+///
+/// Callers must have already rejected `numel == 0`.
+fn coalesce(shape: &[usize], strides: &[isize]) -> (Vec<usize>, Vec<isize>) {
+    let mut out_shape: Vec<usize> = Vec::with_capacity(shape.len());
+    let mut out_strides: Vec<isize> = Vec::with_capacity(shape.len());
+
+    for (&n, &s) in shape.iter().zip(strides.iter()) {
+        if n == 1 {
+            continue;
+        }
+        if let (Some(last_n), Some(last_s)) = (out_shape.last_mut(), out_strides.last_mut())
+            && *last_s == s * n as isize
+        {
+            *last_n *= n;
+            *last_s = s;
+            continue;
+        }
+        out_shape.push(n);
+        out_strides.push(s);
+    }
+
+    if out_shape.is_empty() {
+        out_shape.push(1);
+        out_strides.push(1);
+    }
+    (out_shape, out_strides)
+}
 
 /// Number of trailing dimensions that form one internally contiguous block.
 ///
@@ -83,8 +124,10 @@ pub(super) unsafe fn copy_strided_impl(
     strides: &[isize],
     elem_size: usize,
 ) {
-    let ndim = shape.len();
     let numel: usize = shape.iter().product();
+    let (shape, strides) = coalesce(shape, strides);
+    let (shape, strides) = (shape.as_slice(), strides.as_slice());
+    let ndim = shape.len();
     let suffix = contiguous_suffix_len(shape, strides);
 
     // Tier 1: the entire view is row-major. This also catches a view that is
@@ -171,6 +214,10 @@ unsafe fn copy_blocks(
 
 /// Tier 3 driver for a known element width.
 ///
+/// The odometer runs once per innermost row. Inside a row the source pointer
+/// steps by the constant innermost stride, so each element costs one load, one
+/// store and one pointer add.
+///
 /// Reads and writes are unaligned: the source offset can land on any element
 /// boundary and `T` is only a width stand-in, never the real dtype. On the
 /// targets numr supports this still lowers to a single load and store.
@@ -186,18 +233,28 @@ unsafe fn copy_elements<T: Copy>(
     numel: usize,
 ) {
     let src = src as *const T;
-    let dst = dst as *mut T;
-    let ndim = shape.len();
+    let mut dst = dst as *mut T;
+    let outer_dims = shape.len() - 1;
+    let inner = shape[outer_dims];
+    let inner_stride = strides[outer_dims];
+    let rows = numel / inner;
 
-    let mut idx = vec![0usize; ndim];
+    let mut idx = vec![0usize; outer_dims];
     let mut off: isize = 0;
 
-    for i in 0..numel {
-        unsafe {
-            let v = std::ptr::read_unaligned(src.offset(off));
-            std::ptr::write_unaligned(dst.add(i), v);
+    for _ in 0..rows {
+        // `wrapping_offset` because the step past the row's last element can
+        // leave the allocation. That pointer is never dereferenced.
+        let mut p = src.wrapping_offset(off);
+        for j in 0..inner {
+            unsafe {
+                let v = std::ptr::read_unaligned(p);
+                std::ptr::write_unaligned(dst.add(j), v);
+            }
+            p = p.wrapping_offset(inner_stride);
         }
-        advance(&mut idx, &mut off, shape, strides, ndim);
+        dst = dst.wrapping_add(inner);
+        advance(&mut idx, &mut off, shape, strides, outer_dims);
     }
 }
 
@@ -365,6 +422,41 @@ mod tests {
             check("broadcast", &[3, 4], &[0, 1], 0, elem_size, 4);
             check("blocks", &[2, 3, 4], &[100, 4, 1], 0, elem_size, 300);
         }
+    }
+
+    #[test]
+    fn test_row_wise_general_path() {
+        // Innermost dimension is strided, so tier 3 runs with a multi-row odometer.
+        for elem_size in [1usize, 2, 4, 8, 3] {
+            check("transpose_3d", &[2, 5, 3], &[15, 1, 5], 0, elem_size, 30);
+            check("inner_reversed", &[3, 4], &[4, -1], 3, elem_size, 12);
+            check("both_reversed", &[3, 4], &[-4, -1], 11, elem_size, 12);
+            check("inner_step2", &[2, 3, 4], &[24, 8, 2], 1, elem_size, 49);
+            check("inner_broadcast", &[2, 3, 4], &[3, 1, 0], 0, elem_size, 6);
+            check("broadcast_merge", &[3, 2, 4], &[0, 0, 2], 0, elem_size, 8);
+            check("single_element", &[1, 1, 1], &[7, 3, 0], 2, elem_size, 3);
+        }
+    }
+
+    #[test]
+    fn test_coalesce() {
+        // Row-major collapses to one dimension.
+        assert_eq!(coalesce(&[2, 3, 4], &[12, 4, 1]), (vec![24], vec![1]));
+        // Gapped outer dimension stays separate from the contiguous block.
+        assert_eq!(
+            coalesce(&[2, 3, 4], &[100, 4, 1]),
+            (vec![2, 12], vec![100, 1])
+        );
+        // Extent-1 dimensions vanish whatever their stride.
+        assert_eq!(coalesce(&[4, 1, 3], &[3, 999, 1]), (vec![12], vec![1]));
+        // Two broadcast dimensions merge into one stride-0 dimension.
+        assert_eq!(coalesce(&[3, 2, 4], &[0, 0, 1]), (vec![6, 4], vec![0, 1]));
+        // A reversed row-major view merges with its negative stride.
+        assert_eq!(coalesce(&[3, 4], &[-4, -1]), (vec![12], vec![-1]));
+        // A transpose does not merge.
+        assert_eq!(coalesce(&[3, 4], &[1, 3]), (vec![3, 4], vec![1, 3]));
+        // All-unit layouts become one single-element dimension.
+        assert_eq!(coalesce(&[1, 1], &[5, 0]), (vec![1], vec![1]));
     }
 
     #[test]
