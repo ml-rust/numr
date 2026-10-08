@@ -49,14 +49,14 @@ impl CudaDevice {
 
     /// Get the compute capability of this CUDA device
     ///
-    /// Returns (major, minor) version numbers (e.g., (8, 6) for sm_86 / RTX 3090)
+    /// Returns (major, minor) version numbers, e.g. (8, 6) for sm_86.
     ///
     /// # Examples
-    /// - (7, 5): Turing (RTX 20xx, T4)
-    /// - (8, 0): Ampere (A100)
-    /// - (8, 6): Ampere (RTX 30xx, A6000)
-    /// - (8, 9): Ada Lovelace (RTX 40xx, L4)
-    /// - (9, 0): Hopper (H100)
+    /// - (7, 5): Turing, sm_75
+    /// - (8, 0): Ampere, sm_80
+    /// - (8, 6): Ampere, sm_86
+    /// - (8, 9): Ada Lovelace, sm_89
+    /// - (9, 0): Hopper, sm_90
     pub fn compute_capability(&self) -> Result<(u32, u32), CudaError> {
         ensure_driver_init()?;
         let device = cudarc::driver::result::device::get(self.index as i32).map_err(|e| {
@@ -114,10 +114,56 @@ impl CudaDevice {
         Ok(free)
     }
 
-    /// Get total GPU memory in bytes
+    /// Get total GPU memory in bytes.
+    ///
+    /// Reads the device itself, so it needs no CUDA context: it answers
+    /// before any client exists, unlike [`Self::memory_info`].
     pub fn total_memory(&self) -> Result<u64, CudaError> {
-        let (_, total) = self.memory_info()?;
-        Ok(total)
+        let device = self.driver_device()?;
+        let total = unsafe { cudarc::driver::result::device::total_mem(device) }.map_err(|e| {
+            CudaError::DeviceError(format!(
+                "Failed to get the total memory of CUDA device {}: {:?}",
+                self.index, e
+            ))
+        })?;
+        Ok(total as u64)
+    }
+
+    /// The device's product name, as the driver reports it.
+    ///
+    /// Needs no CUDA context.
+    pub fn product_name(&self) -> Result<String, CudaError> {
+        let device = self.driver_device()?;
+        cudarc::driver::result::device::get_name(device).map_err(|e| {
+            CudaError::DeviceError(format!(
+                "Failed to get the name of CUDA device {}: {:?}",
+                self.index, e
+            ))
+        })
+    }
+
+    /// Number of CUDA devices the driver sees.
+    ///
+    /// 0 when the CUDA driver library is not installed, so a machine
+    /// without an NVIDIA driver reads as one without a GPU instead of
+    /// failing.
+    pub fn count() -> Result<usize, CudaError> {
+        // SAFETY: only probes whether the driver library loads.
+        if !unsafe { cudarc::driver::sys::is_culib_present() } {
+            return Ok(0);
+        }
+        ensure_driver_init()?;
+        let count = cudarc::driver::result::device::get_count()
+            .map_err(|e| CudaError::DeviceError(format!("Failed to count CUDA devices: {e:?}")))?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
+    /// The driver's handle of this device, with the driver initialized.
+    fn driver_device(&self) -> Result<cudarc::driver::sys::CUdevice, CudaError> {
+        ensure_driver_init()?;
+        cudarc::driver::result::device::get(self.index as i32).map_err(|e| {
+            CudaError::DeviceError(format!("Failed to get CUDA device {}: {:?}", self.index, e))
+        })
     }
 
     /// Query the driver for this device's real capabilities.
@@ -231,3 +277,26 @@ impl std::fmt::Display for CudaError {
 }
 
 impl std::error::Error for CudaError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_and_memory_answer_before_any_client() {
+        let count = CudaDevice::count().unwrap_or_else(|e| panic!("counting devices: {e}"));
+        if count == 0 {
+            eprintln!("skipping: no CUDA device");
+            return;
+        }
+        let device = CudaDevice::new(0);
+        let name = device
+            .product_name()
+            .unwrap_or_else(|e| panic!("device name: {e}"));
+        assert!(!name.is_empty());
+        let total = device
+            .total_memory()
+            .unwrap_or_else(|e| panic!("total memory: {e}"));
+        assert!(total > 0);
+    }
+}
