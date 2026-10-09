@@ -198,6 +198,7 @@ pub(crate) async fn query_adapter_info(
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|_| WgpuError::NoAdapter)?

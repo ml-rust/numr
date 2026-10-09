@@ -167,7 +167,11 @@ impl Runtime for WgpuRuntime {
         })?;
 
         {
-            let data = slice.get_mapped_range();
+            let data = slice.get_mapped_range().map_err(|e| {
+                crate::error::Error::Backend(format!(
+                    "get_mapped_range failed during copy_from_device: {e}"
+                ))
+            })?;
             dst.copy_from_slice(&data[..dst.len()]);
         }
 

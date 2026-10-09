@@ -771,7 +771,9 @@ fn read_u32_from_buffer_at_offset(
         .and_then(|r| r.ok())
         .ok_or_else(|| crate::error::Error::Backend("Failed to read buffer".to_string()))?;
 
-    let data = slice.get_mapped_range();
+    let data = slice
+        .get_mapped_range()
+        .map_err(|e| crate::error::Error::Backend(format!("Failed to read buffer: {e}")))?;
     let value = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
     drop(data);
     staging_buffer.unmap();

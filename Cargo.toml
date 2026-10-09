@@ -74,8 +74,8 @@ cudarc = { version = "0.19", optional = true, features = [
 ] }
 
 # Optional: WebGPU backend
-wgpu = { version = "29.0", optional = true }
-pollster = { version = "0.4", optional = true }
+wgpu = { version = "30.0", optional = true }
+pollster = { version = "1.0", optional = true }
 # `pastey` is the maintained fork of the archived `paste`; the rename keeps `paste::paste!` call sites.
 paste = { package = "pastey", version = "0.2" }
 

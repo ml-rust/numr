@@ -185,39 +185,8 @@ pub(crate) fn native_masked_select(
         dtype,
     )?;
 
-    // Read count back to CPU (need to synchronize)
-    let staging_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("count_staging"),
-        size: 4,
-        usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-
-    let mut encoder = client
-        .wgpu_device
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("copy_count"),
-        });
-    encoder.copy_buffer_to_buffer(&count_buffer, 0, &staging_buffer, 0, 4);
-    client.queue.submit(std::iter::once(encoder.finish()));
-
-    // Wait for GPU and read the count
-    let slice = staging_buffer.slice(..);
-    let (sender, receiver) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        sender.send(result).unwrap();
-    });
-    let _ = client.wgpu_device.poll(wgpu::PollType::Wait {
-        submission_index: None,
-        timeout: Some(std::time::Duration::from_secs(60)),
-    });
-    receiver.recv().unwrap().unwrap();
-
-    let count = {
-        let data = slice.get_mapped_range();
-        u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize
-    };
-    drop(staging_buffer);
+    // The output length is decided on the GPU, so the count is read back.
+    let count = read_u32_from_buffer(client, &count_buffer)? as usize;
 
     if count == 0 {
         // Return empty tensor

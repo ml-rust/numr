@@ -107,7 +107,10 @@ pub(crate) fn read_u32_from_buffer(client: &WgpuClient, buffer: &wgpu::Buffer) -
         })?
         .map_err(|e| Error::Internal(format!("read_u32_from_buffer: buffer map failed: {e:?}")))?;
 
-    let data = staging_buffer.slice(..).get_mapped_range();
+    let data = staging_buffer
+        .slice(..)
+        .get_mapped_range()
+        .map_err(|e| Error::Internal(format!("read_u32_from_buffer: {e}")))?;
     let bytes: [u8; 4] = data
         .get(..4)
         .and_then(|b| <[u8; 4]>::try_from(b).ok())
