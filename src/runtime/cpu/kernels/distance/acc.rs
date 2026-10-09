@@ -12,9 +12,15 @@
 //!
 //! - `f32` for F32 and for every `DType::is_narrow_float()` element (F16, BF16,
 //!   FP8E4M3, FP8E5M2). This is the accumulator CUDA's `distance.cu` already
-//!   uses — `AccType<__half>` and `AccType<__nv_bfloat16>` are both `float` —
-//!   so CPU and CUDA agree term for term.
+//!   uses — `AccType<__half>` and `AccType<__nv_bfloat16>` are both `float`.
 //! - `f64` for F64, which f32 cannot hold.
+//!
+//! The accumulator width matches CUDA's. The summation order does not always
+//! match. F32 and F64 inputs route through the SIMD kernels in
+//! [`simd::distance`](crate::runtime::cpu::kernels::simd::distance), which sum
+//! in several lanes and fuse multiply-adds. Their results can differ from
+//! CUDA's and from the sequential loop in the last bits. The narrow floats keep
+//! the sequential loop.
 //!
 //! Widening and narrowing for the f32 accumulator go through
 //! [`WideAcc`](crate::runtime::cpu::kernels::wide_acc::WideAcc) rather than
@@ -30,7 +36,10 @@ use num_traits::Float;
 
 /// An accumulator wide enough to hold a distance metric's running total for
 /// element type `T`.
-pub trait DistAcc<T: Element>: Float {
+///
+/// `'static` lets `metrics` test the accumulator's exact type with `TypeId`
+/// before it routes to an f32 or f64 SIMD kernel.
+pub trait DistAcc<T: Element>: Float + 'static {
     /// Widen one element into the accumulator.
     fn widen(v: T) -> Self;
 
@@ -46,6 +55,12 @@ pub trait DistAcc<T: Element>: Float {
 
     /// A component count (the vector length `d`) in the accumulator's precision.
     fn count(n: usize) -> Self;
+
+    /// An f64 value in the accumulator's precision.
+    ///
+    /// The SIMD kernels return f32 or f64 sums. An f32 sum widened to f64 and
+    /// passed here comes back unchanged.
+    fn from_f64(v: f64) -> Self;
 }
 
 impl<T: Element> DistAcc<T> for f32 {
@@ -68,6 +83,11 @@ impl<T: Element> DistAcc<T> for f32 {
     fn count(n: usize) -> Self {
         n as f32
     }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        v as f32
+    }
 }
 
 impl<T: Element> DistAcc<T> for f64 {
@@ -89,6 +109,11 @@ impl<T: Element> DistAcc<T> for f64 {
     #[inline]
     fn count(n: usize) -> Self {
         n as f64
+    }
+
+    #[inline]
+    fn from_f64(v: f64) -> Self {
+        v
     }
 }
 

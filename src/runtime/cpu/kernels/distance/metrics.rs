@@ -5,9 +5,42 @@
 //! in the element type, so a narrow-float tensor accumulates in f32 and matches
 //! the `AccT` CUDA's `distance.cu` uses. See [`DistAcc`] for which accumulator
 //! each element type gets.
+//!
+//! `sqeuclidean`, `euclidean`, `manhattan` and `cosine` route f32 and f64 pairs
+//! to the SIMD kernels in `simd::distance`. Every other pair keeps the
+//! sequential loop below.
 
 use super::acc::DistAcc;
 use crate::dtype::Element;
+use crate::runtime::cpu::kernels::simd::distance as simd;
+use std::any::TypeId;
+
+/// Which SIMD kernel width an element and accumulator pair can use.
+enum Route {
+    /// `T` and `A` are both exactly `f32`.
+    F32,
+    /// `T` and `A` are both exactly `f64`.
+    F64,
+    /// Any other pair. It keeps the sequential generic loop.
+    Generic,
+}
+
+/// Picks the kernel width for `(T, A)`.
+///
+/// The test compares `TypeId`s, not `T::DTYPE`. A `Route::F32` result proves
+/// `T` is `f32` itself, so casting `*const T` to `*const f32` is an identity
+/// cast. The comparison folds to a constant at compile time.
+#[inline]
+fn route<T: Element, A: DistAcc<T>>() -> Route {
+    let (t, a) = (TypeId::of::<T>(), TypeId::of::<A>());
+    if t == TypeId::of::<f32>() && a == TypeId::of::<f32>() {
+        Route::F32
+    } else if t == TypeId::of::<f64>() && a == TypeId::of::<f64>() {
+        Route::F64
+    } else {
+        Route::Generic
+    }
+}
 
 /// Squared Euclidean distance: `sum((a - b)^2)`.
 ///
@@ -15,6 +48,20 @@ use crate::dtype::Element;
 /// `a` and `b` must each point to `d` valid elements.
 #[inline]
 pub unsafe fn sqeuclidean<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usize) -> A {
+    // `route` proved the element type, so each cast keeps the pointee type.
+    match route::<T, A>() {
+        Route::F32 => A::from_f64(simd::sqeuclidean_f32(a.cast(), b.cast(), d).into()),
+        Route::F64 => A::from_f64(simd::sqeuclidean_f64(a.cast(), b.cast(), d)),
+        Route::Generic => sqeuclidean_loop::<T, A>(a, b, d),
+    }
+}
+
+/// Sequential squared Euclidean loop, in the accumulator `A`.
+///
+/// # Safety
+/// `a` and `b` must each point to `d` valid elements.
+#[inline]
+unsafe fn sqeuclidean_loop<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usize) -> A {
     let mut sum = A::zero();
     for k in 0..d {
         let diff = A::widen(*a.add(k)) - A::widen(*b.add(k));
@@ -38,6 +85,20 @@ pub unsafe fn euclidean<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: 
 /// `a` and `b` must each point to `d` valid elements.
 #[inline]
 pub unsafe fn manhattan<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usize) -> A {
+    // `route` proved the element type, so each cast keeps the pointee type.
+    match route::<T, A>() {
+        Route::F32 => A::from_f64(simd::manhattan_f32(a.cast(), b.cast(), d).into()),
+        Route::F64 => A::from_f64(simd::manhattan_f64(a.cast(), b.cast(), d)),
+        Route::Generic => manhattan_loop::<T, A>(a, b, d),
+    }
+}
+
+/// Sequential Manhattan loop, in the accumulator `A`.
+///
+/// # Safety
+/// `a` and `b` must each point to `d` valid elements.
+#[inline]
+unsafe fn manhattan_loop<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usize) -> A {
     let mut sum = A::zero();
     for k in 0..d {
         sum = sum + (A::widen(*a.add(k)) - A::widen(*b.add(k))).abs();
@@ -65,7 +126,7 @@ pub unsafe fn chebyshev<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: 
 ///
 /// `p` arrives in the accumulator's precision, never rounded into the element
 /// type first: an exponent rounded into F16 changes which curve is being
-/// measured, not just the last digit of the answer.
+/// measured, and the answer changes by more than its last digit.
 ///
 /// # Safety
 /// `a` and `b` must each point to `d` valid elements.
@@ -84,6 +145,46 @@ pub unsafe fn minkowski<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: 
 /// `a` and `b` must each point to `d` valid elements.
 #[inline]
 pub unsafe fn cosine<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usize) -> A {
+    // `route` proved the element type, so each cast keeps the pointee type.
+    let (dot, norm_a, norm_b) = match route::<T, A>() {
+        Route::F32 => {
+            let s = simd::cosine_sums_f32(a.cast(), b.cast(), d);
+            (
+                A::from_f64(s.dot.into()),
+                A::from_f64(s.norm_a.into()),
+                A::from_f64(s.norm_b.into()),
+            )
+        }
+        Route::F64 => {
+            let s = simd::cosine_sums_f64(a.cast(), b.cast(), d);
+            (
+                A::from_f64(s.dot),
+                A::from_f64(s.norm_a),
+                A::from_f64(s.norm_b),
+            )
+        }
+        Route::Generic => cosine_sums_loop::<T, A>(a, b, d),
+    };
+
+    // The one place the sums become a distance, for every route.
+    let denom = (norm_a * norm_b).sqrt();
+    if denom.is_zero() {
+        A::zero()
+    } else {
+        A::one() - dot / denom
+    }
+}
+
+/// Sequential `(a·b, a·a, b·b)` loop, in the accumulator `A`.
+///
+/// # Safety
+/// `a` and `b` must each point to `d` valid elements.
+#[inline]
+unsafe fn cosine_sums_loop<T: Element, A: DistAcc<T>>(
+    a: *const T,
+    b: *const T,
+    d: usize,
+) -> (A, A, A) {
     let mut dot = A::zero();
     let mut norm_a = A::zero();
     let mut norm_b = A::zero();
@@ -96,12 +197,7 @@ pub unsafe fn cosine<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usi
         norm_b = norm_b + bk * bk;
     }
 
-    let denom = (norm_a * norm_b).sqrt();
-    if denom.is_zero() {
-        A::zero()
-    } else {
-        A::one() - dot / denom
-    }
+    (dot, norm_a, norm_b)
 }
 
 /// Correlation distance: `1 - Pearson r`.
@@ -275,6 +371,55 @@ mod tests {
         let man: f32 = unsafe { manhattan::<f32, f32>(a.as_ptr(), b.as_ptr(), 3) };
         let mink: f32 = unsafe { minkowski::<f32, f32>(a.as_ptr(), b.as_ptr(), 3, 1.0) };
         assert!((man - mink).abs() < 1e-5);
+    }
+
+    #[test]
+    fn cosine_of_a_zero_vector_is_zero_on_every_route() {
+        // `denom == 0 -> 0` must hold on the SIMD routes and on the loop route.
+        let zero32 = [0.0f32; 37];
+        let ones32 = [1.0f32; 37];
+        let zero64 = [0.0f64; 37];
+        let ones64 = [1.0f64; 37];
+        let simd32: f32 = unsafe { cosine::<f32, f32>(zero32.as_ptr(), ones32.as_ptr(), 37) };
+        let simd64: f64 = unsafe { cosine::<f64, f64>(zero64.as_ptr(), ones64.as_ptr(), 37) };
+        // An f64 accumulator over f32 elements is not a SIMD route.
+        let looped: f64 = unsafe { cosine::<f32, f64>(zero32.as_ptr(), ones32.as_ptr(), 37) };
+        assert_eq!(simd32, 0.0, "f32 SIMD route, len 37");
+        assert_eq!(simd64, 0.0, "f64 SIMD route, len 37");
+        assert_eq!(looped, 0.0, "loop route, len 37");
+    }
+
+    #[test]
+    fn f32_and_f64_pairs_route_to_the_simd_dispatchers() {
+        let a32: Vec<f32> = (0..45).map(|i| (i as f32 * 0.37).sin()).collect();
+        let b32: Vec<f32> = (0..45).map(|i| (i as f32 * 0.11).cos()).collect();
+        let a64: Vec<f64> = a32.iter().map(|&x| f64::from(x)).collect();
+        let b64: Vec<f64> = b32.iter().map(|&x| f64::from(x)).collect();
+        let (p32, q32, p64, q64) = (a32.as_ptr(), b32.as_ptr(), a64.as_ptr(), b64.as_ptr());
+        unsafe {
+            assert_eq!(
+                sqeuclidean::<f32, f32>(p32, q32, 45).to_bits(),
+                simd::sqeuclidean_f32(p32, q32, 45).to_bits()
+            );
+            assert_eq!(
+                sqeuclidean::<f64, f64>(p64, q64, 45).to_bits(),
+                simd::sqeuclidean_f64(p64, q64, 45).to_bits()
+            );
+            assert_eq!(
+                manhattan::<f32, f32>(p32, q32, 45).to_bits(),
+                simd::manhattan_f32(p32, q32, 45).to_bits()
+            );
+            assert_eq!(
+                manhattan::<f64, f64>(p64, q64, 45).to_bits(),
+                simd::manhattan_f64(p64, q64, 45).to_bits()
+            );
+            let s = simd::cosine_sums_f32(p32, q32, 45);
+            let want = 1.0 - s.dot / (s.norm_a * s.norm_b).sqrt();
+            assert_eq!(cosine::<f32, f32>(p32, q32, 45).to_bits(), want.to_bits());
+            let s = simd::cosine_sums_f64(p64, q64, 45);
+            let want = 1.0 - s.dot / (s.norm_a * s.norm_b).sqrt();
+            assert_eq!(cosine::<f64, f64>(p64, q64, 45).to_bits(), want.to_bits());
+        }
     }
 
     #[cfg(feature = "f16")]
