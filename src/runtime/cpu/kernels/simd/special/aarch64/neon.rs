@@ -115,7 +115,7 @@ pub unsafe fn erf_f64(input: *const f64, output: *mut f64, len: usize) {
     let neg_one = vdupq_n_f64(-1.0);
     let three = vdupq_n_f64(3.0);
     let six = vdupq_n_f64(6.0);
-    let two_over_sqrt_pi = vdupq_n_f64(1.1283791670955126);
+    let two_over_sqrt_pi = vdupq_n_f64(std::f64::consts::FRAC_2_SQRT_PI);
     let frac_1_sqrt_pi = vdupq_n_f64(0.5641895835477563);
 
     for i in 0..chunks {
