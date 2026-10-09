@@ -65,7 +65,8 @@ pub enum Side {
 /// Every level this CPU can run, `Scalar` first.
 ///
 /// `detect_simd()` is the upper bound. AVX2+FMA joins only when the CPU
-/// reports both features, so no test runs an unsupported instruction.
+/// reports both features, so no test runs an unsupported instruction. On
+/// AArch64 the detected NEON level joins, so the tests run the NEON kernels.
 pub fn levels() -> Vec<SimdLevel> {
     let top = detect_simd();
     let mut levels = vec![SimdLevel::Scalar];
@@ -84,16 +85,26 @@ pub fn levels() -> Vec<SimdLevel> {
     levels
 }
 
-/// Lengths around each loop boundary of the AVX2 kernels, plus two long ones.
+/// Lengths around each loop boundary of the AVX2 and NEON kernels, plus two
+/// long ones. The result is sorted and has no duplicates.
 ///
-/// `3 * lane` is the cosine main-loop step. `4 * lane` is the step of the others.
+/// `lane` is the AVX2 lane count. For AVX2, `3 * lane` is the cosine main-loop
+/// step and `4 * lane` is the step of the others. A NEON register holds
+/// `lane / 2` elements, and every NEON main loop steps `2 * lane`.
 pub fn lengths(lane: usize) -> Vec<usize> {
-    vec![
+    let neon = lane / 2;
+    let mut lengths = vec![
         0,
         1,
+        neon - 1,
+        neon,
+        neon + 1,
         lane - 1,
         lane,
         lane + 1,
+        2 * lane - 1,
+        2 * lane,
+        2 * lane + 1,
         2 * lane + 3,
         3 * lane - 1,
         3 * lane,
@@ -103,7 +114,10 @@ pub fn lengths(lane: usize) -> Vec<usize> {
         4 * lane + 1,
         1536,
         1537,
-    ]
+    ];
+    lengths.sort_unstable();
+    lengths.dedup();
+    lengths
 }
 
 /// A 64-bit linear congruential generator (Knuth's MMIX constants).

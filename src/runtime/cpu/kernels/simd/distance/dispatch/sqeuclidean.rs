@@ -1,5 +1,7 @@
 //! Squared Euclidean distance dispatch.
 
+#[cfg(target_arch = "aarch64")]
+use super::super::aarch64::neon;
 use super::super::scalar;
 #[cfg(target_arch = "x86_64")]
 use super::super::x86_64::{avx2, avx512};
@@ -43,8 +45,8 @@ pub unsafe fn sqeuclidean_f32_with(
         SimdLevel::Avx512 => avx512::sqeuclidean_f32(a, b, len),
         #[cfg(target_arch = "x86_64")]
         SimdLevel::Avx2Fma => avx2::sqeuclidean_f32(a, b, len),
-        // The NEON kernel lands in a later unit.
-        SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::sqeuclidean_f32(a, b, len),
+        #[cfg(target_arch = "aarch64")]
+        SimdLevel::Neon | SimdLevel::NeonFp16 => neon::sqeuclidean_f32(a, b, len),
         _ => scalar::sqeuclidean_f32(a, b, len),
     }
 }
@@ -69,8 +71,8 @@ pub unsafe fn sqeuclidean_f64_with(
         SimdLevel::Avx512 => avx512::sqeuclidean_f64(a, b, len),
         #[cfg(target_arch = "x86_64")]
         SimdLevel::Avx2Fma => avx2::sqeuclidean_f64(a, b, len),
-        // The NEON kernel lands in a later unit.
-        SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::sqeuclidean_f64(a, b, len),
+        #[cfg(target_arch = "aarch64")]
+        SimdLevel::Neon | SimdLevel::NeonFp16 => neon::sqeuclidean_f64(a, b, len),
         _ => scalar::sqeuclidean_f64(a, b, len),
     }
 }

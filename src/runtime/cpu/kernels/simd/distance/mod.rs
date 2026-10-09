@@ -10,9 +10,11 @@
 //! |--------------|-----------------|---------------------------------|
 //! | x86-64       | AVX-512         | Dedicated kernels (masked tail) |
 //! | x86-64       | AVX2 + FMA      | Dedicated kernels               |
-//! | ARM64        | NEON            | Runs the scalar kernels         |
+//! | ARM64        | NEON            | Dedicated kernels               |
 //! | Any          | Scalar          | Same order as `metrics.rs`      |
 
+#[cfg(target_arch = "aarch64")]
+mod aarch64;
 mod dispatch;
 mod scalar;
 mod sums;
