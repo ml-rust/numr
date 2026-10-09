@@ -11,53 +11,66 @@ use super::scalar::i8xi8_dot_scalar;
 /// Minimum elements to justify SIMD overhead for dot products
 const DOT_SIMD_THRESHOLD: usize = 32;
 
-/// Dot product of signed i8 vectors, accumulated in i32.
+/// Dot product of signed i8 vectors, accumulated in i32, on the best level
+/// this CPU supports.
 ///
-/// Automatically dispatches to the best SIMD implementation available:
-/// - x86-64/AVX-512BW: 64 elements per iteration via `_mm512_maddubs_epi16` + `_mm512_madd_epi16`
-/// - x86-64/AVX2: 32 elements per iteration via `_mm256_maddubs_epi16` + `_mm256_madd_epi16`
-/// - ARM64/NEON: 16 elements per iteration via `vmull_s8` + `vpadalq_s16`
-/// - Scalar fallback for small arrays (<32 elements) or unsupported platforms
-///
-/// Computes sum(a[i] * b[i]) for i in 0..len.
+/// Computes sum(a[i] * b[i]) for i in 0..len. A total outside i32 range
+/// saturates to `i32::MIN` or `i32::MAX`.
 ///
 /// # Safety
 /// - `a` and `b` must be valid pointers to `len` elements
 #[inline]
 pub unsafe fn i8xi8_dot_i32(a: *const i8, b: *const i8, len: usize) -> i32 {
-    let level = detect_simd();
-
-    if len < DOT_SIMD_THRESHOLD || level == SimdLevel::Scalar {
-        return i8xi8_dot_scalar(a, b, len);
-    }
-
-    #[cfg(target_arch = "x86_64")]
-    match level {
-        SimdLevel::Avx512 => return x86_64::avx512::i8xi8_dot_i32(a, b, len),
-        SimdLevel::Avx2Fma => return x86_64::avx2::i8xi8_dot_i32(a, b, len),
-        _ => return i8xi8_dot_scalar(a, b, len),
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    match level {
-        SimdLevel::Neon | SimdLevel::NeonFp16 => return aarch64::neon::i8xi8_dot_i32(a, b, len),
-        _ => return i8xi8_dot_scalar(a, b, len),
-    }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    i8xi8_dot_scalar(a, b, len)
+    i8xi8_dot_i32_with(detect_simd(), a, b, len)
 }
 
-/// Scaled dot product of signed i8 vectors, returning f32.
+/// Dot product of signed i8 vectors, accumulated in i32, on an explicit level.
 ///
-/// Computes scale * sum(a[i] * b[i]) for i in 0..len.
+/// - x86-64/AVX-512BW: 64 elements per iteration via `_mm512_maddubs_epi16` + `_mm512_madd_epi16`
+/// - x86-64/AVX2: 32 elements per iteration via `_mm256_maddubs_epi16` + `_mm256_madd_epi16`
+/// - ARM64/NEON: 16 elements per iteration via `vmull_s8` + `vpadalq_s16`
+/// - Scalar fallback for small arrays (<32 elements) or unsupported platforms
+///
+/// Every level returns the same exact, saturated total.
 ///
 /// # Safety
+/// - `level` must not exceed `detect_simd()`. A higher level runs instructions
+///   this CPU lacks.
 /// - `a` and `b` must be valid pointers to `len` elements
 #[inline]
-#[allow(dead_code)] // Public API for downstream crates (e.g., quantized ops)
-pub unsafe fn i8xi8_dot_f32(a: *const i8, b: *const i8, scale: f32, len: usize) -> f32 {
-    (i8xi8_dot_i32(a, b, len) as f32) * scale
+pub unsafe fn i8xi8_dot_i32_with(level: SimdLevel, a: *const i8, b: *const i8, len: usize) -> i32 {
+    if len < DOT_SIMD_THRESHOLD {
+        return i8xi8_dot_scalar(a, b, len);
+    }
+    match level {
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx512 => x86_64::avx512::i8xi8_dot_i32(a, b, len),
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx2Fma => x86_64::avx2::i8xi8_dot_i32(a, b, len),
+        #[cfg(target_arch = "aarch64")]
+        SimdLevel::Neon | SimdLevel::NeonFp16 => aarch64::neon::i8xi8_dot_i32(a, b, len),
+        _ => i8xi8_dot_scalar(a, b, len),
+    }
+}
+
+/// Scaled dot product of signed i8 vectors on an explicit level, returning f32.
+///
+/// Computes scale * sum(a[i] * b[i]) for i in 0..len. The i32 total rounds
+/// to f32 before the multiply.
+///
+/// # Safety
+/// - `level` must not exceed `detect_simd()`. A higher level runs instructions
+///   this CPU lacks.
+/// - `a` and `b` must be valid pointers to `len` elements
+#[inline]
+pub unsafe fn i8xi8_dot_f32_with(
+    level: SimdLevel,
+    a: *const i8,
+    b: *const i8,
+    scale: f32,
+    len: usize,
+) -> f32 {
+    (i8xi8_dot_i32_with(level, a, b, len) as f32) * scale
 }
 
 #[cfg(test)]
@@ -237,7 +250,8 @@ mod tests {
         let b: Vec<i8> = vec![1, 2, 3, 4];
         let scale = 0.5f32;
 
-        let result = unsafe { i8xi8_dot_f32(a.as_ptr(), b.as_ptr(), scale, a.len()) };
+        let result =
+            unsafe { i8xi8_dot_f32_with(detect_simd(), a.as_ptr(), b.as_ptr(), scale, a.len()) };
         let expected = (10 + 40 + 90 + 160) as f32 * scale;
         assert!((result - expected).abs() < 1e-6);
     }

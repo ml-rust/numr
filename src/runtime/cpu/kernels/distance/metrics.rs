@@ -165,8 +165,15 @@ pub unsafe fn cosine<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usi
         }
         Route::Generic => cosine_sums_loop::<T, A>(a, b, d),
     };
+    cosine_from_sums(dot, norm_a, norm_b)
+}
 
-    // The one place the sums become a distance, for every route.
+/// Cosine distance from its three sums: `1 - dot / sqrt(norm_a * norm_b)`.
+///
+/// A zero denominator gives 0. This is the one place the sums become a
+/// distance, for every route here and for `crate::distance`.
+#[inline]
+pub fn cosine_from_sums<A: num_traits::Float>(dot: A, norm_a: A, norm_b: A) -> A {
     let denom = (norm_a * norm_b).sqrt();
     if denom.is_zero() {
         A::zero()

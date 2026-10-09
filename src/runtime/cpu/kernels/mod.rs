@@ -126,9 +126,8 @@ pub use where_select::{
     where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,
 };
 
-// Re-export SIMD dot product kernels for downstream crates (e.g., quantized ops)
-#[allow(unused_imports)]
-pub use simd::dot::{i8xi8_dot_f32, i8xi8_dot_i32};
+// The i8 dot kernels behind `crate::distance::dot_i8*`.
+pub use simd::dot::{i8xi8_dot_f32_with, i8xi8_dot_i32_with};
 
 // Re-export sparse kernel functions for external use
 #[cfg(feature = "sparse")]

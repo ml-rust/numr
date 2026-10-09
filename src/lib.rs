@@ -20,6 +20,7 @@
 //! - **FFT**: Fast Fourier transforms (1D, 2D, ND)
 //! - **Element-wise ops**: Full set of math functions
 //! - **Reductions**: Sum, mean, max, min, argmax, argmin along axes
+//! - **Distance kernels**: SIMD dot, L2, Manhattan and cosine on plain slices ([`distance`])
 //! - **Multiple dtypes**: f64, f32, f16, bf16, fp8, integers, bool
 //!
 //! ## Quick Start
@@ -77,6 +78,7 @@
 
 pub mod algorithm;
 pub mod autograd;
+pub mod distance;
 pub mod dtype;
 pub mod error;
 pub mod ops;

@@ -2,8 +2,8 @@
 
 /// The three sums cosine distance needs, gathered in one pass.
 ///
-/// The caller turns them into a distance. `metrics::cosine` owns that formula,
-/// including its `denom == 0 -> 0` rule.
+/// The caller turns them into a distance. `metrics::cosine_from_sums` owns that
+/// formula, including its `denom == 0 -> 0` rule.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CosineSums<T> {
     /// `sum(a[i] * b[i])`.
