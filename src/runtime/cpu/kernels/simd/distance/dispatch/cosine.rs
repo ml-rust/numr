@@ -3,7 +3,7 @@
 use super::super::scalar;
 use super::super::sums::CosineSums;
 #[cfg(target_arch = "x86_64")]
-use super::super::x86_64::avx2;
+use super::super::x86_64::{avx2, avx512};
 use crate::runtime::cpu::kernels::simd::{SimdLevel, detect_simd};
 
 /// f32 cosine sums (`a·b`, `a·a`, `b·b`) on the best level this CPU supports.
@@ -40,9 +40,10 @@ pub unsafe fn cosine_sums_f32_with(
     len: usize,
 ) -> CosineSums<f32> {
     match level {
-        // Every AVX-512 CPU also runs AVX2+FMA. The AVX-512 kernel lands in a later unit.
         #[cfg(target_arch = "x86_64")]
-        SimdLevel::Avx512 | SimdLevel::Avx2Fma => avx2::cosine_sums_f32(a, b, len),
+        SimdLevel::Avx512 => avx512::cosine_sums_f32(a, b, len),
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx2Fma => avx2::cosine_sums_f32(a, b, len),
         // The NEON kernel lands in a later unit.
         SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::cosine_sums_f32(a, b, len),
         _ => scalar::cosine_sums_f32(a, b, len),
@@ -65,9 +66,10 @@ pub unsafe fn cosine_sums_f64_with(
     len: usize,
 ) -> CosineSums<f64> {
     match level {
-        // Every AVX-512 CPU also runs AVX2+FMA. The AVX-512 kernel lands in a later unit.
         #[cfg(target_arch = "x86_64")]
-        SimdLevel::Avx512 | SimdLevel::Avx2Fma => avx2::cosine_sums_f64(a, b, len),
+        SimdLevel::Avx512 => avx512::cosine_sums_f64(a, b, len),
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx2Fma => avx2::cosine_sums_f64(a, b, len),
         // The NEON kernel lands in a later unit.
         SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::cosine_sums_f64(a, b, len),
         _ => scalar::cosine_sums_f64(a, b, len),
@@ -76,6 +78,7 @@ pub unsafe fn cosine_sums_f64_with(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_avx512::{F32_MAX_LEN, F64_MAX_LEN, check_avx512_every_length};
     use super::super::test_support::{Lcg, Side, check_all, lengths, levels, random_vec};
     use super::*;
 
@@ -127,6 +130,16 @@ mod tests {
         check_all::<f64>("cosine_f64.dot", dot64, dot_term, &[Side::A, Side::B]);
         check_all::<f64>("cosine_f64.norm_a", norm_a64, norm_a_term, &[Side::A]);
         check_all::<f64>("cosine_f64.norm_b", norm_b64, norm_b_term, &[Side::B]);
+    }
+
+    #[test]
+    fn avx512_every_length_within_bound() {
+        check_avx512_every_length::<f32>("cosine_f32.dot", dot32, dot_term, F32_MAX_LEN);
+        check_avx512_every_length::<f32>("cosine_f32.norm_a", norm_a32, norm_a_term, F32_MAX_LEN);
+        check_avx512_every_length::<f32>("cosine_f32.norm_b", norm_b32, norm_b_term, F32_MAX_LEN);
+        check_avx512_every_length::<f64>("cosine_f64.dot", dot64, dot_term, F64_MAX_LEN);
+        check_avx512_every_length::<f64>("cosine_f64.norm_a", norm_a64, norm_a_term, F64_MAX_LEN);
+        check_avx512_every_length::<f64>("cosine_f64.norm_b", norm_b64, norm_b_term, F64_MAX_LEN);
     }
 
     #[test]

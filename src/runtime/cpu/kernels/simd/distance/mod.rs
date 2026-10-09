@@ -6,12 +6,12 @@
 //!
 //! # Architecture Support
 //!
-//! | Architecture | Instruction Set | Status                         |
-//! |--------------|-----------------|--------------------------------|
-//! | x86-64       | AVX-512         | Runs the AVX2+FMA kernels      |
-//! | x86-64       | AVX2 + FMA      | Dedicated kernels              |
-//! | ARM64        | NEON            | Runs the scalar kernels        |
-//! | Any          | Scalar          | Same order as `metrics.rs`     |
+//! | Architecture | Instruction Set | Status                          |
+//! |--------------|-----------------|---------------------------------|
+//! | x86-64       | AVX-512         | Dedicated kernels (masked tail) |
+//! | x86-64       | AVX2 + FMA      | Dedicated kernels               |
+//! | ARM64        | NEON            | Runs the scalar kernels         |
+//! | Any          | Scalar          | Same order as `metrics.rs`      |
 
 mod dispatch;
 mod scalar;

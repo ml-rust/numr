@@ -5,6 +5,8 @@ pub mod dot;
 pub mod manhattan;
 pub mod sqeuclidean;
 #[cfg(test)]
+pub mod test_avx512;
+#[cfg(test)]
 pub mod test_support;
 
 pub use cosine::{cosine_sums_f32, cosine_sums_f64};

@@ -2,7 +2,7 @@
 
 use super::super::scalar;
 #[cfg(target_arch = "x86_64")]
-use super::super::x86_64::avx2;
+use super::super::x86_64::{avx2, avx512};
 use crate::runtime::cpu::kernels::simd::{SimdLevel, detect_simd};
 
 /// f32 `sum((a[i] - b[i])^2)` on the best level this CPU supports.
@@ -39,9 +39,10 @@ pub unsafe fn sqeuclidean_f32_with(
     len: usize,
 ) -> f32 {
     match level {
-        // Every AVX-512 CPU also runs AVX2+FMA. The AVX-512 kernel lands in a later unit.
         #[cfg(target_arch = "x86_64")]
-        SimdLevel::Avx512 | SimdLevel::Avx2Fma => avx2::sqeuclidean_f32(a, b, len),
+        SimdLevel::Avx512 => avx512::sqeuclidean_f32(a, b, len),
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx2Fma => avx2::sqeuclidean_f32(a, b, len),
         // The NEON kernel lands in a later unit.
         SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::sqeuclidean_f32(a, b, len),
         _ => scalar::sqeuclidean_f32(a, b, len),
@@ -64,9 +65,10 @@ pub unsafe fn sqeuclidean_f64_with(
     len: usize,
 ) -> f64 {
     match level {
-        // Every AVX-512 CPU also runs AVX2+FMA. The AVX-512 kernel lands in a later unit.
         #[cfg(target_arch = "x86_64")]
-        SimdLevel::Avx512 | SimdLevel::Avx2Fma => avx2::sqeuclidean_f64(a, b, len),
+        SimdLevel::Avx512 => avx512::sqeuclidean_f64(a, b, len),
+        #[cfg(target_arch = "x86_64")]
+        SimdLevel::Avx2Fma => avx2::sqeuclidean_f64(a, b, len),
         // The NEON kernel lands in a later unit.
         SimdLevel::Neon | SimdLevel::NeonFp16 => scalar::sqeuclidean_f64(a, b, len),
         _ => scalar::sqeuclidean_f64(a, b, len),
@@ -75,6 +77,7 @@ pub unsafe fn sqeuclidean_f64_with(
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_avx512::{F32_MAX_LEN, F64_MAX_LEN, check_avx512_every_length};
     use super::super::test_support::{Lcg, Side, check_all, lengths, levels, random_vec};
     use super::*;
 
@@ -98,6 +101,12 @@ mod tests {
     #[test]
     fn f64_every_level_within_bound_and_specials() {
         check_all::<f64>("sqeuclidean_f64", k64, term, &[Side::A, Side::B]);
+    }
+
+    #[test]
+    fn avx512_every_length_within_bound() {
+        check_avx512_every_length::<f32>("sqeuclidean_f32", k32, term, F32_MAX_LEN);
+        check_avx512_every_length::<f64>("sqeuclidean_f64", k64, term, F64_MAX_LEN);
     }
 
     #[test]

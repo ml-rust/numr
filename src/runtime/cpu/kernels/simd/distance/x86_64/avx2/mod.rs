@@ -1,7 +1,7 @@
 //! AVX2+FMA distance reductions.
 //!
-//! Every kernel here needs AVX2 and FMA. The dispatcher only calls them when
-//! `detect_simd()` reports `Avx2Fma` or `Avx512`.
+//! Every kernel here needs AVX2 and FMA. The dispatcher calls them for
+//! `SimdLevel::Avx2Fma`. `SimdLevel::Avx512` runs the kernels in `avx512`.
 
 pub mod cosine;
 pub mod dot;
