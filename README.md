@@ -572,7 +572,7 @@ fn main() -> Result<()> {
 
 ```toml
 [dependencies]
-numr = "0.8"
+numr = "0.9"
 ```
 
 ### With GPU Support
@@ -580,17 +580,17 @@ numr = "0.8"
 ```toml
 [dependencies]
 # NVIDIA CUDA (requires CUDA 12.8+ and nvcc on PATH)
-numr = { version = "0.8", features = ["cuda"] }
+numr = { version = "0.9", features = ["cuda"] }
 
 # Cross-platform GPU (NVIDIA, AMD, Intel, Apple)
-numr = { version = "0.8", features = ["wgpu"] }
+numr = { version = "0.9", features = ["wgpu"] }
 ```
 
 ### With Optional Features
 
 ```toml
 [dependencies]
-numr = { version = "0.8", features = [
+numr = { version = "0.9", features = [
     "cuda",      # NVIDIA GPU support
     "wgpu",      # Cross-platform GPU (WebGPU)
     "f16",       # Half-precision (F16, BF16)

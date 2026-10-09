@@ -12,6 +12,24 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [0.9.0] — 2026-10-09
+
+The WebGPU backend moves to wgpu 30.
+
+### Breaking
+
+- **wgpu 30** — the public WebGPU API carries wgpu 30 types. This covers `WgpuClient::wgpu_device`, `wgpu_device_arc`, `wgpu_queue`, and `submit_and_wait`, plus `WgpuDevice::backend` and `limits`. A caller that passes or receives these types must depend on wgpu 30.
+
+### Changed
+
+- **Dependencies** — wgpu 30 and pollster 1.0.
+
+### Fixed
+
+- **WebGPU readback** — a failed buffer mapping during a device-to-host read returns an error instead of panicking. `masked_select` no longer panics when the GPU count readback fails.
+
+---
+
 ## [0.8.0] — 2026-10-09
 
 Destination-passing ops and a capture-safe CUDA stream for graph replay. CUDA kernels ship as multi-arch fatbins inside the binary. New activation, padding, grouped-matmul, and transform ops.
