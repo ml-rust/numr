@@ -110,7 +110,7 @@ static SIMD_LEVEL: OnceLock<SimdLevel> = OnceLock::new();
 /// Detect the best available SIMD level for the current CPU
 ///
 /// This function is cached - the first call performs detection,
-/// subsequent calls return the cached result with ~1ns overhead.
+/// subsequent calls read the cached result from a `OnceLock`.
 #[inline]
 pub fn detect_simd() -> SimdLevel {
     *SIMD_LEVEL.get_or_init(detect_simd_uncached)

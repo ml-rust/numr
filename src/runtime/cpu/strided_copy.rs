@@ -4,8 +4,8 @@
 //! quantized matmul input, so this is one of the hottest code paths in the
 //! whole stack. A naive per-element loop recomputes the full N-dimensional
 //! source offset for every element and issues a `memcpy` call per element,
-//! which for f32 degenerates into a 4-byte `memcpy` — measured at roughly
-//! three quarters of all retired instructions in a decode loop.
+//! which for f32 degenerates into a 4-byte `memcpy` that dominates the
+//! instruction count of a decode loop.
 //!
 //! The copy is therefore split into three tiers, from most to least
 //! specialized. The destination is always freshly allocated row-major storage,

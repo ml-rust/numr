@@ -57,8 +57,8 @@ impl MatmulOps<CpuRuntime> for CpuClient {
         // B is the transposed view of a contiguous [N,K] buffer — the layout every
         // Linear weight has. Both paths below read that buffer directly instead of
         // materializing the [K,N] view, which otherwise copies the whole weight
-        // matrix on every call (a profiled VoxCPM2 decode moved ~50 GB through
-        // copy_strided over four generated patches, 41% of all instructions).
+        // matrix on every call (in a profiled model decode, that copy was the
+        // largest single share of all instructions).
         let b_transposed = crate::ops::matmul::is_transposed_b(b_shape, b.strides(), k, n);
 
         // GEMV-BT fast path: for small M (decode), dot A rows against B's original
@@ -92,10 +92,10 @@ impl MatmulOps<CpuRuntime> for CpuClient {
                         // split is (see `matmul_columns`): sizing chunks by
                         // `n / num_threads` moves the block boundaries with the
                         // machine, so float rounding at a boundary differs
-                        // between a 4-core laptop and a 24-core workstation and
-                        // the same input yields different output. Measured on a
-                        // VoxCPM2 decode: 1 thread and 24 threads produced
-                        // different speech. Only the SCHEDULING of this fixed
+                        // between machines with different core counts and
+                        // the same input yields different output. A model
+                        // decode run single-threaded and multi-threaded once
+                        // produced different results this way. Only the SCHEDULING of this fixed
                         // chunk list may vary with the pool.
                         let chunk_size = GEMV_COLUMN_CHUNK_WIDTH;
 

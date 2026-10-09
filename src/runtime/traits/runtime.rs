@@ -46,8 +46,8 @@ pub trait Runtime: Clone + Send + Sync + 'static {
 
     /// Data type enum for tensor elements.
     ///
-    /// numr runtimes use `numr::DType`. Downstream runtimes (e.g. boostr)
-    /// can specify their own dtype enum with quantized variants.
+    /// numr runtimes use `numr::DType`. Downstream runtimes can
+    /// specify their own dtype enum with quantized variants.
     type DType: crate::dtype::DataType;
 
     /// Human-readable name of this runtime

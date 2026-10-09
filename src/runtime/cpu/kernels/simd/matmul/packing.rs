@@ -114,10 +114,10 @@ macro_rules! define_pack_b_t {
         ///
         /// A linear layer holds its weights as a contiguous `[N, K]` buffer and
         /// multiplies against the `[K, N]` view with strides `[1, K]`. Making that
-        /// view contiguous copies the whole weight matrix on every call. A profiled
-        /// VoxCPM2 decode moved ~50 GB through `copy_strided` over four generated
-        /// patches, and a `perf record -e instructions` call graph put 41% of all
-        /// program instructions under `Tensor::contiguous` on that path. Packing is
+        /// view contiguous copies the whole weight matrix on every call. In a profiled
+        /// model decode, a `perf record -e instructions` call graph put the largest
+        /// single share of program instructions under `Tensor::contiguous` on that
+        /// path. Packing is
         /// a strided gather either way, so reading the `[N, K]` source directly
         /// costs nothing extra and removes the copy entirely.
         ///

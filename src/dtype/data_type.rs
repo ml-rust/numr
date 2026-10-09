@@ -7,7 +7,7 @@ use super::DType;
 
 /// Trait for data types that can be stored in tensors.
 ///
-/// numr's [`DType`] implements this. Downstream libraries (e.g. boostr) can
+/// numr's [`DType`] implements this. Downstream libraries can
 /// define their own dtype enums with quantized variants that also implement
 /// this trait. The [`Runtime`](crate::runtime::Runtime) trait has an associated
 /// `DType` type bounded by `DataType`, enabling each runtime to specify its

@@ -55,9 +55,9 @@
 // The OC_BLOCK accumulators are independent by construction, so the ~10752-long
 // FP-add dependency chain of the scalar version breaks for free. No separate
 // strip-mining over ic is needed, and register pressure stays low (4 accumulators
-// plus 4 weight pointers and the index math, ~40 registers, no spills).
+// plus 4 weight pointers and the index math, no spills).
 //
-// NO SHARED MEMORY. Staging the input in shared memory was measured 26% slower:
+// NO SHARED MEMORY. Staging the input in shared memory is slower:
 // it adds two __syncthreads() per ic (~3072 per block) without removing a single
 // global load, because the reuse it captures is the intra-warp reuse L1 already
 // serves. The reuse that actually matters is ACROSS oc, and that lives in

@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_backward_wrt_drops_frozen_operand_gradient() {
-        // Mirrors boostr's Linear on a frozen weight: `var_transpose(&w)` mints a
+        // Mirrors a Linear layer on a frozen weight: `var_transpose(&w)` mints a
         // fresh TensorId every step, so MatmulBackward stores a full-size
         // gradient under an id no caller can ever look up.
         let device = CpuDevice::new();

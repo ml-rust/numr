@@ -3,13 +3,13 @@
 //! # Why this exists
 //!
 //! With the tiered `copy_strided` and the transposed-B packing in place, a
-//! profiled VoxCPM2 decode spends 96.5% of its instructions inside the tiled
-//! f32 matmul — 45.0% `microkernel_loop_f32::<16>`, 25.8% `tiled_loop_f32::<16>`,
-//! 25.7% `microkernel_6x16_f32` — and no measurable time copying. The process
-//! still held 124% CPU on a 24-thread machine, because the only parallel axis
-//! in [`super::matmul`] is the batch one and the dominant shapes there are
-//! single-batch (`[22, 1024] × [1024, 4096]` and friends). One batch, one
-//! thread. Splitting the columns is what fills the machine on those shapes.
+//! profiled model decode spends nearly all its instructions inside the tiled
+//! f32 matmul (`microkernel_loop_f32::<16>`, `tiled_loop_f32::<16>`,
+//! `microkernel_6x16_f32`) and no measurable time copying. The process still
+//! kept little more than one core busy on a many-core machine, because the
+//! only parallel axis in [`super::matmul`] is the batch one and the dominant
+//! shapes there are single-batch (`[22, 1024] × [1024, 4096]` and friends).
+//! One batch, one thread. Splitting the columns is what fills the machine on those shapes.
 //!
 //! The split lives at the ops layer rather than in the kernel because it needs
 //! the client: the pool from `install_parallelism`. Kernels are free functions
@@ -25,12 +25,10 @@
 //!
 //! That is why **nothing about the machine may reach these boundaries**. The
 //! first version of this module sized the chunks as `n / thread_count`, and the
-//! same VoxCPM2 sentence then decoded to different audio on different pool
-//! sizes: at `RAYON_NUM_THREADS=1` the speech said "dah cuba", at 24 it said
-//! "datuh bul" — same model, same seed, same input. Chunk boundaries are now a
-//! pure function of the problem shape `(batch_size, m, n, k)`, so a 4-core
-//! laptop and a 24-core workstation run the identical arithmetic and only the
-//! scheduling differs.
+//! same model input then decoded to different output on different pool sizes,
+//! with the same seed. Chunk boundaries are now a pure function of the problem
+//! shape `(batch_size, m, n, k)`, so machines with different core counts run
+//! the identical arithmetic and only the scheduling differs.
 //!
 //! The purity has to cover *whether* to split, not just how wide the chunks
 //! are: a run that takes the unsplit path is a run with different boundaries.
@@ -63,15 +61,15 @@ use crate::runtime::cpu::{CpuClient, CpuRuntime};
 ///   decode shape `[22, 1024] × [1024, 4096]` needs 94, so 128 keeps every
 ///   chunk on the tiled kernel without the floor having to raise it.
 /// - Fill a many-core machine at the hot shape: `4096 / 128` is 32 chunks, more
-///   units than a 24-thread pool has workers, so no worker idles waiting for a
-///   long final chunk.
+///   units than a typical many-core pool has workers, so no worker idles
+///   waiting for a long final chunk.
 /// - Divide `NC` (512), the tiled loop's own L3 column block, and are a
 ///   multiple of both `NR` widths (8 for AVX2, 16 for AVX-512). Where the width
 ///   divides `n`, every chunk boundary then lands on a block boundary the
 ///   unsplit call already had.
 ///
 /// Narrower would re-pack A more often for no extra occupancy; wider would
-/// leave a 24-thread pool short of units at `n = 4096`.
+/// leave a many-core pool short of units at `n = 4096`.
 const COLUMN_CHUNK_WIDTH: usize = 128;
 
 /// How many column chunks to split this matmul into, or `None` to leave the

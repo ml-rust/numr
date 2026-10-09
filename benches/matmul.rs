@@ -193,7 +193,7 @@ fn cuda_bias_512x512(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
-// Reranker attention shapes — the two dominant batched matmul patterns
+// Attention shapes — the two dominant batched matmul patterns
 //
 // Shape 1: Scores  Q @ Kᵀ  → [batch, M, N] = [64, 512, 512], K = 64
 // Shape 2: Context attn @ V → [batch, M, N] = [64, 512,  64], K = 512
@@ -238,7 +238,7 @@ fn cuda_attn_context(b: &mut Bencher) {
 // ---------------------------------------------------------------------------
 // WMMA (tensor-core) benchmarks — F16 attention shapes
 //
-// Reranker attention:
+// Attention:
 //   Scores:  A[64,512,64]  @ B[64,64,512]  → C[64,512,512]  (QK^T)
 //   Context: A[64,512,512] @ B[64,512,64]  → C[64,512,64]   (attn@V)
 // All dims are multiples of 16, so the WMMA path is taken automatically.
@@ -286,7 +286,7 @@ fn cuda_wmma_attn_context(b: &mut Bencher) {
 // F16/BF16 matmul_bias — WMMA tensor-core epilogue.
 //
 // F32 matmul_bias and the fused epilogue ops have compile-time-tiled CUDA
-// kernels (26-59x faster). F16/BF16 now take a fused WMMA epilogue kernel
+// kernels. F16/BF16 now take a fused WMMA epilogue kernel
 // (see matmul_wmma.cu) when M/N/K are 16-aligned (or padded to be); other
 // shapes fall through to the generic runtime-parameter kernel. These
 // benches cover both paths. Shapes mirror the F32 matmul_bias_activation
@@ -477,11 +477,12 @@ fn cuda_matmul_bias_bf16_1000x1000_unaligned(b: &mut Bencher) {
 }
 
 // ---------------------------------------------------------------------------
-// Reranker projection GEMMs — dominant cost in the reranker query pipeline.
+// Batched projection GEMMs — a transformer layer's square, down-projection,
+// and up-projection shapes.
 //
 // Shapes (batched F16, WMMA path):
-//   M=512, K=1024, N=1024, batch=4   (~1.7 ms baseline per instance)
-//   M=512, K=4096, N=1024, batch=4   (~4.0 ms baseline per instance)
+//   M=512, K=1024, N=1024, batch=4
+//   M=512, K=4096, N=1024, batch=4
 //   M=512, K=1024, N=4096, batch=4
 // ---------------------------------------------------------------------------
 

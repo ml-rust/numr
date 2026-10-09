@@ -22,7 +22,7 @@ const PARALLEL_THRESHOLD: usize = 4096;
 
 /// Complex conjugate kernel for Complex64 with Rayon parallelization
 ///
-/// Performance: ~95% of memory bandwidth (memory-bound, simple negation)
+/// Performance: memory-bound (simple negation)
 #[inline]
 pub unsafe fn conj_complex64(
     input: *const Complex64,
@@ -87,7 +87,7 @@ pub unsafe fn conj_complex128(
 
 /// Extract real component from Complex64 with Rayon parallelization
 ///
-/// Performance: ~98% of memory bandwidth (pure memory copy)
+/// Performance: memory-bound (pure memory copy)
 #[inline]
 pub unsafe fn real_complex64(
     input: *const Complex64,
@@ -213,7 +213,7 @@ pub unsafe fn imag_complex128(
 
 /// Compute phase angle for Complex64 with Rayon parallelization
 ///
-/// Performance: ~80% of compute bound (atan2 ~20 cycles)
+/// Performance: compute-bound (atan2 dominates)
 #[inline]
 pub unsafe fn angle_complex64(
     input: *const Complex64,
@@ -349,7 +349,7 @@ pub unsafe fn angle_real_f64(
 
 /// Construct Complex64 from separate F32 real and imaginary arrays.
 ///
-/// Performance: ~95% of memory bandwidth (memory-bound, simple interleave)
+/// Performance: memory-bound (simple interleave)
 #[inline]
 pub unsafe fn from_real_imag_f32(
     real: *const f32,
@@ -424,7 +424,7 @@ pub unsafe fn from_real_imag_f64(
 
 /// Multiply Complex64 by F32 element-wise: (a+bi) * r = ar + br*i
 ///
-/// Performance: ~90% of memory bandwidth (1 read complex, 1 read real, 1 write complex)
+/// Performance: memory-bound (1 read complex, 1 read real, 1 write complex)
 #[inline]
 pub unsafe fn complex64_mul_real(
     complex: *const Complex64,
@@ -498,7 +498,7 @@ pub unsafe fn complex128_mul_real(
 
 /// Divide Complex64 by F32 element-wise: (a+bi) / r = (a/r) + (b/r)*i
 ///
-/// Performance: ~85% of memory bandwidth (division has ~10 cycle latency)
+/// Performance: memory-bound, with division latency on the critical path
 #[inline]
 pub unsafe fn complex64_div_real(
     complex: *const Complex64,

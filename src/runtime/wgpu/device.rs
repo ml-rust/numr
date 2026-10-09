@@ -40,7 +40,7 @@ impl std::error::Error for WgpuError {}
 /// Cached adapter information for a WebGPU device.
 #[derive(Clone)]
 pub(crate) struct AdapterInfo {
-    /// Adapter name (e.g., "NVIDIA GeForce RTX 4090")
+    /// Adapter name, as the driver reports it
     name: String,
     /// Backend type (Vulkan, Metal, DX12, etc.)
     backend: Backend,

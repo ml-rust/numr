@@ -35,7 +35,7 @@ pub const SMALLM_MAX_WAVES_KEY: &str = "matmul_f32_smallm_bt.max_waves";
 /// `MAX_SMALL_M x MAX_SMALL_N` is admitted on any part with enough SMs.
 pub const SMALLM_MAX_WAVES_CEILING: usize = 64;
 
-/// Depth of every probe rung: the FFN width the kernel was measured at.
+/// Depth of every probe rung: the FFN width the kernel was tuned for.
 const PROBE_K: usize = 5120;
 
 /// Timed iterations per kernel per rung; `time_launches` takes the minimum.
@@ -61,7 +61,8 @@ const PROBE_RUNGS: [(usize, usize); 10] = [
 /// The wave bound for `client`'s device.
 ///
 /// The first call on a device runs the probe, about ten launches of each
-/// kernel per rung, a few ms in all; blazr's warmup absorbs it. Later calls
+/// kernel per rung. Run one call during warmup to keep the probe off the
+/// first real request. Later calls
 /// read the per-device tune cache. With tuning off, or when the probe
 /// returns `Err`, this is [`SMALLM_MAX_WAVES_FALLBACK`].
 pub fn smallm_max_waves(client: &CudaClient) -> usize {

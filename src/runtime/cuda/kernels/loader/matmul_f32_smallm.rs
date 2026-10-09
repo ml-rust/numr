@@ -155,8 +155,8 @@ pub fn smallm_applies(
 /// Launch `C[M,N] = A[M,K] · Bᵀ` with `b_ptr` the contiguous `[N, K]` matrix,
 /// one thread per output. Returns `Ok(false)` when [`smallm_applies`] says
 /// no for this client's device, so the caller falls through to the tiled
-/// kernel. The first call on a device runs the wave probe (a few ms);
-/// blazr's warmup absorbs that.
+/// kernel. The first call on a device runs the wave probe, so a caller that
+/// cares about first-call latency runs one launch during warmup.
 ///
 /// # Safety
 ///

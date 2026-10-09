@@ -36,7 +36,7 @@ pub enum ReduceOp {
 /// - Pointer provenance matches the communicator backend
 /// - Buffers remain allocated until `sync()` or `barrier()`
 ///
-/// Higher-level wrappers (boostr's distributed patterns) accept `Tensor<R>`
+/// Higher-level wrappers in downstream crates accept `Tensor<R>`
 /// and extract pointers internally, providing a safe public API.
 ///
 /// # Drop contract

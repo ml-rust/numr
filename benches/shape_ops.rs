@@ -335,8 +335,8 @@ struct Cat2D;
 // ---------------------------------------------------------------------------
 // Verifications: numr must be competitive with ndarray
 // ---------------------------------------------------------------------------
-// 1D cat (~800ns) has high run-to-run variance (~20-40% between runs),
-// so the 1.4x threshold accommodates noise while still catching regressions.
+// 1D cat is short enough that its run-to-run variance is high, so the 1.4x
+// threshold accommodates noise while still catching regressions.
 // 2D cat is the meaningful performance test with stable measurements.
 
 #[flux::verify(

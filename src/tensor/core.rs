@@ -736,7 +736,7 @@ impl<R: Runtime> Tensor<R> {
     /// Create a tensor filled with a scalar value (generic, works with any DType)
     ///
     /// Uses `DataType::fill_bytes` to generate the fill pattern, so it works
-    /// with any DType that implements the trait (including boostr's quantized types).
+    /// with any DType that implements the trait (including downstream quantized types).
     pub fn full_scalar_generic(
         shape: &[usize],
         dtype: R::DType,

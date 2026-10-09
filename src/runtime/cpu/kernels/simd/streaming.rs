@@ -20,8 +20,9 @@
 //!
 //! # Performance
 //!
-//! Expected speedup: 10-30% on very large arrays that exceed L3 cache.
-//! No benefit (possibly slight penalty) for small arrays.
+//! Streaming stores help only on arrays that exceed L3 cache, because they
+//! skip the read-for-ownership of lines that are never read back. Small
+//! arrays gain nothing and can lose a little.
 
 /// Threshold in bytes above which streaming stores are beneficial.
 /// Set to 1MB - arrays larger than this will use non-temporal stores.

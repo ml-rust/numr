@@ -4,8 +4,8 @@
 //! moves the N-block boundaries the kernel sees, so the chunk boundaries decide
 //! which microkernel variant produces an element near a boundary and therefore
 //! how its float accumulation rounds. When those boundaries were derived from
-//! the thread count, the same VoxCPM2 sentence decoded to different audio on a
-//! 1-thread run and a 24-thread run — a model shipped to unknown hardware
+//! the thread count, the same model input decoded to different output on a
+//! 1-thread run and a many-thread run — a model shipped to unknown hardware
 //! cannot behave that way.
 //!
 //! These tests pin the fix: the chunk boundaries are a pure function of the

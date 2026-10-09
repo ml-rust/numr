@@ -33,9 +33,8 @@ pub fn matmul_bt_matches_contiguous(dtype: DType, m: usize, n: usize, k: usize) 
 /// # Why this exists
 ///
 /// Every `Linear::forward` multiplies against a transposed weight view. Making
-/// that view contiguous copied the whole weight matrix per call: a profiled
-/// VoxCPM2 decode moved ~50 GB through `copy_strided` over four generated
-/// patches, and 41% of all program instructions landed under
+/// that view contiguous copied the whole weight matrix per call. In a profiled
+/// model decode, the largest single share of program instructions landed under
 /// `Tensor::contiguous` on that path.
 ///
 /// # Arguments

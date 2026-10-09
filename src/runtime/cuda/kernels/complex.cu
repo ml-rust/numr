@@ -38,13 +38,14 @@
 //
 // Compute vs Memory Bound:
 // - conj, real, imag: 100% memory-bound (no compute, just load/store)
-// - angle: Partially compute-bound (~20 cycles for atan2)
-// - Expected performance: 80-95% of peak memory bandwidth
+// - angle: Partially compute-bound (atan2 dominates)
+// - Every kernel is bandwidth-limited, so the target is the device's peak
+//   memory bandwidth
 //
 // Target Architectures:
-// - Minimum: sm_75 (Turing: RTX 2000 series, T4)
-// - Optimized for: sm_80 (Ampere: A100, RTX 3000 series)
-// - Future: sm_90 (Hopper: H100) - no changes needed
+// - Minimum: sm_75 (Turing)
+// - Optimized for: sm_80 (Ampere)
+// - Newer archs (sm_90 Hopper and up) need no changes
 //
 // ============================================================================
 

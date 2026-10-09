@@ -124,7 +124,7 @@ pub use where_select::{
     where_kernel, where_kernel_generic, where_strided_kernel, where_strided_kernel_generic,
 };
 
-// Re-export SIMD dot product kernels for downstream crates (e.g., boostr quantized ops)
+// Re-export SIMD dot product kernels for downstream crates (e.g., quantized ops)
 #[allow(unused_imports)]
 pub use simd::dot::{i8xi8_dot_f32, i8xi8_dot_i32};
 

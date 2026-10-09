@@ -29,8 +29,8 @@
 
 // ---------------------------------------------------------------------------
 // cp.async double-buffering is DISABLED: it has a data race that corrupts GEMM
-// output nondeterministically (observed as reranker recall@10 flipping 0.0<->1.0
-// run-to-run). A WAR barrier fix (sync before buf swap) was necessary but NOT
+// output nondeterministically (observed as a downstream model's results
+// flipping run-to-run). A WAR barrier fix (sync before buf swap) was necessary but NOT
 // sufficient — at least one more hazard remains in the async path. The synchronous
 // path is deterministic AND equally fast here, so we use it on all arches. Do NOT
 // re-enable the async path until the race is fully fixed and verified by REPEATED-RUN
