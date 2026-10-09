@@ -65,7 +65,7 @@ where
 /// Unlike the other fused-mul variants, the backward pass needs the standard
 /// normal CDF `Phi(a) = 0.5 * (1 + erf(a / sqrt(2)))` (derivative =
 /// `Phi(x) + x * phi(x)`). Computing `Phi` needs `erf`, which the shared
-/// [`FusedActivationMulBackward`] `GradFn` impl must NOT require — requiring it
+/// `FusedActivationMulBackward` `GradFn` impl must NOT require — requiring it
 /// forces every caller of `var_silu_mul`/`var_gelu_mul`/etc. (which never touch
 /// `erf`) to also satisfy `SpecialFunctions<R>`. So `Phi` is computed once
 /// here, at forward time, where the extra bound is local to this function,
