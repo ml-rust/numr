@@ -34,7 +34,7 @@ jobs:
       is_full_release: ${{ steps.version.outputs.is_full_release }}
       base_version: ${{ steps.version.outputs.base_version }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
 

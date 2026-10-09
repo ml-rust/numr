@@ -45,7 +45,7 @@ jobs:
     needs: [validate-version, ci]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -90,7 +90,7 @@ jobs:
       - name: Dry-run publish (wgpu, f16, fp8, sparse)
         run: cargo publish --dry-run --allow-dirty --features wgpu,f16,fp8,sparse
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: crate-package
           path: target/package/numr-${{ needs.validate-version.outputs.version }}.crate

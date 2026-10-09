@@ -34,7 +34,7 @@ jobs:
     name: Save Benchmark Baseline
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -52,7 +52,7 @@ jobs:
       # Cache keyed by SHA so each merge gets its own entry.
       # benchmark.yml uses restore-keys prefix matching to find the latest one.
       - name: Cache baseline
-        uses: actions/cache/save@v5
+        uses: actions/cache/save@v6
         with:
           path: target/fluxbench/baseline.json
           key: numr-bench-baseline-${{ github.sha }}
