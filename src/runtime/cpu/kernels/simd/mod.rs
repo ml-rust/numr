@@ -49,6 +49,7 @@ pub mod clamp;
 pub mod compare;
 pub mod conv;
 pub mod cumulative;
+pub mod distance;
 pub mod dot;
 pub mod fused_activation_mul;
 pub mod fused_elementwise;
