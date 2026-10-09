@@ -97,6 +97,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      # rust-cache's post step walks target/ and errors on the unpacked
+      # package's test directories. The crate is uploaded, so drop them.
+      - name: Remove the unpacked package
+        run: rm -rf target/package
+
   summary:
     name: Release instructions
     needs: [validate-version, package]
