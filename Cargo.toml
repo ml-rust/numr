@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.89"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
@@ -9,6 +9,15 @@ repository = "https://github.com/ml-rust/numr"
 documentation = "https://docs.rs/numr"
 keywords = ["tensor", "ndarray", "linear-algebra", "gpu", "fft"]
 categories = ["science", "mathematics", "data-structures"]
+# CI scripts, bench config, and the CUDA profiling binaries never build into
+# the crate. `build.rs` reads only `src/runtime/cuda/kernels`, which ships.
+exclude = [
+  ".github/",
+  "scripts/ci/",
+  "flux.toml",
+  ".gitignore",
+  "examples/cuda_*_profile.rs",
+]
 
 [package.metadata.docs.rs]
 features = ["f16", "sparse", "fp8", "wgpu"]
@@ -67,12 +76,13 @@ cudarc = { version = "0.19", optional = true, features = [
 # Optional: WebGPU backend
 wgpu = { version = "29.0", optional = true }
 pollster = { version = "0.4", optional = true }
-paste = "1.0"
+# `pastey` is the maintained fork of the archived `paste`; the rename keeps `paste::paste!` call sites.
+paste = { package = "pastey", version = "0.2" }
 
 [dev-dependencies]
 approx = "0.5"
 rand = "0.10"
-fluxbench = "0.1"
+fluxbench = "0.2"
 ndarray = "0.17"
 nalgebra = "0.35"
 

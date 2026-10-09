@@ -62,7 +62,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -73,7 +73,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -275,9 +275,9 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "chacha20"
-version = "0.10.0"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -290,12 +290,8 @@ version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
- "iana-time-zone",
- "js-sys",
  "num-traits",
  "serde",
- "wasm-bindgen",
- "windows-link",
 ]
 
 [[package]]
@@ -545,7 +541,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -574,7 +570,9 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fluxbench"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "748804bde17a82f8666956ed10223a5371e08b04c37168c5d8d830fe4ed6b5b4"
 dependencies = [
  "fluxbench-cli",
  "fluxbench-core",
@@ -588,7 +586,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-cli"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2afa649a9ee2d82cf9066864c45d956a5f6efa8b3ecb40ee7504dc7977e21d3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -607,7 +607,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "toml",
  "tracing",
  "tracing-subscriber",
@@ -615,7 +614,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-core"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d6ad097db9e357bc5c8d07ba2fd3e2227c2344375b18d0e4672968cd51fba81"
 dependencies = [
  "fluxbench-ipc",
  "inventory",
@@ -627,7 +628,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-ipc"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2137ebcd9b6e4325cbc7429a4bdc33c0efc071e8eb78f6f9eace5fdd5bdfd1a6"
 dependencies = [
  "rkyv",
  "thiserror 2.0.18",
@@ -635,7 +638,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-logic"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a70a1582299a15669aa181f50bae386ffdb898b215e50945798faec6c27d23ec"
 dependencies = [
  "evalexpr",
  "fluxbench-core",
@@ -649,7 +654,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-macros"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7ad231eb9a92516989da485a0e008065cfe512fa8269887c1e69145d1e80c61"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -658,7 +665,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-report"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c60dc4392e2b372c7921afbd63cc0f075c05b4860d1a79de437fd2c7d9b99ac"
 dependencies = [
  "chrono",
  "fluxbench-core",
@@ -671,7 +680,9 @@ dependencies = [
 
 [[package]]
 name = "fluxbench-stats"
-version = "0.1.4"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "992b5d28af7f142d59b7a770bcf63791f73c980a1dde3202a9654f0de4c322ac"
 dependencies = [
  "rand 0.10.1",
  "rayon",
@@ -971,30 +982,6 @@ name = "hexf-parse"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
-
-[[package]]
-name = "iana-time-zone"
-version = "0.1.65"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e31bc9ad994ba00e440a8aa5c9ef0ec67d5cb5e5cb0cc7f8b744a35b389cc470"
-dependencies = [
- "android_system_properties",
- "core-foundation-sys",
- "iana-time-zone-haiku",
- "js-sys",
- "log",
- "wasm-bindgen",
- "windows-core",
-]
-
-[[package]]
-name = "iana-time-zone-haiku"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
-dependencies = [
- "cc",
-]
 
 [[package]]
 name = "id-arena"
@@ -1344,6 +1331,8 @@ dependencies = [
 [[package]]
 name = "nexar"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dac038912d8e0f36309f3368c0980377730edd4ad5d082627227277cdd870c3a"
 dependencies = [
  "bytes",
  "crossbeam-queue",
@@ -1361,6 +1350,8 @@ dependencies = [
 [[package]]
 name = "nexar-nccl"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0af70c6a435c8995b3f9dec87f8a9f6dd659f6ae0b40833c525f9d46b64a8fe"
 dependencies = [
  "cudarc",
  "gethostname",
@@ -1387,7 +1378,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1447,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "numr"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "approx",
  "bytemuck",
@@ -1460,7 +1451,7 @@ dependencies = [
  "nexar-nccl",
  "num-traits",
  "parking_lot",
- "paste",
+ "pastey",
  "pollster",
  "rand 0.10.1",
  "rayon",
@@ -1593,10 +1584,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
+name = "pastey"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "pem"
@@ -2042,7 +2033,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2099,7 +2090,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2316,7 +2307,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3034,7 +3025,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

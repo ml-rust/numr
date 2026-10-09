@@ -244,12 +244,15 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 - **CUDA Graphs**: Full capture support—fixed-address buffer replay for inference loops and training steps
 - **CPU / WebGPU**: Transparent no-op path; callers write backend-agnostic code using `R::supports_graph_capture()`
 
-**Distributed Computing (`numr::communicator`, feature `nccl`):**
+**Distributed Computing (`numr::runtime`):**
 
-- **`CommunicatorGroup`**: Single-node multi-GPU all-reduce, broadcast, and allgather via NCCL
-- **`HierarchicalCommunicator`**: Two-level collective—NCCL intra-node, nexar inter-node
-- **`NexarNetCommunicator`**: Pure-Rust distributed transport (QUIC via nexar) for multi-machine tensor parallelism
-- **`BackwardHook`**: Autograd hook interface—trigger cross-node gradient synchronization during `backward()`
+- **`Communicator`** (`numr::runtime::Communicator`): Collective trait for all-reduce, broadcast, all-gather, reduce-scatter, and point-to-point
+- **`NoOpCommunicator`** (`numr::runtime::NoOpCommunicator`): Single-process stand-in, always available
+- **`NcclCommunicator`** (`numr::runtime::NcclCommunicator`, feature `nccl`): Multi-GPU collectives via NCCL
+- **`NexarNetCommunicator`** (`numr::runtime::NexarNetCommunicator`, feature `distributed`): Pure-Rust QUIC transport via nexar for multi-machine runs
+- **`HierarchicalCommunicator`** (`numr::runtime::HierarchicalCommunicator`, feature `distributed-gpu`): NCCL intra-node, nexar inter-node
+- **`CommunicatorGroup`** (`numr::runtime::CommunicatorGroup`): Splits a world communicator into tensor-, pipeline-, data-, and expert-parallel sub-groups
+- **`BackwardHook`** (`numr::autograd::BackwardHook`): Autograd hook that triggers cross-node gradient synchronization during `backward()`
 
 ## Dtypes
 
@@ -283,7 +286,7 @@ All backends implement identical algorithms with native kernels—no cuBLAS, MKL
 | ------------ | ------- | ------------- | ------- | ------------------------------------------------------ |
 | CPU (x86-64) | CPU     | cpu (default) | ✓       | AVX-512/AVX2 SIMD                                      |
 | CPU (ARM64)  | CPU     | cpu           | ✓       | NEON SIMD                                              |
-| NVIDIA GPU   | CUDA    | cuda          | ✓       | Native PTX kernels, caching allocator, GEMV fast paths |
+| NVIDIA GPU   | CUDA    | cuda          | ✓       | Multi-arch fatbins embedded in the binary, caching allocator |
 | AMD GPU      | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
 | Intel GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
 | Apple GPU    | WebGPU  | wgpu          | ✓       | WGSL shaders                                           |
@@ -569,25 +572,25 @@ fn main() -> Result<()> {
 
 ```toml
 [dependencies]
-numr = "0.6"
+numr = "0.8"
 ```
 
 ### With GPU Support
 
 ```toml
 [dependencies]
-# NVIDIA CUDA (requires CUDA 12.0+)
-numr = { version = "0.6", features = ["cuda"] }
+# NVIDIA CUDA (requires CUDA 12.8+ and nvcc on PATH)
+numr = { version = "0.8", features = ["cuda"] }
 
 # Cross-platform GPU (NVIDIA, AMD, Intel, Apple)
-numr = { version = "0.6", features = ["wgpu"] }
+numr = { version = "0.8", features = ["wgpu"] }
 ```
 
 ### With Optional Features
 
 ```toml
 [dependencies]
-numr = { version = "0.6", features = [
+numr = { version = "0.8", features = [
     "cuda",      # NVIDIA GPU support
     "wgpu",      # Cross-platform GPU (WebGPU)
     "f16",       # Half-precision (F16, BF16)
@@ -602,7 +605,7 @@ The CPU backend is always available and needs no feature flag.
 | Feature           | Description                                     | Default |
 | ----------------- | ----------------------------------------------- | ------- |
 | `rayon`           | Multi-threaded CPU via Rayon                    | ✓       |
-| `cuda`            | NVIDIA CUDA backend (requires CUDA 12.x)        | ✗       |
+| `cuda`            | NVIDIA CUDA backend (CUDA 12.8+ or 13.x)        | ✗       |
 | `wgpu`            | Cross-platform GPU (WebGPU)                     | ✗       |
 | `f16`             | Half-precision floats (F16, BF16)               | ✗       |
 | `fp8`             | FP8 precision (E4M3, E5M2)                      | ✗       |
@@ -610,6 +613,27 @@ The CPU backend is always available and needs no feature flag.
 | `nccl`            | Multi-GPU communication via NCCL (implies CUDA) | ✗       |
 | `distributed`     | Distributed runtime via nexar                   | ✗       |
 | `distributed-gpu` | Distributed with NCCL-accelerated collectives   | ✗       |
+
+### CUDA Build
+
+The `cuda` feature needs CUDA 12.8 or newer, because `build.rs` always emits `compute_120` PTX. CUDA 12.8+ and 13.x both work. The GPU needs compute capability 7.5 (Turing) or newer.
+
+`build.rs` compiles every kernel into a multi-arch fatbin and embeds it in the binary. Nothing is read from disk at run time.
+
+`NUMR_CUDA_ARCH` selects which architectures get native SASS:
+
+| Value                               | SASS built for                                         |
+| ----------------------------------- | ------------------------------------------------------ |
+| unset                               | The GPU(s) on the build host, detected via `nvidia-smi` |
+| unset, no GPU detected              | Every supported arch, same as `all`                    |
+| `86`, `sm_86`, `8.6`, or `86,89,90` | Exactly the listed archs                               |
+| `all` or `portable`                 | sm_75, sm_80, sm_86, sm_89, sm_90, sm_100, sm_120      |
+
+Every mode also embeds `compute_75` and `compute_120` PTX. A GPU with no matching SASS JIT-compiles that PTX on first load.
+
+Set `NUMR_CUDA_ARCH=all` for any binary you redistribute: release builds, Docker images, and anything built on one machine to run on another. The unset default fits only the build host's GPU.
+
+`NUMR_CUDA_TUNE` set to `0`, `false`, or `off` turns off per-device schedule tuning at run time. The fixed defaults apply instead.
 
 ## Building from Source
 
@@ -668,7 +692,7 @@ numr provides default kernels for all operations. You can also:
 
 - **Use default kernels**: All operations work out of the box with optimized kernels:
   - **CPU**: SIMD-vectorized kernels (AVX-512/AVX2 on x86-64, NEON on ARM64)
-  - **CUDA**: Native PTX kernels (compiled at build time, loaded on first use)
+  - **CUDA**: Native kernels compiled at build time into multi-arch fatbins, embedded in the binary, and loaded on first use
   - **WebGPU**: WGSL compute shaders for cross-platform GPU
 - **Replace specific kernels**: Swap in your own optimized kernels for performance-critical paths
 - **Add new operations**: Define new traits and implement kernels for all backends
