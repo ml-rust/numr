@@ -19,8 +19,14 @@
 //! match. F32 and F64 inputs route through the SIMD kernels in
 //! [`simd::distance`](crate::runtime::cpu::kernels::simd::distance), which sum
 //! in several lanes and fuse multiply-adds. Their results can differ from
-//! CUDA's and from the sequential loop in the last bits. The narrow floats keep
-//! the sequential loop.
+//! CUDA's and from the sequential loop in the last bits.
+//!
+//! The CPU ops layer converts each F16, BF16 or FP8 input to F32 once, runs the
+//! kernels on F32, and converts the output back once. Narrow-float tensors
+//! therefore take the F32 SIMD kernels through `cdist` and `pdist`. A direct
+//! kernel caller with a narrow element type keeps the sequential loop in the
+//! f32 accumulator below. The ops layer runs rows and column blocks in
+//! parallel, and the result does not depend on the thread count.
 //!
 //! Widening and narrowing for the f32 accumulator go through
 //! [`WideAcc`](crate::runtime::cpu::kernels::wide_acc::WideAcc) rather than

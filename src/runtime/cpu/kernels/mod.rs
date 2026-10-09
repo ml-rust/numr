@@ -65,7 +65,9 @@ pub use cumulative::{
     cumprod_kernel, cumprod_strided_kernel, cumsum_kernel, cumsum_strided_kernel, logsumexp_kernel,
     logsumexp_strided_kernel,
 };
-pub use distance::{cdist_kernel, pdist_kernel, squareform_inverse_kernel, squareform_kernel};
+pub use distance::{
+    cdist_block_kernel, pdist_row_kernel, squareform_inverse_kernel, squareform_kernel,
+};
 pub use distributions::{
     bernoulli_kernel, beta_kernel, binomial_kernel, chi_squared_kernel, exponential_kernel,
     f_distribution_kernel, gamma_kernel, laplace_kernel, poisson_kernel, student_t_kernel,

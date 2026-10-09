@@ -1,13 +1,36 @@
 //! CPU implementation of distance operations.
+//!
+//! cdist and pdist split their output into units of work that depend on the
+//! shape alone: a fixed-width block of columns of one cdist row, or one pdist
+//! row. The units run on the client's pool when the work is large enough. Each
+//! output element comes from one distance call on fixed inputs, so the result
+//! is bit-identical for every thread count and chunk size.
+//!
+//! F16, BF16 and FP8 inputs convert once to F32, run the F32 path, and convert
+//! the F32 output back once.
 
+use super::distance_units::{cdist_units, pdist_units};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-#[cfg(feature = "fp8")]
+#[cfg(any(feature = "fp8", feature = "f16"))]
 use crate::ops::TypeConversionOps;
 use crate::ops::distance_common::*;
 use crate::ops::{DistanceMetric, DistanceOps};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
+
+/// True for the dtypes that run as F32: F16 and BF16 (feature `f16`), FP8
+/// (feature `fp8`).
+#[cfg(any(feature = "fp8", feature = "f16"))]
+fn runs_as_f32(dtype: DType) -> bool {
+    match dtype {
+        #[cfg(feature = "f16")]
+        DType::F16 | DType::BF16 => true,
+        #[cfg(feature = "fp8")]
+        DType::FP8E4M3 | DType::FP8E5M2 => true,
+        _ => false,
+    }
+}
 
 /// Dispatch to distance kernel for float types only
 macro_rules! dispatch_float_dtype {
@@ -69,46 +92,30 @@ impl DistanceOps<CpuRuntime> for CpuClient {
             return Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device);
         }
 
-        // Ensure contiguous
-        let x = ensure_contiguous(x)?;
-        let y = ensure_contiguous(y)?;
-
-        let out = Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device)?;
-        let x_ptr = x.ptr();
-        let y_ptr = y.ptr();
-        let out_ptr = out.ptr();
-
-        // FP8 types: compute in F32, then cast result back
-        #[cfg(feature = "fp8")]
-        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
-            let x_f32 = self.cast(&x, DType::F32)?;
-            let y_f32 = self.cast(&y, DType::F32)?;
-            let out_f32 = Tensor::<CpuRuntime>::empty(&[n, m], DType::F32, &self.device)?;
-            unsafe {
-                kernels::cdist_kernel::<f32>(
-                    x_f32.ptr() as *const f32,
-                    y_f32.ptr() as *const f32,
-                    out_f32.ptr() as *mut f32,
-                    n,
-                    m,
-                    d,
-                    metric,
-                );
-            }
+        #[cfg(any(feature = "fp8", feature = "f16"))]
+        if runs_as_f32(dtype) {
+            let x_f32 = self.cast(x, DType::F32)?;
+            let y_f32 = self.cast(y, DType::F32)?;
+            let out_f32 = self.cdist(&x_f32, &y_f32, metric)?;
             return self.cast(&out_f32, dtype);
         }
 
-        dispatch_float_dtype!(dtype, T => {
-            unsafe {
-                kernels::cdist_kernel::<T>(
-                    x_ptr as *const T,
-                    y_ptr as *const T,
-                    out_ptr as *mut T,
-                    n, m, d,
-                    metric,
-                );
-            }
-        }, "cdist");
+        let x = ensure_contiguous(x)?;
+        let y = ensure_contiguous(y)?;
+        let out = Tensor::<CpuRuntime>::empty(&[n, m], dtype, &self.device)?;
+        let (x_ptr, y_ptr, out_ptr) = (x.ptr(), y.ptr(), out.ptr());
+
+        // SAFETY: the buffers are contiguous with the validated shapes, and
+        // `out` is a fresh allocation.
+        match dtype {
+            DType::F32 => unsafe {
+                cdist_units::<f32>(self, x_ptr as _, y_ptr as _, out_ptr as _, n, m, d, metric);
+            },
+            DType::F64 => unsafe {
+                cdist_units::<f64>(self, x_ptr as _, y_ptr as _, out_ptr as _, n, m, d, metric);
+            },
+            _ => return Err(Error::UnsupportedDType { dtype, op: "cdist" }),
+        }
 
         Ok(out)
     }
@@ -130,40 +137,28 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         // Output size: n*(n-1)/2
         let out_size = n * (n - 1) / 2;
 
-        // Ensure contiguous
-        let x = ensure_contiguous(x)?;
-
-        let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device)?;
-        let x_ptr = x.ptr();
-        let out_ptr = out.ptr();
-
-        // FP8 types: compute in F32, then cast result back
-        #[cfg(feature = "fp8")]
-        if dtype == DType::FP8E4M3 || dtype == DType::FP8E5M2 {
-            let x_f32 = self.cast(&x, DType::F32)?;
-            let out_f32 = Tensor::<CpuRuntime>::empty(&[out_size], DType::F32, &self.device)?;
-            unsafe {
-                kernels::pdist_kernel::<f32>(
-                    x_f32.ptr() as *const f32,
-                    out_f32.ptr() as *mut f32,
-                    n,
-                    d,
-                    metric,
-                );
-            }
+        #[cfg(any(feature = "fp8", feature = "f16"))]
+        if runs_as_f32(dtype) {
+            let x_f32 = self.cast(x, DType::F32)?;
+            let out_f32 = self.pdist(&x_f32, metric)?;
             return self.cast(&out_f32, dtype);
         }
 
-        dispatch_float_dtype!(dtype, T => {
-            unsafe {
-                kernels::pdist_kernel::<T>(
-                    x_ptr as *const T,
-                    out_ptr as *mut T,
-                    n, d,
-                    metric,
-                );
-            }
-        }, "pdist");
+        let x = ensure_contiguous(x)?;
+        let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device)?;
+        let (x_ptr, out_ptr) = (x.ptr(), out.ptr());
+
+        // SAFETY: the buffers are contiguous with the validated shapes, and
+        // `out` is a fresh allocation.
+        match dtype {
+            DType::F32 => unsafe {
+                pdist_units::<f32>(self, x_ptr as _, out_ptr as _, n, d, metric);
+            },
+            DType::F64 => unsafe {
+                pdist_units::<f64>(self, x_ptr as _, out_ptr as _, n, d, metric);
+            },
+            _ => return Err(Error::UnsupportedDType { dtype, op: "pdist" }),
+        }
 
         Ok(out)
     }
@@ -186,7 +181,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
             return Tensor::<CpuRuntime>::zeros(&[1, 1], dtype, &self.device);
         }
 
-        // Ensure contiguous
+        // Make contiguous
         let condensed = ensure_contiguous(condensed)?;
 
         let out = Tensor::<CpuRuntime>::empty(&[n, n], dtype, &self.device)?;
@@ -225,7 +220,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
             return Tensor::<CpuRuntime>::empty(&[0], dtype, &self.device);
         }
 
-        // Ensure contiguous
+        // Make contiguous
         let square = ensure_contiguous(square)?;
 
         let out_size = n * (n - 1) / 2;
