@@ -27,6 +27,7 @@ overhead, not the kernel.
 | `gemm_epilogue.rs` | Fused GEMM epilogues                               |
 | `reduce.rs`        | sum, mean, max over axes                           |
 | `norm.rs`          | LayerNorm, RMSNorm                                 |
+| `distance.rs`      | cdist (squared Euclidean, cosine, Manhattan) per-pair cost on CPU |
 | `softmax.rs`       | Softmax over the last axis                         |
 | `conv.rs`          | Convolutions                                       |
 | `fft.rs`           | FFT (CPU)                                          |

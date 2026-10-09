@@ -134,6 +134,10 @@ harness = false
 name = "norm"
 harness = false
 
+[[bench]]
+name = "distance"
+harness = false
+
 [profile.release]
 lto = "thin"
 codegen-units = 1
