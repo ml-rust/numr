@@ -12,6 +12,62 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [Unreleased]
+
+A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cdist` and `pdist` now use them.
+
+### Added
+
+- **`numr::distance`** — a public API on plain slices. It needs no `Tensor` or `Runtime`.
+  - Float functions: `dot`, `l2_squared`, `manhattan`, and `cosine_distance`. Each has an `_f32` and an `_f64` twin, such as `dot_f32` and `cosine_distance_f64`.
+  - One query against many rows: the `*_many_*` twins read a contiguous row-major buffer, such as `dot_many_f32(query, rows, d, out)`.
+  - Int8: `dot_i8`, `dot_i8_scaled`, and `dot_i8_many`. They accumulate in i32 with saturation.
+  - A length mismatch panics. The message names the function and both lengths.
+  - Cosine distance of a zero vector returns 0. For unit-length vectors, cosine distance equals `1 - dot`.
+- **`Kernels` handle** — `Kernels::detect()`, `Kernels::scalar()`, and `Kernels::with_level(level) -> Option<Kernels>`. `with_level` returns `None` when the CPU does not support the level. A caller can hoist dispatch or force a level without `unsafe`. `numr::distance::SimdLevel` is re-exported.
+- **SIMD distance kernels** — f32 and f64 `dot`, squared Euclidean, Manhattan, and cosine. Each has an AVX-512 path with a masked tail, an AVX2+FMA path, a NEON path, and a scalar fallback. NEON also serves NEON+FP16. Dispatch runs once per call on the cached `SimdLevel`. Each ISA uses 4 independent accumulators.
+- **`benches/distance.rs`** — a `cdist` benchmark for squared Euclidean, cosine, and Manhattan at d = 128, 384, 768, and 1536.
+
+### Changed
+
+- **CPU `cdist` and `pdist`** — Euclidean, squared Euclidean, Manhattan, and cosine route through the new kernels for F32 and F64.
+  - They run in parallel across fixed work units. The unit size depends only on `d`, so the output bits are identical for every thread count.
+  - A single query against many rows (`n = 1`) also runs in parallel.
+  - F16, BF16, and FP8 inputs convert to F32 once, run on the F32 path, and convert back once.
+- **Numerics** — the summation order of these metrics differs from the old sequential loop and differs between SIMD levels. Results can differ in the last bits.
+  - Cosine keeps the `denom == 0 -> 0` rule.
+  - The CPU accumulator width still matches CUDA: f32 for narrow floats and f64 for F64. The CPU no longer sums term for term in the same order as CUDA.
+  - The CUDA and WebGPU parity tests for distance pass against the CPU path on an RTX 3060 (CUDA and Vulkan/WGPU).
+- **Internal** — block and row kernels replace the serial crate-internal `cdist_kernel` and `pdist_kernel`. The public API does not change.
+
+### Performance
+
+User-space instructions per `cdist` call, measured with `perf stat -e instructions:u`. Setup: n = 1, m = 64, one thread, AVX2+FMA host. Each count includes about 3,000 instructions of tensor allocation and dispatch. These are instruction counts, not wall-clock times.
+
+| Metric            | d    | Before    | After   |
+| ----------------- | ---- | --------- | ------- |
+| Squared Euclidean | 128  | 43,453    | 10,625  |
+| Squared Euclidean | 384  | 121,265   | 19,317  |
+| Squared Euclidean | 768  | 238,011   | 34,506  |
+| Squared Euclidean | 1536 | 471,485   | 61,168  |
+| Cosine            | 128  | 103,473   | 15,464  |
+| Cosine            | 384  | 300,093   | 29,033  |
+| Cosine            | 768  | 595,005   | 51,721  |
+| Cosine            | 1536 | 1,184,828 | 93,534  |
+| Manhattan         | 128  | 53,628    | 11,561  |
+| Manhattan         | 384  | 151,932   | 22,313  |
+| Manhattan         | 768  | 299,388   | 41,088  |
+| Manhattan         | 1536 | 594,301   | 73,121  |
+
+### Known limits
+
+- The AVX-512 kernels compile and pass clippy. They have never run. The development host has no AVX-512, and QEMU TCG does not emulate it.
+- A separate read of the code traced the AVX-512 loop bounds, tail masks, and feature requirements by hand.
+- The NEON kernels ran only under `qemu-aarch64` (user-mode emulation). They have not run on real ARM hardware.
+- Instruction counts for NEON and AVX-512 are not measured.
+
+---
+
 ## [0.9.0] — 2026-10-09
 
 The WebGPU backend moves to wgpu 30.
