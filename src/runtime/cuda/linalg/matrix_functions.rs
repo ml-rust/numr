@@ -25,6 +25,7 @@ use super::super::client::CudaClient;
 use super::super::kernels::linalg_launchers::{
     compute_schur_func_gpu, launch_validate_eigenvalues,
 };
+use super::super::ops::statistics::scalar_read::{read_scalar_f64, read_scalars_f64};
 use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, matrix_functions_core, validate_linalg_dtype, validate_square_matrix,
 };
@@ -39,35 +40,40 @@ fn get_tensor_ptr(tensor: &Tensor<CudaRuntime>) -> u64 {
     tensor.ptr()
 }
 
-/// Read a single scalar f64 value from GPU tensor using cuMemcpyDtoH_v2.
-/// This is used for convergence checks in iterative algorithms.
-fn read_scalar_f64(_client: &CudaClient, tensor: &Tensor<CudaRuntime>) -> Result<f64> {
-    // Ensure we have a scalar (0-dim) or single-element tensor
-    if tensor.numel() != 1 {
-        return Err(Error::InvalidArgument {
-            arg: "tensor",
-            reason: "read_scalar_f64 requires a single-element tensor".to_string(),
-        });
-    }
+/// Run the eigenvalue check for `mode` ("log" or "sqrt") on the Schur
+/// factor `t` of an `n`×`n` matrix. Returns the first eigenvalue that rules
+/// the function out, or `None` when every eigenvalue is admissible.
+///
+/// The kernel writes `[has_error, value]` in the element dtype of `t`.
+fn find_bad_eigenvalue(
+    client: &CudaClient,
+    t: &Tensor<CudaRuntime>,
+    n: usize,
+    eps: f64,
+    mode: &str,
+) -> Result<Option<f64>> {
+    let dtype = t.dtype();
+    let result_guard = AllocGuard::new(&client.allocator, 2 * dtype.size_in_bytes())?;
+    let result_buffer = result_guard.ptr();
 
-    // Ensure contiguous layout
-    let tensor = if tensor.is_contiguous() {
-        tensor.clone()
-    } else {
-        tensor.contiguous()?
-    };
-
-    // Allocate host memory and copy from GPU
-    let mut result: f64 = 0.0;
+    // The kernel zeroes both result slots before it scans.
     unsafe {
-        cudarc::driver::sys::cuMemcpyDtoH_v2(
-            &mut result as *mut f64 as *mut std::ffi::c_void,
-            get_tensor_ptr(&tensor),
-            std::mem::size_of::<f64>(),
-        );
+        launch_validate_eigenvalues(
+            client.context(),
+            client.stream(),
+            client.device().index,
+            dtype,
+            get_tensor_ptr(t),
+            result_buffer,
+            n,
+            eps,
+            mode,
+        )?;
     }
 
-    Ok(result)
+    let mut result = [0.0f64; 2];
+    read_scalars_f64(result_buffer, dtype, client.device(), &mut result)?;
+    Ok((result[0] > 0.5).then_some(result[1]))
 }
 
 /// Matrix exponential using Schur decomposition - fully on GPU.
@@ -132,7 +138,7 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
         // Single element - use GPU unary log
         // Compute log on GPU, then validate result for NaN (which indicates non-positive input)
         let log_result = client.log(a)?;
-        let log_scalar = read_scalar_f64(client, &log_result)?;
+        let log_scalar = read_scalar_f64(&log_result)?;
 
         if log_scalar.is_nan() {
             return Err(Error::InvalidArgument {
@@ -152,56 +158,12 @@ pub fn logm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor<
     // Compute Schur decomposition: A = Z @ T @ Z^T (GPU)
     let schur = client.schur_decompose(a)?;
 
-    // Validate eigenvalues on GPU
-    let result_guard = AllocGuard::new(&client.allocator, 2 * dtype.size_in_bytes())?;
-    let result_buffer = result_guard.ptr();
-    // Zero-initialize the result buffer
-    let zero_data: [f64; 2] = [0.0, 0.0];
-    unsafe {
-        // The permit covers this memcpy only; the launch below takes its own.
-        let _permit = client.stream().enqueue_permit();
-        cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-            result_buffer,
-            zero_data.as_ptr() as *const std::ffi::c_void,
-            2 * std::mem::size_of::<f64>(),
-            client.stream().raw().cu_stream(),
-        );
-    }
-
-    unsafe {
-        launch_validate_eigenvalues(
-            client.context(),
-            client.stream(),
-            client.device().index,
-            dtype,
-            get_tensor_ptr(&schur.t),
-            result_buffer,
-            n,
-            eps,
-            "log",
-        )?;
-    }
-
-    // Synchronize and check result
-    client
-        .stream()
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("CUDA stream synchronize failed: {:?}", e)))?;
-
-    let mut result_data: [f64; 2] = [0.0, 0.0];
-    unsafe {
-        cudarc::driver::sys::cuMemcpyDtoH_v2(
-            result_data.as_mut_ptr() as *mut std::ffi::c_void,
-            result_buffer,
-            2 * std::mem::size_of::<f64>(),
-        );
-    }
-    if result_data[0] > 0.5 {
+    if let Some(found) = find_bad_eigenvalue(client, &schur.t, n, eps, "log")? {
         return Err(Error::InvalidArgument {
             arg: "a",
             reason: format!(
                 "logm requires matrix with no non-positive real eigenvalues, found {}",
-                result_data[1]
+                found
             ),
         });
     }
@@ -245,7 +207,7 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         // Single element - use GPU unary sqrt
         // Compute sqrt on GPU, then validate result for NaN (which indicates negative input)
         let sqrt_result = client.sqrt(a)?;
-        let sqrt_scalar = read_scalar_f64(client, &sqrt_result)?;
+        let sqrt_scalar = read_scalar_f64(&sqrt_result)?;
 
         if sqrt_scalar.is_nan() {
             return Err(Error::InvalidArgument {
@@ -265,56 +227,12 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
     // Check for negative real eigenvalues using Schur decomposition
     let schur = client.schur_decompose(a)?;
 
-    // Validate eigenvalues on GPU
-    let result_guard = AllocGuard::new(&client.allocator, 2 * dtype.size_in_bytes())?;
-    let result_buffer = result_guard.ptr();
-    // Zero-initialize the result buffer
-    let zero_data: [f64; 2] = [0.0, 0.0];
-    unsafe {
-        // The permit covers this memcpy only; the launch below takes its own.
-        let _permit = client.stream().enqueue_permit();
-        cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
-            result_buffer,
-            zero_data.as_ptr() as *const std::ffi::c_void,
-            2 * std::mem::size_of::<f64>(),
-            client.stream().raw().cu_stream(),
-        );
-    }
-
-    unsafe {
-        launch_validate_eigenvalues(
-            client.context(),
-            client.stream(),
-            client.device().index,
-            dtype,
-            get_tensor_ptr(&schur.t),
-            result_buffer,
-            n,
-            eps,
-            "sqrt",
-        )?;
-    }
-
-    // Synchronize and check result
-    client
-        .stream()
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("CUDA stream synchronize failed: {:?}", e)))?;
-
-    let mut result_data: [f64; 2] = [0.0, 0.0];
-    unsafe {
-        cudarc::driver::sys::cuMemcpyDtoH_v2(
-            result_data.as_mut_ptr() as *mut std::ffi::c_void,
-            result_buffer,
-            2 * std::mem::size_of::<f64>(),
-        );
-    }
-    if result_data[0] > 0.5 {
+    if let Some(found) = find_bad_eigenvalue(client, &schur.t, n, eps, "sqrt")? {
         return Err(Error::InvalidArgument {
             arg: "a",
             reason: format!(
                 "sqrtm requires matrix with no negative real eigenvalues, found {}",
-                result_data[1]
+                found
             ),
         });
     }
@@ -364,12 +282,12 @@ pub fn sqrtm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
 
         // Read scalar results from GPU (unavoidable for convergence check)
         let diff_norm: f64 = {
-            let sum_val = read_scalar_f64(client, &diff_sum)?;
+            let sum_val = read_scalar_f64(&diff_sum)?;
             sum_val.sqrt()
         };
 
         let y_norm: f64 = {
-            let sum_val = read_scalar_f64(client, &y_sum)?;
+            let sum_val = read_scalar_f64(&y_sum)?;
             sum_val.sqrt().max(1.0)
         };
 
@@ -399,7 +317,7 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
         // Single element - compute sign on GPU: result = a / abs(a) (gives ±1.0)
         // Then validate that abs(a) is not near zero
         let abs_a = client.abs(a)?;
-        let abs_scalar = read_scalar_f64(client, &abs_a)?;
+        let abs_scalar = read_scalar_f64(&abs_a)?;
 
         if abs_scalar < f64::EPSILON {
             return Err(Error::InvalidArgument {
@@ -446,7 +364,7 @@ pub fn signm_impl(client: &CudaClient, a: &Tensor<CudaRuntime>) -> Result<Tensor
 
         // Read scalar result from GPU (unavoidable for convergence check)
         let diff_norm: f64 = {
-            let sum_val = read_scalar_f64(client, &diff_sum)?;
+            let sum_val = read_scalar_f64(&diff_sum)?;
             sum_val.sqrt()
         };
 

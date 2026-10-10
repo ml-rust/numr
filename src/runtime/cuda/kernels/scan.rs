@@ -22,6 +22,7 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::runtime::Runtime;
 use crate::runtime::cuda::{CudaDevice, CudaRuntime, GuardedStream};
 use crate::tensor::Tensor;
 use cudarc::driver::{CudaContext, PushKernelArg};
@@ -117,22 +118,17 @@ pub unsafe fn exclusive_scan_i32_gpu(
         }
     }
 
-    // Synchronize to ensure scan is complete before reading total
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Failed to synchronize after scan: {:?}", e)))?;
-
-    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow)
-    let mut total_i32: i32 = 0;
+    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow).
+    // The copy is ordered on the compute stream after the scan kernels.
+    let mut total_bytes = [0u8; std::mem::size_of::<i32>()];
     let offset_bytes = n * std::mem::size_of::<i32>();
-    unsafe {
-        cudarc::driver::sys::cuMemcpyDtoH_v2(
-            &mut total_i32 as *mut i32 as *mut std::ffi::c_void,
-            output.ptr() + offset_bytes as u64,
-            std::mem::size_of::<i32>(),
-        );
-    }
-    let total = total_i32 as usize;
+    CudaRuntime::copy_from_device(output.ptr() + offset_bytes as u64, &mut total_bytes, device)?;
+    let total = usize::try_from(i32::from_ne_bytes(total_bytes)).map_err(|_| {
+        Error::Internal(format!(
+            "exclusive scan total {} does not fit in usize",
+            i32::from_ne_bytes(total_bytes)
+        ))
+    })?;
 
     Ok((output, total))
 }
@@ -382,22 +378,17 @@ pub unsafe fn exclusive_scan_i64_gpu(
         }
     }
 
-    // Synchronize to ensure scan is complete before reading total
-    stream
-        .synchronize()
-        .map_err(|e| Error::Internal(format!("Failed to synchronize after scan: {:?}", e)))?;
-
-    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow)
-    let mut total_i64: i64 = 0;
+    // Read the total sum from output[n] — single scalar GPU→CPU read (acceptable control flow).
+    // The copy is ordered on the compute stream after the scan kernels.
+    let mut total_bytes = [0u8; std::mem::size_of::<i64>()];
     let offset_bytes = n * std::mem::size_of::<i64>();
-    unsafe {
-        cudarc::driver::sys::cuMemcpyDtoH_v2(
-            &mut total_i64 as *mut i64 as *mut std::ffi::c_void,
-            output.ptr() + offset_bytes as u64,
-            std::mem::size_of::<i64>(),
-        );
-    }
-    let total = total_i64 as usize;
+    CudaRuntime::copy_from_device(output.ptr() + offset_bytes as u64, &mut total_bytes, device)?;
+    let total = usize::try_from(i64::from_ne_bytes(total_bytes)).map_err(|_| {
+        Error::Internal(format!(
+            "exclusive scan total {} does not fit in usize",
+            i64::from_ne_bytes(total_bytes)
+        ))
+    })?;
 
     Ok((output, total))
 }

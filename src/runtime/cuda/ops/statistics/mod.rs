@@ -25,7 +25,7 @@ mod histogram;
 mod mode;
 mod moments;
 mod quantile;
-mod scalar_read;
+pub(crate) mod scalar_read;
 
 pub use histogram::histogram_impl;
 pub use mode::mode_impl;
