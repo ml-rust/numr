@@ -8,6 +8,7 @@ use crate::dispatch_dtype;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ScatterReduceOp;
+use crate::ops::common::validate_scatter_extents;
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
@@ -687,6 +688,10 @@ pub fn scatter_reduce_impl(
             got: index_i64.shape().to_vec(),
         });
     }
+
+    // Off the scatter axis, every source coordinate must address the
+    // destination.
+    validate_scatter_extents(shape, src.shape(), dim)?;
 
     let dst_contig = ensure_contiguous(dst)?;
     let index_contig = ensure_contiguous(&index_i64)?;
