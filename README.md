@@ -181,6 +181,19 @@ _These are mathematical functions commonly used in ML, but numr itself is not an
 ### Distance Metrics
 
 - **DistanceOps**: euclidean, manhattan, cosine, hamming, jaccard, minkowski, chebyshev, correlation
+- **`numr::distance`**: SIMD distance kernels on plain slices. No `Tensor`, `Runtime` or client is needed.
+  - Per pair: `dot_f32`, `l2_squared_f32`, `manhattan_f32`, `cosine_distance_f32`, and the `_f64` twins.
+  - One query against many rows: `dot_many_f32`, `l2_squared_many_f32`, `manhattan_many_f32`, `cosine_distance_many_f32`, and the `_f64` twins.
+  - Signed 8-bit: `dot_i8`, `dot_i8_scaled`, `dot_i8_many`.
+  - `Kernels::detect()` fixes the SIMD level once. `Kernels::with_level` pins a level the CPU supports.
+
+```rust
+use numr::distance;
+
+let a = [1.0_f32, 2.0, 3.0];
+let b = [4.0_f32, 5.0, 6.0];
+assert_eq!(distance::dot_f32(&a, &b), 32.0);
+```
 
 ### Algorithm Modules
 
@@ -309,6 +322,7 @@ The CPU backend automatically detects and uses the best available SIMD instructi
 - Activations: sigmoid, silu, gelu, leaky_relu, elu
 - Normalization: softmax, rms_norm, layer_norm, logsumexp
 - Matrix multiplication: tiled GEMM with FMA microkernels
+- Distances: dot, squared Euclidean, Manhattan, and cosine for f32 and f64, behind `cdist`, `pdist`, and `numr::distance`
 - Special functions: erf, erfc, bessel, gamma (with polynomial approximations)
 
 ### Why Native Kernels?

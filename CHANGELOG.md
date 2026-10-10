@@ -21,15 +21,16 @@ A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cd
 - **`numr::distance`** — a public API on plain slices. It needs no `Tensor` or `Runtime`.
   - Float functions: `dot`, `l2_squared`, `manhattan`, and `cosine_distance`. Each has an `_f32` and an `_f64` twin, such as `dot_f32` and `cosine_distance_f64`.
   - One query against many rows: the `*_many_*` twins read a contiguous row-major buffer, such as `dot_many_f32(query, rows, d, out)`.
-  - Int8: `dot_i8`, `dot_i8_scaled`, and `dot_i8_many`. They accumulate in i32 with saturation.
+  - Int8: `dot_i8`, `dot_i8_scaled`, and `dot_i8_many`. The sum is exact and a total outside the i32 range saturates once at the end.
   - A length mismatch panics. The message names the function and both lengths.
   - Cosine distance of a zero vector returns 0. For unit-length vectors, cosine distance equals `1 - dot`.
-- **`Kernels` handle** — `Kernels::detect()`, `Kernels::scalar()`, and `Kernels::with_level(level) -> Option<Kernels>`. `with_level` returns `None` when the CPU does not support the level. A caller can hoist dispatch or force a level without `unsafe`. `numr::distance::SimdLevel` is re-exported.
-- **SIMD distance kernels** — f32 and f64 `dot`, squared Euclidean, Manhattan, and cosine. Each has an AVX-512 path with a masked tail, an AVX2+FMA path, a NEON path, and a scalar fallback. NEON also serves NEON+FP16. Dispatch runs once per call on the cached `SimdLevel`. Each ISA uses 4 independent accumulators.
+- **`Kernels` handle** — `Kernels::detect()`, `Kernels::scalar()`, and `Kernels::with_level(level) -> Option<Kernels>`. `with_level` returns `None` when the CPU does not support the level. A caller can hoist dispatch or force a level without `unsafe`. `numr::distance::SimdLevel` is re-exported. It is `#[non_exhaustive]` and has no ordering, so a later release can add a level without a breaking change.
+- **SIMD distance kernels** — f32 and f64 `dot`, squared Euclidean, Manhattan, and cosine. Each has an AVX-512 path with a masked tail, an AVX2+FMA path, a NEON path, and a scalar fallback. NEON also serves NEON+FP16. Dispatch runs once per call on the cached `SimdLevel`. Each ISA keeps several independent accumulators to hide FMA latency.
 - **`benches/distance.rs`** — a `cdist` benchmark for squared Euclidean, cosine, and Manhattan at d = 128, 384, 768, and 1536.
 
 ### Changed
 
+- **Minimum Rust version** — 1.95, up from 1.89. A build with `--features f16` on aarch64 does not compile on 1.89. The aarch64 `f16` conversion kernels use NEON half-precision intrinsics that are stable only from 1.94.
 - **CPU `cdist` and `pdist`** — Euclidean, squared Euclidean, Manhattan, and cosine route through the new kernels for F32 and F64.
   - They run in parallel across fixed work units. The unit size depends only on `d`, so the output bits are identical for every thread count.
   - A single query against many rows (`n = 1`) also runs in parallel.
@@ -39,6 +40,14 @@ A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cd
   - The CPU accumulator width still matches CUDA: f32 for narrow floats and f64 for F64. The CPU no longer sums term for term in the same order as CUDA.
   - The CUDA and WebGPU parity tests for distance pass against the CPU path on an RTX 3060 (CUDA and Vulkan/WGPU).
 - **Internal** — block and row kernels replace the serial crate-internal `cdist_kernel` and `pdist_kernel`. The public API does not change.
+
+### Fixed
+
+- **Cosine and correlation distance at extreme magnitudes** — the denominator was `sqrt(a * b)` of two squared norms, which overflowed f32 once `|a| * |b|` passed about 1.8e19 and flushed to zero below about 3.7e-23. `cosine_distance_f32(&[1e10], &[1e10])` returned 1 instead of 0, and `[1e-12]` against `[-1e-12]` returned 0 instead of 2. The denominator is now `sqrt(a) * sqrt(b)`. The CPU, CUDA, and WebGPU kernels all changed, for `cdist`, `pdist`, and `numr::distance`. Each squared norm must still fit the float type, so a component above about 1e19 (f32) or 1e154 (f64) still gives NaN. Results in the normal range differ from before only in the last bits.
+- **Shape overflow** — a tensor shape whose element count overflows `usize` returned a wrapped, too-small allocation. `pdist` on a `[2^32 + 1, 0]` tensor then wrote past the end of the output. `Tensor::empty`, `Tensor::from_slice`, and the scalar and typed fill constructors now return `Error::InvalidArgument` when the count overflows. `pdist` and `squareform_inverse` do the same for the pair count.
+- **x86-64 SIMD detection** — `SimdLevel::Avx512` now also requires AVX2. A virtual machine that hides AVX2 but reports AVX-512 no longer reaches AVX2 code.
+- **Build without `rayon`** — `--no-default-features` no longer warns about two matmul items that only the rayon path uses.
+- **aarch64 clippy** — `erf_f64` uses `FRAC_2_SQRT_PI` instead of a literal.
 
 ### Performance
 
