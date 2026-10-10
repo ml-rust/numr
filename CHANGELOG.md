@@ -22,8 +22,17 @@ version. Every later entry is a delta against the one below it.
   - No float accumulates through an atomic. Before, an overlap-add (an inverse STFT) gave different low bits on each run.
   - WebGPU mean rounds exactly as the CPU does: `f32(f64(acc) / count)`.
 - **`scatter_reduce` shapes** — a source shorter than the destination on an axis other than `dim` gives the right result on CUDA and WebGPU, which assumed equal shapes. A source longer than the destination on such an axis returns an error on every backend. The CPU path wrote out of bounds.
+- **CUDA client on any thread** — a `CudaClient` works from a thread that did not create it, with no bind by the caller.
+  - Every direct driver call makes the client's context current on the calling thread first. This covers the allocator, the copies, events, the Sobol cache, `CudaDevice::sync`, `CudaDevice::memory_info` and the NCCL communicator.
+  - Before, `record_event`, `record_event_on_compute`, `sync` and `memory_info` failed with `CUDA_ERROR_INVALID_CONTEXT` on a fresh thread. On a thread where another device's context was current, they acted on that device.
+- **CUDA scalar readbacks** — histogram, `logm`, `sqrtm`, `signm` and the scan totals read on the compute stream and return copy errors.
+  - Histogram, `logm`, `sqrtm` and `signm` read after the kernels that produce the value. Before, the read raced those kernels.
+  - F32 inputs to `logm`, `sqrtm` and `signm` read their scalars as F32. Before, each read took eight bytes as one F64.
+- **CUDA copy and allocation errors** — a device-to-host copy returns an error when the stream synchronize fails. An allocation error other than out-of-memory keeps its driver code instead of reading as `OutOfMemory`.
 
 ### Changed
+
+- **`GuardedStream::enqueue_permit`** returns `Result<EnqueuePermit, DriverError>`. It makes the stream's context current before it takes the capture lock.
 
 - **Integer `scatter_reduce` on CUDA and WebGPU** — integers go through the same sorted pipeline. The old CUDA integer path scanned every source element per destination.
 - **WebGPU `scatter_reduce` limits** — a call errors with `BackendLimitation` when the sort scratch exceeds the device's storage-binding limit, or the shape holds more than 8 axes after merging aligned ones.
