@@ -19,6 +19,19 @@ use crate::ops::{DistanceMetric, DistanceOps};
 use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::ensure_contiguous, kernels};
 use crate::tensor::Tensor;
 
+/// Length of the condensed distance vector for `n` points: `n * (n - 1) / 2`.
+///
+/// Returns an error when `n * (n - 1)` overflows `usize`. A wrapped length
+/// would size the output below the number of pairs the kernel writes.
+fn condensed_len(n: usize) -> Result<usize> {
+    n.checked_mul(n.saturating_sub(1))
+        .map(|pairs| pairs / 2)
+        .ok_or_else(|| Error::InvalidArgument {
+            arg: "n",
+            reason: format!("pair count for {n} points overflows usize"),
+        })
+}
+
 /// True for the dtypes that run as F32: F16 and BF16 (feature `f16`), FP8
 /// (feature `fp8`).
 #[cfg(any(feature = "fp8", feature = "f16"))]
@@ -135,7 +148,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         validate_float_dtype(dtype, "pdist")?;
 
         // Output size: n*(n-1)/2
-        let out_size = n * (n - 1) / 2;
+        let out_size = condensed_len(n)?;
 
         #[cfg(any(feature = "fp8", feature = "f16"))]
         if runs_as_f32(dtype) {
@@ -223,7 +236,7 @@ impl DistanceOps<CpuRuntime> for CpuClient {
         // Make contiguous
         let square = ensure_contiguous(square)?;
 
-        let out_size = n * (n - 1) / 2;
+        let out_size = condensed_len(n)?;
         let out = Tensor::<CpuRuntime>::empty(&[out_size], dtype, &self.device)?;
         let sq_ptr = square.ptr();
         let out_ptr = out.ptr();

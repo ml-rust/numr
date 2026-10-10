@@ -6,6 +6,24 @@ use crate::error::{Error, Result};
 use crate::runtime::{Device, Runtime};
 use std::fmt;
 
+/// Element count of `shape`, or an error when the product overflows `usize`.
+///
+/// A wrapped count would size the allocation smaller than the layout that
+/// describes it, so every constructor must use this instead of `product()`.
+/// A shape with a zero extent has zero elements, whatever the other extents.
+fn checked_numel(shape: &[usize]) -> Result<usize> {
+    if shape.contains(&0) {
+        return Ok(0);
+    }
+    shape
+        .iter()
+        .try_fold(1usize, |count, &extent| count.checked_mul(extent))
+        .ok_or_else(|| Error::InvalidArgument {
+            arg: "shape",
+            reason: format!("element count of shape {shape:?} overflows usize"),
+        })
+}
+
 /// N-dimensional array stored on a compute device
 ///
 /// `Tensor` is the fundamental data structure in numr. It consists of:
@@ -67,7 +85,7 @@ impl<R: Runtime> Tensor<R> {
 
     /// Create an uninitialized tensor (fallible version)
     pub fn empty(shape: &[usize], dtype: R::DType, device: &R::Device) -> Result<Self> {
-        let len: usize = shape.iter().product();
+        let len: usize = checked_numel(shape)?;
         let storage = Storage::new(len, dtype, device)
             .map_err(|e| Self::alloc_failed(shape, dtype, device, e))?;
         let layout = Layout::contiguous(shape);
@@ -743,7 +761,7 @@ impl<R: Runtime> Tensor<R> {
         value: f64,
         device: &R::Device,
     ) -> Result<Self> {
-        let len: usize = shape.iter().product();
+        let len: usize = checked_numel(shape)?;
         if len == 0 {
             return Self::empty(shape, dtype, device);
         }
@@ -802,7 +820,7 @@ impl<R: Runtime<DType = DType>> Tensor<R> {
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     pub fn from_slice<T: Element>(data: &[T], shape: &[usize], device: &R::Device) -> Result<Self> {
-        let expected_len: usize = shape.iter().product();
+        let expected_len: usize = checked_numel(shape)?;
         if data.len() != expected_len {
             return Err(Error::ShapeMismatch {
                 expected: shape.to_vec(),
@@ -849,7 +867,7 @@ impl<R: Runtime<DType = DType>> Tensor<R> {
             bytemuck::cast_slice::<T, u8>(&v).to_vec()
         }
 
-        let len: usize = shape.iter().product();
+        let len: usize = checked_numel(shape)?;
         if len == 0 {
             return Self::empty(shape, dtype, device);
         }
@@ -1023,6 +1041,45 @@ fn half_from_f32(value: f32, dtype: DType) -> u16 {
 mod tests {
     use super::*;
     use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+
+    #[test]
+    fn checked_numel_empty_shape_is_one() {
+        // A 0-dim tensor holds one element: the empty product.
+        assert_eq!(checked_numel(&[]).unwrap(), 1);
+    }
+
+    #[test]
+    fn checked_numel_multiplies_extents() {
+        assert_eq!(checked_numel(&[3, 4]).unwrap(), 12);
+    }
+
+    #[test]
+    fn checked_numel_zero_extent_is_zero() {
+        assert_eq!(checked_numel(&[5, 0]).unwrap(), 0);
+    }
+
+    #[test]
+    fn checked_numel_zero_extent_wins_over_overflow() {
+        assert_eq!(checked_numel(&[usize::MAX, 0]).unwrap(), 0);
+        assert_eq!(checked_numel(&[0, usize::MAX, usize::MAX]).unwrap(), 0);
+    }
+
+    #[test]
+    fn checked_numel_overflow_is_invalid_argument() {
+        let err = checked_numel(&[usize::MAX, 2]).unwrap_err();
+        assert!(matches!(err, Error::InvalidArgument { arg: "shape", .. }));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn checked_numel_64bit_overflow() {
+        assert!(checked_numel(&[1usize << 32, 1usize << 32]).is_err());
+        assert!(checked_numel(&[(1usize << 32) + 1, 1usize << 32]).is_err());
+        assert_eq!(
+            checked_numel(&[1usize << 32, 1usize << 31]).unwrap(),
+            1usize << 63
+        );
+    }
 
     #[test]
     fn test_from_slice() {
