@@ -13,6 +13,7 @@ use super::matmul_columns::{column_chunk_count, matmul_bt_columns, matmul_column
 /// must be a pure function of the shape so results do not depend on how many
 /// cores the machine has. 64 matches the historical minimum this path used and
 /// still yields 64 chunks at `n = 4096`, more units than any common core count.
+#[cfg(feature = "rayon")]
 const GEMV_COLUMN_CHUNK_WIDTH: usize = 64;
 
 use crate::dtype::DType;

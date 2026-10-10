@@ -179,6 +179,7 @@ pub fn matmul_bt_is_tiled(m: usize, n: usize, k: usize) -> bool {
 /// case, breaking the bit-for-bit agreement [`matmul_bt_is_tiled`] promises.
 ///
 /// Returns `usize::MAX` when `m * k` is zero, so no split can clear the floor.
+#[cfg(feature = "rayon")]
 pub fn min_tiled_columns(m: usize, k: usize) -> usize {
     let rows = m.saturating_mul(k);
     if rows == 0 {

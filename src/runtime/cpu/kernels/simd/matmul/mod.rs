@@ -33,8 +33,11 @@ pub(crate) mod half_convert;
 
 pub use dispatch::{
     KC, MC, MR, NC, matmul_bias_f32, matmul_bias_f64, matmul_bt_f32, matmul_bt_f64,
-    matmul_bt_is_tiled, matmul_f32, matmul_f64, min_tiled_columns,
+    matmul_bt_is_tiled, matmul_f32, matmul_f64,
 };
+// Only the rayon column split reads this floor.
+#[cfg(feature = "rayon")]
+pub use dispatch::min_tiled_columns;
 
 pub use dispatch::{
     call_microkernel_2x_f32, call_microkernel_2x_f64, call_microkernel_f32, call_microkernel_f64,

@@ -26,6 +26,7 @@ use crate::tensor::Tensor;
 ///
 /// Fixed for the same reason as there: the chunk boundaries move float
 /// rounding, so they must be a function of the shape and never of the pool.
+#[cfg(feature = "rayon")]
 const GEMV_COLUMN_CHUNK_WIDTH: usize = 64;
 
 impl CpuClient {
