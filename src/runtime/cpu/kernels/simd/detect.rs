@@ -4,12 +4,14 @@ use std::sync::OnceLock;
 
 /// SIMD capability level detected at runtime
 ///
-/// Supports multiple architectures with ordered capability levels.
-/// Higher values indicate more capable SIMD instruction sets.
+/// Each level belongs to one architecture family. Levels from different
+/// families have no order, so compare them with `==` and match on them.
+/// The enum is `#[non_exhaustive]`: a later release can add a level.
 ///
 /// Note: All variants are defined on all platforms for API completeness,
 /// but some are only constructed at runtime on their respective architectures.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 #[allow(dead_code)] // Variants may not be constructed on all architectures
 pub enum SimdLevel {
     // x86-64 variants (highest capability)
@@ -133,11 +135,15 @@ fn detect_simd_uncached() -> SimdLevel {
         // - `avx512bw`: the byte and word ops in the i8 dot kernel
         //   (`_mm512_cvtepi8_epi16`, `_mm512_madd_epi16`) and in the index
         //   kernel `masked_count` (`_mm512_cmpneq_epi8_mask`).
+        // - `avx2`: the 256-bit integer and float forms that the AVX-512 paths
+        //   share with the AVX2 helpers (horizontal sums) and that
+        //   `Avx2Fma` kernels need when a caller pins that level on this CPU.
         // - `fma`: the fused multiply-add used by every polynomial kernel.
         if is_x86_feature_detected!("avx512f")
             && is_x86_feature_detected!("avx512vl")
             && is_x86_feature_detected!("avx512dq")
             && is_x86_feature_detected!("avx512bw")
+            && is_x86_feature_detected!("avx2")
             && is_x86_feature_detected!("fma")
         {
             return SimdLevel::Avx512;
@@ -171,14 +177,6 @@ mod tests {
         let level1 = detect_simd();
         let level2 = detect_simd();
         assert_eq!(level1, level2);
-    }
-
-    #[test]
-    fn test_simd_level_ordering() {
-        assert!(SimdLevel::Avx512 > SimdLevel::Avx2Fma);
-        assert!(SimdLevel::Avx2Fma > SimdLevel::NeonFp16);
-        assert!(SimdLevel::NeonFp16 > SimdLevel::Neon);
-        assert!(SimdLevel::Neon > SimdLevel::Scalar);
     }
 
     #[test]
