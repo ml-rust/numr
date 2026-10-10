@@ -19,7 +19,6 @@ pub mod index;
 pub mod linalg;
 pub mod logical;
 pub mod quasirandom;
-pub mod scatter_wide;
 pub mod shape;
 pub mod sort;
 pub mod sort_cmp;
@@ -103,9 +102,8 @@ pub use fused_elementwise::{
 };
 pub use fwht::{FWHT_MAX_CHUNK, FWHT_MIN_CHUNK, launch_fwht_global, launch_fwht_local};
 pub use index::{
-    launch_bincount, launch_gather_2d, launch_gather_nd, launch_scatter_reduce,
-    launch_scatter_reduce_count, launch_scatter_reduce_mean_div, launch_scatter_reduce_prod,
-    launch_slice_assign,
+    ScatterIndexType, ScatterReduceBuffers, launch_bincount, launch_gather_2d, launch_gather_nd,
+    launch_scatter_reduce, launch_slice_assign,
 };
 pub use logical::{launch_logical_and, launch_logical_not, launch_logical_or, launch_logical_xor};
 pub use matrix_funcs_launcher::{
@@ -114,10 +112,6 @@ pub use matrix_funcs_launcher::{
 };
 pub use pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE, workgroup_count};
 pub use quasirandom::{launch_halton, launch_latin_hypercube, launch_sobol};
-pub use scatter_wide::{
-    ScatterWideParams, launch_scatter_wide_finalize, launch_scatter_wide_seed,
-    launch_scatter_wide_sum,
-};
 #[cfg(feature = "sparse")]
 pub use sparse_24::{Sparse24Params, launch_sparse_24_decompress, launch_sparse_24_prune};
 #[cfg(feature = "sparse")]

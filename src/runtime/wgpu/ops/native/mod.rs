@@ -20,7 +20,6 @@ mod masking;
 mod matmul;
 mod normalization;
 mod reduce;
-mod scatter_wide;
 mod semiring_matmul;
 mod snake;
 mod unary;
@@ -47,7 +46,6 @@ pub(crate) use indexing::{
     native_gather, native_index_put, native_index_select, native_scatter, native_slice_assign,
 };
 pub(crate) use masking::{native_embedding_lookup, native_masked_fill, native_masked_select};
-pub(crate) use scatter_wide::native_scatter_reduce_int_wide;
 pub(crate) mod matmul_broadcast;
 pub(crate) use matmul::{native_matmul, native_matmul_bias};
 pub(crate) use normalization::{

@@ -7,6 +7,7 @@ mod gather;
 mod masked;
 mod scatter;
 mod scatter_reduce;
+mod scatter_reduce_sort;
 mod shader_registry;
 mod validate;
 
@@ -18,8 +19,6 @@ pub use masked::{
     launch_masked_count, launch_masked_fill, launch_masked_prefix_sum, launch_masked_select,
 };
 pub use scatter::{launch_copy, launch_index_put, launch_scatter, launch_slice_assign};
-pub use scatter_reduce::{
-    launch_scatter_reduce, launch_scatter_reduce_count, launch_scatter_reduce_mean_div,
-    launch_scatter_reduce_prod,
-};
+pub use scatter_reduce::{ScatterReduceBuffers, launch_scatter_reduce};
+pub use scatter_reduce_sort::ScatterIndexType;
 pub use validate::launch_validate_indices;

@@ -41,35 +41,6 @@ const GATHER_ND_SHADER_F32: &str = include_str!("../gather_nd_f32.wgsl");
 const GATHER_ND_SHADER_I32: &str = include_str!("../gather_nd_i32.wgsl");
 const GATHER_ND_SHADER_U32: &str = include_str!("../gather_nd_u32.wgsl");
 
-const SCATTER_REDUCE_SUM_SHADER_F32: &str = include_str!("../scatter_reduce_sum_f32.wgsl");
-const SCATTER_REDUCE_SUM_SHADER_I32: &str = include_str!("../scatter_reduce_sum_i32.wgsl");
-const SCATTER_REDUCE_SUM_SHADER_U32: &str = include_str!("../scatter_reduce_sum_u32.wgsl");
-
-const SCATTER_REDUCE_MAX_SHADER_F32: &str = include_str!("../scatter_reduce_max_f32.wgsl");
-const SCATTER_REDUCE_MAX_SHADER_I32: &str = include_str!("../scatter_reduce_max_i32.wgsl");
-const SCATTER_REDUCE_MAX_SHADER_U32: &str = include_str!("../scatter_reduce_max_u32.wgsl");
-
-const SCATTER_REDUCE_MIN_SHADER_F32: &str = include_str!("../scatter_reduce_min_f32.wgsl");
-const SCATTER_REDUCE_MIN_SHADER_I32: &str = include_str!("../scatter_reduce_min_i32.wgsl");
-const SCATTER_REDUCE_MIN_SHADER_U32: &str = include_str!("../scatter_reduce_min_u32.wgsl");
-
-const SCATTER_REDUCE_PROD_SHADER_F32: &str = include_str!("../scatter_reduce_prod_f32.wgsl");
-
-// The integer product saturates, so it needs the shared saturating helpers.
-// WGSL has no include and no forward declarations, so the order is load-bearing.
-const SCATTER_REDUCE_PROD_SHADER_I32: &str = concat!(
-    include_str!("../int_saturate.wgsl"),
-    include_str!("../scatter_reduce_prod_i32.wgsl"),
-);
-const SCATTER_REDUCE_PROD_SHADER_U32: &str = concat!(
-    include_str!("../int_saturate.wgsl"),
-    include_str!("../scatter_reduce_prod_u32.wgsl"),
-);
-
-const SCATTER_REDUCE_COUNT_SHADER: &str = include_str!("../scatter_reduce_count.wgsl");
-const SCATTER_REDUCE_MEAN_DIV_SHADER_F32: &str =
-    include_str!("../scatter_reduce_mean_div_f32.wgsl");
-
 const SLICE_ASSIGN_SHADER_F32: &str = include_str!("../slice_assign_f32.wgsl");
 const SLICE_ASSIGN_SHADER_I32: &str = include_str!("../slice_assign_i32.wgsl");
 const SLICE_ASSIGN_SHADER_U32: &str = include_str!("../slice_assign_u32.wgsl");
@@ -185,77 +156,6 @@ pub(super) fn shader_info(
         ("gather_nd", DType::F32) => (GATHER_ND_SHADER_F32, "gather_nd_f32", "gather_nd_f32"),
         ("gather_nd", DType::I32) => (GATHER_ND_SHADER_I32, "gather_nd_i32", "gather_nd_i32"),
         ("gather_nd", DType::U32) => (GATHER_ND_SHADER_U32, "gather_nd_u32", "gather_nd_u32"),
-        ("scatter_reduce_sum", DType::F32) => (
-            SCATTER_REDUCE_SUM_SHADER_F32,
-            "scatter_reduce_sum_f32",
-            "scatter_reduce_sum_f32",
-        ),
-        ("scatter_reduce_sum", DType::I32) => (
-            SCATTER_REDUCE_SUM_SHADER_I32,
-            "scatter_reduce_sum_i32",
-            "scatter_reduce_sum_i32",
-        ),
-        ("scatter_reduce_sum", DType::U32) => (
-            SCATTER_REDUCE_SUM_SHADER_U32,
-            "scatter_reduce_sum_u32",
-            "scatter_reduce_sum_u32",
-        ),
-        ("scatter_reduce_max", DType::F32) => (
-            SCATTER_REDUCE_MAX_SHADER_F32,
-            "scatter_reduce_max_f32",
-            "scatter_reduce_max_f32",
-        ),
-        ("scatter_reduce_max", DType::I32) => (
-            SCATTER_REDUCE_MAX_SHADER_I32,
-            "scatter_reduce_max_i32",
-            "scatter_reduce_max_i32",
-        ),
-        ("scatter_reduce_max", DType::U32) => (
-            SCATTER_REDUCE_MAX_SHADER_U32,
-            "scatter_reduce_max_u32",
-            "scatter_reduce_max_u32",
-        ),
-        ("scatter_reduce_min", DType::F32) => (
-            SCATTER_REDUCE_MIN_SHADER_F32,
-            "scatter_reduce_min_f32",
-            "scatter_reduce_min_f32",
-        ),
-        ("scatter_reduce_min", DType::I32) => (
-            SCATTER_REDUCE_MIN_SHADER_I32,
-            "scatter_reduce_min_i32",
-            "scatter_reduce_min_i32",
-        ),
-        ("scatter_reduce_min", DType::U32) => (
-            SCATTER_REDUCE_MIN_SHADER_U32,
-            "scatter_reduce_min_u32",
-            "scatter_reduce_min_u32",
-        ),
-        ("scatter_reduce_prod", DType::F32) => (
-            SCATTER_REDUCE_PROD_SHADER_F32,
-            "scatter_reduce_prod_f32",
-            "scatter_reduce_prod_f32",
-        ),
-        ("scatter_reduce_prod", DType::I32) => (
-            SCATTER_REDUCE_PROD_SHADER_I32,
-            "scatter_reduce_prod_i32",
-            "scatter_reduce_prod_i32",
-        ),
-        ("scatter_reduce_prod", DType::U32) => (
-            SCATTER_REDUCE_PROD_SHADER_U32,
-            "scatter_reduce_prod_u32",
-            "scatter_reduce_prod_u32",
-        ),
-        // One count kernel for every value dtype: it reads only the index tensor.
-        ("scatter_reduce_count", DType::F32 | DType::I32 | DType::U32) => (
-            SCATTER_REDUCE_COUNT_SHADER,
-            "scatter_reduce_count",
-            "scatter_reduce_count",
-        ),
-        ("scatter_reduce_mean_div", DType::F32) => (
-            SCATTER_REDUCE_MEAN_DIV_SHADER_F32,
-            "scatter_reduce_mean_div_f32",
-            "scatter_reduce_mean_div_f32",
-        ),
         ("slice_assign", DType::F32) => (
             SLICE_ASSIGN_SHADER_F32,
             "slice_assign_f32",

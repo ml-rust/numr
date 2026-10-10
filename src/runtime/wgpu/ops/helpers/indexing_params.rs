@@ -104,30 +104,6 @@ pub(crate) struct BincountParams {
     pub(crate) _pad1: u32,
 }
 
-/// Params for scatter_reduce operation
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct ScatterReduceParams {
-    pub(crate) dim: u32,
-    pub(crate) outer_size: u32,
-    pub(crate) dim_size: u32,
-    pub(crate) inner_size: u32,
-    pub(crate) src_dim_size: u32,
-    pub(crate) _pad0: u32,
-    pub(crate) _pad1: u32,
-    pub(crate) _pad2: u32,
-}
-
-/// Params for scatter_reduce mean division
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct MeanDivParams {
-    pub(crate) n: u32,
-    pub(crate) _pad0: u32,
-    pub(crate) _pad1: u32,
-    pub(crate) _pad2: u32,
-}
-
 /// Params for gather_2d operation
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
