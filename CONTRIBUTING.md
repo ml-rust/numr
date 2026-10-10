@@ -4,7 +4,7 @@ Thanks for contributing to [numr](https://crates.io/crates/numr). This guide cov
 
 ## Prerequisites
 
-- Rust 1.89 or newer (edition 2024).
+- Rust 1.95 or newer (edition 2024).
 - A clean working tree before opening a pull request.
 - Optional: a CUDA 12.x toolchain and/or a WebGPU-capable device if you want to run the GPU test paths locally.
 
