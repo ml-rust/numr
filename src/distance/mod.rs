@@ -21,8 +21,11 @@
 //! - The SIMD kernels sum in several lanes and fuse multiply-adds. The
 //!   summation order differs from a sequential scalar loop and between SIMD
 //!   levels, so results can differ in the last bits.
-//! - NaN and infinity in the inputs propagate to the result.
-//! - Cosine distance is `1 - dot / sqrt(|a|^2 * |b|^2)`. A zero vector gives 0.
+//! - A NaN input gives NaN. An infinite input gives an infinite or NaN result.
+//! - Cosine distance is `1 - dot / (|a| * |b|)`. A zero vector gives 0.
+//!   The two norms are taken before they are multiplied. Each squared norm
+//!   must still fit the float type: a component above about 1e19 (f32) or
+//!   1e154 (f64) overflows its own square and gives NaN.
 //! - For unit-length vectors, cosine distance is `1 - dot`. Use
 //!   [`dot_many_f32`] and subtract from 1 to skip the two norms.
 //! - The i8 dot product is exact. A total outside `i32` range saturates to

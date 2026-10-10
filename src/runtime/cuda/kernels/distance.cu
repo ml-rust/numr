@@ -157,7 +157,7 @@ __device__ AccT cosine_dist(const T* a, const T* b, unsigned int d) {
         norm_b += bk * bk;
     }
 
-    AccT denom = acc_sqrt(norm_a * norm_b);
+    AccT denom = acc_sqrt(norm_a) * acc_sqrt(norm_b);
     if (denom == AccT(0)) return AccT(0);
     return AccT(1) - dot / denom;
 }
@@ -185,7 +185,7 @@ __device__ AccT correlation_dist(const T* a, const T* b, unsigned int d) {
         var_b += db * db;
     }
 
-    AccT denom = acc_sqrt(var_a * var_b);
+    AccT denom = acc_sqrt(var_a) * acc_sqrt(var_b);
     if (denom == AccT(0)) return AccT(0);
     return AccT(1) - cov / denom;
 }

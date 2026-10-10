@@ -1,4 +1,4 @@
-//! Cosine distance: `1 - dot(a, b) / sqrt(|a|^2 * |b|^2)`.
+//! Cosine distance: `1 - dot(a, b) / (|a| * |b|)`.
 //!
 //! The kernel gathers the three sums in one pass. `metrics::cosine_from_sums`
 //! turns them into a distance, the same formula `cdist` and `pdist` use. A
@@ -10,7 +10,7 @@ use crate::runtime::cpu::kernels::distance::metrics::cosine_from_sums;
 use crate::runtime::cpu::kernels::simd::distance as simd;
 
 impl Kernels {
-    /// f32 cosine distance `1 - dot(a, b) / sqrt(|a|^2 * |b|^2)` at this
+    /// f32 cosine distance `1 - dot(a, b) / (|a| * |b|)` at this
     /// handle's level.
     ///
     /// Returns 0 when either vector is all zeros, and for empty vectors.
@@ -28,7 +28,7 @@ impl Kernels {
         cosine_from_sums(s.dot, s.norm_a, s.norm_b)
     }
 
-    /// f64 cosine distance `1 - dot(a, b) / sqrt(|a|^2 * |b|^2)` at this
+    /// f64 cosine distance `1 - dot(a, b) / (|a| * |b|)` at this
     /// handle's level.
     ///
     /// Returns 0 when either vector is all zeros, and for empty vectors.
@@ -79,7 +79,7 @@ impl Kernels {
     }
 }
 
-/// f32 cosine distance `1 - dot(a, b) / sqrt(|a|^2 * |b|^2)` at the best
+/// f32 cosine distance `1 - dot(a, b) / (|a| * |b|)` at the best
 /// level this CPU supports.
 ///
 /// Returns 0 when either vector is all zeros, and for empty vectors.
@@ -92,7 +92,7 @@ pub fn cosine_distance_f32(a: &[f32], b: &[f32]) -> f32 {
     Kernels::detect().cosine_distance_f32(a, b)
 }
 
-/// f64 cosine distance `1 - dot(a, b) / sqrt(|a|^2 * |b|^2)` at the best
+/// f64 cosine distance `1 - dot(a, b) / (|a| * |b|)` at the best
 /// level this CPU supports.
 ///
 /// Returns 0 when either vector is all zeros, and for empty vectors.

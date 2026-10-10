@@ -71,7 +71,7 @@ fn cosine_dist(x_offset: u32, y_offset: u32, d: u32) -> f32 {
         norm_a += ak * ak;
         norm_b += bk * bk;
     }
-    let denom = sqrt(norm_a * norm_b);
+    let denom = sqrt(norm_a) * sqrt(norm_b);
     if (denom == 0.0) {
         return 0.0;
     }
@@ -98,7 +98,7 @@ fn correlation_dist(x_offset: u32, y_offset: u32, d: u32) -> f32 {
         var_a += da * da;
         var_b += db * db;
     }
-    let denom = sqrt(var_a * var_b);
+    let denom = sqrt(var_a) * sqrt(var_b);
     if (denom == 0.0) {
         return 0.0;
     }

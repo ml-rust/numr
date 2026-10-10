@@ -108,3 +108,156 @@ fn cosine_every_level() {
         distance::cosine_distance_f64(&c, &c).to_bits()
     );
 }
+
+// ----------------------------------------------------------------------------
+// Extreme magnitudes
+//
+// The denominator is `sqrt(|a|^2) * sqrt(|b|^2)`. The old `sqrt(|a|^2 * |b|^2)`
+// overflowed when the product of the squared norms left the float range, and
+// flushed to zero when it fell below the smallest normal.
+// ----------------------------------------------------------------------------
+
+fn assert_near_f32(got: f32, want: f32, tol: f32, what: &str) {
+    assert!(
+        (got - want).abs() <= tol,
+        "{what}: got {got:e}, want {want:e}"
+    );
+}
+
+fn assert_near_f64(got: f64, want: f64, tol: f64, what: &str) {
+    assert!(
+        (got - want).abs() <= tol,
+        "{what}: got {got:e}, want {want:e}"
+    );
+}
+
+#[test]
+fn cosine_f32_extreme_magnitudes() {
+    let cases: [(f32, f32, f32); 4] = [
+        (1e10, 1e10, 0.0),
+        (1e10, -1e10, 2.0),
+        (1e-12, -1e-12, 2.0),
+        (1e-12, 1e-12, 0.0),
+    ];
+    for (x, y, want) in cases {
+        let what = format!("free fn, {x:e} vs {y:e}");
+        assert_near_f32(distance::cosine_distance_f32(&[x], &[y]), want, 1e-6, &what);
+        for k in kernels() {
+            let what = format!("level {}, {x:e} vs {y:e}", k.level());
+            assert_near_f32(k.cosine_distance_f32(&[x], &[y]), want, 1e-6, &what);
+        }
+    }
+}
+
+#[test]
+fn cosine_f32_long_vector_with_overflowing_norm_product() {
+    // Each norm sum is 1.5e21 and the product is 2e42, which overflows f32.
+    // Each square root is about 3.9e10, which does not.
+    let a = vec![1e9f32; 1536];
+    let b = vec![1e9f32; 1536];
+    assert_near_f32(distance::cosine_distance_f32(&a, &b), 0.0, 1e-5, "free fn");
+    for k in kernels() {
+        let what = format!("level {}", k.level());
+        assert_near_f32(k.cosine_distance_f32(&a, &b), 0.0, 1e-5, &what);
+    }
+}
+
+#[test]
+fn cosine_f64_extreme_magnitudes() {
+    // The product of the two squared norms is 1e320 or 1e-400, outside the f64
+    // range. Each squared norm and each square root stays in range.
+    let cases: [(f64, f64, f64); 8] = [
+        (1e80, 1e80, 0.0),
+        (1e80, -1e80, 2.0),
+        (1e-100, -1e-100, 2.0),
+        (1e-100, 1e-100, 0.0),
+        (1e80, 1e-100, 0.0),
+        (1e-100, -1e80, 2.0),
+        (3e80, 4e80, 0.0),
+        (-1e-100, 1e-100, 2.0),
+    ];
+    for (x, y, want) in cases {
+        let what = format!("free fn, {x:e} vs {y:e}");
+        assert_near_f64(
+            distance::cosine_distance_f64(&[x], &[y]),
+            want,
+            1e-12,
+            &what,
+        );
+        for k in kernels() {
+            let what = format!("level {}, {x:e} vs {y:e}", k.level());
+            assert_near_f64(k.cosine_distance_f64(&[x], &[y]), want, 1e-12, &what);
+        }
+    }
+}
+
+#[test]
+fn cosine_f64_long_vector_with_overflowing_norms() {
+    for scale in [1e80f64, 1e-100] {
+        let a = vec![scale; 1536];
+        let b = vec![scale; 1536];
+        let what = format!("free fn, scale {scale:e}");
+        assert_near_f64(distance::cosine_distance_f64(&a, &b), 0.0, 1e-12, &what);
+        for k in kernels() {
+            let what = format!("level {}, scale {scale:e}", k.level());
+            assert_near_f64(k.cosine_distance_f64(&a, &b), 0.0, 1e-12, &what);
+        }
+    }
+}
+
+#[test]
+fn cosine_many_f32_extreme_rows() {
+    // Rows are huge, tiny and zero. Both nonzero rows are parallel to the query.
+    let d = 3;
+    let query = [1.0f32, 1.0, 1.0];
+    let rows = [
+        1e10f32, 1e10, 1e10, // huge, parallel
+        1e-12, 1e-12, 1e-12, // tiny, parallel
+        0.0, 0.0, 0.0, // zero
+    ];
+    let mut out = [7.0f32; 3];
+    distance::cosine_distance_many_f32(&query, &rows, d, &mut out);
+    assert_near_f32(out[0], 0.0, 1e-6, "free fn, huge row");
+    assert_near_f32(out[1], 0.0, 1e-6, "free fn, tiny row");
+    assert_eq!(out[2], 0.0, "free fn, zero row");
+    for k in kernels() {
+        let mut out = [7.0f32; 3];
+        k.cosine_distance_many_f32(&query, &rows, d, &mut out);
+        let level = k.level();
+        assert_near_f32(out[0], 0.0, 1e-6, &format!("level {level}, huge row"));
+        assert_near_f32(out[1], 0.0, 1e-6, &format!("level {level}, tiny row"));
+        assert_eq!(out[2], 0.0, "level {level}, zero row");
+    }
+
+    // Huge and tiny queries against the same rows.
+    for (q, want) in [(1e10f32, [0.0f32, 0.0, 0.0]), (-1e-12, [2.0, 2.0, 0.0])] {
+        let query = [q; 3];
+        for k in kernels() {
+            let mut out = [7.0f32; 3];
+            k.cosine_distance_many_f32(&query, &rows, d, &mut out);
+            for (i, (&got, &w)) in out.iter().zip(&want).enumerate() {
+                let what = format!("level {}, query {q:e}, row {i}", k.level());
+                if w == 0.0 && i == 2 {
+                    assert_eq!(got, 0.0, "{what}");
+                } else {
+                    assert_near_f32(got, w, 1e-6, &what);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn cosine_many_f64_extreme_rows() {
+    let d = 2;
+    let query = [1.0f64, 1.0];
+    let rows = [1e80f64, 1e80, 1e-100, 1e-100, 0.0, 0.0];
+    for k in kernels() {
+        let mut out = [7.0f64; 3];
+        k.cosine_distance_many_f64(&query, &rows, d, &mut out);
+        let level = k.level();
+        assert_near_f64(out[0], 0.0, 1e-12, &format!("level {level}, huge row"));
+        assert_near_f64(out[1], 0.0, 1e-12, &format!("level {level}, tiny row"));
+        assert_eq!(out[2], 0.0, "level {level}, zero row");
+    }
+}

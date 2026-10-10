@@ -304,3 +304,138 @@ fn test_cdist_cosine_parity() {
         assert_tensor_allclose(&result, &_cpu_result, dtype, "cdist Cosine WebGPU vs CPU");
     });
 }
+
+// ============================================================================
+// cosine and correlation at extreme magnitudes
+//
+// The denominator is `sqrt(norm_a) * sqrt(norm_b)`. The old `sqrt(norm_a *
+// norm_b)` overflowed for large rows and flushed to zero for tiny rows.
+// ============================================================================
+
+const EXTREME_COLS: usize = 8;
+
+fn extreme_rows() -> Vec<f64> {
+    vec![
+        1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, //
+        8.0, 1.5, 6.0, 2.5, 4.0, 3.5, 2.0, 9.0, //
+        -3.0, 5.0, 0.5, -2.0, 7.0, 1.0, -4.0, 6.0,
+    ]
+}
+
+fn extreme_other_rows() -> Vec<f64> {
+    vec![
+        2.0, 1.0, 4.0, 3.0, 8.0, 5.0, 6.0, 7.0, //
+        -1.0, 3.0, 2.0, 5.0, 1.0, 4.0, 9.0, 0.5,
+    ]
+}
+
+/// Reference distance in f64: `1 - dot / (|a| |b|)`, or Pearson for `Correlation`.
+fn analytic_distance(a: &[f64], b: &[f64], metric: DistanceMetric) -> f64 {
+    let n = a.len() as f64;
+    let (a, b): (Vec<f64>, Vec<f64>) = match metric {
+        DistanceMetric::Correlation => {
+            let ma = a.iter().sum::<f64>() / n;
+            let mb = b.iter().sum::<f64>() / n;
+            (
+                a.iter().map(|v| v - ma).collect(),
+                b.iter().map(|v| v - mb).collect(),
+            )
+        }
+        _ => (a.to_vec(), b.to_vec()),
+    };
+    let dot: f64 = a.iter().zip(&b).map(|(x, y)| x * y).sum();
+    let na: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let nb: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
+    1.0 - dot / (na * nb)
+}
+
+fn extreme_cdist_parity(metric: DistanceMetric, scale: f64) {
+    let dtype = DType::F32;
+    let x: Vec<f64> = extreme_rows().iter().map(|v| v * scale).collect();
+    let y: Vec<f64> = extreme_other_rows().iter().map(|v| v * scale).collect();
+    let (nx, ny) = (x.len() / EXTREME_COLS, y.len() / EXTREME_COLS);
+    let label = format!("cdist {metric:?} scale {scale:e}");
+
+    // Unit-scale f64 rows give the reference. Scaling cannot change the distance.
+    let base_x = extreme_rows();
+    let base_y = extreme_other_rows();
+    let mut want = Vec::with_capacity(nx * ny);
+    for i in 0..nx {
+        for j in 0..ny {
+            let a = &base_x[i * EXTREME_COLS..(i + 1) * EXTREME_COLS];
+            let b = &base_y[j * EXTREME_COLS..(j + 1) * EXTREME_COLS];
+            want.push(analytic_distance(a, b, metric));
+        }
+    }
+
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let cpu_x = tensor_from_f64(&x, &[nx, EXTREME_COLS], dtype, &cpu_device, &cpu_client)
+        .expect("CPU x tensor failed");
+    let cpu_y = tensor_from_f64(&y, &[ny, EXTREME_COLS], dtype, &cpu_device, &cpu_client)
+        .expect("CPU y tensor failed");
+    let cpu_result = cpu_client
+        .cdist(&cpu_x, &cpu_y, metric)
+        .unwrap_or_else(|e| panic!("CPU {label} failed: {e}"));
+
+    let got: Vec<f32> = cpu_result.to_vec();
+    assert_eq!(got.len(), want.len(), "{label}: CPU result length");
+    for (idx, (g, w)) in got.iter().zip(&want).enumerate() {
+        assert!(
+            (*g as f64 - w).abs() <= 1e-5,
+            "{label}: CPU element {idx} is {g:e}, analytic reference is {w:e}"
+        );
+    }
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            let cx = tensor_from_f64(&x, &[nx, EXTREME_COLS], dtype, &cuda_device, &cuda_client)
+                .expect("CUDA x tensor failed");
+            let cy = tensor_from_f64(&y, &[ny, EXTREME_COLS], dtype, &cuda_device, &cuda_client)
+                .expect("CUDA y tensor failed");
+            let result = cuda_client
+                .cdist(&cx, &cy, metric)
+                .unwrap_or_else(|e| panic!("CUDA {label} failed: {e}"));
+            assert_tensor_allclose(&result, &cpu_result, dtype, &format!("{label} CUDA vs CPU"));
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            let wx = tensor_from_f64(&x, &[nx, EXTREME_COLS], dtype, &wgpu_device, &wgpu_client)
+                .expect("WebGPU x tensor failed");
+            let wy = tensor_from_f64(&y, &[ny, EXTREME_COLS], dtype, &wgpu_device, &wgpu_client)
+                .expect("WebGPU y tensor failed");
+            let result = wgpu_client
+                .cdist(&wx, &wy, metric)
+                .unwrap_or_else(|e| panic!("WebGPU {label} failed: {e}"));
+            assert_tensor_allclose(
+                &result,
+                &cpu_result,
+                dtype,
+                &format!("{label} WebGPU vs CPU"),
+            );
+        });
+    }
+}
+
+#[test]
+fn test_cdist_cosine_huge_magnitude_parity() {
+    extreme_cdist_parity(DistanceMetric::Cosine, 1e10);
+}
+
+#[test]
+fn test_cdist_cosine_tiny_magnitude_parity() {
+    extreme_cdist_parity(DistanceMetric::Cosine, 1e-12);
+}
+
+#[test]
+fn test_cdist_correlation_huge_magnitude_parity() {
+    extreme_cdist_parity(DistanceMetric::Correlation, 1e10);
+}
+
+#[test]
+fn test_cdist_correlation_tiny_magnitude_parity() {
+    extreme_cdist_parity(DistanceMetric::Correlation, 1e-12);
+}

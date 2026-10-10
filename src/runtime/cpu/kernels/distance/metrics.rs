@@ -168,13 +168,18 @@ pub unsafe fn cosine<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d: usi
     cosine_from_sums(dot, norm_a, norm_b)
 }
 
-/// Cosine distance from its three sums: `1 - dot / sqrt(norm_a * norm_b)`.
+/// Cosine distance from its three sums: `1 - dot / (sqrt(norm_a) * sqrt(norm_b))`.
 ///
 /// A zero denominator gives 0. This is the one place the sums become a
 /// distance, for every route here and for `crate::distance`.
+///
+/// The two roots are taken before the product. The product `norm_a * norm_b`
+/// is a fourth-power quantity, so it overflows f32 once `|a| * |b|` passes
+/// about 1.8e19 and flushes to zero once it falls below about 3.7e-23, while
+/// the roots stay in range.
 #[inline]
 pub fn cosine_from_sums<A: num_traits::Float>(dot: A, norm_a: A, norm_b: A) -> A {
-    let denom = (norm_a * norm_b).sqrt();
+    let denom = norm_a.sqrt() * norm_b.sqrt();
     if denom.is_zero() {
         A::zero()
     } else {
@@ -238,7 +243,7 @@ pub unsafe fn correlation<T: Element, A: DistAcc<T>>(a: *const T, b: *const T, d
         var_b = var_b + db * db;
     }
 
-    let denom = (var_a * var_b).sqrt();
+    let denom = var_a.sqrt() * var_b.sqrt();
     if denom.is_zero() {
         A::zero()
     } else {
