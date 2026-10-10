@@ -180,6 +180,9 @@ pub const I1_ASYMP: [f64; 7] = [
 // ============================================================================
 
 /// K0 small argument polynomial coefficients (x <= 2)
+// The first entry is the published 8-digit polynomial coefficient, not γ itself.
+// The coefficients are fitted as a set, so it keeps its published value.
+#[allow(clippy::approx_constant)]
 pub const K0_SMALL: [f64; 7] = [
     -0.57721566,
     0.42278420,
