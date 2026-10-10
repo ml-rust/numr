@@ -9,7 +9,6 @@
 //! operations must be performed on the thread that owns the context or after
 //! calling `context.bind_to_thread()`.
 
-use cudarc::cublas::CudaBlas;
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
 
@@ -57,9 +56,6 @@ pub struct CudaClient {
     /// Dedicated stream for D2H copies (overlaps with compute stream)
     pub(crate) copy_stream: Arc<CudaStream>,
 
-    /// cuBLAS handle for GEMM operations
-    pub(crate) cublas: Arc<CudaBlas>,
-
     /// Allocator for memory management
     pub(crate) allocator: CudaAllocator,
 
@@ -105,7 +101,7 @@ impl CudaClient {
     /// # Errors
     ///
     /// Returns an error if device initialisation fails (invalid device index,
-    /// driver error, cuBLAS init failure, etc.).
+    /// driver error, stream creation failure, etc.).
     pub fn new(device: CudaDevice) -> Result<Self, CudaError> {
         // Return the cached canonical client if one already exists.
         if let Some(cached) = super::cache::try_get_cached_client(device.index) {
@@ -131,7 +127,7 @@ impl CudaClient {
             ))
         })?;
 
-        // Bind context to current thread for proper cuBLAS operation
+        // Bind the context to this thread before creating its streams
         context.bind_to_thread().map_err(|e| {
             CudaError::ContextError(format!("Failed to bind CUDA context to thread: {:?}", e))
         })?;
@@ -145,10 +141,6 @@ impl CudaClient {
         let copy_stream = context.new_stream().map_err(|e| {
             CudaError::ContextError(format!("Failed to create CUDA copy stream: {:?}", e))
         })?;
-
-        // Initialize cuBLAS handle for GEMM operations
-        let cublas = CudaBlas::new(stream.clone())
-            .map_err(|e| CudaError::CublasError(format!("Failed to initialize cuBLAS: {:?}", e)))?;
 
         // Configure the default memory pool with a bounded release threshold.
         // `u64::MAX` (cache everything forever) is great for tight decode loops
@@ -196,7 +188,6 @@ impl CudaClient {
             context,
             stream,
             copy_stream,
-            cublas: Arc::new(cublas),
             allocator,
             raw_handle,
             sobol_dv_cache: SobolDvCache::new(),
@@ -254,12 +245,6 @@ impl CudaClient {
     #[inline]
     pub fn copy_stream(&self) -> &CudaStream {
         &self.copy_stream
-    }
-
-    /// Get reference to the cuBLAS handle.
-    #[inline]
-    pub fn cublas(&self) -> &CudaBlas {
-        &self.cublas
     }
 
     /// Record an event on the compute stream.

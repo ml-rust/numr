@@ -256,8 +256,6 @@ pub enum CudaError {
     KernelError(String),
     /// Synchronization error
     SyncError(String),
-    /// cuBLAS error
-    CublasError(String),
     /// Context error
     ContextError(String),
 }
@@ -270,7 +268,6 @@ impl std::fmt::Display for CudaError {
             CudaError::CopyError(msg) => write!(f, "CUDA copy error: {}", msg),
             CudaError::KernelError(msg) => write!(f, "CUDA kernel error: {}", msg),
             CudaError::SyncError(msg) => write!(f, "CUDA sync error: {}", msg),
-            CudaError::CublasError(msg) => write!(f, "cuBLAS error: {}", msg),
             CudaError::ContextError(msg) => write!(f, "CUDA context error: {}", msg),
         }
     }

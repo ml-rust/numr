@@ -7,7 +7,7 @@
 //! - `CudaDevice` - Represents a CUDA GPU device
 //! - `CudaClient` - Manages GPU stream and context, launches kernels
 //! - `CudaRuntime` - Implements the generic Runtime trait
-//! - `TensorOps` - CUDA-accelerated tensor operations using cuBLAS
+//! - `TensorOps` - CUDA tensor operations on numr's own kernels
 //!
 //! # Panics
 //!

@@ -38,8 +38,14 @@ A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cd
 - **Numerics** — the summation order of these metrics differs from the old sequential loop and differs between SIMD levels. Results can differ in the last bits.
   - Cosine keeps the `denom == 0 -> 0` rule.
   - The CPU accumulator width still matches CUDA: f32 for narrow floats and f64 for F64. The CPU no longer sums term for term in the same order as CUDA.
-  - The CUDA and WebGPU parity tests for distance pass against the CPU path on an RTX 3060 (CUDA and Vulkan/WGPU).
+  - The CUDA and WebGPU parity tests for distance pass against the CPU path, on CUDA and on Vulkan through WGPU.
 - **Internal** — block and row kernels replace the serial crate-internal `cdist_kernel` and `pdist_kernel`. The public API does not change.
+
+### Removed
+
+- **cuBLAS** — `CudaClient` no longer creates a cuBLAS handle, so the `cuda` feature no longer loads `libcublas` at run time. No numr kernel used it.
+  - `CudaClient::cublas()` and `CudaError::CublasError` are removed.
+  - cudarc's default features are off. numr enables `driver` and `nvrtc` only, so cuBLASLt, cuRAND and the CUDA runtime library are not built either.
 
 ### Fixed
 

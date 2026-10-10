@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 /// Global client cache: device index -> cached CudaClient
 ///
 /// This caches CudaClient instances per device to avoid creating new
-/// CUDA contexts, streams, and cuBLAS handles on every operation.
+/// CUDA contexts and streams on every operation.
 static CLIENT_CACHE: OnceLock<Mutex<HashMap<usize, CudaClient>>> = OnceLock::new();
 
 /// Check if the CUDA context on the current thread is valid.

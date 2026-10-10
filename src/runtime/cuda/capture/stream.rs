@@ -93,9 +93,9 @@ impl GuardedStream {
     /// The bare stream.
     ///
     /// Escape hatch for the few calls that cannot go through this type:
-    /// capture begin and end, event record and wait, cuBLAS handle creation,
-    /// and driver calls made inside a scope that already holds a permit (the
-    /// memcpy funnels, the allocator's driver paths).
+    /// capture begin and end, event record and wait, and driver calls made
+    /// inside a scope that already holds a permit (the memcpy funnels, the
+    /// allocator's driver paths).
     ///
     /// Anything that touches this stream's state — an enqueue, or a wait on
     /// it — must run under [`GuardedStream::enqueue_permit`], whether taken

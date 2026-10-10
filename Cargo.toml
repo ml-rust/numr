@@ -69,7 +69,13 @@ nexar-nccl = { version = "0.1", optional = true }
 tokio = { version = "1", features = ["rt"], optional = true }
 
 # Optional: CUDA backend
-cudarc = { version = "0.19", optional = true, features = [
+# Driver API and module loading only. No vendor math library: every kernel is
+# numr's own.
+cudarc = { version = "0.19", optional = true, default-features = false, features = [
+  "std",
+  "driver",
+  "nvrtc",
+  "fallback-dynamic-loading",
   "cuda-version-from-build-system",
 ] }
 
