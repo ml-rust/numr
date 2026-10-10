@@ -11,6 +11,7 @@ mod masked_fill;
 mod masked_select;
 mod scatter;
 mod scatter_reduce;
+mod scatter_reduce_sort;
 mod slice_assign;
 
 pub use dtype_gate::*;

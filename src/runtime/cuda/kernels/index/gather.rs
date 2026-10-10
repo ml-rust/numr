@@ -16,9 +16,9 @@ use crate::runtime::cuda::GuardedStream;
 /// Module name for indexing operations
 pub const INDEX_MODULE: &str = "index";
 
-/// Maximum number of tensor dimensions supported by gather/gather_nd kernels.
-/// Must match INDEX_MAX_DIMS in index_ops.cuh.
-const MAX_DIMS: usize = 8;
+/// Maximum number of tensor dimensions supported by the gather/gather_nd and
+/// scatter_reduce key kernels. Must match INDEX_MAX_DIMS in index_ops.cuh.
+pub(super) const MAX_DIMS: usize = 8;
 
 /// Launch gather kernel.
 ///

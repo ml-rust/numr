@@ -4,10 +4,10 @@ use crate::algorithm::linalg::helpers::{linalg_demote, linalg_promote};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::ScatterReduceOp;
+use crate::ops::common::validate_scatter_extents;
 use crate::runtime::cuda::kernels::{
     ScatterReduceOpCuda, launch_copy, launch_embedding_lookup, launch_fill_with_f64,
-    launch_gather_nd, launch_scatter_reduce, launch_scatter_reduce_count,
-    launch_scatter_reduce_int, launch_scatter_reduce_mean_div,
+    launch_gather_nd, launch_scatter_reduce,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
@@ -76,10 +76,8 @@ pub fn scatter_reduce(
 ) -> Result<Tensor<CudaRuntime>> {
     let dtype = dst.dtype();
 
-    // The float scatter_reduce kernels use atomics, which CUDA provides for
-    // F32 and F64 only. Narrower floats (F16, BF16, FP8) promote to F32,
-    // compute, and demote back. Integers take their own kernel instead, which
-    // needs no atomic at all — see launch_scatter_reduce_int.
+    // The float reduce kernels exist for F32 and F64. Narrower floats (F16,
+    // BF16, FP8) promote to F32, compute, and demote back.
     if dtype.is_float() && !matches!(dtype, DType::F32 | DType::F64) {
         let (dst_promoted, orig_dtype) = linalg_promote(client, dst)?;
         let (src_promoted, _) = linalg_promote(client, src)?;
@@ -130,16 +128,16 @@ pub fn scatter_reduce(
         });
     }
 
-    // Map ScatterReduceOp to ScatterReduceOpCuda
-    // The integer kernel reduces `mean` itself; the float path reaches it as a
-    // Sum pass followed by count and divide passes.
-    let cuda_op = match (op, dtype.is_int()) {
-        (ScatterReduceOp::Sum, _) => ScatterReduceOpCuda::Sum,
-        (ScatterReduceOp::Max, _) => ScatterReduceOpCuda::Max,
-        (ScatterReduceOp::Min, _) => ScatterReduceOpCuda::Min,
-        (ScatterReduceOp::Prod, _) => ScatterReduceOpCuda::Prod,
-        (ScatterReduceOp::Mean, true) => ScatterReduceOpCuda::Mean,
-        (ScatterReduceOp::Mean, false) => ScatterReduceOpCuda::Sum,
+    // Off the scatter axis, every source coordinate must address the
+    // destination.
+    validate_scatter_extents(shape, src.shape(), dim)?;
+
+    let cuda_op = match op {
+        ScatterReduceOp::Sum => ScatterReduceOpCuda::Sum,
+        ScatterReduceOp::Max => ScatterReduceOpCuda::Max,
+        ScatterReduceOp::Min => ScatterReduceOpCuda::Min,
+        ScatterReduceOp::Prod => ScatterReduceOpCuda::Prod,
+        ScatterReduceOp::Mean => ScatterReduceOpCuda::Mean,
     };
 
     let dst_contig = ensure_contiguous(dst)?;
@@ -183,118 +181,22 @@ pub fn scatter_reduce(
         }
     }
 
-    // Compute dimensions for scatter
-    let outer_size: usize = shape[..dim].iter().product();
-    let dim_size = shape[dim];
-    let inner_size: usize = shape[dim + 1..].iter().product();
-    let src_dim_size = src.shape()[dim];
-
-    if dtype.is_int() {
-        // One launch covers every integer reduction, mean included: the kernel
-        // owns each destination element, so it keeps a 128-bit accumulator and
-        // divides once at the end instead of scattering with atomics.
-        unsafe {
-            launch_scatter_reduce_int(
-                &client.context,
-                &client.stream,
-                client.device.index,
-                dtype,
-                src_contig.ptr(),
-                index_contig.ptr(),
-                out.ptr(),
-                outer_size,
-                dim_size,
-                inner_size,
-                src_dim_size,
-                cuda_op,
-                include_self,
-            )?;
-        }
-        return Ok(out);
-    }
-
     unsafe {
         launch_scatter_reduce(
             &client.context,
             &client.stream,
             client.device.index,
+            &client.device,
             dtype,
             src_contig.ptr(),
             index_contig.ptr(),
             out.ptr(),
+            src.shape(),
+            shape,
             dim,
-            outer_size,
-            dim_size,
-            inner_size,
-            src_dim_size,
             cuda_op,
+            include_self,
         )?;
-    }
-
-    // Float mean: divide the scattered sum by the scattered count.
-    if matches!(op, ScatterReduceOp::Mean) {
-        // Allocate count buffer (same shape as output, zero-initialized)
-        let count = Tensor::<CudaRuntime>::empty(shape, dtype, &client.device)?;
-        unsafe {
-            launch_fill_with_f64(
-                &client.context,
-                &client.stream,
-                client.device.index,
-                dtype,
-                0.0,
-                count.ptr(),
-                dst.numel(),
-            )?;
-        }
-
-        // If include_self, each dst element starts with count=1
-        if include_self {
-            unsafe {
-                launch_fill_with_f64(
-                    &client.context,
-                    &client.stream,
-                    client.device.index,
-                    dtype,
-                    1.0,
-                    count.ptr(),
-                    dst.numel(),
-                )?;
-            }
-        }
-
-        // Scatter count: atomicAdd 1 for each src element
-        unsafe {
-            launch_scatter_reduce_count(
-                &client.context,
-                &client.stream,
-                client.device.index,
-                dtype,
-                index_contig.ptr(),
-                count.ptr(),
-                dim,
-                outer_size,
-                dim_size,
-                inner_size,
-                src_dim_size,
-            )?;
-        }
-
-        // Divide sum by count
-        let result = Tensor::<CudaRuntime>::empty(shape, dtype, &client.device)?;
-        unsafe {
-            launch_scatter_reduce_mean_div(
-                &client.context,
-                &client.stream,
-                client.device.index,
-                dtype,
-                out.ptr(),
-                count.ptr(),
-                result.ptr(),
-                dst.numel(),
-            )?;
-        }
-
-        return Ok(result);
     }
 
     Ok(out)

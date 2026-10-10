@@ -2,7 +2,7 @@
 //! dtypes the CPU backend covers, with the same numerical semantics.
 //!
 //! Each family looks its kernel up by NAME — `masked_select_broadcast_{suffix}`,
-//! `gather_nd_{suffix}`, `count_unique_{suffix}`, `scatter_reduce_int_mean_{suffix}`
+//! `gather_nd_{suffix}`, `count_unique_{suffix}`, `scatter_reduce_mean_{suffix}`
 //! — so a dtype with no `.cu` instantiation compiles fine and then fails at
 //! launch with `named symbol not found`, or is refused by a dtype gate that
 //! never grew past F32/F64/I32. U32 and the narrow integers had neither the
