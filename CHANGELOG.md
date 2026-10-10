@@ -12,6 +12,24 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **CUDA and WebGPU `scatter_reduce`** — float results no longer change from run to run.
+  - Contributions are grouped by destination with a stable radix sort. Each destination then folds its run in source order, the order the CPU kernel uses.
+  - F32 and F64 results on CUDA, and F32 results on WebGPU, are bit-equal to the CPU reference for every op: sum, prod, max, min and mean.
+  - No float accumulates through an atomic. Before, an overlap-add (an inverse STFT) gave different low bits on each run.
+  - WebGPU mean rounds exactly as the CPU does: `f32(f64(acc) / count)`.
+- **`scatter_reduce` shapes** — a source shorter than the destination on an axis other than `dim` gives the right result on CUDA and WebGPU, which assumed equal shapes. A source longer than the destination on such an axis returns an error on every backend. The CPU path wrote out of bounds.
+
+### Changed
+
+- **Integer `scatter_reduce` on CUDA and WebGPU** — integers go through the same sorted pipeline. The old CUDA integer path scanned every source element per destination.
+- **WebGPU `scatter_reduce` limits** — a call errors with `BackendLimitation` when the sort scratch exceeds the device's storage-binding limit, or the shape holds more than 8 axes after merging aligned ones.
+
+---
+
 ## [0.10.0] — 2026-10-10
 
 A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cdist` and `pdist` now use them.
