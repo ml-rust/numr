@@ -55,9 +55,25 @@ impl NcclCommunicator {
         unsafe { std::ptr::read((&self.comm as *const nccl::Comm).cast::<nccl_sys::ncclComm_t>()) }
     }
 
-    /// Get the raw CUDA stream handle for FFI calls.
-    fn raw_stream(&self) -> nccl_sys::cudaStream_t {
-        self.comm.stream().cu_stream() as nccl_sys::cudaStream_t
+    /// The raw CUDA stream handle for FFI calls, with the communicator's
+    /// context made current on the calling thread.
+    ///
+    /// Every NCCL call and comm-stream driver call takes its stream from
+    /// here, so a communicator works from any thread.
+    fn bound_stream(&self) -> Result<nccl_sys::cudaStream_t> {
+        self.bind()?;
+        Ok(self.comm.stream().cu_stream() as nccl_sys::cudaStream_t)
+    }
+
+    /// Make the communicator's CUDA context current on the calling thread,
+    /// for a driver call that does not go through [`Self::bound_stream`].
+    fn bind(&self) -> Result<()> {
+        super::context::bind_context(self.comm.stream().context()).map_err(|e| {
+            Error::Backend(format!(
+                "NCCL rank {}: failed to make the CUDA context current on this thread: {e:?}",
+                self.comm.rank()
+            ))
+        })
     }
 }
 
@@ -118,7 +134,7 @@ impl Communicator for NcclCommunicator {
                 nccl_dtype,
                 nccl_op,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -136,7 +152,7 @@ impl Communicator for NcclCommunicator {
                 nccl_dtype,
                 root as i32,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -158,7 +174,7 @@ impl Communicator for NcclCommunicator {
                 count,
                 nccl_dtype,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -183,7 +199,7 @@ impl Communicator for NcclCommunicator {
                 nccl_dtype,
                 nccl_op,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -206,7 +222,7 @@ impl Communicator for NcclCommunicator {
                 nccl_dtype,
                 dest as i32,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -229,7 +245,7 @@ impl Communicator for NcclCommunicator {
                 nccl_dtype,
                 src as i32,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -260,7 +276,7 @@ impl Communicator for NcclCommunicator {
                 nccl_sys::ncclDataType_t::ncclFloat32,
                 nccl_sys::ncclRedOp_t::ncclSum,
                 self.raw_comm(),
-                self.raw_stream(),
+                self.bound_stream()?,
             )
             .map_err(nccl_err)?;
         }
@@ -271,6 +287,7 @@ impl Communicator for NcclCommunicator {
 impl StreamSyncOps for NcclCommunicator {
     fn create_event(&self) -> Result<u64> {
         use cudarc::driver::sys::{CUevent_flags, cuEventCreate};
+        self.bind()?;
         let mut event = std::ptr::null_mut();
         let result =
             unsafe { cuEventCreate(&mut event, CUevent_flags::CU_EVENT_DISABLE_TIMING as u32) };
@@ -282,6 +299,7 @@ impl StreamSyncOps for NcclCommunicator {
 
     fn destroy_event(&self, event: u64) -> Result<()> {
         use cudarc::driver::sys::cuEventDestroy_v2;
+        self.bind()?;
         let result = unsafe { cuEventDestroy_v2(event as cudarc::driver::sys::CUevent) };
         if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             return Err(Error::Backend(format!("cuEventDestroy failed: {result:?}")));
@@ -294,7 +312,7 @@ impl StreamSyncOps for NcclCommunicator {
         let result = unsafe {
             cuEventRecord(
                 event as cudarc::driver::sys::CUevent,
-                self.raw_stream() as cudarc::driver::sys::CUstream,
+                self.bound_stream()? as cudarc::driver::sys::CUstream,
             )
         };
         if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
@@ -307,6 +325,7 @@ impl StreamSyncOps for NcclCommunicator {
 
     fn record_on_stream(&self, event: u64, stream_handle: u64) -> Result<()> {
         use cudarc::driver::sys::cuEventRecord;
+        self.bind()?;
         let result = unsafe {
             cuEventRecord(
                 event as cudarc::driver::sys::CUevent,
@@ -325,7 +344,7 @@ impl StreamSyncOps for NcclCommunicator {
         use cudarc::driver::sys::cuStreamWaitEvent;
         let result = unsafe {
             cuStreamWaitEvent(
-                self.raw_stream() as cudarc::driver::sys::CUstream,
+                self.bound_stream()? as cudarc::driver::sys::CUstream,
                 event as cudarc::driver::sys::CUevent,
                 0,
             )
@@ -340,6 +359,7 @@ impl StreamSyncOps for NcclCommunicator {
 
     fn stream_wait_event(&self, stream_handle: u64, event: u64) -> Result<()> {
         use cudarc::driver::sys::cuStreamWaitEvent;
+        self.bind()?;
         let result = unsafe {
             cuStreamWaitEvent(
                 stream_handle as cudarc::driver::sys::CUstream,

@@ -9,18 +9,21 @@
 //! - `CudaRuntime` - Implements the generic Runtime trait
 //! - `TensorOps` - CUDA tensor operations on numr's own kernels
 //!
-//! # Panics
+//! # Threads
 //!
-//! The following operations may panic on CUDA errors (allocation failures are
-//! typically unrecoverable in GPU contexts):
+//! A `CudaClient` works from any thread. numr makes the client's CUDA
+//! context current on the calling thread before each direct driver call, so
+//! a caller never binds the context itself.
 //!
-//! - `Runtime::allocate` - Panics if CUDA memory allocation fails
-//! - `Runtime::copy_to_device` - Panics if host-to-device copy fails
-//! - `Runtime::copy_from_device` - Panics if device-to-host copy fails
-//! - `Runtime::copy_within_device` - Panics if device-to-device copy fails
+//! # Errors
 //!
-//! These panics follow CUDA best practices where allocation failures indicate
-//! an unrecoverable out-of-memory condition.
+//! Allocation and the host/device copies return driver errors. Two calls
+//! panic instead:
+//!
+//! - `Runtime::default_client` and the first allocation on a device, when
+//!   the device's client cannot be created.
+//! - `Tensor::to_vec`, on a failed copy. `Tensor::try_to_vec` returns the
+//!   error.
 
 mod allocator;
 mod arena;
@@ -29,6 +32,7 @@ pub mod capture;
 mod client;
 #[cfg(feature = "nccl")]
 mod communicator;
+mod context;
 mod device;
 mod env_config;
 mod fft;

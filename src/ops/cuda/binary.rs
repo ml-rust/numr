@@ -162,7 +162,7 @@ impl BinaryOps<CudaRuntime> for CudaClient {
         // Async on the compute stream: stream-ordered after the producer of
         // `src`, and recorded as a memcpy node under graph capture.
         let result = {
-            let _permit = self.stream.enqueue_permit();
+            let _permit = self.stream.enqueue_permit()?;
             unsafe {
                 cudarc::driver::sys::cuMemcpyDtoDAsync_v2(
                     out.ptr(),

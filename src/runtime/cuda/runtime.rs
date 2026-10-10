@@ -106,7 +106,7 @@ impl Runtime for CudaRuntime {
         // The copy is an enqueue on the shared compute stream: hold the
         // device's capture lock for it so it cannot land in another thread's
         // graph.
-        let _permit = client.stream.enqueue_permit();
+        let _permit = client.stream.enqueue_permit()?;
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
@@ -147,7 +147,7 @@ impl Runtime for CudaRuntime {
         let client = get_or_create_client(device);
         // The copy and the synchronization both touch the shared compute
         // stream; one permit covers them so no capture opens between them.
-        let _permit = client.stream.enqueue_permit();
+        let _permit = client.stream.enqueue_permit()?;
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyDtoHAsync_v2(
@@ -177,7 +177,13 @@ impl Runtime for CudaRuntime {
             // through the bare stream: `GuardedStream::synchronize` would
             // take a second read side on this thread.
             if !client.is_capturing() {
-                let _ = client.stream.raw().synchronize();
+                client.stream.raw().synchronize().map_err(|e| {
+                    crate::error::Error::Backend(format!(
+                        "[numr::cuda] Device-to-host copy of {} bytes: stream synchronize \
+                         failed ({e:?}); the copied bytes are not valid",
+                        dst.len()
+                    ))
+                })?;
             }
         }
         Ok(())
@@ -187,7 +193,7 @@ impl Runtime for CudaRuntime {
     fn record_compute_event(device: &Self::Device) -> crate::error::Result<u64> {
         let client = get_or_create_client(device);
         // Recording an event enqueues on the shared compute stream.
-        let _permit = client.stream.enqueue_permit();
+        let _permit = client.stream.enqueue_permit()?;
         client
             .record_event_on_compute()
             .map_err(|e| crate::error::Error::Backend(format!("Event record failed: {}", e)))
@@ -208,7 +214,9 @@ impl Runtime for CudaRuntime {
         let client = get_or_create_client(device);
         // The event being waited on was recorded on the shared compute
         // stream; hold the capture lock while the copy stream is tied to it.
-        let _permit = client.stream.enqueue_permit();
+        let _permit = client.stream.enqueue_permit().inspect_err(|_| {
+            client.destroy_event(event);
+        })?;
 
         unsafe {
             // 1. Copy stream waits for event (waits for argmax to finish)
@@ -235,9 +243,16 @@ impl Runtime for CudaRuntime {
             }
 
             // 3. Sync ONLY the copy stream (compute stream keeps running)
-            let _ = client.copy_stream.synchronize();
+            let synced = client.copy_stream.synchronize();
 
             client.destroy_event(event);
+            synced.map_err(|e| {
+                crate::error::Error::Backend(format!(
+                    "[numr::cuda] Pipelined D2H copy of {} bytes: copy stream synchronize \
+                     failed ({e:?}); the copied bytes are not valid",
+                    dst.len()
+                ))
+            })?;
         }
         Ok(())
     }
@@ -259,7 +274,7 @@ impl Runtime for CudaRuntime {
         // Enqueue on the shared compute stream. Consumers call this from
         // inside capture closures, where the permit is a no-op because the
         // capturing thread already owns the device.
-        let _permit = client.stream.enqueue_permit();
+        let _permit = client.stream.enqueue_permit()?;
 
         unsafe {
             let result = cudarc::driver::sys::cuMemcpyDtoDAsync_v2(

@@ -3,6 +3,10 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use cudarc::driver::safe::CudaContext;
+
+use super::context::bind_context;
+
 /// Persistent device-side cache of Sobol direction vectors.
 ///
 /// Sobol direction vectors are computed once per unique `dimension` value and
@@ -27,12 +31,16 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct SobolDvCache {
     /// dimension → (device_ptr, num_u32s)
     inner: Mutex<HashMap<u32, (u64, usize)>>,
+    /// Context the buffers live in. `Drop` makes it current before freeing,
+    /// since the last reference can drop on any thread.
+    context: Arc<CudaContext>,
 }
 
 impl SobolDvCache {
-    pub(crate) fn new() -> Arc<Self> {
+    pub(crate) fn new(context: Arc<CudaContext>) -> Arc<Self> {
         Arc::new(Self {
             inner: Mutex::new(HashMap::new()),
+            context,
         })
     }
 
@@ -67,6 +75,11 @@ impl Drop for SobolDvCache {
         // `cuMemFree_v2` works on any pointer regardless of how it was
         // originally allocated (async pool or otherwise).
         let mut map = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        if map.is_empty() {
+            return;
+        }
+        // A failed bind leaves the frees below to report the context error.
+        let _ = bind_context(&self.context);
         for (ptr, _size) in map.drain().map(|(_, v)| v) {
             if ptr != 0 {
                 unsafe {

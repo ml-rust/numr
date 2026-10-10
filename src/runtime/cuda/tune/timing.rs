@@ -43,12 +43,12 @@ pub fn time_launches(
         let start = context.new_event(Some(CUevent_flags::CU_EVENT_DEFAULT))?;
         let end = context.new_event(Some(CUevent_flags::CU_EVENT_DEFAULT))?;
         {
-            let _permit = stream.enqueue_permit();
+            let _permit = stream.enqueue_permit()?;
             start.record(stream.raw())?;
         }
         launch()?;
         {
-            let _permit = stream.enqueue_permit();
+            let _permit = stream.enqueue_permit()?;
             end.record(stream.raw())?;
         }
         pairs.push((start, end));

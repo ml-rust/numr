@@ -14,6 +14,7 @@ use cudarc::driver::safe::{
     CudaEvent, CudaFunction, CudaStream, DriverError, LaunchArgs, LaunchConfig, PushKernelArg,
 };
 
+use super::super::context::bind_context;
 use super::lock::{DeviceCaptureLock, EnqueuePermit, device_lock};
 
 /// A device's compute stream together with the capture lock that guards it.
@@ -60,15 +61,24 @@ impl GuardedStream {
         }
     }
 
-    /// Take the read side of the capture lock for one enqueue made through
-    /// the driver API directly, such as a memcpy.
+    /// Prepare the calling thread for one enqueue made through the driver API
+    /// directly, such as a memcpy.
+    ///
+    /// Makes the stream's context current on the calling thread, then takes
+    /// the read side of the capture lock. Any thread can therefore issue the
+    /// driver call that follows, whether or not it created the client.
     ///
     /// The permit must cover the enqueue and nothing else. Holding it across
     /// a kernel launch on the same device would take the read side twice on
     /// one thread, which a waiting writer turns into a deadlock.
+    ///
+    /// # Errors
+    ///
+    /// Returns the driver's error when the context cannot be made current.
     #[inline]
-    pub fn enqueue_permit(&self) -> EnqueuePermit<'_> {
-        EnqueuePermit::acquire(&self.lock, self.device_index)
+    pub fn enqueue_permit(&self) -> Result<EnqueuePermit<'_>, DriverError> {
+        bind_context(self.stream.context())?;
+        Ok(EnqueuePermit::acquire(&self.lock, self.device_index))
     }
 
     /// Wait for every operation already submitted to this stream.
@@ -86,7 +96,7 @@ impl GuardedStream {
     ///
     /// Returns the driver's error when the wait fails.
     pub fn synchronize(&self) -> Result<(), DriverError> {
-        let _permit = self.enqueue_permit();
+        let _permit = self.enqueue_permit()?;
         self.stream.synchronize()
     }
 
@@ -99,7 +109,8 @@ impl GuardedStream {
     ///
     /// Anything that touches this stream's state — an enqueue, or a wait on
     /// it — must run under [`GuardedStream::enqueue_permit`], whether taken
-    /// by the caller or by the wrapper it goes through.
+    /// by the caller or by the wrapper it goes through. The permit also makes
+    /// the stream's context current, which a direct driver call needs.
     #[inline]
     pub fn raw(&self) -> &CudaStream {
         &self.stream

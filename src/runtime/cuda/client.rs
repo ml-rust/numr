@@ -4,10 +4,16 @@
 //!
 //! # Thread Safety
 //!
-//! `CudaClient` is `Clone` and can be shared across threads. The underlying
-//! CUDA context and stream are reference-counted via `Arc`. However, CUDA
-//! operations must be performed on the thread that owns the context or after
-//! calling `context.bind_to_thread()`.
+//! `CudaClient` is `Clone`, `Send` and `Sync`. Any thread can use it, and
+//! the caller does not bind the CUDA context first. Every numr entry point
+//! that reaches the driver makes the client's context current on the calling
+//! thread before its first driver call. This holds on a thread that has
+//! never made a CUDA call, and on a thread where another device's context is
+//! current.
+//!
+//! Work from all threads shares one compute stream per device, so it runs
+//! in submission order. A CUDA graph capture on one thread makes other
+//! threads' enqueues on that device wait until the capture ends.
 
 use cudarc::driver::safe::{CudaContext, CudaStream};
 use std::sync::Arc;
@@ -182,6 +188,7 @@ impl CudaClient {
 
         let stream = GuardedStream::new(stream, device.index);
         let allocator = CudaAllocator::new(stream.clone(), pool_handle);
+        let sobol_dv_cache = SobolDvCache::new(context.clone());
 
         Ok(Self {
             device,
@@ -190,7 +197,7 @@ impl CudaClient {
             copy_stream,
             allocator,
             raw_handle,
-            sobol_dv_cache: SobolDvCache::new(),
+            sobol_dv_cache,
         })
     }
 
@@ -252,6 +259,7 @@ impl CudaClient {
     /// Returns an event handle that can be passed to `copy_stream_wait_event`.
     pub fn record_event_on_compute(&self) -> Result<u64, CudaError> {
         use cudarc::driver::sys::{CUevent_flags, cuEventCreate, cuEventRecord};
+        self.bind_context()?;
         unsafe {
             let mut event = std::ptr::null_mut();
             let r = cuEventCreate(&mut event, CUevent_flags::CU_EVENT_DISABLE_TIMING as u32);
@@ -276,6 +284,7 @@ impl CudaClient {
     /// Make the copy stream wait for an event recorded on the compute stream.
     pub fn copy_stream_wait_event(&self, event: u64) -> Result<(), CudaError> {
         use cudarc::driver::sys::cuStreamWaitEvent;
+        self.bind_context()?;
         unsafe {
             let r = cuStreamWaitEvent(
                 self.copy_stream.cu_stream(),
@@ -370,7 +379,7 @@ impl CudaClient {
         // open between them. The wait below takes its own; nesting two read
         // sides on one thread would deadlock against a waiting writer.
         let dv_ptr: u64 = {
-            let _permit = self.stream.enqueue_permit();
+            let _permit = self.stream.enqueue_permit()?;
 
             // Allocate a device buffer directly via the driver (bypassing the
             // caching allocator's frozen path) so the address survives across
@@ -380,9 +389,7 @@ impl CudaClient {
                 let mut ptr: u64 = 0;
                 let r = cudarc::driver::sys::cuMemAllocAsync(&mut ptr, dv_bytes.len(), cu_stream);
                 if r != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                    return Err(crate::error::Error::OutOfMemory {
-                        size: dv_bytes.len(),
-                    });
+                    return Err(super::allocator::alloc_error(dv_bytes.len(), r));
                 }
                 ptr
             };
@@ -426,10 +433,27 @@ impl CudaClient {
     /// Must be called after the copy stream has finished using the event
     /// (i.e., after `copy_stream.synchronize()`). Passing an already-destroyed
     /// or invalid handle is safe (CUDA ignores it).
+    ///
+    /// When the context cannot be made current the event cannot be destroyed,
+    /// and it stays allocated until the context is destroyed.
     pub fn destroy_event(&self, event: u64) {
+        if self.bind_context().is_err() {
+            return;
+        }
         unsafe {
             cudarc::driver::sys::cuEventDestroy_v2(event as cudarc::driver::sys::CUevent);
         }
+    }
+
+    /// Make this client's context current on the calling thread, for a
+    /// driver call that takes no stream through a permit.
+    fn bind_context(&self) -> Result<(), CudaError> {
+        super::context::bind_context(&self.context).map_err(|e| {
+            CudaError::ContextError(format!(
+                "Failed to make the CUDA context of device {} current on this thread: {:?}",
+                self.device.index, e
+            ))
+        })
     }
 }
 

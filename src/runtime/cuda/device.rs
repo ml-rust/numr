@@ -84,9 +84,11 @@ impl CudaDevice {
 
     /// Synchronize all operations on this device
     ///
-    /// This synchronizes the current CUDA context on this thread.
+    /// Waits for every stream in this device's context, from any thread.
+    /// Creates the device's client when none exists yet.
     /// For stream-specific synchronization, use `CudaClient::synchronize()` instead.
     pub fn sync(&self) -> Result<(), CudaError> {
+        self.bind_client_context()?;
         cudarc::driver::result::ctx::synchronize().map_err(|e| {
             CudaError::SyncError(format!(
                 "Failed to synchronize CUDA context for device {}: {:?}",
@@ -98,7 +100,10 @@ impl CudaDevice {
     /// Get memory information for this device
     ///
     /// Returns (free_bytes, total_bytes) for the device's global memory.
+    /// Works from any thread. Creates the device's client when none exists
+    /// yet.
     pub fn memory_info(&self) -> Result<(u64, u64), CudaError> {
+        self.bind_client_context()?;
         let (free, total) = cudarc::driver::result::mem_get_info().map_err(|e| {
             CudaError::DeviceError(format!(
                 "Failed to get memory info for device {}: {:?}",
@@ -156,6 +161,21 @@ impl CudaDevice {
         let count = cudarc::driver::result::device::get_count()
             .map_err(|e| CudaError::DeviceError(format!("Failed to count CUDA devices: {e:?}")))?;
         Ok(usize::try_from(count).unwrap_or(0))
+    }
+
+    /// Make this device's client context current on the calling thread.
+    ///
+    /// The context-scoped driver queries act on the calling thread's current
+    /// context, which is none on a fresh thread and another device's after
+    /// work there.
+    fn bind_client_context(&self) -> Result<(), CudaError> {
+        let client = super::client::CudaClient::new(self.clone())?;
+        super::context::bind_context(client.context()).map_err(|e| {
+            CudaError::ContextError(format!(
+                "Failed to make the CUDA context of device {} current on this thread: {:?}",
+                self.index, e
+            ))
+        })
     }
 
     /// The driver's handle of this device, with the driver initialized.

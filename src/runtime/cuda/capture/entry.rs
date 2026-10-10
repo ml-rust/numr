@@ -179,12 +179,8 @@ mod tests {
         let worker_device = device.clone();
         let worker_client = client.clone();
         let worker = thread::spawn(move || -> bool {
-            // A thread that did not create the context must bind it before
-            // issuing driver calls of its own.
-            worker_client
-                .context()
-                .bind_to_thread()
-                .expect("bind context");
+            // This thread did not create the client and binds nothing itself:
+            // numr makes the context current for it.
             let x =
                 Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[4], &worker_device)
                     .expect("worker input x");
@@ -288,10 +284,6 @@ mod tests {
         let worker_waiting = Arc::clone(&waiting);
         let worker_synced = Arc::clone(&synced);
         let worker = thread::spawn(move || {
-            worker_client
-                .context()
-                .bind_to_thread()
-                .expect("bind context");
             worker_waiting.store(true, Ordering::SeqCst);
             worker_client.synchronize();
             worker_synced.store(true, Ordering::SeqCst);

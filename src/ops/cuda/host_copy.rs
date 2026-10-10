@@ -19,7 +19,7 @@ impl HostCopyOps<CudaRuntime> for CudaClient {
         // capture. `src` is pageable host memory, which the driver stages
         // before returning, so the caller may drop it on return.
         let result = {
-            let _permit = self.stream().enqueue_permit();
+            let _permit = self.stream().enqueue_permit()?;
             unsafe {
                 cudarc::driver::sys::cuMemcpyHtoDAsync_v2(
                     out.ptr(),

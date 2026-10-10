@@ -128,13 +128,16 @@ impl CudaAllocator {
     pub(super) unsafe fn driver_alloc(&self, size_bytes: usize) -> crate::error::Result<u64> {
         // One permit covers the alloc, the drain, the sync and the retry:
         // every one of them is stream-ordered on the compute stream.
-        let _permit = self.stream.enqueue_permit();
+        let _permit = self.stream.enqueue_permit()?;
         let cu_stream = self.stream.raw().cu_stream();
         let mut ptr: u64 = 0;
         let result =
             unsafe { cudarc::driver::sys::cuMemAllocAsync(&mut ptr, size_bytes, cu_stream) };
         if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             return Ok(ptr);
+        }
+        if result != cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY {
+            return Err(alloc_error(size_bytes, result));
         }
 
         // Drain free list: return cached segments to the driver pool so it can
@@ -173,13 +176,25 @@ impl CudaAllocator {
         if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
             Ok(ptr)
         } else {
-            Err(crate::error::Error::OutOfMemory { size: size_bytes })
+            Err(alloc_error(size_bytes, result))
         }
     }
 
     /// Free directly to the driver (no free-list insertion).
+    ///
+    /// When the context cannot be made current the free cannot be issued, and
+    /// the buffer stays allocated until the context is destroyed.
     pub(super) unsafe fn driver_free(&self, ptr: u64) {
-        let _permit = self.stream.enqueue_permit();
+        let _permit = match self.stream.enqueue_permit() {
+            Ok(permit) => permit,
+            Err(e) => {
+                eprintln!(
+                    "[numr::cuda] cuMemFreeAsync skipped for ptr 0x{ptr:x}: the CUDA context \
+                     could not be made current on this thread ({e:?})"
+                );
+                return;
+            }
+        };
         let _ = unsafe { cudarc::driver::sys::cuMemFreeAsync(ptr, self.stream.raw().cu_stream()) };
     }
 
@@ -233,5 +248,23 @@ impl CudaAllocator {
     pub fn arena_high_water(&self) -> Option<usize> {
         let guard = self.arena.lock().unwrap_or_else(|p| p.into_inner());
         guard.as_ref().map(CudaArena::high_water)
+    }
+}
+
+/// The error for a failed `cuMemAllocAsync` of `size_bytes`.
+///
+/// Only the driver's out-of-memory code maps to `OutOfMemory`. Any other
+/// code keeps its name, so a context or capture error is not reported as a
+/// full device.
+pub(in crate::runtime::cuda) fn alloc_error(
+    size_bytes: usize,
+    result: cudarc::driver::sys::CUresult,
+) -> crate::error::Error {
+    if result == cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY {
+        crate::error::Error::OutOfMemory { size: size_bytes }
+    } else {
+        crate::error::Error::Backend(format!(
+            "[numr::cuda] cuMemAllocAsync of {size_bytes} bytes failed ({result:?})"
+        ))
     }
 }
