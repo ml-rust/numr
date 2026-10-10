@@ -12,7 +12,7 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
-## [Unreleased]
+## [0.10.0] — 2026-10-10
 
 A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cdist` and `pdist` now use them.
 
