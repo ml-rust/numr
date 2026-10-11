@@ -12,6 +12,34 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [0.12.0] — 2026-10-11
+
+WebGPU copies and gathers any element size at any offset, and runs past the 65535-workgroup and 256 MiB defaults.
+
+### Added
+
+- **`Runtime::handles_take_byte_offsets`** — whether a storage handle plus a byte offset addresses device memory. The default is `true`. WebGPU returns `false`, and `ensure_contiguous` copies an offset view to fresh storage there.
+- **`Runtime::computes_float_dtype`** — whether a backend computes in a float dtype. The default is `true` for every dtype. WebGPU returns `true` for F32 only.
+
+### Fixed
+
+- **WebGPU strided copy and `index_select`** — element sizes that are not a multiple of 4 bytes and unaligned source offsets work. This covers U8, I8, Bool, F16, BF16 and quantized blocks. Before, the copy returned `BackendLimitation`.
+- **WebGPU offset views** — a kernel binds the whole buffer from byte 0. A kernel handed a view at a nonzero offset returns an error, and `ensure_contiguous` copies such a view first. A rank-0 view copies as one element.
+- **WebGPU GEMV-BT** — a matrix with more than 65535 output columns, such as an LLM vocabulary head, runs. Other grid dimensions above the dispatch limit return an error.
+- **WebGPU adapter limits** — the device requests the adapter's own limits. A buffer can exceed the 256 MiB WebGPU default.
+- **CPU on other targets** — the SIMD-only kernels compile on x86_64 and aarch64 only. wasm32 builds without dead-code and unused-import warnings.
+
+### Changed
+
+- **WebGPU adapter index** — an index past the adapter list returns `WgpuError::DeviceError`. Before, it opened another adapter. A host that lists no adapters, such as a browser, still opens its default for index 0.
+- **wasm32 WebGPU** — wgpu's `fragile-send-sync-non-atomic-wasm` feature is on for wasm32, so the WebGPU handles are `Send` and `Sync` there.
+
+### Removed
+
+- **`runtime::wgpu::shaders::copy::STRIDED_COPY_SHADER`** — the strided copy builds its kernels through `launch_strided_copy` instead.
+
+---
+
 ## [0.11.0] — 2026-10-11
 
 GPU `scatter_reduce` is deterministic and bit-equal to the CPU, and the CUDA client works from any thread.
