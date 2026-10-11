@@ -30,40 +30,62 @@
 //! | Any          | Scalar          | N/A          | Fallback  |
 
 // Shared f16/bf16 ↔ f32 SIMD conversion utilities
-#[cfg(feature = "f16")]
+#[cfg(all(feature = "f16", any(target_arch = "x86_64", target_arch = "aarch64")))]
 pub mod half_convert_utils;
 
 // Macros for generating f16/bf16 block-convert-compute wrappers (must come before users)
-// Always compiled - macros internally gate generated code with #[cfg(feature = "f16")]
+// Compiled on every SIMD target. The macros gate generated code with #[cfg(feature = "f16")].
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 #[macro_use]
 mod half_macros;
 
 // CPU SIMD capability detection
 mod detect;
 
-// Operation modules - available on all architectures
-// Each operation's mod.rs handles internal architecture dispatch
+// Operation modules. Each operation's mod.rs handles internal architecture dispatch.
+// Callers reach the elementwise, reduction, norm and conv modules only on SIMD
+// targets, so those modules compile only there. Other targets run generic loops.
+// `distance`, `dot` and `matmul` stay on every target: they hold arch-neutral entry points.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod activations;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod binary;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod clamp;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod compare;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod conv;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod cumulative;
 pub mod distance;
 pub mod dot;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod fused_activation_mul;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod fused_elementwise;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod index;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod logsumexp;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod math;
 pub mod matmul;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod norm;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod reduce;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod scalar;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod softmax;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod softmax_bwd;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod special;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod unary;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod where_select;
 
 // x86-64 only: streaming store utilities

@@ -1,6 +1,6 @@
 //! ReLU activation kernel with automatic SIMD dispatch.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// ReLU activation: max(0, x) with automatic SIMD dispatch
 ///
@@ -11,6 +11,7 @@ pub unsafe fn relu_kernel<T: Element>(a: *const T, out: *mut T, len: usize) {
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::unary;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {

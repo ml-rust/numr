@@ -158,6 +158,7 @@ unsafe fn binary_op_scalar<T: Element>(
 
 /// Scalar binary operation for f32 (used by SIMD for small arrays and tail)
 #[inline]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub unsafe fn binary_scalar_f32(
     op: BinaryOp,
     a: *const f32,
@@ -215,6 +216,7 @@ pub unsafe fn binary_scalar_f32(
 
 /// Scalar binary operation for f64 (used by SIMD for small arrays and tail)
 #[inline]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub unsafe fn binary_scalar_f64(
     op: BinaryOp,
     a: *const f64,
@@ -272,6 +274,7 @@ pub unsafe fn binary_scalar_f64(
 
 /// Scalar binary operation for i32 (used by SIMD for small arrays and tail)
 #[inline]
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub unsafe fn binary_scalar_i32(
     op: BinaryOp,
     a: *const i32,

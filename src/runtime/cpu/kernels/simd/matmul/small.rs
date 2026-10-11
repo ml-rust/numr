@@ -43,11 +43,6 @@ pub unsafe fn small_matmul_f32(
         }
         _ => super::scalar::matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        super::scalar::matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc);
-    }
 }
 
 #[inline]
@@ -76,11 +71,6 @@ pub unsafe fn small_matmul_f64(
             small_matmul_f64_neon(a, b, out, m, n, k, lda, ldb, ldc)
         }
         _ => super::scalar::matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        super::scalar::matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc);
     }
 }
 
@@ -112,11 +102,6 @@ pub unsafe fn small_matmul_bias_f32(
         }
         _ => super::scalar::matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        super::scalar::matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc);
-    }
 }
 
 #[inline]
@@ -146,10 +131,5 @@ pub unsafe fn small_matmul_bias_f64(
             small_matmul_bias_f64_neon(a, b, bias, out, m, n, k, lda, ldb, ldc)
         }
         _ => super::scalar::matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        super::scalar::matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc);
     }
 }

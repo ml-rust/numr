@@ -10,6 +10,8 @@ pub mod fused_activations;
 mod int;
 mod predicates;
 mod relu;
+// The f32/f64 scalar loops serve the SIMD kernels only.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub mod scalar;
 pub mod snake;
 mod unary_dispatch;
@@ -21,6 +23,7 @@ pub use fused_activations::{
 };
 pub use predicates::{isinf_kernel, isnan_kernel};
 pub use relu::relu_kernel;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub use scalar::{relu_scalar_f32, relu_scalar_f64, unary_scalar_f32, unary_scalar_f64};
 pub use snake::{snake_beta_bwd_kernel, snake_beta_kernel};
 pub use unary_dispatch::unary_op_kernel;

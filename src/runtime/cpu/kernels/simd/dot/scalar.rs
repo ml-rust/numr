@@ -15,6 +15,7 @@
 ///
 /// Without a spill the lanes wrap after roughly a million elements and the dot
 /// product returns a value with the wrong sign — silently, in release.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64", test))]
 pub(in crate::runtime::cpu::kernels::simd) const DOT_SPILL_ITERS: usize = 16_384;
 
 /// Narrow an exact i64 total to the i32 this op returns, clamping on overflow.

@@ -35,11 +35,9 @@ use super::scalar::{matmul_bias_scalar_f32, matmul_bias_scalar_f64};
 use super::scalar::{matmul_scalar_f32, matmul_scalar_f64};
 use super::scalar::{microkernel_edge_f32, microkernel_edge_f64};
 use super::small;
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use super::tiled_path::SMALL_MATRIX_THRESHOLD;
 use super::tiling::{matmul_bias_tiled_f32, matmul_bias_tiled_f64};
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use super::tiling::{matmul_bt_tiled_f32, matmul_bt_tiled_f64};
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use super::tiling::{matmul_tiled_f32, matmul_tiled_f64};
 use crate::runtime::cpu::kernels::simd::{SimdLevel, detect_simd};
 
@@ -61,9 +59,6 @@ pub const KC: usize = 256;
 
 /// L3 cache blocking: N dimension (Nc)
 pub const NC: usize = 512;
-
-/// Small matrix threshold - below this, register-blocked SIMD is faster than tiled
-const SMALL_MATRIX_THRESHOLD: usize = 128 * 128 * 128 + 1;
 
 // ============================================================================
 // Public API
@@ -112,9 +107,6 @@ pub unsafe fn matmul_f32(
         }
         _ => matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    matmul_scalar_f32(a, b, out, m, n, k, lda, ldb, ldc);
 }
 
 /// SIMD-optimized matrix multiplication for f64
@@ -152,58 +144,6 @@ pub unsafe fn matmul_f64(
         }
         _ => matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    matmul_scalar_f64(a, b, out, m, n, k, lda, ldb, ldc);
-}
-
-/// Do the transposed-B entry points take the tiled path for this shape?
-///
-/// The tiled path is the one that packs B panels straight out of the `[N, K]`
-/// buffer, producing panels byte-identical to a materialized `[K, N]` operand —
-/// so on that path, and only on that path, [`matmul_bt_f32`] and [`matmul_f32`]
-/// agree bit for bit. Anywhere else the transposed operand runs a different
-/// kernel (the dot-product GEMV-BT one), which agrees within tolerance but
-/// accumulates in its own order. Callers that require identity gate on this.
-pub fn matmul_bt_is_tiled(m: usize, n: usize, k: usize) -> bool {
-    m.saturating_mul(n).saturating_mul(k) >= SMALL_MATRIX_THRESHOLD
-        && tiled_level_available(detect_simd())
-}
-
-/// Fewest output columns that keep an `m × n × k` product on the tiled path.
-///
-/// A caller splitting N across threads uses this as its chunk floor. A chunk
-/// narrower than this drops below `SMALL_MATRIX_THRESHOLD` and runs the
-/// small-matrix kernel instead, which both accumulates in a different order
-/// and — for a transposed B — is a *different* kernel from the contiguous
-/// case, breaking the bit-for-bit agreement [`matmul_bt_is_tiled`] promises.
-///
-/// Returns `usize::MAX` when `m * k` is zero, so no split can clear the floor.
-#[cfg(feature = "rayon")]
-pub fn min_tiled_columns(m: usize, k: usize) -> usize {
-    let rows = m.saturating_mul(k);
-    if rows == 0 {
-        return usize::MAX;
-    }
-    SMALL_MATRIX_THRESHOLD.div_ceil(rows)
-}
-
-/// Does this SIMD level have a tiled microkernel, rather than the scalar path?
-#[cfg(target_arch = "x86_64")]
-fn tiled_level_available(level: SimdLevel) -> bool {
-    matches!(level, SimdLevel::Avx512 | SimdLevel::Avx2Fma)
-}
-
-/// Does this SIMD level have a tiled microkernel, rather than the scalar path?
-#[cfg(target_arch = "aarch64")]
-fn tiled_level_available(level: SimdLevel) -> bool {
-    matches!(level, SimdLevel::Neon | SimdLevel::NeonFp16)
-}
-
-/// Does this SIMD level have a tiled microkernel, rather than the scalar path?
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-fn tiled_level_available(_level: SimdLevel) -> bool {
-    false
 }
 
 /// SIMD matrix multiplication with a transposed B operand: C = A @ B
@@ -254,9 +194,6 @@ pub unsafe fn matmul_bt_f32(
         }
         _ => gemv_bt::gemv_bt_f32(a, b, out, m, n, k, ldc, level),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    gemv_bt::gemv_bt_f32(a, b, out, m, n, k, ldc, level);
 }
 
 /// SIMD matrix multiplication with a transposed B operand for f64
@@ -297,9 +234,6 @@ pub unsafe fn matmul_bt_f64(
         }
         _ => gemv_bt::gemv_bt_f64(a, b, out, m, n, k, ldc, level),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    gemv_bt::gemv_bt_f64(a, b, out, m, n, k, ldc, level);
 }
 
 /// Fused matmul with bias: C = A @ B + bias (single-pass, cache-efficient)
@@ -345,9 +279,6 @@ pub unsafe fn matmul_bias_f32(
         }
         _ => matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    matmul_bias_scalar_f32(a, b, bias, out, m, n, k, lda, ldb, ldc);
 }
 
 /// Fused matmul with bias for f64
@@ -390,9 +321,6 @@ pub unsafe fn matmul_bias_f64(
         }
         _ => matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    matmul_bias_scalar_f64(a, b, bias, out, m, n, k, lda, ldb, ldc);
 }
 
 // ============================================================================
@@ -426,9 +354,6 @@ pub unsafe fn call_microkernel_f32(
         }
         _ => microkernel_edge_f32(a, b, c, MR, 4, k, ldc, first_k),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f32(a, b, c, MR, 4, k, ldc, first_k);
 }
 
 /// Dispatch to the double-width SIMD microkernel for f32 (2×NR columns)
@@ -460,9 +385,6 @@ pub unsafe fn call_microkernel_2x_f32(
         }
         _ => microkernel_edge_f32(a, b, c, MR, 8, k, ldc, first_k),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f32(a, b, c, MR, 8, k, ldc, first_k);
 }
 
 /// Dispatch to the appropriate SIMD microkernel for f64 (single-width NR)
@@ -490,9 +412,6 @@ pub unsafe fn call_microkernel_f64(
         }
         _ => microkernel_edge_f64(a, b, c, MR, 2, k, ldc, first_k),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f64(a, b, c, MR, 4, k, ldc, first_k);
 }
 
 /// Dispatch to the double-width SIMD microkernel for f64 (2×NR columns)
@@ -520,9 +439,6 @@ pub unsafe fn call_microkernel_2x_f64(
         }
         _ => microkernel_edge_f64(a, b, c, MR, 4, k, ldc, first_k),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    microkernel_edge_f64(a, b, c, MR, 8, k, ldc, first_k);
 }
 
 // ============================================================================

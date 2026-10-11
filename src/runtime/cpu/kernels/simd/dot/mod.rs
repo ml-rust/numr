@@ -19,4 +19,6 @@ mod dispatch;
 mod scalar;
 
 pub use dispatch::{i8xi8_dot_f32_with, i8xi8_dot_i32, i8xi8_dot_i32_with};
-pub(in crate::runtime::cpu::kernels::simd) use scalar::{DOT_SPILL_ITERS, saturate_i64_to_i32};
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub(in crate::runtime::cpu::kernels::simd) use scalar::DOT_SPILL_ITERS;
+pub(in crate::runtime::cpu::kernels::simd) use scalar::saturate_i64_to_i32;

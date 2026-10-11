@@ -42,12 +42,6 @@ pub unsafe fn gemv_bt_f32(
         SimdLevel::Neon | SimdLevel::NeonFp16 => gemv_bt_f32_neon(a, b, out, m, n, k, ldc),
         _ => gemv_bt_f32_scalar(a, b, out, m, n, k, ldc),
     }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        gemv_bt_f32_scalar(a, b, out, m, n, k, ldc);
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -280,12 +274,6 @@ pub unsafe fn gemv_bt_f64(
     match level {
         SimdLevel::Neon | SimdLevel::NeonFp16 => gemv_bt_f64_neon(a, b, out, m, n, k, ldc),
         _ => gemv_bt_f64_scalar(a, b, out, m, n, k, ldc),
-    }
-
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        let _ = level;
-        gemv_bt_f64_scalar(a, b, out, m, n, k, ldc);
     }
 }
 

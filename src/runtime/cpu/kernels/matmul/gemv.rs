@@ -5,7 +5,7 @@
 //! accumulator convention.
 
 use super::super::wide_acc::WideAcc;
-#[cfg(feature = "f16")]
+#[cfg(all(feature = "f16", any(target_arch = "x86_64", target_arch = "aarch64")))]
 use super::dot::simd_dot_f32;
 #[cfg(feature = "f16")]
 use super::half_batch::batch_half_to_f32;

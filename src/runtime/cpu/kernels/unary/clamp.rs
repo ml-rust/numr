@@ -1,6 +1,6 @@
 //! Clamp-to-range kernel with automatic SIMD dispatch.
 
-use crate::dtype::{DType, Element};
+use crate::dtype::Element;
 
 /// Clamp values to a range: out[i] = min(max(a[i], min_val), max_val)
 ///
@@ -22,6 +22,7 @@ pub unsafe fn clamp_kernel<T: Element>(
     #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
     {
         use super::super::simd::clamp;
+        use crate::dtype::DType;
 
         match T::DTYPE {
             DType::F32 => {
