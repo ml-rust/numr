@@ -93,6 +93,46 @@ pub(crate) fn native_index_select(
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
+    // An element size that is not a multiple of 4 has no word kernel. Its rows
+    // move as raw bytes: quantized block rows (U8), F16, BF16, I8 and Bool.
+    let elem_size = dtype.size_in_bytes();
+    if !elem_size.is_multiple_of(4) {
+        let total_bytes = total_output * elem_size;
+        let too_large = |what: &str, value: usize| Error::BackendLimitation {
+            backend: "wgpu",
+            operation: "index_select",
+            reason: format!("{what} {value} exceeds the 32-bit addressing of the byte kernel"),
+        };
+        let input_bytes = a.numel() * elem_size;
+        if u32::try_from(total_bytes).is_err() {
+            return Err(too_large("output byte count", total_bytes));
+        }
+        if u32::try_from(input_bytes).is_err() {
+            return Err(too_large("input byte count", input_bytes));
+        }
+        let params = IndexSelectBytesParams {
+            outer_size: outer_size as u32,
+            dim_size: dim_size as u32,
+            inner_bytes: (inner_size * elem_size) as u32,
+            index_len: index_len as u32,
+            total_bytes: total_bytes as u32,
+            _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+        };
+        let params_buf = create_params_buffer(client, &params);
+        index::launch_index_select_bytes(
+            client.pipeline_cache(),
+            client.wgpu_queue(),
+            &a_buf,
+            &indices_buf,
+            &out_buf,
+            &params_buf,
+            total_bytes,
+        )?;
+        return Ok(out);
+    }
+
     // Never restore a `.max(1)` on these: the `total_output == 0` guard above
     // already rules a zero out, and a clamp would tell the shader about a row the
     // allocation does not contain.

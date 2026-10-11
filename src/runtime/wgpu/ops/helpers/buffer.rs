@@ -45,12 +45,24 @@ pub(crate) fn create_storage_buffer<T: bytemuck::Pod>(
         })
 }
 
-/// Get the wgpu buffer from a tensor's storage pointer.
+/// Get the wgpu buffer behind a tensor's storage.
+///
+/// A kernel binds the whole buffer from byte 0. A view at a nonzero offset
+/// is an error here. `ensure_contiguous` copies such a view first.
 pub(crate) fn get_tensor_buffer(
     tensor: &Tensor<WgpuRuntime>,
 ) -> Result<std::sync::Arc<wgpu::Buffer>> {
-    let ptr = tensor.ptr();
-    get_buffer(ptr).ok_or_else(|| Error::Internal("Buffer not found in registry".to_string()))
+    if tensor.offset() != 0 {
+        return Err(Error::Internal(format!(
+            "wgpu kernel received a view at element offset {} of shape {:?}. \
+             Pass it through ensure_contiguous first.",
+            tensor.offset(),
+            tensor.shape()
+        )));
+    }
+    let ptr = tensor.storage().ptr();
+    get_buffer(ptr)
+        .ok_or_else(|| Error::Internal(format!("wgpu buffer {ptr} is not in the buffer registry")))
 }
 
 /// Allocate output tensor with given shape and dtype.

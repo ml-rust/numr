@@ -9,6 +9,21 @@ pub(crate) struct IndexSelectParams {
     pub(crate) index_len: u32,
 }
 
+/// `index_select` over raw bytes, for element sizes that are not a multiple
+/// of 4. `inner_bytes` is the byte length of one selected slice.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct IndexSelectBytesParams {
+    pub(crate) outer_size: u32,
+    pub(crate) dim_size: u32,
+    pub(crate) inner_bytes: u32,
+    pub(crate) index_len: u32,
+    pub(crate) total_bytes: u32,
+    pub(crate) _pad0: u32,
+    pub(crate) _pad1: u32,
+    pub(crate) _pad2: u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GatherParams {

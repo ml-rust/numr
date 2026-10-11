@@ -13,7 +13,8 @@ mod validate;
 
 pub use bincount::launch_bincount;
 pub use gather::{
-    launch_embedding_lookup, launch_gather, launch_gather_2d, launch_gather_nd, launch_index_select,
+    launch_embedding_lookup, launch_gather, launch_gather_2d, launch_gather_nd,
+    launch_index_select, launch_index_select_bytes,
 };
 pub use masked::{
     launch_masked_count, launch_masked_fill, launch_masked_prefix_sum, launch_masked_select,

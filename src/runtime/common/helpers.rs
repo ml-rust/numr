@@ -163,11 +163,14 @@ pub fn row_layout(shape: &[usize], total: usize) -> (usize, usize) {
 ///
 /// A new tensor that is guaranteed to be contiguous. If the input was already
 /// contiguous, this is zero-copy (just clones the Arc). Otherwise, data is copied.
+///
+/// On a runtime whose handles take no byte offset (WebGPU), a contiguous
+/// view at a nonzero offset is copied too. Its kernels bind whole buffers.
 #[inline]
 pub fn ensure_contiguous<R: Runtime<DType = DType>>(
     tensor: &Tensor<R>,
 ) -> crate::error::Result<Tensor<R>> {
-    if tensor.is_contiguous() {
+    if tensor.is_contiguous() && (tensor.offset() == 0 || R::handles_take_byte_offsets()) {
         Ok(tensor.clone())
     } else {
         tensor.contiguous()

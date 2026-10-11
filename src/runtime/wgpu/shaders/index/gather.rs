@@ -3,6 +3,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::super::copy::dispatch_grid;
 use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use super::shader_registry::shader_info;
 use crate::dtype::DType;
@@ -50,6 +51,51 @@ pub fn launch_index_select(
         pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
     }
 
+    queue.submit(std::iter::once(encoder.finish()));
+    Ok(())
+}
+
+const INDEX_SELECT_BYTES_SHADER: &str = include_str!("../index_select_bytes.wgsl");
+
+/// Launch `index_select` over raw bytes.
+///
+/// Serves every dtype whose element size is not a multiple of 4: U8, I8,
+/// Bool, F16, BF16 and quantized block bytes. `params_buffer` holds an
+/// `IndexSelectBytesParams`. One thread writes one output word.
+pub fn launch_index_select_bytes(
+    cache: &PipelineCache,
+    queue: &Queue,
+    input: &Buffer,
+    indices: &Buffer,
+    output: &Buffer,
+    params_buffer: &Buffer,
+    total_bytes: usize,
+) -> Result<()> {
+    let module_key = "index_select_bytes";
+    let module = cache.get_or_create_module(module_key, INDEX_SELECT_BYTES_SHADER);
+    let layout = cache.get_or_create_layout(LayoutKey {
+        num_storage_buffers: 3,
+        num_uniform_buffers: 1,
+        num_readonly_storage: 0,
+    });
+    let pipeline = cache.get_or_create_pipeline(module_key, module_key, &module, &layout);
+    let bind_group = cache.create_bind_group(&layout, &[input, indices, output, params_buffer]);
+
+    let mut encoder = cache
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some(module_key),
+        });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some(module_key),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, Some(&bind_group), &[]);
+        let (x, y) = dispatch_grid(total_bytes.div_ceil(4));
+        pass.dispatch_workgroups(x, y, 1);
+    }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
 }

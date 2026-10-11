@@ -580,12 +580,19 @@ impl<R: Runtime> Tensor<R> {
             let dst_handle = new_storage.ptr();
             let src_byte_offset = self.layout.offset() * elem_size;
 
+            // A rank-0 view holds one element. Backends skip an empty shape,
+            // so the copy runs as shape `[1]`.
+            let (shape, strides): (&[usize], &[isize]) = if self.shape().is_empty() {
+                (&[1], &[1])
+            } else {
+                (self.shape(), self.strides())
+            };
             R::copy_strided(
                 src_handle,
                 src_byte_offset,
                 dst_handle,
-                self.shape(),
-                self.strides(),
+                shape,
+                strides,
                 elem_size,
                 device,
             )?;

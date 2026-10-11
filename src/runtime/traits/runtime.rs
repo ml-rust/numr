@@ -61,6 +61,27 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         false
     }
 
+    /// Whether this backend's compute kernels accept `dtype` as a float
+    /// element type.
+    ///
+    /// A weight loader decodes any float dtype this returns `false` for to
+    /// F32 before upload. CPU and CUDA compute every float dtype. WebGPU
+    /// computes F32 only.
+    fn computes_float_dtype(dtype: Self::DType) -> bool {
+        let _ = dtype;
+        true
+    }
+
+    /// Whether a storage handle plus a byte offset addresses device memory.
+    ///
+    /// CPU and CUDA handles are pointers, so a kernel reads a view at an
+    /// offset in place. A WebGPU handle is a buffer id, and a kernel binds
+    /// the whole buffer from byte 0. On such a backend, `ensure_contiguous`
+    /// copies an offset view to fresh storage.
+    fn handles_take_byte_offsets() -> bool {
+        true
+    }
+
     /// Destination-passing graph capture.
     ///
     /// Captures the operations performed by `f` into a replayable

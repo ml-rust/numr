@@ -35,6 +35,17 @@ impl Runtime for WgpuRuntime {
         false // WebGPU doesn't have CUDA-style graph capture
     }
 
+    /// WGSL kernels compute in F32 only. A loader decodes F16, BF16 and
+    /// F64 weights to F32.
+    fn computes_float_dtype(dtype: Self::DType) -> bool {
+        dtype == crate::dtype::DType::F32
+    }
+
+    /// A handle is a buffer id, and a kernel binds the whole buffer.
+    fn handles_take_byte_offsets() -> bool {
+        false
+    }
+
     /// Allocate GPU memory (storage buffer).
     ///
     /// Returns `Err(OutOfMemory)` if buffer creation fails.
@@ -212,11 +223,13 @@ impl Runtime for WgpuRuntime {
 
     /// Copy strided data to a contiguous buffer using a compute shader.
     ///
-    /// Unlike CPU/CUDA which can use pointer arithmetic, WGPU buffers are opaque
-    /// handles that don't support arithmetic. This method uses a compute shader
-    /// to read elements at strided offsets and write them contiguously.
+    /// WGPU buffers are opaque handles with no pointer arithmetic, so a
+    /// shader reads the strided source and writes the destination densely.
+    /// Every element size works: sizes that are not a multiple of 4 bytes,
+    /// and unaligned source offsets, take a byte-gathering kernel.
     ///
-    /// Returns an error if buffers don't exist or shader execution fails.
+    /// Returns an error if a buffer is missing or the copy exceeds the
+    /// kernel's rank or 32-bit addressing limits.
     fn copy_strided(
         src_handle: u64,
         src_byte_offset: usize,
@@ -226,46 +239,9 @@ impl Runtime for WgpuRuntime {
         elem_size: usize,
         device: &Self::Device,
     ) -> crate::error::Result<()> {
-        if src_handle == 0 || dst_handle == 0 || shape.is_empty() {
+        // A rank-0 shape is one element. Its product is 1, so it still copies.
+        if src_handle == 0 || dst_handle == 0 || shape.iter().product::<usize>() == 0 {
             return Ok(());
-        }
-
-        let numel: usize = shape.iter().product();
-        if numel == 0 {
-            return Ok(());
-        }
-
-        // Validate rank <= 8 (shader uses fixed-size arrays)
-        if shape.len() > 8 {
-            return Err(crate::error::Error::BackendLimitation {
-                backend: "wgpu",
-                operation: "copy_strided",
-                reason: format!("rank {} exceeds maximum of 8 dimensions", shape.len()),
-            });
-        }
-
-        // Validate elem_size is a multiple of 4 bytes (shader uses array<u32>)
-        if !elem_size.is_multiple_of(4) {
-            return Err(crate::error::Error::BackendLimitation {
-                backend: "wgpu",
-                operation: "copy_strided",
-                reason: format!(
-                    "element size {} is not a multiple of 4 bytes; sub-4-byte dtypes (F16, Bool) require byte-level addressing not supported by the u32-based copy shader",
-                    elem_size
-                ),
-            });
-        }
-
-        // Validate byte offset is 4-byte aligned
-        if !src_byte_offset.is_multiple_of(4) {
-            return Err(crate::error::Error::BackendLimitation {
-                backend: "wgpu",
-                operation: "copy_strided",
-                reason: format!(
-                    "source byte offset {} is not 4-byte aligned",
-                    src_byte_offset
-                ),
-            });
         }
 
         let client = get_or_create_client(device).map_err(wgpu_err)?;
@@ -275,161 +251,15 @@ impl Runtime for WgpuRuntime {
         let dst_buffer = super::client::get_buffer(dst_handle).ok_or_else(|| {
             crate::error::Error::Backend("Destination buffer not found for copy_strided".into())
         })?;
-
-        // Create shader module
-        let module = client
-            .wgpu_device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("strided_copy"),
-                source: wgpu::ShaderSource::Wgsl(shaders::copy::STRIDED_COPY_SHADER.into()),
-            });
-
-        // Create bind group layout (all storage buffers to avoid alignment issues)
-        let bind_group_layout =
-            client
-                .wgpu_device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("strided_copy_layout"),
-                    entries: &[
-                        // src (read-only input)
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        // dst (output)
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: false },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                        // params (read-only input)
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Buffer {
-                                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                                has_dynamic_offset: false,
-                                min_binding_size: None,
-                            },
-                            count: None,
-                        },
-                    ],
-                });
-
-        // Create pipeline
-        let pipeline_layout =
-            client
-                .wgpu_device
-                .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("strided_copy_pipeline_layout"),
-                    bind_group_layouts: &[Some(&bind_group_layout)],
-                    immediate_size: 0,
-                });
-
-        let pipeline =
-            client
-                .wgpu_device
-                .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some("strided_copy_pipeline"),
-                    layout: Some(&pipeline_layout),
-                    module: &module,
-                    entry_point: Some("strided_copy"),
-                    compilation_options: Default::default(),
-                    cache: None,
-                });
-
-        // Prepare parameters
-        // Element size in 4-byte units (WGSL array<u32>)
-        // Safe: validated elem_size % 4 == 0 above
-        let elem_size_units = (elem_size / 4) as u32;
-        // Source offset in 4-byte units
-        // Safe: validated src_byte_offset % 4 == 0 above
-        let src_offset_units = (src_byte_offset / 4) as u32;
-
-        // Pad shape and strides to 8 elements
-        let mut shape_arr = [0u32; 8];
-        let mut strides_arr = [0i32; 8];
-        for (i, &s) in shape.iter().enumerate().take(8) {
-            shape_arr[i] = s as u32;
-        }
-        for (i, &s) in strides.iter().enumerate().take(8) {
-            strides_arr[i] = s as i32;
-        }
-
-        // Create params buffer (numel, ndim, elem_size_units, src_offset_units, shape[8], strides[8])
-        // Total: 4 + 4 + 4 + 4 + 32 + 32 = 80 bytes
-        let mut params_data = Vec::with_capacity(80);
-        params_data.extend_from_slice(&(numel as u32).to_le_bytes());
-        params_data.extend_from_slice(&(shape.len() as u32).to_le_bytes());
-        params_data.extend_from_slice(&elem_size_units.to_le_bytes());
-        params_data.extend_from_slice(&src_offset_units.to_le_bytes());
-        for s in shape_arr {
-            params_data.extend_from_slice(&s.to_le_bytes());
-        }
-        for s in strides_arr {
-            params_data.extend_from_slice(&s.to_le_bytes());
-        }
-
-        let params_buffer = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("strided_copy_params"),
-            size: params_data.len() as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        client.queue.write_buffer(&params_buffer, 0, &params_data);
-
-        // Create bind group
-        let bind_group = client
-            .wgpu_device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("strided_copy_bind_group"),
-                layout: &bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: src_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: dst_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: params_buffer.as_entire_binding(),
-                    },
-                ],
-            });
-
-        // Dispatch compute shader
-        let workgroups = shaders::workgroup_count(numel);
-        let mut encoder =
-            client
-                .wgpu_device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("strided_copy"),
-                });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("strided_copy_pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(workgroups, 1, 1);
-        }
-        client.submit_and_wait(encoder);
-        Ok(())
+        shaders::copy::launch_strided_copy(
+            &client,
+            &src_buffer,
+            &dst_buffer,
+            shape,
+            strides,
+            elem_size,
+            src_byte_offset,
+        )
     }
 
     fn capture_graph_into<F>(
