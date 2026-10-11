@@ -12,7 +12,9 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
-## [Unreleased]
+## [0.11.0] — 2026-10-11
+
+GPU `scatter_reduce` is deterministic and bit-equal to the CPU, and the CUDA client works from any thread.
 
 ### Fixed
 
