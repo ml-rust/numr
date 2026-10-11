@@ -98,7 +98,9 @@ impl WgpuClient {
                 .request_device(&wgpu::DeviceDescriptor {
                     label: Some("numr WebGPU Device"),
                     required_features,
-                    required_limits: wgpu::Limits::default(),
+                    // The adapter's own maxima. The WebGPU defaults cap a
+                    // buffer at 256 MiB, below one LLM embedding table.
+                    required_limits: adapter.limits(),
                     memory_hints: wgpu::MemoryHints::Performance,
                     trace: wgpu::Trace::Off,
                     experimental_features: wgpu::ExperimentalFeatures::default(),

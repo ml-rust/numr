@@ -179,20 +179,13 @@ pub(crate) async fn query_adapter_info(
 ) -> Result<(Adapter, Arc<AdapterInfo>), WgpuError> {
     let instance = wgpu::Instance::default();
 
-    // Enumerate all adapters and select by index
-    let adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).await;
+    // Enumerate all adapters and select by index.
+    let mut adapters: Vec<_> = instance.enumerate_adapters(wgpu::Backends::all()).await;
 
-    if adapters.is_empty() {
-        return Err(WgpuError::NoAdapter);
-    }
-
-    // If index is out of range, use the first adapter
     let adapter = if index < adapters.len() {
-        // SAFETY: We just verified index < adapters.len()
-        let mut adapters = adapters;
         adapters.swap_remove(index)
-    } else {
-        // Request high-performance adapter as fallback
+    } else if adapters.is_empty() && index == 0 {
+        // A browser host lists no adapters. It still hands out its default.
         instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -202,6 +195,15 @@ pub(crate) async fn query_adapter_info(
             })
             .await
             .map_err(|_| WgpuError::NoAdapter)?
+    } else if adapters.is_empty() {
+        return Err(WgpuError::NoAdapter);
+    } else {
+        // An index past the list is an error, never a silent pick of another
+        // adapter.
+        return Err(WgpuError::DeviceError(format!(
+            "adapter {index} does not exist: {} adapter(s) found",
+            adapters.len()
+        )));
     };
 
     let wgpu_info = adapter.get_info();
@@ -267,6 +269,19 @@ mod tests {
             Err(e) => {
                 println!("No GPU available, skipping test: {}", e);
             }
+        }
+    }
+
+    #[test]
+    fn test_out_of_range_adapter_is_an_error() {
+        if query_adapter_info_blocking(0).is_err() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        match query_adapter_info_blocking(10_000) {
+            Err(WgpuError::DeviceError(msg)) => assert!(msg.contains("10000"), "{msg}"),
+            Err(other) => panic!("expected DeviceError, got {other}"),
+            Ok(_) => panic!("adapter 10000 opened another adapter"),
         }
     }
 }
