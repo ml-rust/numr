@@ -21,6 +21,7 @@
 // cannot give.
 
 pub mod float;
+pub mod gemv_bt_wide_wgpu;
 pub mod i8_cuda;
 pub mod integer_cuda;
 pub mod integer_dtypes_cuda;

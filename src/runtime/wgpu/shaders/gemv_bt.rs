@@ -12,10 +12,30 @@ use crate::error::{Error, Result};
 
 const GEMV_BT_SHADER: &str = include_str!("gemv_bt.wgsl");
 
+/// Workgroups per dispatch dimension, the WebGPU minimum limit. Matches
+/// `GEMV_GRID_X` in `gemv_bt.wgsl`.
+const GEMV_GRID_X: usize = 65535;
+
+/// Workgroups along x, and the column chunks past them.
+fn column_grid(n: usize) -> (u32, usize) {
+    (n.min(GEMV_GRID_X) as u32, n.div_ceil(GEMV_GRID_X))
+}
+
+/// Reject a grid dimension above the WebGPU limit.
+fn check_dim(op: &'static str, what: &str, count: usize) -> Result<u32> {
+    if count > GEMV_GRID_X {
+        return Err(Error::Backend(format!(
+            "{op}: {what} needs {count} workgroups, above the WebGPU limit of {GEMV_GRID_X}"
+        )));
+    }
+    Ok(count as u32)
+}
+
 /// Launch 2D GEMV-BT kernel.
 ///
 /// Computes `C[M,N] = A[M,K] @ B^T` where B is stored as `[N,K]` row-major.
-/// Dispatch: (N, M, 1) workgroups, each with 256 threads for K-reduction.
+/// Dispatch: (min(N, 65535), M, column chunks) workgroups, each with 256
+/// threads for K-reduction.
 pub fn launch_gemv_bt(
     cache: &PipelineCache,
     queue: &Queue,
@@ -33,6 +53,10 @@ pub fn launch_gemv_bt(
             op: "gemv_bt",
         });
     }
+
+    let (grid_x, chunks) = column_grid(n);
+    let grid_y = check_dim("gemv_bt", "the row count", m)?;
+    let chunks = check_dim("gemv_bt", "the column chunk count", chunks)?;
 
     let module = cache.get_or_create_module("gemv_bt", GEMV_BT_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -57,7 +81,7 @@ pub fn launch_gemv_bt(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(n as u32, m as u32, 1);
+        pass.dispatch_workgroups(grid_x, grid_y, chunks);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -86,6 +110,10 @@ pub fn launch_batched_gemv_bt(
         });
     }
 
+    let (grid_x, chunks) = column_grid(n);
+    let grid_y = check_dim("batched_gemv_bt", "rows times column chunks", m * chunks)?;
+    let grid_z = check_dim("batched_gemv_bt", "the batch", batch_size)?;
+
     let module = cache.get_or_create_module("gemv_bt", GEMV_BT_SHADER);
     let layout = cache.get_or_create_layout(LayoutKey {
         num_storage_buffers: 3,
@@ -109,7 +137,7 @@ pub fn launch_batched_gemv_bt(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(n as u32, m as u32, batch_size as u32);
+        pass.dispatch_workgroups(grid_x, grid_y, grid_z);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

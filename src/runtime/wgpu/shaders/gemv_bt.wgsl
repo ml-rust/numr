@@ -3,8 +3,9 @@
 // Each output C[m,n] = dot(A[m,:], B[n,:]) where both vectors are contiguous.
 // This avoids copying transposed weight matrices to make them contiguous.
 //
-// Dispatch: workgroups(N, M, batch_size) with workgroup_size(256, 1, 1)
 // Each workgroup computes one output element using parallel reduction.
+// A dispatch dimension holds at most 65535 workgroups. Columns past that
+// spill into further chunks of GEMV_GRID_X columns each.
 
 struct GemvBtParams {
     M: u32,
@@ -20,8 +21,12 @@ struct GemvBtParams {
 
 var<workgroup> gemv_shared: array<f32, 256>;
 
-// 2D GEMV-BT: one workgroup per output element
-// workgroup_id.x = output column (n), workgroup_id.y = output row (m)
+const GEMV_GRID_X: u32 = 65535u;
+
+// 2D GEMV-BT: one workgroup per output element.
+// Dispatch: (min(N, GEMV_GRID_X), M, column chunks).
+// workgroup_id.x + workgroup_id.z * GEMV_GRID_X = output column (n),
+// workgroup_id.y = output row (m).
 @compute @workgroup_size(256, 1, 1)
 fn gemv_bt_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
                @builtin(workgroup_id) group_id: vec3<u32>) {
@@ -30,7 +35,7 @@ fn gemv_bt_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
     let N = gemv_params.N;
     let tid = local_id.x;
     let m = group_id.y;
-    let n = group_id.x;
+    let n = group_id.x + group_id.z * GEMV_GRID_X;
 
     if (m >= M || n >= N) {
         return;
@@ -64,7 +69,9 @@ fn gemv_bt_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
     }
 }
 
-// Batched GEMV-BT: workgroup_id.z = batch index
+// Batched GEMV-BT: workgroup_id.z = batch index.
+// Dispatch: (min(N, GEMV_GRID_X), M * column chunks, batch_size).
+// workgroup_id.y = chunk * M + m.
 @compute @workgroup_size(256, 1, 1)
 fn batched_gemv_bt_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
                        @builtin(workgroup_id) group_id: vec3<u32>) {
@@ -73,8 +80,8 @@ fn batched_gemv_bt_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
     let N = gemv_params.N;
     let batch_size = gemv_params.batch_size;
     let tid = local_id.x;
-    let m = group_id.y;
-    let n = group_id.x;
+    let m = group_id.y % M;
+    let n = group_id.x + (group_id.y / M) * GEMV_GRID_X;
     let batch = group_id.z;
 
     if (m >= M || n >= N || batch >= batch_size) {
