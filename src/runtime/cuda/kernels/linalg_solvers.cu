@@ -50,6 +50,65 @@ __device__ void backward_sub_impl(const T* __restrict__ u,
 }
 
 // ============================================================================
+// Batched substitution: one thread per (matrix, right-hand-side column)
+//
+// a: [batch, n, n], b and x: [batch, n, nrhs], all row-major and contiguous.
+// Thread t solves column t % nrhs of matrix t / nrhs. Rows run in order
+// inside the thread, with the same arithmetic as forward_sub_impl and
+// backward_sub_impl. Adjacent threads read adjacent columns of b and x.
+// ============================================================================
+
+template<typename T>
+__device__ void forward_sub_batched_impl(const T* __restrict__ l,
+                                         const T* __restrict__ b,
+                                         T* __restrict__ x,
+                                         unsigned int n, unsigned int nrhs,
+                                         unsigned int batch, int unit_diag) {
+    const size_t tid = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= (size_t)batch * nrhs) return;
+    const size_t mat = tid / nrhs;
+    const size_t col = tid % nrhs;
+    const T* lm = l + mat * n * n;
+    const T* bm = b + mat * n * nrhs;
+    T* xm = x + mat * n * nrhs;
+
+    for (unsigned int i = 0; i < n; i++) {
+        T sum = bm[(size_t)i * nrhs + col];
+        for (unsigned int j = 0; j < i; j++) {
+            sum -= lm[(size_t)i * n + j] * xm[(size_t)j * nrhs + col];
+        }
+        if (unit_diag) {
+            xm[(size_t)i * nrhs + col] = sum;
+        } else {
+            xm[(size_t)i * nrhs + col] = sum / lm[(size_t)i * n + i];
+        }
+    }
+}
+
+template<typename T>
+__device__ void backward_sub_batched_impl(const T* __restrict__ u,
+                                          const T* __restrict__ b,
+                                          T* __restrict__ x,
+                                          unsigned int n, unsigned int nrhs,
+                                          unsigned int batch) {
+    const size_t tid = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= (size_t)batch * nrhs) return;
+    const size_t mat = tid / nrhs;
+    const size_t col = tid % nrhs;
+    const T* um = u + mat * n * n;
+    const T* bm = b + mat * n * nrhs;
+    T* xm = x + mat * n * nrhs;
+
+    for (int i = (int)n - 1; i >= 0; i--) {
+        T sum = bm[(size_t)i * nrhs + col];
+        for (unsigned int j = i + 1; j < n; j++) {
+            sum -= um[(size_t)i * n + j] * xm[(size_t)j * nrhs + col];
+        }
+        xm[(size_t)i * nrhs + col] = sum / um[(size_t)i * n + i];
+    }
+}
+
+// ============================================================================
 // Determinant from LU
 // ============================================================================
 
@@ -174,6 +233,29 @@ __global__ void backward_sub_bf16(const __nv_bfloat16* u, const __nv_bfloat16* b
                                   unsigned int n) {
     backward_sub_impl<__nv_bfloat16>(u, b, x, n);
 }
+
+// ============================================================================
+// Batched substitution wrappers (F32, F64, F16, BF16)
+// ============================================================================
+
+#define TRIANGULAR_BATCHED_WRAPPERS(SUFFIX, T)                                      \
+__global__ void forward_sub_batched_##SUFFIX(const T* l, const T* b, T* x,          \
+                                             unsigned int n, unsigned int nrhs,     \
+                                             unsigned int batch, int unit_diag) {   \
+    forward_sub_batched_impl<T>(l, b, x, n, nrhs, batch, unit_diag);                \
+}                                                                                   \
+__global__ void backward_sub_batched_##SUFFIX(const T* u, const T* b, T* x,         \
+                                              unsigned int n, unsigned int nrhs,    \
+                                              unsigned int batch) {                 \
+    backward_sub_batched_impl<T>(u, b, x, n, nrhs, batch);                          \
+}
+
+TRIANGULAR_BATCHED_WRAPPERS(f32, float)
+TRIANGULAR_BATCHED_WRAPPERS(f64, double)
+TRIANGULAR_BATCHED_WRAPPERS(f16, __half)
+TRIANGULAR_BATCHED_WRAPPERS(bf16, __nv_bfloat16)
+
+#undef TRIANGULAR_BATCHED_WRAPPERS
 
 __global__ void det_from_lu_bf16(const __nv_bfloat16* lu, __nv_bfloat16* det,
                                  unsigned int n, int num_swaps) {

@@ -20,6 +20,7 @@
 //! - `decompositions`: Result types (LuDecomposition, QrDecomposition, etc.)
 //! - `traits`: LinearAlgebraAlgorithms and MatrixFunctionsAlgorithms traits
 //! - `helpers`: Validation utilities
+//! - `triangular_shape`: Shape rules for batched triangular solves
 //! - `matrix_functions_core`: Shared numerical algorithms for matrix functions
 
 pub mod decompositions;
@@ -27,11 +28,16 @@ pub mod helpers;
 pub mod matrix_functions_core;
 pub mod tensor_decompose_core;
 pub mod traits;
+pub mod triangular_shape;
+
+#[cfg(test)]
+pub(crate) mod triangular_test_data;
 
 // Re-export all public types for convenient access
 pub use decompositions::*;
 pub use helpers::*;
 pub use traits::{LinearAlgebraAlgorithms, MatrixFunctionsAlgorithms, TensorDecomposeAlgorithms};
+pub use triangular_shape::{TriangularSolveShape, validate_triangular_solve};
 
 // ============================================================================
 // Matrix Norm Orders

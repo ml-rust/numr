@@ -1,7 +1,7 @@
 use super::super::{CpuClient, CpuRuntime};
 use super::{
     advanced_decompositions, banded, decompositions, eig_general, eig_symmetric, matrix_ops, schur,
-    solvers, statistics, svd,
+    solvers, statistics, svd, triangular_solve,
 };
 use crate::algorithm::linalg::{
     CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
@@ -42,7 +42,7 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         b: &Tensor<CpuRuntime>,
         unit_diagonal: bool,
     ) -> Result<Tensor<CpuRuntime>> {
-        solvers::solve_triangular_lower_impl(self, l, b, unit_diagonal)
+        triangular_solve::solve_triangular_lower_impl(self, l, b, unit_diagonal)
     }
 
     fn solve_triangular_upper(
@@ -50,7 +50,7 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         u: &Tensor<CpuRuntime>,
         b: &Tensor<CpuRuntime>,
     ) -> Result<Tensor<CpuRuntime>> {
-        solvers::solve_triangular_upper_impl(self, u, b)
+        triangular_solve::solve_triangular_upper_impl(self, u, b)
     }
 
     fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {

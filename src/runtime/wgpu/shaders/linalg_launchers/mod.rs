@@ -4,6 +4,7 @@
 //! - `banded` - banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - trace, diag, diagflat, create_identity
 //! - `solvers` - forward/backward substitution
+//! - `triangular_batched` - batched forward/backward substitution in one dispatch
 //! - `decompositions` - LU, Cholesky, QR
 //! - `utilities` - determinant, permutation, column ops, rank helpers
 //! - `svd` - SVD Jacobi algorithm
@@ -17,6 +18,7 @@ mod eig;
 mod matrix_functions;
 mod solvers;
 mod svd;
+mod triangular_batched;
 mod utilities;
 
 // Re-export all launcher functions
@@ -35,6 +37,7 @@ pub use matrix_functions::{
 };
 pub use solvers::{launch_backward_sub, launch_forward_sub};
 pub use svd::launch_svd_jacobi;
+pub use triangular_batched::launch_triangular_solve_batched;
 pub use utilities::{
     launch_apply_lu_permutation, launch_count_above_threshold, launch_det_from_lu,
     launch_extract_column, launch_matrix_copy, launch_max_abs, launch_scatter_column,

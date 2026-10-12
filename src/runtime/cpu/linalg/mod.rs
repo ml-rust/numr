@@ -18,6 +18,7 @@ mod solvers;
 mod statistics;
 mod svd;
 mod tensor_decompose;
+mod triangular_solve;
 
 #[cfg(test)]
 mod test_support;

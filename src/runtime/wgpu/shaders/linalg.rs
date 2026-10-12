@@ -6,6 +6,7 @@
 //! - `banded` - banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - trace, diag, diagflat, create_identity
 //! - `solvers` - forward/backward substitution
+//! - `triangular_batched` - batched forward/backward substitution in one dispatch
 //! - `decompositions` - LU, Cholesky, QR
 //! - `utilities` - determinant, permutation, column ops, rank helpers
 //! - `svd` - SVD Jacobi algorithm
@@ -53,4 +54,6 @@ pub use super::linalg_launchers::{
     launch_svd_jacobi,
     launch_thomas_solve,
     launch_trace,
+    // Batched triangular solves
+    launch_triangular_solve_batched,
 };

@@ -8,6 +8,7 @@
 //! - `banded` - Banded system solvers (Thomas, banded LU)
 //! - `basic_ops` - Trace, diagonal, identity operations
 //! - `solvers` - Forward/backward substitution
+//! - `triangular_batched` - Batched forward/backward substitution
 //! - `decompositions` - LU, Cholesky, QR decompositions
 //! - `utilities` - Determinant, permutation, column ops, rank helpers
 //! - `svd` - Singular value decomposition (Jacobi)
@@ -31,4 +32,5 @@ pub mod matrix_functions;
 pub mod schur;
 pub mod solvers;
 pub mod svd;
+pub mod triangular_batched;
 pub mod utilities;

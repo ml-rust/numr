@@ -12,6 +12,24 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Batched triangular solves** — `solve_triangular_lower` and `solve_triangular_upper` take `a: [..batch, n, n]` with `b: [..batch, n, m]`. The batch dims of `b` must equal those of `a`. Every matrix solves in one call: one kernel launch on CUDA, one dispatch on WebGPU. The result has the shape of `b`. A mismatched `b` returns an error that names both shapes. A 2-D `a` keeps its 1-D and 2-D `b` forms.
+- **`algorithm::linalg::validate_triangular_solve`** — the shape rules every backend applies to a triangular solve, with `TriangularSolveShape` as the resolved batch, order and column count.
+
+### Fixed
+
+- **CPU triangular solves** — a `b` whose row count differs from the order of `a` returns `ShapeMismatch`, and a `b` of 3 or more dims beside a 2-D `a` returns an error, as on CUDA and WebGPU. Before, CPU panicked on too few rows, ignored extra rows, and read a higher-rank `b` as 2-D.
+- **Triangular solves on strided input** — a transposed or offset `a` or `b` solves correctly on every backend. Before, CPU panicked, CUDA read the underlying memory in storage order, and WebGPU did not honor a strided or offset `a`.
+
+### Changed
+
+- **CUDA triangular solves** — a solve with several right-hand-side columns runs in one launch instead of a separate launch sequence per column, and returns without a host synchronization.
+
+---
+
 ## [0.12.0] — 2026-10-11
 
 WebGPU copies and gathers any element size at any offset, and runs past the 65535-workgroup and 256 MiB defaults.

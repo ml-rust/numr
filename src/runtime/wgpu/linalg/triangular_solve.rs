@@ -1,337 +1,287 @@
-//! Triangular system solvers for WebGPU backend.
+//! Triangular system solvers for WebGPU backend, one matrix or a batch.
+//!
+//! Every shape runs as one dispatch: one invocation per (matrix, column).
 //!
 //! # Supported Data Types
 //!
 //! **F32 only.** WGSL shaders do not natively support F64 operations.
 
-use wgpu::CommandEncoderDescriptor;
-
 use super::super::client::get_buffer;
 use super::super::shaders::linalg as kernels;
 use super::super::{WgpuClient, WgpuRuntime};
-use crate::algorithm::linalg::{validate_linalg_dtype, validate_square_matrix};
+use crate::algorithm::linalg::{validate_linalg_dtype, validate_triangular_solve};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::{AllocGuard, RuntimeClient};
+use crate::runtime::{AllocGuard, RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 
-/// Solve lower triangular system Lx = b
-/// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs])
+/// Solve lower triangular systems Lx = b.
+///
+/// `l: [n, n]` with `b: [n]` or `[n, m]`, or `l: [..batch, n, n]` with
+/// `b: [..batch, n, m]`. The result has the shape of `b`.
 pub fn solve_triangular_lower(
     client: &WgpuClient,
     l: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
     unit_diagonal: bool,
 ) -> Result<Tensor<WgpuRuntime>> {
-    validate_linalg_dtype(l.dtype())?;
-    if l.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: l.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    let n = validate_square_matrix(l.shape())?;
-    let dtype = l.dtype();
-    let device = client.device();
-
-    if dtype != DType::F32 {
-        return Err(Error::UnsupportedDType {
-            dtype,
-            op: "WGPU solve_triangular_lower (only F32 supported)",
-        });
-    }
-
-    // Handle 1D or 2D b
-    let b_shape = b.shape();
-    let (num_rhs, b_is_vector) = if b_shape.len() == 1 {
-        if b_shape[0] != n {
-            return Err(Error::ShapeMismatch {
-                expected: vec![n],
-                got: b_shape.to_vec(),
-            });
-        }
-        (1, true)
-    } else if b_shape.len() == 2 {
-        if b_shape[0] != n {
-            return Err(Error::ShapeMismatch {
-                expected: vec![n, b_shape[1]],
-                got: b_shape.to_vec(),
-            });
-        }
-        (b_shape[1], false)
-    } else {
-        return Err(Error::Internal(format!(
-            "solve_triangular_lower requires b to be 1D or 2D, got {}D with shape {:?}",
-            b_shape.len(),
-            b_shape
-        )));
-    };
-
-    let l_buffer =
-        get_buffer(l.ptr()).ok_or_else(|| Error::Internal("Failed to get L buffer".to_string()))?;
-    let b_contig = b.contiguous()?;
-    let b_buffer = get_buffer(b_contig.ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
-
-    // Allocate output
-    let x_total_size = n * num_rhs * dtype.size_in_bytes();
-    let x_out_guard = AllocGuard::new(client.allocator(), x_total_size)?;
-    let x_out_ptr = x_out_guard.ptr();
-    let x_out_buffer = get_buffer(x_out_ptr)
-        .ok_or_else(|| Error::Internal("Failed to get x_out buffer".to_string()))?;
-
-    if b_is_vector {
-        // Single RHS: direct solve
-        let params: [u32; 2] = [n as u32, if unit_diagonal { 1 } else { 0 }];
-        let params_buffer = client.create_uniform_buffer("forward_params", 8);
-        client.write_buffer(&params_buffer, &params);
-
-        kernels::launch_forward_sub(
-            client.pipeline_cache(),
-            &client.queue,
-            &l_buffer,
-            &b_buffer,
-            &x_out_buffer,
-            &params_buffer,
-            dtype,
-        )?;
-    } else {
-        // Multi-RHS: solve for each column
-        let col_size = n * dtype.size_in_bytes();
-        let col_guard = AllocGuard::new(client.allocator(), col_size)?;
-        let col_ptr = col_guard.ptr();
-        let col_buffer = get_buffer(col_ptr)
-            .ok_or_else(|| Error::Internal("Failed to get col buffer".to_string()))?;
-        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
-        let x_col_ptr = x_col_guard.ptr();
-        let x_col_buffer = get_buffer(x_col_ptr)
-            .ok_or_else(|| Error::Internal("Failed to get x_col buffer".to_string()))?;
-
-        for rhs in 0..num_rhs {
-            // Extract column from B
-            let extract_params: [u32; 4] = [n as u32, num_rhs as u32, rhs as u32, 0];
-            let extract_params_buffer = client.create_uniform_buffer("extract_params", 16);
-            client.write_buffer(&extract_params_buffer, &extract_params);
-            kernels::launch_extract_column(
-                client.pipeline_cache(),
-                &client.queue,
-                &b_buffer,
-                &col_buffer,
-                &extract_params_buffer,
-                n,
-                dtype,
-            )?;
-
-            // Solve L @ x_col = b_col
-            let forward_params: [u32; 2] = [n as u32, if unit_diagonal { 1 } else { 0 }];
-            let forward_params_buffer = client.create_uniform_buffer("forward_params", 8);
-            client.write_buffer(&forward_params_buffer, &forward_params);
-            kernels::launch_forward_sub(
-                client.pipeline_cache(),
-                &client.queue,
-                &l_buffer,
-                &col_buffer,
-                &x_col_buffer,
-                &forward_params_buffer,
-                dtype,
-            )?;
-
-            // Copy x_col to appropriate column in output
-            let x_col_offset = rhs * n * dtype.size_in_bytes();
-            {
-                let mut encoder =
-                    client
-                        .wgpu_device
-                        .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("copy_x_col_to_output"),
-                        });
-                encoder.copy_buffer_to_buffer(
-                    &x_col_buffer,
-                    0,
-                    &x_out_buffer,
-                    x_col_offset as u64,
-                    col_size as u64,
-                );
-                client.queue.submit(std::iter::once(encoder.finish()));
-            }
-        }
-
-        // Guards will automatically deallocate on drop
-        drop(col_guard);
-        drop(x_col_guard);
-    }
-
-    client.synchronize();
-
-    if b_is_vector {
-        let x = unsafe { WgpuClient::tensor_from_raw(x_out_guard.release(), &[n], dtype, device) };
-        Ok(x)
-    } else {
-        // Results stored in column-major order
-        let x_col_major = unsafe {
-            WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
-        };
-        let x = x_col_major.transpose(0, 1)?;
-        x.contiguous()
-    }
+    solve_triangular(
+        client,
+        l,
+        b,
+        Some(unit_diagonal),
+        "solve_triangular_lower",
+        "WGPU solve_triangular_lower (only F32 supported)",
+    )
 }
 
-/// Solve upper triangular system Ux = b
-/// Supports both single RHS (b is 1D vector) and multi-RHS (b is 2D matrix [n, nrhs])
+/// Solve upper triangular systems Ux = b.
+///
+/// Takes the same shapes as [`solve_triangular_lower`].
 pub fn solve_triangular_upper(
     client: &WgpuClient,
     u: &Tensor<WgpuRuntime>,
     b: &Tensor<WgpuRuntime>,
 ) -> Result<Tensor<WgpuRuntime>> {
-    validate_linalg_dtype(u.dtype())?;
-    if u.dtype() != b.dtype() {
+    solve_triangular(
+        client,
+        u,
+        b,
+        None,
+        "solve_triangular_upper",
+        "WGPU solve_triangular_upper (only F32 supported)",
+    )
+}
+
+/// `lower_unit` is `Some(unit_diagonal)` for a lower solve, `None` for upper.
+fn solve_triangular(
+    client: &WgpuClient,
+    a: &Tensor<WgpuRuntime>,
+    b: &Tensor<WgpuRuntime>,
+    lower_unit: Option<bool>,
+    op: &'static str,
+    dtype_op: &'static str,
+) -> Result<Tensor<WgpuRuntime>> {
+    validate_linalg_dtype(a.dtype())?;
+    if a.dtype() != b.dtype() {
         return Err(Error::DTypeMismatch {
-            lhs: u.dtype(),
+            lhs: a.dtype(),
             rhs: b.dtype(),
         });
     }
-    let n = validate_square_matrix(u.shape())?;
-    let dtype = u.dtype();
-    let device = client.device();
-
+    let dtype = a.dtype();
     if dtype != DType::F32 {
         return Err(Error::UnsupportedDType {
             dtype,
-            op: "WGPU solve_triangular_upper (only F32 supported)",
+            op: dtype_op,
         });
     }
+    let shape = validate_triangular_solve(op, a.shape(), b.shape())?;
+    let device = client.device();
 
-    // Handle 1D or 2D b
-    let b_shape = b.shape();
-    let (num_rhs, b_is_vector) = if b_shape.len() == 1 {
-        if b_shape[0] != n {
-            return Err(Error::ShapeMismatch {
-                expected: vec![n],
-                got: b_shape.to_vec(),
-            });
-        }
-        (1, true)
-    } else if b_shape.len() == 2 {
-        if b_shape[0] != n {
-            return Err(Error::ShapeMismatch {
-                expected: vec![n, b_shape[1]],
-                got: b_shape.to_vec(),
-            });
-        }
-        (b_shape[1], false)
-    } else {
-        return Err(Error::Internal(format!(
-            "solve_triangular_upper requires b to be 1D or 2D, got {}D with shape {:?}",
-            b_shape.len(),
-            b_shape
-        )));
-    };
-
-    let u_buffer =
-        get_buffer(u.ptr()).ok_or_else(|| Error::Internal("Failed to get U buffer".to_string()))?;
-    let b_contig = b.contiguous()?;
-    let b_buffer = get_buffer(b_contig.ptr())
-        .ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
-
-    // Allocate output
-    let x_total_size = n * num_rhs * dtype.size_in_bytes();
-    let x_out_guard = AllocGuard::new(client.allocator(), x_total_size)?;
-    let x_out_ptr = x_out_guard.ptr();
-    let x_out_buffer = get_buffer(x_out_ptr)
-        .ok_or_else(|| Error::Internal("Failed to get x_out buffer".to_string()))?;
-
-    if b_is_vector {
-        // Single RHS: direct solve
-        let params: [u32; 1] = [n as u32];
-        let params_buffer = client.create_uniform_buffer("backward_params", 4);
-        client.write_buffer(&params_buffer, &params);
-
-        kernels::launch_backward_sub(
-            client.pipeline_cache(),
-            &client.queue,
-            &u_buffer,
-            &b_buffer,
-            &x_out_buffer,
-            &params_buffer,
-            dtype,
-        )?;
-    } else {
-        // Multi-RHS: solve for each column
-        let col_size = n * dtype.size_in_bytes();
-        let col_guard = AllocGuard::new(client.allocator(), col_size)?;
-        let col_ptr = col_guard.ptr();
-        let col_buffer = get_buffer(col_ptr)
-            .ok_or_else(|| Error::Internal("Failed to get col buffer".to_string()))?;
-        let x_col_guard = AllocGuard::new(client.allocator(), col_size)?;
-        let x_col_ptr = x_col_guard.ptr();
-        let x_col_buffer = get_buffer(x_col_ptr)
-            .ok_or_else(|| Error::Internal("Failed to get x_col buffer".to_string()))?;
-
-        for rhs in 0..num_rhs {
-            // Extract column from B
-            let extract_params: [u32; 4] = [n as u32, num_rhs as u32, rhs as u32, 0];
-            let extract_params_buffer = client.create_uniform_buffer("extract_params", 16);
-            client.write_buffer(&extract_params_buffer, &extract_params);
-            kernels::launch_extract_column(
-                client.pipeline_cache(),
-                &client.queue,
-                &b_buffer,
-                &col_buffer,
-                &extract_params_buffer,
-                n,
-                dtype,
-            )?;
-
-            // Solve U @ x_col = b_col
-            let backward_params: [u32; 1] = [n as u32];
-            let backward_params_buffer = client.create_uniform_buffer("backward_params", 4);
-            client.write_buffer(&backward_params_buffer, &backward_params);
-            kernels::launch_backward_sub(
-                client.pipeline_cache(),
-                &client.queue,
-                &u_buffer,
-                &col_buffer,
-                &x_col_buffer,
-                &backward_params_buffer,
-                dtype,
-            )?;
-
-            // Copy x_col to appropriate column in output
-            let x_col_offset = rhs * n * dtype.size_in_bytes();
-            {
-                let mut encoder =
-                    client
-                        .wgpu_device
-                        .create_command_encoder(&CommandEncoderDescriptor {
-                            label: Some("copy_x_col_to_output"),
-                        });
-                encoder.copy_buffer_to_buffer(
-                    &x_col_buffer,
-                    0,
-                    &x_out_buffer,
-                    x_col_offset as u64,
-                    col_size as u64,
-                );
-                client.queue.submit(std::iter::once(encoder.finish()));
-            }
-        }
-
-        // Guards will automatically deallocate on drop
-        drop(col_guard);
-        drop(x_col_guard);
+    if shape.out_numel() == 0 {
+        return Tensor::<WgpuRuntime>::zeros(&shape.out_shape, dtype, device);
     }
+
+    let to_u32 = |value: usize, what: &str| {
+        u32::try_from(value).map_err(|_| Error::BackendLimitation {
+            backend: "wgpu",
+            operation: "triangular_solve_batched",
+            reason: format!("{what} {value} exceeds the shader's 32-bit indexing"),
+        })
+    };
+    // The shader indexes a and b with u32.
+    to_u32(shape.batch * shape.n * shape.n, "matrix elements")?;
+    to_u32(shape.out_numel(), "right-hand-side elements")?;
+    let threads = shape.batch * shape.nrhs;
+    let params: [u32; 4] = [
+        to_u32(shape.n, "n")?,
+        to_u32(shape.nrhs, "nrhs")?,
+        to_u32(shape.batch, "batch")?,
+        u32::from(lower_unit.unwrap_or(false)),
+    ];
+
+    let a = ensure_contiguous(a)?;
+    let b = ensure_contiguous(b)?;
+    let a_buffer =
+        get_buffer(a.ptr()).ok_or_else(|| Error::Internal("Failed to get A buffer".to_string()))?;
+    let b_buffer =
+        get_buffer(b.ptr()).ok_or_else(|| Error::Internal("Failed to get b buffer".to_string()))?;
+
+    let x_guard = AllocGuard::new(
+        client.allocator(),
+        shape.out_numel() * dtype.size_in_bytes(),
+    )?;
+    let x_buffer = get_buffer(x_guard.ptr())
+        .ok_or_else(|| Error::Internal("Failed to get x buffer".to_string()))?;
+
+    let params_buffer = client.create_uniform_buffer("triangular_batched_params", 16);
+    client.write_buffer(&params_buffer, &params);
+
+    kernels::launch_triangular_solve_batched(
+        client.pipeline_cache(),
+        &client.queue,
+        &a_buffer,
+        &b_buffer,
+        &x_buffer,
+        &params_buffer,
+        threads,
+        lower_unit.is_some(),
+        dtype,
+    )?;
 
     client.synchronize();
 
-    if b_is_vector {
-        let x = unsafe { WgpuClient::tensor_from_raw(x_out_guard.release(), &[n], dtype, device) };
-        Ok(x)
-    } else {
-        // Results stored in column-major order
-        let x_col_major = unsafe {
-            WgpuClient::tensor_from_raw(x_out_guard.release(), &[num_rhs, n], dtype, device)
-        };
-        let x = x_col_major.transpose(0, 1)?;
-        x.contiguous()
+    Ok(unsafe { WgpuClient::tensor_from_raw(x_guard.release(), &shape.out_shape, dtype, device) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::create_client;
+    use super::*;
+    use crate::algorithm::LinearAlgebraAlgorithms;
+    use crate::algorithm::linalg::triangular_test_data::{
+        CASES, gdn_like_unit_lower, host_solve, identity, max_abs_diff, to_f32, to_f64,
+        triangular_batch, values,
+    };
+    use crate::runtime::wgpu::is_wgpu_available;
+
+    fn solve(
+        client: &WgpuClient,
+        a: &Tensor<WgpuRuntime>,
+        b: &Tensor<WgpuRuntime>,
+        lower: bool,
+        unit: bool,
+    ) -> Tensor<WgpuRuntime> {
+        if lower {
+            client.solve_triangular_lower(a, b, unit).unwrap()
+        } else {
+            client.solve_triangular_upper(a, b).unwrap()
+        }
+    }
+
+    fn check_all_cases(lower: bool, unit: bool) {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = create_client();
+        let device = client.device();
+        for (ci, case) in CASES.iter().enumerate() {
+            let seed = 0x7a1e_0000 + ci as u64;
+            let (n, m) = (case.n, case.m());
+            let a32 = to_f32(&triangular_batch(seed, case.batch(), n, lower, unit));
+            let b32 = to_f32(&values(seed ^ 0xb, case.batch() * n * m));
+            let at = Tensor::<WgpuRuntime>::from_slice(&a32, &case.a_shape(), device).unwrap();
+            let bt = Tensor::<WgpuRuntime>::from_slice(&b32, &case.b_shape(), device).unwrap();
+            let batched = solve(&client, &at, &bt, lower, unit);
+            assert_eq!(batched.shape(), case.b_shape().as_slice());
+            let batched = batched.to_vec::<f32>();
+
+            let b_one: Vec<usize> = case.b_shape()[case.batch_dims.len()..].to_vec();
+            let mut separate = Vec::with_capacity(batched.len());
+            for bi in 0..case.batch() {
+                let a_i = &a32[bi * n * n..(bi + 1) * n * n];
+                let b_i = &b32[bi * n * m..(bi + 1) * n * m];
+                let a_i = Tensor::<WgpuRuntime>::from_slice(a_i, &[n, n], device).unwrap();
+                let b_i = Tensor::<WgpuRuntime>::from_slice(b_i, &b_one, device).unwrap();
+                separate.extend(solve(&client, &a_i, &b_i, lower, unit).to_vec::<f32>());
+            }
+            // One invocation runs one column with fixed arithmetic: bit-identical.
+            assert_eq!(batched, separate, "case {ci} lower={lower} unit={unit}");
+
+            let want = host_solve(
+                &to_f64(&a32),
+                &to_f64(&b32),
+                case.batch(),
+                n,
+                m,
+                lower,
+                unit,
+            );
+            let diff = max_abs_diff(&to_f64(&batched), &want);
+            assert!(diff < 1e-4, "case {ci} lower={lower} unit={unit}: {diff}");
+        }
+    }
+
+    #[test]
+    fn batched_lower_matches_separate() {
+        check_all_cases(true, false);
+    }
+
+    #[test]
+    fn batched_lower_unit_matches_separate() {
+        check_all_cases(true, true);
+    }
+
+    #[test]
+    fn batched_upper_matches_separate() {
+        check_all_cases(false, false);
+    }
+
+    #[test]
+    fn batched_accepts_strided_input() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = create_client();
+        let device = client.device();
+        let (batch, n) = (3, 4);
+        let a = to_f32(&triangular_batch(21, batch, n, false, false));
+        let b = to_f32(&values(22, batch * n * 2));
+        let u = Tensor::<WgpuRuntime>::from_slice(&a, &[batch, n, n], device).unwrap();
+        let b = Tensor::<WgpuRuntime>::from_slice(&b, &[batch, n, 2], device).unwrap();
+        let l_view = u.transpose(1, 2).unwrap();
+        let l_copy = l_view.contiguous().unwrap();
+        let from_view = client.solve_triangular_lower(&l_view, &b, false).unwrap();
+        let from_copy = client.solve_triangular_lower(&l_copy, &b, false).unwrap();
+        assert_eq!(from_view.to_vec::<f32>(), from_copy.to_vec::<f32>());
+    }
+
+    #[test]
+    fn batched_shape_mismatch_errors() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = create_client();
+        let device = client.device();
+        let l = Tensor::<WgpuRuntime>::from_slice(&[1.0f32; 32], &[2, 4, 4], device).unwrap();
+        for b_shape in [&[3, 4, 2][..], &[2, 5, 2], &[2, 4], &[1, 2, 4, 2]] {
+            let numel: usize = b_shape.iter().product();
+            let b =
+                Tensor::<WgpuRuntime>::from_slice(&vec![1.0f32; numel], b_shape, device).unwrap();
+            let lower = client.solve_triangular_lower(&l, &b, false).unwrap_err();
+            let upper = client.solve_triangular_upper(&l, &b).unwrap_err();
+            for err in [lower, upper] {
+                let text = err.to_string();
+                assert!(text.contains(&format!("{b_shape:?}")), "{text}");
+                assert!(text.contains("[2, 4, 4]"), "{text}");
+            }
+        }
+    }
+
+    /// F32 inverse of `I + A`, strictly lower `A` near 0.8, against an f64
+    /// host solve of the same f32 data. WebGPU has no F64, so the host
+    /// computes the reference. Same bound as the CPU test.
+    #[test]
+    fn f32_gdn_like_inverse_matches_f64() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = create_client();
+        let device = client.device();
+        let n = 64;
+        let l32 = to_f32(&gdn_like_unit_lower(0x0d17, n));
+        let eye32 = to_f32(&identity(n));
+        let l = Tensor::<WgpuRuntime>::from_slice(&l32, &[1, n, n], device).unwrap();
+        let eye = Tensor::<WgpuRuntime>::from_slice(&eye32, &[1, n, n], device).unwrap();
+        let t32 = client.solve_triangular_lower(&l, &eye, true).unwrap();
+
+        let want = host_solve(&to_f64(&l32), &identity(n), 1, n, n, true, true);
+        let diff = max_abs_diff(&to_f64(&t32.to_vec::<f32>()), &want);
+        assert!(diff < 1e-5, "max abs diff {diff}");
     }
 }

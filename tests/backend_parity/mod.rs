@@ -103,6 +103,7 @@ pub mod statistics;
 pub mod statistics_var;
 pub mod strided_transpose;
 pub mod svd;
+pub mod triangular_solve;
 pub mod unary;
 pub mod unary_signed_int;
 pub mod utility;

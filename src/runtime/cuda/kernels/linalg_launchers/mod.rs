@@ -3,6 +3,7 @@
 //! Split into categorical submodules for maintainability:
 //! - `basic` - trace, diag, diagflat, identity, copy, transpose
 //! - `solvers` - forward/backward substitution, determinant, permutation
+//! - `triangular_batched` - batched forward/backward substitution in one launch
 //! - `decompositions` - LU, Cholesky, QR
 //! - `svd` - SVD Jacobi algorithm
 //! - `eigen` - eigendecomposition (symmetric, general, Schur)
@@ -17,6 +18,7 @@ mod eigen;
 mod matrix_funcs;
 mod solvers;
 mod svd;
+mod triangular_batched;
 
 // Re-export all launcher functions
 pub use advanced::*;
@@ -27,3 +29,4 @@ pub use eigen::*;
 pub use matrix_funcs::*;
 pub use solvers::*;
 pub use svd::*;
+pub use triangular_batched::*;

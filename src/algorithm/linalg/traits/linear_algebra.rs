@@ -66,6 +66,12 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     }
 
     /// Solve triangular system Lx = b (forward substitution)
+    ///
+    /// Takes `l: [n, n]` with `b: [n]` or `[n, m]`, or `l: [..batch, n, n]`
+    /// with `b: [..batch, n, m]` (equal batch dims, no broadcasting). The
+    /// result has the shape of `b`. Only the lower triangle is read, and
+    /// `unit_diagonal` skips the diagonal. Shape rules:
+    /// [`validate_triangular_solve`](crate::algorithm::linalg::validate_triangular_solve).
     fn solve_triangular_lower(
         &self,
         l: &Tensor<R>,
@@ -79,6 +85,9 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
     }
 
     /// Solve triangular system Ux = b (backward substitution)
+    ///
+    /// Takes the shapes of [`solve_triangular_lower`](Self::solve_triangular_lower).
+    /// Only the upper triangle is read, diagonal included.
     fn solve_triangular_upper(&self, u: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
         let _ = (u, b);
         Err(Error::NotImplemented {
