@@ -1,44 +1,46 @@
 # Contributing
 
-Thanks for contributing to [numr](https://crates.io/crates/numr). This guide covers the architecture conventions and quality gates the project expects.
+Thanks for contributing to [numr](https://crates.io/crates/numr). This guide covers the architecture conventions and quality gates.
 
-## Prerequisites
+## Before you start
 
 - Rust 1.95 or newer (edition 2024).
-- A clean working tree before opening a pull request.
-- Optional: a CUDA 12.x toolchain and/or a WebGPU-capable device if you want to run the GPU test paths locally.
+- Optional: CUDA 12.8+ or 13.x, or a WebGPU-capable device, to run GPU tests locally.
+- A clean working tree before you open a pull request.
 
-## What to contribute
+Useful contributions:
 
-The most valuable contributions are usually **missing primitives** — a tensor operation, dtype, or linear-algebra routine that NumPy has and numr does not — and **backend coverage**, filling in a CUDA or WebGPU implementation for an operation that only runs on CPU today. Bug fixes and numerical-accuracy improvements are equally welcome.
+- **Missing primitives**: a tensor operation, dtype, or linear-algebra routine that NumPy has and numr lacks.
+- **Backend coverage**: a CUDA or WebGPU implementation of an operation that runs only on CPU.
+- Bug fixes and numerical-accuracy improvements.
 
-Before writing a non-trivial operation, **open an issue first** describing what you want to add and which crate it belongs in (see below). This avoids duplicated effort and lets us agree on placement and API up front. Small, self-contained fixes can go straight to a pull request.
+Open an issue before you write a non-trivial operation. Describe the addition and the crate it belongs in. Small, self-contained fixes can go straight to a pull request.
 
-## Which crate: numr, solvr, or boostr
+### Which crate
 
-numr is the bottom layer of a stack, and a contribution only belongs here if it fits this layer. Place new work by what it _is_, not where it's convenient:
+Place work by what it is:
 
-- **numr** (this crate) — foundational primitives that everything else builds on: tensor ops, dtypes, the `Runtime`/backend abstraction (and **new backends** themselves), FFT, core linear algebra (matmul, LU/QR/SVD/eigen, `solve`), special functions, and basic descriptive statistics.
-- **[solvr](https://github.com/ml-rust/solvr)** — complete scientific/solving algorithms composed from numr primitives: optimization, ODE/DAE/BVP/PDE, interpolation, advanced statistics, signal processing, spatial, clustering.
-- **[boostr](https://github.com/ml-rust/boostr)** — AI/ML-specific building blocks: attention, positional encodings, mixture-of-experts, quantization, neural-network layers, and training/inference machinery.
+| Crate | Scope |
+| --- | --- |
+| **numr** (this crate) | Foundational primitives: tensor ops, dtypes, the `Runtime`/backend abstraction and new backends, FFT, core linear algebra (matmul, LU/QR/SVD/eigen, `solve`), special functions, basic descriptive statistics. |
+| [solvr](https://github.com/ml-rust/solvr) | Scientific and solving algorithms built on numr: optimization, ODE/DAE/BVP/PDE, interpolation, advanced statistics, signal processing, spatial, clustering. |
+| [boostr](https://github.com/ml-rust/boostr) | AI/ML building blocks: attention, positional encodings, mixture-of-experts, quantization, neural-network layers, training and inference machinery. |
 
 Quick test:
 
-- Is it a building block reused across domains, or does it add/touch a hardware backend? → **numr**.
-- Is it a domain solver a scientist or engineer would reach for? → **solvr**.
-- Does it only make sense for neural networks / LLMs? → **boostr**.
+- Reused across domains, or touches a hardware backend: **numr**.
+- A domain solver a scientist or engineer reaches for: **solvr**.
+- Makes sense only for neural networks or LLMs: **boostr**.
 
-When in doubt, propose it in an issue and we'll help place it.
+When in doubt, propose the work in an issue.
 
 ## Architecture
 
-numr's central promise is that the same API produces the same numbers on every backend, while each backend is free to reach those numbers its own way.
+numr returns the same numbers on every backend. Each backend reaches those numbers its own way.
 
-### Primitive vs composite operations
+### Primitive and composite operations
 
-How you implement an operation depends on which kind it is.
-
-**Primitive** operations are atomic — the kernel _is_ the algorithm (`add`, `exp`, `sum`, `matmul`). There is no shared implementation to factor out: each backend gets its own kernel, and they are expected to differ.
+**Primitive** operations are atomic. The kernel is the algorithm, such as `add`, `exp`, `sum`, or `matmul`. Each backend gets its own kernel, and the kernels differ:
 
 ```
 ops/traits/unary.rs   trait definition
@@ -47,7 +49,7 @@ ops/cuda/unary.rs     impl → launches cuda/kernels/unary.cu (PTX)
 ops/wgpu/unary.rs     impl → dispatches wgpu/shaders/unary.wgsl (WGSL)
 ```
 
-**Composite** operations are built from primitives (`softmax`, `layernorm`, `gelu`). Write these once in `ops/impl_generic/` using primitive ops, and have every backend delegate to it. This is the **default** — reach for it first.
+**Composite** operations are built from primitives, such as `softmax`, `layernorm`, or `gelu`. Write each one once in `ops/impl_generic/`. Every backend delegates to it. Use this pattern first.
 
 ```rust
 // ops/impl_generic/activation.rs
@@ -64,11 +66,11 @@ where
 }
 ```
 
-Replace `impl_generic` with a **fused kernel** only when profiling shows the decomposed version is too slow — typically on a hot path where the generic version makes several passes over memory. A fused kernel does not have to match `impl_generic` bit-for-bit; it has to pass the backend parity tests.
+Replace `impl_generic` with a fused kernel only when profiling shows the decomposed version is too slow. This usually means a hot path that makes several passes over memory. A fused kernel does not match `impl_generic` bit-for-bit. It must pass the backend parity tests.
 
-### Backend parity tests are mandatory
+### Backend parity tests
 
-Because backends may use different algorithms, correctness is enforced by tests rather than by shared code. **Every operation needs a test in `tests/backend_parity/`** that treats CPU as the reference and compares every other backend against it.
+Every operation needs a test in `tests/backend_parity/`. The test uses CPU as the reference and compares every other backend against it.
 
 ```rust
 let cpu_result = cpu_client.softmax(&input_cpu, dim)?;
@@ -76,30 +78,38 @@ let cuda_result = cuda_client.softmax(&input_cuda, dim)?;
 assert_tensor_allclose(&cuda_result, &cpu_result, dtype, "softmax cuda vs cpu");
 ```
 
-Cover the edge cases that actually diverge: empty tensors, single-element and size-1 dimensions, very large and very small magnitudes, NaN, and infinities. A parity test that only checks well-behaved values will pass while the operation is wrong.
+Cover the edge cases that diverge. These include empty tensors, single-element and size-1 dimensions, very large and very small magnitudes, NaN, and infinities. A test that checks only well-behaved values passes while the operation is wrong.
 
-Note that a test asserting only on _values_ will not catch a divergence in output _shape_ (a `[1]` where CPU returns a scalar `[]`, say). Assert shapes explicitly when the operation is rank-reducing.
+A value-only test misses a shape divergence, such as `[1]` where CPU returns a scalar `[]`. Assert shapes for rank-reducing operations.
 
 ### File organization
 
-- `mod.rs` contains **only** `pub mod` and `pub use` — no traits, types, or logic. If a `mod.rs` is more than ~30 lines, something is in the wrong place.
-- One operation = one file, with the same file name under `traits/` and each backend directory.
-- Backends live in directories (`cpu/`, `cuda/`, `wgpu/`), never as a single `cpu.rs`. Kernels go in `cpu/kernels/`, `cuda/kernels/`, `wgpu/shaders/`.
-- Adding an operation should mean adding files, not growing existing ones.
+- `mod.rs` contains only `pub mod` and `pub use`. A `mod.rs` over about 30 lines holds code in the wrong place.
+- One operation is one file. Use the same file name under `traits/` and each backend directory.
+- Backends live in directories (`cpu/`, `cuda/`, `wgpu/`), never in a single `cpu.rs`. Kernels go in `cpu/kernels/`, `cuda/kernels/`, and `wgpu/shaders/`.
+- Add files for a new operation. Do not grow existing files.
 
-Soft/hard line limits: trait files 100/200, backend impls 200/400, CPU kernels and `.cu` files 300/500, WGSL shaders 150/300, integration tests 400/600. Split at the soft limit if there is a logical boundary.
+| File type | Soft limit | Hard limit |
+| --- | --- | --- |
+| Trait files | 100 | 200 |
+| Backend impls | 200 | 400 |
+| CPU kernels and `.cu` files | 300 | 500 |
+| WGSL shaders | 150 | 300 |
+| Integration tests | 400 | 600 |
 
-### No GPU↔CPU transfers
+Split a file at its soft limit when a logical boundary exists.
 
-Host/device transfers cost far more than the computation. Inside GPU code paths, never call `tensor.to_vec()`, never loop over device data on the host, and never hide a transfer inside a helper. If a GPU kernel doesn't exist yet, return `Err(Error::Unsupported { .. })` rather than falling back to the CPU.
+### Backend rules
 
-### No vendor libraries
+- **No GPU↔CPU transfers.** Host/device transfers cost far more than the computation. In GPU code, never call `tensor.to_vec()`, loop over device data on the host, or hide a transfer in a helper.
+- If a GPU kernel does not exist, return `Err(Error::Unsupported { .. })`. Do not fall back to CPU.
+- **No vendor libraries.** numr builds and runs without cuBLAS, cuDNN, MKL, or other vendor libraries. Kernels are native: PTX for CUDA, WGSL for WebGPU, SIMD intrinsics for CPU.
+- **Every supported dtype.** Implement each dtype the backend supports, not only `F32`. Use `dispatch_dtype!` for runtime dispatch.
+- WebGPU supports only `F32`, `I32`, and `U32`. Return an `UnsupportedDType` error for other dtypes. Do not degrade precision silently.
 
-numr must build and run without cuBLAS, cuDNN, MKL, or any other vendor library. Every kernel is native — PTX for CUDA, WGSL for WebGPU, SIMD intrinsics for CPU. This is what keeps the library portable across NVIDIA, AMD, Intel, and Apple hardware, so please don't add a vendor dependency to close a performance gap.
+### CPU SIMD
 
-### CPU SIMD: use `#[target_feature]`
-
-Do not put `is_x86_feature_detected!()` checks inside a hot loop. Detect once, then dispatch to separate functions, each annotated for its ISA, so the compiler can optimize the whole body:
+Do not call `is_x86_feature_detected!()` inside a hot loop. Detect once, then dispatch to functions annotated for each ISA:
 
 ```rust
 pub unsafe fn my_kernel(data: *const f32, len: usize, level: SimdLevel) -> f32 {
@@ -115,29 +125,24 @@ pub unsafe fn my_kernel(data: *const f32, len: usize, level: SimdLevel) -> f32 {
 unsafe fn my_kernel_avx512(data: *const f32, len: usize) -> f32 { /* ... */ }
 ```
 
-Use two or more accumulators in FMA loops to hide the 4–5 cycle latency, and always provide a scalar fallback.
+Use two or more accumulators in FMA loops to hide the 4–5 cycle latency. Always provide a scalar fallback.
 
-### Dtype coverage
-
-Implement every dtype the backend supports, not just `F32`. Use the `dispatch_dtype!` macro for runtime dispatch. WebGPU is intentionally 32-bit only (`F32`, `I32`, `U32`) — return a clear `UnsupportedDType` error there rather than silently degrading precision.
-
-## Building with backends
+## Build
 
 ```bash
 cargo build --release                    # CPU (default)
-cargo build --release --features cuda    # CUDA (requires a CUDA 12.x toolchain)
+cargo build --release --features cuda    # CUDA (requires a CUDA 12.8+ or 13.x toolchain)
 cargo build --release --features wgpu    # WebGPU
 cargo build --release --features sparse  # sparse tensors
 ```
 
-CUDA 13.x is not yet supported, as `cudarc` does not support it.
-
 ## Testing
 
-- Put unit tests in the same file as the code under test (`#[cfg(test)] mod tests`); they can reach private functions.
-- Put public-API tests in `tests/`. Subdirectories need a `mod.rs` so they are not compiled as separate test binaries.
-- Test numerical correctness against a reference value, not just that the call returns `Ok`.
-- A backend-specific test should skip gracefully when no device is present.
+- Put unit tests in the same file as the code, in `#[cfg(test)] mod tests`. They can reach private functions.
+- Put public-API tests in `tests/`. Each subdirectory needs a `mod.rs`, so Cargo does not compile it as a separate test binary.
+- Test numerical correctness against a reference value, not only that the call returns `Ok`.
+- A backend-specific test skips gracefully when no device is present.
+- Register each new module under `tests/backend_parity/` in `tests/backend_parity/mod.rs`. An unregistered module never compiles, and the suite still reports green.
 
 ```bash
 cargo test --release
@@ -145,11 +150,9 @@ cargo test --release --features cuda
 cargo test --release --features wgpu
 ```
 
-If you add a test module under `tests/backend_parity/`, remember to register it in `tests/backend_parity/mod.rs` — an unregistered module is silently never compiled, and the suite will still report green.
+## Quality checks
 
-## Local quality checks
-
-Run these before submitting. Clippy runs with `-D warnings` in CI, so treat a warning as a failure locally too.
+Run these before you submit. CI runs clippy with `-D warnings`, so treat a warning as an error.
 
 ```bash
 cargo fmt --all -- --check
@@ -157,19 +160,19 @@ cargo clippy --all-targets -- -D warnings
 cargo test --release
 ```
 
-If you touch a GPU backend, run clippy and the tests with `--features cuda` and `--features wgpu` as well.
+If you touch a GPU backend, run clippy and the tests with `--features cuda` and `--features wgpu`.
 
-## Pull request guidelines
+## Pull requests
 
-- Keep pull requests focused and scoped.
-- Preserve the module structure described above; add files rather than growing existing ones.
-- Include backend parity tests for any new or changed operation.
-- Avoid `.unwrap()` and `.expect()` in library code — return a typed error with enough context to act on (operation, shapes, dtype).
+- Keep each pull request focused and scoped.
+- Keep the module structure. Add files instead of growing existing ones.
+- Include backend parity tests for each new or changed operation.
+- Avoid `.unwrap()` and `.expect()` in library code. Return a typed error with the operation, shapes, and dtype.
 - Update docs when public APIs or features change.
 
 ## Commit messages
 
-Use Conventional Commits with a clear, imperative summary, for example:
+Use Conventional Commits with a clear, imperative summary:
 
 ```
 feat(linalg): add banded LU factorization for CPU and CUDA
