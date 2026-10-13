@@ -12,7 +12,9 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
-## [Unreleased]
+## [0.13.0] — 2026-10-13
+
+Triangular solves take a batch of matrices in one call and behave the same on every backend.
 
 ### Added
 

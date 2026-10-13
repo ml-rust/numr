@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.95"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
