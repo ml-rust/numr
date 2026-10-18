@@ -92,6 +92,12 @@ where
 /// input of the checkpoint's graph node, so it gets the gradient it would have
 /// got without checkpointing. See this module's docs.
 ///
+/// # Frozen segments
+///
+/// When no listed input requires grad and the closure captures nothing
+/// trainable, the result is an untracked `Var`. No graph node is kept, so `f`
+/// and the input tensors are freed on return.
+///
 /// # Errors
 ///
 /// - `inputs` is empty.
@@ -138,7 +144,16 @@ where
     // real inputs of the segment: give each one a slot so the recompute
     // differentiates it and the driver accumulates its gradient. Detached inputs
     // build no node, so a segment reading nothing but frozen values finds none.
-    for capture_id in collect_captures(&output, boundary, &known) {
+    let captures = collect_captures(&output, boundary, &known);
+
+    // No listed input requires grad and nothing trainable was captured, so no
+    // gradient can flow. The plain forward gives an untracked output, and so
+    // does this one. Dropping `f` here also frees everything it captured.
+    if captures.is_empty() && !inputs.iter().any(|v| v.requires_grad()) {
+        return Ok(Var::new(output.tensor().clone(), false));
+    }
+
+    for capture_id in captures {
         input_ids.push(capture_id);
         // A capture is always a leaf, so the outer pass stops there.
         input_grad_fns.push(None);
@@ -709,6 +724,34 @@ mod tests {
             grads.get(frozen_id).is_none(),
             "a frozen capture claims no slot"
         );
+    }
+
+    #[test]
+    fn test_checkpoint_of_frozen_values_is_untracked() {
+        // Regression: the segment always returned a tracked node. A frozen
+        // forward then reported `requires_grad` and held its closure and inputs.
+        let (device, client) = device_and_client();
+        let tensor = |v: f32| Tensor::<CpuRuntime>::from_slice(&[v], &[1], &device).unwrap();
+        let x = Var::new(tensor(3.0), false);
+        let w = Var::new(tensor(2.0), false);
+        let captured = Var::new(tensor(5.0), false);
+
+        let y = checkpoint_with_client(
+            move |inputs: &[Var<CpuRuntime>], c: &CpuClient| {
+                let xw = var_mul(&inputs[0], &inputs[1], c)?;
+                var_mul(&xw, &captured, c)
+            },
+            &[&x, &w],
+            &client,
+        )
+        .unwrap();
+
+        let plain = var_mul(&x, &w, &client).unwrap();
+        assert!(!plain.requires_grad());
+        assert!(!y.requires_grad(), "frozen inputs give an untracked output");
+        assert!(y.grad_fn().is_none(), "no graph node is kept");
+        let got: Vec<f32> = y.tensor().to_vec();
+        assert_eq!(got, [30.0]);
     }
 
     #[test]
