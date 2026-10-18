@@ -111,6 +111,8 @@
 mod backward;
 mod capture;
 mod checkpoint;
+mod checkpoint_many;
+mod checkpoint_many_record;
 mod grad_fn;
 mod grad_mode;
 mod grad_store;
@@ -134,6 +136,7 @@ pub use backward::{
     backward_wrt_with_hooks,
 };
 pub use checkpoint::{checkpoint, checkpoint_with_client};
+pub use checkpoint_many::checkpoint_many_with_client;
 pub use grad_fn::GradFn;
 pub use grad_mode::{EnableGradGuard, NoGradGuard, enable_grad, is_grad_enabled, no_grad};
 pub use grad_store::GradStore;
