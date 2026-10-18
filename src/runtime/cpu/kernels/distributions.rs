@@ -15,7 +15,7 @@ use crate::dtype::Element;
 /// - `p` must be in [0, 1]
 #[inline]
 pub unsafe fn bernoulli_kernel<T: Element>(out: *mut T, p: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -35,7 +35,7 @@ pub unsafe fn bernoulli_kernel<T: Element>(out: *mut T, p: f64, len: usize) {
 /// - `alpha > 0` and `beta > 0`
 #[inline]
 pub unsafe fn beta_kernel<T: Element>(out: *mut T, alpha: f64, beta: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -54,7 +54,7 @@ pub unsafe fn beta_kernel<T: Element>(out: *mut T, alpha: f64, beta: f64, len: u
 /// - `shape_param > 0` and `scale > 0`
 #[inline]
 pub unsafe fn gamma_kernel<T: Element>(out: *mut T, shape_param: f64, scale: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -72,7 +72,7 @@ pub unsafe fn gamma_kernel<T: Element>(out: *mut T, shape_param: f64, scale: f64
 /// - `rate > 0`
 #[inline]
 pub unsafe fn exponential_kernel<T: Element>(out: *mut T, rate: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -91,7 +91,7 @@ pub unsafe fn exponential_kernel<T: Element>(out: *mut T, rate: f64, len: usize)
 /// - `lambda > 0`
 #[inline]
 pub unsafe fn poisson_kernel<T: Element>(out: *mut T, lambda: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -110,7 +110,7 @@ pub unsafe fn poisson_kernel<T: Element>(out: *mut T, lambda: f64, len: usize) {
 /// - `n > 0` and `p` in [0, 1]
 #[inline]
 pub unsafe fn binomial_kernel<T: Element>(out: *mut T, n: u64, p: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -129,7 +129,7 @@ pub unsafe fn binomial_kernel<T: Element>(out: *mut T, n: u64, p: f64, len: usiz
 /// - `scale > 0`
 #[inline]
 pub unsafe fn laplace_kernel<T: Element>(out: *mut T, loc: f64, scale: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -150,7 +150,7 @@ pub unsafe fn laplace_kernel<T: Element>(out: *mut T, loc: f64, scale: f64, len:
 /// - `df > 0`
 #[inline]
 pub unsafe fn chi_squared_kernel<T: Element>(out: *mut T, df: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -168,7 +168,7 @@ pub unsafe fn chi_squared_kernel<T: Element>(out: *mut T, df: f64, len: usize) {
 /// - `df > 0`
 #[inline]
 pub unsafe fn student_t_kernel<T: Element>(out: *mut T, df: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -189,7 +189,7 @@ pub unsafe fn student_t_kernel<T: Element>(out: *mut T, df: f64, len: usize) {
 /// - `df1 > 0` and `df2 > 0`
 #[inline]
 pub unsafe fn f_distribution_kernel<T: Element>(out: *mut T, df1: f64, df2: f64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {

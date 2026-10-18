@@ -12,7 +12,7 @@ use crate::runtime::wgpu::ops::helpers::{
     FDistributionParams, GammaDistParams, LaplaceParams, MultinomialWithReplacementParams,
     MultinomialWithoutReplacementParams, PoissonParams, RandParams, RandintParamsI32,
     RandintParamsU32, RandnParams, StudentTParams, alloc_output, create_params_buffer,
-    generate_wgpu_seed, get_tensor_buffer,
+    generate_wgpu_seed, generate_wgpu_seed_words, get_tensor_buffer,
 };
 use crate::runtime::wgpu::shaders::{distributions, shape};
 use crate::tensor::Tensor;
@@ -44,17 +44,12 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let numel = out.numel();
         let out_buf = get_tensor_buffer(out)?;
 
-        // Note: WGSL doesn't support u64 natively, so we use u32 seed
-        // (truncated from timestamp). This limits the seed space but is
-        // sufficient for most use cases. For reproducible results, users
-        // should use explicit seeding via `rand_seeded_into`.
-        //
-        // seed_hi stays 0: the internally generated seed is already a single
-        // u32, so there is no high word to carry.
+        // WGSL has no u64, so the u64 call seed travels as two u32 words.
+        let (seed, seed_hi) = generate_wgpu_seed_words();
         let params = RandParams {
             numel: numel as u32,
-            seed: generate_wgpu_seed(),
-            seed_hi: 0,
+            seed,
+            seed_hi,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -142,11 +137,12 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let numel = out.numel();
         let out_buf = get_tensor_buffer(out)?;
 
-        // seed_hi stays 0 (see rand_into() for seed design notes).
+        // WGSL has no u64, so the u64 call seed travels as two u32 words.
+        let (seed, seed_hi) = generate_wgpu_seed_words();
         let params = RandnParams {
             numel: numel as u32,
-            seed: generate_wgpu_seed(),
-            seed_hi: 0,
+            seed,
+            seed_hi,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -259,15 +255,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
 
-        // Create params with random seed (see rand() for seed design notes)
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
-        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let time_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u32)
-            .unwrap_or(12345u32);
-        let seed = time_seed.wrapping_add(counter);
+        let seed = generate_wgpu_seed();
 
         let range = (high - low) as u32;
 
@@ -396,15 +384,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
         let probs_buf = get_tensor_buffer(&probs_contig)?;
 
-        // Generate random seed
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
-        let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let time_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u32)
-            .unwrap_or(54321u32);
-        let seed = time_seed.wrapping_add(counter);
+        let seed = generate_wgpu_seed();
 
         if replacement {
             // With replacement: parallel sampling
@@ -969,5 +949,42 @@ mod tests {
             client.rand_seeded_into(&transposed, 7),
             Err(Error::Backend(_))
         ));
+    }
+
+    #[test]
+    fn unseeded_ops_repeat_under_with_seed() {
+        use crate::random::with_seed;
+        let client = client();
+        let probs = Tensor::<WgpuRuntime>::ones(&[2, 32], DType::F32, client.device()).unwrap();
+        let run = || {
+            (
+                client.rand(&[64], DType::F32).unwrap().to_vec::<f32>(),
+                client.randn(&[64], DType::F32).unwrap().to_vec::<f32>(),
+                client
+                    .randint(0, 1_000_000, &[64], DType::I32)
+                    .unwrap()
+                    .to_vec::<i32>(),
+                client
+                    .bernoulli(0.5, &[64], DType::F32)
+                    .unwrap()
+                    .to_vec::<f32>(),
+                client.multinomial(&probs, 8, true).unwrap().to_vec::<i32>(),
+            )
+        };
+        let a = with_seed(41, run);
+        let b = with_seed(41, run);
+        let c = with_seed(42, run);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn unseeded_rand_uses_the_full_call_seed() {
+        use crate::random::{next_call_seed, with_seed};
+        let client = client();
+        let seed = with_seed(43, next_call_seed);
+        let unseeded = with_seed(43, || client.rand(&[64], DType::F32).unwrap());
+        let seeded = client.rand_seeded(&[64], DType::F32, seed).unwrap();
+        assert_eq!(unseeded.to_vec::<f32>(), seeded.to_vec::<f32>());
     }
 }

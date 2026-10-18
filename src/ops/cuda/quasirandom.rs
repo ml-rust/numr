@@ -6,14 +6,13 @@ use crate::ops::common::quasirandom::{
     validate_halton_params, validate_latin_hypercube_params, validate_sobol_params,
 };
 use crate::ops::traits::QuasiRandomOps;
+use crate::random::next_call_seed;
 use crate::runtime::cuda::kernels::{
     launch_halton_f32, launch_halton_f64, launch_latin_hypercube_f32, launch_latin_hypercube_f64,
     launch_sobol_f32, launch_sobol_f64,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Supported data types for CUDA quasi-random operations
 const SUPPORTED_DTYPES: &[DType] = &[DType::F32, DType::F64];
@@ -185,7 +184,7 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
         let out = Tensor::<CudaRuntime>::empty(&shape, dtype, &self.device)?;
 
         // Generate random seed for shuffling
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         // Launch CUDA kernel
         unsafe {
@@ -218,33 +217,6 @@ impl QuasiRandomOps<CudaRuntime> for CudaClient {
 
         Ok(out)
     }
-}
-
-// ============================================================================
-// Random Seed Generation Helper
-// ============================================================================
-
-/// Global atomic counter for generating unique seeds
-static SEED_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Generate a random seed combining atomic counter and system time.
-///
-/// This provides good entropy for parallel random number generation:
-/// - Atomic counter ensures uniqueness across calls
-/// - System time adds unpredictability
-#[inline]
-fn generate_random_seed() -> u64 {
-    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let time_component = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-
-    // Combine counter and time using splitmix64-style mixing
-    let mut z = counter.wrapping_add(time_component);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-    z ^ (z >> 31)
 }
 
 #[cfg(test)]

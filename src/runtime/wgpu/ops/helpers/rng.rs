@@ -43,16 +43,36 @@ pub(crate) struct RandintParamsU32 {
     pub(crate) seed: u32,
 }
 
-/// Generate a random seed for WebGPU RNG operations.
-/// Combines system time with an atomic counter to ensure uniqueness across calls.
+/// Return the u32 seed for one unseeded WebGPU RNG kernel that takes a single word.
+///
+/// The value folds [`crate::random::next_call_seed`] to 32 bits.
+/// Both halves of the u64 reach the result, so the fold is deterministic.
 pub(crate) fn generate_wgpu_seed() -> u32 {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static SEED_COUNTER: AtomicU32 = AtomicU32::new(0);
+    fold_seed(crate::random::next_call_seed())
+}
 
-    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let time_seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u32)
-        .unwrap_or(12345u32);
-    time_seed.wrapping_add(counter)
+/// Return `(seed, seed_hi)` for one unseeded kernel that takes both words.
+pub(crate) fn generate_wgpu_seed_words() -> (u32, u32) {
+    let seed = crate::random::next_call_seed();
+    (seed as u32, (seed >> 32) as u32)
+}
+
+/// Fold a u64 seed to u32 by XOR of its two halves.
+fn fold_seed(seed: u64) -> u32 {
+    (seed ^ (seed >> 32)) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn seeds_follow_the_seeded_stream() {
+        let words = crate::random::with_seed(21, generate_wgpu_seed_words);
+        let folded = crate::random::with_seed(21, generate_wgpu_seed);
+        let raw = crate::random::with_seed(21, crate::random::next_call_seed);
+        assert_eq!(words, (raw as u32, (raw >> 32) as u32));
+        assert_eq!(folded, fold_seed(raw));
+        assert_eq!(fold_seed(0x0000_0001_0000_0003), 2);
+    }
 }

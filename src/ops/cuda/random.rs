@@ -8,6 +8,7 @@ use crate::ops::RandomOps;
 use crate::ops::TypeConversionOps;
 #[cfg(feature = "fp8")]
 use crate::ops::UtilityOps;
+use crate::random::next_call_seed;
 use crate::runtime::cuda::kernels::{
     launch_bernoulli, launch_beta_dist, launch_binomial, launch_chi_squared, launch_exponential,
     launch_f_distribution, launch_gamma_dist, launch_laplace, launch_multinomial_with_replacement,
@@ -17,8 +18,6 @@ use crate::runtime::cuda::kernels::{
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::validate_rand_into;
 use crate::tensor::Tensor;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Dtypes the native CUDA rand/randn kernels accept directly.
 const NATIVE_FLOAT_DTYPES: [DType; 4] = [DType::F32, DType::F64, DType::F16, DType::BF16];
@@ -181,8 +180,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         // Allocate output tensor
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
 
-        // Generate seed using atomic counter + time for better entropy
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
         let range = high - low;
 
         // Launch native CUDA randint kernel
@@ -280,7 +278,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         // Generate seed
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         // Launch CUDA kernel
         unsafe {
@@ -336,7 +334,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_bernoulli(
@@ -383,7 +381,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_beta_dist(
@@ -431,7 +429,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_gamma_dist(
@@ -470,7 +468,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_exponential(
@@ -508,7 +506,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_poisson(
@@ -558,7 +556,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_binomial(
@@ -603,7 +601,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_laplace(
@@ -642,7 +640,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_chi_squared(
@@ -680,7 +678,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_student_t(
@@ -730,7 +728,7 @@ impl RandomOps<CudaRuntime> for CudaClient {
         }
 
         let out = Tensor::<CudaRuntime>::empty(shape, dtype, &self.device)?;
-        let seed = generate_random_seed();
+        let seed = next_call_seed();
 
         unsafe {
             launch_f_distribution(
@@ -792,9 +790,7 @@ fn rand_into_impl(
     }
 
     let numel = out.numel();
-    // Generate seed using atomic counter + time for better entropy when none
-    // was supplied.
-    let seed = seed.unwrap_or_else(generate_random_seed);
+    let seed = seed.unwrap_or_else(next_call_seed);
 
     unsafe {
         launch_rand(
@@ -838,9 +834,7 @@ fn randn_into_impl(
     }
 
     let numel = out.numel();
-    // Generate seed using atomic counter + time for better entropy when none
-    // was supplied.
-    let seed = seed.unwrap_or_else(generate_random_seed);
+    let seed = seed.unwrap_or_else(next_call_seed);
 
     unsafe {
         launch_randn(
@@ -855,33 +849,6 @@ fn randn_into_impl(
     }
 
     Ok(())
-}
-
-// ============================================================================
-// Random Seed Generation Helper
-// ============================================================================
-
-/// Global atomic counter for generating unique seeds
-static SEED_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Generate a random seed combining atomic counter and system time.
-///
-/// This provides good entropy for parallel random number generation:
-/// - Atomic counter ensures uniqueness across calls
-/// - System time adds unpredictability
-#[inline]
-fn generate_random_seed() -> u64 {
-    let counter = SEED_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let time_component = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-
-    // Combine counter and time using splitmix64-style mixing
-    let mut z = counter.wrapping_add(time_component);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
-    z ^ (z >> 31)
 }
 
 /// Clamp an F32 uniform sample below the target FP8 dtype's largest value
@@ -949,5 +916,47 @@ mod tests {
         let before = out.ptr();
         client.rand_into(&out).unwrap();
         assert_eq!(out.ptr(), before);
+    }
+
+    #[test]
+    fn unseeded_ops_repeat_under_with_seed() {
+        use crate::random::with_seed;
+        let Some(client) = setup() else {
+            return;
+        };
+        let probs = Tensor::<CudaRuntime>::ones(&[2, 32], DType::F32, client.device()).unwrap();
+        let run = || {
+            (
+                client.rand(&[64], DType::F32).unwrap().to_vec::<f32>(),
+                client.randn(&[64], DType::F32).unwrap().to_vec::<f32>(),
+                client
+                    .randint(0, 1_000_000, &[64], DType::I64)
+                    .unwrap()
+                    .to_vec::<i64>(),
+                client
+                    .bernoulli(0.5, &[64], DType::F32)
+                    .unwrap()
+                    .to_vec::<f32>(),
+                client.multinomial(&probs, 8, true).unwrap().to_vec::<i64>(),
+                client.randperm(64).unwrap().to_vec::<i64>(),
+            )
+        };
+        let a = with_seed(31, run);
+        let b = with_seed(31, run);
+        let c = with_seed(32, run);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn unseeded_rand_uses_the_call_seed() {
+        use crate::random::{next_call_seed, with_seed};
+        let Some(client) = setup() else {
+            return;
+        };
+        let seed = with_seed(33, next_call_seed);
+        let unseeded = with_seed(33, || client.rand(&[64], DType::F32).unwrap());
+        let seeded = client.rand_seeded(&[64], DType::F32, seed).unwrap();
+        assert_eq!(unseeded.to_vec::<f32>(), seeded.to_vec::<f32>());
     }
 }

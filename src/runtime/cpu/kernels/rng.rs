@@ -4,7 +4,6 @@
 //! that replace the `rand` and `rand_distr` crate dependencies.
 
 use std::f64::consts::PI;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 // ---------------------------------------------------------------------------
 // Xoshiro256++ PRNG
@@ -57,43 +56,15 @@ impl Xoshiro256 {
 }
 
 // ---------------------------------------------------------------------------
-// Entropy-based seeding (no getrandom / no rand crate)
+// Seeding for kernels without an explicit seed
 // ---------------------------------------------------------------------------
 
-static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(not(target_arch = "wasm32"))]
-fn get_thread_entropy() -> u64 {
-    let id = std::thread::current().id();
-    let s = format!("{:?}", id);
-    let mut h: u64 = 0xcbf29ce484222325;
-    for b in s.bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    h
-}
-
-#[cfg(target_arch = "wasm32")]
-fn get_thread_entropy() -> u64 {
-    // No threads on wasm, use a different mixing constant.
-    0xd1342543de82ef95
-}
-
-/// Create a new Xoshiro256++ seeded from available entropy.
+/// Create a Xoshiro256++ for one unseeded kernel call.
 ///
-/// Uses a combination of address-space randomisation (ASLR), an atomic
-/// counter, and thread ID to generate unique seeds without OS entropy.
-pub(crate) fn thread_rng() -> Xoshiro256 {
-    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let thread_id = get_thread_entropy();
-    // Mix in a stack address for ASLR entropy.
-    let stack_addr = &counter as *const _ as u64;
-    let seed = counter
-        .wrapping_mul(0x9e3779b97f4a7c15)
-        .wrapping_add(thread_id)
-        .wrapping_add(stack_addr);
-    Xoshiro256::from_seed(seed)
+/// The seed comes from [`crate::random::next_call_seed`].
+/// After `manual_seed` or inside `with_seed`, the result is reproducible.
+pub(crate) fn call_rng() -> Xoshiro256 {
+    Xoshiro256::from_seed(crate::random::next_call_seed())
 }
 
 // ---------------------------------------------------------------------------

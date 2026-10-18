@@ -310,7 +310,7 @@ pub unsafe fn cast_kernel(
 /// - `out` must be a valid pointer to `len` elements
 #[inline]
 pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -327,7 +327,7 @@ pub unsafe fn rand_uniform_kernel<T: Element>(out: *mut T, len: usize) {
 /// - `out` must be a valid pointer to `len` elements
 #[inline]
 pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -345,7 +345,7 @@ pub unsafe fn rand_normal_kernel<T: Element>(out: *mut T, len: usize) {
 /// - `low < high` must be satisfied
 #[inline]
 pub unsafe fn randint_kernel<T: Element>(out: *mut T, low: i64, high: i64, len: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
     for elem in out_slice.iter_mut() {
@@ -433,7 +433,7 @@ pub unsafe fn multinomial_kernel_with_replacement<T: Element>(
     num_categories: usize,
     num_samples: usize,
 ) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
 
     for dist in 0..num_distributions {
         let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
@@ -487,7 +487,7 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
     num_categories: usize,
     num_samples: usize,
 ) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
 
     for dist in 0..num_distributions {
         let prob_row = std::slice::from_raw_parts(probs.add(dist * num_categories), num_categories);
@@ -527,7 +527,7 @@ pub unsafe fn multinomial_kernel_without_replacement<T: Element>(
 /// # Safety
 /// - `out` must be a valid pointer to `n` elements of i64
 pub unsafe fn randperm_kernel(out: *mut i64, n: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
     let out_slice = std::slice::from_raw_parts_mut(out, n);
 
     // Initialize with [0, 1, 2, ..., n-1]

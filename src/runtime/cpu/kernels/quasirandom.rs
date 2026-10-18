@@ -236,7 +236,7 @@ fn van_der_corput_single_f64(mut index: usize, base: u32) -> f64 {
 /// - `out` must point to valid memory of length `n_samples * dimension`
 #[inline]
 pub unsafe fn latin_hypercube_f32(out: *mut f32, n_samples: usize, dimension: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
 
     for d in 0..dimension {
         // Create stratified intervals
@@ -259,7 +259,7 @@ pub unsafe fn latin_hypercube_f32(out: *mut f32, n_samples: usize, dimension: us
 /// Generate Latin Hypercube samples (F64 version).
 #[inline]
 pub unsafe fn latin_hypercube_f64(out: *mut f64, n_samples: usize, dimension: usize) {
-    let mut prng = rng::thread_rng();
+    let mut prng = rng::call_rng();
 
     for d in 0..dimension {
         let mut intervals: Vec<usize> = (0..n_samples).collect();

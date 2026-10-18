@@ -82,6 +82,7 @@ pub mod distance;
 pub mod dtype;
 pub mod error;
 pub mod ops;
+pub mod random;
 pub mod runtime;
 #[cfg(feature = "sparse")]
 pub mod sparse;
@@ -151,3 +152,5 @@ pub type DefaultRuntime = runtime::wgpu::WgpuRuntime;
 /// Default runtime based on enabled features
 #[cfg(not(any(feature = "cuda", feature = "wgpu")))]
 pub type DefaultRuntime = runtime::cpu::CpuRuntime;
+
+pub use random::{manual_seed, next_call_seed, seed_state, set_seed_state, with_seed};
