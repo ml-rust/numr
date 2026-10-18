@@ -98,6 +98,9 @@ where
 /// trainable, the result is an untracked `Var`. No graph node is kept, so `f`
 /// and the input tensors are freed on return.
 ///
+/// A listed input with `requires_grad == false` gets no gradient, as in the
+/// plain forward, even when other inputs train.
+///
 /// # Errors
 ///
 /// - `inputs` is empty.
@@ -122,6 +125,7 @@ where
     let input_tensors: Vec<Tensor<R>> = inputs.iter().map(|v| v.tensor().clone()).collect();
     let mut input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>> =
         inputs.iter().map(|v| v.grad_fn().cloned()).collect();
+    let mut input_requires_grad: Vec<bool> = inputs.iter().map(|v| v.requires_grad()).collect();
 
     // Forward: run on detached inputs (no grad tracking inside the segment)
     let detached: Vec<Var<R>> = inputs
@@ -157,6 +161,8 @@ where
         input_ids.push(capture_id);
         // A capture is always a leaf, so the outer pass stops there.
         input_grad_fns.push(None);
+        // A capture built a graph node, so it requires grad.
+        input_requires_grad.push(true);
     }
 
     let checkpoint_backward = CheckpointBackward {
@@ -165,6 +171,7 @@ where
         input_ids,
         input_tensors,
         input_grad_fns,
+        input_requires_grad,
     };
 
     Ok(Var::from_op(
@@ -184,6 +191,8 @@ struct CheckpointBackward<R: Runtime, C: 'static> {
     /// captured anything.
     input_tensors: Vec<Tensor<R>>,
     input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>>,
+    /// One flag per slot of `input_ids`. A frozen listed input gets no gradient.
+    input_requires_grad: Vec<bool>,
 }
 
 impl<R, C> GradFn<R> for CheckpointBackward<R, C>
@@ -198,7 +207,13 @@ where
     fn backward(&self, grad_output: &Tensor<R>, needed: &[bool]) -> Result<Vec<Option<Tensor<R>>>> {
         // The mask narrows the re-entrant pass below: only the wanted segment
         // inputs are asked for, so the recomputed graph prunes to them and the
-        // rest of the segment's backward work is never run.
+        // rest of the segment's backward work is never run. A frozen slot is
+        // never wanted, whatever the caller's mask says.
+        let needed: Vec<bool> = needed
+            .iter()
+            .zip(self.input_requires_grad.iter())
+            .map(|(&want, &trainable)| want && trainable)
+            .collect();
         if !needed.iter().any(|&n| n) {
             return Ok(vec![None; self.input_ids.len()]);
         }
@@ -213,12 +228,14 @@ where
         // They have no grad_fn so backward stops here — the outer backward
         // pass handles continuing through input_grad_fns() returned below.
         // The zip stops at `input_tensors`, so the trailing capture slots are
-        // skipped: the closure supplies those values itself.
+        // skipped: the closure supplies those values itself. Each input keeps
+        // its own flag, so a frozen input stays out of the recomputed graph.
         let reconstructed: Vec<Var<R>> = self
             .input_ids
             .iter()
             .zip(self.input_tensors.iter())
-            .map(|(id, tensor)| Var::with_id(tensor.clone(), *id, true))
+            .zip(self.input_requires_grad.iter())
+            .map(|((id, tensor), &trainable)| Var::with_id(tensor.clone(), *id, trainable))
             .collect();
 
         // Re-run forward WITH grad tracking — rebuilds the intermediate graph
@@ -237,7 +254,7 @@ where
         let wanted: Vec<TensorId> = self
             .input_ids
             .iter()
-            .zip(needed)
+            .zip(&needed)
             .filter_map(|(id, &want)| want.then_some(*id))
             .collect();
         let grads = backward_wrt(&loss, &wanted, client)?;
@@ -245,7 +262,7 @@ where
         Ok(self
             .input_ids
             .iter()
-            .zip(needed)
+            .zip(&needed)
             .map(|(id, &want)| want.then(|| grads.get(*id).cloned()).flatten())
             .collect())
     }
@@ -866,6 +883,46 @@ mod tests {
         let grads = crate::autograd::no_grad(|| grad_fn.backward(&seed, &[true])).unwrap();
         let gx: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
         assert!((gx[0] - 6.0).abs() < 1e-6, "expected 6.0, got {}", gx[0]);
+    }
+
+    #[test]
+    fn test_checkpoint_frozen_listed_input_gets_no_gradient() {
+        // A frozen listed input beside a trainable one must get no gradient,
+        // even when the caller asks for it. The trainable gradient keeps its bits.
+        let (device, client) = device_and_client();
+        let frozen = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.5f32, -0.25, 3.0], &[3], &device).unwrap(),
+            false,
+        );
+        let w = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[0.7f32, 1.3, -2.1], &[3], &device).unwrap(),
+            true,
+        );
+        let segment = |xs: &[Var<CpuRuntime>], c: &CpuClient| {
+            let xw = var_mul(&xs[0], &xs[1], c)?;
+            var_mul(&xw, &xs[1], c)
+        };
+
+        let plain = segment(&[frozen.alias(), w.alias()], &client).unwrap();
+        let plain_loss = var_sum(&plain, &[], false, &client).unwrap();
+        let wanted = [frozen.id(), w.id()];
+        let plain_grads = backward_wrt(&plain_loss, &wanted, &client).unwrap();
+
+        let y = checkpoint_with_client(segment, &[&frozen, &w], &client).unwrap();
+        let loss = var_sum(&y, &[], false, &client).unwrap();
+        let grads = backward_wrt(&loss, &wanted, &client).unwrap();
+
+        assert!(
+            grads.get(frozen.id()).is_none(),
+            "a frozen listed input must get no gradient"
+        );
+        let bits = |t: &Tensor<CpuRuntime>| -> Vec<u32> {
+            t.to_vec::<f32>().iter().map(|v| v.to_bits()).collect()
+        };
+        assert_eq!(
+            bits(grads.get(w.id()).unwrap()),
+            bits(plain_grads.get(w.id()).unwrap())
+        );
     }
 
     #[test]
