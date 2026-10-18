@@ -38,6 +38,11 @@ version. Every later entry is a delta against the one below it.
 - **`var_erf` and `var_rsqrt`** — autograd error function and reciprocal square root.
 - **`var_logsumexp`** — autograd log-sum-exp over one or more dimensions. The gradient is `dy * exp(x - y)`, with or without `keepdim`.
 - **`var_maximum` and `var_minimum`** — autograd element-wise extremum with broadcasting. A tie splits the gradient 0.5 and 0.5, as in PyTorch.
+- **`NcclCommunicator::from_rank(stream, rank, world_size, id)`** — joins one rank of a multi-process NCCL communicator. Every rank passes the same `NcclId`. The call blocks until all ranks join. `from_streams` still creates every rank of a single-process group.
+- **`NcclId`** — the NCCL unique id. `NcclId::new()` creates it on one rank. `bytes()` returns its `NCCL_ID_BYTES` (128) bytes for a launcher to send over a file or socket. `from_bytes` and `from_slice` rebuild it on the other ranks. `from_slice` returns `InvalidArgument` for a wrong length. `Debug` omits the bytes, because they hold the bootstrap address.
+- **`NcclCommunicator::abort()`** — aborts the communicator through `ncclCommAbort`. A second call returns `Ok`. Abort stops this rank's queued NCCL kernels, so a blocked `sync` returns. It can run from a watchdog thread while `sync` waits. Every later call returns an error.
+- **`NcclCommunicator::async_error()`** — returns the asynchronous error NCCL recorded, such as a remote peer error.
+- **`NcclCommunicator::stream()`** — the CUDA stream the rank's NCCL calls run on.
 
 ### Fixed
 
@@ -46,6 +51,11 @@ version. Every later entry is a delta against the one below it.
 - **`lstsq` on underdetermined and rank-deficient systems** — every backend returns the minimum-norm least-squares solution for any shape and any rank. Before, CUDA and WebGPU returned an error when `m < n`. CPU returned a basic solution, not the minimum-norm one, when `m < n`. No backend checked the rank, so a zero or near-zero pivot gave inf, NaN or a large wrong solution.
 - **`lstsq` shape checks** — a `b` whose row count differs from `m`, or a `b` of the wrong rank, returns `ShapeMismatch` with the expected and the actual shape. Before, CPU did not check the rows of `b` and read a `b` of 3 or more dims as 2-D.
 - **CUDA `lstsq` precision** — F16 and BF16 compute in F32 and return in the input dtype, as on CPU. Before, CUDA solved in half precision.
+- **`NcclCommunicator` handle access** — numr creates and owns the `ncclComm_t` through `cudarc::nccl::result`. Before, it read the handle out of cudarc's `Comm` by a pointer cast. `Comm` has no defined layout, so that read was undefined behavior.
+- **`NcclCommunicator::sync` and `sync_comm_stream` on a failed peer** — both poll the stream and `ncclCommGetAsyncError`. An error NCCL reports aborts the communicator and returns the error. Before, a blocking stream wait never returned when a peer failed. A `sync` on an aborted communicator returns an error, because the abort discarded queued results.
+- **NCCL calls on one communicator from several threads** — a mutex serializes them, as NCCL requires. Before, `Send` and `Sync` were asserted with no serialization.
+- **`NcclCommunicator::from_rank` device** — the stream's CUDA context is made current before `ncclCommInitRank`, so the rank attaches to the stream's device.
+- **NCCL error messages** — each names the NCCL call, the rank, the world size and the NCCL result code. Before, every NCCL error printed as `NcclError`. An out-of-range rank, root or peer index returns `InvalidArgument`, not a wrapped cast.
 - **Host reads check the element width** — `Tensor::to_vec`, `Tensor::try_to_vec`, `Tensor::to_vec_pipelined`, `Tensor::item` and `Storage::try_to_vec` return `Error::HostReadTypeMismatch` when `T` is not one dtype element wide. `Tensor::to_vec` and `Storage::to_vec` panic with that error. Before, a width-mismatched read, such as a BF16 tensor read as `f32`, copied past its buffer. A block-quantized dtype has no element width, so every typed read of it is an error. Cast the tensor to the target dtype before the read.
 
 ### Changed
@@ -53,6 +63,10 @@ version. Every later entry is a delta against the one below it.
 - **`lstsq` algorithm** — `lstsq` returns `lstsq_rcond(a, b, None).solution`. One SVD-based algorithm runs on every backend, with the semantics of LAPACK `gelsd`. The SVD runs on `a / max|a|`. NaN in `a` gives a NaN solution. Results for full-rank overdetermined systems match the earlier QR solution within rounding.
 - **`pinverse` `rcond`** — every backend applies the `lstsq_rcond` cutoff rule. A negative or non-finite `rcond` returns `InvalidArgument`.
 - **CUDA `pinverse`** — the singular-value cutoff runs on the device. Before, the singular values were copied to the host.
+
+### Removed
+
+- **`NcclCommunicator::new(nccl::Comm)` and `NcclCommunicator::inner()`** — cudarc's `Comm` exposes no handle, so numr cannot wrap one soundly. Use `from_streams` or `from_rank`, and `stream()` for the stream.
 
 ## [0.13.0] — 2026-10-13
 

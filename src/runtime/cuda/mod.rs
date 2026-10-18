@@ -54,7 +54,7 @@ pub use allocator::CudaAllocator;
 pub use capture::{GuardedLaunchBuilder, GuardedStream};
 pub use client::{CudaClient, CudaRawHandle};
 #[cfg(feature = "nccl")]
-pub use communicator::NcclCommunicator;
+pub use communicator::{NCCL_ID_BYTES, NcclCommunicator, NcclId};
 pub use device::{CudaDevice, CudaError};
 pub use graph::CudaGraph;
 pub use runtime::{CudaRuntime, cuda_device, cuda_device_id, is_cuda_available};

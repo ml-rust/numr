@@ -49,7 +49,7 @@ pub use communicator::{
     ParallelDim, ReduceOp, StreamSyncOps,
 };
 #[cfg(feature = "nccl")]
-pub use cuda::NcclCommunicator;
+pub use cuda::{NCCL_ID_BYTES, NcclCommunicator, NcclId};
 
 // CapturedGraph re-export
 pub use captured_graph::CapturedGraph;
