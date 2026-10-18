@@ -35,6 +35,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::capture::collect_captures;
+use super::grad_mode::EnableGradGuard;
 use crate::autograd::{GradFn, Var, backward_wrt, var_mul, var_sum};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -188,6 +189,10 @@ where
         }
 
         let client = &self.client;
+
+        // The recompute must record its graph even when backward runs inside
+        // `no_grad`. Without a graph the re-entrant pass has nothing to walk.
+        let _grad_mode = EnableGradGuard::new();
 
         // Reconstruct input Vars as LEAF nodes with original IDs.
         // They have no grad_fn so backward stops here — the outer backward
@@ -766,6 +771,58 @@ mod tests {
 
         let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
         assert!((gx[0] - 32.0).abs() < 1e-4, "expected 32.0, got {}", gx[0]);
+    }
+
+    #[test]
+    fn test_checkpoint_trains_when_backward_runs_inside_no_grad() {
+        // The forward records outside `no_grad`. The recompute runs inside it
+        // and must still rebuild a graph. d(x^2 * w)/dx = 2xw = 12 at x=3, w=2.
+        let (device, client) = device_and_client();
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[1], &device).unwrap(),
+            true,
+        );
+        let w = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[2.0f32], &[1], &device).unwrap(),
+            true,
+        );
+
+        let y = checkpoint(
+            |inputs, c| {
+                let sq = var_mul(&inputs[0], &inputs[0], c)?;
+                var_mul(&sq, &inputs[1], c)
+            },
+            &[&x, &w],
+        )
+        .unwrap();
+        let loss = var_sum(&y, &[], false, &client).unwrap();
+
+        let grads = crate::autograd::no_grad(|| backward(&loss, &client)).unwrap();
+
+        let gx: Vec<f32> = grads.get(x.id()).unwrap().to_vec();
+        let gw: Vec<f32> = grads.get(w.id()).unwrap().to_vec();
+        assert!((gx[0] - 12.0).abs() < 1e-5, "expected 12.0, got {}", gx[0]);
+        assert!((gw[0] - 9.0).abs() < 1e-5, "expected 9.0, got {}", gw[0]);
+    }
+
+    #[test]
+    fn test_checkpoint_recompute_records_inside_no_grad() {
+        // A direct `GradFn::backward` call bypasses the driver's guard. The
+        // checkpoint node holds its own guard, so the result is still correct.
+        let (device, _client) = device_and_client();
+
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f32], &[1], &device).unwrap(),
+            true,
+        );
+        let y = checkpoint(|inputs, c| var_mul(&inputs[0], &inputs[0], c), &[&x]).unwrap();
+        let grad_fn = y.grad_fn().unwrap().clone();
+        let seed = Tensor::<CpuRuntime>::from_slice(&[1.0f32], &[1], &device).unwrap();
+
+        let grads = crate::autograd::no_grad(|| grad_fn.backward(&seed, &[true])).unwrap();
+        let gx: Vec<f32> = grads[0].as_ref().unwrap().to_vec();
+        assert!((gx[0] - 6.0).abs() < 1e-6, "expected 6.0, got {}", gx[0]);
     }
 
     #[test]

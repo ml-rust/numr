@@ -13,6 +13,7 @@
 //! - [`backward_with_graph`]: Second-order capable differentiation. Returns
 //!   `Var`s that retain their computation history, enabling Hessians and HVPs.
 
+use super::grad_mode::EnableGradGuard;
 use super::{GradFn, GradStore, Var, VarGradStore, var_add};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -283,6 +284,10 @@ where
 {
     validate_loss(loss, fn_name)?;
 
+    // A `GradFn` can build `Var`s, as the checkpoint recompute does. Those must
+    // record even when the caller runs backward inside `no_grad`.
+    let _grad_mode = EnableGradGuard::new();
+
     // Initialize gradient store with dL/dL = 1
     let mut grad_store = GradStore::new();
     grad_store.insert(loss.id(), create_loss_gradient(loss)?);
@@ -398,6 +403,9 @@ where
     R::Client: TensorOps<R>,
 {
     validate_loss(loss, "backward_with_graph")?;
+
+    // The returned gradients must carry a graph even inside `no_grad`.
+    let _grad_mode = EnableGradGuard::new();
 
     // Initialize gradient store with dL/dL = 1 as a Var
     // This is a leaf Var (no grad_fn), but requires_grad = true so it can be differentiated

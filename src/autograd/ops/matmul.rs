@@ -2,8 +2,8 @@
 //!
 //! Implements gradient computation for matmul: C = A @ B
 
-use super::broadcast::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
 use super::common::{as_matrix, as_matrix_shape, restore_shape, restore_var_shape};
+use super::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
 use crate::autograd::var_ops::var_matmul;
 use crate::autograd::{GradFn, Var};
 use crate::error::Result;

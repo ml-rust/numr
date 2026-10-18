@@ -1,6 +1,7 @@
 //! Variable: tensor with gradient tracking
 
 use super::GradFn;
+use super::grad_mode::is_grad_enabled;
 use crate::runtime::Runtime;
 use crate::tensor::{Tensor, TensorId};
 use std::sync::Arc;
@@ -63,11 +64,22 @@ impl<R: Runtime> Var<R> {
     ///
     /// Without the grad_fn, second-order backward would stop at saved tensors
     /// instead of continuing to the original inputs.
+    ///
+    /// While grad mode is disabled (see [`no_grad`](super::no_grad)), the
+    /// result has `requires_grad == false` and no `grad_fn`.
     pub fn with_id_and_grad_fn(
         tensor: Tensor<R>,
         id: TensorId,
         grad_fn: Option<Arc<dyn GradFn<R>>>,
     ) -> Self {
+        if !is_grad_enabled() {
+            return Self {
+                id,
+                tensor,
+                requires_grad: false,
+                grad_fn: None,
+            };
+        }
         Self {
             id,
             tensor,
@@ -77,7 +89,19 @@ impl<R: Runtime> Var<R> {
     }
 
     /// Create from an operation result with a gradient function
+    ///
+    /// While grad mode is disabled (see [`no_grad`](super::no_grad)), the
+    /// result has `requires_grad == false` and no `grad_fn`. The dropped
+    /// `grad_fn` frees the tensors it saved.
     pub fn from_op(tensor: Tensor<R>, grad_fn: Arc<dyn GradFn<R>>) -> Self {
+        if !is_grad_enabled() {
+            return Self {
+                id: TensorId::new(),
+                tensor,
+                requires_grad: false,
+                grad_fn: None,
+            };
+        }
         Self {
             id: TensorId::new(),
             tensor,

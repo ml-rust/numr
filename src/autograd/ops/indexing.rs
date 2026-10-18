@@ -2,6 +2,7 @@
 
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
+use crate::autograd::var_scatter_add;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::{IndexingOps, ScatterReduceOp};
@@ -15,7 +16,10 @@ use std::sync::Arc;
 
 /// Backward for gather: z = gather(a, dim, index)
 ///
-/// dL/da = zeros_like(a); scatter(zeros, dim, index, grad_output)
+/// dL/da = scatter_reduce(zeros_like(a), dim, index, dL/dz, Sum, include_self=true)
+///
+/// A repeated index reads one element of `a` more than once. Each read adds
+/// its gradient, so the scatter must sum and never overwrite.
 pub struct GatherBackward<R: Runtime> {
     input_id: TensorId,
     input_shape: Vec<usize>,
@@ -56,19 +60,31 @@ where
         let client = R::default_client(grad_output.device());
         let zeros =
             Tensor::<R>::zeros(&self.input_shape, grad_output.dtype(), grad_output.device())?;
-        let grad_input = client.scatter(&zeros, self.dim, &self.index, grad_output)?;
+        let grad_input = client.scatter_reduce(
+            &zeros,
+            self.dim,
+            &self.index,
+            grad_output,
+            ScatterReduceOp::Sum,
+            true,
+        )?;
         Ok(vec![Some(grad_input)])
     }
 
     fn backward_var(&self, grad_output: &Var<R>) -> Result<Vec<Option<Var<R>>>> {
+        // `var_scatter_add` records the scatter, so a second backward reaches
+        // the ops that produced `grad_output`.
         let client = R::default_client(grad_output.tensor().device());
-        let zeros = Tensor::<R>::zeros(
-            &self.input_shape,
-            grad_output.tensor().dtype(),
-            grad_output.tensor().device(),
-        )?;
-        let grad_input = client.scatter(&zeros, self.dim, &self.index, grad_output.tensor())?;
-        Ok(vec![Some(Var::new(grad_input, true))])
+        let zeros = Var::new(
+            Tensor::<R>::zeros(
+                &self.input_shape,
+                grad_output.tensor().dtype(),
+                grad_output.tensor().device(),
+            )?,
+            false,
+        );
+        let grad_input = var_scatter_add(&zeros, self.dim, &self.index, grad_output, &client)?;
+        Ok(vec![Some(grad_input)])
     }
 
     fn inputs(&self) -> &[TensorId] {

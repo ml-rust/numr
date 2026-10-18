@@ -45,6 +45,7 @@ mod matmul_wide;
 mod normalization;
 pub mod reduce;
 mod scalar;
+mod scatter_add;
 mod snake;
 mod stats;
 mod swiglu;
@@ -74,6 +75,7 @@ pub use normalization::{
 };
 pub use reduce::{var_max, var_mean, var_min, var_sum};
 pub use scalar::{var_add_scalar, var_div_scalar, var_mul_scalar, var_pow_scalar, var_sub_scalar};
+pub use scatter_add::var_scatter_add;
 pub use snake::var_snake_beta;
 pub use stats::{var_std, var_var};
 pub use swiglu::var_swiglu;

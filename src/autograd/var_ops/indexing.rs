@@ -64,6 +64,7 @@ where
 mod tests {
     use super::*;
     use crate::autograd::backward;
+    use crate::autograd::test_fd::{check_grad_f64, f64_tensor, grad_var};
     use crate::runtime::cpu::{CpuDevice, CpuRuntime};
     use crate::tensor::Tensor;
 
@@ -94,6 +95,79 @@ mod tests {
         // Grad scatters 1s back: x[0,0] += 1, x[0,2] += 1, x[1,1] += 1, x[1,0] += 1
         // So grad = [[1, 0, 1], [1, 1, 0]]
         assert_eq!(grad_x, vec![1.0, 0.0, 1.0, 1.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_var_gather_repeated_indices_accumulate() {
+        // index [[0, 0, 2]] reads x[0] twice, so its gradient is 2.
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 2.0, 3.0], &[1, 3], &device).unwrap(),
+            true,
+        );
+        let index = Tensor::<CpuRuntime>::from_slice(&[0i64, 0, 2], &[1, 3], &device).unwrap();
+
+        let z = var_gather(&x, 1, &index, &client).unwrap();
+        let loss = crate::autograd::var_ops::var_sum(&z, &[], false, &client).unwrap();
+        let grads = backward(&loss, &client).unwrap();
+
+        let grad_x: Vec<f64> = grads.get(x.id()).unwrap().to_vec();
+        assert_eq!(grad_x, vec![2.0, 0.0, 1.0]);
+    }
+
+    fn gather_index(values: &[i64], shape: &[usize]) -> Tensor<CpuRuntime> {
+        Tensor::<CpuRuntime>::from_slice(values, shape, &CpuDevice::new()).unwrap()
+    }
+
+    #[test]
+    fn test_var_gather_fd_dim1_duplicate_indices() {
+        let index = gather_index(&[0, 0, 2, 1, 1, 1, 3, 0, 3], &[3, 3]);
+        check_grad_f64(
+            "var_gather dim 1",
+            move |inputs, c| var_gather(&inputs[0], 1, &index, c),
+            &[f64_tensor(
+                &[
+                    0.3, -1.2, 0.7, 2.1, -0.4, 1.5, 0.9, -2.2, 1.1, 0.0, -0.6, 0.8,
+                ],
+                &[3, 4],
+            )],
+        );
+    }
+
+    #[test]
+    fn test_var_gather_fd_dim0_duplicate_indices() {
+        let index = gather_index(&[2, 0, 2, 2, 0, 0], &[2, 3]);
+        check_grad_f64(
+            "var_gather dim 0",
+            move |inputs, c| var_gather(&inputs[0], 0, &index, c),
+            &[f64_tensor(
+                &[0.5, -0.25, 1.75, -1.0, 2.5, 0.125, 0.9, -1.1, 0.4],
+                &[3, 3],
+            )],
+        );
+    }
+
+    #[test]
+    fn test_var_gather_fd_double_backward() {
+        // g(x) = d/dx sum(c * gather(x)^3), built by `backward_with_graph`.
+        // The check differentiates g, so it covers `GatherBackward::backward_var`.
+        let index = gather_index(&[0, 0, 2, 1, 2, 2], &[2, 3]);
+        check_grad_f64(
+            "var_gather second order",
+            move |inputs, c| {
+                let weight_values = [0.7, -1.3, 0.4, 1.1, -0.6, 0.9];
+                let weight = Var::new(f64_tensor(&weight_values, &[2, 3]), false);
+                let z = var_gather(&inputs[0], 1, &index, c)?;
+                let sq = crate::autograd::var_mul(&z, &z, c)?;
+                let cube = crate::autograd::var_mul(&sq, &z, c)?;
+                let weighted = crate::autograd::var_mul(&cube, &weight, c)?;
+                let loss = crate::autograd::var_sum(&weighted, &[], false, c)?;
+                let grads = crate::autograd::backward_with_graph(&loss, c)?;
+                grad_var(&grads, inputs[0].id())
+            },
+            &[f64_tensor(&[0.3, -0.8, 1.2, 0.6, -0.2, 0.5], &[2, 3])],
+        );
     }
 
     #[test]

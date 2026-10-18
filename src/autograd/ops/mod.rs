@@ -29,9 +29,11 @@ mod matmul_wide;
 mod normalization;
 mod reduce;
 mod scalar;
+mod scatter_add;
 mod shape;
 mod unary;
 
+pub(crate) use broadcast::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
 pub(crate) use common::ensure_contiguous;
 
 pub use activation::*;
@@ -46,5 +48,6 @@ pub use matmul_wide::*;
 pub use normalization::*;
 pub use reduce::*;
 pub use scalar::*;
+pub use scatter_add::*;
 pub use shape::*;
 pub use unary::*;

@@ -1,6 +1,6 @@
 //! Backward implementation for fused GEMM + bias + activation
 
-use super::broadcast::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
+use super::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
 use crate::autograd::GradFn;
 use crate::autograd::var::Var;
 use crate::autograd::var_ops::{var_matmul, var_sum};

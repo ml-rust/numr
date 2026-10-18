@@ -15,6 +15,7 @@
 //! - [`backward`]: Function to compute gradients via reverse-mode AD
 //! - [`backward_wrt`]: Backward that prunes to a wanted set of tensor ids
 //! - [`backward_with_graph`]: Backward with graph retention for Hessians
+//! - [`no_grad`], [`enable_grad`], [`NoGradGuard`], [`EnableGradGuard`]: Thread-local grad mode
 //!
 //! ## Forward-Mode AD (JVP)
 //! - [`DualTensor`]: Tensor carrying both primal value and tangent
@@ -111,7 +112,10 @@ mod backward;
 mod capture;
 mod checkpoint;
 mod grad_fn;
+mod grad_mode;
 mod grad_store;
+#[cfg(test)]
+mod test_fd;
 mod var;
 mod var_grad_store;
 pub mod var_ops;
@@ -131,6 +135,7 @@ pub use backward::{
 };
 pub use checkpoint::{checkpoint, checkpoint_with_client};
 pub use grad_fn::GradFn;
+pub use grad_mode::{EnableGradGuard, NoGradGuard, enable_grad, is_grad_enabled, no_grad};
 pub use grad_store::GradStore;
 pub use var::Var;
 pub use var_grad_store::VarGradStore;
@@ -142,9 +147,10 @@ pub use var_ops::{
     var_gelu_erf_mul, var_gelu_mul, var_group_norm, var_inverse, var_l2_normalize, var_layer_norm,
     var_log, var_log_softmax, var_matmul, var_matmul_bias_activation, var_matmul_wide, var_max,
     var_mean, var_min, var_mul, var_mul_scalar, var_neg, var_pow, var_pow_scalar, var_recip,
-    var_relu, var_relu_mul, var_rms_norm, var_sigmoid, var_sigmoid_mul, var_silu, var_silu_mul,
-    var_sin, var_snake_beta, var_softmax, var_softplus, var_solve, var_sqrt, var_square, var_std,
-    var_sub, var_sub_scalar, var_sum, var_swiglu, var_tan, var_tanh, var_trace, var_var,
+    var_relu, var_relu_mul, var_rms_norm, var_scatter_add, var_sigmoid, var_sigmoid_mul, var_silu,
+    var_silu_mul, var_sin, var_snake_beta, var_softmax, var_softplus, var_solve, var_sqrt,
+    var_square, var_std, var_sub, var_sub_scalar, var_sum, var_swiglu, var_tan, var_tanh,
+    var_trace, var_var,
 };
 
 // Shape operation exports (re-exported via autograd::ops::*)

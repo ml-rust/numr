@@ -2,7 +2,7 @@
 //!
 //! These implement the gradient computation for basic binary operations.
 
-use super::broadcast::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
+use super::{reduce_grad_for_broadcast, reduce_var_for_broadcast};
 use crate::autograd::{GradFn, Var, var_div, var_log, var_mul, var_neg};
 use crate::error::Result;
 use crate::ops::{BinaryOps, TensorOps, UnaryOps};

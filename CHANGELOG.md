@@ -21,9 +21,12 @@ version. Every later entry is a delta against the one below it.
 - **`algorithm::linalg::LstsqResult`** — the `solution`, the I64 `rank` and the `singular_values` of a least-squares solve.
 - **Batched `lstsq`** — `a: [..batch, m, n]` takes `b: [..batch, m, k]` with the same batch dims, and returns `[..batch, n, k]`. The rank is `[..batch]` and the singular values are `[..batch, min(m, n)]`.
 - **`algorithm::linalg::validate_lstsq`** — the shape rules every backend applies to a least-squares solve, with `LstsqShape` as the resolved batch, `m`, `n` and column count.
+- **Grad mode** — `no_grad`, `enable_grad`, `NoGradGuard`, `EnableGradGuard` and `is_grad_enabled` in `autograd`. The mode is per thread and enabled by default. While it is disabled, an op returns a `Var` with `requires_grad == false` and no `grad_fn`. The op also frees the tensors its backward saved. A leaf keeps the `requires_grad` flag its caller passed. `enable_grad` overrides an enclosing `no_grad`. `backward`, `backward_wrt`, `backward_with_graph` and the checkpoint recompute always record, so they work inside `no_grad`.
+- **`var_scatter_add`** — autograd scatter-add `scatter_reduce(target, dim, index, src, Sum, include_self=true)`. The gradient to `target` is the output gradient. The gradient to `src` is `gather(grad, dim, index)`. The backward is itself differentiable.
 
 ### Fixed
 
+- **`var_gather` gradient with repeated indices** — the gradient sums every read of an element. Before, the backward scattered with overwrite, so an element that `index` named more than once kept only one contribution. The second-order backward also records its graph now. Before, it returned a leaf, so a Hessian through `var_gather` was zero.
 - **`lstsq` on underdetermined and rank-deficient systems** — every backend returns the minimum-norm least-squares solution for any shape and any rank. Before, CUDA and WebGPU returned an error when `m < n`. CPU returned a basic solution, not the minimum-norm one, when `m < n`. No backend checked the rank, so a zero or near-zero pivot gave inf, NaN or a large wrong solution.
 - **`lstsq` shape checks** — a `b` whose row count differs from `m`, or a `b` of the wrong rank, returns `ShapeMismatch` with the expected and the actual shape. Before, CPU did not check the rows of `b` and read a `b` of 3 or more dims as 2-D.
 - **CUDA `lstsq` precision** — F16 and BF16 compute in F32 and return in the input dtype, as on CPU. Before, CUDA solved in half precision.
