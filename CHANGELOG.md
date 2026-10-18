@@ -27,6 +27,7 @@ version. Every later entry is a delta against the one below it.
 
 ### Fixed
 
+- A CPU reduction of a rank-0 tensor with empty `dims` no longer recurses until the stack overflows. It returns the value. `backward` through `var_sum` of a scalar loss hit this.
 - **`var_gather` gradient with repeated indices** — the gradient sums every read of an element. Before, the backward scattered with overwrite, so an element that `index` named more than once kept only one contribution. The second-order backward also records its graph now. Before, it returned a leaf, so a Hessian through `var_gather` was zero.
 - **`lstsq` on underdetermined and rank-deficient systems** — every backend returns the minimum-norm least-squares solution for any shape and any rank. Before, CUDA and WebGPU returned an error when `m < n`. CPU returned a basic solution, not the minimum-norm one, when `m < n`. No backend checked the rank, so a zero or near-zero pivot gave inf, NaN or a large wrong solution.
 - **`lstsq` shape checks** — a `b` whose row count differs from `m`, or a `b` of the wrong rank, returns `ShapeMismatch` with the expected and the actual shape. Before, CPU did not check the rows of `b` and read a `b` of 3 or more dims as 2-D.

@@ -86,3 +86,25 @@ where
         Ok(Var::new(output, false))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::autograd::backward;
+    use crate::runtime::Runtime;
+    use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+    use crate::tensor::Tensor;
+
+    #[test]
+    fn sum_of_a_scalar_with_empty_dims_is_the_identity() {
+        let client = CpuRuntime::default_client(&CpuDevice::new());
+        let x = Var::new(
+            Tensor::<CpuRuntime>::from_slice(&[3.0f64], &[], &CpuDevice::new()).unwrap(),
+            true,
+        );
+        let loss = var_sum(&x, &[], false, &client).unwrap();
+        let grads = backward(&loss, &client).unwrap();
+        let g = grads.get(x.id()).unwrap().to_vec::<f64>();
+        assert_eq!(g, vec![1.0]);
+    }
+}

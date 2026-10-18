@@ -60,6 +60,9 @@ pub fn reduce_impl(
         }, op_name);
 
         Ok(out)
+    } else if dims.is_empty() && ndim == 0 {
+        // A scalar has nothing to reduce: every reduction returns its value.
+        ensure_contiguous(a)
     } else if dims.is_empty() {
         // Empty dims = reduce over ALL dimensions → scalar
         let all_dims: Vec<usize> = (0..ndim).collect();
