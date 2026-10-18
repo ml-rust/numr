@@ -12,6 +12,12 @@ version. Every later entry is a delta against the one below it.
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **Host reads check the element width** — `Tensor::to_vec`, `Tensor::try_to_vec`, `Tensor::to_vec_pipelined`, `Tensor::item` and `Storage::try_to_vec` return `Error::HostReadTypeMismatch` when `T` is not one dtype element wide. `Tensor::to_vec` and `Storage::to_vec` panic with that error. Before, a width-mismatched read, such as a BF16 tensor read as `f32`, copied past its buffer. A block-quantized dtype has no element width, so every typed read of it is an error. Cast the tensor to the target dtype before the read.
+
 ## [0.13.0] — 2026-10-13
 
 Triangular solves take a batch of matrices in one call and behave the same on every backend.

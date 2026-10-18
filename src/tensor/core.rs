@@ -620,10 +620,12 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// For contiguous tensors, this copies only the viewed portion of the storage,
     /// respecting the tensor's shape and offset.
+    ///
     /// # Panics
-    /// Panics if the tensor is not contiguous, or if the device-to-host copy
+    /// Panics if the tensor is not contiguous, if `T` is not one dtype element
+    /// wide ([`Error::HostReadTypeMismatch`]), or if the device-to-host copy
     /// fails. Use [`Self::try_to_vec`] in fallible contexts (training loops,
-    /// servers) where a device error must not abort the process.
+    /// servers) where an error must not abort the process.
     #[track_caller]
     pub fn to_vec<T: bytemuck::Pod>(&self) -> Vec<T> {
         assert!(
@@ -639,10 +641,13 @@ impl<R: Runtime> Tensor<R> {
     ///
     /// Returns [`Error::NotContiguous`] if the tensor is not contiguous, and
     /// propagates any device-to-host copy failure instead of panicking.
+    /// Returns [`Error::HostReadTypeMismatch`] when `T` is not one dtype
+    /// element wide. Cast the tensor first to read it as another type.
     pub fn try_to_vec<T: bytemuck::Pod>(&self) -> Result<Vec<T>> {
         if !self.is_contiguous() {
             return Err(Error::NotContiguous);
         }
+        super::host_read::check_host_read::<_, T>(self.dtype())?;
 
         let numel = self.numel();
         let offset = self.layout.offset();
@@ -679,6 +684,7 @@ impl<R: Runtime> Tensor<R> {
                 got: self.shape().to_vec(),
             });
         }
+        super::host_read::check_host_read::<_, T>(self.dtype())?;
 
         let numel = self.numel();
         let offset = self.layout.offset();
@@ -700,7 +706,8 @@ impl<R: Runtime> Tensor<R> {
     /// # Returns
     ///
     /// The single element as type `T`, or an error if the tensor doesn't
-    /// contain exactly one element.
+    /// contain exactly one element. A `T` that is not one dtype element wide
+    /// is an [`Error::HostReadTypeMismatch`].
     ///
     /// # Example
     ///
@@ -721,6 +728,7 @@ impl<R: Runtime> Tensor<R> {
                 got: self.shape().to_vec(),
             });
         }
+        super::host_read::check_host_read::<_, T>(self.dtype())?;
 
         // For non-contiguous single-element tensors, compute the actual offset
         // from strides (the element may not be at offset 0 in storage)

@@ -266,8 +266,9 @@ impl<R: Runtime> Storage<R> {
     /// Copy data from device to host
     ///
     /// # Panics
-    /// Panics if the device-to-host copy fails. Use [`Self::try_to_vec`] in
-    /// fallible contexts (long-running loops, servers).
+    /// Panics if `T` is not one dtype element wide or if the device-to-host
+    /// copy fails. Use [`Self::try_to_vec`] in fallible contexts
+    /// (long-running loops, servers).
     #[track_caller]
     pub fn to_vec<T: bytemuck::Pod>(&self) -> Vec<T> {
         self.try_to_vec()
@@ -275,7 +276,11 @@ impl<R: Runtime> Storage<R> {
     }
 
     /// Copy data from device to host (fallible version)
+    ///
+    /// Returns [`crate::error::Error::HostReadTypeMismatch`] when `T` is not
+    /// one dtype element wide.
     pub fn try_to_vec<T: bytemuck::Pod>(&self) -> Result<Vec<T>> {
+        super::host_read::check_host_read::<_, T>(self.inner.dtype)?;
         // Allocate with correct alignment for T, then cast to bytes for copy.
         // This avoids alignment violations that would occur if we allocated
         // a Vec<u8> and cast to stricter-aligned types like f64/i64.

@@ -4,6 +4,7 @@
 //! array stored on a compute device (CPU, GPU, etc.).
 
 mod core;
+mod host_read;
 pub mod id;
 mod layout;
 mod ops;

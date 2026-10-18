@@ -105,6 +105,22 @@ pub enum Error {
     #[error("Operation requires contiguous tensor")]
     NotContiguous,
 
+    /// A host read names an element type whose width differs from the dtype.
+    ///
+    /// A width mismatch sizes the copy wrong, so it would read past the buffer.
+    #[error(
+        "cannot read a {dtype} tensor ({dtype_bytes} bytes per element) as \
+         {elem_bytes}-byte elements: cast it to the target dtype first"
+    )]
+    HostReadTypeMismatch {
+        /// Short name of the stored dtype
+        dtype: &'static str,
+        /// Bytes per element of the stored dtype
+        dtype_bytes: usize,
+        /// Bytes per element of the requested host type
+        elem_bytes: usize,
+    },
+
     /// Missing gradient in backward pass
     #[error("Missing gradient for tensor")]
     MissingGradient,
