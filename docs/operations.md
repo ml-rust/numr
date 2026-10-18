@@ -57,7 +57,7 @@ numr provides these functions because ML code uses them. numr itself is not an M
 | Trait | Operations |
 | ----- | ---------- |
 | `MatmulOps` | `matmul`, `matmul_bias` (fused GEMM with bias), `matmul_wide` (widens `i8` and half-precision inputs to a wider output) |
-| `LinalgOps` | `solve`, `lstsq`, `pinverse`, `inverse`, `det`, `trace`, `matrix_rank`, `diag`, `matrix_norm`, `kron`, `khatri_rao` |
+| `LinalgOps` | `solve`, `lstsq`, `lstsq_rcond` (minimum-norm, SVD cutoff, batched), `pinverse`, `inverse`, `det`, `trace`, `matrix_rank`, `diag`, `matrix_norm`, `kron`, `khatri_rao` |
 | `ComplexOps` | `conj`, `real`, `imag`, `angle` |
 
 The decompositions (`lu_decompose`, `qr_decompose`, `cholesky_decompose`, `svd_decompose`,

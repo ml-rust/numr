@@ -14,9 +14,25 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+### Added
+
+- **`lstsq_rcond`** on `LinalgOps` and `LinearAlgebraAlgorithms` — the minimum-norm least-squares solve with an explicit relative cutoff `rcond`. Singular values at or below `rcond * max(s)` are zeroed, never inverted. `None` gives `max(m, n) * eps` of the working dtype, as in `pinverse`. An `rcond` that is negative or not finite returns `InvalidArgument`.
+- **`algorithm::linalg::LstsqResult`** — the `solution`, the I64 `rank` and the `singular_values` of a least-squares solve.
+- **Batched `lstsq`** — `a: [..batch, m, n]` takes `b: [..batch, m, k]` with the same batch dims, and returns `[..batch, n, k]`. The rank is `[..batch]` and the singular values are `[..batch, min(m, n)]`.
+- **`algorithm::linalg::validate_lstsq`** — the shape rules every backend applies to a least-squares solve, with `LstsqShape` as the resolved batch, `m`, `n` and column count.
+
 ### Fixed
 
+- **`lstsq` on underdetermined and rank-deficient systems** — every backend returns the minimum-norm least-squares solution for any shape and any rank. Before, CUDA and WebGPU returned an error when `m < n`. CPU returned a basic solution, not the minimum-norm one, when `m < n`. No backend checked the rank, so a zero or near-zero pivot gave inf, NaN or a large wrong solution.
+- **`lstsq` shape checks** — a `b` whose row count differs from `m`, or a `b` of the wrong rank, returns `ShapeMismatch` with the expected and the actual shape. Before, CPU did not check the rows of `b` and read a `b` of 3 or more dims as 2-D.
+- **CUDA `lstsq` precision** — F16 and BF16 compute in F32 and return in the input dtype, as on CPU. Before, CUDA solved in half precision.
 - **Host reads check the element width** — `Tensor::to_vec`, `Tensor::try_to_vec`, `Tensor::to_vec_pipelined`, `Tensor::item` and `Storage::try_to_vec` return `Error::HostReadTypeMismatch` when `T` is not one dtype element wide. `Tensor::to_vec` and `Storage::to_vec` panic with that error. Before, a width-mismatched read, such as a BF16 tensor read as `f32`, copied past its buffer. A block-quantized dtype has no element width, so every typed read of it is an error. Cast the tensor to the target dtype before the read.
+
+### Changed
+
+- **`lstsq` algorithm** — `lstsq` returns `lstsq_rcond(a, b, None).solution`. One SVD-based algorithm runs on every backend, with the semantics of LAPACK `gelsd`. The SVD runs on `a / max|a|`. NaN in `a` gives a NaN solution. Results for full-rank overdetermined systems match the earlier QR solution within rounding.
+- **`pinverse` `rcond`** — every backend applies the `lstsq_rcond` cutoff rule. A negative or non-finite `rcond` returns `InvalidArgument`.
+- **CUDA `pinverse`** — the singular-value cutoff runs on the device. Before, the singular values were copied to the host.
 
 ## [0.13.0] — 2026-10-13
 

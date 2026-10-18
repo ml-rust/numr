@@ -5,9 +5,9 @@ use super::{
 };
 use crate::algorithm::linalg::{
     CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
-    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms, LstsqResult,
     LuDecomposition, MatrixNormOrder, PolarDecomposition, QrDecomposition, SchurDecomposition,
-    SvdDecomposition,
+    SvdDecomposition, impl_generic,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -53,8 +53,13 @@ impl LinearAlgebraAlgorithms<CpuRuntime> for CpuClient {
         triangular_solve::solve_triangular_upper_impl(self, u, b)
     }
 
-    fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
-        solvers::lstsq_impl(self, a, b)
+    fn lstsq_rcond(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        rcond: Option<f64>,
+    ) -> Result<LstsqResult<CpuRuntime>> {
+        impl_generic::lstsq_impl(self, a, b, rcond)
     }
 
     fn solve_banded(

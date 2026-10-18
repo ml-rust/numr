@@ -7,8 +7,9 @@ use super::{
 };
 use crate::algorithm::linalg::{
     CholeskyDecomposition, ComplexSchurDecomposition, EigenDecomposition,
-    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms,
+    GeneralEigenDecomposition, GeneralizedSchurDecomposition, LinearAlgebraAlgorithms, LstsqResult,
     LuDecomposition, MatrixNormOrder, PolarDecomposition, QrDecomposition, SvdDecomposition,
+    impl_generic,
 };
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -58,12 +59,13 @@ impl LinearAlgebraAlgorithms<WgpuRuntime> for WgpuClient {
         solvers::solve_triangular_upper(self, u, b)
     }
 
-    fn lstsq(
+    fn lstsq_rcond(
         &self,
         a: &Tensor<WgpuRuntime>,
         b: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
-        solvers::lstsq(self, a, b)
+        rcond: Option<f64>,
+    ) -> Result<LstsqResult<WgpuRuntime>> {
+        impl_generic::lstsq_impl(self, a, b, rcond)
     }
 
     fn solve_banded(

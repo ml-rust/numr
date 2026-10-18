@@ -62,6 +62,7 @@ pub mod iterative_solvers_advanced;
 pub mod layer_norm;
 pub mod linalg;
 pub mod logical;
+pub mod lstsq;
 pub mod matmul;
 pub mod matmul_bias;
 pub mod matmul_bias_wmma;

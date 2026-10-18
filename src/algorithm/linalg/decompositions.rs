@@ -56,6 +56,22 @@ pub struct SvdDecomposition<R: Runtime> {
     pub vt: Tensor<R>,
 }
 
+/// Least-squares result: the minimum-norm `X` that minimizes `||A X - B||`.
+///
+/// Singular values at or below `rcond * max(s)` count as zero. They are
+/// excluded from the solution and from the rank.
+pub struct LstsqResult<R: Runtime> {
+    /// Solution `X`: `[n]`, `[n, k]` or `[..batch, n, k]`, in the dtype of `a`.
+    pub solution: Tensor<R>,
+
+    /// Effective rank per matrix, as I64: a scalar, or `[..batch]`.
+    pub rank: Tensor<R>,
+
+    /// Singular values of `a` in descending order, in the dtype of `a`:
+    /// `[min(m, n)]` or `[..batch, min(m, n)]`.
+    pub singular_values: Tensor<R>,
+}
+
 /// Eigendecomposition result for symmetric matrices: A = V @ diag(λ) @ V^T
 ///
 /// For a real symmetric matrix A, all eigenvalues are real and eigenvectors

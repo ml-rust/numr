@@ -21,10 +21,14 @@
 //! - `traits`: LinearAlgebraAlgorithms and MatrixFunctionsAlgorithms traits
 //! - `helpers`: Validation utilities
 //! - `triangular_shape`: Shape rules for batched triangular solves
+//! - `lstsq_shape`: Shape rules for batched least-squares solves
+//! - `impl_generic`: Backend-independent algorithms built from primitive ops
 //! - `matrix_functions_core`: Shared numerical algorithms for matrix functions
 
 pub mod decompositions;
 pub mod helpers;
+pub(crate) mod impl_generic;
+pub mod lstsq_shape;
 pub mod matrix_functions_core;
 pub mod tensor_decompose_core;
 pub mod traits;
@@ -36,6 +40,7 @@ pub(crate) mod triangular_test_data;
 // Re-export all public types for convenient access
 pub use decompositions::*;
 pub use helpers::*;
+pub use lstsq_shape::{LstsqShape, validate_lstsq};
 pub use traits::{LinearAlgebraAlgorithms, MatrixFunctionsAlgorithms, TensorDecomposeAlgorithms};
 pub use triangular_shape::{TriangularSolveShape, validate_triangular_solve};
 

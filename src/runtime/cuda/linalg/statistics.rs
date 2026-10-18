@@ -6,6 +6,7 @@
 use super::super::CudaRuntime;
 use super::super::client::CudaClient;
 use crate::algorithm::linalg::helpers::{linalg_demote, linalg_promote};
+use crate::algorithm::linalg::impl_generic::{resolve_rcond, svd_cutoff};
 use crate::algorithm::linalg::{
     LinearAlgebraAlgorithms, validate_linalg_dtype, validate_matrix_2d,
 };
@@ -41,48 +42,10 @@ pub fn pinverse_impl(
     // Compute SVD: A = U @ diag(S) @ V^T
     let svd = client.svd_decompose(&a_promoted)?;
 
-    // Get singular values to determine cutoff
-    let k = m.min(n);
-    let s_data: Vec<f64> = match dtype {
-        DType::F32 => svd
-            .s
-            .to_vec::<f32>()
-            .into_iter()
-            .map(|x| x as f64)
-            .collect(),
-        DType::F64 => svd.s.to_vec::<f64>(),
-        _ => unreachable!(), // linalg_promote ensures F32 or F64
-    };
-
-    // Determine cutoff threshold
-    let max_sv = s_data.iter().cloned().fold(0.0_f64, f64::max);
-    let default_rcond = (m.max(n) as f64)
-        * match dtype {
-            DType::F32 => f32::EPSILON as f64,
-            DType::F64 => f64::EPSILON,
-            _ => f32::EPSILON as f64,
-        };
-    let rcond_val = rcond.unwrap_or(default_rcond);
-    let cutoff = rcond_val * max_sv;
-
-    // Compute S_inv: invert singular values above cutoff, zero otherwise
-    let s_inv_data: Vec<f64> = s_data
-        .iter()
-        .map(|&s| if s > cutoff { 1.0 / s } else { 0.0 })
-        .collect();
-
-    // Create S_inv diagonal matrix [k x k] on GPU
-    let s_inv_diag = match dtype {
-        DType::F32 => {
-            let s_inv_f32: Vec<f32> = s_inv_data.iter().map(|&x| x as f32).collect();
-            Tensor::<CudaRuntime>::from_slice(&s_inv_f32, &[k], device)?
-        }
-        DType::F64 => Tensor::<CudaRuntime>::from_slice(&s_inv_data, &[k], device)?,
-        _ => unreachable!(),
-    };
-
-    // Create diagonal matrix from vector
-    let s_inv_mat = LinearAlgebraAlgorithms::diagflat(client, &s_inv_diag)?;
+    // Invert singular values above rcond * max(S) on the device
+    let rcond = resolve_rcond(rcond, m, n, dtype)?;
+    let (s_inv, _rank) = svd_cutoff(client, &svd.s, rcond)?;
+    let s_inv_mat = LinearAlgebraAlgorithms::diagflat(client, &s_inv)?;
 
     // Compute A^+ = V @ S_inv @ U^T
     let v = svd.vt.transpose(0, 1)?;

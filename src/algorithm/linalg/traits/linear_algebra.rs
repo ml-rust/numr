@@ -95,11 +95,34 @@ pub trait LinearAlgebraAlgorithms<R: Runtime> {
         })
     }
 
-    /// Least squares solution: minimize ||Ax - b||²
+    /// Minimum-norm least-squares solution of `A X = B`, default `rcond`.
+    ///
+    /// Returns the `solution` of [`lstsq_rcond`](Self::lstsq_rcond) with
+    /// `rcond = None`.
     fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
-        let _ = (a, b);
+        Ok(LinearAlgebraAlgorithms::lstsq_rcond(self, a, b, None)?.solution)
+    }
+
+    /// Minimum-norm least-squares solution of `A X = B` via SVD.
+    ///
+    /// `X` minimizes `||A X - B||`. Among all minimizers it has the
+    /// smallest norm. This holds for any shape and any rank of `A`. For
+    /// `A = U diag(s) Vt`, `X = Vt^T (s_inv ⊙ (U^T B))`. `s_inv` is `1 / s`
+    /// where `s > rcond * max(s)`, and `0` elsewhere.
+    ///
+    /// `rcond = None` gives `max(m, n) * eps` of the working dtype, as in
+    /// [`pinverse`](Self::pinverse). An explicit `rcond` must be finite and
+    /// `>= 0`. Shape rules:
+    /// [`validate_lstsq`](crate::algorithm::linalg::validate_lstsq).
+    fn lstsq_rcond(
+        &self,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+        rcond: Option<f64>,
+    ) -> Result<LstsqResult<R>> {
+        let _ = (a, b, rcond);
         Err(Error::NotImplemented {
-            feature: "LinearAlgebraAlgorithms::lstsq",
+            feature: "LinearAlgebraAlgorithms::lstsq_rcond",
         })
     }
 

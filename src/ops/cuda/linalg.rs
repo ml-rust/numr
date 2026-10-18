@@ -14,13 +14,14 @@ impl LinalgOps<CudaRuntime> for CudaClient {
         LinearAlgebraAlgorithms::solve(self, a, b)
     }
 
-    fn lstsq(
+    fn lstsq_rcond(
         &self,
         a: &Tensor<CudaRuntime>,
         b: &Tensor<CudaRuntime>,
-    ) -> Result<Tensor<CudaRuntime>> {
+        rcond: Option<f64>,
+    ) -> Result<crate::algorithm::linalg::LstsqResult<CudaRuntime>> {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
+        LinearAlgebraAlgorithms::lstsq_rcond(self, a, b, rcond)
     }
 
     fn pinverse(&self, a: &Tensor<CudaRuntime>, rcond: Option<f64>) -> Result<Tensor<CudaRuntime>> {

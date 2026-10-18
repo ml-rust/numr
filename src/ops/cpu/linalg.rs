@@ -12,9 +12,14 @@ impl LinalgOps<CpuRuntime> for CpuClient {
         LinearAlgebraAlgorithms::solve(self, a, b)
     }
 
-    fn lstsq(&self, a: &Tensor<CpuRuntime>, b: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
+    fn lstsq_rcond(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        b: &Tensor<CpuRuntime>,
+        rcond: Option<f64>,
+    ) -> Result<crate::algorithm::linalg::LstsqResult<CpuRuntime>> {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
+        LinearAlgebraAlgorithms::lstsq_rcond(self, a, b, rcond)
     }
 
     fn pinverse(&self, a: &Tensor<CpuRuntime>, rcond: Option<f64>) -> Result<Tensor<CpuRuntime>> {

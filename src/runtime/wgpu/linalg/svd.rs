@@ -8,12 +8,11 @@ use super::super::client::get_buffer;
 use super::super::shaders::linalg as kernels;
 use super::super::{WgpuClient, WgpuRuntime};
 use super::helpers::get_buffer_or_err;
+use crate::algorithm::linalg::impl_generic::{resolve_rcond, svd_cutoff};
 use crate::algorithm::linalg::{SvdDecomposition, validate_linalg_dtype, validate_matrix_2d};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::{
-    BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps, ScalarOps, UnaryOps,
-};
+use crate::ops::{BinaryOps, CompareOps, ConditionalOps, LinalgOps, MatmulOps, ReduceOps};
 use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
@@ -188,18 +187,9 @@ pub fn pinverse(
     // Compute SVD
     let svd = svd_decompose(client, a)?;
 
-    // Compute cutoff threshold entirely on GPU: cutoff = rcond * max(S)
-    let max_sv_tensor = client.max(&svd.s, &[0], false)?;
-    let default_rcond = (m.max(n) as f64) * (f32::EPSILON as f64);
-    let rcond_val = rcond.unwrap_or(default_rcond);
-    let cutoff_tensor = client.mul_scalar(&max_sv_tensor, rcond_val)?;
-
-    // Compute S_inv on GPU using conditional operations
-    // S_inv[i] = 1/S[i] if S[i] > cutoff else 0
-    let mask = client.gt(&svd.s, &cutoff_tensor)?; // Boolean mask
-    let s_reciprocal = client.recip(&svd.s)?; // 1/S (may have inf for zeros)
-    let zero = Tensor::<WgpuRuntime>::from_slice(&[0.0f32], &[], device)?;
-    let s_inv = client.where_cond(&mask, &s_reciprocal, &zero)?;
+    // Invert singular values above rcond * max(S) on the GPU
+    let rcond = resolve_rcond(rcond, m, n, dtype)?;
+    let (s_inv, _rank) = svd_cutoff(client, &svd.s, rcond)?;
 
     // Create S_inv diagonal matrix on GPU
     let s_inv_mat = LinalgOps::diagflat(client, &s_inv)?;

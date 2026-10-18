@@ -16,13 +16,14 @@ impl LinalgOps<WgpuRuntime> for WgpuClient {
         LinearAlgebraAlgorithms::solve(self, a, b)
     }
 
-    fn lstsq(
+    fn lstsq_rcond(
         &self,
         a: &Tensor<WgpuRuntime>,
         b: &Tensor<WgpuRuntime>,
-    ) -> Result<Tensor<WgpuRuntime>> {
+        rcond: Option<f64>,
+    ) -> Result<crate::algorithm::linalg::LstsqResult<WgpuRuntime>> {
         use crate::algorithm::linalg::LinearAlgebraAlgorithms;
-        LinearAlgebraAlgorithms::lstsq(self, a, b)
+        LinearAlgebraAlgorithms::lstsq_rcond(self, a, b, rcond)
     }
 
     fn pinverse(&self, a: &Tensor<WgpuRuntime>, rcond: Option<f64>) -> Result<Tensor<WgpuRuntime>> {

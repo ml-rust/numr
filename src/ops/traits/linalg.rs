@@ -70,32 +70,26 @@ pub trait LinalgOps<R: Runtime> {
         })
     }
 
-    /// Least squares solution: minimize ||Ax - b||²
+    /// Minimum-norm least-squares solution of `A X = B`
     ///
-    /// Computes the solution x that minimizes the 2-norm of the residual ||Ax - b||².
-    /// Uses QR decomposition (Householder reflections) followed by back-substitution.
-    ///
-    /// # Algorithm
-    ///
-    /// ```text
-    /// 1. Compute QR decomposition: A = QR
-    /// 2. Transform: y = Q^T @ b
-    /// 3. Solve: R @ x = y (back-substitution)
-    /// ```
+    /// Returns the `solution` of [`lstsq_rcond`](Self::lstsq_rcond) with the
+    /// default `rcond`. `X` minimizes `||A X - B||`. Among all minimizers it
+    /// has the smallest norm. This holds for an overdetermined, an
+    /// underdetermined or a rank-deficient `A`.
     ///
     /// # Arguments
     ///
-    /// * `a` - Coefficient matrix `` `[m, n]` `` (can be non-square)
-    /// * `b` - Right-hand side vector/matrix `` `[m]` `` or `` `[m, k]` ``
+    /// * `a` - Coefficient matrix `` `[m, n]` `` or `` `[..batch, m, n]` ``
+    /// * `b` - Right-hand side `` `[m]` `` or `` `[m, k]` ``, or
+    ///   `` `[..batch, m, k]` `` beside a batched `a`
     ///
     /// # Returns
     ///
-    /// Solution tensor x `` `[n]` `` or `` `[n, k]` `` that minimizes ||Ax - b||²
+    /// Solution `` `[n]` ``, `` `[n, k]` `` or `` `[..batch, n, k]` ``
     ///
     /// # Errors
     ///
-    /// - `ShapeMismatch` if dimensions are incompatible
-    /// - `UnsupportedDType` if input is not F32 or F64 (WebGPU: F32 only)
+    /// The errors of [`lstsq_rcond`](Self::lstsq_rcond).
     ///
     /// # Example
     ///
@@ -110,9 +104,73 @@ pub trait LinalgOps<R: Runtime> {
     /// # Ok::<(), numr::error::Error>(())
     /// ```
     fn lstsq(&self, a: &Tensor<R>, b: &Tensor<R>) -> Result<Tensor<R>> {
-        let _ = (a, b);
+        Ok(LinalgOps::lstsq_rcond(self, a, b, None)?.solution)
+    }
+
+    /// Minimum-norm least-squares solution with a singular-value cutoff
+    ///
+    /// Same semantics as LAPACK `gelsd`. The solve uses the SVD of `A`.
+    ///
+    /// # Algorithm
+    ///
+    /// ```text
+    /// 1. A = U @ diag(s) @ V^T
+    /// 2. s_inv[i] = 1 / s[i] if s[i] > rcond * max(s), else 0
+    /// 3. X = V @ (s_inv ⊙ (U^T @ B))
+    /// ```
+    ///
+    /// Singular values at or below the cutoff are zeroed, never inverted.
+    /// The solution is finite for finite input. NaN in `a` gives a NaN
+    /// solution. Each matrix of a batch solves independently.
+    ///
+    /// # Arguments
+    ///
+    /// * `a` - Coefficient matrix `` `[m, n]` `` or `` `[..batch, m, n]` ``, any `m` and `n`
+    /// * `b` - `` `[m]` `` or `` `[m, k]` `` beside a 2-D `a`. Beside a batched `a`,
+    ///   `` `[..batch, m, k]` `` with the batch dims of `a`. No broadcasting applies.
+    /// * `rcond` - Relative cutoff. `None` gives `max(m, n) * eps` of the working
+    ///   dtype, as in [`pinverse`](Self::pinverse).
+    ///
+    /// # Returns
+    ///
+    /// [`LstsqResult`](crate::algorithm::linalg::LstsqResult) with:
+    /// - `solution`: `` `[n]` ``, `` `[n, k]` `` or `` `[..batch, n, k]` ``
+    /// - `rank`: I64 count of singular values above the cutoff, scalar or `` `[..batch]` ``
+    /// - `singular_values`: `` `[min(m, n)]` `` or `` `[..batch, min(m, n)]` ``, descending
+    ///
+    /// An empty `a` (`m == 0` or `n == 0`) gives a zero solution and rank 0.
+    /// F16, BF16 and FP8 compute in F32 and return in the input dtype.
+    ///
+    /// # Errors
+    ///
+    /// - `DTypeMismatch` if `a` and `b` differ in dtype
+    /// - `UnsupportedDType` for a non-float dtype (WebGPU: F32 only)
+    /// - `ShapeMismatch` for `b` with the wrong rank, rows or batch dims
+    /// - `InvalidArgument` for `a` with fewer than 2 dims, or an `rcond`
+    ///   that is negative or not finite
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use numr::prelude::*;
+    /// # let device = CpuDevice::new();
+    /// # let client = CpuRuntime::default_client(&device);
+    /// // Rank-deficient: both columns are equal.
+    /// let a = Tensor::<CpuRuntime>::from_slice(&[1.0, 1.0, 1.0, 1.0], &[2, 2], &device)?;
+    /// let b = Tensor::<CpuRuntime>::from_slice(&[2.0, 2.0], &[2], &device)?;
+    /// let r = client.lstsq_rcond(&a, &b, None)?;
+    /// // r.solution = [1.0, 1.0], the minimum-norm solution; r.rank = 1
+    /// # Ok::<(), numr::error::Error>(())
+    /// ```
+    fn lstsq_rcond(
+        &self,
+        a: &Tensor<R>,
+        b: &Tensor<R>,
+        rcond: Option<f64>,
+    ) -> Result<crate::algorithm::linalg::LstsqResult<R>> {
+        let _ = (a, b, rcond);
         Err(Error::NotImplemented {
-            feature: "LinalgOps::lstsq",
+            feature: "LinalgOps::lstsq_rcond",
         })
     }
 

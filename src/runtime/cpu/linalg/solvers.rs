@@ -1,11 +1,10 @@
-//! Linear system solvers (Ax=b, least squares)
+//! Square linear system solver (Ax=b)
 
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
-use super::decompositions::{lu_decompose_impl, qr_decompose_impl};
+use super::decompositions::lu_decompose_impl;
 use crate::algorithm::linalg::{
-    linalg_demote, linalg_promote, validate_linalg_dtype, validate_matrix_2d,
-    validate_square_matrix,
+    linalg_demote, linalg_promote, validate_linalg_dtype, validate_square_matrix,
 };
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -123,118 +122,6 @@ fn solve_typed<T: Element + LinalgElement>(
     }
 }
 
-/// Least squares via QR decomposition
-pub fn lstsq_impl(
-    client: &CpuClient,
-    a: &Tensor<CpuRuntime>,
-    b: &Tensor<CpuRuntime>,
-) -> Result<Tensor<CpuRuntime>> {
-    validate_linalg_dtype(a.dtype())?;
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    let (a, original_dtype) = linalg_promote(client, a)?;
-    let (b, _) = linalg_promote(client, b)?;
-    let (m, n) = validate_matrix_2d(a.shape())?;
-
-    let result = match a.dtype() {
-        DType::F32 => lstsq_typed::<f32>(client, &a, &b, m, n),
-        DType::F64 => lstsq_typed::<f64>(client, &a, &b, m, n),
-        _ => unreachable!(),
-    }?;
-
-    linalg_demote(client, result, original_dtype)
-}
-
-fn lstsq_typed<T: Element + LinalgElement>(
-    client: &CpuClient,
-    a: &Tensor<CpuRuntime>,
-    b: &Tensor<CpuRuntime>,
-    m: usize,
-    n: usize,
-) -> Result<Tensor<CpuRuntime>> {
-    let device = client.device();
-
-    // Compute thin QR
-    let qr = qr_decompose_impl(client, a, true)?;
-    let q_data: Vec<T> = qr.q.to_vec();
-    let r_data: Vec<T> = qr.r.to_vec();
-
-    let b_shape = b.shape();
-    let (_, num_rhs) = if b_shape.len() == 1 {
-        (b_shape[0], 1)
-    } else {
-        (b_shape[0], b_shape[1])
-    };
-
-    let b_data: Vec<T> = b.to_vec();
-    let k = m.min(n);
-
-    // Compute Q^T @ b
-    let mut qtb: Vec<T> = vec![T::zero(); k * num_rhs];
-    for rhs in 0..num_rhs {
-        for i in 0..k {
-            let mut sum = T::zero();
-            for j in 0..m {
-                let b_val = if num_rhs == 1 {
-                    b_data[j]
-                } else {
-                    b_data[j * num_rhs + rhs]
-                };
-                sum = sum + q_data[j * k + i] * b_val;
-            }
-            if num_rhs == 1 {
-                qtb[i] = sum;
-            } else {
-                qtb[i * num_rhs + rhs] = sum;
-            }
-        }
-    }
-
-    // Solve R @ x = Q^T @ b via back substitution
-    // R is k x n, but only the first k columns are used
-    let mut x: Vec<T> = vec![T::zero(); n * num_rhs];
-
-    for rhs in 0..num_rhs {
-        // Solve k x k upper triangular system
-        for i in (0..k).rev() {
-            let mut sum = T::zero();
-            for j in (i + 1)..k {
-                let x_val = if num_rhs == 1 {
-                    x[j]
-                } else {
-                    x[j * num_rhs + rhs]
-                };
-                sum = sum + r_data[i * n + j] * x_val;
-            }
-
-            let qtb_val = if num_rhs == 1 {
-                qtb[i]
-            } else {
-                qtb[i * num_rhs + rhs]
-            };
-
-            let x_val = (qtb_val - sum) / r_data[i * n + i];
-
-            if num_rhs == 1 {
-                x[i] = x_val;
-            } else {
-                x[i * num_rhs + rhs] = x_val;
-            }
-        }
-        // Remaining x[k..n] are zeros (already initialized)
-    }
-
-    if b_shape.len() == 1 {
-        Tensor::<CpuRuntime>::from_slice(&x[..n], &[n], device)
-    } else {
-        Tensor::<CpuRuntime>::from_slice(&x, &[n, num_rhs], device)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::test_support::*;
@@ -258,33 +145,5 @@ mod tests {
         // Check solution is approximately [1, 1]
         assert!((x_data[0] - 1.0).abs() < 1e-5);
         assert!((x_data[1] - 1.0).abs() < 1e-5);
-    }
-
-    #[test]
-    fn test_lstsq_exact() {
-        let client = create_client();
-        let device = client.device();
-
-        // Exact system: A @ x = b with unique solution
-        // A = [[2, 1], [1, 2]], b = [3, 3]
-        // Solution: x = [1, 1]
-        let a =
-            Tensor::<CpuRuntime>::from_slice(&[2.0f32, 1.0, 1.0, 2.0], &[2, 2], device).unwrap();
-        let b = Tensor::<CpuRuntime>::from_slice(&[3.0f32, 3.0], &[2], device).unwrap();
-
-        let x = client.lstsq(&a, &b).unwrap();
-        let x_data: Vec<f32> = x.to_vec();
-
-        // Solution should be approximately [1, 1]
-        assert!(
-            (x_data[0] - 1.0).abs() < 1e-4,
-            "x[0] = {} should be 1.0",
-            x_data[0]
-        );
-        assert!(
-            (x_data[1] - 1.0).abs() < 1e-4,
-            "x[1] = {} should be 1.0",
-            x_data[1]
-        );
     }
 }

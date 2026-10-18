@@ -20,7 +20,6 @@ use crate::runtime::{AllocGuard, RuntimeClient};
 use crate::tensor::Tensor;
 
 // Re-export from sub-modules
-pub use super::lstsq::lstsq;
 pub use super::triangular_solve::{solve_triangular_lower, solve_triangular_upper};
 
 /// Solve linear system Ax = b using LU decomposition with partial pivoting.

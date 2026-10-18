@@ -8,7 +8,8 @@ This page lists the algorithm modules in numr. Each module builds on the tensor 
 - **Decompositions**: LU (`lu_decompose`), QR (`qr_decompose`), Cholesky (`cholesky_decompose`),
   SVD (`svd_decompose`), Schur (`schur_decompose`), full eigendecomposition (`eig_decompose`),
   and generalized eigenvalues through the generalized Schur (QZ) decomposition (`qz_decompose`).
-- **Solvers**: `solve`, `lstsq`, `pinverse`
+- **Solvers**: `solve`, `lstsq` and `lstsq_rcond` (minimum-norm least squares via SVD, any
+  shape and rank, batched), `pinverse`
 - **Matrix functions**: exp (`expm`), log (`logm`), sqrt (`sqrtm`), sign (`signm`)
 - **Utilities**: `det`, `trace`, `matrix_rank`, matrix norms
 

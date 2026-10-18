@@ -3,6 +3,7 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::svd::svd_decompose_impl;
+use crate::algorithm::linalg::impl_generic::resolve_rcond;
 use crate::algorithm::linalg::{linalg_demote, linalg_promote, validate_matrix_2d};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
@@ -23,6 +24,7 @@ pub fn pinverse_impl(
     }
     let (a, original_dtype) = linalg_promote(client, a)?;
     let (m, n) = validate_matrix_2d(a.shape())?;
+    let rcond = resolve_rcond(rcond, m, n, a.dtype())?;
 
     let result = match a.dtype() {
         DType::F32 => pinverse_typed::<f32>(client, &a, m, n, rcond),
@@ -37,7 +39,7 @@ fn pinverse_typed<T: Element + LinalgElement>(
     a: &Tensor<CpuRuntime>,
     m: usize,
     n: usize,
-    rcond: Option<f64>,
+    rcond: f64,
 ) -> Result<Tensor<CpuRuntime>> {
     let device = client.device();
 
@@ -54,14 +56,9 @@ fn pinverse_typed<T: Element + LinalgElement>(
 
     let k = m.min(n);
 
-    // Compute cutoff threshold
-    let eps = T::epsilon_val();
-    let max_s = if k > 0 {
-        s_data.iter().map(|v| v.to_f64()).fold(0.0f64, f64::max)
-    } else {
-        1.0
-    };
-    let cutoff = rcond.unwrap_or_else(|| (m.max(n) as f64) * eps) * max_s;
+    // Singular values at or below rcond * max(S) count as zero
+    let max_s = s_data.iter().map(|v| v.to_f64()).fold(0.0f64, f64::max);
+    let cutoff = rcond * max_s;
 
     // Compute S^{-1} (reciprocal of singular values above cutoff)
     let s_inv: Vec<T> = s_data

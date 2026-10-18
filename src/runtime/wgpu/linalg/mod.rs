@@ -22,7 +22,6 @@ mod helpers;
 mod decompositions;
 mod eig_general;
 mod eig_symmetric;
-mod lstsq;
 mod matrix_functions;
 mod matrix_ops;
 mod schur;
