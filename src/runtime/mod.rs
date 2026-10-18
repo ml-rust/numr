@@ -45,7 +45,8 @@ pub use communicator::HierarchicalCommunicator;
 #[cfg(feature = "distributed")]
 pub use communicator::NexarNetCommunicator;
 pub use communicator::{
-    Communicator, CommunicatorGroup, NoOpCommunicator, ParallelDim, ReduceOp, StreamSyncOps,
+    AbortOnPanic, Communicator, CommunicatorGroup, LocalCommunicator, NoOpCommunicator,
+    ParallelDim, ReduceOp, StreamSyncOps,
 };
 #[cfg(feature = "nccl")]
 pub use cuda::NcclCommunicator;

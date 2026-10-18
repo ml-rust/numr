@@ -3,6 +3,7 @@
 mod group;
 #[cfg(feature = "distributed-gpu")]
 mod hierarchical;
+mod local;
 #[cfg(feature = "distributed")]
 mod nexar;
 #[cfg(feature = "distributed")]
@@ -15,5 +16,6 @@ pub use self::nexar::NexarNetCommunicator;
 pub use group::{CommunicatorGroup, ParallelDim};
 #[cfg(feature = "distributed-gpu")]
 pub use hierarchical::HierarchicalCommunicator;
+pub use local::{AbortOnPanic, LocalCommunicator};
 pub use noop::NoOpCommunicator;
 pub use traits::{Communicator, ReduceOp, StreamSyncOps};
