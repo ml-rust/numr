@@ -16,6 +16,7 @@ version. Every later entry is a delta against the one below it.
 
 ### Added
 
+- **`var_l2_normalize`** — autograd L2 normalization `y = x / max(||x||, eps)` along one dimension, as in ggml `l2_norm`. Backward is `(dy - y * <y, dy>) / n` where `||x|| > eps` and `dy / eps` elsewhere. A zero row gives a finite gradient.
 - **`lstsq_rcond`** on `LinalgOps` and `LinearAlgebraAlgorithms` — the minimum-norm least-squares solve with an explicit relative cutoff `rcond`. Singular values at or below `rcond * max(s)` are zeroed, never inverted. `None` gives `max(m, n) * eps` of the working dtype, as in `pinverse`. An `rcond` that is negative or not finite returns `InvalidArgument`.
 - **`algorithm::linalg::LstsqResult`** — the `solution`, the I64 `rank` and the `singular_values` of a least-squares solve.
 - **Batched `lstsq`** — `a: [..batch, m, n]` takes `b: [..batch, m, k]` with the same batch dims, and returns `[..batch, n, k]`. The rank is `[..batch]` and the singular values are `[..batch, min(m, n)]`.

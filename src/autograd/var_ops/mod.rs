@@ -37,6 +37,7 @@ mod dropout;
 mod fused_activation_mul;
 mod gemm_epilogue;
 mod indexing;
+mod l2_normalize;
 
 pub mod linalg;
 mod matmul;
@@ -64,6 +65,7 @@ pub use fused_activation_mul::{
 };
 pub use gemm_epilogue::var_matmul_bias_activation;
 pub use indexing::{var_embedding_lookup, var_gather};
+pub use l2_normalize::var_l2_normalize;
 pub use linalg::{var_cholesky, var_det, var_inverse, var_solve, var_trace};
 pub use matmul::var_matmul;
 pub use matmul_wide::var_matmul_wide;
