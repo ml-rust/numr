@@ -24,6 +24,13 @@ version. Every later entry is a delta against the one below it.
 - **`algorithm::linalg::validate_lstsq`** — the shape rules every backend applies to a least-squares solve, with `LstsqShape` as the resolved batch, `m`, `n` and column count.
 - **Grad mode** — `no_grad`, `enable_grad`, `NoGradGuard`, `EnableGradGuard` and `is_grad_enabled` in `autograd`. The mode is per thread and enabled by default. While it is disabled, an op returns a `Var` with `requires_grad == false` and no `grad_fn`. The op also frees the tensors its backward saved. A leaf keeps the `requires_grad` flag its caller passed. `enable_grad` overrides an enclosing `no_grad`. `backward`, `backward_wrt`, `backward_with_graph` and the checkpoint recompute always record, so they work inside `no_grad`.
 - **`var_scatter_add`** — autograd scatter-add `scatter_reduce(target, dim, index, src, Sum, include_self=true)`. The gradient to `target` is the output gradient. The gradient to `src` is `gather(grad, dim, index)`. The backward is itself differentiable.
+- **`var_where`** — autograd conditional select. `cond` has no gradient. Each branch gets the output gradient where it was selected, summed back to its own shape when broadcast.
+- **`var_index_select`** — autograd index select. The gradient scatters the output gradient into zeros with `scatter_reduce` Sum, so repeated indices accumulate.
+- **`var_gelu` and `var_gelu_erf`** — autograd GELU, tanh form and exact form. The derivative comes from the fused `gelu_mul_bwd` and `gelu_erf_mul_bwd` kernels, so every backend with those kernels works.
+- **`var_leaky_relu` and `var_elu`** — autograd leaky ReLU and ELU.
+- **`var_erf` and `var_rsqrt`** — autograd error function and reciprocal square root.
+- **`var_logsumexp`** — autograd log-sum-exp over one or more dimensions. The gradient is `dy * exp(x - y)`, with or without `keepdim`.
+- **`var_maximum` and `var_minimum`** — autograd element-wise extremum with broadcasting. A tie splits the gradient 0.5 and 0.5, as in PyTorch.
 
 ### Fixed
 
