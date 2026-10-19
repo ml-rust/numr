@@ -342,7 +342,23 @@ impl<R: Runtime> Tensor<R> {
     }
 
     /// Reshape to a new shape (zero-copy if contiguous)
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::InvalidArgument`] if `shape` holds a different element count.
+    /// - [`Error::NotContiguous`] if the tensor is a strided view.
     pub fn reshape(&self, shape: &[usize]) -> Result<Self> {
+        let new_count: usize = shape.iter().product();
+        if new_count != self.numel() {
+            return Err(Error::InvalidArgument {
+                arg: "shape",
+                reason: format!(
+                    "cannot reshape {:?} ({} elements) to {shape:?} ({new_count} elements)",
+                    self.shape(),
+                    self.numel()
+                ),
+            });
+        }
         let new_layout = self.layout.reshape(shape).ok_or(Error::NotContiguous)?;
 
         Ok(Self {
@@ -1313,6 +1329,32 @@ mod tests {
 
         assert!(matches!(
             transposed.try_to_vec::<f32>(),
+            Err(Error::NotContiguous)
+        ));
+    }
+
+    /// A wrong element count names the shapes. Only a strided view reports
+    /// `NotContiguous`.
+    #[test]
+    fn reshape_reports_count_mismatch_and_strided_view_apart() {
+        let device = CpuDevice::new();
+        let tensor =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], &device).unwrap();
+
+        match tensor.reshape(&[3]) {
+            Err(Error::InvalidArgument { arg, reason }) => {
+                assert_eq!(arg, "shape");
+                assert!(
+                    reason.contains("[2, 2]") && reason.contains("[3]"),
+                    "{reason}"
+                );
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
+
+        let transposed = tensor.transpose(0, 1).expect("transpose runs");
+        assert!(matches!(
+            transposed.reshape(&[4]),
             Err(Error::NotContiguous)
         ));
     }
