@@ -27,8 +27,8 @@ where
 
     if input.requires_grad() || weight.requires_grad() {
         let grad_fn = RmsNormBackward::<R>::new(
-            input.id(),
-            weight.id(),
+            input.graph_id(),
+            weight.graph_id(),
             input.tensor().clone(),
             weight.tensor().clone(),
             eps,

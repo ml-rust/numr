@@ -37,7 +37,7 @@ where
 
     if operands.iter().any(|v| v.requires_grad()) {
         let grad_fn = EinsumBackward::<R> {
-            input_ids: operands.iter().map(|v| v.id()).collect(),
+            input_ids: operands.iter().map(|v| v.graph_id()).collect(),
             saved: tensors.into_iter().cloned().collect(),
             spec,
             input_grad_fns: operands.iter().map(|v| v.grad_fn().cloned()).collect(),

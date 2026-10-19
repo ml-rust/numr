@@ -58,7 +58,7 @@ where
             Extremum::Maximum => "MaximumBackward",
             Extremum::Minimum => "MinimumBackward",
         },
-        input_ids: [a.id(), b.id()],
+        input_ids: [a.graph_id(), b.graph_id()],
         weights: [weight_a, weight_b],
         shapes: [a.shape().to_vec(), b.shape().to_vec()],
         input_grad_fns: [a.grad_fn().cloned(), b.grad_fn().cloned()],

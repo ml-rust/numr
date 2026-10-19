@@ -40,9 +40,9 @@ where
 
     if input.requires_grad() || weight.requires_grad() || bias.requires_grad() {
         let grad_fn = GroupNormBackward::<R>::new(
-            input.id(),
-            weight.id(),
-            bias.id(),
+            input.graph_id(),
+            weight.graph_id(),
+            bias.graph_id(),
             input.tensor().clone(),
             weight.tensor().clone(),
             num_groups,

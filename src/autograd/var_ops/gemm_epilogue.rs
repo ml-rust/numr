@@ -33,9 +33,9 @@ where
 
     if a.requires_grad() || b.requires_grad() || bias.requires_grad() {
         let grad_fn = MatmulBiasActivationBackward::<R>::new(
-            a.id(),
-            b.id(),
-            bias.id(),
+            a.graph_id(),
+            b.graph_id(),
+            bias.graph_id(),
             a.tensor().clone(),
             b.tensor().clone(),
             bias.tensor().clone(),

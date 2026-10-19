@@ -17,9 +17,10 @@ macro_rules! impl_var_binary_op_shapes {
             let output = client.$op_method(a.tensor(), b.tensor())?;
 
             if a.requires_grad() || b.requires_grad() {
+                // A frozen operand records `TensorId::UNTRACKED`: no gradient entry.
                 let grad_fn = $backward_ty::<R>::new(
-                    a.id(),
-                    b.id(),
+                    a.graph_id(),
+                    b.graph_id(),
                     a.shape(),
                     b.shape(),
                     a.grad_fn().cloned(),
@@ -46,9 +47,10 @@ macro_rules! impl_var_binary_op_tensors {
             let output = client.$op_method(a.tensor(), b.tensor())?;
 
             if a.requires_grad() || b.requires_grad() {
+                // A frozen operand records `TensorId::UNTRACKED`: no gradient entry.
                 let grad_fn = $backward_ty::<R>::new(
-                    a.id(),
-                    b.id(),
+                    a.graph_id(),
+                    b.graph_id(),
                     a.tensor().clone(),
                     b.tensor().clone(),
                     a.grad_fn().cloned(),

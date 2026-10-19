@@ -27,7 +27,7 @@ where
 
     if x.requires_grad() || y.requires_grad() {
         let grad_fn = WhereBackward::<R> {
-            input_ids: [x.id(), y.id()],
+            input_ids: [x.graph_id(), y.graph_id()],
             cond: cond.clone(),
             shapes: [x.shape().to_vec(), y.shape().to_vec()],
             input_grad_fns: [x.grad_fn().cloned(), y.grad_fn().cloned()],

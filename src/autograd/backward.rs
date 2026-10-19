@@ -188,7 +188,13 @@ where
     C: RuntimeClient<R> + TensorOps<R>,
     H: BackwardHook<R>,
 {
-    let wanted = Wanted::Set(wanted.iter().copied().collect());
+    let wanted = Wanted::Set(
+        wanted
+            .iter()
+            .copied()
+            .filter(|id| id.is_tracked())
+            .collect(),
+    );
     backward_driver(loss, &wanted, client, hooks, "backward_wrt_with_hooks")
 }
 
@@ -298,7 +304,7 @@ where
     // Reachability pre-pass: which nodes lie on a path to a wanted gradient
     let needed = compute_needed(&topo_order, wanted);
     let is_needed = |id: TensorId| match &needed {
-        None => true,
+        None => id.is_tracked(),
         Some(set) => set.contains(&id),
     };
 
@@ -432,7 +438,7 @@ where
 
             // Accumulate gradients for each input using var_add (builds graph)
             for (input_id, input_grad_opt) in input_ids.iter().zip(input_grads) {
-                if let Some(input_grad) = input_grad_opt {
+                if let Some(input_grad) = input_grad_opt.filter(|_| input_id.is_tracked()) {
                     // Accumulate gradient using var_add to maintain computation graph
                     var_grad_store.try_accumulate(*input_id, input_grad, |existing, new| {
                         var_add(&existing, &new, client)
@@ -909,9 +915,9 @@ mod tests {
 
     #[test]
     fn test_backward_wrt_drops_frozen_operand_gradient() {
-        // Mirrors a Linear layer on a frozen weight: `var_transpose(&w)` mints a
-        // fresh TensorId every step, so MatmulBackward stores a full-size
-        // gradient under an id no caller can ever look up.
+        // Mirrors a Linear layer on a frozen weight: `var_transpose(&w)` gives
+        // an untracked Var, so MatmulBackward records `TensorId::UNTRACKED` for
+        // it and no backward mode stores a gradient for the weight.
         let device = CpuDevice::new();
         let client = CpuRuntime::default_client(&device);
 
@@ -930,11 +936,11 @@ mod tests {
         let y = var_matmul(&x, &w_t, &client).unwrap();
         let loss = var_sum(&y, &[0, 1], false, &client).unwrap();
 
-        // Baseline: plain backward keeps the throwaway id
+        // Plain backward stores no entry for the frozen operand either
         let full = backward(&loss, &client).unwrap();
         assert!(
-            full.contains(w_t.id()),
-            "baseline: backward stores a gradient under the transposed frozen weight's id"
+            !full.contains(w_t.id()) && !full.contains(TensorId::UNTRACKED),
+            "backward must not store a gradient for the transposed frozen weight"
         );
 
         // Pruned: the unreadable entry is never created
@@ -1053,7 +1059,7 @@ mod tests {
 
         assert!(grads.contains(loss.id()), "loss seed dL/dL");
         assert!(grads.contains(h.id()), "intermediate node");
-        assert!(grads.contains(frozen.id()), "frozen operand");
+        assert!(!grads.contains(frozen.id()), "frozen operand gets no entry");
         assert!(grads.contains(x.id()), "parameter");
     }
 

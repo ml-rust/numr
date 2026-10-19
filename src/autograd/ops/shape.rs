@@ -743,7 +743,7 @@ where
             },
         )?;
 
-        let input_ids: Vec<TensorId> = vars.iter().map(|v| v.id()).collect();
+        let input_ids: Vec<TensorId> = vars.iter().map(|v| v.graph_id()).collect();
         let split_sizes: Vec<usize> = vars.iter().map(|v| v.shape()[dim_idx]).collect();
         let input_grad_fns: Vec<Option<Arc<dyn GradFn<R>>>> =
             vars.iter().map(|v| v.grad_fn().cloned()).collect();

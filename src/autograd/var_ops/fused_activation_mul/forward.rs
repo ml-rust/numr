@@ -199,8 +199,8 @@ where
         };
 
         let grad_fn = FusedActivationMulBackward::<R>::new(
-            a.id(),
-            b.id(),
+            a.graph_id(),
+            b.graph_id(),
             a.tensor().clone(),
             b.tensor().clone(),
             activation_a,

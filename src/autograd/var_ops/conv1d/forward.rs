@@ -52,9 +52,9 @@ where
 
     if needs_grad {
         let grad_fn = Conv1dBackward::<R>::new(
-            input.id(),
-            weight.id(),
-            bias.map(|b| b.id()),
+            input.graph_id(),
+            weight.graph_id(),
+            bias.map(|b| b.graph_id()),
             input.tensor().clone(),
             weight.tensor().clone(),
             input.tensor().shape().to_vec(),

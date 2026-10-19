@@ -40,7 +40,7 @@ where
 
     if x.requires_grad() || alpha.requires_grad() || beta.requires_grad() {
         let grad_fn = SnakeBetaBackward::<R> {
-            input_ids: [x.id(), alpha.id(), beta.id()],
+            input_ids: [x.graph_id(), alpha.graph_id(), beta.graph_id()],
             saved: [
                 x.tensor().clone(),
                 alpha.tensor().clone(),

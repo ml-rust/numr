@@ -44,10 +44,10 @@ where
         || bias.requires_grad()
     {
         let grad_fn = FusedAddLayerNormBackward::<R>::new(
-            x.id(),
-            residual.id(),
-            weight.id(),
-            bias.id(),
+            x.graph_id(),
+            residual.graph_id(),
+            weight.graph_id(),
+            bias.graph_id(),
             pre_norm,
             weight.tensor().clone(),
             bias.tensor().clone(),

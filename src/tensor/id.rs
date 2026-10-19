@@ -13,6 +13,18 @@ static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 pub struct TensorId(u64);
 
 impl TensorId {
+    /// Id an autograd op records for an input that does not require grad.
+    ///
+    /// The counter starts at 1, so no tensor ever owns this id. Every backward
+    /// pass skips it: a frozen input gets no gradient entry.
+    pub const UNTRACKED: TensorId = TensorId(0);
+
+    /// Whether this id can receive a gradient. False only for [`Self::UNTRACKED`].
+    #[inline]
+    pub fn is_tracked(self) -> bool {
+        self.0 != Self::UNTRACKED.0
+    }
+
     /// Create a new unique tensor ID
     #[inline]
     pub fn new() -> Self {

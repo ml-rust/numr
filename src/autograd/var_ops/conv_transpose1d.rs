@@ -79,9 +79,9 @@ where
 
     let grad_fn = ConvTranspose1dBackward::<R> {
         input_ids: {
-            let mut ids = vec![input.id(), weight.id()];
+            let mut ids = vec![input.graph_id(), weight.graph_id()];
             if let Some(b) = bias {
-                ids.push(b.id());
+                ids.push(b.graph_id());
             }
             ids
         },

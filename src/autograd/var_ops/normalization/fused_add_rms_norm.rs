@@ -33,9 +33,9 @@ where
 
     if x.requires_grad() || residual.requires_grad() || weight.requires_grad() {
         let grad_fn = FusedAddRmsNormBackward::<R>::new(
-            x.id(),
-            residual.id(),
-            weight.id(),
+            x.graph_id(),
+            residual.graph_id(),
+            weight.graph_id(),
             pre_norm,
             weight.tensor().clone(),
             eps,

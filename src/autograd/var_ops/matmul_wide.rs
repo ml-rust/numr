@@ -23,8 +23,8 @@ where
 
     if a.requires_grad() || b.requires_grad() {
         let grad_fn = MatmulWideBackward::<R>::new(
-            a.id(),
-            b.id(),
+            a.graph_id(),
+            b.graph_id(),
             a.tensor().clone(),
             b.tensor().clone(),
             a.grad_fn().cloned(),

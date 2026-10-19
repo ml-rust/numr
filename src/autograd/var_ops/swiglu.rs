@@ -37,8 +37,8 @@ where
 
     if gate.requires_grad() || up.requires_grad() {
         let grad_fn = SwiGLUBackward::<R>::new(
-            gate.id(),
-            up.id(),
+            gate.graph_id(),
+            up.graph_id(),
             gate.tensor().clone(),
             up.tensor().clone(),
             silu_gate,

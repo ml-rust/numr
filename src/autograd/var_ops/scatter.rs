@@ -40,7 +40,7 @@ where
 
     if target.requires_grad() || src.requires_grad() {
         let grad_fn = ScatterBackward::<R> {
-            input_ids: [target.id(), src.id()],
+            input_ids: [target.graph_id(), src.graph_id()],
             dim,
             index: index.clone(),
             src_shape: src.shape().to_vec(),

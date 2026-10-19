@@ -44,8 +44,8 @@ where
 
     if target.requires_grad() || src.requires_grad() {
         let grad_fn = ScatterAddBackward::<R>::new(
-            target.id(),
-            src.id(),
+            target.graph_id(),
+            src.graph_id(),
             dim,
             index.clone(),
             target.grad_fn().cloned(),

@@ -31,13 +31,10 @@ use crate::tensor::TensorId;
 /// directly AND reaches through that intermediate would collect its second path
 /// twice. Reporting leaves only makes every capture terminal in both passes.
 ///
-/// A frozen capture stays out of the result in the case that matters. A segment
-/// reading only frozen values builds no node at all, because every operand has
-/// `requires_grad = false`, so there is nothing to walk. A frozen value reached
-/// through a node that some trainable capture created is reported, because the
-/// retained graph records ids and never `requires_grad`. That costs nothing in
-/// correctness: an unpruned `backward` gives such a value a gradient too, so the
-/// segment still behaves as if it were not checkpointed.
+/// A frozen capture stays out of the result. A segment reading only frozen
+/// values builds no node at all, so there is nothing to walk. A node that a
+/// trainable capture created records each frozen operand as
+/// [`TensorId::UNTRACKED`], and the walk skips that id.
 pub(super) fn collect_captures<R: Runtime>(
     output: &Var<R>,
     boundary: TensorId,
@@ -57,7 +54,7 @@ pub(super) fn collect_captures<R: Runtime>(
             // A leaf. Older than the boundary means the caller owns it; newer
             // means the segment minted it this run, and its id changes on the
             // next one, so no gradient can be delivered under it.
-            if id.raw() < boundary.raw() && !known.contains(&id) {
+            if id.is_tracked() && id.raw() < boundary.raw() && !known.contains(&id) {
                 captures.push(id);
             }
             continue;
@@ -151,6 +148,22 @@ mod tests {
         let inside = leaf(&device, 1.0, false);
         let scaled = var_mul(&x, &w, &client).unwrap();
         let out = var_add(&scaled, &inside, &client).unwrap();
+
+        assert_eq!(collect_captures(&out, boundary, &known), vec![w.id()]);
+    }
+
+    #[test]
+    fn frozen_value_beside_a_trainable_capture_is_not_reported() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+
+        // Both are created before the boundary and neither is listed.
+        let frozen = leaf(&device, 5.0, false);
+        let w = leaf(&device, 2.0, true);
+        let known: HashSet<TensorId> = HashSet::new();
+
+        let boundary = TensorId::new();
+        let out = var_mul(&frozen, &w, &client).unwrap();
 
         assert_eq!(collect_captures(&out, boundary, &known), vec![w.id()]);
     }
