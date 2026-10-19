@@ -8,6 +8,7 @@
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
 #include "dtype_traits.cuh"
+#include "arg_reduce.cuh"
 
 // ============================================================================
 // Templated Reduction Device Functions
@@ -333,9 +334,10 @@ __device__ void reduce_min_dim_impl(
     }
 }
 
-// Argmax along dimension - uses float for comparison (or double for f64)
-template<typename T, typename CompareType>
-__device__ void argmax_dim_impl(
+// Argmax or argmin along a dimension. Compares in float, or double for f64.
+// Ties and NaN follow `arg_take` in `arg_reduce.cuh`.
+template<typename T, typename CompareType, bool IsMax>
+__device__ void arg_dim_impl(
     const T* input, long long* output,
     unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
 ) {
@@ -346,81 +348,34 @@ __device__ void argmax_dim_impl(
 
     for (unsigned int outer_idx = blockIdx.x; outer_idx < outer_size; outer_idx += gridDim.x) {
         for (unsigned int inner_idx = blockIdx.y; inner_idx < inner_size; inner_idx += gridDim.y) {
-            CompareType max_val = Traits::neg_inf();
-            long long max_idx = 0;
+            CompareType best = IsMax ? Traits::neg_inf() : Traits::pos_inf();
+            long long best_idx = ARG_NO_INDEX;
 
             for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
                 unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
                 CompareType val = Traits::load(input, idx);
-                if (val > max_val) {
-                    max_val = val;
-                    max_idx = i;
+                if (arg_take<IsMax>(val, (long long)i, best, best_idx)) {
+                    best = val;
+                    best_idx = i;
                 }
             }
 
-            shared_val[tid] = max_val;
-            shared_idx[tid] = max_idx;
+            shared_val[tid] = best;
+            shared_idx[tid] = best_idx;
             __syncthreads();
 
             for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-                if (tid < s) {
-                    if (shared_val[tid + s] > shared_val[tid]) {
-                        shared_val[tid] = shared_val[tid + s];
-                        shared_idx[tid] = shared_idx[tid + s];
-                    }
+                if (tid < s && arg_take<IsMax>(shared_val[tid + s], shared_idx[tid + s],
+                                               shared_val[tid], shared_idx[tid])) {
+                    shared_val[tid] = shared_val[tid + s];
+                    shared_idx[tid] = shared_idx[tid + s];
                 }
                 __syncthreads();
             }
 
             if (tid == 0) {
-                output[outer_idx * inner_size + inner_idx] = shared_idx[0];
-            }
-            __syncthreads();
-        }
-    }
-}
-
-// Argmin along dimension
-template<typename T, typename CompareType>
-__device__ void argmin_dim_impl(
-    const T* input, long long* output,
-    unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size
-) {
-    using Traits = AccumTraits<T, CompareType>;
-    __shared__ CompareType shared_val[256];
-    __shared__ long long shared_idx[256];
-    unsigned int tid = threadIdx.x;
-
-    for (unsigned int outer_idx = blockIdx.x; outer_idx < outer_size; outer_idx += gridDim.x) {
-        for (unsigned int inner_idx = blockIdx.y; inner_idx < inner_size; inner_idx += gridDim.y) {
-            CompareType min_val = Traits::pos_inf();
-            long long min_idx = 0;
-
-            for (unsigned int i = tid; i < reduce_size; i += blockDim.x) {
-                unsigned int idx = outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
-                CompareType val = Traits::load(input, idx);
-                if (val < min_val) {
-                    min_val = val;
-                    min_idx = i;
-                }
-            }
-
-            shared_val[tid] = min_val;
-            shared_idx[tid] = min_idx;
-            __syncthreads();
-
-            for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-                if (tid < s) {
-                    if (shared_val[tid + s] < shared_val[tid]) {
-                        shared_val[tid] = shared_val[tid + s];
-                        shared_idx[tid] = shared_idx[tid + s];
-                    }
-                }
-                __syncthreads();
-            }
-
-            if (tid == 0) {
-                output[outer_idx * inner_size + inner_idx] = shared_idx[0];
+                long long found = shared_idx[0];
+                output[outer_idx * inner_size + inner_idx] = found == ARG_NO_INDEX ? 0 : found;
             }
             __syncthreads();
         }
@@ -622,13 +577,13 @@ __global__ void argmax_dim_##SUFFIX( \
     const T* input, long long* output, \
     unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
 ) { \
-    argmax_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+    arg_dim_impl<T, CompareType, true>(input, output, outer_size, reduce_size, inner_size); \
 } \
 __global__ void argmin_dim_##SUFFIX( \
     const T* input, long long* output, \
     unsigned int outer_size, unsigned int reduce_size, unsigned int inner_size \
 ) { \
-    argmin_dim_impl<T, CompareType>(input, output, outer_size, reduce_size, inner_size); \
+    arg_dim_impl<T, CompareType, false>(input, output, outer_size, reduce_size, inner_size); \
 }
 
 // Prod dim: reduce_prod_dim_SUFFIX

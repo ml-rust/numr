@@ -6,6 +6,8 @@ use crate::dtype::Element;
 
 /// Argmax along a dimension - returns indices of maximum values
 ///
+/// Ties and NaN follow [`arg_lane`].
+///
 /// # Arguments
 /// * `a` - Input pointer (outer_size * reduce_size * inner_size elements)
 /// * `out` - Output pointer (outer_size * inner_size elements) for i64 indices
@@ -26,28 +28,16 @@ pub unsafe fn argmax_kernel<T: Element>(
 ) {
     for outer in 0..outer_size {
         for inner in 0..inner_size {
-            // Base index for this (outer, inner) position
             let base_idx = outer * reduce_size * inner_size + inner;
-
-            // Find index of maximum value
-            let mut max_val = (*a.add(base_idx)).to_f64();
-            let mut max_idx: i64 = 0;
-
-            for r in 1..reduce_size {
-                let idx = base_idx + r * inner_size;
-                let val = (*a.add(idx)).to_f64();
-                if val > max_val {
-                    max_val = val;
-                    max_idx = r as i64;
-                }
-            }
-
-            *out.add(outer * inner_size + inner) = max_idx;
+            *out.add(outer * inner_size + inner) =
+                arg_lane(a, base_idx, reduce_size, inner_size, |v, best| v > best);
         }
     }
 }
 
 /// Argmin along a dimension - returns indices of minimum values
+///
+/// Ties and NaN follow [`arg_lane`].
 ///
 /// # Arguments
 /// * `a` - Input pointer (outer_size * reduce_size * inner_size elements)
@@ -69,25 +59,44 @@ pub unsafe fn argmin_kernel<T: Element>(
 ) {
     for outer in 0..outer_size {
         for inner in 0..inner_size {
-            // Base index for this (outer, inner) position
             let base_idx = outer * reduce_size * inner_size + inner;
-
-            // Find index of minimum value
-            let mut min_val = (*a.add(base_idx)).to_f64();
-            let mut min_idx: i64 = 0;
-
-            for r in 1..reduce_size {
-                let idx = base_idx + r * inner_size;
-                let val = (*a.add(idx)).to_f64();
-                if val < min_val {
-                    min_val = val;
-                    min_idx = r as i64;
-                }
-            }
-
-            *out.add(outer * inner_size + inner) = min_idx;
+            *out.add(outer * inner_size + inner) =
+                arg_lane(a, base_idx, reduce_size, inner_size, |v, best| v < best);
         }
     }
+}
+
+/// Index of the winning element in one reduced lane.
+///
+/// This rule is the contract every backend matches:
+/// - Equal values resolve to the lowest index. The ascending scan takes only a strict win.
+/// - NaN never wins. A lane of only NaN returns index 0.
+///
+/// Values compare in the element type, so 64-bit integers keep full precision.
+///
+/// # Safety
+/// `a` must point to `base + (reduce_size - 1) * inner_size + 1` elements.
+#[inline]
+unsafe fn arg_lane<T: Element>(
+    a: *const T,
+    base: usize,
+    reduce_size: usize,
+    inner_size: usize,
+    wins: impl Fn(T, T) -> bool,
+) -> i64 {
+    let mut best: Option<(T, usize)> = None;
+    for r in 0..reduce_size {
+        let v = *a.add(base + r * inner_size);
+        // Only NaN is unordered with itself.
+        if v.partial_cmp(&v).is_none() {
+            continue;
+        }
+        match best {
+            Some((b, _)) if !wins(v, b) => {}
+            _ => best = Some((v, r)),
+        }
+    }
+    best.map_or(0, |(_, r)| r as i64)
 }
 
 /// Softmax along the last dimension
@@ -404,6 +413,53 @@ pub unsafe fn variance_kernel<T: Element>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn argmax_row<T: Element>(row: &[T]) -> i64 {
+        let mut out = [-1i64];
+        unsafe { argmax_kernel(row.as_ptr(), out.as_mut_ptr(), 1, row.len(), 1) };
+        out[0]
+    }
+
+    fn argmin_row<T: Element>(row: &[T]) -> i64 {
+        let mut out = [-1i64];
+        unsafe { argmin_kernel(row.as_ptr(), out.as_mut_ptr(), 1, row.len(), 1) };
+        out[0]
+    }
+
+    #[test]
+    fn test_arg_ties_take_lowest_index() {
+        assert_eq!(argmax_row(&[1.0f32, 3.0, 2.0, 3.0, 3.0]), 1);
+        assert_eq!(argmin_row(&[4.0f32, 1.0, 2.0, 1.0]), 1);
+        assert_eq!(argmax_row(&[7i32; 9]), 0);
+        assert_eq!(argmin_row(&[7u32; 9]), 0);
+    }
+
+    #[test]
+    fn test_arg_nan_never_wins() {
+        let nan = f32::NAN;
+        assert_eq!(argmax_row(&[nan, 1.0, 5.0, nan, 5.0]), 2);
+        assert_eq!(argmin_row(&[nan, 1.0, -5.0, nan, -5.0]), 2);
+        assert_eq!(argmax_row(&[nan, f32::NEG_INFINITY, f32::NEG_INFINITY]), 1);
+        assert_eq!(argmin_row(&[nan, f32::INFINITY, f32::INFINITY]), 1);
+        assert_eq!(argmax_row(&[nan, nan, nan]), 0);
+    }
+
+    #[test]
+    fn test_arg_i64_keeps_full_precision() {
+        // Both values round to the same f64.
+        let lo = i64::MAX - 1;
+        assert_eq!(argmax_row(&[lo, i64::MAX]), 1);
+        assert_eq!(argmin_row(&[i64::MAX, lo]), 1);
+    }
+
+    #[test]
+    fn test_arg_strided_lane() {
+        // Shape [1, 3, 2], reduce dim 1: column 0 is [5, 5, 1], column 1 is [0, 2, 2].
+        let a = [5.0f32, 0.0, 5.0, 2.0, 1.0, 2.0];
+        let mut out = [-1i64; 2];
+        unsafe { argmax_kernel(a.as_ptr(), out.as_mut_ptr(), 1, 3, 2) };
+        assert_eq!(out, [0, 1]);
+    }
 
     #[test]
     fn test_softmax() {

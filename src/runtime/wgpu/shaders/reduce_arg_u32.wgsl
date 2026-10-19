@@ -1,5 +1,9 @@
 // Index reductions for U32.
 // Entry points: argmax_u32, argmin_u32
+//
+// Equal values resolve to the lowest index, as on CPU. Lane `tid` scans tid,
+// tid + 256, ..., so every merge compares the index on a tie.
+// The seed (type bound, index 0) wins only when every element equals the bound.
 
 var<workgroup> argmax_shared_val: array<u32, 256>;
 var<workgroup> argmax_shared_idx: array<u32, 256>;
@@ -14,6 +18,19 @@ struct ArgReduceParams {
 @group(0) @binding(0) var<storage, read_write> argreduce_input: array<u32>;
 @group(0) @binding(1) var<storage, read_write> argreduce_output: array<u32>;
 @group(0) @binding(2) var<uniform> argreduce_params: ArgReduceParams;
+
+// True when lane `b` replaces lane `a`.
+fn arg_takes_max(a: u32, b: u32) -> bool {
+    let va = argmax_shared_val[a];
+    let vb = argmax_shared_val[b];
+    return vb > va || (vb == va && argmax_shared_idx[b] < argmax_shared_idx[a]);
+}
+
+fn arg_takes_min(a: u32, b: u32) -> bool {
+    let va = argmax_shared_val[a];
+    let vb = argmax_shared_val[b];
+    return vb < va || (vb == va && argmax_shared_idx[b] < argmax_shared_idx[a]);
+}
 
 @compute @workgroup_size(256)
 fn argmax_u32(@builtin(global_invocation_id) global_id: vec3<u32>,
@@ -44,7 +61,7 @@ fn argmax_u32(@builtin(global_invocation_id) global_id: vec3<u32>,
 
     for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
         if (tid < s) {
-            if (argmax_shared_val[tid + s] > argmax_shared_val[tid]) {
+            if (arg_takes_max(tid, tid + s)) {
                 argmax_shared_val[tid] = argmax_shared_val[tid + s];
                 argmax_shared_idx[tid] = argmax_shared_idx[tid + s];
             }
@@ -84,7 +101,7 @@ fn argmin_u32(@builtin(global_invocation_id) global_id: vec3<u32>,
 
     for (var s: u32 = WORKGROUP_SIZE / 2u; s > 0u; s = s >> 1u) {
         if (tid < s) {
-            if (argmax_shared_val[tid + s] < argmax_shared_val[tid]) {
+            if (arg_takes_min(tid, tid + s)) {
                 argmax_shared_val[tid] = argmax_shared_val[tid + s];
                 argmax_shared_idx[tid] = argmax_shared_idx[tid + s];
             }

@@ -260,6 +260,7 @@ fn compile_cuda_kernels() {
     // a header changes and only the .cu files are watched.
     for header in [
         "dtype_traits.cuh",
+        "arg_reduce.cuh",
         "narrow_f64.cuh",
         "conv1d_common.cuh",
         "activation_deriv.cuh",

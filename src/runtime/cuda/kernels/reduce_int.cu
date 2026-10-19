@@ -24,6 +24,7 @@
 // x == T_MIN.
 
 #include "numr128.cuh"
+#include "arg_reduce.cuh"
 
 // The launcher fixes the block at BLOCK_SIZE (256) for every reduction, so the
 // shared arrays below are sized to it exactly, as `reduce.cu`'s are.
@@ -263,11 +264,10 @@ __device__ void reduce_logical_dim_int_impl(
 }
 
 // Argmax or argmin along a dimension, comparing in the element type.
+// Ties follow `arg_take` in `arg_reduce.cuh`: the lowest index wins.
 //
-// Seeding the value with the type bound and the index with 0 keeps the
-// first-occurrence tie-break: a seeded lane only ever loses a strict comparison,
-// and the one case where the bound equals the true extremum means every element
-// equals it, whose first occurrence is index 0.
+// The seed (type bound, index 0) is sound. A seeded lane beats a real element
+// only when every element equals the bound, and then index 0 is the answer.
 template<typename T, bool IsMax>
 __device__ void arg_dim_int_impl(
     const T* input, long long* output,
@@ -286,7 +286,7 @@ __device__ void arg_dim_int_impl(
                 const unsigned int idx =
                     outer_idx * reduce_size * inner_size + i * inner_size + inner_idx;
                 const T v = input[idx];
-                if (IsMax ? (v > best) : (v < best)) {
+                if (arg_take<IsMax>(v, (long long)i, best, best_idx)) {
                     best = v;
                     best_idx = i;
                 }
@@ -297,13 +297,10 @@ __device__ void arg_dim_int_impl(
             __syncthreads();
 
             for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
-                if (tid < s) {
-                    const bool take = IsMax ? (shared_val[tid + s] > shared_val[tid])
-                                            : (shared_val[tid + s] < shared_val[tid]);
-                    if (take) {
-                        shared_val[tid] = shared_val[tid + s];
-                        shared_idx[tid] = shared_idx[tid + s];
-                    }
+                if (tid < s && arg_take<IsMax>(shared_val[tid + s], shared_idx[tid + s],
+                                               shared_val[tid], shared_idx[tid])) {
+                    shared_val[tid] = shared_val[tid + s];
+                    shared_idx[tid] = shared_idx[tid + s];
                 }
                 __syncthreads();
             }
