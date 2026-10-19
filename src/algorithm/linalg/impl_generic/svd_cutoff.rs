@@ -120,4 +120,53 @@ mod tests {
         assert_eq!(rank.shape(), &[2]);
         assert_eq!(rank.to_vec::<f64>(), vec![2.0, 1.0]);
     }
+
+    #[test]
+    fn batched_matrices_cut_per_matrix() {
+        // [2, 2, 3]: each row of 3 is one matrix's singular values. Row maxima
+        // are 8, 2^-20, 0 and 4, so each row gets its own cutoff.
+        let (c, d) = client();
+        let tiny = 2f64.powi(-20);
+        let s = Tensor::<CpuRuntime>::from_slice(
+            &[
+                8.0f64,
+                4.0,
+                1e-3,
+                tiny,
+                tiny / 2.0,
+                tiny * 1e-6,
+                0.0,
+                0.0,
+                0.0,
+                4.0,
+                2.0,
+                1e-2,
+            ],
+            &[2, 2, 3],
+            &d,
+        )
+        .unwrap();
+        let (s_inv, rank) = svd_cutoff(&c, &s, 1e-2).unwrap();
+        assert_eq!(s_inv.shape(), &[2, 2, 3]);
+        let big = 2f64.powi(20);
+        assert_eq!(
+            s_inv.to_vec::<f64>(),
+            vec![
+                0.125,
+                0.25,
+                0.0,
+                big,
+                2.0 * big,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.25,
+                0.5,
+                0.0
+            ]
+        );
+        assert_eq!(rank.shape(), &[2, 2]);
+        assert_eq!(rank.to_vec::<f64>(), vec![2.0, 2.0, 0.0, 2.0]);
+    }
 }

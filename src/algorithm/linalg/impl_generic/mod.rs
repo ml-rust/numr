@@ -6,6 +6,4 @@ mod lstsq;
 mod svd_cutoff;
 
 pub use lstsq::lstsq_impl;
-pub use svd_cutoff::resolve_rcond;
-#[cfg(any(feature = "cuda", feature = "wgpu"))]
-pub use svd_cutoff::svd_cutoff;
+pub use svd_cutoff::{resolve_rcond, svd_cutoff};

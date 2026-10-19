@@ -3,10 +3,11 @@
 use super::super::jacobi::LinalgElement;
 use super::super::{CpuClient, CpuRuntime};
 use super::svd::svd_decompose_impl;
-use crate::algorithm::linalg::impl_generic::resolve_rcond;
+use crate::algorithm::linalg::impl_generic::{resolve_rcond, svd_cutoff};
 use crate::algorithm::linalg::{linalg_demote, linalg_promote, validate_matrix_2d};
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
+use crate::ops::{BinaryOps, MatmulOps};
 use crate::runtime::RuntimeClient;
 use crate::tensor::Tensor;
 
@@ -26,75 +27,24 @@ pub fn pinverse_impl(
     let (m, n) = validate_matrix_2d(a.shape())?;
     let rcond = resolve_rcond(rcond, m, n, a.dtype())?;
 
-    let result = match a.dtype() {
-        DType::F32 => pinverse_typed::<f32>(client, &a, m, n, rcond),
-        DType::F64 => pinverse_typed::<f64>(client, &a, m, n, rcond),
-        _ => unreachable!(),
-    }?;
-    linalg_demote(client, result, original_dtype)
-}
-
-fn pinverse_typed<T: Element + LinalgElement>(
-    client: &CpuClient,
-    a: &Tensor<CpuRuntime>,
-    m: usize,
-    n: usize,
-    rcond: f64,
-) -> Result<Tensor<CpuRuntime>> {
-    let device = client.device();
-
-    // Handle empty matrix
     if m == 0 || n == 0 {
-        return Tensor::<CpuRuntime>::from_slice::<T>(&[], &[n, m], device);
+        let empty = Tensor::<CpuRuntime>::zeros(&[n, m], a.dtype(), client.device())?;
+        return linalg_demote(client, empty, original_dtype);
     }
 
-    // Compute SVD: A = U @ S @ V^T
-    let svd = svd_decompose_impl(client, a)?;
-    let u_data: Vec<T> = svd.u.to_vec();
-    let s_data: Vec<T> = svd.s.to_vec();
-    let vt_data: Vec<T> = svd.vt.to_vec();
+    // A = U @ diag(S) @ V^T, with U [m, k], S [k] and V^T [k, n]
+    let svd = svd_decompose_impl(client, &a)?;
 
-    let k = m.min(n);
+    // Singular values at or below rcond * max(S) count as zero. The cutoff
+    // runs as tensor ops, the same path the GPU backends take.
+    let (s_inv, _rank) = svd_cutoff(client, &svd.s, rcond)?;
 
-    // Singular values at or below rcond * max(S) count as zero
-    let max_s = s_data.iter().map(|v| v.to_f64()).fold(0.0f64, f64::max);
-    let cutoff = rcond * max_s;
-
-    // Compute S^{-1} (reciprocal of singular values above cutoff)
-    let s_inv: Vec<T> = s_data
-        .iter()
-        .map(|&s| {
-            if s.to_f64() > cutoff {
-                T::from_f64(1.0 / s.to_f64())
-            } else {
-                T::zero()
-            }
-        })
-        .collect();
-
-    // Compute A^+ = V @ diag(S^{-1}) @ U^T
-    // V = (V^T)^T, so V[i,j] = vt_data[j * n + i]
-    // Result has shape [n, m]
-
-    let mut pinv: Vec<T> = vec![T::zero(); n * m];
-
-    // pinv[i,j] = sum_l V[i,l] * S_inv[l] * U^T[l,j]
-    //           = sum_l V[i,l] * S_inv[l] * U[j,l]
-    for i in 0..n {
-        for j in 0..m {
-            let mut sum = T::zero();
-            for l in 0..k {
-                // V[i,l] = vt_data[l * n + i] (since V = V^T transposed)
-                // U[j,l] = u_data[j * k + l]
-                let v_il = vt_data[l * n + i];
-                let u_jl = u_data[j * k + l];
-                sum = sum + v_il * s_inv[l] * u_jl;
-            }
-            pinv[i * m + j] = sum;
-        }
-    }
-
-    Tensor::<CpuRuntime>::from_slice(&pinv, &[n, m], device)
+    // A^+ = (V * S^-1) @ U^T. The [k] row scales column l of V by S^-1[l].
+    let v = svd.vt.transpose(0, 1)?.contiguous()?;
+    let ut = svd.u.transpose(0, 1)?.contiguous()?;
+    let v_sinv = BinaryOps::mul(client, &v, &s_inv)?;
+    let pinv = MatmulOps::matmul(client, &v_sinv, &ut)?;
+    linalg_demote(client, pinv, original_dtype)
 }
 
 /// Condition number via SVD: cond(A) = σ_max / σ_min
@@ -111,7 +61,7 @@ pub fn cond_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tensor<Cp
     let result = match a.dtype() {
         DType::F32 => cond_typed::<f32>(client, &a, m, n),
         DType::F64 => cond_typed::<f64>(client, &a, m, n),
-        _ => unreachable!(),
+        dtype => Err(Error::UnsupportedDType { dtype, op: "cond" }),
     }?;
     linalg_demote(client, result, original_dtype)
 }
@@ -173,7 +123,7 @@ pub fn cov_impl(
     let result = match a.dtype() {
         DType::F32 => cov_typed::<f32>(client, &a, n_samples, n_features, ddof),
         DType::F64 => cov_typed::<f64>(client, &a, n_samples, n_features, ddof),
-        _ => unreachable!(),
+        dtype => Err(Error::UnsupportedDType { dtype, op: "cov" }),
     }?;
     linalg_demote(client, result, original_dtype)
 }
@@ -252,7 +202,10 @@ pub fn corrcoef_impl(client: &CpuClient, a: &Tensor<CpuRuntime>) -> Result<Tenso
     let result = match a.dtype() {
         DType::F32 => corrcoef_typed::<f32>(client, &a, n_samples, n_features),
         DType::F64 => corrcoef_typed::<f64>(client, &a, n_samples, n_features),
-        _ => unreachable!(),
+        dtype => Err(Error::UnsupportedDType {
+            dtype,
+            op: "corrcoef",
+        }),
     }?;
     linalg_demote(client, result, original_dtype)
 }
@@ -311,4 +264,104 @@ fn corrcoef_typed<T: Element + LinalgElement>(
     }
 
     Tensor::<CpuRuntime>::from_slice(&corr, &[n_features, n_features], device)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::cpu::CpuDevice;
+
+    fn pinv_f64(data: &[f64], shape: &[usize], rcond: Option<f64>) -> (Vec<usize>, Vec<f64>) {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+        let a = Tensor::<CpuRuntime>::from_slice(data, shape, &device).unwrap();
+        let p = pinverse_impl(&client, &a, rcond).unwrap();
+        (p.shape().to_vec(), p.to_vec::<f64>())
+    }
+
+    fn assert_close(got: &[f64], want: &[f64], tol: f64) {
+        assert_eq!(got.len(), want.len());
+        for (i, (g, w)) in got.iter().zip(want).enumerate() {
+            assert!((g - w).abs() <= tol, "element {i}: got {g}, want {w}");
+        }
+    }
+
+    #[test]
+    fn full_rank_square_matches_inverse() {
+        // [[4, 7], [2, 6]]^-1 = [[0.6, -0.7], [-0.2, 0.4]]
+        let (shape, p) = pinv_f64(&[4.0, 7.0, 2.0, 6.0], &[2, 2], None);
+        assert_eq!(shape, vec![2, 2]);
+        assert_close(&p, &[0.6, -0.7, -0.2, 0.4], 1e-12);
+    }
+
+    #[test]
+    fn rank_deficient_drops_the_null_direction() {
+        // A = u v^T with u = [1, 2], v = [1, 2]. A^+ = A^T / ||A||_F^2 = A^T / 25.
+        let (shape, p) = pinv_f64(&[1.0, 2.0, 2.0, 4.0], &[2, 2], None);
+        assert_eq!(shape, vec![2, 2]);
+        assert_close(&p, &[0.04, 0.08, 0.08, 0.16], 1e-12);
+    }
+
+    #[test]
+    fn rcond_sets_the_cutoff_relative_to_max_singular_value() {
+        // Singular values 1 and 1e-8 of a [3, 2] matrix.
+        let a = [1.0, 0.0, 0.0, 1e-8, 0.0, 0.0];
+
+        // The default cutoff keeps 1e-8, so it is inverted.
+        let (shape, p) = pinv_f64(&a, &[3, 2], None);
+        assert_eq!(shape, vec![2, 3]);
+        assert_close(&p, &[1.0, 0.0, 0.0, 0.0, 1e8, 0.0], 1e-4);
+
+        // rcond = 1e-4 puts the cutoff at 1e-4 * 1, so 1e-8 counts as zero.
+        let (_, p) = pinv_f64(&a, &[3, 2], Some(1e-4));
+        assert_close(&p, &[1.0, 0.0, 0.0, 0.0, 0.0, 0.0], 1e-12);
+
+        // Scaling A scales the cutoff with it: the result is A^+ / 1000.
+        let scaled: Vec<f64> = a.iter().map(|v| v * 1000.0).collect();
+        let (_, p) = pinv_f64(&scaled, &[3, 2], Some(1e-4));
+        assert_close(&p, &[1e-3, 0.0, 0.0, 0.0, 0.0, 0.0], 1e-15);
+    }
+
+    #[test]
+    fn all_zero_matrix_gives_all_zero_pinverse() {
+        let (shape, p) = pinv_f64(&[0.0; 6], &[2, 3], None);
+        assert_eq!(shape, vec![3, 2]);
+        assert_eq!(p, vec![0.0; 6]);
+        assert!(p.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn f32_rank_deficient_and_zero() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+
+        let a =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 2.0, 2.0, 4.0], &[2, 2], &device).unwrap();
+        let p = pinverse_impl(&client, &a, None).unwrap();
+        assert_eq!(p.dtype(), DType::F32);
+        let want = [0.04f32, 0.08, 0.08, 0.16];
+        for (g, w) in p.to_vec::<f32>().iter().zip(want) {
+            assert!((g - w).abs() <= 1e-5, "got {g}, want {w}");
+        }
+
+        let z = Tensor::<CpuRuntime>::zeros(&[3, 2], DType::F32, &device).unwrap();
+        let p = pinverse_impl(&client, &z, None).unwrap();
+        assert_eq!(p.shape(), &[2, 3]);
+        assert_eq!(p.to_vec::<f32>(), vec![0.0f32; 6]);
+    }
+
+    #[test]
+    fn empty_matrix_gives_transposed_empty_shape() {
+        let (shape, p) = pinv_f64(&[], &[0, 3], None);
+        assert_eq!(shape, vec![3, 0]);
+        assert!(p.is_empty());
+    }
+
+    #[test]
+    fn batched_input_is_rejected() {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+        let a = Tensor::<CpuRuntime>::zeros(&[2, 2, 2], DType::F64, &device).unwrap();
+        assert!(pinverse_impl(&client, &a, None).is_err());
+    }
 }
