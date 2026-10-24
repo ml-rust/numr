@@ -12,6 +12,7 @@ pub mod binary_int_div_zero;
 pub mod binary_ipow;
 pub mod bincount;
 pub mod cast;
+pub mod cast_i64_wgpu;
 pub mod compare;
 pub mod complex;
 pub mod conditional;

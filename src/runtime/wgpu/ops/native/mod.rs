@@ -31,7 +31,7 @@ pub(crate) use activation::{
 pub(crate) use binary::{
     native_binary_op, native_binary_op_into, native_copy_into, native_scalar_op,
 };
-pub(crate) use cast::native_cast_op;
+pub(crate) use cast::{is_native_cast, native_cast_op};
 pub(crate) use compare::native_compare_op;
 pub(crate) use conditional::{native_clamp, native_where_cond};
 pub(crate) use cumulative::{native_cumprod, native_cumsum, native_logsumexp};

@@ -6,6 +6,7 @@
 //! WebGPU supports F32, I32, U32 only (no F64/F16/BF16).
 
 pub mod advanced_random;
+pub mod cast_i64;
 pub mod complex;
 pub mod conv;
 pub mod copy;

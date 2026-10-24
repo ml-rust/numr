@@ -26,7 +26,7 @@ use crate::common::{assert_tensor_allclose, create_cpu_client};
 fn cast_dtypes(backend: &str) -> Vec<DType> {
     match backend {
         #[cfg(feature = "wgpu")]
-        "wgpu" => vec![DType::F32, DType::I32, DType::U32],
+        "wgpu" => vec![DType::F32, DType::I32, DType::U32, DType::I64],
         _ => {
             let mut dtypes = vec![DType::F32, DType::F64, DType::I32, DType::I64, DType::Bool];
             if cfg!(feature = "f16") {

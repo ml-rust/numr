@@ -8,9 +8,10 @@ use crate::runtime::wgpu::WgpuRuntime;
 use crate::tensor::Tensor;
 
 impl WgpuClient {
-    /// CPU-side type conversion for non-native WebGPU types.
-    /// This handles conversions where source or target type is not natively
-    /// supported by WGSL (e.g., I64, Bool, F64, F16, BF16, FP8).
+    /// Host-side cast for the pairs no WGSL kernel covers: every pair with
+    /// Bool, F64, F16, BF16 or FP8 on either side. The I64 arms serve only
+    /// I64 paired with one of those dtypes. I64 to or from F32, I32 or U32
+    /// runs on the GPU in `native_cast_op`.
     fn cast_via_cpu(
         &self,
         a: &Tensor<WgpuRuntime>,
@@ -148,21 +149,16 @@ impl TypeConversionOps<WgpuRuntime> for WgpuClient {
             return Ok(a.clone());
         }
 
-        // WebGPU natively supports 32-bit types only (F32, I32, U32).
-        // Casts between native types use WGSL shaders on-device.
-        let wgpu_native = [DType::F32, DType::I32, DType::U32];
-        let native_cast = wgpu_native.contains(&src_dtype) && wgpu_native.contains(&dtype);
-
-        if native_cast {
-            use crate::runtime::wgpu::ops::native::native_cast_op;
+        // F32, I32 and U32 cast among themselves on the GPU. I64 casts to and
+        // from each of them on the GPU too, through 64-bit emulation in WGSL.
+        use crate::runtime::wgpu::ops::native::{is_native_cast, native_cast_op};
+        if is_native_cast(src_dtype, dtype) {
             return native_cast_op(self, a, dtype);
         }
 
-        // Non-native type conversion: CPU-side boundary conversion.
-        // Types like I64, Bool, F64, F16, BF16, FP8 can't be processed by WGSL shaders,
-        // but data may arrive in these formats (e.g., I64 indices) or be requested as output.
-        // We read the raw bytes back, convert on CPU, and create a new tensor.
-        // This is NOT a forbidden GPU↔CPU transfer - the data was never on GPU in usable form.
+        // Every other pair has Bool, F64, F16, BF16 or FP8 on one side. No
+        // WGSL kernel exists for those, so the cast reads the tensor to the
+        // host, converts it there, and writes it back.
         self.cast_via_cpu(a, src_dtype, dtype)
     }
 }
