@@ -1,5 +1,6 @@
 // Backend parity-style correctness tests for AdvancedRandomOps.
-// Exact samples are RNG-implementation specific; we validate shared contracts.
+// Range and reproducibility checks per generator. Philox known answers and
+// bit parity live in `advanced_random_philox.rs`.
 
 use numr::dtype::DType;
 use numr::ops::AdvancedRandomOps;
@@ -147,37 +148,10 @@ fn test_xoshiro_uniform_repro_and_range() {
     });
 }
 
-/// Cross-backend value parity for `philox_uniform`: counter-based PRNGs must
-/// produce bit-identical streams across backends for the same (seed, offset).
-/// (Regression: the WGPU shader had a wrong `mulhi` and a different uint→float
-/// conversion, so it silently diverged from CPU/CUDA.)
-#[cfg(feature = "wgpu")]
-#[test]
-fn test_philox_uniform_cpu_vs_wgpu_parity() {
-    let (cpu_client, _cd) = create_cpu_client();
-    // Non-multiple-of-4 length to also cover the tail handling.
-    let cpu = cpu_client
-        .philox_uniform(&[37], 42, 0, DType::F32)
-        .unwrap()
-        .to_vec::<f32>();
-    with_wgpu_backend(|wc, _wd| {
-        let w = wc
-            .philox_uniform(&[37], 42, 0, DType::F32)
-            .unwrap()
-            .to_vec::<f32>();
-        assert_eq!(
-            cpu, w,
-            "philox CPU vs WGPU diverges:\ncpu={cpu:?}\nwgpu={w:?}"
-        );
-    });
-}
-
 /// Cross-backend parity for `threefry_uniform` (ThreeFry4x64-20): all backends
-/// now use the same 64-bit counter-based generator (the WGPU shader was a
-/// different 4x32 generator before). CPU and CUDA both convert with the full 53
-/// bits → bit-identical. WebGPU is f32-only, so it converts the same u64 stream
-/// with 24-bit f32 resolution — equal within f32 rounding, not weaker on the
-/// backends that can do better.
+/// use the same 64-bit counter-based generator. CPU and CUDA convert with the
+/// full 53 bits, so they are bit-identical. WebGPU is F32-only and converts the
+/// same u64 stream with 24-bit resolution, so it is equal within F32 rounding.
 #[cfg(any(feature = "wgpu", feature = "cuda"))]
 #[test]
 fn test_threefry_uniform_cross_backend_parity() {

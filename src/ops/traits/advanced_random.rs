@@ -9,8 +9,8 @@
 //! - **Xoshiro256++**: Rust `rand` default, excellent quality/speed
 //!
 //! # WebGPU Limitations
-//! WGSL lacks native u64: uses 32-bit keys for Philox/ThreeFry, emulated u64 for PCG64/Xoshiro.
-//! Only F32 supported on WebGPU.
+//! WGSL lacks native u64. Philox and ThreeFry carry 64-bit keys and counters as u32 pairs.
+//! PCG64 and Xoshiro emulate u64. Only F32 is supported on WebGPU.
 
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
@@ -36,7 +36,15 @@ use crate::tensor::Tensor;
 /// ```
 pub trait AdvancedRandomOps<R: Runtime> {
     /// Generate N(0,1) samples using Philox4x32-10.
-    /// Args: shape, key (seed), counter, dtype (F32/F64; WebGPU: F32 only)
+    ///
+    /// Args: shape, key (seed), counter, dtype.
+    /// Dtypes: CPU every float dtype, CUDA F32/F64/F16/BF16, WebGPU F32.
+    ///
+    /// Uses the block layout of [`philox_uniform`](Self::philox_uniform).
+    /// Box-Muller maps words (0, 1) and (2, 3) of block `c` to elements `4c..4c+3`.
+    /// Element `i` depends on `(key, counter, i)` only, never on the shape.
+    /// Backends agree within floating-point tolerance, not bit for bit:
+    /// `ln`, `sqrt`, `cos` and `sin` round differently per backend.
     fn philox_randn(
         &self,
         shape: &[usize],
@@ -51,6 +59,18 @@ pub trait AdvancedRandomOps<R: Runtime> {
     }
 
     /// Generate uniform [0,1) samples using Philox4x32-10.
+    ///
+    /// Dtypes: CPU every float dtype, CUDA F32/F64/F16/BF16, WebGPU F32.
+    ///
+    /// Contract, checked by known-answer and cross-backend tests:
+    /// - Block `c` is Philox4x32-10 (Random123) of counter `[lo, hi, 0, 0]` and
+    ///   key `[key_lo, key_hi]`, where `lo, hi` are the words of `counter + c` (u64 wrapping).
+    /// - Element `4c + j` is word `j` of block `c`, as `(word >> 8) / 2^24`.
+    ///   That value is exact in F32 and F64. F16 and BF16 round it to nearest even.
+    ///   A value that rounds to 1.0 clamps to the dtype's largest value below 1.0.
+    /// - Element `i` depends on `(key, counter, i)` only. A longer draw extends a shorter one.
+    /// - F32 output is bit-identical on CPU, CUDA and WebGPU. F64, F16 and BF16 output is
+    ///   bit-identical on CPU and CUDA. F64 equals the F32 output widened.
     fn philox_uniform(
         &self,
         shape: &[usize],

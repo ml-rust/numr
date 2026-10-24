@@ -36,43 +36,79 @@ __device__ __forceinline__ void philox4x32_10(uint32_t* ctr, uint32_t* key) {
 // Template implementation functions are marked __device__ (not __global__) to be called
 // by typed extern "C" __global__ wrapper kernels below. This avoids __global__ calling
 // __global__ without launch configuration, which is a CUDA error.
-template<typename T>
-__device__ void philox_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx * 4 >= n) return;
+// Uniform word -> [0, 1): top 24 bits / 2^24. The value is exact in float, so
+// every output dtype rounds the same value the CPU kernel rounds.
+__device__ __forceinline__ float philox_word_to_uniform(uint32_t w) {
+    return (float)(w >> 8) * (1.0f / 16777216.0f);
+}
 
+// Store a uniform sample. Narrow dtypes round to nearest even, and a value that
+// rounds up to 1.0 clamps to the dtype's largest value below 1.0
+// (`largest_value_below_one` in `src/dtype/dtype_enum.rs`).
+__device__ __forceinline__ void philox_store_uniform(float* p, float v) { *p = v; }
+__device__ __forceinline__ void philox_store_uniform(double* p, float v) { *p = (double)v; }
+__device__ __forceinline__ void philox_store_uniform(__half* p, float v) {
+    __half h = __float2half_rn(v);
+    if (__half2float(h) >= 1.0f) h = __float2half_rn(0.99951171875f);
+    *p = h;
+}
+__device__ __forceinline__ void philox_store_uniform(__nv_bfloat16* p, float v) {
+    __nv_bfloat16 h = __float2bfloat16_rn(v);
+    if (__bfloat162float(h) >= 1.0f) h = __float2bfloat16_rn(0.99609375f);
+    *p = h;
+}
+
+// Store a normal sample computed in compute type C.
+__device__ __forceinline__ void philox_store_normal(float* p, float v) { *p = v; }
+__device__ __forceinline__ void philox_store_normal(double* p, double v) { *p = v; }
+__device__ __forceinline__ void philox_store_normal(__half* p, float v) { *p = __float2half_rn(v); }
+__device__ __forceinline__ void philox_store_normal(__nv_bfloat16* p, float v) {
+    *p = __float2bfloat16_rn(v);
+}
+
+// Thread `idx` owns block `counter_base + idx` and elements `4*idx .. 4*idx+3`.
+// The u64 add carries the low counter word into the high word.
+__device__ __forceinline__ bool philox_block(
+    unsigned int n, uint64_t key, uint64_t counter_base,
+    unsigned long long* base, uint32_t* ctr
+) {
+    unsigned long long idx = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x;
+    *base = idx * 4ULL;
+    if (*base >= n) return false;
     uint32_t key_split[2] = {(uint32_t)(key & 0xFFFFFFFFULL), (uint32_t)(key >> 32)};
     uint64_t counter = counter_base + idx;
-    uint32_t ctr[4] = {(uint32_t)(counter & 0xFFFFFFFFULL), (uint32_t)(counter >> 32), 0, 0};
-
+    ctr[0] = (uint32_t)(counter & 0xFFFFFFFFULL);
+    ctr[1] = (uint32_t)(counter >> 32);
+    ctr[2] = 0;
+    ctr[3] = 0;
     philox4x32_10(ctr, key_split);
-
-    for (int j = 0; j < 4 && idx * 4 + j < n; j++) {
-        T val = (sizeof(T) == 4) ? (T)((ctr[j] >> 8)) / (T)(1u << 24)
-                                 : (T)ctr[j] / (T)0xFFFFFFFFU;
-        out[idx * 4 + j] = val;
-    }
+    return true;
 }
 
 template<typename T>
+__device__ void philox_uniform_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
+    unsigned long long base;
+    uint32_t ctr[4];
+    if (!philox_block(n, key, counter_base, &base, ctr)) return;
+    for (int j = 0; j < 4 && base + j < n; j++) {
+        philox_store_uniform(&out[base + j], philox_word_to_uniform(ctr[j]));
+    }
+}
+
+// Box-Muller over word pairs (0, 1) and (2, 3), computed in C.
+template<typename T, typename C>
 __device__ void philox_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t counter_base) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx * 4 >= n) return;
-
-    uint32_t key_split[2] = {(uint32_t)(key & 0xFFFFFFFFULL), (uint32_t)(key >> 32)};
-    uint64_t counter = counter_base + idx;
-    uint32_t ctr[4] = {(uint32_t)(counter & 0xFFFFFFFFULL), (uint32_t)(counter >> 32), 0, 0};
-
-    philox4x32_10(ctr, key_split);
-
-    for (int j = 0; j < 4 && idx * 4 + j < n; j += 2) {
-        T u1 = (T)((ctr[j] >> 8)) / (T)(1u << 24);
-        T u2 = (T)((ctr[j + 1] >> 8)) / (T)(1u << 24);
-        u1 = fmax(u1, (T)1e-10); u1 = fmin(u1, (T)(1.0 - 1e-10));
-        T r = sqrt((T)(-2.0) * log(u1));
-        T theta = (T)(2.0 * M_PI) * u2;
-        out[idx * 4 + j] = r * cos(theta);
-        if (idx * 4 + j + 1 < n) out[idx * 4 + j + 1] = r * sin(theta);
+    unsigned long long base;
+    uint32_t ctr[4];
+    if (!philox_block(n, key, counter_base, &base, ctr)) return;
+    for (int j = 0; j < 4 && base + j < n; j += 2) {
+        C u1 = (C)philox_word_to_uniform(ctr[j]);
+        C u2 = (C)philox_word_to_uniform(ctr[j + 1]);
+        u1 = fmax(u1, (C)1e-10); u1 = fmin(u1, (C)(1.0 - 1e-10));
+        C r = sqrt((C)(-2.0) * log(u1));
+        C theta = (C)(2.0 * M_PI) * u2;
+        philox_store_normal(&out[base + j], r * cos(theta));
+        if (base + j + 1 < n) philox_store_normal(&out[base + j + 1], r * sin(theta));
     }
 }
 
@@ -248,11 +284,23 @@ extern "C" {
     __global__ void philox_uniform_f64(double* out, unsigned int n, uint64_t key, uint64_t ctr) {
         philox_uniform_impl<double>(out, n, key, ctr);
     }
+    __global__ void philox_uniform_f16(__half* out, unsigned int n, uint64_t key, uint64_t ctr) {
+        philox_uniform_impl<__half>(out, n, key, ctr);
+    }
+    __global__ void philox_uniform_bf16(__nv_bfloat16* out, unsigned int n, uint64_t key, uint64_t ctr) {
+        philox_uniform_impl<__nv_bfloat16>(out, n, key, ctr);
+    }
     __global__ void philox_randn_f32(float* out, unsigned int n, uint64_t key, uint64_t ctr) {
-        philox_randn_impl<float>(out, n, key, ctr);
+        philox_randn_impl<float, float>(out, n, key, ctr);
     }
     __global__ void philox_randn_f64(double* out, unsigned int n, uint64_t key, uint64_t ctr) {
-        philox_randn_impl<double>(out, n, key, ctr);
+        philox_randn_impl<double, double>(out, n, key, ctr);
+    }
+    __global__ void philox_randn_f16(__half* out, unsigned int n, uint64_t key, uint64_t ctr) {
+        philox_randn_impl<__half, float>(out, n, key, ctr);
+    }
+    __global__ void philox_randn_bf16(__nv_bfloat16* out, unsigned int n, uint64_t key, uint64_t ctr) {
+        philox_randn_impl<__nv_bfloat16, float>(out, n, key, ctr);
     }
 
     // ThreeFry

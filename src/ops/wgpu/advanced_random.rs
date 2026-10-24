@@ -1,6 +1,6 @@
 //! Advanced PRNG operations for WebGPU runtime
 //!
-//! Implements Philox4x32-10, ThreeFry4x32-20, PCG64, and Xoshiro256++.
+//! Implements Philox4x32-10, ThreeFry4x64-20, PCG64, and Xoshiro256++.
 //! Only F32 dtype supported (WGSL has no native f64).
 
 use crate::dtype::DType;
@@ -16,7 +16,7 @@ use crate::tensor::Tensor;
 // PRNG Parameter Structs (WGSL uses u32 pairs for 64-bit values)
 // ============================================================================
 
-/// Params for Philox4x32-10 and ThreeFry4x32-20 (counter-based PRNGs)
+/// Params for Philox4x32-10 and ThreeFry4x64-20 (counter-based PRNGs)
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct CounterPrngParams {
@@ -69,6 +69,14 @@ fn split_u64(value: u64) -> (u32, u32) {
     ((value & 0xFFFFFFFF) as u32, (value >> 32) as u32)
 }
 
+/// Element count as the shader's `u32 numel`.
+fn numel_u32(numel: usize, op: &'static str) -> Result<u32> {
+    u32::try_from(numel).map_err(|_| Error::InvalidArgument {
+        arg: "shape",
+        reason: format!("{op}: {numel} elements exceed the shader's u32 element count"),
+    })
+}
+
 // ============================================================================
 // Trait Implementation
 // ============================================================================
@@ -87,6 +95,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "philox_randn")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -94,7 +103,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (key_lo, key_hi) = split_u64(key);
         let (counter_lo, counter_hi) = split_u64(counter);
         let params = CounterPrngParams {
-            numel: numel as u32,
+            numel: numel_param,
             key_lo,
             key_hi,
             counter_lo,
@@ -130,6 +139,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "philox_uniform")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -137,7 +147,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (key_lo, key_hi) = split_u64(key);
         let (counter_lo, counter_hi) = split_u64(counter);
         let params = CounterPrngParams {
-            numel: numel as u32,
+            numel: numel_param,
             key_lo,
             key_hi,
             counter_lo,

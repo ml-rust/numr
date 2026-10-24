@@ -8,7 +8,8 @@ use wgpu::{Buffer, Queue};
 use super::check_float_dtype;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::runtime::wgpu::shaders::copy::dispatch_grid;
+use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Shared Philox4x32-10 core: constants, params struct, `output`/`params`
 /// bindings, and the `mulhi` / `philox_round` / `philox4x32_10` functions.
@@ -71,6 +72,32 @@ fn philox4x32_10(counter: vec4<u32>, key: vec2<u32>) -> vec4<u32> {
     }
     return ctr;
 }
+
+const GRID_X: u32 = 65535u;
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Block index of this thread over the 2-D dispatch grid.
+fn block_index(gid: vec3<u32>) -> u32 {
+    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
+}
+
+// Philox block `counter + b` as `[lo, hi, 0, 0]`. The low-word add carries
+// into the high word, as the u64 add on CPU and CUDA does.
+fn philox_block(b: u32) -> vec4<u32> {
+    let lo = params.counter_lo + b;
+    let hi = params.counter_hi + select(0u, 1u, lo < b);
+    return philox4x32_10(vec4<u32>(lo, hi, 0u, 0u), vec2<u32>(params.key_lo, params.key_hi));
+}
+
+// Number of 4-element Philox blocks, without overflow near u32::MAX.
+fn block_count() -> u32 {
+    return (params.numel >> 2u) + select(0u, 1u, (params.numel & 3u) != 0u);
+}
+
+// Top 24 bits / 2^24: exact in f32, the value CPU and CUDA write.
+fn word_to_uniform(w: u32) -> f32 {
+    return f32(w >> 8u) / 16777216.0;
+}
 "#
     };
 }
@@ -80,15 +107,14 @@ const PHILOX_UNIFORM_WGSL: &str = concat!(
     r#"
 @compute @workgroup_size(256)
 fn philox_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 4u;
-    if (base_idx >= params.numel) { return; }
-    let counter = vec4<u32>(params.counter_lo + gid.x, params.counter_hi, 0u, 0u);
-    let random = philox4x32_10(counter, vec2<u32>(params.key_lo, params.key_hi));
+    let b = block_index(gid);
+    if (b >= block_count()) { return; }
+    let base_idx = b * 4u;
+    let random = philox_block(b);
     for (var j = 0u; j < 4u; j++) {
         let idx = base_idx + j;
         if (idx < params.numel) {
-            // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
-            output[idx] = f32(random[j] >> 8u) / 16777216.0;
+            output[idx] = word_to_uniform(random[j]);
         }
     }
 }
@@ -106,18 +132,20 @@ fn box_muller(u1: f32, u2: f32) -> vec2<f32> {
     return vec2<f32>(r * cos(theta), r * sin(theta));
 }
 
+// Same layout as CPU and CUDA: block `b` fills elements `4b..4b+3`, with
+// Box-Muller over word pairs (0, 1) and (2, 3).
 @compute @workgroup_size(256)
 fn philox_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 2u;
-    if (base_idx >= params.numel) { return; }
-    let counter = vec4<u32>(params.counter_lo + gid.x, params.counter_hi, 0u, 0u);
-    let random = philox4x32_10(counter, vec2<u32>(params.key_lo, params.key_hi));
-    // Match CPU/CUDA: top 24 bits / 2^24 (exact in f32).
-    let u1 = f32(random[0] >> 8u) / 16777216.0;
-    let u2 = f32(random[1] >> 8u) / 16777216.0;
-    let normals = box_muller(u1, u2);
-    if (base_idx < params.numel) { output[base_idx] = normals.x; }
-    if (base_idx + 1u < params.numel) { output[base_idx + 1u] = normals.y; }
+    let b = block_index(gid);
+    if (b >= block_count()) { return; }
+    let base_idx = b * 4u;
+    let random = philox_block(b);
+    let n01 = box_muller(word_to_uniform(random[0]), word_to_uniform(random[1]));
+    let n23 = box_muller(word_to_uniform(random[2]), word_to_uniform(random[3]));
+    output[base_idx] = n01.x;
+    if (base_idx + 1u < params.numel) { output[base_idx + 1u] = n01.y; }
+    if (base_idx + 2u < params.numel) { output[base_idx + 2u] = n23.x; }
+    if (base_idx + 3u < params.numel) { output[base_idx + 3u] = n23.y; }
 }
 "#
 );
@@ -158,7 +186,8 @@ pub fn launch_philox_uniform(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count((numel + 3) / 4), 1, 1);
+        let (x, y) = dispatch_grid(numel.div_ceil(4));
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -200,7 +229,8 @@ pub fn launch_philox_randn(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count((numel + 1) / 2), 1, 1);
+        let (x, y) = dispatch_grid(numel.div_ceil(4));
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

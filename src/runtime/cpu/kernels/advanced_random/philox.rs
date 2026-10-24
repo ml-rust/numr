@@ -39,10 +39,12 @@ fn philox4x32_10(ctr: [u32; 4], key: [u32; 2]) -> [u32; 4] {
     c
 }
 
-/// Convert u32 to uniform float in [0, 1)
+/// Convert u32 to uniform float in [0, 1): top 24 bits / 2^24.
+///
+/// The value is exact in f32 and f64. CUDA and WebGPU write the same value,
+/// rounded to the output dtype.
 #[inline(always)]
 fn u32_to_uniform(u: u32) -> f64 {
-    // Use top 24 bits for good distribution
     (u >> 8) as f64 / (1u64 << 24) as f64
 }
 
@@ -141,6 +143,94 @@ mod tests {
             philox_uniform_kernel(out2.as_mut_ptr(), 100, 42, 1);
         }
         assert_ne!(out1, out2);
+    }
+
+    /// Published Random123 known-answer vectors for Philox4x32-10.
+    #[test]
+    fn philox4x32_10_matches_random123_vectors() {
+        let cases: [([u32; 4], [u32; 2], [u32; 4]); 3] = [
+            (
+                [0, 0, 0, 0],
+                [0, 0],
+                [0x6627e8d5, 0xe169c58d, 0xbc57ac4c, 0x9b00dbd8],
+            ),
+            (
+                [0xffffffff; 4],
+                [0xffffffff; 2],
+                [0x408f276d, 0x41c83b0e, 0xa20bc7c6, 0x6d5451fd],
+            ),
+            (
+                [0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344],
+                [0xa4093822, 0x299f31d0],
+                [0xd16cfe09, 0x94fdcceb, 0x5001e420, 0x24126ea1],
+            ),
+        ];
+        for (ctr, key, expected) in cases {
+            assert_eq!(
+                philox4x32_10(ctr, key),
+                expected,
+                "ctr={ctr:x?} key={key:x?}"
+            );
+        }
+    }
+
+    /// The u32 word to the f32 value every backend writes: top 24 bits / 2^24.
+    fn word_to_f32(w: u32) -> f32 {
+        (w >> 8) as f32 / 16_777_216.0
+    }
+
+    /// Counter `c` fills elements `4c..4c+4` with block `[c_lo, c_hi, 0, 0]`.
+    /// A counter of `0xffffffff` carries into the hi word on the next block.
+    #[test]
+    fn uniform_layout_carries_counter_into_hi_word() {
+        let key: u64 = 0x0123_4567_89ab_cdef;
+        let words: [u32; 8] = [
+            // Block [0xffffffff, 0, 0, 0].
+            0x073402a4, 0x9775331e, 0x64c992ad, 0x325045ac, // Block [0, 1, 0, 0].
+            0xd9412d6a, 0x59dd3f68, 0x9d46a012, 0x5d27ddd9,
+        ];
+        let mut out = [0.0f32; 8];
+        unsafe { philox_uniform_kernel(out.as_mut_ptr(), 8, key, 0xffff_ffff) };
+        let expected: Vec<u32> = words.iter().map(|&w| word_to_f32(w).to_bits()).collect();
+        let got: Vec<u32> = out.iter().map(|v| v.to_bits()).collect();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn uniform_key_and_counter_zero_match_kat_block() {
+        let mut out = [0.0f32; 4];
+        unsafe { philox_uniform_kernel(out.as_mut_ptr(), 4, 0, 0) };
+        let words = [0x6627e8d5u32, 0xe169c58d, 0xbc57ac4c, 0x9b00dbd8];
+        for (v, w) in out.iter().zip(words) {
+            assert_eq!(v.to_bits(), word_to_f32(w).to_bits());
+        }
+    }
+
+    /// Element `i` depends on `(key, counter, i)` only, never on the length.
+    #[test]
+    fn uniform_prefix_is_independent_of_length() {
+        let key = 0xdead_beef_0000_0007u64;
+        let counter = (5u64 << 32) | 0xffff_fffe;
+        let mut long = vec![0.0f32; 103];
+        unsafe { philox_uniform_kernel(long.as_mut_ptr(), long.len(), key, counter) };
+        for n in [1usize, 2, 3, 5, 37, 64] {
+            let mut short = vec![0.0f32; n];
+            unsafe { philox_uniform_kernel(short.as_mut_ptr(), n, key, counter) };
+            assert_eq!(short, long[..n], "n={n}");
+        }
+    }
+
+    /// F64 output equals the F32 output widened: both hold the same 24-bit value.
+    #[test]
+    fn uniform_f64_equals_widened_f32() {
+        let mut a = vec![0.0f32; 41];
+        let mut b = vec![0.0f64; 41];
+        unsafe {
+            philox_uniform_kernel(a.as_mut_ptr(), 41, u64::MAX, 7);
+            philox_uniform_kernel(b.as_mut_ptr(), 41, u64::MAX, 7);
+        }
+        let widened: Vec<f64> = a.iter().map(|&v| v as f64).collect();
+        assert_eq!(widened, b);
     }
 
     #[test]

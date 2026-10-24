@@ -23,6 +23,27 @@ fn dtype_suffix(dtype: DType) -> Result<&'static str> {
     }
 }
 
+/// Kernel suffix for a Philox dtype: F32, F64, F16 and BF16.
+#[inline]
+fn philox_dtype_suffix(dtype: DType, op: &'static str) -> Result<&'static str> {
+    match dtype {
+        DType::F32 => Ok("f32"),
+        DType::F64 => Ok("f64"),
+        DType::F16 => Ok("f16"),
+        DType::BF16 => Ok("bf16"),
+        _ => Err(Error::UnsupportedDType { dtype, op }),
+    }
+}
+
+/// Element count as the kernel's `unsigned int n`.
+#[inline]
+fn philox_numel_u32(numel: usize, op: &'static str) -> Result<u32> {
+    u32::try_from(numel).map_err(|_| Error::InvalidArgument {
+        arg: "shape",
+        reason: format!("{op}: {numel} elements exceed the kernel's u32 element count"),
+    })
+}
+
 // ============================================================================
 // Philox Kernels
 // ============================================================================
@@ -41,13 +62,17 @@ pub unsafe fn launch_philox_uniform(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("philox_uniform_{}", dtype_suffix(dtype)?);
+    let kernel_name = format!(
+        "philox_uniform_{}",
+        philox_dtype_suffix(dtype, "philox_uniform")?
+    );
+    let n = philox_numel_u32(numel, "philox_uniform")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
-    let grid = elementwise_launch_config(numel)?;
+    // One thread per 4-element Philox block.
+    let grid = elementwise_launch_config(numel.div_ceil(4))?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -82,13 +107,17 @@ pub unsafe fn launch_philox_randn(
     out_ptr: u64,
     numel: usize,
 ) -> Result<()> {
-    let kernel_name = format!("philox_randn_{}", dtype_suffix(dtype)?);
+    let kernel_name = format!(
+        "philox_randn_{}",
+        philox_dtype_suffix(dtype, "philox_randn")?
+    );
+    let n = philox_numel_u32(numel, "philox_randn")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
-    let grid = elementwise_launch_config(numel)?;
+    // One thread per 4-element Philox block.
+    let grid = elementwise_launch_config(numel.div_ceil(4))?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {

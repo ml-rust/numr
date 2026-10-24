@@ -3,6 +3,7 @@ pub mod helpers;
 
 pub mod activation;
 pub mod advanced_random;
+pub mod advanced_random_philox;
 pub mod argreduce_ties;
 pub mod autograd_conv1d;
 pub mod autograd_indexing;
