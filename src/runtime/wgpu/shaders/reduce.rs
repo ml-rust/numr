@@ -6,7 +6,15 @@ use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
-const REDUCE_F32_SHADER: &str = include_str!("reduce.wgsl");
+// Order is load-bearing: `reduce_full_f32` and `reduce_arg_f32` use
+// `WORKGROUP_SIZE` and `reduce_shared` from `reduce_f32`, and WGSL has no
+// forward declarations.
+const REDUCE_F32_SHADER: &str = concat!(
+    include_str!("reduce_f32.wgsl"),
+    include_str!("reduce_full_f32.wgsl"),
+    include_str!("reduce_arg_f32.wgsl"),
+    include_str!("reduce_softmax_f32.wgsl"),
+);
 
 // The integer modules are assembled from the shared saturating-integer helpers
 // plus one file per reduction family. Order is load-bearing: WGSL has no

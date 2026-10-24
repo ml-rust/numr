@@ -261,6 +261,9 @@ fn compile_cuda_kernels() {
     for header in [
         "dtype_traits.cuh",
         "arg_reduce.cuh",
+        "reduce_global.cuh",
+        "reduce_dim.cuh",
+        "reduce_arg_logical.cuh",
         "narrow_f64.cuh",
         "conv1d_common.cuh",
         "activation_deriv.cuh",

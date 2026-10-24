@@ -49,9 +49,9 @@ pub(crate) fn unary_module(dtype: DType) -> &'static str {
 
 /// The PTX module holding this dtype's reduction kernels.
 ///
-/// Integer reductions live in their own translation unit: they accumulate in
-/// `Numr128` instead of a float register, and `reduce.cu` is already at its size
-/// limit. `reduce_int.cu` instantiates every integer dtype and every reduction
+/// Integer reductions live in their own translation unit because they accumulate
+/// in `Numr128` instead of a float register.
+/// `reduce_int.cu` instantiates every integer dtype and every reduction
 /// name that `reduce.cu` does, so this is a straight swap of module, never of
 /// kernel name.
 #[inline]
