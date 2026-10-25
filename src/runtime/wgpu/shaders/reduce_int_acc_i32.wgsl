@@ -51,9 +51,10 @@ fn reduce_acc_tree_i32(tid: u32, acc: NumrI64) {
 @compute @workgroup_size(256)
 fn reduce_sum_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
     if (output_idx >= reduce_params.numel_out) { return; }
 
     let reduce_size = reduce_params.reduce_size;
@@ -70,9 +71,10 @@ fn reduce_sum_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_mean_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
                    @builtin(local_invocation_id) local_id: vec3<u32>,
-                   @builtin(workgroup_id) group_id: vec3<u32>) {
+                   @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
     if (output_idx >= reduce_params.numel_out) { return; }
 
     let reduce_size = reduce_params.reduce_size;
@@ -123,9 +125,10 @@ fn reduce_prod_merge_i32(mag_a: u32, flags_a: u32, mag_b: u32, flags_b: u32) -> 
 @compute @workgroup_size(256)
 fn reduce_prod_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
                    @builtin(local_invocation_id) local_id: vec3<u32>,
-                   @builtin(workgroup_id) group_id: vec3<u32>) {
+                   @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
     if (output_idx >= reduce_params.numel_out) { return; }
 
     let reduce_size = reduce_params.reduce_size;

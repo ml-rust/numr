@@ -14,13 +14,14 @@ struct Params {
 @group(0) @binding(2) var<uniform> params: Params;
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn parlett_column_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn parlett_column_f32(@builtin(global_invocation_id) gid: vec3<u32>,
+                      @builtin(num_workgroups) nwg: vec3<u32>) {
     let n = params.n;
     let j = params.col;
     let eps = f32(params.eps);
 
     // Each thread handles one row i < j
-    let i = gid.x;
+    let i = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if i >= j {
         return;
     }

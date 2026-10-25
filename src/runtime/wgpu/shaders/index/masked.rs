@@ -4,7 +4,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::super::linear_grid::dispatch_linear;
+use super::super::pipeline::{LayoutKey, PipelineCache};
 use super::shader_registry::shader_info;
 use crate::dtype::DType;
 use crate::error::Result;
@@ -47,7 +48,7 @@ pub fn launch_masked_fill(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -93,7 +94,7 @@ pub fn launch_masked_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -187,7 +188,7 @@ pub fn launch_masked_select(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

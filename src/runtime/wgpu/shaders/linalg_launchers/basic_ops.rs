@@ -6,16 +6,21 @@ use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::wgpu::shaders::linalg_shaders::basic_ops::BASIC_OPS_SHADER;
-use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
+use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch trace kernel to compute sum of diagonal elements.
+///
+/// `params_buffer` carries the diagonal length. One workgroup strides over the
+/// diagonal and adds its sum to the zeroed `output`, so `_n` does not size the
+/// dispatch.
 pub fn launch_trace(
     cache: &PipelineCache,
     queue: &Queue,
     input: &Buffer,
     output: &Buffer,
     params_buffer: &Buffer,
-    n: usize,
+    _n: usize,
     dtype: DType,
 ) -> Result<()> {
     check_dtype_f32!(dtype, "trace");
@@ -43,7 +48,8 @@ pub fn launch_trace(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        // One workgroup strides over the diagonal, so no two race on the output.
+        pass.dispatch_workgroups(1, 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -85,7 +91,7 @@ pub fn launch_diag(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(min_dim), 1, 1);
+        dispatch_linear(&mut pass, min_dim);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -128,7 +134,7 @@ pub fn launch_diagflat(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n * n), 1, 1);
+        dispatch_linear(&mut pass, n * n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -170,7 +176,7 @@ pub fn launch_create_identity(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n * n), 1, 1);
+        dispatch_linear(&mut pass, n * n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -213,7 +219,7 @@ pub fn launch_kron(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -257,7 +263,7 @@ pub fn launch_khatri_rao(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

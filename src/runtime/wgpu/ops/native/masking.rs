@@ -4,6 +4,7 @@ use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
@@ -44,7 +45,7 @@ pub(crate) fn native_masked_fill(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = MaskedFillParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, "masked_fill")?,
         fill_value: value as f32,
     };
     let params_buf = create_params_buffer(client, &params);
@@ -106,6 +107,10 @@ pub(crate) fn native_embedding_lookup(
     let idx_buf = get_tensor_buffer(&idx_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
+    // The output count bounds num_indices and embedding_dim, and the table count
+    // bounds vocab_size, so each fits a u32 once both counts do.
+    element_count_u32(out.numel(), "embedding_lookup")?;
+    element_count_u32(embeddings.numel(), "embedding_lookup")?;
     let params = EmbeddingLookupParams {
         num_indices: num_indices as u32,
         vocab_size: vocab_size as u32,
@@ -152,6 +157,7 @@ pub(crate) fn native_masked_select(
             got: mask.shape().to_vec(),
         })?;
 
+    let numel_u32 = element_count_u32(numel, "masked_select")?;
     let a_contig = ensure_contiguous(a)?;
     let mask_contig = ensure_contiguous(&mask_broadcast)?;
 
@@ -170,9 +176,7 @@ pub(crate) fn native_masked_select(
     // Initialize count to 0
     client.queue.write_buffer(&count_buffer, 0, &[0u8; 4]);
 
-    let count_params = MaskedCountParams {
-        numel: numel as u32,
-    };
+    let count_params = MaskedCountParams { numel: numel_u32 };
     let count_params_buf = create_params_buffer(client, &count_params);
 
     index::launch_masked_count(
@@ -201,9 +205,7 @@ pub(crate) fn native_masked_select(
         mapped_at_creation: false,
     });
 
-    let prefix_params = MaskedCountParams {
-        numel: numel as u32,
-    };
+    let prefix_params = MaskedCountParams { numel: numel_u32 };
     let prefix_params_buf = create_params_buffer(client, &prefix_params);
 
     index::launch_masked_prefix_sum(
@@ -220,9 +222,7 @@ pub(crate) fn native_masked_select(
     let out = alloc_output(client, &[count], dtype)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let select_params = MaskedSelectParams {
-        numel: numel as u32,
-    };
+    let select_params = MaskedSelectParams { numel: numel_u32 };
     let select_params_buf = create_params_buffer(client, &select_params);
 
     index::launch_masked_select(

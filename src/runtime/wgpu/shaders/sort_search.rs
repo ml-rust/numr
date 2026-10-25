@@ -5,7 +5,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::{dispatch_linear, dispatch_rows};
+use super::pipeline::{LayoutKey, PipelineCache};
 use super::sort_cmp::{
     sort_cmp_f32_wgsl, sort_rank_f32_wgsl, sort_rank_i32_wgsl, sort_rank_u32_wgsl,
 };
@@ -93,7 +94,7 @@ pub fn launch_topk(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(outer_size as u32, inner_size as u32, 1);
+        dispatch_rows(&mut pass, outer_size * inner_size, "topk")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -140,7 +141,7 @@ pub fn launch_searchsorted(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(num_values), 1, 1);
+        dispatch_linear(&mut pass, num_values);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

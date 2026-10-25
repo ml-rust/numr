@@ -4,7 +4,7 @@
 //!
 //! # Algorithms
 //! - **Philox4x32-10**: JAX/TensorFlow default, excellent GPU performance
-//! - **ThreeFry4x64-20**: Cryptographic quality, slower but secure
+//! - **ThreeFry4x64-20**: Counter-based, slower than Philox. Not a cryptographic RNG.
 //! - **PCG64**: NumPy default, CPU-optimized
 //! - **Xoshiro256++**: Rust `rand` default, excellent quality/speed
 //!
@@ -84,7 +84,7 @@ pub trait AdvancedRandomOps<R: Runtime> {
         })
     }
 
-    /// Generate N(0,1) samples using ThreeFry4x64-20 (cryptographic quality).
+    /// Generate N(0,1) samples using ThreeFry4x64-20 (counter-based, not cryptographic).
     fn threefry_randn(
         &self,
         shape: &[usize],

@@ -33,6 +33,7 @@ use crate::tensor::Tensor;
 
 // Use helpers from ops module
 use super::ops::helpers::{alloc_output, get_tensor_buffer};
+use super::shaders::linear_grid::element_count_u32;
 
 impl SpecialFunctions<WgpuRuntime> for WgpuClient {
     fn erf(&self, x: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
@@ -357,7 +358,7 @@ fn compute_unary_special(
         op,
         &input_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         dtype,
     )?;
 
@@ -398,7 +399,7 @@ fn compute_binary_special(
         &input_a_buffer,
         &input_b_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         dtype,
     )?;
 
@@ -442,7 +443,7 @@ fn compute_ternary_special(
         &input_b_buffer,
         &input_x_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         dtype,
     )?;
 
@@ -478,7 +479,7 @@ fn compute_unary_special_with_int(
         op,
         &input_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         n,
         dtype,
     )?;
@@ -516,7 +517,7 @@ fn compute_unary_special_with_two_ints(
         op,
         &input_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         n,
         m,
         dtype,
@@ -558,7 +559,7 @@ fn compute_binary_special_with_two_ints(
         &input_a_buffer,
         &input_b_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         n,
         m,
         dtype,
@@ -597,7 +598,7 @@ fn compute_unary_special_with_params_2f64(
         op,
         &input_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         a as f32,
         b as f32,
         dtype,
@@ -637,7 +638,7 @@ fn compute_unary_special_with_params_3f64(
         op,
         &input_buffer,
         &output_buffer,
-        numel as u32,
+        element_count_u32(numel, "special function")?,
         a as f32,
         b as f32,
         c as f32,

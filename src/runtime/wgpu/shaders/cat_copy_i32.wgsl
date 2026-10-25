@@ -16,8 +16,11 @@ struct CatParams {
 @group(0) @binding(2) var<uniform> cat_params: CatParams;
 
 @compute @workgroup_size(256)
-fn cat_copy_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn cat_copy_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= cat_params.total_elements) {
         return;
     }

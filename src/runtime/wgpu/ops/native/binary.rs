@@ -4,6 +4,7 @@ use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::elementwise;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{
     compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes, validate_copy_into,
@@ -111,6 +112,7 @@ fn run_binary(
     let b_contig = ensure_contiguous(b)?;
 
     let numel: usize = out_shape.iter().product();
+    let numel_u32 = element_count_u32(numel, op)?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let b_buf = get_tensor_buffer(&b_contig)?;
@@ -131,9 +133,7 @@ fn run_binary(
             dtype,
         )?;
     } else {
-        let params = BinaryParams {
-            numel: numel as u32,
-        };
+        let params = BinaryParams { numel: numel_u32 };
         let params_buf = create_params_buffer(client, &params);
 
         elementwise::launch_binary_op(
@@ -167,7 +167,7 @@ pub(crate) fn native_scalar_op(
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = ScalarParams::new(numel as u32, scalar, dtype);
+    let params = ScalarParams::new(element_count_u32(numel, op)?, scalar, dtype);
     let params_buf = create_params_buffer(client, &params);
 
     elementwise::launch_scalar_op(

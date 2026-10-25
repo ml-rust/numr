@@ -6,7 +6,8 @@ use super::check_dtype_f32;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::wgpu::shaders::linalg_shaders::utilities::UTILITIES_SHADER;
-use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
+use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 /// Launch determinant computation from LU decomposition.
 pub fn launch_det_from_lu(
@@ -129,7 +130,7 @@ pub fn launch_scatter_column(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -172,7 +173,7 @@ pub fn launch_extract_column(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+        dispatch_linear(&mut pass, m);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -180,13 +181,16 @@ pub fn launch_extract_column(
 }
 
 /// Compute maximum absolute value of elements.
+///
+/// `params_buffer` carries the element count. One workgroup strides over every
+/// value, so `_n` does not size the dispatch.
 pub fn launch_max_abs(
     cache: &PipelineCache,
     queue: &Queue,
     values: &Buffer,
     max_output: &Buffer,
     params_buffer: &Buffer,
-    n: usize,
+    _n: usize,
     dtype: DType,
 ) -> Result<()> {
     check_dtype_f32!(dtype, "max_abs");
@@ -215,7 +219,8 @@ pub fn launch_max_abs(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        // One workgroup strides over the values, so no two race on the output.
+        pass.dispatch_workgroups(1, 1, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -258,7 +263,7 @@ pub fn launch_count_above_threshold(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -301,7 +306,7 @@ pub fn launch_matrix_copy(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

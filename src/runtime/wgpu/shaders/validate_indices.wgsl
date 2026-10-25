@@ -14,8 +14,11 @@ struct ValidateIndicesParams {
 @group(0) @binding(2) var<uniform> params: ValidateIndicesParams;
 
 @compute @workgroup_size(256)
-fn validate_indices(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn validate_indices(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= params.index_len) {
         return;
     }

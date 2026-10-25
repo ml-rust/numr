@@ -14,8 +14,11 @@ struct ClampParams {
 @group(0) @binding(2) var<uniform> clamp_params: ClampParams;
 
 @compute @workgroup_size(256)
-fn clamp_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn clamp_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < clamp_params.numel) {
         clamp_out[idx] = clamp(clamp_a[idx], clamp_params.min_val, clamp_params.max_val);
     }

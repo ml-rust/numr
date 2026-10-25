@@ -6,6 +6,7 @@ use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::logical::{
     launch_logical_and, launch_logical_not, launch_logical_or, launch_logical_xor,
 };
@@ -44,7 +45,7 @@ pub(crate) fn native_logical_and(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = LogicalBinaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, "logical")?,
     };
     let params_buf = create_params_buffer(client, &params);
 
@@ -79,7 +80,7 @@ pub(crate) fn native_logical_or(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = LogicalBinaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, "logical")?,
     };
     let params_buf = create_params_buffer(client, &params);
 
@@ -114,7 +115,7 @@ pub(crate) fn native_logical_xor(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = LogicalBinaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, "logical")?,
     };
     let params_buf = create_params_buffer(client, &params);
 
@@ -146,7 +147,7 @@ pub(crate) fn native_logical_not(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = LogicalUnaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, "logical_not")?,
     };
     let params_buf = create_params_buffer(client, &params);
 

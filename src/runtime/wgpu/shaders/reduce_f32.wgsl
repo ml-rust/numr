@@ -34,9 +34,10 @@ struct ReduceParams {
 @compute @workgroup_size(256)
 fn reduce_sum_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -79,9 +80,10 @@ fn reduce_sum_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_mean_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                    @builtin(local_invocation_id) local_id: vec3<u32>,
-                   @builtin(workgroup_id) group_id: vec3<u32>) {
+                   @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -124,9 +126,10 @@ fn reduce_mean_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_max_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -169,9 +172,10 @@ fn reduce_max_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_min_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -214,9 +218,10 @@ fn reduce_min_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_prod_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                    @builtin(local_invocation_id) local_id: vec3<u32>,
-                   @builtin(workgroup_id) group_id: vec3<u32>) {
+                   @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -259,9 +264,10 @@ fn reduce_prod_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_any_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;
@@ -306,9 +312,10 @@ fn reduce_any_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn reduce_all_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
 
     if (output_idx >= reduce_params.numel_out) {
         return;

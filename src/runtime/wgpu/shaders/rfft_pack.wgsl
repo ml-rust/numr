@@ -15,10 +15,15 @@ struct PackParams {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn rfft_pack(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let idx = gid.x;
-    let batch_idx = gid.y;
+    // Batch rows spread over y and z.
+    let batch_idx = gid.y + gid.z * nwg.y;
+    if (batch_idx >= pack_params.batch_size) {
+        return;
+    }
     let n = pack_params.n;
 
     if (idx >= n) {

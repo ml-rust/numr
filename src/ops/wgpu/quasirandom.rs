@@ -3,7 +3,7 @@
 use wgpu::util::DeviceExt;
 
 use crate::dtype::DType;
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::ops::common::quasirandom::{
     compute_all_direction_vectors, validate_halton_params, validate_latin_hypercube_params,
     validate_sobol_params,
@@ -13,6 +13,7 @@ use crate::runtime::wgpu::ops::helpers::{
     HaltonParams, LatinHypercubeParams, SobolParams, alloc_output, create_params_buffer,
     generate_wgpu_seed, get_tensor_buffer,
 };
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::quasirandom;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -21,6 +22,22 @@ use crate::tensor::Tensor;
 /// Note: WebGPU currently only supports F32 for quasi-random sequences.
 /// F64 support requires shader-emulated f64 or native WebGPU f64 extension.
 const SUPPORTED_DTYPES: &[DType] = &[DType::F32];
+
+/// `skip` as the shader's u32, when every point index `skip + i` fits a u32.
+///
+/// Returns `InvalidArgument` naming `op` otherwise.
+fn skip_u32(skip: usize, n_points: usize, op: &'static str) -> Result<u32> {
+    let last = skip.checked_add(n_points.saturating_sub(1));
+    match (u32::try_from(skip), last.map(u32::try_from)) {
+        (Ok(skip), Some(Ok(_))) => Ok(skip),
+        _ => Err(Error::InvalidArgument {
+            arg: "skip",
+            reason: format!(
+                "{op}: skip {skip} + n_points {n_points} exceeds the u32 point index a WebGPU shader holds"
+            ),
+        }),
+    }
+}
 
 impl QuasiRandomOps<WgpuRuntime> for WgpuClient {
     fn sobol(
@@ -47,11 +64,16 @@ impl QuasiRandomOps<WgpuRuntime> for WgpuClient {
                 usage: wgpu::BufferUsages::STORAGE,
             });
 
+        // The output count bounds n_points and dimension. The shader indexes
+        // point `skip + i` as a u32, so the last point index must fit too.
+        element_count_u32(out.numel(), "sobol")?;
+        let skip_u32 = skip_u32(skip, n_points, "sobol")?;
+
         // Create params
         let params = SobolParams {
             n_points: n_points as u32,
             dimension: dimension as u32,
-            skip: skip as u32,
+            skip: skip_u32,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -84,11 +106,16 @@ impl QuasiRandomOps<WgpuRuntime> for WgpuClient {
         let out = alloc_output(self, &shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
 
+        // The output count bounds n_points and dimension. The shader indexes
+        // point `skip + i` as a u32, so the last point index must fit too.
+        element_count_u32(out.numel(), "halton")?;
+        let skip_u32 = skip_u32(skip, n_points, "halton")?;
+
         // Create params
         let params = HaltonParams {
             n_points: n_points as u32,
             dimension: dimension as u32,
-            skip: skip as u32,
+            skip: skip_u32,
             _pad: 0,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -163,6 +190,18 @@ mod tests {
         let device = WgpuDevice::new(0);
         let client = WgpuRuntime::default_client(&device);
         (device, client)
+    }
+
+    #[test]
+    fn skip_u32_holds_the_last_point_index() {
+        assert_eq!(skip_u32(0, 10, "sobol").unwrap(), 0);
+        assert_eq!(skip_u32(7, 0, "sobol").unwrap(), 7);
+        let max = u32::MAX as usize;
+        assert_eq!(skip_u32(max - 9, 10, "halton").unwrap(), u32::MAX - 9);
+        assert!(matches!(
+            skip_u32(max - 8, 10, "halton"),
+            Err(Error::InvalidArgument { arg: "skip", .. })
+        ));
     }
 
     #[test]

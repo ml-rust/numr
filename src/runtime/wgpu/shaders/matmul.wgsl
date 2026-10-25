@@ -153,12 +153,13 @@ fn batched_matmul_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 // This version is simpler and may be faster for small matrices.
 
 @compute @workgroup_size(256, 1, 1)
-fn matmul_simple_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn matmul_simple_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
+                     @builtin(num_workgroups) nwg: vec3<u32>) {
     let M = matmul_params.M;
     let K = matmul_params.K;
     let N = matmul_params.N;
 
-    let idx = global_id.x;
+    let idx = global_id.x + global_id.y * nwg.x * 256u;
     let total = M * N;
 
     if (idx >= total) {
@@ -195,9 +196,10 @@ var<workgroup> matvec_shared: array<f32, 256>;
 @compute @workgroup_size(256)
 fn matvec_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
               @builtin(local_invocation_id) local_id: vec3<u32>,
-              @builtin(workgroup_id) group_id: vec3<u32>) {
+              @builtin(workgroup_id) group_id: vec3<u32>,
+              @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let row = group_id.x;
+    let row = group_id.x + group_id.y * nwg.x;
 
     if (row >= matvec_params.M) {
         return;

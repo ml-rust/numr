@@ -7,6 +7,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::WgpuClient;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 
 use super::buffer::{create_params_buffer, create_storage_buffer};
 use super::elementwise_params::BroadcastBinaryParams;
@@ -84,6 +85,9 @@ pub(crate) fn broadcast_buffers(
     numel: usize,
 ) -> Result<BroadcastBuffers> {
     let ndim = out_shape.len();
+    // Each input is no larger than the output, so every stride below fits a
+    // u32 once the output element count does.
+    let numel_u32 = element_count_u32(numel, "broadcast")?;
 
     // Broadcast dimensions get stride 0.
     let a_strides = compute_broadcast_strides(a_shape, out_shape)?;
@@ -96,7 +100,7 @@ pub(crate) fn broadcast_buffers(
     }
 
     let params = BroadcastBinaryParams {
-        numel: numel as u32,
+        numel: numel_u32,
         ndim: ndim as u32,
     };
 

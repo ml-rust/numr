@@ -6,6 +6,7 @@
 use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::reduce;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -88,6 +89,8 @@ fn native_softmax_last_dim(
     if out.numel() == 0 {
         return Ok(out);
     }
+    // The element count bounds batch_size and dim_size.
+    element_count_u32(out.numel(), "softmax")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
@@ -180,6 +183,8 @@ fn native_softmax_bwd_last_dim(
     if d_input.numel() == 0 {
         return Ok(d_input);
     }
+    // The element count bounds batch_size and dim_size.
+    element_count_u32(d_input.numel(), "softmax_bwd")?;
 
     let grad_buf = get_tensor_buffer(&grad_contig)?;
     let output_buf = get_tensor_buffer(&output_contig)?;

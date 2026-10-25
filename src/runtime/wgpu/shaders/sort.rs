@@ -7,7 +7,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::{dispatch_linear, dispatch_rows};
+use super::pipeline::{LayoutKey, PipelineCache};
 use super::sort_cmp::{
     sort_cmp_f32_wgsl, sort_rank_f32_wgsl, sort_rank_i32_wgsl, sort_rank_u32_wgsl,
 };
@@ -213,7 +214,7 @@ pub fn launch_sort(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(outer_size as u32, inner_size as u32, 1);
+        dispatch_rows(&mut pass, outer_size * inner_size, "sort")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -266,7 +267,7 @@ pub fn launch_sort_values_only(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(outer_size as u32, inner_size as u32, 1);
+        dispatch_rows(&mut pass, outer_size * inner_size, "sort")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -318,7 +319,7 @@ pub fn launch_argsort(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(outer_size as u32, inner_size as u32, 1);
+        dispatch_rows(&mut pass, outer_size * inner_size, "sort")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -366,7 +367,7 @@ pub fn launch_count_nonzero(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -412,7 +413,7 @@ pub fn launch_gather_nonzero(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -457,7 +458,7 @@ pub fn launch_flat_to_multi_index(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -523,7 +524,7 @@ pub fn launch_count_unique(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -588,7 +589,7 @@ pub fn launch_extract_unique(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -636,7 +637,7 @@ pub fn launch_mark_boundaries(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -693,7 +694,7 @@ pub fn launch_scatter_unique_with_counts(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

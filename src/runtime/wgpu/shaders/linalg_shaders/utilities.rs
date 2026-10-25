@@ -82,8 +82,11 @@ struct ScatterParams {
 @group(0) @binding(2) var<uniform> scatter_params: ScatterParams;
 
 @compute @workgroup_size(256)
-fn scatter_column_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn scatter_column_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let n = scatter_params.n;
     let col = scatter_params.col;
 
@@ -107,8 +110,11 @@ struct ExtractParams {
 @group(0) @binding(2) var<uniform> extract_params: ExtractParams;
 
 @compute @workgroup_size(256)
-fn extract_column_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn extract_column_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let m = extract_params.m;
     let n_cols = extract_params.n_cols;
     let col = extract_params.col;
@@ -136,12 +142,13 @@ var<workgroup> maxabs_shared: array<f32, 256>;
 fn max_abs_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                @builtin(local_invocation_id) local_id: vec3<u32>) {
     let tid = local_id.x;
-    let gid = global_id.x;
     let n = maxabs_params.n;
 
+    // One workgroup: each thread folds every WORKGROUP_SIZE-th value, so no two
+    // workgroups race on the output.
     var val: f32 = 0.0;
-    if (gid < n) {
-        val = abs(maxabs_values[gid]);
+    for (var i = tid; i < n; i = i + WORKGROUP_SIZE) {
+        val = max(val, abs(maxabs_values[i]));
     }
     maxabs_shared[tid] = val;
     workgroupBarrier();
@@ -175,9 +182,10 @@ var<workgroup> count_shared: array<u32, 256>;
 
 @compute @workgroup_size(256)
 fn count_above_threshold_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
-                             @builtin(local_invocation_id) local_id: vec3<u32>) {
+                             @builtin(local_invocation_id) local_id: vec3<u32>,
+                             @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let gid = global_id.x;
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let n = count_params.n;
     let threshold = count_params.threshold;
 
@@ -213,8 +221,11 @@ struct CopyParams {
 @group(0) @binding(2) var<uniform> copy_params: CopyParams;
 
 @compute @workgroup_size(256)
-fn matrix_copy_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn matrix_copy_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let n = copy_params.n;
 
     if (gid < n) {

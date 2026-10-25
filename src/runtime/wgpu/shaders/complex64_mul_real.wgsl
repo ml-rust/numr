@@ -12,8 +12,11 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 
 @compute @workgroup_size(256)
-fn complex64_mul_real(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn complex64_mul_real(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         let c = complex_input[idx];
         let r = real_input[idx];

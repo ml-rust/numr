@@ -2,7 +2,7 @@
 //!
 //! Submodules, one per algorithm:
 //! - `philox`: Philox4x32-10 (JAX/TensorFlow default)
-//! - `threefry`: ThreeFry4x32-20 (cryptographic quality)
+//! - `threefry`: ThreeFry4x64-20 (counter-based, not cryptographic)
 //! - `pcg64`: PCG64 (NumPy default, emulated 64-bit)
 //! - `xoshiro256`: Xoshiro256++ (Rust rand default, emulated 64-bit)
 //!

@@ -4,6 +4,7 @@ use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
@@ -52,6 +53,9 @@ pub(crate) fn native_index_put(
     if a.numel() == 0 {
         return alloc_output(client, shape, dtype);
     }
+    // The destination and source counts bound every size cast to u32 below.
+    let a_numel_u32 = element_count_u32(a.numel(), "index_put")?;
+    element_count_u32(total_src, "index_put")?;
 
     // Allocate output and copy input first
     let out = alloc_output(client, shape, dtype)?;
@@ -60,9 +64,7 @@ pub(crate) fn native_index_put(
     let out_buf = get_tensor_buffer(&out)?;
 
     // First copy input to output
-    let copy_params = CopyParams {
-        numel: a.numel() as u32,
-    };
+    let copy_params = CopyParams { numel: a_numel_u32 };
     let copy_params_buf = create_params_buffer(client, &copy_params);
     index::launch_copy(
         client.pipeline_cache(),

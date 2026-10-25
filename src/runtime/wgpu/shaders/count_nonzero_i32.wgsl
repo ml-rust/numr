@@ -15,19 +15,19 @@ struct CountParams {
 @compute @workgroup_size(256)
 fn count_nonzero_i32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let tid = local_id.x;
     let numel = count_params.numel;
 
-    // Each thread counts its elements
+    // The 2-D grid holds one thread per element.
     var local_count: u32 = 0u;
-    var idx = global_id.x;
-    while (idx < numel) {
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
+    if (idx < numel) {
         if (input[idx] != 0) {
-            local_count = local_count + 1u;
+            local_count = 1u;
         }
-        idx = idx + WORKGROUP_SIZE * 256u; // stride by total threads
     }
 
     shared_count[tid] = local_count;

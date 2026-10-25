@@ -3,8 +3,9 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
+use super::super::shaders::linear_grid::dispatch_linear;
 use super::super::{WgpuClient, WgpuRuntime};
-use super::common::{WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_trsv_layout, validate_wgpu_dtype};
+use super::common::{cast_i64_to_i32_gpu, create_trsv_layout, validate_wgpu_dtype};
 use crate::algorithm::sparse_linalg::validate_triangular_solve_dims;
 use crate::algorithm::sparse_linalg::{compute_levels_lower, compute_levels_upper, flatten_levels};
 use crate::error::{Error, Result};
@@ -242,7 +243,7 @@ fn launch_sparse_trsv_lower(
         ],
     });
 
-    let workgroups = (level_size as u32 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = level_size;
 
     let mut encoder = client
         .wgpu_device
@@ -254,7 +255,7 @@ fn launch_sparse_trsv_lower(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 
@@ -341,7 +342,7 @@ fn launch_sparse_trsv_upper(
         ],
     });
 
-    let workgroups = (level_size as u32 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = level_size;
 
     let mut encoder = client
         .wgpu_device
@@ -353,7 +354,7 @@ fn launch_sparse_trsv_upper(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 
@@ -452,8 +453,7 @@ fn launch_sparse_trsv_lower_multi_rhs(
         ],
     });
 
-    let total_work = (level_size * nrhs) as u32;
-    let workgroups = (total_work + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = level_size * nrhs;
 
     let mut encoder = client
         .wgpu_device
@@ -465,7 +465,7 @@ fn launch_sparse_trsv_lower_multi_rhs(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 
@@ -563,8 +563,7 @@ fn launch_sparse_trsv_upper_multi_rhs(
         ],
     });
 
-    let total_work = (level_size * nrhs) as u32;
-    let workgroups = (total_work + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = level_size * nrhs;
 
     let mut encoder = client
         .wgpu_device
@@ -576,7 +575,7 @@ fn launch_sparse_trsv_upper_multi_rhs(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 

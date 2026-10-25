@@ -4,6 +4,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::{dispatch_linear, dispatch_rows, element_count_u32};
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -190,6 +191,9 @@ pub fn launch_matmul_simple(
     dtype: DType,
 ) -> Result<()> {
     let shader = matmul_shader(dtype, "matmul_simple")?;
+    // The shader computes M * N in u32, so the product must fit.
+    let total = m.saturating_mul(n);
+    element_count_u32(total, "matmul_simple")?;
 
     let module = cache.get_or_create_module(shader.module_key, shader.source);
     let layout = cache.get_or_create_layout(LayoutKey {
@@ -214,9 +218,7 @@ pub fn launch_matmul_simple(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        let total = m * n;
-        let num_groups = (total as u32 + 255) / 256;
-        pass.dispatch_workgroups(num_groups, 1, 1);
+        dispatch_linear(&mut pass, total);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -324,7 +326,7 @@ pub fn launch_matvec(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(m as u32, 1, 1);
+        dispatch_rows(&mut pass, m, "matvec")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));

@@ -14,16 +14,22 @@ struct UnaryParams {
 // wrapping there, which is the element-wise integer convention this crate uses
 // (see runtime/cpu/kernels/wide_acc.rs). So neg(1u) is u32::MAX.
 @compute @workgroup_size(256)
-fn neg_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn neg_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = 0u - unary_a[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn abs_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn abs_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }
@@ -32,8 +38,11 @@ fn abs_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 // `sign` on an unsigned dtype has no negative branch: 0 for 0, 1 otherwise.
 // This matches the CPU and CUDA backends.
 @compute @workgroup_size(256)
-fn sign_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sign_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         if (unary_a[idx] == 0u) {
             unary_out[idx] = 0u;
@@ -46,40 +55,55 @@ fn sign_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 // floor/ceil/round/round_ties_even/trunc are the identity on an integer: every
 // U32 value is already its own nearest integer. This matches CPU and CUDA.
 @compute @workgroup_size(256)
-fn floor_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn floor_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn ceil_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn ceil_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn round_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn round_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn round_ties_even_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn round_ties_even_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn trunc_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn trunc_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < unary_params.numel) {
         unary_out[idx] = unary_a[idx];
     }

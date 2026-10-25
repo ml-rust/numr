@@ -180,48 +180,66 @@ fn digamma_impl(x: f32) -> f32 {
 // ============================================================================
 
 @compute @workgroup_size(256)
-fn erf_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn erf_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = erf_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn erfc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn erfc_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = erfc_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn erfinv_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn erfinv_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = erfinv_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn gamma_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gamma_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = gamma_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn lgamma_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn lgamma_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = lgamma_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn digamma_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn digamma_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = digamma_impl(special_a[idx]);
     }
@@ -614,64 +632,88 @@ fn bessel_k1_impl(x: f32) -> f32 {
 }
 
 @compute @workgroup_size(256)
-fn bessel_j0_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_j0_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_j0_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_j1_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_j1_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_j1_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_y0_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_y0_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_y0_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_y1_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_y1_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_y1_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_i0_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_i0_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_i0_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_i1_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_i1_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_i1_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_k0_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_k0_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_k0_impl(special_a[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn bessel_k1_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn bessel_k1_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = bessel_k1_impl(special_a[idx]);
     }

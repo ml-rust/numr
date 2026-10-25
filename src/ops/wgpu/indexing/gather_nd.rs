@@ -12,6 +12,7 @@ use crate::runtime::wgpu::ops::helpers::{
     GatherNdParams, alloc_output, create_params_buffer, ensure_i32_indices, get_tensor_buffer,
 };
 use crate::runtime::wgpu::shaders::launch_gather_nd;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::tensor::Tensor;
 
 pub(super) fn gather_nd(
@@ -85,6 +86,9 @@ pub(super) fn gather_nd(
     if total_output == 0 {
         return Ok(output);
     }
+    // The input and output counts bound every size and stride cast to u32 below.
+    element_count_u32(total_output, "gather_nd")?;
+    element_count_u32(input.numel(), "gather_nd")?;
 
     // Get buffers
     let input_buf = get_tensor_buffer(&input)?;

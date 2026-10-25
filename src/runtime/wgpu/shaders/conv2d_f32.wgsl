@@ -33,8 +33,11 @@ struct Conv2dParams {
 @group(0) @binding(4) var<uniform> conv2d_params: Conv2dParams;
 
 @compute @workgroup_size(256)
-fn conv2d_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn conv2d_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = conv2d_params.batch * conv2d_params.c_out * conv2d_params.output_h * conv2d_params.output_w;
     if (idx >= total) { return; }
 

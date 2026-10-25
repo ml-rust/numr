@@ -9,6 +9,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::{dispatch_linear, dispatch_rows};
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -80,7 +81,7 @@ pub fn launch_fused_add_rms_norm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "fused_add_rms_norm")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -150,7 +151,7 @@ pub fn launch_fused_add_layer_norm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "fused_add_layer_norm")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -221,7 +222,7 @@ pub fn launch_fused_add_rms_norm_bwd(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "fused_add_rms_norm_bwd")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -297,7 +298,7 @@ pub fn launch_fused_add_layer_norm_bwd(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "fused_add_layer_norm_bwd")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -346,9 +347,8 @@ pub fn launch_reduce_sum_rows(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        // Dispatch enough workgroups to cover hidden_size elements
-        let num_workgroups = (hidden_size as u32 + 255) / 256;
-        pass.dispatch_workgroups(num_workgroups, 1, 1);
+        // One thread per hidden_size column
+        dispatch_linear(&mut pass, hidden_size);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

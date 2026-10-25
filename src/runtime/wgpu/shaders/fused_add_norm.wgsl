@@ -49,9 +49,10 @@ var<workgroup> farn_shared: array<f32, 256>;
 @compute @workgroup_size(256)
 fn fused_add_rms_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                           @builtin(local_invocation_id) local_id: vec3<u32>,
-                          @builtin(workgroup_id) group_id: vec3<u32>) {
+                          @builtin(workgroup_id) group_id: vec3<u32>,
+                          @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= farn_params.batch_size) {
         return;
@@ -112,9 +113,10 @@ var<workgroup> faln_shared_var: array<f32, 256>;
 @compute @workgroup_size(256)
 fn fused_add_layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                             @builtin(local_invocation_id) local_id: vec3<u32>,
-                            @builtin(workgroup_id) group_id: vec3<u32>) {
+                            @builtin(workgroup_id) group_id: vec3<u32>,
+                            @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= faln_params.batch_size) {
         return;
@@ -213,9 +215,10 @@ var<workgroup> farnb_shared_dot: array<f32, 256>;
 @compute @workgroup_size(256)
 fn fused_add_rms_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                               @builtin(local_invocation_id) local_id: vec3<u32>,
-                              @builtin(workgroup_id) group_id: vec3<u32>) {
+                              @builtin(workgroup_id) group_id: vec3<u32>,
+                              @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= farnb_params.batch_size) {
         return;
@@ -291,9 +294,10 @@ var<workgroup> falnb_shared_var: array<f32, 256>;
 @compute @workgroup_size(256)
 fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                                 @builtin(local_invocation_id) local_id: vec3<u32>,
-                                @builtin(workgroup_id) group_id: vec3<u32>) {
+                                @builtin(workgroup_id) group_id: vec3<u32>,
+                                @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= falnb_params.batch_size) {
         return;
@@ -423,8 +427,9 @@ fn fused_add_layer_norm_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u
 @group(0) @binding(2) var<uniform> rsr_params: ReduceSumParams;
 
 @compute @workgroup_size(256)
-fn reduce_sum_rows_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+fn reduce_sum_rows_f32(@builtin(global_invocation_id) gid: vec3<u32>,
+                       @builtin(num_workgroups) nwg: vec3<u32>) {
+    let i = gid.x + gid.y * nwg.x * 256u;
     if (i >= rsr_params.hidden_size) {
         return;
     }

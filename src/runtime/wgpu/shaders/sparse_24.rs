@@ -2,7 +2,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::error::Result;
 
 const PRUNE_SHADER: &str = include_str!("sparse_24_prune.wgsl");
@@ -67,7 +68,7 @@ pub fn launch_sparse_24_prune(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_groups), 1, 1);
+        dispatch_linear(&mut pass, total_groups);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -110,7 +111,7 @@ pub fn launch_sparse_24_decompress(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_groups), 1, 1);
+        dispatch_linear(&mut pass, total_groups);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

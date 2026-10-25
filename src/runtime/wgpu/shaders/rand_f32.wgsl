@@ -49,8 +49,11 @@ struct RandParams {
 @group(0) @binding(1) var<uniform> rand_params: RandParams;
 
 @compute @workgroup_size(256)
-fn rand_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn rand_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < rand_params.numel) {
         var state = pcg_init(rand_params.seed, rand_params.seed_hi, idx);
         let value = pcg_uniform(&state);

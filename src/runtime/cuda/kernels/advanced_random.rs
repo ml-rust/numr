@@ -37,7 +37,7 @@ fn philox_dtype_suffix(dtype: DType, op: &'static str) -> Result<&'static str> {
 
 /// Element count as the kernel's `unsigned int n`.
 #[inline]
-fn philox_numel_u32(numel: usize, op: &'static str) -> Result<u32> {
+fn numel_u32(numel: usize, op: &'static str) -> Result<u32> {
     u32::try_from(numel).map_err(|_| Error::InvalidArgument {
         arg: "shape",
         reason: format!("{op}: {numel} elements exceed the kernel's u32 element count"),
@@ -66,7 +66,7 @@ pub unsafe fn launch_philox_uniform(
         "philox_uniform_{}",
         philox_dtype_suffix(dtype, "philox_uniform")?
     );
-    let n = philox_numel_u32(numel, "philox_uniform")?;
+    let n = numel_u32(numel, "philox_uniform")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -111,7 +111,7 @@ pub unsafe fn launch_philox_randn(
         "philox_randn_{}",
         philox_dtype_suffix(dtype, "philox_randn")?
     );
-    let n = philox_numel_u32(numel, "philox_randn")?;
+    let n = numel_u32(numel, "philox_randn")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
@@ -157,12 +157,12 @@ pub unsafe fn launch_threefry_uniform(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("threefry_uniform_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "threefry_uniform")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -198,12 +198,12 @@ pub unsafe fn launch_threefry_randn(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("threefry_randn_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "threefry_randn")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -243,12 +243,12 @@ pub unsafe fn launch_pcg64_uniform(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("pcg64_uniform_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "pcg64_uniform")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -284,12 +284,12 @@ pub unsafe fn launch_pcg64_randn(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("pcg64_randn_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "pcg64_randn")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -328,12 +328,12 @@ pub unsafe fn launch_xoshiro256_uniform(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("xoshiro256_uniform_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "xoshiro256_uniform")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {
@@ -367,12 +367,12 @@ pub unsafe fn launch_xoshiro256_randn(
     numel: usize,
 ) -> Result<()> {
     let kernel_name = format!("xoshiro256_randn_{}", dtype_suffix(dtype)?);
+    let n = numel_u32(numel, "xoshiro256_randn")?;
     let module = get_or_load_module(context, device_index, kernel_names::ADVANCED_RANDOM_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
 
     let grid = elementwise_launch_config(numel)?;
     let block = (BLOCK_SIZE, 1, 1);
-    let n = numel as u32;
     let cfg = launch_config(grid, block, 0);
 
     unsafe {

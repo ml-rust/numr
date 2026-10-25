@@ -124,12 +124,13 @@ fn batched_matmul_u32(@builtin(local_invocation_id) local_id: vec3<u32>,
 // Non-tiled variant for small matrices, where the tile loads cost more than the
 // redundant global reads they save.
 @compute @workgroup_size(256, 1, 1)
-fn matmul_simple_u32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn matmul_simple_u32(@builtin(global_invocation_id) global_id: vec3<u32>,
+                     @builtin(num_workgroups) nwg: vec3<u32>) {
     let M = matmul_params.M;
     let K = matmul_params.K;
     let N = matmul_params.N;
 
-    let idx = global_id.x;
+    let idx = global_id.x + global_id.y * nwg.x * 256u;
     if (idx >= M * N) {
         return;
     }

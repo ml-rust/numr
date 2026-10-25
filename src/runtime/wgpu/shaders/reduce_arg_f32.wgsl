@@ -83,20 +83,24 @@ fn arg_reduce_f32(is_max: bool, tid: u32, output_idx: u32) {
 @compute @workgroup_size(256)
 fn argmax_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
               @builtin(local_invocation_id) local_id: vec3<u32>,
-              @builtin(workgroup_id) group_id: vec3<u32>) {
-    if (group_id.x >= argreduce_params.numel_out) {
+              @builtin(workgroup_id) group_id: vec3<u32>,
+              @builtin(num_workgroups) nwg: vec3<u32>) {
+    let output_idx = group_id.x + group_id.y * nwg.x;
+    if (output_idx >= argreduce_params.numel_out) {
         return;
     }
-    arg_reduce_f32(true, local_id.x, group_id.x);
+    arg_reduce_f32(true, local_id.x, output_idx);
 }
 
 @compute @workgroup_size(256)
 fn argmin_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
               @builtin(local_invocation_id) local_id: vec3<u32>,
-              @builtin(workgroup_id) group_id: vec3<u32>) {
-    if (group_id.x >= argreduce_params.numel_out) {
+              @builtin(workgroup_id) group_id: vec3<u32>,
+              @builtin(num_workgroups) nwg: vec3<u32>) {
+    let output_idx = group_id.x + group_id.y * nwg.x;
+    if (output_idx >= argreduce_params.numel_out) {
         return;
     }
-    arg_reduce_f32(false, local_id.x, group_id.x);
+    arg_reduce_f32(false, local_id.x, output_idx);
 }
 

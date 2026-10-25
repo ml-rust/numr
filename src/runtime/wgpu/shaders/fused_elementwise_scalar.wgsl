@@ -13,8 +13,11 @@ struct ScalarFmaParams {
 @group(0) @binding(2) var<uniform> sfma_params: ScalarFmaParams;
 
 @compute @workgroup_size(256)
-fn fused_mul_add_scalar_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn fused_mul_add_scalar_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < sfma_params.numel) {
         sfma_out[idx] = fma(sfma_a[idx], sfma_params.scale, sfma_params.bias);
     }

@@ -30,15 +30,14 @@ fn trace_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
              @builtin(local_invocation_id) local_id: vec3<u32>,
              @builtin(workgroup_id) group_id: vec3<u32>) {
     let tid = local_id.x;
-    let gid = global_id.x;
     let n = trace_params.n;
     let stride = trace_params.stride;
 
-    // Each thread loads one diagonal element
+    // One workgroup: each thread sums every WORKGROUP_SIZE-th diagonal element,
+    // so no two workgroups race on the output.
     var val: f32 = 0.0;
-    if (gid < n) {
-        let idx = gid * stride + gid;
-        val = trace_input[idx];
+    for (var i = tid; i < n; i = i + WORKGROUP_SIZE) {
+        val = val + trace_input[i * stride + i];
     }
     trace_shared[tid] = val;
     workgroupBarrier();
@@ -51,7 +50,7 @@ fn trace_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
         workgroupBarrier();
     }
 
-    // First thread writes result (atomic add for multi-workgroup)
+    // The single workgroup adds its total to the zeroed output.
     if (tid == 0u) {
         trace_output[0] = trace_output[0] + trace_shared[0];
     }
@@ -71,8 +70,11 @@ struct DiagParams {
 @group(0) @binding(2) var<uniform> diag_params: DiagParams;
 
 @compute @workgroup_size(256)
-fn diag_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn diag_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let min_dim = diag_params.min_dim;
     let n_cols = diag_params.n_cols;
 
@@ -95,8 +97,11 @@ struct DiagflatParams {
 @group(0) @binding(2) var<uniform> diagflat_params: DiagflatParams;
 
 @compute @workgroup_size(256)
-fn diagflat_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn diagflat_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let n = diagflat_params.n;
     let total = n * n;
 
@@ -123,8 +128,11 @@ struct IdentityParams {
 @group(0) @binding(1) var<uniform> identity_params: IdentityParams;
 
 @compute @workgroup_size(256)
-fn create_identity_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn create_identity_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let n = identity_params.n;
     let total = n * n;
 
@@ -156,8 +164,11 @@ struct KronParams {
 @group(0) @binding(3) var<uniform> kron_params: KronParams;
 
 @compute @workgroup_size(256)
-fn kron_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let gid = global_id.x;
+fn kron_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let m_a = kron_params.m_a;
     let n_a = kron_params.n_a;
     let m_b = kron_params.m_b;
@@ -184,6 +195,47 @@ fn kron_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         // out[i_a * m_b + i_b, j_a * n_b + j_b] = A[i_a, j_a] * B[i_b, j_b]
         kron_output[gid] = a_val * b_val;
+    }
+}
+
+// ============================================================================
+// Khatri-Rao Product - A ⊙ B (column-wise Kronecker)
+// For A [m, k] and B [n, k], output is [m*n, k]
+// (A ⊙ B)[i*n + j, c] = A[i, c] * B[j, c]
+// ============================================================================
+
+struct KhatriRaoParams {
+    m: u32,
+    n: u32,
+    k: u32,
+    _pad: u32,
+}
+
+@group(0) @binding(0) var<storage, read_write> khatri_rao_a: array<f32>;
+@group(0) @binding(1) var<storage, read_write> khatri_rao_b: array<f32>;
+@group(0) @binding(2) var<storage, read_write> khatri_rao_output: array<f32>;
+@group(0) @binding(3) var<uniform> khatri_rao_params: KhatriRaoParams;
+
+@compute @workgroup_size(256)
+fn khatri_rao_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let gid = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
+    let m = khatri_rao_params.m;
+    let n = khatri_rao_params.n;
+    let k = khatri_rao_params.k;
+
+    let total = m * n * k;
+
+    if (gid < total) {
+        // Output row i*n + j and column c.
+        let out_row = gid / k;
+        let c = gid % k;
+        let i = out_row / n;
+        let j = out_row % n;
+
+        khatri_rao_output[gid] = khatri_rao_a[i * k + c] * khatri_rao_b[j * k + c];
     }
 }
 "#;

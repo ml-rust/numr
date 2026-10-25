@@ -15,10 +15,15 @@ struct TruncateParams {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn rfft_truncate(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let idx = gid.x;
-    let batch_idx = gid.y;
+    // Batch rows spread over y and z.
+    let batch_idx = gid.y + gid.z * nwg.y;
+    if (batch_idx >= truncate_params.batch_size) {
+        return;
+    }
     let n = truncate_params.n;
     let half_n = truncate_params.half_n;
 

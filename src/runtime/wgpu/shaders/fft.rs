@@ -2,7 +2,8 @@
 //!
 //! Provides dispatch functions for FFT compute shaders (F32 only on WebGPU).
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::{dispatch_linear, dispatch_row_batch, dispatch_rows};
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::error::Result;
 use wgpu::{Buffer, Queue};
 
@@ -82,7 +83,7 @@ pub fn launch_stockham_fft_batched(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -132,7 +133,7 @@ pub fn launch_stockham_fft_stage(
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One thread per butterfly operation
         let butterflies = n / 2;
-        pass.dispatch_workgroups(workgroup_count(butterflies), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, butterflies, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -175,7 +176,7 @@ pub fn launch_scale_complex(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -218,7 +219,7 @@ pub fn launch_fftshift(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -261,7 +262,7 @@ pub fn launch_ifftshift(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -305,7 +306,7 @@ pub fn launch_rfft_pack(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -349,7 +350,7 @@ pub fn launch_irfft_unpack(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -397,7 +398,7 @@ pub fn launch_hermitian_extend(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -441,7 +442,7 @@ pub fn launch_rfft_truncate(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(half_n), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, half_n, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -484,7 +485,7 @@ pub fn launch_copy_complex(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -539,7 +540,7 @@ pub fn launch_bluestein_stage(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(rows), batch_size as u32, 1);
+        dispatch_row_batch(&mut pass, rows, batch_size, "fft")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));

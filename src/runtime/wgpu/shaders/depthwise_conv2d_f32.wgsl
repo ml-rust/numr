@@ -31,8 +31,11 @@ struct DepthwiseConv2dParams {
 @group(0) @binding(4) var<uniform> depthwise_params: DepthwiseConv2dParams;
 
 @compute @workgroup_size(256)
-fn depthwise_conv2d_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn depthwise_conv2d_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = depthwise_params.batch * depthwise_params.channels * depthwise_params.output_h * depthwise_params.output_w;
     if (idx >= total) { return; }
 

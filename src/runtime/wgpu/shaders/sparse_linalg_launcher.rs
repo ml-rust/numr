@@ -8,7 +8,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -69,7 +70,7 @@ pub fn launch_split_lu_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -145,7 +146,7 @@ pub fn launch_split_lu_scatter_l(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -221,7 +222,7 @@ pub fn launch_split_lu_scatter_u(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -277,7 +278,7 @@ pub fn launch_extract_lower_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -353,7 +354,7 @@ pub fn launch_extract_lower_scatter(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -409,7 +410,7 @@ pub fn launch_sparse_scatter_f32(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -452,7 +453,7 @@ pub fn launch_sparse_axpy_f32(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -494,7 +495,7 @@ pub fn launch_sparse_gather_clear_f32(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -546,7 +547,7 @@ pub fn launch_sparse_divide_pivot_f32(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -587,7 +588,7 @@ pub fn launch_sparse_clear_f32(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nnz), 1, 1);
+        dispatch_linear(&mut pass, nnz);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

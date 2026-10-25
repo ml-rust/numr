@@ -18,8 +18,11 @@ struct ArangeParams {
 @group(0) @binding(1) var<uniform> arange_params: ArangeParams;
 
 @compute @workgroup_size(256)
-fn arange_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn arange_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < arange_params.numel) {
         let value = arange_params.start + arange_params.step * f32(idx);
         arange_out[idx] = numr_f32_to_u32_sat(value);

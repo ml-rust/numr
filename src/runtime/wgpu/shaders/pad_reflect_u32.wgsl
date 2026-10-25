@@ -52,8 +52,11 @@ fn reflect_coord(out_coord: i32, before: i32, size: i32) -> i32 {
 @group(0) @binding(2) var<uniform> pad_reflect_params: PadReflectParams;
 
 @compute @workgroup_size(256)
-fn pad_reflect_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn pad_reflect_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= pad_reflect_params.total_elements) {
         return;
     }

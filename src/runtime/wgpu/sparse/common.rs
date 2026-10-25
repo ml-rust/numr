@@ -15,9 +15,6 @@ use crate::runtime::RuntimeClient;
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
 
-/// Workgroup size for sparse linear algebra kernels.
-pub const WORKGROUP_SIZE: u32 = 256;
-
 /// Validate dtype for WebGPU sparse linear algebra (F32 only).
 pub fn validate_wgpu_dtype(dtype: DType, op: &'static str) -> Result<()> {
     if dtype != DType::F32 {

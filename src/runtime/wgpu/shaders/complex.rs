@@ -1,5 +1,6 @@
 //! Complex number operation compute shader launchers for WebGPU
 
+use super::linear_grid::dispatch_linear;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -112,11 +113,8 @@ pub fn launch_complex_op(
         compute_pass.set_pipeline(&pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        // Workgroup size is 256, calculate number of workgroups
-        let workgroup_size = 256;
-        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+        // One 256-thread workgroup per 256 elements, over a 2-D grid
+        dispatch_linear(&mut compute_pass, numel);
     }
 
     // Submit commands
@@ -171,10 +169,7 @@ pub fn launch_angle_real(
         compute_pass.set_pipeline(&pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        let workgroup_size = 256;
-        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+        dispatch_linear(&mut compute_pass, numel);
     }
 
     queue.submit(Some(encoder.finish()));
@@ -231,10 +226,7 @@ pub fn launch_from_real_imag(
         compute_pass.set_pipeline(&pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        let workgroup_size = 256;
-        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+        dispatch_linear(&mut compute_pass, numel);
     }
 
     queue.submit(Some(encoder.finish()));
@@ -291,10 +283,7 @@ pub fn launch_complex_mul_real(
         compute_pass.set_pipeline(&pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        let workgroup_size = 256;
-        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+        dispatch_linear(&mut compute_pass, numel);
     }
 
     queue.submit(Some(encoder.finish()));
@@ -351,10 +340,7 @@ pub fn launch_complex_div_real(
         compute_pass.set_pipeline(&pipeline);
         compute_pass.set_bind_group(0, &bind_group, &[]);
 
-        let workgroup_size = 256;
-        let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-        compute_pass.dispatch_workgroups(num_workgroups as u32, 1, 1);
+        dispatch_linear(&mut compute_pass, numel);
     }
 
     queue.submit(Some(encoder.finish()));

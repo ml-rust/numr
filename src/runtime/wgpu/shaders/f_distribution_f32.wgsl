@@ -84,8 +84,11 @@ struct FDistributionParams {
 @group(0) @binding(1) var<uniform> params: FDistributionParams;
 
 @compute @workgroup_size(256)
-fn f_distribution_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn f_distribution_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if idx < params.numel {
         var state = pcg_init(params.seed, idx);
         let chi2_1 = sample_gamma_mt(&state, params.df1 / 2.0, 2.0);

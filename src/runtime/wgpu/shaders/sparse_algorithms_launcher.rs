@@ -6,7 +6,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -79,7 +80,7 @@ pub fn launch_dsmm_csc(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -149,7 +150,7 @@ pub fn launch_spgemm_symbolic(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+        dispatch_linear(&mut pass, m);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -225,7 +226,7 @@ pub fn launch_spgemm_accumulate(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+        dispatch_linear(&mut pass, m);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -283,7 +284,7 @@ pub fn launch_spgemm_scatter(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+        dispatch_linear(&mut pass, m);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

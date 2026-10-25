@@ -10,8 +10,11 @@ struct CountParams {
 @group(0) @binding(3) var<uniform> params: CountParams;
 
 @compute @workgroup_size(256)
-fn extract_unique_u32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn extract_unique_u32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * 256u;
     if (idx >= params.numel) {
         return;
     }

@@ -15,8 +15,11 @@ struct IndexPutParams {
 @group(0) @binding(3) var<uniform> params: IndexPutParams;
 
 @compute @workgroup_size(256)
-fn index_put_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn index_put_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = params.outer_size * params.index_len * params.inner_size;
     if (idx >= total) {
         return;

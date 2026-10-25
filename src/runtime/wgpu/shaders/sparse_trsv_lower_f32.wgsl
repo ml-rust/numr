@@ -17,7 +17,12 @@ struct TrsvParams {
 @group(0) @binding(6) var<uniform> params: TrsvParams;
 
 @compute @workgroup_size(256)
-fn sparse_trsv_lower_level_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_trsv_lower_level_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let tid = gid.x;
     if (tid >= params.level_size) {
         return;

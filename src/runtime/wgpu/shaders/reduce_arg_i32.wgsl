@@ -35,9 +35,10 @@ fn arg_takes_min(a: u32, b: u32) -> bool {
 @compute @workgroup_size(256)
 fn argmax_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
               @builtin(local_invocation_id) local_id: vec3<u32>,
-              @builtin(workgroup_id) group_id: vec3<u32>) {
+              @builtin(workgroup_id) group_id: vec3<u32>,
+              @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
     if (output_idx >= argreduce_params.numel_out) { return; }
 
     let reduce_size = argreduce_params.reduce_size;
@@ -75,9 +76,10 @@ fn argmax_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn argmin_i32(@builtin(global_invocation_id) global_id: vec3<u32>,
               @builtin(local_invocation_id) local_id: vec3<u32>,
-              @builtin(workgroup_id) group_id: vec3<u32>) {
+              @builtin(workgroup_id) group_id: vec3<u32>,
+              @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let output_idx = group_id.x;
+    let output_idx = group_id.x + group_id.y * nwg.x;
     if (output_idx >= argreduce_params.numel_out) { return; }
 
     let reduce_size = argreduce_params.reduce_size;

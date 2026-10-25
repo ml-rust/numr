@@ -3,6 +3,7 @@
 use super::helpers::*;
 use crate::error::Result;
 use crate::ops::broadcast_shape;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{activation_launcher, where_launcher};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{compute_broadcast_shape, ensure_contiguous};
@@ -29,7 +30,7 @@ pub(crate) fn native_clamp(
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
-    let params = ClampParams::new(numel as u32, min_val, max_val, dtype);
+    let params = ClampParams::new(element_count_u32(numel, "clamp")?, min_val, max_val, dtype);
     let params_buf = create_params_buffer(client, &params);
 
     activation_launcher::launch_clamp_op(
@@ -79,6 +80,9 @@ pub(crate) fn native_where_cond(
     if numel == 0 {
         return alloc_output(client, &out_shape, out_dtype);
     }
+    // Every dimension, stride and input count is bounded by the output count,
+    // so the u32 casts below hold once it fits.
+    let numel_u32 = element_count_u32(numel, "where_cond")?;
 
     // Same shape case - use element-wise kernel
     if cond.shape() == x.shape() && x.shape() == y.shape() {
@@ -93,9 +97,7 @@ pub(crate) fn native_where_cond(
         let y_buf = get_tensor_buffer(&y_contig)?;
         let out_buf = get_tensor_buffer(&out)?;
 
-        let params = WhereParams {
-            numel: numel as u32,
-        };
+        let params = WhereParams { numel: numel_u32 };
         let params_buf = create_params_buffer(client, &params);
 
         where_launcher::launch_where_generic_op(
@@ -138,7 +140,7 @@ pub(crate) fn native_where_cond(
     let shape_buf = create_storage_buffer(client, &shape_u32);
 
     let params = WhereBroadcastParams {
-        numel: numel as u32,
+        numel: numel_u32,
         ndim: out_shape.len() as u32,
         _pad0: 0,
         _pad1: 0,

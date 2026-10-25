@@ -40,9 +40,10 @@ struct RmsNormParams {
 @compute @workgroup_size(256)
 fn rms_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                 @builtin(local_invocation_id) local_id: vec3<u32>,
-                @builtin(workgroup_id) group_id: vec3<u32>) {
+                @builtin(workgroup_id) group_id: vec3<u32>,
+                @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= rms_params.batch_size) {
         return;
@@ -110,9 +111,10 @@ var<workgroup> ln_shared_m2: array<f32, 256>;
 @compute @workgroup_size(256)
 fn layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= ln_params.batch_size) {
         return;
@@ -206,9 +208,10 @@ fn layer_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
 @compute @workgroup_size(256)
 fn layer_norm_no_bias_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                           @builtin(local_invocation_id) local_id: vec3<u32>,
-                          @builtin(workgroup_id) group_id: vec3<u32>) {
+                          @builtin(workgroup_id) group_id: vec3<u32>,
+                          @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= ln_nb_params.batch_size) {
         return;
@@ -318,9 +321,10 @@ var<workgroup> gn_shared_m2: array<f32, 256>;
 @compute @workgroup_size(256)
 fn group_norm_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                   @builtin(local_invocation_id) local_id: vec3<u32>,
-                  @builtin(workgroup_id) group_id: vec3<u32>) {
+                  @builtin(workgroup_id) group_id: vec3<u32>,
+                  @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let bg_id = group_id.x;  // batch_id * num_groups + group_id
+    let bg_id = group_id.x + group_id.y * nwg.x;  // batch_id * num_groups + group_id
 
     let batch_size = gn_params.batch_size;
     let channels = gn_params.channels;

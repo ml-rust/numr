@@ -8,7 +8,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -129,7 +130,7 @@ pub fn launch_binary_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -191,7 +192,7 @@ pub fn launch_broadcast_binary_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -298,7 +299,7 @@ pub fn launch_unary_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -377,7 +378,7 @@ pub fn launch_scalar_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -431,7 +432,7 @@ pub fn launch_compare_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -493,7 +494,7 @@ pub fn launch_cast_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

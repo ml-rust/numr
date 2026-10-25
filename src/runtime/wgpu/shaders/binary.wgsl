@@ -12,64 +12,88 @@ struct BinaryParams {
 @group(0) @binding(3) var<uniform> binary_params: BinaryParams;
 
 @compute @workgroup_size(256)
-fn add_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn add_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] + binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn sub_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sub_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] - binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn mul_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] * binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn div_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn div_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] / binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn max_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn max_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = max(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn min_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn min_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = min(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn pow_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn pow_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = pow(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn atan2_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn atan2_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = atan2(binary_a[idx], binary_b[idx]);
     }

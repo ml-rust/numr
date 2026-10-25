@@ -4,6 +4,7 @@ use super::helpers::*;
 use crate::error::Result;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::elementwise;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
@@ -22,7 +23,7 @@ pub(crate) fn native_unary_op(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = UnaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, op)?,
     };
     let params_buf = create_params_buffer(client, &params);
 

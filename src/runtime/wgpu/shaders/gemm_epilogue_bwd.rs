@@ -2,6 +2,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::dispatch_linear;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -9,7 +10,6 @@ use crate::error::{Error, Result};
 const GEMM_EPILOGUE_BWD_SHADER: &str = include_str!("gemm_epilogue_bwd_f32.wgsl");
 
 const TILE_SIZE: u32 = 16;
-const BIAS_WG: u32 = 256;
 
 /// Buffers used by the backward pass, in bind-group order.
 ///
@@ -141,7 +141,7 @@ pub fn launch_gemm_bias_activation_bwd(
         });
         pass.set_pipeline(&dbias_pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(n_u.div_ceil(BIAS_WG), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

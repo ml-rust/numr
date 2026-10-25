@@ -25,7 +25,8 @@ use crate::error::{Error, Result};
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::client::get_buffer;
 #[cfg(feature = "wgpu")]
-use crate::runtime::wgpu::shaders::{LayoutKey, workgroup_count};
+use crate::runtime::wgpu::shaders::LayoutKey;
+use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 #[cfg(feature = "wgpu")]
@@ -361,7 +362,7 @@ fn run_factorization_f32(
                 });
                 pass.set_pipeline(&scatter_pipeline);
                 pass.set_bind_group(0, Some(&bind_group), &[]);
-                pass.dispatch_workgroups(workgroup_count(a_col_nnz as usize), 1, 1);
+                dispatch_linear(&mut pass, a_col_nnz as usize);
             }
             queue.submit(std::iter::once(encoder.finish()));
         }
@@ -424,7 +425,7 @@ fn run_factorization_f32(
                     });
                     pass.set_pipeline(&axpy_pipeline);
                     pass.set_bind_group(0, Some(&bind_group), &[]);
-                    pass.dispatch_workgroups(workgroup_count(l_col_nnz as usize), 1, 1);
+                    dispatch_linear(&mut pass, l_col_nnz as usize);
                 }
                 queue.submit(std::iter::once(encoder.finish()));
             }
@@ -486,7 +487,7 @@ fn run_factorization_f32(
                 });
                 pass.set_pipeline(&gather_pipeline);
                 pass.set_bind_group(0, Some(&bind_group), &[]);
-                pass.dispatch_workgroups(workgroup_count(u_col_nnz as usize), 1, 1);
+                dispatch_linear(&mut pass, u_col_nnz as usize);
             }
             queue.submit(std::iter::once(encoder.finish()));
         }
@@ -539,7 +540,7 @@ fn run_factorization_f32(
                 });
                 pass.set_pipeline(&gather_pipeline);
                 pass.set_bind_group(0, Some(&gather_bind_group), &[]);
-                pass.dispatch_workgroups(workgroup_count(l_col_nnz as usize), 1, 1);
+                dispatch_linear(&mut pass, l_col_nnz as usize);
             }
             queue.submit(std::iter::once(encoder.finish()));
 
@@ -577,7 +578,7 @@ fn run_factorization_f32(
                 });
                 pass.set_pipeline(&divide_pipeline);
                 pass.set_bind_group(0, Some(&divide_bind_group), &[]);
-                pass.dispatch_workgroups(workgroup_count(l_col_nnz as usize), 1, 1);
+                dispatch_linear(&mut pass, l_col_nnz as usize);
             }
             queue.submit(std::iter::once(encoder.finish()));
         }
@@ -904,7 +905,7 @@ pub fn sparse_lu_solve_wgpu(
             });
             pass.set_pipeline(&find_diag_pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+            dispatch_linear(&mut pass, n);
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -944,7 +945,7 @@ pub fn sparse_lu_solve_wgpu(
             });
             pass.set_pipeline(&find_diag_pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+            dispatch_linear(&mut pass, n);
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -1018,7 +1019,7 @@ pub fn sparse_lu_solve_wgpu(
             });
             pass.set_pipeline(&perm_pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+            dispatch_linear(&mut pass, n);
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -1110,7 +1111,7 @@ pub fn sparse_lu_solve_wgpu(
             });
             pass.set_pipeline(&lower_pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(workgroup_count(level_size as usize), 1, 1);
+            dispatch_linear(&mut pass, level_size as usize);
         }
         queue.submit(std::iter::once(encoder.finish()));
     }
@@ -1202,7 +1203,7 @@ pub fn sparse_lu_solve_wgpu(
             });
             pass.set_pipeline(&upper_pipeline);
             pass.set_bind_group(0, Some(&bind_group), &[]);
-            pass.dispatch_workgroups(workgroup_count(level_size as usize), 1, 1);
+            dispatch_linear(&mut pass, level_size as usize);
         }
         queue.submit(std::iter::once(encoder.finish()));
     }

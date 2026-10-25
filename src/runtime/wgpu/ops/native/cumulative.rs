@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::cumulative;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
@@ -56,6 +57,8 @@ pub(crate) fn native_cumsum(
     if a.numel() == 0 {
         return Ok(out);
     }
+    // The element count bounds every size cast to u32 below.
+    element_count_u32(a.numel(), "cumulative")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
@@ -150,6 +153,8 @@ pub(crate) fn native_cumprod(
     if a.numel() == 0 {
         return Ok(out);
     }
+    // The element count bounds every size cast to u32 below.
+    element_count_u32(a.numel(), "cumulative")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
@@ -322,6 +327,8 @@ fn native_logsumexp_single_dim(
             RuntimeClient::device(client),
         );
     }
+    // The input count bounds every size cast to u32 below.
+    element_count_u32(a.numel(), "logsumexp")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;

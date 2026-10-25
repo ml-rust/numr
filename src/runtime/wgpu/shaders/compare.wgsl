@@ -12,48 +12,66 @@ struct CompareParams {
 @group(0) @binding(3) var<uniform> compare_params: CompareParams;
 
 @compute @workgroup_size(256)
-fn eq_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn eq_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] == compare_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn ne_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn ne_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] != compare_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn lt_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn lt_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] < compare_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn le_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn le_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] <= compare_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn gt_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gt_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] > compare_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn ge_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn ge_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < compare_params.numel) {
         compare_out[idx] = select(0.0, 1.0, compare_a[idx] >= compare_b[idx]);
     }

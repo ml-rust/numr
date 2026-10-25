@@ -48,8 +48,13 @@ struct MultinomialParams {
 var<workgroup> shared_probs: array<f32, MAX_CATEGORIES>;
 
 @compute @workgroup_size(256)
-fn multinomial_without_replacement_f32(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-    let dist = gid.x / WORKGROUP_SIZE;
+fn multinomial_without_replacement_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(local_invocation_id) lid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // One workgroup per distribution, spread over a 2-D grid.
+    let dist = gid.x / WORKGROUP_SIZE + gid.y * nwg.x;
     if (dist >= multinomial_params.num_distributions) {
         return;
     }

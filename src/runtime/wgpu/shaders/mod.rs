@@ -18,6 +18,7 @@ pub mod fft;
 pub mod fwht;
 pub mod index;
 pub mod linalg;
+pub(crate) mod linear_grid;
 pub mod logical;
 pub mod quasirandom;
 pub mod shape;

@@ -11,6 +11,7 @@ use crate::runtime::wgpu::WgpuRuntime;
 use crate::runtime::wgpu::ops::helpers::{
     UnaryParams, alloc_output, create_params_buffer, get_tensor_buffer,
 };
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::{RuntimeClient, ensure_contiguous};
 use crate::tensor::Tensor;
 
@@ -36,7 +37,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -76,7 +77,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -117,7 +118,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -151,7 +152,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
                     let out_buf = get_tensor_buffer(&out)?;
 
                     let params = UnaryParams {
-                        numel: numel as u32,
+                        numel: element_count_u32(numel, "angle")?,
                     };
                     let params_buf = create_params_buffer(self, &params);
 
@@ -188,7 +189,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -231,7 +232,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -273,7 +274,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -315,7 +316,7 @@ impl ComplexOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = UnaryParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "complex op")?,
         };
         let params_buf = create_params_buffer(self, &params);
 

@@ -10,8 +10,11 @@ struct Params {
 @group(0) @binding(2) var<uniform> params: Params;
 
 @compute @workgroup_size(256)
-fn real_complex64(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn real_complex64(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         output[idx] = input[idx].x;  // Extract real component
     }

@@ -12,8 +12,11 @@ struct EyeParams {
 @group(0) @binding(1) var<uniform> eye_params: EyeParams;
 
 @compute @workgroup_size(256)
-fn eye_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn eye_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < eye_params.numel) {
         let row = idx / eye_params.m;
         let col = idx % eye_params.m;

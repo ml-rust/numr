@@ -6,7 +6,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::super::linear_grid::dispatch_linear;
+use super::super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -77,7 +78,7 @@ pub fn launch_bincount(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

@@ -14,6 +14,17 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+### Breaking
+
+- **Philox seeded values change** — `philox_uniform` and `philox_randn` use one layout on CPU, CUDA and WebGPU: block `c` is Philox4x32-10 of counter `[lo, hi, 0, 0]` from `counter + c`, and it fills elements `4c..4c+3`. A carry from the low counter word reaches the high word. An element depends on `(key, counter, index)` only. The same `(key, counter)` gives different values than 0.13.0 on every backend. F32 `philox_uniform` is bit-identical on all three backends. F64, F16 and BF16 `philox_uniform` are bit-identical on CPU and CUDA. `philox_randn` agrees within floating-point tolerance. CUDA gains F16 and BF16 for both ops.
+- **argmax and argmin ties** — equal values return the lowest index on CPU, CUDA and WebGPU. NaN never wins. A lane of only NaN returns index 0. Before, CUDA and WebGPU returned a later duplicate on a tie. The CPU kernel compares in the element type, so I64 and U64 keep full precision.
+- **`Tensor::reshape` error variant** — a shape with a different element count returns `Error::InvalidArgument` that names both shapes. Before, it returned `Error::NotContiguous`. `NotContiguous` now means a strided view only.
+- **Frozen operands get no gradient entry** — a `Var` with `requires_grad == false` records `TensorId::UNTRACKED` as its input id, so backward stores no gradient for it. After a multi-input op, `grads.get(frozen.id())` is `None`. Gradients still flow to the other inputs. A listed `checkpoint` input with `requires_grad == false` stays out of the recomputed graph and receives no gradient.
+- **`NcclCommunicator::new(nccl::Comm)` and `NcclCommunicator::inner()` are removed** — cudarc's `Comm` exposes no handle, so numr cannot wrap one soundly. Use `from_streams` or `from_rank`, and `stream()` for the stream.
+- **`Tensor::to_vec` and `Storage::to_vec` panic on a width mismatch** — a read whose `T` is not one dtype element wide panics with `Error::HostReadTypeMismatch`. Before, it copied past the buffer. The fallible readers return the error. See Fixed.
+- **`lstsq` and `pinverse` results change** — `lstsq` returns the minimum-norm solution for underdetermined and rank-deficient systems, and both apply the `lstsq_rcond` cutoff. Results for full-rank overdetermined systems match 0.13.0 within rounding. See Changed.
+- **`lstsq_rcond` is a new trait method** on `LinalgOps` and `LinearAlgebraAlgorithms`. See Added.
+
 ### Added
 
 - **`LocalCommunicator`** — an in-process `Communicator` where each thread holds one rank, for testing data-parallel code on CPU threads. `LocalCommunicator::group(world)` returns rank `i` at index `i`. `with_timeout` sets the wait limit, which defaults to 60 s. Pointers are host addresses only. `all_reduce`, `broadcast`, `all_gather`, `reduce_scatter` and `barrier` block until every rank joins, so `sync` is a no-op. Reductions fold in rank order, so results are bit-identical on every rank and every run. F16 and BF16 reductions need the `f16` feature: they widen to f32 and round once. Ranks that disagree on call, count, dtype, op or root all get the same error. A timeout, `abort()`, a dropped rank, or a panic under the `AbortOnPanic` guard from `abort_on_panic()` aborts the group. Every pending and later call on every rank then returns an error. `send` and `recv` return an error.
@@ -23,6 +34,9 @@ version. Every later entry is a delta against the one below it.
 - **`algorithm::linalg::LstsqResult`** — the `solution`, the I64 `rank` and the `singular_values` of a least-squares solve.
 - **Batched `lstsq`** — `a: [..batch, m, n]` takes `b: [..batch, m, k]` with the same batch dims, and returns `[..batch, n, k]`. The rank is `[..batch]` and the singular values are `[..batch, min(m, n)]`.
 - **`algorithm::linalg::validate_lstsq`** — the shape rules every backend applies to a least-squares solve, with `LstsqShape` as the resolved batch, `m`, `n` and column count.
+- **`checkpoint_many_with_client`** — activation checkpointing for a segment with several outputs. It packs the outputs into one tensor of the widest float dtype present, checkpoints the packed form, and unpacks one `Var` per output. Every widening cast is exact. The backward recompute must return the shapes and dtypes of the first forward, or `backward` returns an error. An empty `inputs`, no outputs, or a non-float output returns an error.
+- **`TensorId::UNTRACKED`, `TensorId::is_tracked` and `Var::graph_id`** — `graph_id` is the id an op records for a `Var` as one of its inputs: its `id()` when it requires grad, `TensorId::UNTRACKED` otherwise. `is_tracked` returns `false` only for `UNTRACKED`.
+- **WebGPU I64 casts on the GPU** — `cast` between I64 and F32, I32 or U32 runs in WGSL with emulated 64-bit integers. Before, these casts copied through the host. F32 to I64 follows Rust's saturating `as`: it truncates toward zero, and NaN becomes 0. Pairs with Bool, F64, F16, BF16 or FP8 still copy through the host.
 - **Grad mode** — `no_grad`, `enable_grad`, `NoGradGuard`, `EnableGradGuard` and `is_grad_enabled` in `autograd`. The mode is per thread and enabled by default. While it is disabled, an op returns a `Var` with `requires_grad == false` and no `grad_fn`. The op also frees the tensors its backward saved. A leaf keeps the `requires_grad` flag its caller passed. `enable_grad` overrides an enclosing `no_grad`. `backward`, `backward_wrt`, `backward_with_graph` and the checkpoint recompute always record, so they work inside `no_grad`.
 - **`var_scatter_add`** — autograd scatter-add `scatter_reduce(target, dim, index, src, Sum, include_self=true)`. The gradient to `target` is the output gradient. The gradient to `src` is `gather(grad, dim, index)`. The backward is itself differentiable.
 - **`var_stack`, `var_split` and `var_chunk`** — autograd stack, split by sizes, and split into equal chunks. All three compose `var_reshape`, `var_cat` and `var_narrow`, so every piece receives its gradient. `var_chunk` follows PyTorch: size `ceil(n / chunks)`, with a smaller last piece.
@@ -58,17 +72,38 @@ version. Every later entry is a delta against the one below it.
 - **`NcclCommunicator::from_rank` device** — the stream's CUDA context is made current before `ncclCommInitRank`, so the rank attaches to the stream's device.
 - **NCCL error messages** — each names the NCCL call, the rank, the world size and the NCCL result code. Before, every NCCL error printed as `NcclError`. An out-of-range rank, root or peer index returns `InvalidArgument`, not a wrapped cast.
 - **Host reads check the element width** — `Tensor::to_vec`, `Tensor::try_to_vec`, `Tensor::to_vec_pipelined`, `Tensor::item` and `Storage::try_to_vec` return `Error::HostReadTypeMismatch` when `T` is not one dtype element wide. `Tensor::to_vec` and `Storage::to_vec` panic with that error. Before, a width-mismatched read, such as a BF16 tensor read as `f32`, copied past its buffer. A block-quantized dtype has no element width, so every typed read of it is an error. Cast the tensor to the target dtype before the read.
-- **Philox layout** — `philox_uniform` and `philox_randn` use one layout on CPU, CUDA and WebGPU: block `c` is Philox4x32-10 of counter `[lo, hi, 0, 0]` from `counter + c`, and it fills elements `4c..4c+3`. A carry from the low counter word reaches the high word. An element depends on `(key, counter, index)` only. F32 `philox_uniform` is bit-identical on all three backends. F64, F16 and BF16 `philox_uniform` are bit-identical on CPU and CUDA. `philox_randn` agrees within floating-point tolerance. CUDA gains F16 and BF16 for both ops. CUDA and WebGPU return `InvalidArgument` when the element count exceeds `u32::MAX`. WebGPU dispatches past 65535 workgroups.
+- **Large random tensors** — `philox_*`, `threefry_*`, `pcg64_*` and `xoshiro256_*` return `InvalidArgument` on CUDA and WebGPU when the element count exceeds `u32::MAX`. Before, ThreeFry, PCG64 and Xoshiro256++ cast the count to `u32`, so the high bits were lost and most of the output stayed unwritten. On WebGPU all four dispatch a 2-D grid past 65535 workgroups. Before, ThreeFry, PCG64 and Xoshiro256++ above about 16.7M elements exceeded the 1-D dispatch limit and wgpu rejected the dispatch.
+- **Large WebGPU tensors** — every WebGPU kernel that runs one thread per element or one workgroup per row dispatches a 2-D grid past 65535 workgroups. Before, a 1-D dispatch over more than about 16.7M elements, or over more than 65535 rows, exceeded the WebGPU per-dimension limit and wgpu rejected it. An op whose shader indexes elements as `u32` returns `InvalidArgument` when the count exceeds `u32::MAX`. Before, the count was cast to `u32` and the high bits were lost. The fix covers these op families:
+  - random: `rand`, `randn`, `randint`, every distribution, `multinomial`
+  - elementwise: unary, binary, scalar, compare, cast, `where`, `clamp`, logical, activations, fused elementwise and fused activation-mul, `snake`
+  - complex ops
+  - creation: `arange`, `linspace`, `eye`
+  - shape: `cat`, `repeat`, `pad`, reflect pad, `roll`
+  - indexing: `gather`, `gather_nd`, `gather_2d`, `index_select`, `index_put`, `scatter`, `slice_assign`, masked ops, `embedding`, `bincount`
+  - sort: `sort`, `argsort`, `topk`, `unique`, `nonzero`, `searchsorted`
+  - cumulative ops and `logsumexp`
+  - reductions, argmax/argmin, `softmax`, `mode`
+  - normalization: `rms_norm`, `layer_norm`, `group_norm`, fused add-norm forward and backward
+  - matmul: the non-tiled kernel, `matvec`, the GEMM epilogue bias gradient
+  - special functions, `conv*`, `cdist`, `pdist`, `squareform`
+  - FFT with a batch above 65535
+  - quasi-random sequences
+  - linalg basic ops and the Parlett column step of matrix functions
+  - sparse kernels, sparse LU and QR, IC(0), ILU(0), sparse triangular solve
+- **WebGPU `nonzero` and `masked_select` on more than 65536 elements** — the count kernels count each element once. Before, a grid-stride loop of 65536 ran over a grid that already covered every element, so the count was too high.
+- **WebGPU full reduction of more than 65536 elements** — `sum`, `max` and the other full reductions loop over passes until one value is left. Before, the second pass read only the first 65535 partials and dropped the rest.
+- **WebGPU `trace` and the max-abs reduction** — each runs in one workgroup. Before, several workgroups wrote the same output without synchronization, so the result depended on scheduling.
+- **WebGPU `khatri_rao`** — the kernel is in the linalg basic-ops shader. Before, the entry point was missing and pipeline creation returned an error.
+- **WebGPU `multinomial` without replacement** — the kernel dispatches a 2-D grid. Before, it dispatched one workgroup per distribution, so more than 65535 distributions exceeded the dispatch limit.
+- **WebGPU `binomial` trial count** — a count above `u32::MAX` returns `InvalidArgument`. Before, the count was cast to `u32` and truncated.
+- **ThreeFry docs** — ThreeFry4x64-20 is documented as a counter-based PRNG. It is not a cryptographic RNG. The docs claimed cryptographic quality before.
 
 ### Changed
 
 - **`lstsq` algorithm** — `lstsq` returns `lstsq_rcond(a, b, None).solution`. One SVD-based algorithm runs on every backend, with the semantics of LAPACK `gelsd`. The SVD runs on `a / max|a|`. NaN in `a` gives a NaN solution. Results for full-rank overdetermined systems match the earlier QR solution within rounding.
 - **`pinverse` `rcond`** — every backend applies the `lstsq_rcond` cutoff rule. A negative or non-finite `rcond` returns `InvalidArgument`.
 - **CUDA `pinverse`** — the singular-value cutoff runs on the device. Before, the singular values were copied to the host.
-
-### Removed
-
-- **`NcclCommunicator::new(nccl::Comm)` and `NcclCommunicator::inner()`** — cudarc's `Comm` exposes no handle, so numr cannot wrap one soundly. Use `from_streams` or `from_rank`, and `stream()` for the stream.
+- **CPU `pinverse`** — computed from the SVD with tensor ops, through the cutoff the GPU backends use. `cond`, `cov` and `corrcoef` return `UnsupportedDType` for a dtype they do not handle, instead of panicking.
 
 ## [0.13.0] — 2026-10-13
 

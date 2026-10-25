@@ -12,7 +12,8 @@ use crate::algorithm::sparse_linalg::qr::cpu::helpers::{
 use crate::algorithm::sparse_linalg::qr::types::{QrFactors, QrOptions, QrSymbolic};
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::client::get_buffer;
-use crate::runtime::wgpu::shaders::{LayoutKey, workgroup_count};
+use crate::runtime::wgpu::shaders::LayoutKey;
+use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::sparse::CscData;
 use crate::tensor::Tensor;
@@ -337,7 +338,7 @@ fn dispatch_clear(
         let mut pass = enc.begin_compute_pass(&Default::default());
         pass.set_pipeline(&p.clear);
         pass.set_bind_group(0, Some(&bg), &[]);
-        pass.dispatch_workgroups(workgroup_count(m), 1, 1);
+        dispatch_linear(&mut pass, m);
     }
     queue.submit(std::iter::once(enc.finish()));
 }
@@ -405,7 +406,7 @@ fn dispatch_scatter(
         let mut pass = enc.begin_compute_pass(&Default::default());
         pass.set_pipeline(&p.scatter);
         pass.set_bind_group(0, Some(&bg), &[]);
-        pass.dispatch_workgroups(workgroup_count(a_col_nnz as usize), 1, 1);
+        dispatch_linear(&mut pass, a_col_nnz as usize);
     }
     queue.submit(std::iter::once(enc.finish()));
 }
@@ -555,7 +556,7 @@ fn dispatch_extract_r(
         let mut pass = enc.begin_compute_pass(&Default::default());
         pass.set_pipeline(&p.extract_r);
         pass.set_bind_group(0, Some(&bg), &[]);
-        pass.dispatch_workgroups(workgroup_count(k), 1, 1);
+        dispatch_linear(&mut pass, k);
     }
     enc.copy_buffer_to_buffer(&r_temp_buf, 0, r_offdiag_buf, r_byte_offset, r_byte_len);
     queue.submit(std::iter::once(enc.finish()));

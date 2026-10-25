@@ -14,8 +14,11 @@ struct BroadcastBinaryParams {
 @group(0) @binding(6) var<uniform> broadcast_params: BroadcastBinaryParams;
 
 @compute @workgroup_size(256)
-fn broadcast_add_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_add_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -31,8 +34,11 @@ fn broadcast_add_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_sub_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_sub_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -48,8 +54,11 @@ fn broadcast_sub_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_mul_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_mul_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -65,8 +74,11 @@ fn broadcast_mul_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_div_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_div_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -82,8 +94,11 @@ fn broadcast_div_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_max_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_max_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -99,8 +114,11 @@ fn broadcast_max_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_min_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_min_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -116,8 +134,11 @@ fn broadcast_min_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_pow_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_pow_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -133,8 +154,11 @@ fn broadcast_pow_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_eq_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_eq_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -150,8 +174,11 @@ fn broadcast_eq_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_ne_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_ne_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -167,8 +194,11 @@ fn broadcast_ne_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_lt_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_lt_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -184,8 +214,11 @@ fn broadcast_lt_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_le_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_le_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -201,8 +234,11 @@ fn broadcast_le_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_gt_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_gt_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;
@@ -218,8 +254,11 @@ fn broadcast_gt_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn broadcast_ge_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn broadcast_ge_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= broadcast_params.numel) { return; }
     var remaining = idx;
     var a_offset: u32 = 0u;

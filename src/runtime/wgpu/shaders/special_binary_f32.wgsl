@@ -157,8 +157,11 @@ fn gammaincc_impl(a: f32, x: f32) -> f32 {
 // ============================================================================
 
 @compute @workgroup_size(256)
-fn beta_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn beta_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         let a = special_a[idx];
         let b = special_b[idx];
@@ -167,16 +170,22 @@ fn beta_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn gammainc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gammainc_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = gammainc_impl(special_a[idx], special_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn gammaincc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gammaincc_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = gammaincc_impl(special_a[idx], special_b[idx]);
     }

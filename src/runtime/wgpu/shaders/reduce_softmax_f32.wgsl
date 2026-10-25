@@ -19,9 +19,10 @@ var<workgroup> softmax_shared: array<f32, 256>;
 @compute @workgroup_size(256)
 fn softmax_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                @builtin(local_invocation_id) local_id: vec3<u32>,
-               @builtin(workgroup_id) group_id: vec3<u32>) {
+               @builtin(workgroup_id) group_id: vec3<u32>,
+               @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= softmax_params.batch_size) {
         return;
@@ -97,9 +98,10 @@ var<workgroup> sbwd_shared: array<f32, 256>;
 @compute @workgroup_size(256)
 fn softmax_bwd_f32(@builtin(global_invocation_id) global_id: vec3<u32>,
                    @builtin(local_invocation_id) local_id: vec3<u32>,
-                   @builtin(workgroup_id) group_id: vec3<u32>) {
+                   @builtin(workgroup_id) group_id: vec3<u32>,
+               @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let batch_idx = group_id.x;
+    let batch_idx = group_id.x + group_id.y * nwg.x;
 
     if (batch_idx >= sbwd_params.batch_size) {
         return;

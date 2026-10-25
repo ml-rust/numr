@@ -14,6 +14,7 @@ use crate::runtime::wgpu::ops::helpers::{
     BincountParams, create_params_buffer, ensure_i32_indices, get_tensor_buffer,
 };
 use crate::runtime::wgpu::shaders::launch_bincount;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::tensor::Tensor;
 
 /// Validated, I32-normalized form of a bincount call.
@@ -139,8 +140,8 @@ fn accumulate(
 
     // Create params
     let params = BincountParams {
-        n: n as u32,
-        minlength: output_len as u32,
+        n: element_count_u32(n, "bincount")?,
+        minlength: element_count_u32(output_len, "bincount")?,
         _pad0: 0,
         _pad1: 0,
     };

@@ -5,7 +5,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::super::linear_grid::{dispatch_linear, linear_grid};
+use super::super::pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -74,7 +75,7 @@ pub fn launch_multinomial_with_replacement(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_samples), 1, 1);
+        dispatch_linear(&mut pass, total_samples);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -143,7 +144,8 @@ pub fn launch_multinomial_without_replacement(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per distribution - thread 0 handles all samples
-        pass.dispatch_workgroups(num_distributions as u32, 1, 1);
+        let (x, y) = linear_grid(num_distributions * WORKGROUP_SIZE as usize);
+        pass.dispatch_workgroups(x, y, 1);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

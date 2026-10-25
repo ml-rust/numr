@@ -4,7 +4,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::super::linear_grid::dispatch_linear;
+use super::super::pipeline::{LayoutKey, PipelineCache};
 use super::shader_registry::shader_info;
 use crate::dtype::DType;
 use crate::error::Result;
@@ -61,7 +62,7 @@ pub fn launch_cat_copy(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -116,7 +117,7 @@ pub fn launch_repeat(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -169,7 +170,7 @@ pub fn launch_pad(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -224,7 +225,7 @@ pub fn launch_pad_reflect(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -279,7 +280,7 @@ pub fn launch_roll(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

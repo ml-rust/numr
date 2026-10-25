@@ -21,7 +21,8 @@ use crate::error::{Error, Result};
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::client::get_buffer;
 #[cfg(feature = "wgpu")]
-use crate::runtime::wgpu::shaders::{LayoutKey, workgroup_count};
+use crate::runtime::wgpu::shaders::LayoutKey;
+use crate::runtime::wgpu::shaders::linear_grid::dispatch_linear;
 #[cfg(feature = "wgpu")]
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 #[cfg(feature = "wgpu")]
@@ -294,7 +295,7 @@ pub fn sparse_qr_solve_wgpu(
             let mut pass = enc.begin_compute_pass(&Default::default());
             pass.set_pipeline(&find_diag_pipeline);
             pass.set_bind_group(0, Some(&bg), &[]);
-            pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+            dispatch_linear(&mut pass, n);
         }
         queue.submit(std::iter::once(enc.finish()));
     }
@@ -388,7 +389,7 @@ pub fn sparse_qr_solve_wgpu(
             let mut pass = enc.begin_compute_pass(&Default::default());
             pass.set_pipeline(&upper_pipeline);
             pass.set_bind_group(0, Some(&bg), &[]);
-            pass.dispatch_workgroups(workgroup_count(level_size as usize), 1, 1);
+            dispatch_linear(&mut pass, level_size as usize);
         }
         queue.submit(std::iter::once(enc.finish()));
     }
@@ -475,7 +476,7 @@ pub fn sparse_qr_solve_wgpu(
             let mut pass = enc.begin_compute_pass(&Default::default());
             pass.set_pipeline(&perm_pipeline);
             pass.set_bind_group(0, Some(&bg), &[]);
-            pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+            dispatch_linear(&mut pass, n);
         }
         queue.submit(std::iter::once(enc.finish()));
     }

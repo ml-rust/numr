@@ -8,6 +8,7 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::reduce::{ensure_arg_reduce_dim_nonempty, reduce_output_shape};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::reduce;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -53,6 +54,8 @@ pub(crate) fn native_argreduce_op(
     if out.numel() == 0 {
         return Ok(out);
     }
+    // The input count bounds every size cast to u32 below.
+    element_count_u32(a.numel(), "argreduce")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;

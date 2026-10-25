@@ -7,7 +7,10 @@ The trait covers all-reduce, broadcast, all-gather, reduce-scatter, and point-to
 | ---- | ---- | ------- | --- |
 | `Communicator` | `numr::runtime::Communicator` | - | The collective trait |
 | `NoOpCommunicator` | `numr::runtime::NoOpCommunicator` | - (always available) | Single-process stand-in |
-| `NcclCommunicator` | `numr::runtime::NcclCommunicator` | `nccl` | Multi-GPU collectives through NCCL |
+| `LocalCommunicator` | `numr::runtime::LocalCommunicator` | - (always available) | In-process group, one rank per thread, for testing data-parallel code on CPU threads. `LocalCommunicator::group(world)` creates the ranks. `abort()` aborts the group |
+| `AbortOnPanic` | `numr::runtime::AbortOnPanic` | - (always available) | Guard from `LocalCommunicator::abort_on_panic()`. A panic on its thread while it lives aborts the group |
+| `NcclCommunicator` | `numr::runtime::NcclCommunicator` | `nccl` | Multi-GPU collectives through NCCL. `from_streams` creates every rank of a single-process group. `from_rank` joins one rank of a multi-process group. `abort()` aborts the communicator through `ncclCommAbort` |
+| `NcclId` | `numr::runtime::NcclId` | `nccl` | NCCL unique id for `from_rank`. One rank creates it with `NcclId::new()`. The other ranks rebuild it with `from_bytes` or `from_slice` |
 | `NexarNetCommunicator` | `numr::runtime::NexarNetCommunicator` | `distributed` | Multi-machine runs over pure-Rust QUIC transport through [nexar](https://github.com/ml-rust/nexar) |
 | `HierarchicalCommunicator` | `numr::runtime::HierarchicalCommunicator` | `distributed-gpu` | NCCL within a node, nexar between nodes |
 | `CommunicatorGroup` | `numr::runtime::CommunicatorGroup` | - | Splits a world communicator into sub-groups |

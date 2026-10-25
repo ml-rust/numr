@@ -25,7 +25,12 @@ struct ScatterParams {
 @group(0) @binding(3) var<uniform> scatter_params: ScatterParams;
 
 @compute @workgroup_size(256)
-fn sparse_scatter_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_scatter_offset_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= scatter_params.count) {
         return;
@@ -42,7 +47,12 @@ fn sparse_scatter_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(2) var<storage, read_write> scatter_work_legacy: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_scatter_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_scatter_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let nnz = arrayLength(&scatter_values_legacy);
     if (idx >= nnz) {
@@ -71,7 +81,12 @@ struct AxpyParams {
 @group(0) @binding(3) var<storage, read_write> axpy_work_f32: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_axpy_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_axpy_offset_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= axpy_params.count) {
         return;
@@ -95,7 +110,12 @@ struct AxpyParamsLegacy {
 @group(0) @binding(3) var<storage, read_write> axpy_work_legacy: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_axpy_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_axpy_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= axpy_params_legacy.nnz) {
         return;
@@ -121,7 +141,12 @@ struct GatherParams {
 @group(0) @binding(3) var<storage, read_write> gather_output_f32: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_gather_clear_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_gather_clear_offset_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= gather_params.count) {
         return;
@@ -139,7 +164,12 @@ fn sparse_gather_clear_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>)
 @group(0) @binding(2) var<storage, read_write> gather_output_legacy: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_gather_clear_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_gather_clear_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let nnz = arrayLength(&gather_indices_legacy);
     if (idx >= nnz) {
@@ -167,7 +197,12 @@ struct DivideParams {
 @group(0) @binding(1) var<storage, read_write> divide_output_f32: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_divide_pivot_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_divide_pivot_offset_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= divide_params.count) {
         return;
@@ -188,7 +223,12 @@ struct DivideParamsLegacy {
 @group(0) @binding(2) var<storage, read> divide_indices_legacy: array<i32>;
 
 @compute @workgroup_size(256)
-fn sparse_divide_pivot_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_divide_pivot_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= divide_params_legacy.nnz) {
         return;
@@ -213,7 +253,12 @@ struct ClearParams {
 @group(0) @binding(2) var<storage, read> clear_row_indices: array<i32>;
 
 @compute @workgroup_size(256)
-fn sparse_clear_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_clear_offset_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= clear_params.count) {
         return;
@@ -229,7 +274,12 @@ fn sparse_clear_offset_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(1) var<storage, read> clear_indices_legacy: array<i32>;
 
 @compute @workgroup_size(256)
-fn sparse_clear_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_clear_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let nnz = arrayLength(&clear_indices_legacy);
     if (idx >= nnz) {
@@ -263,7 +313,12 @@ struct TrsvCscLowerParams {
 @group(0) @binding(6) var<storage, read_write> trsv_lower_b: array<f32>;
 
 @compute @workgroup_size(256)
-fn sparse_trsv_csc_lower_level_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_trsv_csc_lower_level_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let tid = gid.x;
     if (tid >= trsv_lower_params.level_size) {
         return;
@@ -324,7 +379,12 @@ struct TrsvCscUpperParams {
 @group(0) @binding(6) var<uniform> trsv_upper_params: TrsvCscUpperParams;
 
 @compute @workgroup_size(256)
-fn sparse_trsv_csc_upper_level_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_trsv_csc_upper_level_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let tid = gid.x;
     if (tid >= trsv_upper_params.level_size) {
         return;
@@ -373,7 +433,12 @@ struct FindDiagCscParams {
 @group(0) @binding(3) var<uniform> find_diag_csc_params: FindDiagCscParams;
 
 @compute @workgroup_size(256)
-fn find_diag_indices_csc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn find_diag_indices_csc_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= find_diag_csc_params.n) {
         return;
@@ -406,7 +471,12 @@ struct ApplyPermParams {
 @group(0) @binding(3) var<uniform> apply_perm_params: ApplyPermParams;
 
 @compute @workgroup_size(256)
-fn apply_row_perm_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn apply_row_perm_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= apply_perm_params.n) {
         return;
@@ -687,7 +757,12 @@ struct QrExtractRParams {
 @group(0) @binding(2) var<uniform> qr_extract_params: QrExtractRParams;
 
 @compute @workgroup_size(256)
-fn sparse_qr_extract_r_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_qr_extract_r_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i < qr_extract_params.count) {
         qr_extract_output[i] = qr_extract_work[i];
@@ -704,7 +779,12 @@ struct QrClearParams {
 @group(0) @binding(1) var<uniform> qr_clear_params: QrClearParams;
 
 @compute @workgroup_size(256)
-fn sparse_qr_clear_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn sparse_qr_clear_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i < qr_clear_params.n) {
         qr_clear_work[i] = 0.0;

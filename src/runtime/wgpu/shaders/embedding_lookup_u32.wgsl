@@ -17,8 +17,11 @@ struct EmbeddingLookupParams {
 @group(0) @binding(3) var<uniform> params: EmbeddingLookupParams;
 
 @compute @workgroup_size(256)
-fn embedding_lookup_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn embedding_lookup_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= params.num_indices) {
         return;
     }

@@ -2,6 +2,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::dispatch_linear;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -212,8 +213,7 @@ pub fn launch_parlett_column(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // Each row i < col can be processed in parallel
-        let workgroups = (col as u32 + 255) / 256;
-        pass.dispatch_workgroups(workgroups.max(1), 1, 1);
+        dispatch_linear(&mut pass, col);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

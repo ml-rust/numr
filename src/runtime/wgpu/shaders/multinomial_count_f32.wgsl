@@ -31,8 +31,11 @@ fn find_category(u: f32, k: u32) -> u32 {
 }
 
 @compute @workgroup_size(256)
-fn multinomial_count_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let sample_idx = global_id.x;
+fn multinomial_count_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let sample_idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let k = params.k;
     let n_trials = params.n_trials;
     let n_samples = params.n_samples;

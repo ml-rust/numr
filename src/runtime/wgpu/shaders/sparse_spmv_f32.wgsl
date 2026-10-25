@@ -22,7 +22,12 @@ struct SpmvParams {
 @group(0) @binding(5) var<uniform> spmv_params: SpmvParams;
 
 @compute @workgroup_size(256)
-fn csr_spmv_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_spmv_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= spmv_params.nrows) {
         return;
@@ -62,7 +67,12 @@ struct SpmmParams {
 @group(0) @binding(5) var<uniform> spmm_params: SpmmParams;
 
 @compute @workgroup_size(256)
-fn csr_spmm_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_spmm_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let total = spmm_params.m * spmm_params.n;
     if (idx >= total) {
@@ -103,7 +113,12 @@ struct DiagParams {
 @group(0) @binding(4) var<uniform> diag_params: DiagParams;
 
 @compute @workgroup_size(256)
-fn csr_extract_diagonal_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_extract_diagonal_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= diag_params.n) {
         return;

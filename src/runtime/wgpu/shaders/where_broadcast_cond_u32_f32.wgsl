@@ -27,8 +27,11 @@ fn compute_out_stride(d: u32, ndim: u32) -> u32 {
 }
 
 @compute @workgroup_size(256)
-fn where_broadcast_cond_u32_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn where_broadcast_cond_u32_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= bc_params.numel) {
         return;
     }

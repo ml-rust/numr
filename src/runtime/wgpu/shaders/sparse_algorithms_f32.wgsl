@@ -23,7 +23,12 @@ struct DsmmParams {
 @group(0) @binding(5) var<uniform> dsmm_params: DsmmParams;
 
 @compute @workgroup_size(256)
-fn dsmm_csc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn dsmm_csc_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let total = dsmm_params.m * dsmm_params.n;
     if (idx >= total) {
@@ -69,7 +74,12 @@ struct SymbolicParams {
 @group(0) @binding(6) var<uniform> sym_params: SymbolicParams;
 
 @compute @workgroup_size(256)
-fn spgemm_symbolic_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn spgemm_symbolic_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= sym_params.m) {
         return;
@@ -131,7 +141,12 @@ struct SpgemmParams {
 @group(0) @binding(8) var<uniform> accum_params: SpgemmParams;
 
 @compute @workgroup_size(256)
-fn spgemm_accumulate_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn spgemm_accumulate_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= accum_params.m) {
         return;
@@ -177,7 +192,12 @@ fn spgemm_accumulate_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(5) var<uniform> scatter_params: SpgemmParams;
 
 @compute @workgroup_size(256)
-fn spgemm_scatter_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn spgemm_scatter_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= scatter_params.m) {
         return;

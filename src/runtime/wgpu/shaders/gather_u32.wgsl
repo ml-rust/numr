@@ -28,8 +28,11 @@ fn get_shape(arr: vec4<u32>, d: u32) -> u32 {
 }
 
 @compute @workgroup_size(256)
-fn gather_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gather_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= params.total_elements) {
         return;
     }

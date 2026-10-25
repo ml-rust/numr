@@ -9,7 +9,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -85,7 +86,7 @@ pub fn launch_conv1d(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -149,7 +150,7 @@ pub fn launch_conv_transpose1d(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -209,7 +210,7 @@ pub fn launch_conv2d(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -274,7 +275,7 @@ pub fn launch_depthwise_conv2d(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

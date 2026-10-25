@@ -11,7 +11,8 @@ use wgpu::{Buffer, Queue};
 use super::check_float_dtype;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::runtime::wgpu::shaders::copy::dispatch_grid;
+use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 const THREEFRY_UNIFORM_WGSL: &str = r#"
 // ThreeFry4x64-20, bit-identical to the CPU/CUDA reference (64-bit words emulated
@@ -56,10 +57,24 @@ fn rotl64(v: vec2<u32>, k: u32) -> vec2<u32> {
     return vec2<u32>((v.y << k2) | (v.x >> (32u - k2)), (v.x << k2) | (v.y >> (32u - k2)));
 }
 
+const GRID_X: u32 = 65535u;
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Block index of this thread over the 2-D dispatch grid.
+fn block_index(gid: vec3<u32>) -> u32 {
+    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
+}
+
+// Number of 4-element blocks, without overflow near u32::MAX.
+fn block_count() -> u32 {
+    return (params.numel >> 2u) + select(0u, 1u, (params.numel & 3u) != 0u);
+}
+
 @compute @workgroup_size(256)
 fn threefry_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 4u;
-    if (base_idx >= params.numel) { return; }
+    let b = block_index(gid);
+    if (b >= block_count()) { return; }
+    let base_idx = b * 4u;
 
     let key = vec2<u32>(params.key_lo, params.key_hi);
     var ks = array<vec2<u32>, 5>(
@@ -70,9 +85,9 @@ fn threefry_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
         xor64(key, vec2<u32>(PARITY_LO, PARITY_HI)),
     );
 
-    // counter = counter_base + gid.x (64-bit), the rest of the block is zero.
+    // counter = counter_base + b (64-bit), the rest of the block is zero.
     var x = array<vec2<u32>, 4>(
-        add64(vec2<u32>(params.counter_lo, params.counter_hi), vec2<u32>(gid.x, 0u)),
+        add64(vec2<u32>(params.counter_lo, params.counter_hi), vec2<u32>(b, 0u)),
         vec2<u32>(0u, 0u),
         vec2<u32>(0u, 0u),
         vec2<u32>(0u, 0u),
@@ -151,13 +166,26 @@ fn rotl64(v: vec2<u32>, k: u32) -> vec2<u32> {
     return vec2<u32>((v.y << k2) | (v.x >> (32u - k2)), (v.x << k2) | (v.y >> (32u - k2)));
 }
 
-fn threefry4x64_20(counter_base: vec2<u32>, gid: u32, key: vec2<u32>) -> array<vec2<u32>, 4> {
+const GRID_X: u32 = 65535u;
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Block index of this thread over the 2-D dispatch grid.
+fn block_index(gid: vec3<u32>) -> u32 {
+    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
+}
+
+// Number of 4-element blocks, without overflow near u32::MAX.
+fn block_count() -> u32 {
+    return (params.numel >> 2u) + select(0u, 1u, (params.numel & 3u) != 0u);
+}
+
+fn threefry4x64_20(counter_base: vec2<u32>, b: u32, key: vec2<u32>) -> array<vec2<u32>, 4> {
     var ks = array<vec2<u32>, 5>(
         key, vec2<u32>(0u, 0u), vec2<u32>(0u, 0u), vec2<u32>(0u, 0u),
         xor64(key, vec2<u32>(PARITY_LO, PARITY_HI)),
     );
     var x = array<vec2<u32>, 4>(
-        add64(counter_base, vec2<u32>(gid, 0u)),
+        add64(counter_base, vec2<u32>(b, 0u)),
         vec2<u32>(0u, 0u), vec2<u32>(0u, 0u), vec2<u32>(0u, 0u),
     );
     for (var r = 0u; r < 20u; r++) {
@@ -193,13 +221,14 @@ fn box_muller(u1: f32, u2: f32) -> vec2<f32> {
 
 @compute @workgroup_size(256)
 fn threefry_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 4u;
-    if (base_idx >= params.numel) { return; }
+    let b = block_index(gid);
+    if (b >= block_count()) { return; }
+    let base_idx = b * 4u;
     let key = vec2<u32>(params.key_lo, params.key_hi);
-    let x = threefry4x64_20(vec2<u32>(params.counter_lo, params.counter_hi), gid.x, key);
+    let x = threefry4x64_20(vec2<u32>(params.counter_lo, params.counter_hi), b, key);
     let p0 = box_muller(to_unit(x[0]), to_unit(x[1]));
     let p1 = box_muller(to_unit(x[2]), to_unit(x[3]));
-    if (base_idx < params.numel) { output[base_idx] = p0.x; }
+    output[base_idx] = p0.x;
     if (base_idx + 1u < params.numel) { output[base_idx + 1u] = p0.y; }
     if (base_idx + 2u < params.numel) { output[base_idx + 2u] = p1.x; }
     if (base_idx + 3u < params.numel) { output[base_idx + 3u] = p1.y; }
@@ -242,7 +271,8 @@ pub fn launch_threefry_uniform(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count((numel + 3) / 4), 1, 1);
+        let (x, y) = dispatch_grid(numel.div_ceil(4));
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -284,7 +314,8 @@ pub fn launch_threefry_randn(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel.div_ceil(4)), 1, 1);
+        let (x, y) = dispatch_grid(numel.div_ceil(4));
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

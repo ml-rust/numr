@@ -20,7 +20,12 @@ struct ScatterParams {
 @group(0) @binding(6) var<uniform> c2r_params: ScatterParams;
 
 @compute @workgroup_size(256)
-fn coo_to_csr_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn coo_to_csr_scatter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= c2r_params.nnz) {
         return;
@@ -49,7 +54,12 @@ fn coo_to_csr_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(6) var<uniform> c2c_params: ScatterParams;
 
 @compute @workgroup_size(256)
-fn coo_to_csc_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn coo_to_csc_scatter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= c2c_params.nnz) {
         return;
@@ -85,7 +95,12 @@ struct TransposeRowParams {
 @group(0) @binding(6) var<uniform> r2c_params: TransposeRowParams;
 
 @compute @workgroup_size(256)
-fn csr_to_csc_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_to_csc_scatter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= r2c_params.nrows) {
         return;
@@ -125,7 +140,12 @@ struct TransposeColParams {
 @group(0) @binding(6) var<uniform> c2r2_params: TransposeColParams;
 
 @compute @workgroup_size(256)
-fn csc_to_csr_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_to_csr_scatter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= c2r2_params.ncols) {
         return;
@@ -163,7 +183,12 @@ struct CsrToDenseParams {
 @group(0) @binding(4) var<uniform> ctd_params: CsrToDenseParams;
 
 @compute @workgroup_size(256)
-fn csr_to_dense(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_to_dense(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= ctd_params.nrows) {
         return;
@@ -195,7 +220,12 @@ struct CountNzParams {
 @group(0) @binding(2) var<uniform> cnz_params: CountNzParams;
 
 @compute @workgroup_size(256)
-fn count_nonzeros(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn count_nonzeros(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= cnz_params.total_elems) {
         return;
@@ -229,7 +259,12 @@ struct DenseToCooParams {
 @group(0) @binding(5) var<uniform> dtc_params: DenseToCooParams;
 
 @compute @workgroup_size(256)
-fn dense_to_coo_scatter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn dense_to_coo_scatter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     let total = dtc_params.nrows * dtc_params.ncols;
     if (idx >= total) {

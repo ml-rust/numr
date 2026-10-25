@@ -2,7 +2,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -51,7 +52,7 @@ fn launch_fused_fwd(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -202,7 +203,7 @@ fn launch_fused_bwd(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

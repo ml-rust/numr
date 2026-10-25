@@ -20,8 +20,11 @@ fn get_shape_dim(d: u32) -> u32 {
 }
 
 @compute @workgroup_size(256)
-fn flat_to_multi_index(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn flat_to_multi_index(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
 
     if (idx >= params.nnz) {
         return;

@@ -21,7 +21,12 @@ struct ExpandRowParams {
 @group(0) @binding(2) var<uniform> erp_params: ExpandRowParams;
 
 @compute @workgroup_size(256)
-fn expand_row_ptrs(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn expand_row_ptrs(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= erp_params.nrows) {
         return;
@@ -51,7 +56,12 @@ struct ExpandColParams {
 @group(0) @binding(2) var<uniform> ecp_params: ExpandColParams;
 
 @compute @workgroup_size(256)
-fn expand_col_ptrs(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn expand_col_ptrs(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= ecp_params.ncols) {
         return;
@@ -81,7 +91,12 @@ struct HistogramParams {
 @group(0) @binding(2) var<uniform> hist_params: HistogramParams;
 
 @compute @workgroup_size(256)
-fn histogram(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn histogram(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= hist_params.nnz) {
         return;
@@ -107,7 +122,12 @@ struct CopyPtrsParams {
 @group(0) @binding(2) var<uniform> cp_params: CopyPtrsParams;
 
 @compute @workgroup_size(256)
-fn copy_ptrs(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn copy_ptrs(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= cp_params.n) {
         return;

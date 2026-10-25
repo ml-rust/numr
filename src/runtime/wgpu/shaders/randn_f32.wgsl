@@ -49,8 +49,11 @@ struct RandnParams {
 @group(0) @binding(1) var<uniform> randn_params: RandnParams;
 
 @compute @workgroup_size(256)
-fn randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn randn_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < randn_params.numel) {
         // Use two uniform random values for Box-Muller
         var state = pcg_init(randn_params.seed, randn_params.seed_hi, idx);

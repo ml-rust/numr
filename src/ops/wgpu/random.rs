@@ -14,6 +14,7 @@ use crate::runtime::wgpu::ops::helpers::{
     RandintParamsU32, RandnParams, StudentTParams, alloc_output, create_params_buffer,
     generate_wgpu_seed, generate_wgpu_seed_words, get_tensor_buffer,
 };
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{distributions, shape};
 use crate::tensor::Tensor;
 
@@ -47,7 +48,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         // WGSL has no u64, so the u64 call seed travels as two u32 words.
         let (seed, seed_hi) = generate_wgpu_seed_words();
         let params = RandParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "rand_into")?,
             seed,
             seed_hi,
             _pad: 0,
@@ -94,7 +95,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         // WGSL has no native u64. Split the seed into low/high u32 words so
         // the shader consumes the full 64 bits instead of truncating.
         let params = RandParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "rand_seeded_into")?,
             seed: seed as u32,
             seed_hi: (seed >> 32) as u32,
             _pad: 0,
@@ -140,7 +141,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         // WGSL has no u64, so the u64 call seed travels as two u32 words.
         let (seed, seed_hi) = generate_wgpu_seed_words();
         let params = RandnParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "randn_into")?,
             seed,
             seed_hi,
             _pad: 0,
@@ -192,7 +193,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         // WGSL has no native u64. Split the seed into low/high u32 words so
         // the shader consumes the full 64 bits instead of truncating.
         let params = RandnParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "randn_seeded_into")?,
             seed: seed as u32,
             seed_hi: (seed >> 32) as u32,
             _pad: 0,
@@ -250,6 +251,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = element_count_u32(numel, "randint")?;
 
         // Allocate output
         let out = alloc_output(self, shape, dtype)?;
@@ -264,7 +266,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let params_buf = match dtype {
             DType::I32 => {
                 let params = RandintParamsI32 {
-                    numel: numel as u32,
+                    numel: numel_param,
                     low: low as i32, // Preserve sign for negative bounds
                     range,
                     seed,
@@ -273,7 +275,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             }
             DType::U32 => {
                 let params = RandintParamsU32 {
-                    numel: numel as u32,
+                    numel: numel_param,
                     low: low as u32,
                     range,
                     seed,
@@ -369,6 +371,22 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
             ));
         }
 
+        // The shader indexes probs and the output with u32 offsets.
+        element_count_u32(num_distributions * num_categories, "multinomial")?;
+        let total_samples =
+            num_distributions
+                .checked_mul(num_samples)
+                .ok_or(Error::InvalidArgument {
+                    arg: "num_samples",
+                    reason: format!(
+                        "multinomial: {num_distributions} distributions x {num_samples} samples overflow usize"
+                    ),
+                })?;
+        element_count_u32(total_samples, "multinomial")?;
+        let num_distributions_u32 = element_count_u32(num_distributions, "multinomial")?;
+        let num_categories_u32 = element_count_u32(num_categories, "multinomial")?;
+        let num_samples_u32 = element_count_u32(num_samples, "multinomial")?;
+
         let probs_contig = probs.contiguous()?;
 
         // Output dtype: I32 for WebGPU (no I64 support in WGSL)
@@ -389,14 +407,13 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         if replacement {
             // With replacement: parallel sampling
             let params = MultinomialWithReplacementParams {
-                num_distributions: num_distributions as u32,
-                num_categories: num_categories as u32,
-                num_samples: num_samples as u32,
+                num_distributions: num_distributions_u32,
+                num_categories: num_categories_u32,
+                num_samples: num_samples_u32,
                 seed,
             };
             let params_buf = create_params_buffer(self, &params);
 
-            let total_samples = num_distributions * num_samples;
             shape::launch_multinomial_with_replacement(
                 self.pipeline_cache(),
                 self.wgpu_queue(),
@@ -409,9 +426,9 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         } else {
             // Without replacement: sequential sampling with shared memory
             let params = MultinomialWithoutReplacementParams {
-                num_distributions: num_distributions as u32,
-                num_categories: num_categories as u32,
-                num_samples: num_samples as u32,
+                num_distributions: num_distributions_u32,
+                num_categories: num_categories_u32,
+                num_samples: num_samples_u32,
                 seed,
             };
             let params_buf = create_params_buffer(self, &params);
@@ -454,7 +471,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = BernoulliParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "bernoulli")?,
             seed,
             p: p as f32,
             _pad: 0,
@@ -509,7 +526,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = BetaDistParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "beta")?,
             seed,
             alpha: alpha as f32,
             beta: beta as f32,
@@ -564,7 +581,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = GammaDistParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "gamma")?,
             seed,
             shape: shape_param as f32,
             scale: scale as f32,
@@ -607,7 +624,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = ExponentialParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "exponential")?,
             seed,
             rate: rate as f32,
             _pad: 0,
@@ -650,7 +667,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = PoissonParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "poisson")?,
             seed,
             lambda: lambda as f32,
             _pad: 0,
@@ -705,9 +722,13 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = BinomialParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "binomial")?,
             seed,
-            n_trials: n as u32, // WebGPU doesn't support u64, truncate to u32
+            // WGSL has no u64, so the trial count must fit a u32.
+            n_trials: u32::try_from(n).map_err(|_| Error::InvalidArgument {
+                arg: "n",
+                reason: format!("binomial on WebGPU requires n <= {}, got {n}", u32::MAX),
+            })?,
             p: p as f32,
         };
         let params_buf = create_params_buffer(self, &params);
@@ -754,7 +775,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = LaplaceParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "laplace")?,
             seed,
             loc: loc as f32,
             scale: scale as f32,
@@ -797,7 +818,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = ChiSquaredParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "chi_squared")?,
             seed,
             df: df as f32,
             _pad: 0,
@@ -840,7 +861,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = StudentTParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "student_t")?,
             seed,
             df: df as f32,
             _pad: 0,
@@ -899,7 +920,7 @@ impl RandomOps<WgpuRuntime> for WgpuClient {
         let seed = generate_wgpu_seed();
 
         let params = FDistributionParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "f_distribution")?,
             seed,
             df1: df1 as f32,
             df2: df2 as f32,

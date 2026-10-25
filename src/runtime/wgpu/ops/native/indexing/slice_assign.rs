@@ -3,6 +3,7 @@
 use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{index, launch_slice_assign};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -77,9 +78,12 @@ pub(crate) fn native_slice_assign(
     let dst_buf = get_tensor_buffer(&dst_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
+    // The slice lies inside dst, so the dst count bounds every size cast below.
+    let dst_numel_u32 = element_count_u32(dst.numel(), "slice_assign")?;
+
     // First copy dst → output
     let copy_params = CopyParams {
-        numel: dst.numel() as u32,
+        numel: dst_numel_u32,
     };
     let copy_params_buf = create_params_buffer(client, &copy_params);
     index::launch_copy(

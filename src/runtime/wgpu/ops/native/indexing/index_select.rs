@@ -4,6 +4,7 @@ use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 use wgpu::BufferUsages;
@@ -46,6 +47,9 @@ pub(crate) fn native_index_select(
     if total_output == 0 {
         return alloc_output(client, &out_shape, dtype);
     }
+    // The input and output counts bound every size cast to u32 below.
+    element_count_u32(total_output, "index_select")?;
+    element_count_u32(a.numel(), "index_select")?;
 
     let indices_buf = get_tensor_buffer(&indices_contig)?;
 

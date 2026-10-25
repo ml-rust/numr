@@ -12,15 +12,18 @@ struct CountParams {
 @group(0) @binding(3) var<uniform> count_params: CountParams;
 
 @compute @workgroup_size(256)
-fn gather_nonzero_u32(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn gather_nonzero_u32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
     let numel = count_params.numel;
-    var idx = global_id.x;
+    // The 2-D grid holds one thread per element.
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
 
-    while (idx < numel) {
+    if (idx < numel) {
         if (input[idx] != 0u) {
             let out_idx = atomicAdd(&counter[0], 1u);
             indices_output[out_idx] = i32(idx);
         }
-        idx = idx + WORKGROUP_SIZE * 256u;
     }
 }

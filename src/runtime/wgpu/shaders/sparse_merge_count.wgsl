@@ -24,7 +24,12 @@ struct CsrMergeCountParams {
 @group(0) @binding(5) var<uniform> cmc_params: CsrMergeCountParams;
 
 @compute @workgroup_size(256)
-fn csr_merge_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_merge_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= cmc_params.nrows) {
         return;
@@ -79,7 +84,12 @@ struct CsrMulCountParams {
 @group(0) @binding(5) var<uniform> cmmc_params: CsrMulCountParams;
 
 @compute @workgroup_size(256)
-fn csr_mul_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_mul_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= cmmc_params.nrows) {
         return;
@@ -129,7 +139,12 @@ struct CscMergeCountParams {
 @group(0) @binding(5) var<uniform> csmc_params: CscMergeCountParams;
 
 @compute @workgroup_size(256)
-fn csc_merge_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_merge_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csmc_params.ncols) {
         return;
@@ -181,7 +196,12 @@ struct CscMulCountParams {
 @group(0) @binding(5) var<uniform> csmmc_params: CscMulCountParams;
 
 @compute @workgroup_size(256)
-fn csc_mul_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_mul_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csmmc_params.ncols) {
         return;

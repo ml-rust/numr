@@ -8,6 +8,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::dispatch_rows;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -72,7 +73,7 @@ pub fn launch_rms_norm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "rms_norm")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -124,7 +125,7 @@ pub fn launch_layer_norm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "layer_norm")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -170,7 +171,7 @@ pub fn launch_layer_norm_no_bias(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per batch element
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "layer_norm_no_bias")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -224,7 +225,7 @@ pub fn launch_group_norm(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // One workgroup per (batch, group) pair
-        pass.dispatch_workgroups((batch_size * num_groups) as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size * num_groups, "group_norm")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));

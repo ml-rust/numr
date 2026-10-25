@@ -41,10 +41,15 @@ fn cexp_i(theta: f32) -> vec2<f32> {
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn fftshift(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let idx = gid.x;
-    let batch_idx = gid.y;
+    // Batch rows spread over y and z.
+    let batch_idx = gid.y + gid.z * nwg.y;
+    if (batch_idx >= shift_params.batch_size) {
+        return;
+    }
     let n = shift_params.n;
 
     if (idx >= n) {
@@ -67,10 +72,15 @@ fn fftshift(
 
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn ifftshift(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let idx = gid.x;
-    let batch_idx = gid.y;
+    // Batch rows spread over y and z.
+    let batch_idx = gid.y + gid.z * nwg.y;
+    if (batch_idx >= shift_params.batch_size) {
+        return;
+    }
     let n = shift_params.n;
 
     if (idx >= n) {

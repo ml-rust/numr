@@ -17,8 +17,11 @@ struct Gather2dParams {
 @group(0) @binding(4) var<uniform> params: Gather2dParams;
 
 @compute @workgroup_size(256)
-fn gather_2d_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gather_2d_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= params.num_indices) {
         return;
     }

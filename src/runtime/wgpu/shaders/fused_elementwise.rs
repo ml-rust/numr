@@ -2,7 +2,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::{dispatch_linear, element_count_u32};
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -66,7 +67,7 @@ struct ScalarFmaParams {
 impl ScalarFmaParams {
     /// Encode both scalars the way the CPU backend converts them: an `as` cast
     /// to the element type, which saturates for integers.
-    fn new(numel: usize, scale: f64, bias: f64, dtype: DType) -> Self {
+    fn new(numel: u32, scale: f64, bias: f64, dtype: DType) -> Self {
         let encode = |v: f64| -> u32 {
             match dtype {
                 DType::I32 => u32::from_ne_bytes((v as i32).to_ne_bytes()),
@@ -75,7 +76,7 @@ impl ScalarFmaParams {
             }
         };
         Self {
-            numel: numel as u32,
+            numel,
             scale_bits: encode(scale),
             bias_bits: encode(bias),
             _pad: 0,
@@ -98,7 +99,7 @@ fn launch_ternary(
     let entry_point = entry_point_for(op_name, dtype);
 
     let params = TernaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, op_name)?,
     };
     let params_buf = cache.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("fused_elem_params"),
@@ -129,7 +130,7 @@ fn launch_ternary(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -187,7 +188,12 @@ pub fn launch_fused_mul_add_scalar(
     };
     let entry_point = entry_point_for("fused_mul_add_scalar", dtype);
 
-    let params = ScalarFmaParams::new(numel, scale, bias, dtype);
+    let params = ScalarFmaParams::new(
+        element_count_u32(numel, "fused_mul_add_scalar")?,
+        scale,
+        bias,
+        dtype,
+    );
     let params_buf = cache.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("fused_elem_scalar_params"),
         size: std::mem::size_of::<ScalarFmaParams>() as u64,
@@ -217,7 +223,7 @@ pub fn launch_fused_mul_add_scalar(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

@@ -18,8 +18,11 @@ struct SliceAssignParams {
 @group(0) @binding(2) var<uniform> params: SliceAssignParams;
 
 @compute @workgroup_size(256)
-fn slice_assign_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn slice_assign_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = params.outer_size * params.src_dim_size * params.inner_size;
     if (idx >= total) {
         return;

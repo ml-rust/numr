@@ -34,8 +34,10 @@ The `DType` enum lists 15 types. Feature flags gate some of them.
 | `Bool` | 1 B | ✓ | ✓ | - |
 
 The WebGPU backend computes in 32-bit only. Its element-wise, scalar, comparison, and activation
-operations accept `F32` only. Its `cast` converts between `F32`, `I32`, and `U32`. Other dtypes
-return `Error::UnsupportedDType`. Per-operation dtype coverage on CPU and CUDA is not listed here.
+operations accept `F32` only. Its `cast` converts between `F32`, `I32`, `U32`, and `I64` on the GPU.
+A cast with `Bool`, `F64`, `F16`, `BF16`, or an FP8 dtype on either side copies through the host.
+Its `lstsq` returns the `rank` as an `I64` tensor. Other dtypes return `Error::UnsupportedDType`.
+Per-operation dtype coverage on CPU and CUDA is not listed here.
 Check the operation before you rely on a dtype.
 
 ## CPU SIMD

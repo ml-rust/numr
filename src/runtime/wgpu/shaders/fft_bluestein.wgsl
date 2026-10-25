@@ -41,9 +41,13 @@ fn bs_cmul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 // Writes ALL batch_size * m elements, zeroing the tail past n, so the caller
 // does not need to pre-clear the buffer.
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn bluestein_premultiply(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn bluestein_premultiply(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
     let k = gid.x;
-    let b = gid.y;
+    // Batch rows spread over y and z.
+    let b = gid.y + gid.z * nwg.y;
     let m = bs_params.m;
     let n = bs_params.n;
 
@@ -62,9 +66,13 @@ fn bluestein_premultiply(@builtin(global_invocation_id) gid: vec3<u32>) {
 // Stage 2: pointwise multiply by the kernel spectrum. The kernel depends only
 // on (N, direction), so one length-M table serves the whole batch.
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn bluestein_pointwise_mul(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn bluestein_pointwise_mul(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
     let k = gid.x;
-    let b = gid.y;
+    // Batch rows spread over y and z.
+    let b = gid.y + gid.z * nwg.y;
     let m = bs_params.m;
 
     if (k >= m || b >= bs_params.batch_size) {
@@ -78,9 +86,13 @@ fn bluestein_pointwise_mul(@builtin(global_invocation_id) gid: vec3<u32>) {
 // Stage 3: chirp postmultiply, crop from m back to out_n, apply scale.
 // out_n is n for a full transform and n/2 + 1 for rfft.
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn bluestein_postmultiply(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn bluestein_postmultiply(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
     let k = gid.x;
-    let b = gid.y;
+    // Batch rows spread over y and z.
+    let b = gid.y + gid.z * nwg.y;
     let out_n = bs_params.out_n;
 
     if (k >= out_n || b >= bs_params.batch_size) {

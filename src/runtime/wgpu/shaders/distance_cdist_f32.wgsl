@@ -170,8 +170,11 @@ fn compute_distance(x_offset: u32, y_offset: u32, d: u32, metric: u32, p: f32) -
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = params.n * params.m;
     if (idx >= total) {
         return;

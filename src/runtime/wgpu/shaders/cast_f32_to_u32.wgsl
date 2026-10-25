@@ -11,8 +11,11 @@ struct CastParams {
 @group(0) @binding(2) var<uniform> cast_params: CastParams;
 
 @compute @workgroup_size(256)
-fn cast_f32_to_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn cast_f32_to_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < cast_params.numel) {
         cast_output[idx] = u32(cast_input[idx]);
     }

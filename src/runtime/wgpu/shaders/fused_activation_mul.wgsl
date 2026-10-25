@@ -16,8 +16,11 @@ struct FusedFwdParams {
 @group(0) @binding(3) var<uniform> fwd_params: FusedFwdParams;
 
 @compute @workgroup_size(256)
-fn silu_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn silu_mul_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < fwd_params.numel) {
         let x = fwd_a[idx];
         let sig = 1.0 / (1.0 + exp(-x));
@@ -26,8 +29,11 @@ fn silu_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn gelu_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gelu_mul_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < fwd_params.numel) {
         let x = fwd_a[idx];
         let c = 0.7978845608;
@@ -39,16 +45,22 @@ fn gelu_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
-fn relu_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn relu_mul_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < fwd_params.numel) {
         fwd_out[idx] = max(0.0, fwd_a[idx]) * fwd_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn sigmoid_mul_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sigmoid_mul_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < fwd_params.numel) {
         let sig = 1.0 / (1.0 + exp(-fwd_a[idx]));
         fwd_out[idx] = sig * fwd_b[idx];
@@ -72,8 +84,11 @@ struct FusedBwdParams {
 
 // silu'(x) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
 @compute @workgroup_size(256)
-fn silu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn silu_mul_bwd_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < bwd_params.numel) {
         let x = bwd_a[idx];
         let g = bwd_grad[idx];
@@ -88,8 +103,11 @@ fn silu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // gelu'(x) = 0.5 * (1 + t) + 0.5 * x * (1 - t*t) * c * (1 + 3*k*x*x)
 @compute @workgroup_size(256)
-fn gelu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gelu_mul_bwd_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < bwd_params.numel) {
         let x = bwd_a[idx];
         let g = bwd_grad[idx];
@@ -107,8 +125,11 @@ fn gelu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // relu'(x) = 1 if x > 0, else 0
 @compute @workgroup_size(256)
-fn relu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn relu_mul_bwd_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < bwd_params.numel) {
         let x = bwd_a[idx];
         let g = bwd_grad[idx];
@@ -122,8 +143,11 @@ fn relu_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 
 // sigmoid'(x) = sigmoid(x) * (1 - sigmoid(x))
 @compute @workgroup_size(256)
-fn sigmoid_mul_bwd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sigmoid_mul_bwd_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < bwd_params.numel) {
         let x = bwd_a[idx];
         let g = bwd_grad[idx];

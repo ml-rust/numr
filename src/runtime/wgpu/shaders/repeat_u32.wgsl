@@ -35,8 +35,11 @@ fn get_packed_value(arr: array<vec4<u32>, 2>, d: i32) -> u32 {
 @group(0) @binding(2) var<uniform> repeat_params: RepeatParams;
 
 @compute @workgroup_size(256)
-fn repeat_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn repeat_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= repeat_params.total_elements) {
         return;
     }

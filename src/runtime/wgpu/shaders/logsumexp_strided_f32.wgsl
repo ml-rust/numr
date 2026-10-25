@@ -11,8 +11,11 @@ struct LogsumexpStridedParams {
 @group(0) @binding(2) var<uniform> params: LogsumexpStridedParams;
 
 @compute @workgroup_size(256)
-fn logsumexp_strided_f32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn logsumexp_strided_f32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * 256u;
     let total_inner = params.outer_size * params.inner_size;
     if (idx >= total_inner) {
         return;

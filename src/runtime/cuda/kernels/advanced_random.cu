@@ -113,7 +113,7 @@ __device__ void philox_randn_impl(T* out, unsigned int n, uint64_t key, uint64_t
 }
 
 // ============================================================================
-// ThreeFry4x64-20 (Cryptographic quality)
+// ThreeFry4x64-20 (counter-based, not cryptographic)
 // ============================================================================
 
 __constant__ uint32_t THREEFRY_ROTATION[8][4] = {

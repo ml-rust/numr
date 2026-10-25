@@ -34,8 +34,11 @@ struct Conv1dParams {
 @group(0) @binding(4) var<uniform> ct1d_params: Conv1dParams;
 
 @compute @workgroup_size(256)
-fn conv_transpose1d_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn conv_transpose1d_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = ct1d_params.batch * ct1d_params.c_out * ct1d_params.output_length;
     if (idx >= total) { return; }
 

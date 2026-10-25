@@ -212,10 +212,11 @@ fn gemm_bwd_db_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
 
 // d_bias[n] = sum_batch sum_m grad_pre[b, m, n]
 @compute @workgroup_size(256, 1, 1)
-fn gemm_bwd_dbias_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn gemm_bwd_dbias_f32(@builtin(global_invocation_id) gid: vec3<u32>,
+                      @builtin(num_workgroups) nwg: vec3<u32>) {
     let M = params.M;
     let N = params.N;
-    let n = gid.x;
+    let n = gid.x + gid.y * nwg.x * 256u;
     if (n >= N) { return; }
 
     var sum: f32 = 0.0;

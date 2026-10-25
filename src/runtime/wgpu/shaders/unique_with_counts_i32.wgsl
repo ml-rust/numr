@@ -16,8 +16,11 @@ struct UniqueCountsParams {
 @group(0) @binding(2) var<uniform> params: UniqueCountsParams;
 
 @compute @workgroup_size(256)
-fn mark_boundaries_i32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn mark_boundaries_i32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let numel = params.numel;
 
     if (idx >= numel) {
@@ -44,8 +47,11 @@ fn mark_boundaries_i32(@builtin(global_invocation_id) global_id: vec3<u32>) {
 @group(0) @binding(5) var<uniform> scatter_params: UniqueCountsParams;
 
 @compute @workgroup_size(256)
-fn scatter_unique_with_counts_i32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn scatter_unique_with_counts_i32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
     let numel = scatter_params.numel;
     let num_unique = scatter_params.num_unique;
 

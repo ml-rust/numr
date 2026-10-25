@@ -52,9 +52,14 @@ fn cexp_i(theta: f32) -> vec2<f32> {
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn stockham_fft_small(
     @builtin(workgroup_id) wg_id: vec3<u32>,
-    @builtin(local_invocation_id) local_id: vec3<u32>
+    @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
-    let batch_idx = wg_id.x;
+    // One workgroup per batch row, spread over a 2-D grid.
+    let batch_idx = wg_id.x + wg_id.y * nwg.x;
+    if (batch_idx >= fft_params.batch_size) {
+        return;
+    }
     let tid = local_id.x;
     let n = fft_params.n;
     let log_n = fft_params.log_n;
@@ -133,12 +138,17 @@ fn stockham_fft_small(
 // Single stage kernel for large FFTs (N > workgroup FFT size)
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn stockham_fft_stage(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
     let n = fft_params.n;
     let stage = fft_params.log_n;  // Reuse log_n as current stage
     let inverse = fft_params.inverse;
-    let batch_idx = gid.y;
+    // Batch rows spread over y and z.
+    let batch_idx = gid.y + gid.z * nwg.y;
+    if (batch_idx >= fft_params.batch_size) {
+        return;
+    }
 
     let sign = select(-1.0, 1.0, inverse != 0);
 
@@ -174,9 +184,10 @@ fn stockham_fft_stage(
 // Scale complex array
 @compute @workgroup_size(WORKGROUP_SIZE)
 fn scale_complex(
-    @builtin(global_invocation_id) gid: vec3<u32>
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
-    let idx = gid.x;
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let n = fft_params.n;
     let scale_factor = fft_params.scale;
 

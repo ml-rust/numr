@@ -23,7 +23,12 @@ struct CsrAddI32Params {
 @group(0) @binding(9) var<uniform> csr_add_i32_params: CsrAddI32Params;
 
 @compute @workgroup_size(256)
-fn csr_add_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_add_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= csr_add_i32_params.nrows) {
         return;
@@ -98,7 +103,12 @@ struct CsrSubI32Params {
 @group(0) @binding(9) var<uniform> csr_sub_i32_params: CsrSubI32Params;
 
 @compute @workgroup_size(256)
-fn csr_sub_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_sub_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= csr_sub_i32_params.nrows) {
         return;
@@ -173,7 +183,12 @@ struct CsrMulI32Params {
 @group(0) @binding(9) var<uniform> csr_mul_i32_params: CsrMulI32Params;
 
 @compute @workgroup_size(256)
-fn csr_mul_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_mul_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= csr_mul_i32_params.nrows) {
         return;
@@ -228,7 +243,12 @@ struct CsrDivI32Params {
 @group(0) @binding(9) var<uniform> csr_div_i32_params: CsrDivI32Params;
 
 @compute @workgroup_size(256)
-fn csr_div_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csr_div_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = gid.x;
     if (row >= csr_div_i32_params.nrows) {
         return;
@@ -283,7 +303,12 @@ struct CscAddI32Params {
 @group(0) @binding(9) var<uniform> csc_add_i32_params: CscAddI32Params;
 
 @compute @workgroup_size(256)
-fn csc_add_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_add_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csc_add_i32_params.ncols) {
         return;
@@ -358,7 +383,12 @@ struct CscSubI32Params {
 @group(0) @binding(9) var<uniform> csc_sub_i32_params: CscSubI32Params;
 
 @compute @workgroup_size(256)
-fn csc_sub_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_sub_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csc_sub_i32_params.ncols) {
         return;
@@ -433,7 +463,12 @@ struct CscMulI32Params {
 @group(0) @binding(9) var<uniform> csc_mul_i32_params: CscMulI32Params;
 
 @compute @workgroup_size(256)
-fn csc_mul_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_mul_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csc_mul_i32_params.ncols) {
         return;
@@ -488,7 +523,12 @@ struct CscDivI32Params {
 @group(0) @binding(9) var<uniform> csc_div_i32_params: CscDivI32Params;
 
 @compute @workgroup_size(256)
-fn csc_div_compute_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn csc_div_compute_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let col = gid.x;
     if (col >= csc_div_i32_params.ncols) {
         return;

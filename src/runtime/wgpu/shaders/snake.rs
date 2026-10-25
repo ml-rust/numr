@@ -4,7 +4,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::{group_grid, linear_grid};
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -32,7 +33,7 @@ fn dispatch(
     queue: &Queue,
     entry_point: &'static str,
     buffers: &[&Buffer],
-    workgroups: u32,
+    grid: (u32, u32),
     dtype: DType,
 ) -> Result<()> {
     if dtype != DType::F32 {
@@ -62,7 +63,7 @@ fn dispatch(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        pass.dispatch_workgroups(grid.0, grid.1, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -86,7 +87,7 @@ pub fn launch_snake_beta(
         queue,
         "snake_beta_f32",
         &[x, alpha, beta, out, params_buffer],
-        workgroup_count(numel),
+        linear_grid(numel),
         dtype,
     )
 }
@@ -110,7 +111,7 @@ pub fn launch_snake_beta_dx(
         queue,
         "snake_beta_dx_f32",
         &[grad, x, alpha, beta, d_x, params_buffer],
-        workgroup_count(numel),
+        linear_grid(numel),
         dtype,
     )
 }
@@ -135,7 +136,7 @@ pub fn launch_snake_beta_dparams(
         queue,
         "snake_beta_dparams_f32",
         &[grad, x, alpha, beta, d_alpha, d_beta, params_buffer],
-        channels as u32,
+        group_grid(channels, "snake_beta_dparams")?,
         dtype,
     )
 }

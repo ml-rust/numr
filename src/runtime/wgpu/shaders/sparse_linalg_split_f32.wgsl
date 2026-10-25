@@ -25,7 +25,12 @@ struct SplitLuCountParams {
 @group(0) @binding(4) var<uniform> slc_params: SplitLuCountParams;
 
 @compute @workgroup_size(256)
-fn split_lu_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn split_lu_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = i32(gid.x);
     if (u32(row) >= slc_params.n) {
         return;
@@ -71,7 +76,12 @@ struct SplitLuScatterLParams {
 @group(0) @binding(6) var<uniform> sll_params: SplitLuScatterLParams;
 
 @compute @workgroup_size(256)
-fn split_lu_scatter_l_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn split_lu_scatter_l_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = i32(gid.x);
     if (u32(row) >= sll_params.n) {
         return;
@@ -112,7 +122,12 @@ struct SplitLuScatterUParams {
 @group(0) @binding(6) var<uniform> slu_params: SplitLuScatterUParams;
 
 @compute @workgroup_size(256)
-fn split_lu_scatter_u_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn split_lu_scatter_u_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = i32(gid.x);
     if (u32(row) >= slu_params.n) {
         return;
@@ -150,7 +165,12 @@ struct ExtractLowerCountParams {
 @group(0) @binding(3) var<uniform> elc_params: ExtractLowerCountParams;
 
 @compute @workgroup_size(256)
-fn extract_lower_count(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn extract_lower_count(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = i32(gid.x);
     if (u32(row) >= elc_params.n) {
         return;
@@ -192,7 +212,12 @@ struct ExtractLowerScatterParams {
 @group(0) @binding(6) var<uniform> els_params: ExtractLowerScatterParams;
 
 @compute @workgroup_size(256)
-fn extract_lower_scatter_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn extract_lower_scatter_f32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let row = i32(gid.x);
     if (u32(row) >= els_params.n) {
         return;

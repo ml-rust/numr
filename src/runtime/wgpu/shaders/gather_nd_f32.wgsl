@@ -18,8 +18,11 @@ struct GatherNdParams {
 @group(0) @binding(3) var<storage, read_write> gather_nd_params: GatherNdParams;
 
 @compute @workgroup_size(256)
-fn gather_nd_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn gather_nd_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = gather_nd_params.num_slices * gather_nd_params.slice_size;
     if (idx >= total) {
         return;

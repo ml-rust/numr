@@ -26,8 +26,11 @@ fn get_shape(arr: vec4<u32>, d: u32) -> u32 {
 }
 
 @compute @workgroup_size(256)
-fn scatter_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn scatter_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= params.src_total) {
         return;
     }
@@ -66,8 +69,11 @@ struct CopyParams {
 @group(0) @binding(2) var<uniform> copy_params: CopyParams;
 
 @compute @workgroup_size(256)
-fn copy_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn copy_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < copy_params.numel) {
         copy_dst[idx] = copy_src[idx];
     }

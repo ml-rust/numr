@@ -183,6 +183,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "threefry_randn")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -190,7 +191,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (key_lo, key_hi) = split_u64(key);
         let (counter_lo, counter_hi) = split_u64(counter);
         let params = CounterPrngParams {
-            numel: numel as u32,
+            numel: numel_param,
             key_lo,
             key_hi,
             counter_lo,
@@ -226,6 +227,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "threefry_uniform")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -233,7 +235,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (key_lo, key_hi) = split_u64(key);
         let (counter_lo, counter_hi) = split_u64(counter);
         let params = CounterPrngParams {
-            numel: numel as u32,
+            numel: numel_param,
             key_lo,
             key_hi,
             counter_lo,
@@ -269,6 +271,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "pcg64_randn")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -276,7 +279,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (seed_lo, seed_hi) = split_u64(seed);
         let (stream_lo, stream_hi) = split_u64(stream);
         let params = Pcg64Params {
-            numel: numel as u32,
+            numel: numel_param,
             seed_lo,
             seed_hi,
             stream_lo,
@@ -312,6 +315,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "pcg64_uniform")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -319,7 +323,7 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         let (seed_lo, seed_hi) = split_u64(seed);
         let (stream_lo, stream_hi) = split_u64(stream);
         let params = Pcg64Params {
-            numel: numel as u32,
+            numel: numel_param,
             seed_lo,
             seed_hi,
             stream_lo,
@@ -354,13 +358,14 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "xoshiro256_randn")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
 
         let (seed_lo, seed_hi) = split_u64(seed);
         let params = Xoshiro256Params {
-            numel: numel as u32,
+            numel: numel_param,
             seed_lo,
             seed_hi,
             _pad0: 0,
@@ -391,13 +396,14 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         if numel == 0 {
             return Tensor::empty(shape, dtype, self.device());
         }
+        let numel_param = numel_u32(numel, "xoshiro256_uniform")?;
 
         let out = alloc_output(self, shape, dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
 
         let (seed_lo, seed_hi) = split_u64(seed);
         let params = Xoshiro256Params {
-            numel: numel as u32,
+            numel: numel_param,
             seed_lo,
             seed_hi,
             _pad0: 0,
@@ -414,5 +420,33 @@ impl AdvancedRandomOps<WgpuRuntime> for WgpuClient {
         )?;
 
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numel_u32_accepts_counts_up_to_u32_max() {
+        assert_eq!(numel_u32(1, "threefry_uniform").unwrap(), 1);
+        assert_eq!(
+            numel_u32(u32::MAX as usize, "pcg64_randn").unwrap(),
+            u32::MAX
+        );
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn numel_u32_rejects_counts_past_u32_max() {
+        let numel = u32::MAX as usize + 1;
+        match numel_u32(numel, "xoshiro256_uniform") {
+            Err(Error::InvalidArgument { arg, reason }) => {
+                assert_eq!(arg, "shape");
+                assert!(reason.starts_with("xoshiro256_uniform: "), "{reason}");
+                assert!(reason.contains(&numel.to_string()), "{reason}");
+            }
+            other => panic!("expected InvalidArgument, got {other:?}"),
+        }
     }
 }

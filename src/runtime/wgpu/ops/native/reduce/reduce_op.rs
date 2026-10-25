@@ -11,6 +11,7 @@ use crate::ops::ScalarOps;
 use crate::ops::reduce::{max_identity, min_identity, reduce_output_shape};
 use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::reduce;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -201,6 +202,9 @@ fn native_single_dim_reduce(
         );
     }
 
+    // The input count bounds every size cast to u32 below.
+    element_count_u32(a.numel(), op)?;
+
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
@@ -252,18 +256,19 @@ fn native_full_reduce(
     let is_mean = op == "mean";
     let reduce_op = if is_mean { "sum" } else { op };
 
-    // Two-pass reduction for large arrays
-    let workgroup_size = 256;
-    let num_workgroups = (numel + workgroup_size - 1) / workgroup_size;
-
-    if num_workgroups <= 1 {
-        // Single pass
-        let out = alloc_output(client, &[1], dtype)?;
-        let a_buf = get_tensor_buffer(&a_contig)?;
-        let out_buf = get_tensor_buffer(&out)?;
+    // Each pass folds `count` values into one partial per workgroup. The
+    // workgroups stride over the input, so a pass handles any count, and the
+    // passes repeat until one value is left: at most three for a u32 count.
+    let mut current = a_contig;
+    let mut count = numel;
+    loop {
+        let groups = reduce::full_reduce_groups(count) as usize;
+        let partial = alloc_output(client, &[groups], dtype)?;
+        let in_buf = get_tensor_buffer(&current)?;
+        let partial_buf = get_tensor_buffer(&partial)?;
 
         let params = FullReduceParams {
-            numel: numel as u32,
+            numel: element_count_u32(count, reduce_op)?,
         };
         let params_buf = create_params_buffer(client, &params);
 
@@ -271,62 +276,22 @@ fn native_full_reduce(
             client.pipeline_cache(),
             client.wgpu_queue(),
             reduce_op,
-            &a_buf,
-            &out_buf,
+            &in_buf,
+            &partial_buf,
             &params_buf,
-            numel,
+            count,
             dtype,
         )?;
 
-        if is_mean {
-            return client.div_scalar(&out, numel as f64);
+        current = partial;
+        count = groups;
+        if count == 1 {
+            break;
         }
-        return Ok(out);
     }
-
-    // Multi-pass: first reduce to num_workgroups values, then reduce again
-    let partial = alloc_output(client, &[num_workgroups], dtype)?;
-    let a_buf = get_tensor_buffer(&a_contig)?;
-    let partial_buf = get_tensor_buffer(&partial)?;
-
-    let params = FullReduceParams {
-        numel: numel as u32,
-    };
-    let params_buf = create_params_buffer(client, &params);
-
-    reduce::launch_full_reduce_op(
-        client.pipeline_cache(),
-        client.wgpu_queue(),
-        reduce_op,
-        &a_buf,
-        &partial_buf,
-        &params_buf,
-        numel,
-        dtype,
-    )?;
-
-    // Second pass
-    let out = alloc_output(client, &[1], dtype)?;
-    let out_buf = get_tensor_buffer(&out)?;
-
-    let params2 = FullReduceParams {
-        numel: num_workgroups as u32,
-    };
-    let params_buf2 = create_params_buffer(client, &params2);
-
-    reduce::launch_full_reduce_op(
-        client.pipeline_cache(),
-        client.wgpu_queue(),
-        reduce_op,
-        &partial_buf,
-        &out_buf,
-        &params_buf2,
-        num_workgroups,
-        dtype,
-    )?;
 
     if is_mean {
-        return client.div_scalar(&out, numel as f64);
+        return client.div_scalar(&current, numel as f64);
     }
-    Ok(out)
+    Ok(current)
 }

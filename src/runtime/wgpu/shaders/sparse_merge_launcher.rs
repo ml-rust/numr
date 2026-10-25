@@ -7,7 +7,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -95,7 +96,7 @@ pub fn launch_csr_merge_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -150,7 +151,7 @@ pub fn launch_csr_mul_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -226,7 +227,7 @@ pub fn launch_csr_add_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -298,7 +299,7 @@ pub fn launch_csr_sub_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -370,7 +371,7 @@ pub fn launch_csr_mul_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -442,7 +443,7 @@ pub fn launch_csr_div_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(nrows), 1, 1);
+        dispatch_linear(&mut pass, nrows);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -501,7 +502,7 @@ pub fn launch_csc_merge_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -556,7 +557,7 @@ pub fn launch_csc_mul_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -632,7 +633,7 @@ pub fn launch_csc_add_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -704,7 +705,7 @@ pub fn launch_csc_sub_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -776,7 +777,7 @@ pub fn launch_csc_mul_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -848,7 +849,7 @@ pub fn launch_csc_div_compute(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(ncols), 1, 1);
+        dispatch_linear(&mut pass, ncols);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

@@ -10,6 +10,7 @@ use crate::runtime::wgpu::ops::helpers::{
     get_tensor_buffer,
 };
 use crate::runtime::wgpu::ops::native::native_clamp;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::shape;
 use crate::runtime::{RuntimeClient, validate_arange, validate_eye};
 use crate::tensor::Tensor;
@@ -67,7 +68,7 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
 
         // Create params (f32 precision - WebGPU limitation)
         let params = ArangeParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "arange")?,
             start: start as f32,
             step: step as f32,
         };
@@ -112,6 +113,8 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
             return self.fill(&[1], start, dtype);
         }
 
+        let steps_u32 = element_count_u32(steps, "linspace")?;
+
         // Allocate output
         let out = alloc_output(self, &[steps], dtype)?;
         let out_buf = get_tensor_buffer(&out)?;
@@ -120,7 +123,7 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
         // the buffer is built per dtype.
         let params_buf = if dtype == DType::F32 {
             let params = LinspaceParams {
-                steps: steps as u32,
+                steps: steps_u32,
                 start: start as f32,
                 stop: stop as f32,
             };
@@ -172,7 +175,12 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
             return Err(Error::UnsupportedDType { dtype, op: "eye" });
         }
 
-        let numel = rows * cols;
+        let numel = rows.checked_mul(cols).ok_or(Error::InvalidArgument {
+            arg: "m",
+            reason: format!("eye: {rows} x {cols} overflows usize"),
+        })?;
+        // numel bounds rows and cols, so they fit a u32 once numel does.
+        let numel_u32 = element_count_u32(numel, "eye")?;
 
         // Allocate output
         let out = alloc_output(self, &[rows, cols], dtype)?;
@@ -182,7 +190,7 @@ impl UtilityOps<WgpuRuntime> for WgpuClient {
         let params = EyeParams {
             n: rows as u32,
             m: cols as u32,
-            numel: numel as u32,
+            numel: numel_u32,
         };
         let params_buf = create_params_buffer(self, &params);
 

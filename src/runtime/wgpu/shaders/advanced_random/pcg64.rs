@@ -9,7 +9,8 @@ use wgpu::{Buffer, Queue};
 use super::check_float_dtype;
 use crate::dtype::DType;
 use crate::error::Result;
-use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use crate::runtime::wgpu::shaders::copy::dispatch_grid;
+use crate::runtime::wgpu::shaders::pipeline::{LayoutKey, PipelineCache};
 
 const PCG64_UNIFORM_WGSL: &str = r#"
 struct Pcg64Params {
@@ -47,9 +48,23 @@ fn pcg_output(state_lo: u32, state_hi: u32) -> u32 {
     return (xorshifted >> rot) | (xorshifted << ((32u - rot) & 31u));
 }
 
+const GRID_X: u32 = 65535u;
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Element index of this thread over the 2-D dispatch grid.
+fn element_index(gid: vec3<u32>) -> u32 {
+    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
+}
+
+// True when the last grid row carries the index past u32::MAX.
+fn index_wraps(gid: vec3<u32>) -> bool {
+    return gid.y > (0xFFFFFFFFu - gid.x) / (GRID_X * WORKGROUP_SIZE);
+}
+
 @compute @workgroup_size(256)
 fn pcg64_uniform_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+    if (index_wraps(gid)) { return; }
+    let idx = element_index(gid);
     if (idx >= params.numel) { return; }
 
     var state = add64(params.seed_lo, params.seed_hi, params.stream_lo, params.stream_hi);
@@ -117,13 +132,27 @@ fn box_muller(u1: f32, u2: f32) -> vec2<f32> {
     return vec2<f32>(r * cos(theta), r * sin(theta));
 }
 
+const GRID_X: u32 = 65535u;
+const WORKGROUP_SIZE: u32 = 256u;
+
+// Pair index of this thread over the 2-D dispatch grid.
+fn pair_index(gid: vec3<u32>) -> u32 {
+    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
+}
+
+// Number of 2-element pairs, without overflow near u32::MAX.
+fn pair_count() -> u32 {
+    return (params.numel >> 1u) + (params.numel & 1u);
+}
+
 @compute @workgroup_size(256)
 fn pcg64_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let base_idx = gid.x * 2u;
-    if (base_idx >= params.numel) { return; }
+    let p = pair_index(gid);
+    if (p >= pair_count()) { return; }
+    let base_idx = p * 2u;
 
     var state = add64(params.seed_lo, params.seed_hi, params.stream_lo, params.stream_hi);
-    state = add64(state.x, state.y, gid.x * 2u, 0u);
+    state = add64(state.x, state.y, base_idx, 0u);
 
     let inc_lo = (params.stream_lo << 1u) | 1u;
     let inc_hi = params.stream_hi;
@@ -138,7 +167,7 @@ fn pcg64_randn_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
     let u2 = f32((r2) >> 8u) / 16777216.0;
     let normals = box_muller(u1, u2);
 
-    if (base_idx < params.numel) { output[base_idx] = normals.x; }
+    output[base_idx] = normals.x;
     if (base_idx + 1u < params.numel) { output[base_idx + 1u] = normals.y; }
 }
 "#;
@@ -179,7 +208,8 @@ pub fn launch_pcg64_uniform(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        let (x, y) = dispatch_grid(numel);
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -221,7 +251,8 @@ pub fn launch_pcg64_randn(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count((numel + 1) / 2), 1, 1);
+        let (x, y) = dispatch_grid(numel.div_ceil(2));
+        pass.dispatch_workgroups(x, y, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

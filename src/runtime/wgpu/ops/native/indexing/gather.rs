@@ -3,6 +3,7 @@
 use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
@@ -45,6 +46,9 @@ pub(crate) fn native_gather(
     if total_elements == 0 {
         return Ok(out);
     }
+    // The input and output counts bound every shape and stride cast to u32 below.
+    element_count_u32(total_elements, "gather")?;
+    element_count_u32(a.numel(), "gather")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let indices_buf = get_tensor_buffer(&indices_contig)?;

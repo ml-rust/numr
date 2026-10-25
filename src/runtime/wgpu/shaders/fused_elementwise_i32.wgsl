@@ -21,16 +21,22 @@ struct TernaryParams {
 @group(0) @binding(4) var<uniform> tern_params: TernaryParams;
 
 @compute @workgroup_size(256)
-fn fused_mul_add_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn fused_mul_add_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < tern_params.numel) {
         tern_out[idx] = tern_a[idx] * tern_b[idx] + tern_c[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn fused_add_mul_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn fused_add_mul_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < tern_params.numel) {
         tern_out[idx] = (tern_a[idx] + tern_b[idx]) * tern_c[idx];
     }

@@ -6,7 +6,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -85,7 +86,7 @@ pub fn launch_bernoulli(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -126,7 +127,7 @@ pub fn launch_beta_dist(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -168,7 +169,7 @@ pub fn launch_gamma_dist(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -210,7 +211,7 @@ pub fn launch_exponential(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -251,7 +252,7 @@ pub fn launch_poisson(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -292,7 +293,7 @@ pub fn launch_binomial(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -333,7 +334,7 @@ pub fn launch_laplace(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -375,7 +376,7 @@ pub fn launch_chi_squared(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -416,7 +417,7 @@ pub fn launch_student_t(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -458,7 +459,7 @@ pub fn launch_f_distribution(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -531,7 +532,7 @@ pub fn launch_multinomial_count(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n_samples), 1, 1);
+        dispatch_linear(&mut pass, n_samples);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

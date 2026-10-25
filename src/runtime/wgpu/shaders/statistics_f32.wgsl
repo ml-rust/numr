@@ -14,8 +14,10 @@ struct ModeParams {
 @group(0) @binding(3) var<uniform> params: ModeParams;
 
 @compute @workgroup_size(1)
-fn mode_dim_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let out_idx = gid.x;
+fn mode_dim_f32(@builtin(global_invocation_id) gid: vec3<u32>,
+                @builtin(num_workgroups) nwg: vec3<u32>) {
+    // One single-thread workgroup per output, laid out on a 2-D grid.
+    let out_idx = gid.x + gid.y * nwg.x;
     let total_outputs = params.outer_size * params.inner_size;
 
     if (out_idx >= total_outputs) {

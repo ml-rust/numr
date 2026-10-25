@@ -3,9 +3,10 @@
 use wgpu::{BindGroupDescriptor, BindGroupEntry, BufferUsages};
 
 use super::super::ops::helpers::get_tensor_buffer;
+use super::super::shaders::linear_grid::dispatch_linear;
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::{
-    WORKGROUP_SIZE, cast_i64_to_i32_gpu, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype,
+    cast_i64_to_i32_gpu, create_ilu_ic_layout, split_lu_wgpu, validate_wgpu_dtype,
 };
 use crate::algorithm::sparse_linalg::{
     IluDecomposition, IluOptions, SymbolicIlu0, validate_square_sparse,
@@ -329,7 +330,7 @@ pub(super) fn launch_find_diag_indices(
     });
 
     // Dispatch
-    let workgroups = (n as u32 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = n;
 
     let mut encoder = client
         .wgpu_device
@@ -341,7 +342,7 @@ pub(super) fn launch_find_diag_indices(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 
@@ -430,7 +431,7 @@ pub(super) fn launch_ilu0_level(
         ],
     });
 
-    let workgroups = (level_size as u32 + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    let threads = level_size;
 
     let mut encoder = client
         .wgpu_device
@@ -442,7 +443,7 @@ pub(super) fn launch_ilu0_level(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(workgroups, 1, 1);
+        dispatch_linear(&mut pass, threads);
     }
     client.queue.submit(Some(encoder.finish()));
 

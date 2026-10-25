@@ -52,8 +52,11 @@ struct SnakeParams {
 @group(0) @binding(4) var<uniform> fwd_params: SnakeParams;
 
 @compute @workgroup_size(256)
-fn snake_beta_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn snake_beta_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= fwd_params.extent) {
         return;
     }
@@ -77,8 +80,11 @@ fn snake_beta_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
 @group(0) @binding(5) var<uniform> dx_params: SnakeParams;
 
 @compute @workgroup_size(256)
-fn snake_beta_dx_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn snake_beta_dx_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= dx_params.extent) {
         return;
     }
@@ -107,10 +113,15 @@ var<workgroup> dp_shared_beta: array<f32, 256>;
 
 @compute @workgroup_size(256)
 fn snake_beta_dparams_f32(@builtin(local_invocation_id) local_id: vec3<u32>,
-                          @builtin(workgroup_id) group_id: vec3<u32>) {
+                          @builtin(workgroup_id) group_id: vec3<u32>,
+                          @builtin(num_workgroups) nwg: vec3<u32>) {
     let tid = local_id.x;
-    let c = group_id.x;
+    // One workgroup per channel, spread over a 2-D grid.
+    let c = group_id.x + group_id.y * nwg.x;
     let channels = dp_params.channels;
+    if (c >= channels) {
+        return;
+    }
     let inner = dp_params.inner;
     let span = dp_params.extent * inner;
 

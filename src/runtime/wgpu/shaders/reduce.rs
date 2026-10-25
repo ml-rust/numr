@@ -2,9 +2,18 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_rows;
+use super::pipeline::{LayoutKey, PipelineCache, WORKGROUP_SIZE};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+
+/// Workgroups of a full reduction over `numel` elements.
+///
+/// One per 256 elements, capped at the 65535 a 1-D dispatch holds. Past the
+/// cap each thread strides over the input, so every element is still read once.
+pub fn full_reduce_groups(numel: usize) -> u32 {
+    numel.div_ceil(WORKGROUP_SIZE as usize).clamp(1, 65535) as u32
+}
 
 // Order is load-bearing: `reduce_full_f32` and `reduce_arg_f32` use
 // `WORKGROUP_SIZE` and `reduce_shared` from `reduce_f32`, and WGSL has no
@@ -89,7 +98,7 @@ pub fn launch_reduce_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(numel_out as u32, 1, 1);
+        dispatch_rows(&mut pass, numel_out, op)?;
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -108,6 +117,9 @@ pub fn launch_reduce_op(
 /// whole-tensor reduction would have to store its partials in the element type
 /// and saturate each one. `native_reduce_op` collapses the reduced dims and
 /// calls `launch_reduce_op` instead, which does accumulate wide.
+///
+/// The kernel strides over the input, so `output` holds one partial per
+/// workgroup: [`full_reduce_groups`]`(numel)` entries.
 pub fn launch_full_reduce_op(
     cache: &PipelineCache,
     queue: &Queue,
@@ -153,7 +165,7 @@ pub fn launch_full_reduce_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        pass.dispatch_workgroups(full_reduce_groups(numel), 1, 1);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -207,7 +219,7 @@ pub fn launch_argreduce_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(numel_out as u32, 1, 1);
+        dispatch_rows(&mut pass, numel_out, op)?;
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -255,7 +267,7 @@ pub fn launch_softmax_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "softmax")?;
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -303,8 +315,24 @@ pub fn launch_softmax_bwd_op(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(batch_size as u32, 1, 1);
+        dispatch_rows(&mut pass, batch_size, "softmax")?;
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_reduce_groups_caps_at_one_dispatch_row() {
+        assert_eq!(full_reduce_groups(0), 1);
+        assert_eq!(full_reduce_groups(1), 1);
+        assert_eq!(full_reduce_groups(256), 1);
+        assert_eq!(full_reduce_groups(257), 2);
+        assert_eq!(full_reduce_groups(65535 * 256), 65535);
+        assert_eq!(full_reduce_groups(65535 * 256 + 1), 65535);
+        assert_eq!(full_reduce_groups(u32::MAX as usize), 65535);
+    }
 }

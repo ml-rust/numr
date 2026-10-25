@@ -184,8 +184,11 @@ fn condensed_to_ij(k: u32, n: u32) -> vec2<u32> {
 }
 
 @compute @workgroup_size(WORKGROUP_SIZE)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let k = gid.x;
+fn main(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let k = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     let total = params.n * (params.n - 1u) / 2u;
     if (k >= total) {
         return;

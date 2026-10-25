@@ -12,6 +12,7 @@ use crate::runtime::wgpu::ops::helpers::{
     Gather2dParams, alloc_output, create_params_buffer, ensure_i32_indices, get_tensor_buffer,
 };
 use crate::runtime::wgpu::shaders::launch_gather_2d;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::tensor::Tensor;
 
 pub(super) fn gather_2d(
@@ -96,11 +97,15 @@ pub(super) fn gather_2d(
     let cols_buf = get_tensor_buffer(&cols)?;
     let output_buf = get_tensor_buffer(&output)?;
 
+    // The input count bounds nrows and ncols, so they fit a u32 once it does.
+    element_count_u32(input.numel(), "gather_2d")?;
+    let num_indices_u32 = element_count_u32(num_indices, "gather_2d")?;
+
     // Create params
     let params = Gather2dParams {
         nrows: nrows as u32,
         ncols: ncols as u32,
-        num_indices: num_indices as u32,
+        num_indices: num_indices_u32,
         _pad: 0,
     };
     let params_buf = create_params_buffer(client, &params);

@@ -8,6 +8,7 @@ use crate::error::Result;
 use crate::ops::distance_common::*;
 use crate::ops::{DistanceMetric, DistanceOps};
 use crate::runtime::wgpu::ops::helpers::get_tensor_buffer;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{
     distance_metric_p_value, distance_metric_to_index, launch_cdist, launch_pdist,
     launch_squareform, launch_squareform_inverse,
@@ -80,6 +81,11 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         let x = x.contiguous()?;
         let y = y.contiguous()?;
 
+        // The input and output counts bound n, m and d.
+        element_count_u32(x.numel(), "cdist")?;
+        element_count_u32(y.numel(), "cdist")?;
+        element_count_u32(n * m, "cdist")?;
+
         let out = Tensor::<WgpuRuntime>::empty(&[n, m], dtype, &self.device_id)?;
 
         // Create params buffer
@@ -140,6 +146,10 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
 
         // Ensure contiguous
         let x = x.contiguous()?;
+
+        // The shader forms n * (n - 1) as a u32, and the input count bounds d.
+        element_count_u32(n * (n - 1), "pdist")?;
+        element_count_u32(x.numel(), "pdist")?;
 
         let out = Tensor::<WgpuRuntime>::empty(&[out_size], dtype, &self.device_id)?;
 
@@ -204,6 +214,9 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
         // Ensure contiguous
         let condensed = condensed.contiguous()?;
 
+        // The output count n * n bounds every index the shader forms.
+        element_count_u32(n * n, "squareform")?;
+
         let out = Tensor::<WgpuRuntime>::empty(&[n, n], dtype, &self.device_id)?;
 
         // Create params buffer
@@ -251,6 +264,9 @@ impl DistanceOps<WgpuRuntime> for WgpuClient {
 
         // Ensure contiguous
         let square = square.contiguous()?;
+
+        // The input count n * n bounds every index the shader forms.
+        element_count_u32(n * n, "squareform_inverse")?;
 
         let out_size = n * (n - 1) / 2;
         let out = Tensor::<WgpuRuntime>::empty(&[out_size], dtype, &self.device_id)?;

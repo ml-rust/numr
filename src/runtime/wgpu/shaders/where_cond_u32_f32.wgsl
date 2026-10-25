@@ -12,8 +12,11 @@ struct WhereParams {
 @group(0) @binding(4) var<uniform> where_params: WhereParams;
 
 @compute @workgroup_size(256)
-fn where_cond_u32_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn where_cond_u32_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < where_params.numel) {
         let cond_val = where_cond_arr[idx] != 0u;
         where_out[idx] = select(where_y[idx], where_x[idx], cond_val);

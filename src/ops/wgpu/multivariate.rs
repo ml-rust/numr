@@ -17,6 +17,7 @@ use crate::ops::impl_generic::{
 use crate::ops::traits::multivariate::MultivariateRandomOps;
 use crate::ops::{BinaryOps, CumulativeOps, RandomOps, ReduceOps};
 use crate::runtime::RuntimeClient;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{MultinomialCountParams, launch_multinomial_count};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -117,10 +118,13 @@ fn dispatch_multinomial_count_shader(
         .ok_or_else(|| Error::Internal("Output buffer not found".to_string()))?;
 
     // Create params buffer
+    // The shader indexes `counts` and `uniforms` with u32 offsets.
+    element_count_u32(output.numel(), "multinomial_samples")?;
+    element_count_u32(uniforms.numel(), "multinomial_samples")?;
     let params = MultinomialCountParams {
-        k: k as u32,
-        n_trials: n_trials as u32,
-        n_samples: n_samples as u32,
+        k: element_count_u32(k, "multinomial_samples")?,
+        n_trials: element_count_u32(n_trials, "multinomial_samples")?,
+        n_samples: element_count_u32(n_samples, "multinomial_samples")?,
         _pad: 0,
     };
     let params_buf = client.wgpu_device.create_buffer(&wgpu::BufferDescriptor {

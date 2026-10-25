@@ -44,8 +44,11 @@ struct RandintParams {
 @group(0) @binding(1) var<uniform> randint_params: RandintParams;
 
 @compute @workgroup_size(256)
-fn randint_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn randint_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < randint_params.numel) {
         var state = pcg_init(randint_params.seed, idx);
         let r = pcg_hash(state);

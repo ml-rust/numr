@@ -10,56 +10,77 @@ struct BinaryParams {
 @group(0) @binding(3) var<uniform> binary_params: BinaryParams;
 
 @compute @workgroup_size(256)
-fn add_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn add_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] + binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn sub_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sub_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] - binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn mul_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn mul_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = binary_a[idx] * binary_b[idx];
     }
 }
 
 @compute @workgroup_size(256)
-fn div_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn div_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = numr_idiv_i32(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn max_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn max_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = max(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn min_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn min_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = min(binary_a[idx], binary_b[idx]);
     }
 }
 
 @compute @workgroup_size(256)
-fn pow_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn pow_i32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < binary_params.numel) {
         binary_out[idx] = numr_ipow_i32(binary_a[idx], binary_b[idx]);
     }

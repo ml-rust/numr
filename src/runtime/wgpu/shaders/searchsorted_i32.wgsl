@@ -18,8 +18,11 @@ struct SearchsortedParams {
 @group(0) @binding(3) var<uniform> ss_params: SearchsortedParams;
 
 @compute @workgroup_size(256)
-fn searchsorted_i32(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let idx = global_id.x;
+fn searchsorted_i32(
+    @builtin(global_invocation_id) global_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = global_id.x + global_id.y * nwg.x * WORKGROUP_SIZE;
 
     if (idx >= ss_params.num_values) {
         return;

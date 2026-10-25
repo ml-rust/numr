@@ -3,6 +3,7 @@
 use super::super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::wgpu::shaders::index;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{compute_contiguous_strides, ensure_contiguous};
 use crate::tensor::Tensor;
@@ -54,14 +55,15 @@ pub(crate) fn native_scatter(
     if a.numel() == 0 {
         return Ok(out);
     }
+    // The destination and source counts bound every shape and stride cast below.
+    let a_numel_u32 = element_count_u32(a.numel(), "scatter")?;
+    element_count_u32(src_total, "scatter")?;
 
     let a_buf = get_tensor_buffer(&a_contig)?;
     let out_buf = get_tensor_buffer(&out)?;
 
     // First, copy input to output
-    let copy_params = CopyParams {
-        numel: a.numel() as u32,
-    };
+    let copy_params = CopyParams { numel: a_numel_u32 };
     let copy_params_buf = create_params_buffer(client, &copy_params);
 
     index::launch_copy(

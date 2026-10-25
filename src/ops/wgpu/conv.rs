@@ -8,6 +8,7 @@ use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::ops::helpers::{alloc_output, create_params_buffer, get_tensor_buffer};
 use crate::runtime::wgpu::shaders::conv as conv_launcher;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
@@ -124,6 +125,11 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
             dtype,
         )?;
 
+        // The input, weight and output counts bound every size cast to u32 below.
+        element_count_u32(input.numel(), "conv")?;
+        element_count_u32(weight.numel(), "conv")?;
+        element_count_u32(output.numel(), "conv")?;
+
         // Get buffers
         let input_buf = get_tensor_buffer(&input)?;
         let weight_buf = get_tensor_buffer(&weight)?;
@@ -217,6 +223,11 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
             dtype,
         )?;
 
+        // The input, weight and output counts bound every size cast to u32 below.
+        element_count_u32(input.numel(), "conv_transpose1d")?;
+        element_count_u32(weight.numel(), "conv_transpose1d")?;
+        element_count_u32(output.numel(), "conv_transpose1d")?;
+
         let input_buf = get_tensor_buffer(&input)?;
         let weight_buf = get_tensor_buffer(&weight)?;
         let output_buf = get_tensor_buffer(&output)?;
@@ -306,6 +317,11 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
             &[params.batch, params.c_out, params.output_h, params.output_w],
             dtype,
         )?;
+
+        // The input, weight and output counts bound every size cast to u32 below.
+        element_count_u32(input.numel(), "conv")?;
+        element_count_u32(weight.numel(), "conv")?;
+        element_count_u32(output.numel(), "conv")?;
 
         // Get buffers
         let input_buf = get_tensor_buffer(&input)?;
@@ -404,6 +420,11 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
             &[params.batch, params.c_out, params.output_h, params.output_w],
             dtype,
         )?;
+
+        // The input, weight and output counts bound every size cast to u32 below.
+        element_count_u32(input.numel(), "conv")?;
+        element_count_u32(weight.numel(), "conv")?;
+        element_count_u32(output.numel(), "conv")?;
 
         // Get buffers
         let input_buf = get_tensor_buffer(&input)?;

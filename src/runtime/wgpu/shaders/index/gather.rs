@@ -4,7 +4,8 @@
 use wgpu::{Buffer, Queue};
 
 use super::super::copy::dispatch_grid;
-use super::super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::super::linear_grid::dispatch_linear;
+use super::super::pipeline::{LayoutKey, PipelineCache};
 use super::shader_registry::shader_info;
 use crate::dtype::DType;
 use crate::error::Result;
@@ -48,7 +49,7 @@ pub fn launch_index_select(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -138,7 +139,7 @@ pub fn launch_gather(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -185,7 +186,7 @@ pub fn launch_gather_nd(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_output), 1, 1);
+        dispatch_linear(&mut pass, total_output);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -236,7 +237,7 @@ pub fn launch_embedding_lookup(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
+        dispatch_linear(&mut pass, num_indices);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -287,7 +288,7 @@ pub fn launch_gather_2d(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(num_indices), 1, 1);
+        dispatch_linear(&mut pass, num_indices);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

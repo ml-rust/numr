@@ -144,8 +144,11 @@ fn betainc_impl(a: f32, b: f32, x: f32) -> f32 {
 // ============================================================================
 
 @compute @workgroup_size(256)
-fn betainc_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn betainc_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < special_params.numel) {
         special_out[idx] = betainc_impl(special_a[idx], special_b[idx], special_x[idx]);
     }

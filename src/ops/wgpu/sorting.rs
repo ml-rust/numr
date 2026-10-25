@@ -12,6 +12,7 @@ use crate::runtime::wgpu::ops::helpers::{
     CountParams, FlatToMultiParams, SearchsortedParams, SortParams, TopkParams, UniqueCountsParams,
     alloc_output, create_params_buffer, get_tensor_buffer, pack_u32_array,
 };
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{sort, sort_global, sort_search};
 use crate::runtime::{RuntimeClient, ensure_contiguous, normalize_dim};
 use crate::tensor::Tensor;
@@ -77,6 +78,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         }
 
         // Create params buffer
+        // outer, sort and inner sizes each fit a u32 once the element count does.
+        element_count_u32(a.numel(), "sort")?;
         let params = SortParams {
             outer_size: outer_size as u32,
             sort_size: sort_size as u32,
@@ -161,6 +164,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             return Ok((values_out, indices_out));
         }
 
+        // outer, sort and inner sizes each fit a u32 once the element count does.
+        element_count_u32(a.numel(), "sort")?;
         let params = SortParams {
             outer_size: outer_size as u32,
             sort_size: sort_size as u32,
@@ -243,6 +248,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             return Ok(indices_out);
         }
 
+        // outer, sort and inner sizes each fit a u32 once the element count does.
+        element_count_u32(a.numel(), "sort")?;
         let params = SortParams {
             outer_size: outer_size as u32,
             sort_size: sort_size as u32,
@@ -337,6 +344,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let values_buf = get_tensor_buffer(&values_out)?;
         let indices_buf = get_tensor_buffer(&indices_out)?;
 
+        // outer, sort and inner sizes each fit a u32 once the element count does.
+        element_count_u32(a.numel(), "topk")?;
         let params = TopkParams {
             outer_size: outer_size as u32,
             sort_size: sort_size as u32,
@@ -398,7 +407,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
 
         let sorted_buf = get_tensor_buffer(&sorted_tensor)?;
         let params = CountParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "unique")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -478,8 +487,9 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let sorted_buf = get_tensor_buffer(&sorted_tensor)?;
         let flags_buf = get_tensor_buffer(&boundary_flags)?;
 
+        let numel_u32 = element_count_u32(numel, "unique_with_counts")?;
         let params = UniqueCountsParams {
-            numel: numel as u32,
+            numel: numel_u32,
             num_unique: 0, // Not known yet
             _pad0: 0,
             _pad1: 0,
@@ -529,7 +539,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
 
         // Step 6: Scatter unique values and compute counts
         let scatter_params = UniqueCountsParams {
-            numel: numel as u32,
+            numel: numel_u32,
             num_unique,
             _pad0: 0,
             _pad1: 0,
@@ -587,7 +597,7 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
             .write_buffer(&count_buf, 0, bytemuck::cast_slice(&[0u32]));
 
         let params = CountParams {
-            numel: numel as u32,
+            numel: element_count_u32(numel, "nonzero")?,
         };
         let params_buf = create_params_buffer(self, &params);
 
@@ -704,8 +714,8 @@ impl SortingOps<WgpuRuntime> for WgpuClient {
         let out_buf = get_tensor_buffer(&out)?;
 
         let params = SearchsortedParams {
-            seq_len: seq_len as u32,
-            num_values: num_values as u32,
+            seq_len: element_count_u32(seq_len, "searchsorted")?,
+            num_values: element_count_u32(num_values, "searchsorted")?,
             right: right as u32,
             _pad: 0,
         };

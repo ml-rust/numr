@@ -5,7 +5,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::error::Result;
 
 // ============================================================================
@@ -69,7 +70,7 @@ fn cast_i64_to_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(count), 1, 1);
+        dispatch_linear(&mut pass, count);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -185,7 +186,7 @@ fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -290,7 +291,7 @@ fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -395,7 +396,7 @@ fn compute_levels_ilu_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -495,7 +496,7 @@ fn scatter_by_level(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(n), 1, 1);
+        dispatch_linear(&mut pass, n);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

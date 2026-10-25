@@ -13,7 +13,12 @@
 @group(0) @binding(1) var<storage, read_write> output_i32: array<i32>;
 
 @compute @workgroup_size(256)
-fn cast_i64_to_i32(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn cast_i64_to_i32(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let idx = gid.x;
     if (idx >= arrayLength(&output_i32)) { return; }
     // i64 stored as two u32: low word at 2*idx, high word at 2*idx+1
@@ -39,7 +44,12 @@ struct Params {
 @group(0) @binding(4) var<uniform> params: Params;
 
 @compute @workgroup_size(256)
-fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn compute_levels_lower_iter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= params.n) { return; }
 
@@ -75,7 +85,12 @@ fn compute_levels_lower_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
 // where A[i,j] is nonzero
 
 @compute @workgroup_size(256)
-fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn compute_levels_upper_iter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= params.n) { return; }
 
@@ -110,7 +125,12 @@ fn compute_levels_upper_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
 // For ILU: level[i] = max(level[j] + 1) for all j < i where A[i,j] is nonzero
 
 @compute @workgroup_size(256)
-fn compute_levels_ilu_iter(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn compute_levels_ilu_iter(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= params.n) { return; }
 
@@ -153,7 +173,12 @@ struct HistogramParams {
 @group(0) @binding(2) var<uniform> hist_params: HistogramParams;
 
 @compute @workgroup_size(256)
-fn histogram_levels(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn histogram_levels(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= hist_params.n) { return; }
 
@@ -179,7 +204,12 @@ struct ScatterParams {
 @group(0) @binding(4) var<uniform> scatter_params: ScatterParams;
 
 @compute @workgroup_size(256)
-fn scatter_by_level(@builtin(global_invocation_id) gid: vec3<u32>) {
+fn scatter_by_level(
+    @builtin(global_invocation_id) gid_grid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    // Linear thread index over the 2-D dispatch grid.
+    let gid = vec3<u32>(gid_grid.x + gid_grid.y * nwg.x * 256u, 0u, 0u);
     let i = gid.x;
     if (i >= scatter_params.n) { return; }
 

@@ -18,8 +18,11 @@ struct RollParams {
 @group(0) @binding(2) var<uniform> roll_params: RollParams;
 
 @compute @workgroup_size(256)
-fn roll_u32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn roll_u32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx >= roll_params.total_elements) {
         return;
     }

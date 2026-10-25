@@ -5,7 +5,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::error::Result;
 
 // ============================================================================
@@ -24,24 +25,33 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 
 @compute @workgroup_size(256)
-fn logical_and(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn logical_and(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         out[idx] = select(0u, 1u, a[idx] != 0u && b[idx] != 0u);
     }
 }
 
 @compute @workgroup_size(256)
-fn logical_or(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn logical_or(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         out[idx] = select(0u, 1u, a[idx] != 0u || b[idx] != 0u);
     }
 }
 
 @compute @workgroup_size(256)
-fn logical_xor(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn logical_xor(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         let a_bool = a[idx] != 0u;
         let b_bool = b[idx] != 0u;
@@ -61,8 +71,11 @@ struct Params {
 @group(0) @binding(2) var<uniform> params: Params;
 
 @compute @workgroup_size(256)
-fn logical_not(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn logical_not(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         out[idx] = select(1u, 0u, a[idx] != 0u);
     }
@@ -106,7 +119,7 @@ pub fn launch_logical_and(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -146,7 +159,7 @@ pub fn launch_logical_or(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -186,7 +199,7 @@ pub fn launch_logical_xor(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));
@@ -225,7 +238,7 @@ pub fn launch_logical_not(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(numel), 1, 1);
+        dispatch_linear(&mut pass, numel);
     }
 
     queue.submit(std::iter::once(encoder.finish()));

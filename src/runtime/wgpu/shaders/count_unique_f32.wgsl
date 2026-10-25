@@ -14,12 +14,13 @@ struct CountParams {
 fn count_unique_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
 ) {
     let tid = local_id.x;
     let numel = params.numel;
 
     var local_count: u32 = 0u;
-    let idx = global_id.x;
+    let idx = global_id.x + global_id.y * nwg.x * 256u;
     if (idx < numel) {
         if (idx == 0u || sorted_input[idx] != sorted_input[idx - 1u]) {
             local_count = 1u;

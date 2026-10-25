@@ -77,10 +77,13 @@ fn bitonic_cas_values_f32(i: u32, j: u32, ascending_local: bool, descending: boo
 fn sort_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) group_id: vec3<u32>
+    @builtin(workgroup_id) group_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
-    let outer_idx = group_id.x;
-    let inner_idx = group_id.y;
+    // One workgroup per (outer, inner) row, spread over a 2-D grid.
+    let row = group_id.x + group_id.y * nwg.x;
+    let outer_idx = row / sort_params.inner_size;
+    let inner_idx = row % sort_params.inner_size;
     let tid = local_id.x;
 
     let outer_size = sort_params.outer_size;
@@ -147,10 +150,13 @@ fn sort_f32(
 fn sort_values_only_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) group_id: vec3<u32>
+    @builtin(workgroup_id) group_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
-    let outer_idx = group_id.x;
-    let inner_idx = group_id.y;
+    // One workgroup per (outer, inner) row, spread over a 2-D grid.
+    let row = group_id.x + group_id.y * nwg.x;
+    let outer_idx = row / sort_params.inner_size;
+    let inner_idx = row % sort_params.inner_size;
     let tid = local_id.x;
 
     let outer_size = sort_params.outer_size;
@@ -210,10 +216,13 @@ fn sort_values_only_f32(
 fn argsort_f32(
     @builtin(global_invocation_id) global_id: vec3<u32>,
     @builtin(local_invocation_id) local_id: vec3<u32>,
-    @builtin(workgroup_id) group_id: vec3<u32>
+    @builtin(workgroup_id) group_id: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>
 ) {
-    let outer_idx = group_id.x;
-    let inner_idx = group_id.y;
+    // One workgroup per (outer, inner) row, spread over a 2-D grid.
+    let row = group_id.x + group_id.y * nwg.x;
+    let outer_idx = row / sort_params.inner_size;
+    let inner_idx = row % sort_params.inner_size;
     let tid = local_id.x;
 
     let outer_size = sort_params.outer_size;

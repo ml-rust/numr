@@ -15,8 +15,11 @@ struct Params {
 const PI: f32 = 3.14159265f;
 
 @compute @workgroup_size(256)
-fn angle_real_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn angle_real_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx < params.numel) {
         let val = input[idx];
         output[idx] = select(0.0, PI, val < 0.0);  // 0 if x >= 0, π if x < 0

@@ -7,7 +7,8 @@
 
 use wgpu::{Buffer, Queue};
 
-use super::pipeline::{LayoutKey, PipelineCache, workgroup_count};
+use super::linear_grid::dispatch_linear;
+use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
@@ -39,8 +40,11 @@ struct SobolParams {
 @group(0) @binding(2) var<uniform> params: SobolParams;
 
 @compute @workgroup_size(256)
-fn sobol_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn sobol_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= params.n_points) { return; }
 
     let point_index = params.skip + idx;
@@ -121,7 +125,7 @@ pub fn launch_sobol(
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
         // Dispatch based on n_points
-        pass.dispatch_workgroups(workgroup_count(n_points), 1, 1);
+        dispatch_linear(&mut pass, n_points);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())
@@ -165,8 +169,11 @@ fn van_der_corput_f32(index: u32, base: u32) -> f32 {
 }
 
 @compute @workgroup_size(256)
-fn halton_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn halton_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * 256u;
     if (idx >= params.n_points) { return; }
 
     let point_index = params.skip + idx;
@@ -225,7 +232,7 @@ pub fn launch_halton(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(workgroup_count(total_elements), 1, 1);
+        dispatch_linear(&mut pass, total_elements);
     }
     queue.submit(std::iter::once(encoder.finish()));
     Ok(())

@@ -12,8 +12,11 @@ struct LinspaceParams {
 @group(0) @binding(1) var<uniform> linspace_params: LinspaceParams;
 
 @compute @workgroup_size(256)
-fn linspace_f32(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let idx = gid.x;
+fn linspace_f32(
+    @builtin(global_invocation_id) gid: vec3<u32>,
+    @builtin(num_workgroups) nwg: vec3<u32>,
+) {
+    let idx = gid.x + gid.y * nwg.x * WORKGROUP_SIZE;
     if (idx < linspace_params.steps) {
         let t_val = f32(idx) / f32(linspace_params.steps - 1u);
         let value = linspace_params.start + (linspace_params.stop - linspace_params.start) * t_val;

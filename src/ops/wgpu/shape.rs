@@ -13,6 +13,7 @@ use crate::runtime::wgpu::ops::helpers::{
     RepeatParams, RollParams, alloc_output, create_params_buffer, get_tensor_buffer,
     pack_u32_array,
 };
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::shape;
 use crate::tensor::Tensor;
 
@@ -36,6 +37,8 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         if out.numel() == 0 {
             return Ok(out);
         }
+        // The output count bounds every size and offset cast to u32 below.
+        element_count_u32(out.numel(), "cat")?;
 
         let out_buf = get_tensor_buffer(&out)?;
 
@@ -149,6 +152,8 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = tensor.contiguous()?;
 
         let total_elements: usize = params.out_shape.iter().product();
+        // The output is no smaller than the source, so its count bounds every cast.
+        element_count_u32(total_elements, "repeat")?;
 
         // Allocate output
         let out = alloc_output(self, &params.out_shape, tensor.dtype())?;
@@ -223,6 +228,8 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = tensor.contiguous()?;
 
         let total_elements: usize = params.out_shape.iter().product();
+        // The output is no smaller than the source, so its count bounds every cast.
+        element_count_u32(total_elements, "pad")?;
 
         // Allocate output
         let out = alloc_output(self, &params.out_shape, dtype)?;
@@ -342,6 +349,8 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         let tensor_contig = tensor.contiguous()?;
 
         let total_elements: usize = params.out_shape.iter().product();
+        // The output is no smaller than the source, so its count bounds every cast.
+        element_count_u32(total_elements, "pad_reflect")?;
 
         // Allocate output
         let out = alloc_output(self, &params.out_shape, dtype)?;
@@ -421,6 +430,8 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         if total_elements == 0 {
             return Ok(out);
         }
+        // The element count bounds every size and the shift cast below.
+        element_count_u32(total_elements, "roll")?;
 
         let out_buf = get_tensor_buffer(&out)?;
         let src_buf = get_tensor_buffer(&tensor_contig)?;

@@ -7,6 +7,7 @@
 
 use wgpu::{Buffer, Queue};
 
+use super::linear_grid::dispatch_rows;
 use super::pipeline::{LayoutKey, PipelineCache};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -87,7 +88,7 @@ pub fn launch_mode_dim(
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, Some(&bind_group), &[]);
-        pass.dispatch_workgroups(num_outputs as u32, 1, 1);
+        dispatch_rows(&mut pass, num_outputs, "mode")?;
     }
 
     queue.submit(std::iter::once(encoder.finish()));

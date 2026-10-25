@@ -3,6 +3,7 @@
 use super::helpers::*;
 use crate::error::{Error, Result};
 use crate::runtime::ensure_contiguous;
+use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::{activation_launcher, fused_activation_mul};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
@@ -27,7 +28,7 @@ pub(crate) fn native_parametric_activation(
 
     // Uses ScalarParams to pass the parameter. leaky_relu/elu are F32-only,
     // so this always takes the f32 encoding path.
-    let params = ScalarParams::new(numel as u32, param, dtype);
+    let params = ScalarParams::new(element_count_u32(numel, op)?, param, dtype);
     let params_buf = create_params_buffer(client, &params);
 
     match op {
@@ -89,7 +90,7 @@ pub(crate) fn native_fused_activation_mul_fwd(
     let out_buf = get_tensor_buffer(&out)?;
 
     let params = BinaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, op)?,
     };
     let params_buf = create_params_buffer(client, &params);
 
@@ -169,7 +170,7 @@ pub(crate) fn native_fused_activation_mul_bwd(
     let d_b_buf = get_tensor_buffer(&d_b)?;
 
     let params = BinaryParams {
-        numel: numel as u32,
+        numel: element_count_u32(numel, op)?,
     };
     let params_buf = create_params_buffer(client, &params);
 
