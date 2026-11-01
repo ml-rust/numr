@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.13.0"
+version = "0.14.0"
 edition = "2024"
 rust-version = "1.95"
 description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
@@ -64,8 +64,8 @@ half = { version = "2.7", optional = true, features = [
 ] }
 
 # Optional: Inter-node distributed communication
-nexar = { version = "0.1", optional = true }
-nexar-nccl = { version = "0.1", optional = true }
+nexar = { version = "0.2", optional = true }
+nexar-nccl = { version = "0.2", optional = true }
 tokio = { version = "1", features = ["rt"], optional = true }
 
 # Optional: CUDA backend

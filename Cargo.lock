@@ -1292,9 +1292,9 @@ dependencies = [
 
 [[package]]
 name = "nexar"
-version = "0.1.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dac038912d8e0f36309f3368c0980377730edd4ad5d082627227277cdd870c3a"
+checksum = "53627a1f76e05d05513598b28e102a3a93ef0ff927560c7c2dbec02dd1c130c4"
 dependencies = [
  "bytes",
  "crossbeam-queue",
@@ -1311,9 +1311,9 @@ dependencies = [
 
 [[package]]
 name = "nexar-nccl"
-version = "0.1.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0af70c6a435c8995b3f9dec87f8a9f6dd659f6ae0b40833c525f9d46b64a8fe"
+checksum = "bb3d5d7472c73b0ea94791e82c6ff3e78f247635015001d5a7051edf2f14851e"
 dependencies = [
  "cudarc",
  "gethostname",
@@ -1400,7 +1400,7 @@ dependencies = [
 
 [[package]]
 name = "numr"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "approx",
  "bytemuck",
