@@ -53,9 +53,9 @@ pub fn launch_csr_spmv(
     let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5, // row_ptrs, col_indices, values, x, y
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
+        num_storage_buffers: 5,  // row_ptrs, col_indices, values, x, y
+        num_uniform_buffers: 1,  // params
+        num_readonly_storage: 4, // row_ptrs, col_indices, values, x
     });
 
     let pipeline = cache.get_or_create_pipeline(module_name, "csr_spmv_f32", &module, &layout);
@@ -115,9 +115,9 @@ pub fn launch_csr_spmm(
     let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5, // row_ptrs, col_indices, a_values, b, c
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
+        num_storage_buffers: 5,  // row_ptrs, col_indices, a_values, b, c
+        num_uniform_buffers: 1,  // params
+        num_readonly_storage: 4, // row_ptrs, col_indices, a_values, b
     });
 
     let pipeline = cache.get_or_create_pipeline(module_name, "csr_spmm_f32", &module, &layout);
@@ -174,9 +174,9 @@ pub fn launch_csr_extract_diagonal(
     let module = cache.get_or_create_module(module_name, shader);
 
     let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 4, // row_ptrs, col_indices, values, diag
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
+        num_storage_buffers: 4,  // row_ptrs, col_indices, values, diag
+        num_uniform_buffers: 1,  // params
+        num_readonly_storage: 3, // row_ptrs, col_indices, values
     });
 
     let pipeline =

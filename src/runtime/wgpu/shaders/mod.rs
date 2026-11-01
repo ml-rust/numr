@@ -48,6 +48,8 @@ pub mod sparse_algorithms_launcher;
 #[cfg(feature = "sparse")]
 pub mod sparse_conversions_launcher;
 #[cfg(feature = "sparse")]
+mod sparse_dispatch;
+#[cfg(feature = "sparse")]
 pub mod sparse_level_compute_launcher;
 #[cfg(feature = "sparse")]
 pub mod sparse_linalg_launcher;
@@ -122,9 +124,8 @@ pub use sparse_algorithms_launcher::{
 };
 #[cfg(feature = "sparse")]
 pub use sparse_conversions_launcher::{
-    launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs, launch_count_nonzeros,
-    launch_csc_to_csr_scatter, launch_csr_to_csc_scatter, launch_csr_to_dense,
-    launch_dense_to_coo_scatter, launch_expand_col_ptrs, launch_expand_row_ptrs, launch_histogram,
+    launch_csr_to_dense, launch_dense_row_count, launch_dense_row_scatter, launch_expand_ptrs,
+    launch_histogram, launch_rank_gather, launch_scatter_order,
 };
 #[cfg(feature = "sparse")]
 pub use sparse_level_compute_launcher::{
@@ -138,10 +139,8 @@ pub use sparse_linalg_launcher::{
 };
 #[cfg(feature = "sparse")]
 pub use sparse_merge_launcher::{
-    launch_csc_add_compute, launch_csc_div_compute, launch_csc_merge_count, launch_csc_mul_compute,
-    launch_csc_mul_count, launch_csc_sub_compute, launch_csr_add_compute, launch_csr_div_compute,
-    launch_csr_merge_count, launch_csr_mul_compute, launch_csr_mul_count, launch_csr_sub_compute,
-    launch_exclusive_scan_i32,
+    CompressedBuffers, CompressedFormat, SparseMergeOp, launch_exclusive_scan_i32,
+    launch_sparse_merge_compute, launch_sparse_merge_count,
 };
 #[cfg(feature = "sparse")]
 pub use sparse_spmv_launcher::{launch_csr_extract_diagonal, launch_csr_spmm, launch_csr_spmv};

@@ -1,906 +1,214 @@
-//! WGSL kernel launchers for sparse matrix element-wise merge operations.
+//! WGSL kernel launchers for sparse element-wise merges (add, sub, mul, div)
+//! over CSR and CSC operands.
 //!
-//! Provides launchers for CSR/CSC format merge operations:
-//! - Count kernels: count output nonzeros per row/column
-//! - Compute kernels: perform merge and operation
-//! - Exclusive scan: compute prefix sum for offsets
+//! A merge runs in three passes:
+//! - count: output nonzeros per row (CSR) or column (CSC)
+//! - exclusive scan: output pointers from the counts
+//! - compute: merge the sorted index lists and apply the operation
+//!
+//! Every index buffer holds `i32`. Value buffers hold `f32`, `i32` or `u32`.
 
 use wgpu::{Buffer, Queue};
 
-use super::linear_grid::dispatch_linear;
-use super::pipeline::{LayoutKey, PipelineCache};
+use super::pipeline::PipelineCache;
+use super::sparse_dispatch::{SparseKernel, run_sparse_kernel};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 
-// Static WGSL shader sources
 const SPARSE_MERGE_COUNT: &str = include_str!("sparse_merge_count.wgsl");
 const SPARSE_MERGE_F32: &str = include_str!("sparse_merge_f32.wgsl");
 const SPARSE_MERGE_I32: &str = include_str!("sparse_merge_i32.wgsl");
 const SPARSE_MERGE_U32: &str = include_str!("sparse_merge_u32.wgsl");
 
-/// Return (module_key, shader_source) for a dtype-specific merge shader.
-fn typed_merge_shader(dtype: DType) -> Result<(&'static str, &'static str)> {
-    match dtype {
-        DType::F32 => Ok(("sparse_merge_f32", SPARSE_MERGE_F32)),
-        DType::I32 => Ok(("sparse_merge_i32", SPARSE_MERGE_I32)),
-        DType::U32 => Ok(("sparse_merge_u32", SPARSE_MERGE_U32)),
-        _ => Err(Error::UnsupportedDType {
-            dtype,
-            op: "sparse_merge (WebGPU)",
-        }),
+/// Compressed sparse layout of both merge operands and the output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompressedFormat {
+    /// Row pointers + column indices.
+    Csr,
+    /// Column pointers + row indices.
+    Csc,
+}
+
+/// Element-wise operation of a sparse merge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SparseMergeOp {
+    /// `a + b` over the union of both patterns.
+    Add,
+    /// `a - b` over the union of both patterns.
+    Sub,
+    /// `a * b` over the intersection of both patterns.
+    Mul,
+    /// `a / b` over the intersection of both patterns.
+    Div,
+}
+
+impl SparseMergeOp {
+    /// Whether the output pattern is the intersection of both patterns.
+    pub fn is_intersection(self) -> bool {
+        matches!(self, Self::Mul | Self::Div)
     }
 }
 
-/// Return the dtype suffix string for entry point names.
-fn dtype_suffix(dtype: DType) -> Result<&'static str> {
-    match dtype {
-        DType::F32 => Ok("f32"),
-        DType::I32 => Ok("i32"),
-        DType::U32 => Ok("u32"),
-        _ => Err(Error::UnsupportedDType {
-            dtype,
-            op: "sparse_merge (WebGPU)",
-        }),
+/// Operand buffers of one compressed sparse matrix.
+pub struct CompressedBuffers<'a> {
+    /// Row pointers (CSR) or column pointers (CSC), `i32`.
+    pub ptrs: &'a Buffer,
+    /// Column indices (CSR) or row indices (CSC), `i32`.
+    pub indices: &'a Buffer,
+    /// Stored values.
+    pub values: &'a Buffer,
+}
+
+fn count_entry(format: CompressedFormat, op: SparseMergeOp) -> &'static str {
+    match (format, op.is_intersection()) {
+        (CompressedFormat::Csr, false) => "csr_merge_count",
+        (CompressedFormat::Csr, true) => "csr_mul_count",
+        (CompressedFormat::Csc, false) => "csc_merge_count",
+        (CompressedFormat::Csc, true) => "csc_mul_count",
     }
 }
 
-// ============================================================================
-// CSR Count Kernels
-// ============================================================================
+fn compute_entry(
+    format: CompressedFormat,
+    op: SparseMergeOp,
+    dtype: DType,
+) -> Result<SparseKernel> {
+    use CompressedFormat::{Csc, Csr};
+    use SparseMergeOp::{Add, Div, Mul, Sub};
 
-/// Launch CSR merge count kernel (union semantics for add/sub)
-pub fn launch_csr_merge_count(
+    let (module, source) = match dtype {
+        DType::F32 => ("sparse_merge_f32", SPARSE_MERGE_F32),
+        DType::I32 => ("sparse_merge_i32", SPARSE_MERGE_I32),
+        DType::U32 => ("sparse_merge_u32", SPARSE_MERGE_U32),
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "sparse merge (WebGPU supports F32, I32, U32)",
+            });
+        }
+    };
+    let entry = match (format, op, dtype) {
+        (Csr, Add, DType::F32) => "csr_add_compute_f32",
+        (Csr, Sub, DType::F32) => "csr_sub_compute_f32",
+        (Csr, Mul, DType::F32) => "csr_mul_compute_f32",
+        (Csr, Div, DType::F32) => "csr_div_compute_f32",
+        (Csc, Add, DType::F32) => "csc_add_compute_f32",
+        (Csc, Sub, DType::F32) => "csc_sub_compute_f32",
+        (Csc, Mul, DType::F32) => "csc_mul_compute_f32",
+        (Csc, Div, DType::F32) => "csc_div_compute_f32",
+        (Csr, Add, DType::I32) => "csr_add_compute_i32",
+        (Csr, Sub, DType::I32) => "csr_sub_compute_i32",
+        (Csr, Mul, DType::I32) => "csr_mul_compute_i32",
+        (Csr, Div, DType::I32) => "csr_div_compute_i32",
+        (Csc, Add, DType::I32) => "csc_add_compute_i32",
+        (Csc, Sub, DType::I32) => "csc_sub_compute_i32",
+        (Csc, Mul, DType::I32) => "csc_mul_compute_i32",
+        (Csc, Div, DType::I32) => "csc_div_compute_i32",
+        (Csr, Add, _) => "csr_add_compute_u32",
+        (Csr, Sub, _) => "csr_sub_compute_u32",
+        (Csr, Mul, _) => "csr_mul_compute_u32",
+        (Csr, Div, _) => "csr_div_compute_u32",
+        (Csc, Add, _) => "csc_add_compute_u32",
+        (Csc, Sub, _) => "csc_sub_compute_u32",
+        (Csc, Mul, _) => "csc_mul_compute_u32",
+        (Csc, Div, _) => "csc_div_compute_u32",
+    };
+    // Bindings 0-6 (both operands and the output pointers) are read-only.
+    Ok(SparseKernel {
+        module,
+        source,
+        entry,
+        num_readonly: 7,
+    })
+}
+
+/// Launch the count pass: `counts[i]` = output nonzeros of row (CSR) or
+/// column (CSC) `i`, over the union (add, sub) or intersection (mul, div) of
+/// both patterns. `params` holds `{ n }`, the row or column count.
+pub fn launch_sparse_merge_count(
     cache: &PipelineCache,
     queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    row_counts: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
+    format: CompressedFormat,
+    op: SparseMergeOp,
+    a_ptrs: &Buffer,
+    a_indices: &Buffer,
+    b_ptrs: &Buffer,
+    b_indices: &Buffer,
+    counts: &Buffer,
+    params: &Buffer,
+    n: usize,
 ) -> Result<()> {
-    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5, // a_row_ptrs, a_col_indices, b_row_ptrs, b_col_indices, row_counts
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_merge_count", "csr_merge_count", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_row_ptrs,
-            a_col_indices,
-            b_row_ptrs,
-            b_col_indices,
-            row_counts,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_merge_count"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_merge_count"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    // Bindings 0-3 (both operands' pointers and indices) are read-only.
+    let kernel = SparseKernel {
+        module: "sparse_merge_count",
+        source: SPARSE_MERGE_COUNT,
+        entry: count_entry(format, op),
+        num_readonly: 4,
+    };
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
+        &[a_ptrs, a_indices, b_ptrs, b_indices, counts],
+        params,
+        n,
+    )
 }
 
-/// Launch CSR mul count kernel (intersection semantics)
-pub fn launch_csr_mul_count(
+/// Launch the compute pass: merge both operands into `out_indices` and
+/// `out_values` at the offsets in `out_ptrs`. `params` holds `{ n }`, the
+/// row or column count.
+pub fn launch_sparse_merge_compute(
     cache: &PipelineCache,
     queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    row_counts: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
-) -> Result<()> {
-    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_merge_count", "csr_mul_count", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_row_ptrs,
-            a_col_indices,
-            b_row_ptrs,
-            b_col_indices,
-            row_counts,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_mul_count"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_mul_count"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-// ============================================================================
-// CSR Compute Kernels
-// ============================================================================
-
-/// Launch CSR add compute kernel
-pub fn launch_csr_add_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    a_values: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    b_values: &Buffer,
-    out_row_ptrs: &Buffer,
-    out_col_indices: &Buffer,
+    format: CompressedFormat,
+    op: SparseMergeOp,
+    a: &CompressedBuffers<'_>,
+    b: &CompressedBuffers<'_>,
+    out_ptrs: &Buffer,
+    out_indices: &Buffer,
     out_values: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
+    params: &Buffer,
+    n: usize,
     dtype: DType,
 ) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csr_add_compute_f32",
-        "i32" => "csr_add_compute_i32",
-        "u32" => "csr_add_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9, // 3 for A, 3 for B, 3 for output
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
+    let kernel = compute_entry(format, op, dtype)?;
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
         &[
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            out_row_ptrs,
-            out_col_indices,
+            a.ptrs,
+            a.indices,
+            a.values,
+            b.ptrs,
+            b.indices,
+            b.values,
+            out_ptrs,
+            out_indices,
             out_values,
-            params_buffer,
         ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_add_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_add_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+        params,
+        n,
+    )
 }
 
-/// Launch CSR sub compute kernel
-pub fn launch_csr_sub_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    a_values: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    b_values: &Buffer,
-    out_row_ptrs: &Buffer,
-    out_col_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csr_sub_compute_f32",
-        "i32" => "csr_sub_compute_i32",
-        "u32" => "csr_sub_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            out_row_ptrs,
-            out_col_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_sub_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_sub_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSR mul compute kernel
-pub fn launch_csr_mul_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    a_values: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    b_values: &Buffer,
-    out_row_ptrs: &Buffer,
-    out_col_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csr_mul_compute_f32",
-        "i32" => "csr_mul_compute_i32",
-        "u32" => "csr_mul_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            out_row_ptrs,
-            out_col_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_mul_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_mul_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSR div compute kernel
-pub fn launch_csr_div_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_row_ptrs: &Buffer,
-    a_col_indices: &Buffer,
-    a_values: &Buffer,
-    b_row_ptrs: &Buffer,
-    b_col_indices: &Buffer,
-    b_values: &Buffer,
-    out_row_ptrs: &Buffer,
-    out_col_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    nrows: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csr_div_compute_f32",
-        "i32" => "csr_div_compute_i32",
-        "u32" => "csr_div_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            out_row_ptrs,
-            out_col_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_div_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_div_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-// ============================================================================
-// CSC Count Kernels
-// ============================================================================
-
-/// Launch CSC merge count kernel (union semantics)
-pub fn launch_csc_merge_count(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    col_counts: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-) -> Result<()> {
-    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_merge_count", "csc_merge_count", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            b_col_ptrs,
-            b_row_indices,
-            col_counts,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_merge_count"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_merge_count"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSC mul count kernel (intersection semantics)
-pub fn launch_csc_mul_count(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    col_counts: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-) -> Result<()> {
-    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_merge_count", "csc_mul_count", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            b_col_ptrs,
-            b_row_indices,
-            col_counts,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_mul_count"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_mul_count"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-// ============================================================================
-// CSC Compute Kernels
-// ============================================================================
-
-/// Launch CSC add compute kernel
-pub fn launch_csc_add_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    a_values: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    b_values: &Buffer,
-    out_col_ptrs: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csc_add_compute_f32",
-        "i32" => "csc_add_compute_i32",
-        "u32" => "csc_add_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            out_col_ptrs,
-            out_row_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_add_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_add_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSC sub compute kernel
-pub fn launch_csc_sub_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    a_values: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    b_values: &Buffer,
-    out_col_ptrs: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csc_sub_compute_f32",
-        "i32" => "csc_sub_compute_i32",
-        "u32" => "csc_sub_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            out_col_ptrs,
-            out_row_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_sub_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_sub_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSC mul compute kernel
-pub fn launch_csc_mul_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    a_values: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    b_values: &Buffer,
-    out_col_ptrs: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csc_mul_compute_f32",
-        "i32" => "csc_mul_compute_i32",
-        "u32" => "csc_mul_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            out_col_ptrs,
-            out_row_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_mul_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_mul_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSC div compute kernel
-pub fn launch_csc_div_compute(
-    cache: &PipelineCache,
-    queue: &Queue,
-    a_col_ptrs: &Buffer,
-    a_row_indices: &Buffer,
-    a_values: &Buffer,
-    b_col_ptrs: &Buffer,
-    b_row_indices: &Buffer,
-    b_values: &Buffer,
-    out_col_ptrs: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params_buffer: &Buffer,
-    ncols: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_merge_shader(dtype)?;
-    let suffix = dtype_suffix(dtype)?;
-    let entry_point: &'static str = match suffix {
-        "f32" => "csc_div_compute_f32",
-        "i32" => "csc_div_compute_i32",
-        "u32" => "csc_div_compute_u32",
-        _ => unreachable!(),
-    };
-
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 9,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, entry_point, &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            out_col_ptrs,
-            out_row_indices,
-            out_values,
-            params_buffer,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_div_compute"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_div_compute"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-// ============================================================================
-// Exclusive Scan
-// ============================================================================
-
-/// Launch exclusive scan kernel for i32 arrays
+/// Launch the sequential exclusive scan of `n` `i32` counts.
 ///
-/// Computes prefix sum: `output[i] = sum(input[0..i])`
-/// output has n+1 elements (`output[n]` = total sum)
+/// Writes `output[i] = sum(input[0..i])` for `i` in `0..=n`, so `output[n]`
+/// holds the total. `params` holds `{ n }`. One invocation does the work.
 pub fn launch_exclusive_scan_i32(
     cache: &PipelineCache,
     queue: &Queue,
     input: &Buffer,
     output: &Buffer,
-    params_buffer: &Buffer,
+    params: &Buffer,
 ) -> Result<()> {
-    let module = cache.get_or_create_module("sparse_merge_count", SPARSE_MERGE_COUNT);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 1,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_merge_count", "exclusive_scan_i32", &module, &layout);
-
-    let bind_group = cache.create_bind_group(&layout, &[input, output, params_buffer]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("exclusive_scan_i32"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("exclusive_scan_i32"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        // Sequential scan - just one workgroup
-        pass.dispatch_workgroups(1, 1, 1);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = SparseKernel {
+        module: "sparse_merge_count",
+        source: SPARSE_MERGE_COUNT,
+        entry: "exclusive_scan_i32",
+        num_readonly: 1,
+    };
+    run_sparse_kernel(cache, queue, &kernel, &[input, output], params, 1)
 }

@@ -1,449 +1,127 @@
-//! Kernel launchers for sparse format conversion operations.
+//! WGSL kernel launchers for sparse format conversions.
 //!
-//! Provides functions to dispatch WGSL compute shaders for:
-//! - CSR/CSC → COO (pointer expansion)
-//! - COO → CSR/CSC (histogram + scan + scatter)
-//! - CSR ↔ CSC (direct transpose)
+//! Index buffers hold `i32`. Value buffers hold any 32-bit dtype (F32, I32,
+//! U32): the kernels move raw words and never read a value as a number,
+//! except the dense keep predicate, which takes the dtype as a mode.
+//!
+//! Each `params` buffer is a 16-byte uniform. [`launch_dense_row_count`] and
+//! [`launch_dense_row_scatter`] take a 32-byte uniform instead.
 
 use wgpu::{Buffer, Queue};
 
-use super::linear_grid::dispatch_linear;
-use super::pipeline::{LayoutKey, PipelineCache};
-use crate::dtype::DType;
-use crate::error::{Error, Result};
+use super::pipeline::PipelineCache;
+use super::sparse_dispatch::{SparseKernel, run_sparse_kernel};
+use crate::error::Result;
 
-// Static WGSL shader sources
-const SPARSE_CONVERSIONS_INDICES: &str = include_str!("sparse_conversions_indices.wgsl");
-const SPARSE_CONVERSIONS_F32: &str = include_str!("sparse_conversions_f32.wgsl");
-const SPARSE_CONVERSIONS_I32: &str = include_str!("sparse_conversions_i32.wgsl");
-const SPARSE_CONVERSIONS_U32: &str = include_str!("sparse_conversions_u32.wgsl");
+const SPARSE_FORMAT_INDICES: &str = include_str!("sparse_format_indices.wgsl");
+const SPARSE_DENSE_CONVERT: &str = include_str!("sparse_dense_convert.wgsl");
 
-/// Return (module_key, shader_source) for a dtype-specific conversions shader.
-fn typed_shader(dtype: DType) -> Result<(&'static str, &'static str)> {
-    match dtype {
-        DType::F32 => Ok(("sparse_conversions_f32", SPARSE_CONVERSIONS_F32)),
-        DType::I32 => Ok(("sparse_conversions_i32", SPARSE_CONVERSIONS_I32)),
-        DType::U32 => Ok(("sparse_conversions_u32", SPARSE_CONVERSIONS_U32)),
-        _ => Err(Error::UnsupportedDType {
-            dtype,
-            op: "sparse_conversions (WebGPU)",
-        }),
+const fn format_kernel(entry: &'static str, num_readonly: u32) -> SparseKernel {
+    SparseKernel {
+        module: "sparse_format_indices",
+        source: SPARSE_FORMAT_INDICES,
+        entry,
+        num_readonly,
     }
 }
 
-/// Launch kernel to expand CSR row_ptrs to explicit row_indices.
-pub fn launch_expand_row_ptrs(
+const fn dense_kernel(entry: &'static str, num_readonly: u32) -> SparseKernel {
+    SparseKernel {
+        module: "sparse_dense_convert",
+        source: SPARSE_DENSE_CONVERT,
+        entry,
+        num_readonly,
+    }
+}
+
+/// Expand `n + 1` compressed pointers into one bucket index per entry:
+/// `out[i] = b` for every `i` in `ptrs[b]..ptrs[b + 1]`. `params` holds `{ n }`.
+pub fn launch_expand_ptrs(
     cache: &PipelineCache,
     queue: &Queue,
-    row_ptrs: &Buffer,
-    row_indices: &Buffer,
+    ptrs: &Buffer,
+    out: &Buffer,
     params: &Buffer,
-    nrows: usize,
+    n: usize,
 ) -> Result<()> {
-    let module =
-        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2, // row_ptrs, row_indices
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(
-        "sparse_conversions_indices",
-        "expand_row_ptrs",
-        &module,
-        &layout,
-    );
-
-    let bind_group = cache.create_bind_group(&layout, &[row_ptrs, row_indices, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("expand_row_ptrs"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("expand_row_ptrs"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = format_kernel("expand_ptrs", 1);
+    run_sparse_kernel(cache, queue, &kernel, &[ptrs, out], params, n)
 }
 
-/// Launch kernel to expand CSC col_ptrs to explicit col_indices.
-pub fn launch_expand_col_ptrs(
-    cache: &PipelineCache,
-    queue: &Queue,
-    col_ptrs: &Buffer,
-    col_indices: &Buffer,
-    params: &Buffer,
-    ncols: usize,
-) -> Result<()> {
-    let module =
-        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2, // col_ptrs, col_indices
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(
-        "sparse_conversions_indices",
-        "expand_col_ptrs",
-        &module,
-        &layout,
-    );
-
-    let bind_group = cache.create_bind_group(&layout, &[col_ptrs, col_indices, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("expand_col_ptrs"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("expand_col_ptrs"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch histogram kernel to count elements per bucket.
+/// Count entries per bucket: `counts[keys[i]] += 1`. `counts` must start at
+/// zero. `params` holds `{ nnz }`.
 pub fn launch_histogram(
     cache: &PipelineCache,
     queue: &Queue,
-    indices: &Buffer,
+    keys: &Buffer,
     counts: &Buffer,
     params: &Buffer,
     nnz: usize,
 ) -> Result<()> {
-    let module =
-        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2, // indices, counts
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_conversions_indices", "histogram", &module, &layout);
-
-    let bind_group = cache.create_bind_group(&layout, &[indices, counts, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("histogram"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("histogram"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nnz);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = format_kernel("histogram", 1);
+    run_sparse_kernel(cache, queue, &kernel, &[keys, counts], params, nnz)
 }
 
-/// Launch COO→CSR scatter kernel.
-pub fn launch_coo_to_csr_scatter(
+/// Group entry ids by bucket: entry `i` lands in `order[ptrs[keys[i]]..]`.
+/// `fill` must start at zero. The order inside a bucket is arbitrary;
+/// [`launch_rank_gather`] fixes it. `params` holds `{ nnz }`.
+pub fn launch_scatter_order(
     cache: &PipelineCache,
     queue: &Queue,
-    in_row_indices: &Buffer,
-    in_col_indices: &Buffer,
-    in_values: &Buffer,
-    row_ptrs_atomic: &Buffer,
-    out_col_indices: &Buffer,
+    keys: &Buffer,
+    ptrs: &Buffer,
+    fill: &Buffer,
+    order: &Buffer,
+    params: &Buffer,
+    nnz: usize,
+) -> Result<()> {
+    let kernel = format_kernel("scatter_order", 2);
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
+        &[keys, ptrs, fill, order],
+        params,
+        nnz,
+    )
+}
+
+/// Sort every bucket by `(secondary, entry id)` and gather `secondary` and
+/// `values` into the sorted slots. `params` holds `{ nnz }`.
+pub fn launch_rank_gather(
+    cache: &PipelineCache,
+    queue: &Queue,
+    primary: &Buffer,
+    secondary: &Buffer,
+    values: &Buffer,
+    ptrs: &Buffer,
+    order: &Buffer,
+    out_secondary: &Buffer,
     out_values: &Buffer,
     params: &Buffer,
     nnz: usize,
-    dtype: DType,
 ) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 6, // in_row, in_col, in_val, row_ptrs_atomic, out_col, out_val
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "coo_to_csr_scatter", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
+    let kernel = format_kernel("rank_gather", 5);
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
         &[
-            in_row_indices,
-            in_col_indices,
-            in_values,
-            row_ptrs_atomic,
-            out_col_indices,
+            primary,
+            secondary,
+            values,
+            ptrs,
+            order,
+            out_secondary,
             out_values,
-            params,
         ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("coo_to_csr_scatter"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("coo_to_csr_scatter"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nnz);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+        params,
+        nnz,
+    )
 }
 
-/// Launch COO→CSC scatter kernel.
-pub fn launch_coo_to_csc_scatter(
-    cache: &PipelineCache,
-    queue: &Queue,
-    in_row_indices: &Buffer,
-    in_col_indices: &Buffer,
-    in_values: &Buffer,
-    col_ptrs_atomic: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params: &Buffer,
-    nnz: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 6,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "coo_to_csc_scatter", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            in_row_indices,
-            in_col_indices,
-            in_values,
-            col_ptrs_atomic,
-            out_row_indices,
-            out_values,
-            params,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("coo_to_csc_scatter"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("coo_to_csc_scatter"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nnz);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSR→CSC transpose scatter kernel.
-pub fn launch_csr_to_csc_scatter(
-    cache: &PipelineCache,
-    queue: &Queue,
-    in_row_ptrs: &Buffer,
-    in_col_indices: &Buffer,
-    in_values: &Buffer,
-    col_ptrs_atomic: &Buffer,
-    out_row_indices: &Buffer,
-    out_values: &Buffer,
-    params: &Buffer,
-    nrows: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 6,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "csr_to_csc_scatter", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            in_row_ptrs,
-            in_col_indices,
-            in_values,
-            col_ptrs_atomic,
-            out_row_indices,
-            out_values,
-            params,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_to_csc_scatter"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_to_csc_scatter"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch CSC→CSR transpose scatter kernel.
-pub fn launch_csc_to_csr_scatter(
-    cache: &PipelineCache,
-    queue: &Queue,
-    in_col_ptrs: &Buffer,
-    in_row_indices: &Buffer,
-    in_values: &Buffer,
-    row_ptrs_atomic: &Buffer,
-    out_col_indices: &Buffer,
-    out_values: &Buffer,
-    params: &Buffer,
-    ncols: usize,
-    dtype: DType,
-) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 6,
-        num_uniform_buffers: 1,
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "csc_to_csr_scatter", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[
-            in_col_ptrs,
-            in_row_indices,
-            in_values,
-            row_ptrs_atomic,
-            out_col_indices,
-            out_values,
-            params,
-        ],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csc_to_csr_scatter"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csc_to_csr_scatter"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, ncols);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch kernel to copy pointers array.
-pub fn launch_copy_ptrs(
-    cache: &PipelineCache,
-    queue: &Queue,
-    src: &Buffer,
-    dst: &Buffer,
-    params: &Buffer,
-    n: usize,
-) -> Result<()> {
-    let module =
-        cache.get_or_create_module("sparse_conversions_indices", SPARSE_CONVERSIONS_INDICES);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2, // src, dst
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline("sparse_conversions_indices", "copy_ptrs", &module, &layout);
-
-    let bind_group = cache.create_bind_group(&layout, &[src, dst, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("copy_ptrs"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("copy_ptrs"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, n);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
-}
-
-/// Launch kernel for CSR to dense conversion.
+/// Write CSR entries into a zeroed row-major dense buffer. A repeated
+/// position keeps its last entry. `params` holds `{ nrows, ncols }`.
 pub fn launch_csr_to_dense(
     cache: &PipelineCache,
     queue: &Queue,
@@ -453,131 +131,51 @@ pub fn launch_csr_to_dense(
     dense: &Buffer,
     params: &Buffer,
     nrows: usize,
-    dtype: DType,
 ) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 4, // row_ptrs, col_indices, values, dense
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "csr_to_dense", &module, &layout);
-
-    let bind_group =
-        cache.create_bind_group(&layout, &[row_ptrs, col_indices, values, dense, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("csr_to_dense"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("csr_to_dense"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, nrows);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = dense_kernel("csr_to_dense", 3);
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
+        &[row_ptrs, col_indices, values, dense],
+        params,
+        nrows,
+    )
 }
 
-/// Launch kernel to count non-zeros in dense matrix.
-pub fn launch_count_nonzeros(
+/// Count the kept entries of every dense row into `counts`.
+pub fn launch_dense_row_count(
     cache: &PipelineCache,
     queue: &Queue,
     dense: &Buffer,
-    count: &Buffer,
+    counts: &Buffer,
     params: &Buffer,
-    total_elems: usize,
-    dtype: DType,
+    nrows: usize,
 ) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 2, // dense, count
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline = cache.get_or_create_pipeline(module_key, "count_nonzeros", &module, &layout);
-
-    let bind_group = cache.create_bind_group(&layout, &[dense, count, params]);
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("count_nonzeros"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("count_nonzeros"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, total_elems);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = dense_kernel("dense_row_count", 1);
+    run_sparse_kernel(cache, queue, &kernel, &[dense, counts], params, nrows)
 }
 
-/// Launch kernel for dense to COO scatter.
-pub fn launch_dense_to_coo_scatter(
+/// Write the kept entries of every dense row, in column order, starting at
+/// `ptrs[row]`.
+pub fn launch_dense_row_scatter(
     cache: &PipelineCache,
     queue: &Queue,
     dense: &Buffer,
-    row_indices: &Buffer,
-    col_indices: &Buffer,
+    ptrs: &Buffer,
+    rows: &Buffer,
+    cols: &Buffer,
     values: &Buffer,
-    write_pos: &Buffer,
     params: &Buffer,
-    total_elems: usize,
-    dtype: DType,
+    nrows: usize,
 ) -> Result<()> {
-    let (module_key, shader) = typed_shader(dtype)?;
-    let module = cache.get_or_create_module(module_key, shader);
-
-    let layout = cache.get_or_create_layout(LayoutKey {
-        num_storage_buffers: 5, // dense, row_indices, col_indices, values, write_pos
-        num_uniform_buffers: 1, // params
-        num_readonly_storage: 0,
-    });
-
-    let pipeline =
-        cache.get_or_create_pipeline(module_key, "dense_to_coo_scatter", &module, &layout);
-
-    let bind_group = cache.create_bind_group(
-        &layout,
-        &[dense, row_indices, col_indices, values, write_pos, params],
-    );
-
-    let mut encoder = cache
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("dense_to_coo_scatter"),
-        });
-
-    {
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("dense_to_coo_scatter"),
-            timestamp_writes: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, Some(&bind_group), &[]);
-        dispatch_linear(&mut pass, total_elems);
-    }
-
-    queue.submit(std::iter::once(encoder.finish()));
-    Ok(())
+    let kernel = dense_kernel("dense_row_scatter", 2);
+    run_sparse_kernel(
+        cache,
+        queue,
+        &kernel,
+        &[dense, ptrs, rows, cols, values],
+        params,
+        nrows,
+    )
 }

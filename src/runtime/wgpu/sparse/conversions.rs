@@ -1,847 +1,140 @@
-//! Sparse format conversion operations for WebGPU.
+//! Sparse format conversions for WebGPU: COO, CSR and CSC to one another,
+//! CSR to dense, and dense to COO.
 //!
-//! Implements conversions between COO, CSR, and CSC sparse matrix formats.
-//! Also provides sparse↔dense conversions.
-//! All operations stay on GPU without data transfers.
+//! Every conversion runs on the GPU. Inputs and outputs carry I64 indices,
+//! and the kernels see I32 copies made on the GPU. Values move as raw 32-bit
+//! words, so F32, I32 and U32 share one kernel set.
 //!
 //! # Algorithms
 //!
-//! - **CSR/CSC → COO**: Parallel pointer expansion
-//! - **COO → CSR/CSC**: Histogram + exclusive scan + scatter
-//! - **CSR ↔ CSC**: Direct transpose via histogram + scan + scatter
-//! - **CSR → Dense**: Parallel scatter per row
-//! - **Dense → COO**: Count + atomic scatter
+//! - **CSR/CSC → COO**: expand the pointers into one index per entry.
+//! - **COO → CSR/CSC**: stable counting sort by (primary, secondary index):
+//!   histogram, exclusive scan, scatter of entry ids, rank inside each bucket.
+//! - **CSR ↔ CSC**: expand the pointers, then the same counting sort.
+//! - **CSR → dense**: one thread per row writes its entries.
+//! - **dense → COO**: per-row count, scan, per-row scatter in column order.
+//!
+//! The output order matches the CPU backend exactly: sorted by (primary,
+//! secondary), and duplicates keep their input order.
 
-use super::super::ops::helpers::{get_tensor_buffer, read_u32_from_buffer};
+use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::{
-    launch_coo_to_csc_scatter, launch_coo_to_csr_scatter, launch_copy_ptrs, launch_count_nonzeros,
-    launch_csc_to_csr_scatter, launch_csr_to_csc_scatter, launch_csr_to_dense,
-    launch_dense_to_coo_scatter, launch_exclusive_scan_i32, launch_expand_col_ptrs,
-    launch_expand_row_ptrs, launch_histogram,
+    launch_csr_to_dense, launch_dense_row_count, launch_dense_row_scatter, launch_expand_ptrs,
+    launch_histogram, launch_rank_gather, launch_scatter_order,
 };
 use super::super::{WgpuClient, WgpuRuntime};
-use super::common::validate_wgpu_dtype;
-use super::merge::ScanParams;
+use super::indices::{
+    check_value_dtype, indices_to_i32, indices_to_i64, scan_counts, uniform_words,
+};
+use super::merge::SparseTriple;
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
-use crate::ops::TypeConversionOps;
 use crate::sparse::{CooData, SparseTensor};
 use crate::tensor::Tensor;
 
-/// Uniform buffer params for expand kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ExpandParams {
-    pub n: u32, // nrows or ncols
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for histogram kernel
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct HistogramParams {
-    pub nnz: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for scatter kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ScatterParams {
-    pub nnz: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for transpose scatter kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct TransposeParams {
-    pub n: u32, // nrows or ncols
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for copy kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CopyParams {
-    pub n: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for CSR to dense kernel
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CsrToDenseParams {
-    pub nrows: u32,
-    pub ncols: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-}
-
-/// Uniform buffer params for count non-zeros kernel
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CountNonzerosParams {
-    pub total_elems: u32,
-    pub threshold_bits: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-}
-
-/// Uniform buffer params for dense to COO scatter kernel
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct DenseToCooParams {
-    pub nrows: u32,
-    pub ncols: u32,
-    pub threshold_bits: u32,
-    pub _pad0: u32,
-}
-
 impl WgpuClient {
-    /// CSR → COO: Expand row pointers to explicit row indices.
-    ///
-    /// # Arguments
-    /// - `row_ptrs`: [nrows + 1] row pointers
-    /// - `col_indices`: [nnz] column indices
-    /// - `values`: [nnz] values
-    /// - `shape`: [nrows, ncols]
-    ///
-    /// # Returns
-    /// (row_indices, col_indices, values) in COO format
+    /// CSR → COO. Returns I64 row indices, I64 column indices and the values.
     pub(crate) fn csr_to_coo_impl<T: Element>(
         &self,
         row_ptrs: &Tensor<WgpuRuntime>,
         col_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [nrows, _ncols] = shape;
-        let nnz = values.numel();
-
-        // Allocate output row_indices
-        let row_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-
-        // Setup params
-        let expand_params = ExpandParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let expand_params_buffer = self.create_uniform_buffer("expand_row_params", 16);
-        self.write_buffer(
-            &expand_params_buffer,
-            &[
-                expand_params.n,
-                expand_params._pad0,
-                expand_params._pad1,
-                expand_params._pad2,
-            ],
-        );
-
-        let row_ptrs_buf = get_tensor_buffer(row_ptrs)?;
-        let row_indices_buf = get_tensor_buffer(&row_indices)?;
-
-        // Launch expand kernel
-        launch_expand_row_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_ptrs_buf,
-            &row_indices_buf,
-            &expand_params_buffer,
-            nrows,
-        )?;
-
-        // col_indices and values stay the same
-        Ok((row_indices, col_indices.clone(), values.clone()))
+    ) -> Result<SparseTriple> {
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let ptrs = indices_to_i32(self, row_ptrs, "csr_to_coo (WebGPU)")?;
+        let rows = self.expand_ptrs(&ptrs, shape[0], values.numel())?;
+        Ok((
+            indices_to_i64(self, &rows)?,
+            indices_to_i64(self, col_indices)?,
+            values.clone(),
+        ))
     }
 
-    /// CSC → COO: Expand column pointers to explicit column indices.
+    /// CSC → COO. Returns I64 row indices, I64 column indices and the values.
     pub(crate) fn csc_to_coo_impl<T: Element>(
         &self,
         col_ptrs: &Tensor<WgpuRuntime>,
         row_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [_nrows, ncols] = shape;
-        let nnz = values.numel();
-
-        // Allocate output col_indices
-        let col_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-
-        // Setup params
-        let expand_params = ExpandParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let expand_params_buffer = self.create_uniform_buffer("expand_col_params", 16);
-        self.write_buffer(
-            &expand_params_buffer,
-            &[
-                expand_params.n,
-                expand_params._pad0,
-                expand_params._pad1,
-                expand_params._pad2,
-            ],
-        );
-
-        let col_ptrs_buf = get_tensor_buffer(col_ptrs)?;
-        let col_indices_buf = get_tensor_buffer(&col_indices)?;
-
-        // Launch expand kernel
-        launch_expand_col_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_ptrs_buf,
-            &col_indices_buf,
-            &expand_params_buffer,
-            ncols,
-        )?;
-
-        // row_indices and values stay the same
-        Ok((row_indices.clone(), col_indices, values.clone()))
+    ) -> Result<SparseTriple> {
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let ptrs = indices_to_i32(self, col_ptrs, "csc_to_coo (WebGPU)")?;
+        let cols = self.expand_ptrs(&ptrs, shape[1], values.numel())?;
+        Ok((
+            indices_to_i64(self, row_indices)?,
+            indices_to_i64(self, &cols)?,
+            values.clone(),
+        ))
     }
 
-    /// COO → CSR: Histogram + exclusive scan + scatter.
-    ///
-    /// # Algorithm
-    /// 1. Count elements per row (histogram)
-    /// 2. Exclusive scan to build row_ptrs
-    /// 3. Copy row_ptrs for atomic scatter
-    /// 4. Scatter elements to their positions
+    /// COO → CSR, sorted by (row, column). Returns I64 row pointers, I64
+    /// column indices and the values.
     pub(crate) fn coo_to_csr_impl<T: Element>(
         &self,
         row_indices: &Tensor<WgpuRuntime>,
         col_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [nrows, _ncols] = shape;
-        let nnz = values.numel();
-        let dtype = values.dtype();
-        validate_wgpu_dtype(dtype, "coo_to_csr")?;
-
-        // Step 1: Count elements per row (histogram)
-        let row_counts = Tensor::<WgpuRuntime>::zeros(&[nrows], DType::I32, &self.device_id)?;
-        let histogram_params = HistogramParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let histogram_params_buffer = self.create_uniform_buffer("histogram_params", 16);
-        self.write_buffer(
-            &histogram_params_buffer,
-            &[
-                histogram_params.nnz,
-                histogram_params._pad0,
-                histogram_params._pad1,
-                histogram_params._pad2,
-            ],
-        );
-
-        let row_indices_buf = get_tensor_buffer(row_indices)?;
-        let row_counts_buf = get_tensor_buffer(&row_counts)?;
-
-        launch_histogram(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_indices_buf,
-            &row_counts_buf,
-            &histogram_params_buffer,
-            nnz,
-        )?;
-
-        // Step 2: Exclusive scan to build row_ptrs
-        let row_ptrs = Tensor::<WgpuRuntime>::zeros(&[nrows + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
-
-        let row_ptrs_buf = get_tensor_buffer(&row_ptrs)?;
-
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_counts_buf,
-            &row_ptrs_buf,
-            &scan_params_buffer,
-        )?;
-
-        // Step 3: Copy row_ptrs for atomic scatter (scatter modifies positions atomically)
-        let row_ptrs_atomic =
-            Tensor::<WgpuRuntime>::zeros(&[nrows + 1], DType::I32, &self.device_id)?;
-        let copy_params = CopyParams {
-            n: (nrows + 1) as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let copy_params_buffer = self.create_uniform_buffer("copy_params", 16);
-        self.write_buffer(
-            &copy_params_buffer,
-            &[
-                copy_params.n,
-                copy_params._pad0,
-                copy_params._pad1,
-                copy_params._pad2,
-            ],
-        );
-
-        let row_ptrs_atomic_buf = get_tensor_buffer(&row_ptrs_atomic)?;
-
-        launch_copy_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_ptrs_buf,
-            &row_ptrs_atomic_buf,
-            &copy_params_buffer,
-            nrows + 1,
-        )?;
-
-        // Step 4: Scatter elements to their positions
-        let out_col_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[nnz], dtype, &self.device_id)?;
-        let scatter_params = ScatterParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scatter_params_buffer = self.create_uniform_buffer("scatter_params", 16);
-        self.write_buffer(
-            &scatter_params_buffer,
-            &[
-                scatter_params.nnz,
-                scatter_params._pad0,
-                scatter_params._pad1,
-                scatter_params._pad2,
-            ],
-        );
-
-        let col_indices_buf = get_tensor_buffer(col_indices)?;
-        let values_buf = get_tensor_buffer(values)?;
-        let out_col_indices_buf = get_tensor_buffer(&out_col_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        launch_coo_to_csr_scatter(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_indices_buf,
-            &col_indices_buf,
-            &values_buf,
-            &row_ptrs_atomic_buf,
-            &out_col_indices_buf,
-            &out_values_buf,
-            &scatter_params_buffer,
-            nnz,
-            dtype,
-        )?;
-
-        Ok((row_ptrs, out_col_indices, out_values))
+    ) -> Result<SparseTriple> {
+        let op = "coo_to_csr (WebGPU)";
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let rows = indices_to_i32(self, row_indices, op)?;
+        let cols = indices_to_i32(self, col_indices, op)?;
+        self.bucket_sort(&rows, &cols, values, shape[0], op)
     }
 
-    /// COO → CSC: Histogram + exclusive scan + scatter.
+    /// COO → CSC, sorted by (column, row). Returns I64 column pointers, I64
+    /// row indices and the values.
     pub(crate) fn coo_to_csc_impl<T: Element>(
         &self,
         row_indices: &Tensor<WgpuRuntime>,
         col_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [_nrows, ncols] = shape;
-        let nnz = values.numel();
-        let dtype = values.dtype();
-        validate_wgpu_dtype(dtype, "coo_to_csc")?;
-
-        // Step 1: Count elements per column (histogram)
-        let col_counts = Tensor::<WgpuRuntime>::zeros(&[ncols], DType::I32, &self.device_id)?;
-        let histogram_params = HistogramParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let histogram_params_buffer = self.create_uniform_buffer("histogram_params", 16);
-        self.write_buffer(
-            &histogram_params_buffer,
-            &[
-                histogram_params.nnz,
-                histogram_params._pad0,
-                histogram_params._pad1,
-                histogram_params._pad2,
-            ],
-        );
-
-        let col_indices_buf = get_tensor_buffer(col_indices)?;
-        let col_counts_buf = get_tensor_buffer(&col_counts)?;
-
-        launch_histogram(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_indices_buf,
-            &col_counts_buf,
-            &histogram_params_buffer,
-            nnz,
-        )?;
-
-        // Step 2: Exclusive scan to build col_ptrs
-        let col_ptrs = Tensor::<WgpuRuntime>::zeros(&[ncols + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
-
-        let col_ptrs_buf = get_tensor_buffer(&col_ptrs)?;
-
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_counts_buf,
-            &col_ptrs_buf,
-            &scan_params_buffer,
-        )?;
-
-        // Step 3: Copy col_ptrs for atomic scatter
-        let col_ptrs_atomic =
-            Tensor::<WgpuRuntime>::zeros(&[ncols + 1], DType::I32, &self.device_id)?;
-        let copy_params = CopyParams {
-            n: (ncols + 1) as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let copy_params_buffer = self.create_uniform_buffer("copy_params", 16);
-        self.write_buffer(
-            &copy_params_buffer,
-            &[
-                copy_params.n,
-                copy_params._pad0,
-                copy_params._pad1,
-                copy_params._pad2,
-            ],
-        );
-
-        let col_ptrs_atomic_buf = get_tensor_buffer(&col_ptrs_atomic)?;
-
-        launch_copy_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_ptrs_buf,
-            &col_ptrs_atomic_buf,
-            &copy_params_buffer,
-            ncols + 1,
-        )?;
-
-        // Step 4: Scatter elements to their positions
-        let out_row_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[nnz], dtype, &self.device_id)?;
-        let scatter_params = ScatterParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scatter_params_buffer = self.create_uniform_buffer("scatter_params", 16);
-        self.write_buffer(
-            &scatter_params_buffer,
-            &[
-                scatter_params.nnz,
-                scatter_params._pad0,
-                scatter_params._pad1,
-                scatter_params._pad2,
-            ],
-        );
-
-        let row_indices_buf = get_tensor_buffer(row_indices)?;
-        let values_buf = get_tensor_buffer(values)?;
-        let out_row_indices_buf = get_tensor_buffer(&out_row_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        launch_coo_to_csc_scatter(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_indices_buf,
-            &col_indices_buf,
-            &values_buf,
-            &col_ptrs_atomic_buf,
-            &out_row_indices_buf,
-            &out_values_buf,
-            &scatter_params_buffer,
-            nnz,
-            dtype,
-        )?;
-
-        Ok((col_ptrs, out_row_indices, out_values))
+    ) -> Result<SparseTriple> {
+        let op = "coo_to_csc (WebGPU)";
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let rows = indices_to_i32(self, row_indices, op)?;
+        let cols = indices_to_i32(self, col_indices, op)?;
+        self.bucket_sort(&cols, &rows, values, shape[1], op)
     }
 
-    /// CSR → CSC: Direct transpose via histogram + scan + scatter.
-    ///
-    /// More efficient than CSR→COO→CSC as it avoids the intermediate format.
+    /// CSR → CSC. Returns I64 column pointers, I64 row indices and the values.
     pub(crate) fn csr_to_csc_impl<T: Element>(
         &self,
         row_ptrs: &Tensor<WgpuRuntime>,
         col_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [nrows, ncols] = shape;
-        let nnz = values.numel();
-        let dtype = values.dtype();
-        validate_wgpu_dtype(dtype, "csr_to_csc")?;
-
-        // Step 1: Count elements per column (histogram over col_indices)
-        let col_counts = Tensor::<WgpuRuntime>::zeros(&[ncols], DType::I32, &self.device_id)?;
-        let histogram_params = HistogramParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let histogram_params_buffer = self.create_uniform_buffer("histogram_params", 16);
-        self.write_buffer(
-            &histogram_params_buffer,
-            &[
-                histogram_params.nnz,
-                histogram_params._pad0,
-                histogram_params._pad1,
-                histogram_params._pad2,
-            ],
-        );
-
-        let col_indices_buf = get_tensor_buffer(col_indices)?;
-        let col_counts_buf = get_tensor_buffer(&col_counts)?;
-
-        launch_histogram(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_indices_buf,
-            &col_counts_buf,
-            &histogram_params_buffer,
-            nnz,
-        )?;
-
-        // Step 2: Exclusive scan to build col_ptrs
-        let col_ptrs = Tensor::<WgpuRuntime>::zeros(&[ncols + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
-
-        let col_ptrs_buf = get_tensor_buffer(&col_ptrs)?;
-
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_counts_buf,
-            &col_ptrs_buf,
-            &scan_params_buffer,
-        )?;
-
-        // Step 3: Copy col_ptrs for atomic scatter
-        let col_ptrs_atomic =
-            Tensor::<WgpuRuntime>::zeros(&[ncols + 1], DType::I32, &self.device_id)?;
-        let copy_params = CopyParams {
-            n: (ncols + 1) as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let copy_params_buffer = self.create_uniform_buffer("copy_params", 16);
-        self.write_buffer(
-            &copy_params_buffer,
-            &[
-                copy_params.n,
-                copy_params._pad0,
-                copy_params._pad1,
-                copy_params._pad2,
-            ],
-        );
-
-        let col_ptrs_atomic_buf = get_tensor_buffer(&col_ptrs_atomic)?;
-
-        launch_copy_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_ptrs_buf,
-            &col_ptrs_atomic_buf,
-            &copy_params_buffer,
-            ncols + 1,
-        )?;
-
-        // Step 4: Scatter CSR elements to CSC positions
-        let out_row_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[nnz], dtype, &self.device_id)?;
-        let transpose_params = TransposeParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let transpose_params_buffer = self.create_uniform_buffer("transpose_params", 16);
-        self.write_buffer(
-            &transpose_params_buffer,
-            &[
-                transpose_params.n,
-                transpose_params._pad0,
-                transpose_params._pad1,
-                transpose_params._pad2,
-            ],
-        );
-
-        let row_ptrs_buf = get_tensor_buffer(row_ptrs)?;
-        let values_buf = get_tensor_buffer(values)?;
-        let out_row_indices_buf = get_tensor_buffer(&out_row_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        launch_csr_to_csc_scatter(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_ptrs_buf,
-            &col_indices_buf,
-            &values_buf,
-            &col_ptrs_atomic_buf,
-            &out_row_indices_buf,
-            &out_values_buf,
-            &transpose_params_buffer,
-            nrows,
-            dtype,
-        )?;
-
-        Ok((col_ptrs, out_row_indices, out_values))
+    ) -> Result<SparseTriple> {
+        let op = "csr_to_csc (WebGPU)";
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let ptrs = indices_to_i32(self, row_ptrs, op)?;
+        let rows = self.expand_ptrs(&ptrs, shape[0], values.numel())?;
+        let cols = indices_to_i32(self, col_indices, op)?;
+        self.bucket_sort(&cols, &rows, values, shape[1], op)
     }
 
-    /// CSC → CSR: Direct transpose via histogram + scan + scatter.
+    /// CSC → CSR. Returns I64 row pointers, I64 column indices and the values.
     pub(crate) fn csc_to_csr_impl<T: Element>(
         &self,
         col_ptrs: &Tensor<WgpuRuntime>,
         row_indices: &Tensor<WgpuRuntime>,
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [nrows, ncols] = shape;
-        let nnz = values.numel();
-        let dtype = values.dtype();
-        validate_wgpu_dtype(dtype, "csc_to_csr")?;
-
-        // Step 1: Count elements per row (histogram over row_indices)
-        let row_counts = Tensor::<WgpuRuntime>::zeros(&[nrows], DType::I32, &self.device_id)?;
-        let histogram_params = HistogramParams {
-            nnz: nnz as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let histogram_params_buffer = self.create_uniform_buffer("histogram_params", 16);
-        self.write_buffer(
-            &histogram_params_buffer,
-            &[
-                histogram_params.nnz,
-                histogram_params._pad0,
-                histogram_params._pad1,
-                histogram_params._pad2,
-            ],
-        );
-
-        let row_indices_buf = get_tensor_buffer(row_indices)?;
-        let row_counts_buf = get_tensor_buffer(&row_counts)?;
-
-        launch_histogram(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_indices_buf,
-            &row_counts_buf,
-            &histogram_params_buffer,
-            nnz,
-        )?;
-
-        // Step 2: Exclusive scan to build row_ptrs
-        let row_ptrs = Tensor::<WgpuRuntime>::zeros(&[nrows + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
-
-        let row_ptrs_buf = get_tensor_buffer(&row_ptrs)?;
-
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_counts_buf,
-            &row_ptrs_buf,
-            &scan_params_buffer,
-        )?;
-
-        // Step 3: Copy row_ptrs for atomic scatter
-        let row_ptrs_atomic =
-            Tensor::<WgpuRuntime>::zeros(&[nrows + 1], DType::I32, &self.device_id)?;
-        let copy_params = CopyParams {
-            n: (nrows + 1) as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let copy_params_buffer = self.create_uniform_buffer("copy_params", 16);
-        self.write_buffer(
-            &copy_params_buffer,
-            &[
-                copy_params.n,
-                copy_params._pad0,
-                copy_params._pad1,
-                copy_params._pad2,
-            ],
-        );
-
-        let row_ptrs_atomic_buf = get_tensor_buffer(&row_ptrs_atomic)?;
-
-        launch_copy_ptrs(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_ptrs_buf,
-            &row_ptrs_atomic_buf,
-            &copy_params_buffer,
-            nrows + 1,
-        )?;
-
-        // Step 4: Scatter CSC elements to CSR positions
-        let out_col_indices = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[nnz], dtype, &self.device_id)?;
-        let transpose_params = TransposeParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let transpose_params_buffer = self.create_uniform_buffer("transpose_params", 16);
-        self.write_buffer(
-            &transpose_params_buffer,
-            &[
-                transpose_params.n,
-                transpose_params._pad0,
-                transpose_params._pad1,
-                transpose_params._pad2,
-            ],
-        );
-
-        let col_ptrs_buf = get_tensor_buffer(col_ptrs)?;
-        let values_buf = get_tensor_buffer(values)?;
-        let out_col_indices_buf = get_tensor_buffer(&out_col_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        launch_csc_to_csr_scatter(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_ptrs_buf,
-            &row_indices_buf,
-            &values_buf,
-            &row_ptrs_atomic_buf,
-            &out_col_indices_buf,
-            &out_values_buf,
-            &transpose_params_buffer,
-            ncols,
-            dtype,
-        )?;
-
-        Ok((row_ptrs, out_col_indices, out_values))
+    ) -> Result<SparseTriple> {
+        let op = "csc_to_csr (WebGPU)";
+        validate_sparse_operands::<T>(&[], &[values.dtype()])?;
+        let ptrs = indices_to_i32(self, col_ptrs, op)?;
+        let cols = self.expand_ptrs(&ptrs, shape[1], values.numel())?;
+        let rows = indices_to_i32(self, row_indices, op)?;
+        self.bucket_sort(&rows, &cols, values, shape[0], op)
     }
 
-    /// CSR → Dense: Scatter sparse values into dense matrix.
-    ///
-    /// # Arguments
-    /// - `row_ptrs`: [nrows + 1] row pointers
-    /// - `col_indices`: [nnz] column indices
-    /// - `values`: [nnz] values
-    /// - `shape`: [nrows, ncols]
-    ///
-    /// # Returns
-    /// Dense tensor of shape [nrows, ncols]
+    /// CSR → dense `[nrows, ncols]`. A repeated position keeps its last entry.
     pub(crate) fn sparse_to_dense_impl<T: Element>(
         &self,
         row_ptrs: &Tensor<WgpuRuntime>,
@@ -849,202 +142,315 @@ impl WgpuClient {
         values: &Tensor<WgpuRuntime>,
         shape: [usize; 2],
     ) -> Result<Tensor<WgpuRuntime>> {
+        let op = "sparse_to_dense (WebGPU)";
         let [nrows, ncols] = shape;
         let dtype = values.dtype();
-        validate_wgpu_dtype(dtype, "sparse_to_dense")?;
+        check_value_dtype(dtype, op)?;
+        validate_sparse_operands::<T>(&[], &[dtype])?;
 
-        // Allocate dense output initialized to zeros
         let dense = Tensor::<WgpuRuntime>::zeros(&[nrows, ncols], dtype, &self.device_id)?;
-
-        // Setup params
-        let params = CsrToDenseParams {
-            nrows: nrows as u32,
-            ncols: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        let params_buffer = self.create_uniform_buffer("csr_to_dense_params", 16);
-        self.write_buffer(
-            &params_buffer,
-            &[params.nrows, params.ncols, params._pad0, params._pad1],
+        if values.numel() == 0 || nrows == 0 || ncols == 0 {
+            return Ok(dense);
+        }
+        let ptrs = indices_to_i32(self, row_ptrs, op)?;
+        let cols = indices_to_i32(self, col_indices, op)?;
+        let values = values.contiguous()?;
+        let params = uniform_words(
+            self,
+            "csr_to_dense_params",
+            [nrows as u32, ncols as u32, 0, 0],
         );
-
-        let row_ptrs_buf = get_tensor_buffer(row_ptrs)?;
-        let col_indices_buf = get_tensor_buffer(col_indices)?;
-        let values_buf = get_tensor_buffer(values)?;
-        let dense_buf = get_tensor_buffer(&dense)?;
-
-        // Launch kernel
         launch_csr_to_dense(
             self.pipeline_cache(),
             self.wgpu_queue(),
-            &row_ptrs_buf,
-            &col_indices_buf,
-            &values_buf,
-            &dense_buf,
-            &params_buffer,
+            &*get_tensor_buffer(&ptrs)?,
+            &*get_tensor_buffer(&cols)?,
+            &*get_tensor_buffer(&values)?,
+            &*get_tensor_buffer(&dense)?,
+            &params,
             nrows,
-            dtype,
         )?;
-
         Ok(dense)
     }
 
-    /// Dense → COO: Count non-zeros + atomic scatter.
-    ///
-    /// # Algorithm
-    /// 1. Count non-zeros using atomic counter
-    /// 2. Read back total_nnz (single u32 transfer)
-    /// 3. Allocate output COO tensors
-    /// 4. Scatter non-zero elements using atomic write position
-    ///
-    /// # Arguments
-    /// - `dense`: 2D dense tensor [nrows, ncols]
-    /// - `threshold`: Values with |value| < threshold become zero
-    ///
-    /// # Returns
-    /// SparseTensor in COO format
+    /// Dense `[nrows, ncols]` → COO in row-major order. An entry is kept when
+    /// `|value| >= threshold`, as on the CPU backend.
     pub(crate) fn dense_to_coo_impl(
         &self,
         dense: &Tensor<WgpuRuntime>,
         threshold: f64,
     ) -> Result<SparseTensor<WgpuRuntime>> {
-        // Validate input
+        let op = "dense_to_sparse (WebGPU)";
         if dense.ndim() != 2 {
             return Err(Error::Internal(format!(
-                "Expected 2D tensor for dense_to_sparse, got {}D",
-                dense.ndim()
+                "{op}: expected a 2D tensor, got shape {:?}",
+                dense.shape()
             )));
         }
-
-        let shape = dense.shape();
-        let nrows = shape[0];
-        let ncols = shape[1];
-        let total_elems = nrows * ncols;
+        let (nrows, ncols) = (dense.shape()[0], dense.shape()[1]);
         let dtype = dense.dtype();
-        let device = dense.device();
-
-        validate_wgpu_dtype(dtype, "dense_to_sparse")?;
-
-        // Convert threshold to appropriate bits representation
-        let threshold_bits = match dtype {
-            DType::F32 => (threshold as f32).to_bits(),
-            #[cfg(feature = "f16")]
-            DType::F16 => {
-                let f16_val = half::f16::from_f64(threshold);
-                f16_val.to_bits() as u32
-            }
-            DType::I32 | DType::U32 => threshold as u32,
-            _ => {
-                return Err(Error::NotImplemented {
-                    feature: "dense_to_sparse for this dtype",
-                });
-            }
-        };
-
-        // Step 1: Create atomic counter buffer (initialized to 0)
-        let count_buffer = self.create_storage_buffer("nnz_count", 4);
-        self.queue.write_buffer(&count_buffer, 0, &[0u8; 4]);
-
-        // Setup count params
-        let count_params = CountNonzerosParams {
-            total_elems: total_elems as u32,
-            threshold_bits,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        let count_params_buffer = self.create_uniform_buffer("count_params", 16);
-        self.write_buffer(
-            &count_params_buffer,
-            &[
-                count_params.total_elems,
-                count_params.threshold_bits,
-                count_params._pad0,
-                count_params._pad1,
-            ],
-        );
-
-        let dense_buf = get_tensor_buffer(dense)?;
-
-        // Launch count kernel
-        launch_count_nonzeros(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &dense_buf,
-            &count_buffer,
-            &count_params_buffer,
-            total_elems,
-            dtype,
-        )?;
-
-        // Step 2: Read back total_nnz (single u32 transfer - unavoidable)
-        let total_nnz = read_u32_from_buffer(self, &count_buffer)? as usize;
-
-        // Handle empty case
-        if total_nnz == 0 {
+        check_value_dtype(dtype, op)?;
+        if nrows == 0 || ncols == 0 {
             return Ok(SparseTensor::Coo(CooData::empty(
                 [nrows, ncols],
                 dtype,
-                device,
+                &self.device_id,
             )?));
         }
 
-        // Step 3: Allocate output COO tensors
-        // Note: WGSL shader uses i32 for indices, we create I32 tensors
-        let row_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz], DType::I32, &self.device_id)?;
-        let col_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz], DType::I32, &self.device_id)?;
-        let values = Tensor::<WgpuRuntime>::zeros(&[total_nnz], dtype, &self.device_id)?;
+        let dense = dense.contiguous()?;
+        let dense_buf = get_tensor_buffer(&dense)?;
+        let params = self.create_uniform_buffer("dense_keep_params", 32);
+        self.write_buffer(&params, &keep_params(dtype, threshold, nrows, ncols)?);
 
-        // Create atomic write position buffer (initialized to 0)
-        let write_pos_buffer = self.create_storage_buffer("write_pos", 4);
-        self.queue.write_buffer(&write_pos_buffer, 0, &[0u8; 4]);
-
-        // Setup scatter params
-        let scatter_params = DenseToCooParams {
-            nrows: nrows as u32,
-            ncols: ncols as u32,
-            threshold_bits,
-            _pad0: 0,
-        };
-        let scatter_params_buffer = self.create_uniform_buffer("scatter_params", 16);
-        self.write_buffer(
-            &scatter_params_buffer,
-            &[
-                scatter_params.nrows,
-                scatter_params.ncols,
-                scatter_params.threshold_bits,
-                scatter_params._pad0,
-            ],
-        );
-
-        let row_indices_buf = get_tensor_buffer(&row_indices)?;
-        let col_indices_buf = get_tensor_buffer(&col_indices)?;
-        let values_buf = get_tensor_buffer(&values)?;
-
-        // Step 4: Launch scatter kernel
-        launch_dense_to_coo_scatter(
+        let counts = Tensor::<WgpuRuntime>::zeros(&[nrows], DType::I32, &self.device_id)?;
+        launch_dense_row_count(
             self.pipeline_cache(),
             self.wgpu_queue(),
             &dense_buf,
-            &row_indices_buf,
-            &col_indices_buf,
-            &values_buf,
-            &write_pos_buffer,
-            &scatter_params_buffer,
-            total_elems,
-            dtype,
+            &*get_tensor_buffer(&counts)?,
+            &params,
+            nrows,
+        )?;
+        let (ptrs, total) = scan_counts(self, &counts, nrows)?;
+        if total == 0 {
+            return Ok(SparseTensor::Coo(CooData::empty(
+                [nrows, ncols],
+                dtype,
+                &self.device_id,
+            )?));
+        }
+
+        let rows = Tensor::<WgpuRuntime>::zeros(&[total], DType::I32, &self.device_id)?;
+        let cols = Tensor::<WgpuRuntime>::zeros(&[total], DType::I32, &self.device_id)?;
+        let values = Tensor::<WgpuRuntime>::zeros(&[total], dtype, &self.device_id)?;
+        launch_dense_row_scatter(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &dense_buf,
+            &*get_tensor_buffer(&ptrs)?,
+            &*get_tensor_buffer(&rows)?,
+            &*get_tensor_buffer(&cols)?,
+            &*get_tensor_buffer(&values)?,
+            &params,
+            nrows,
         )?;
 
-        // Convert I32 indices to I64 for CooData
-        // Note: CooData expects I64 indices, but WGSL only supports i32
-        // We need to cast them
-        let row_indices_i64 = self.cast(&row_indices, DType::I64)?;
-        let col_indices_i64 = self.cast(&col_indices, DType::I64)?;
-
-        // Create COO data
-        // Note: The scatter kernel doesn't guarantee sorted order due to atomic operations
-        let coo = CooData::new(row_indices_i64, col_indices_i64, values, [nrows, ncols])?;
-
+        let mut coo = CooData::new(
+            indices_to_i64(self, &rows)?,
+            indices_to_i64(self, &cols)?,
+            values,
+            [nrows, ncols],
+        )?;
+        // SAFETY: the scatter writes each row in column order, rows ascending.
+        unsafe { coo.set_sorted(true) };
         Ok(SparseTensor::Coo(coo))
+    }
+
+    /// Expand `n + 1` I32 pointers into `nnz` I32 bucket indices.
+    fn expand_ptrs(
+        &self,
+        ptrs: &Tensor<WgpuRuntime>,
+        n: usize,
+        nnz: usize,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let out = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
+        if nnz == 0 || n == 0 {
+            return Ok(out);
+        }
+        let params = uniform_words(self, "expand_ptrs_params", [n as u32, 0, 0, 0]);
+        launch_expand_ptrs(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &*get_tensor_buffer(ptrs)?,
+            &*get_tensor_buffer(&out)?,
+            &params,
+            n,
+        )?;
+        Ok(out)
+    }
+
+    /// Stable counting sort of entries by (`primary`, `secondary`) into
+    /// `nbuckets` buckets. Returns I64 bucket pointers, I64 sorted secondary
+    /// indices and the values in sorted order.
+    fn bucket_sort(
+        &self,
+        primary: &Tensor<WgpuRuntime>,
+        secondary: &Tensor<WgpuRuntime>,
+        values: &Tensor<WgpuRuntime>,
+        nbuckets: usize,
+        op: &'static str,
+    ) -> Result<SparseTriple> {
+        let dtype = values.dtype();
+        check_value_dtype(dtype, op)?;
+        let nnz = values.numel();
+        if primary.numel() != nnz || secondary.numel() != nnz {
+            return Err(Error::Internal(format!(
+                "{op}: index lengths {} and {} differ from the {nnz} values",
+                primary.numel(),
+                secondary.numel()
+            )));
+        }
+        if nnz == 0 || nbuckets == 0 {
+            if nnz > 0 {
+                return Err(Error::Internal(format!(
+                    "{op}: {nnz} entries do not fit a matrix with zero buckets"
+                )));
+            }
+            return Ok((
+                Tensor::<WgpuRuntime>::zeros(&[nbuckets + 1], DType::I64, &self.device_id)?,
+                Tensor::<WgpuRuntime>::zeros(&[0], DType::I64, &self.device_id)?,
+                Tensor::<WgpuRuntime>::zeros(&[0], dtype, &self.device_id)?,
+            ));
+        }
+
+        let values = values.contiguous()?;
+        let primary_buf = get_tensor_buffer(primary)?;
+        let secondary_buf = get_tensor_buffer(secondary)?;
+        let params = uniform_words(self, "bucket_sort_params", [nnz as u32, 0, 0, 0]);
+
+        let counts = Tensor::<WgpuRuntime>::zeros(&[nbuckets], DType::I32, &self.device_id)?;
+        launch_histogram(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &primary_buf,
+            &*get_tensor_buffer(&counts)?,
+            &params,
+            nnz,
+        )?;
+        let (ptrs, total) = scan_counts(self, &counts, nbuckets)?;
+        if total != nnz {
+            return Err(Error::Internal(format!(
+                "{op}: {total} of {nnz} entries have a bucket index in 0..{nbuckets}"
+            )));
+        }
+
+        let ptrs_buf = get_tensor_buffer(&ptrs)?;
+        let fill = Tensor::<WgpuRuntime>::zeros(&[nbuckets], DType::I32, &self.device_id)?;
+        let order = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
+        let order_buf = get_tensor_buffer(&order)?;
+        launch_scatter_order(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &primary_buf,
+            &ptrs_buf,
+            &*get_tensor_buffer(&fill)?,
+            &order_buf,
+            &params,
+            nnz,
+        )?;
+
+        let out_secondary = Tensor::<WgpuRuntime>::zeros(&[nnz], DType::I32, &self.device_id)?;
+        let out_values = Tensor::<WgpuRuntime>::zeros(&[nnz], dtype, &self.device_id)?;
+        launch_rank_gather(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &primary_buf,
+            &secondary_buf,
+            &*get_tensor_buffer(&values)?,
+            &ptrs_buf,
+            &order_buf,
+            &*get_tensor_buffer(&out_secondary)?,
+            &*get_tensor_buffer(&out_values)?,
+            &params,
+            nnz,
+        )?;
+
+        Ok((
+            indices_to_i64(self, &ptrs)?,
+            indices_to_i64(self, &out_secondary)?,
+            out_values,
+        ))
+    }
+}
+
+/// Uniform words of the dense keep predicate `|value| >= threshold`:
+/// `{ nrows, ncols, threshold, mode, keep_none, pad, pad, pad }`.
+///
+/// The host threshold is an `f64`. Each dtype gets the smallest value of its
+/// own type that keeps the same entries, so the GPU compare needs no `f64`.
+fn keep_params(dtype: DType, threshold: f64, nrows: usize, ncols: usize) -> Result<[u32; 8]> {
+    let (bits, mode, keep_none) = match dtype {
+        DType::F32 => match f32_at_least(threshold) {
+            Some(t) => (t.to_bits(), 0, 0),
+            None => (0, 0, 1),
+        },
+        DType::I32 => match magnitude_at_least(threshold, 1 << 31) {
+            Some(t) => (t as u32, 1, 0),
+            None => (0, 1, 1),
+        },
+        DType::U32 => match magnitude_at_least(threshold, u64::from(u32::MAX)) {
+            Some(t) => (t as u32, 2, 0),
+            None => (0, 2, 1),
+        },
+        _ => {
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "dense_to_sparse (WebGPU)",
+            });
+        }
+    };
+    Ok([nrows as u32, ncols as u32, bits, mode, keep_none, 0, 0, 0])
+}
+
+/// Smallest `f32` whose `f64` value is `>= threshold`, or `None` for a NaN
+/// threshold, which keeps no entry.
+fn f32_at_least(threshold: f64) -> Option<f32> {
+    if threshold.is_nan() {
+        return None;
+    }
+    if threshold <= 0.0 {
+        return Some(0.0);
+    }
+    let t = threshold as f32;
+    Some(if f64::from(t) < threshold {
+        t.next_up()
+    } else {
+        t
+    })
+}
+
+/// Smallest integer magnitude `>= threshold`, or `None` when no magnitude up
+/// to `max` reaches it.
+fn magnitude_at_least(threshold: f64, max: u64) -> Option<u64> {
+    if threshold.is_nan() {
+        return None;
+    }
+    if threshold <= 0.0 {
+        return Some(0);
+    }
+    let t = threshold.ceil();
+    if t > max as f64 { None } else { Some(t as u64) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f32_threshold_rounds_up_to_the_next_f32() {
+        let t = 0.1f64;
+        let got = f32_at_least(t).unwrap();
+        assert!(f64::from(got) >= t);
+        assert!(f64::from(got.next_down()) < t);
+        assert_eq!(f32_at_least(-3.0), Some(0.0));
+        assert_eq!(f32_at_least(f64::NAN), None);
+        assert_eq!(f32_at_least(f64::INFINITY), Some(f32::INFINITY));
+    }
+
+    #[test]
+    fn integer_threshold_takes_the_ceiling() {
+        assert_eq!(magnitude_at_least(2.5, 1 << 31), Some(3));
+        assert_eq!(magnitude_at_least(2.0, 1 << 31), Some(2));
+        assert_eq!(magnitude_at_least(0.0, 1 << 31), Some(0));
+        assert_eq!(magnitude_at_least((1u64 << 31) as f64 + 0.5, 1 << 31), None);
+        assert_eq!(magnitude_at_least(f64::NAN, 10), None);
+    }
+
+    #[test]
+    fn keep_params_flag_an_unreachable_threshold() {
+        let words = keep_params(DType::U32, 5e9, 2, 3).unwrap();
+        assert_eq!(&words[..5], &[2, 3, 0, 2, 1]);
+        assert!(keep_params(DType::F64, 1.0, 1, 1).is_err());
     }
 }

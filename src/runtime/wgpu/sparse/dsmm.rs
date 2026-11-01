@@ -20,10 +20,9 @@
 use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::launch_dsmm_csc;
 use super::common::validate_wgpu_dtype;
-use crate::algorithm::sparse::validate_dsmm_shapes;
-use crate::dtype::DType;
+use super::indices::{bindable, indices_to_i32};
+use crate::algorithm::sparse::{validate_dsmm_shapes, validate_dtype_match};
 use crate::error::Result;
-use crate::ops::TypeConversionOps;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::sparse::CscData;
 use crate::tensor::Tensor;
@@ -50,6 +49,8 @@ pub(super) fn column_parallel_dsmm(
 
     // Validate dtype
     validate_wgpu_dtype(dtype, "column_parallel_dsmm")?;
+    // The check reads dtype metadata on the host. No data moves.
+    validate_dtype_match(dtype, sparse_b_csc.values.dtype())?;
 
     // Validate dimensions
     let ([m, n], k) = validate_dsmm_shapes(dense_a.shape(), sparse_b_csc.shape)?;
@@ -59,10 +60,19 @@ pub(super) fn column_parallel_dsmm(
 
     // Allocate output C [M, N]
     let output = Tensor::<WgpuRuntime>::zeros(&[m, n], dtype, device)?;
+    if m == 0 || n == 0 {
+        return Ok(output);
+    }
 
-    // Convert col_ptrs and row_indices from I64 to I32 for WGSL shader
-    let col_ptrs_i32 = client.cast(&sparse_b_csc.col_ptrs, DType::I32)?;
-    let row_indices_i32 = client.cast(&sparse_b_csc.row_indices, DType::I32)?;
+    // WGSL reads i32 indices: cast I64 on the GPU.
+    let op = "dsmm (WebGPU)";
+    let col_ptrs_i32 = indices_to_i32(client, &sparse_b_csc.col_ptrs, op)?;
+    let row_indices_i32 = bindable(
+        client,
+        &indices_to_i32(client, &sparse_b_csc.row_indices, op)?,
+    )?;
+    let b_values = bindable(client, &sparse_b_csc.values)?;
+    let a_contig = bindable(client, &a_contig)?;
 
     // Create params buffer
     let params = DsmmParams {
@@ -78,7 +88,7 @@ pub(super) fn column_parallel_dsmm(
     let a_buffer = get_tensor_buffer(&a_contig)?;
     let col_ptrs_buffer = get_tensor_buffer(&col_ptrs_i32)?;
     let row_indices_buffer = get_tensor_buffer(&row_indices_i32)?;
-    let b_values_buffer = get_tensor_buffer(&sparse_b_csc.values)?;
+    let b_values_buffer = get_tensor_buffer(&b_values)?;
     let c_buffer = get_tensor_buffer(&output)?;
 
     // Launch WGSL kernel

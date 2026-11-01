@@ -27,11 +27,10 @@
 
 use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::{
-    launch_exclusive_scan_i32, launch_spgemm_accumulate, launch_spgemm_scatter,
-    launch_spgemm_symbolic,
+    launch_spgemm_accumulate, launch_spgemm_scatter, launch_spgemm_symbolic,
 };
 use super::common::validate_wgpu_dtype;
-use super::merge::ScanParams;
+use super::indices::scan_counts;
 use crate::algorithm::sparse::validate_spgemm_shapes;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -76,6 +75,8 @@ pub(super) fn esc_spgemm_csr(
 
     // Validate dtype
     validate_wgpu_dtype(dtype, "esc_spgemm_csr")?;
+    // The check reads dtype metadata on the host. No data moves.
+    crate::algorithm::sparse::validate_dtype_match(dtype, b_csr.values.dtype())?;
 
     // For large matrices, the dense accumulator approach uses O(M*N) memory
     // which may be prohibitive. Check reasonable limits.
@@ -160,52 +161,10 @@ pub(super) fn esc_spgemm_csr(
         dtype,
     )?;
 
-    // Build row_ptrs via exclusive scan
-    let c_row_ptrs_i32 = Tensor::<WgpuRuntime>::zeros(&[m + 1], DType::I32, device)?;
-    let scan_params = ScanParams {
-        n: m as u32,
-        _pad0: 0,
-        _pad1: 0,
-        _pad2: 0,
-    };
-    let scan_params_buffer = client.create_uniform_buffer("spgemm_scan_params", 16);
-    client.write_buffer(
-        &scan_params_buffer,
-        &[
-            scan_params.n,
-            scan_params._pad0,
-            scan_params._pad1,
-            scan_params._pad2,
-        ],
-    );
-
+    // Build row_ptrs via exclusive scan. Reading the total moves one i32 to
+    // the host to size the output.
+    let (c_row_ptrs_i32, total_nnz) = scan_counts(client, &row_nnz, m)?;
     let c_row_ptrs_buffer = get_tensor_buffer(&c_row_ptrs_i32)?;
-
-    launch_exclusive_scan_i32(
-        client.pipeline_cache(),
-        client.wgpu_queue(),
-        &row_nnz_buffer,
-        &c_row_ptrs_buffer,
-        &scan_params_buffer,
-    )?;
-
-    // Read back total NNZ from row_ptrs[m]
-    // This requires GPU → CPU synchronization
-    let staging = client.create_staging_buffer("total_nnz_staging", 4);
-    let mut encoder =
-        client
-            .wgpu_device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("total_nnz_copy"),
-            });
-    // Copy from row_ptrs[m] (offset = m * sizeof(i32))
-    let offset = (m * 4) as u64;
-    encoder.copy_buffer_to_buffer(&c_row_ptrs_buffer, offset, &staging, 0, 4);
-    client.submit_and_wait(encoder);
-
-    let mut total_nnz_arr = [0i32; 1];
-    client.read_buffer(&staging, &mut total_nnz_arr)?;
-    let total_nnz = total_nnz_arr[0];
 
     // Handle empty result
     if total_nnz == 0 {
@@ -220,8 +179,8 @@ pub(super) fn esc_spgemm_csr(
     // ========================================================================
 
     // Allocate output arrays
-    let c_col_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz as usize], DType::I32, device)?;
-    let c_values = Tensor::<WgpuRuntime>::zeros(&[total_nnz as usize], dtype, device)?;
+    let c_col_indices = Tensor::<WgpuRuntime>::zeros(&[total_nnz], DType::I32, device)?;
+    let c_values = Tensor::<WgpuRuntime>::zeros(&[total_nnz], dtype, device)?;
 
     // Allocate dense accumulator and flags arrays [M * N]
     let elem_size = match dtype {

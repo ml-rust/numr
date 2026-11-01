@@ -4,9 +4,11 @@
 //! Uses row-parallel algorithms that don't require atomic operations.
 
 use super::super::ops::helpers::get_tensor_buffer;
-use super::super::shaders::{launch_csr_spmm, launch_csr_spmv};
+use super::super::shaders::{launch_csr_extract_diagonal, launch_csr_spmm, launch_csr_spmv};
 use super::super::{WgpuClient, WgpuRuntime};
 use super::common::validate_wgpu_dtype;
+use super::indices::{bindable, indices_to_i32};
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::Element;
 use crate::error::{Error, Result};
 use crate::tensor::Tensor;
@@ -40,8 +42,8 @@ impl WgpuClient {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers [nrows + 1] (I32)
-    /// * `col_indices` - CSR column indices [nnz] (I32)
+    /// * `row_ptrs` - CSR row pointers [nrows + 1] (I64 or I32)
+    /// * `col_indices` - CSR column indices [nnz] (I64 or I32)
     /// * `values` - CSR values [nnz] (dtype)
     /// * `x` - Dense input vector [ncols] (dtype)
     /// * `shape` - Matrix shape [nrows, ncols]
@@ -62,6 +64,8 @@ impl WgpuClient {
 
         // Validate dtype is supported by WebGPU sparse operations
         validate_wgpu_dtype(dtype, "spmv_csr")?;
+        // The check reads dtype metadata on the host. No data moves.
+        validate_sparse_operands::<T>(&[], &[dtype, x.dtype()])?;
 
         // Validate input shapes
         if x.numel() != ncols {
@@ -73,6 +77,14 @@ impl WgpuClient {
 
         // Allocate output on GPU
         let y = Tensor::<WgpuRuntime>::zeros(&[nrows], dtype, &self.device_id)?;
+        if nrows == 0 {
+            return Ok(y);
+        }
+        let op = "spmv_csr (WebGPU)";
+        let row_ptrs = indices_to_i32(self, row_ptrs, op)?;
+        let col_indices = bindable(self, &indices_to_i32(self, col_indices, op)?)?;
+        let values = bindable(self, values)?;
+        let x = bindable(self, x)?;
 
         // Create params buffer
         let params = SpmvParams {
@@ -88,10 +100,10 @@ impl WgpuClient {
         );
 
         // Get buffers
-        let row_ptrs_buffer = get_tensor_buffer(row_ptrs)?;
-        let col_indices_buffer = get_tensor_buffer(col_indices)?;
-        let values_buffer = get_tensor_buffer(values)?;
-        let x_buffer = get_tensor_buffer(x)?;
+        let row_ptrs_buffer = get_tensor_buffer(&row_ptrs)?;
+        let col_indices_buffer = get_tensor_buffer(&col_indices)?;
+        let values_buffer = get_tensor_buffer(&values)?;
+        let x_buffer = get_tensor_buffer(&x)?;
         let y_buffer = get_tensor_buffer(&y)?;
 
         // Launch kernel
@@ -117,8 +129,8 @@ impl WgpuClient {
     ///
     /// # Arguments
     ///
-    /// * `row_ptrs` - CSR row pointers [m + 1] (I32)
-    /// * `col_indices` - CSR column indices [nnz] (I32)
+    /// * `row_ptrs` - CSR row pointers [m + 1] (I64 or I32)
+    /// * `col_indices` - CSR column indices [nnz] (I64 or I32)
     /// * `values` - CSR values [nnz] (dtype)
     /// * `b` - Dense input matrix [k, n] (dtype, row-major)
     /// * `shape` - Sparse matrix shape [m, k]
@@ -139,6 +151,8 @@ impl WgpuClient {
 
         // Validate dtype is supported by WebGPU sparse operations
         validate_wgpu_dtype(dtype, "spmm_csr")?;
+        // The check reads dtype metadata on the host. No data moves.
+        validate_sparse_operands::<T>(&[], &[dtype, b.dtype()])?;
 
         // Validate B is 2D
         if b.ndim() != 2 {
@@ -162,6 +176,14 @@ impl WgpuClient {
 
         // Allocate output on GPU
         let c = Tensor::<WgpuRuntime>::zeros(&[m, n], dtype, &self.device_id)?;
+        if m == 0 || n == 0 {
+            return Ok(c);
+        }
+        let op = "spmm_csr (WebGPU)";
+        let row_ptrs = indices_to_i32(self, row_ptrs, op)?;
+        let col_indices = bindable(self, &indices_to_i32(self, col_indices, op)?)?;
+        let values = bindable(self, values)?;
+        let b = bindable(self, b)?;
 
         // Create params buffer
         let params = SpmmParams {
@@ -174,10 +196,10 @@ impl WgpuClient {
         self.write_buffer(&params_buffer, &[params.m, params.k, params.n, params._pad]);
 
         // Get buffers
-        let row_ptrs_buffer = get_tensor_buffer(row_ptrs)?;
-        let col_indices_buffer = get_tensor_buffer(col_indices)?;
-        let values_buffer = get_tensor_buffer(values)?;
-        let b_buffer = get_tensor_buffer(b)?;
+        let row_ptrs_buffer = get_tensor_buffer(&row_ptrs)?;
+        let col_indices_buffer = get_tensor_buffer(&col_indices)?;
+        let values_buffer = get_tensor_buffer(&values)?;
+        let b_buffer = get_tensor_buffer(&b)?;
         let c_buffer = get_tensor_buffer(&c)?;
 
         // Launch kernel
@@ -196,5 +218,44 @@ impl WgpuClient {
         )?;
 
         Ok(c)
+    }
+
+    /// Diagonal of a CSR matrix: `diag[i] = A[i, i]` for `i < min(nrows, ncols)`.
+    /// A missing diagonal entry reads as zero.
+    pub(crate) fn extract_diagonal_csr_impl<T: Element>(
+        &self,
+        row_ptrs: &Tensor<WgpuRuntime>,
+        col_indices: &Tensor<WgpuRuntime>,
+        values: &Tensor<WgpuRuntime>,
+        shape: [usize; 2],
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let op = "extract_diagonal_csr (WebGPU)";
+        let n = shape[0].min(shape[1]);
+        let dtype = values.dtype();
+        validate_wgpu_dtype(dtype, op)?;
+        validate_sparse_operands::<T>(&[], &[dtype])?;
+
+        let diag = Tensor::<WgpuRuntime>::zeros(&[n], dtype, &self.device_id)?;
+        if n == 0 || values.numel() == 0 {
+            return Ok(diag);
+        }
+        let row_ptrs = indices_to_i32(self, row_ptrs, op)?;
+        let col_indices = indices_to_i32(self, col_indices, op)?;
+        let values = values.contiguous()?;
+
+        let params_buffer = self.create_uniform_buffer("diag_params", 16);
+        self.write_buffer(&params_buffer, &[n as u32, 0u32, 0u32, 0u32]);
+        launch_csr_extract_diagonal(
+            self.pipeline_cache(),
+            self.wgpu_queue(),
+            &*get_tensor_buffer(&row_ptrs)?,
+            &*get_tensor_buffer(&col_indices)?,
+            &*get_tensor_buffer(&values)?,
+            &*get_tensor_buffer(&diag)?,
+            &params_buffer,
+            n,
+            dtype,
+        )?;
+        Ok(diag)
     }
 }

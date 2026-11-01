@@ -1,813 +1,175 @@
-//! Sparse matrix element-wise merge operations for WebGPU.
+//! Sparse element-wise merges (add, sub, mul, div) for WebGPU.
 //!
-//! Implements CSR and CSC format merge operations (add, sub, mul, div) using
-//! two-pass algorithms:
-//! 1. Count pass: count output elements per row/column
-//! 2. Exclusive scan: compute offsets
-//! 3. Compute pass: perform merge and operation
+//! CSR and CSC run the same three GPU passes:
+//! 1. Count output nonzeros per row (CSR) or column (CSC).
+//! 2. Exclusive scan of the counts into output pointers.
+//! 3. Merge the sorted index lists and apply the operation.
+//!
+//! COO converts both operands to CSR on the GPU, merges, and expands the
+//! result back to COO. Inputs and outputs carry I64 indices. The kernels see
+//! I32 copies made on the GPU.
 
 use super::super::ops::helpers::get_tensor_buffer;
 use super::super::shaders::{
-    launch_csc_add_compute, launch_csc_div_compute, launch_csc_merge_count, launch_csc_mul_compute,
-    launch_csc_mul_count, launch_csc_sub_compute, launch_csr_add_compute, launch_csr_div_compute,
-    launch_csr_merge_count, launch_csr_mul_compute, launch_csr_mul_count, launch_csr_sub_compute,
-    launch_exclusive_scan_i32,
+    CompressedBuffers, CompressedFormat, SparseMergeOp, launch_sparse_merge_compute,
+    launch_sparse_merge_count,
 };
 use super::super::{WgpuClient, WgpuRuntime};
-use super::common::validate_wgpu_dtype;
+use super::indices::{
+    bindable, check_value_dtype, indices_to_i32, indices_to_i64, scan_counts, uniform_words,
+};
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::{DType, Element};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::tensor::Tensor;
 
-/// Uniform buffer params for count kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CountParams {
-    pub n: u32, // nrows for CSR, ncols for CSC
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
+/// Borrowed `(pointers or row indices, indices, values)` of one sparse operand.
+pub(super) type SparseParts<'a> = (
+    &'a Tensor<WgpuRuntime>,
+    &'a Tensor<WgpuRuntime>,
+    &'a Tensor<WgpuRuntime>,
+);
 
-/// Uniform buffer params for compute kernels
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ComputeParams {
-    pub n: u32, // nrows for CSR, ncols for CSC
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
-
-/// Uniform buffer params for exclusive scan
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ScanParams {
-    pub n: u32, // number of elements to scan
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
-}
+/// Owned `(pointers or row indices, indices, values)` of a sparse result.
+pub(super) type SparseTriple = (
+    Tensor<WgpuRuntime>,
+    Tensor<WgpuRuntime>,
+    Tensor<WgpuRuntime>,
+);
 
 impl WgpuClient {
-    // =========================================================================
-    // CSR Operations
-    // =========================================================================
-
-    /// CSR element-wise addition: C = A + B
+    /// Merge two CSR (`format = Csr`) or CSC (`format = Csc`) matrices with
+    /// `n` rows or columns. Returns I64 pointers, I64 indices and the values.
     ///
-    /// Two-pass algorithm:
-    /// 1. Count output nnz per row (union semantics)
-    /// 2. Exclusive scan to get row_ptrs
-    /// 3. Merge and add values
-    pub(crate) fn add_csr_impl<T: Element>(
+    /// Add and sub keep the union of both patterns. Mul and div keep the
+    /// intersection. Explicit zeros in the result stay stored.
+    pub(super) fn compressed_merge<T: Element>(
         &self,
-        a_row_ptrs: &Tensor<WgpuRuntime>,
-        a_col_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_row_ptrs: &Tensor<WgpuRuntime>,
-        b_col_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csr_merge_binary_impl::<T>(
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            MergeOp::Add,
-        )
-    }
-
-    /// CSR element-wise subtraction: C = A - B
-    pub(crate) fn sub_csr_impl<T: Element>(
-        &self,
-        a_row_ptrs: &Tensor<WgpuRuntime>,
-        a_col_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_row_ptrs: &Tensor<WgpuRuntime>,
-        b_col_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csr_merge_binary_impl::<T>(
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            MergeOp::Sub,
-        )
-    }
-
-    /// CSR element-wise multiplication: C = A .* B (intersection semantics)
-    pub(crate) fn mul_csr_impl<T: Element>(
-        &self,
-        a_row_ptrs: &Tensor<WgpuRuntime>,
-        a_col_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_row_ptrs: &Tensor<WgpuRuntime>,
-        b_col_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csr_merge_binary_impl::<T>(
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            MergeOp::Mul,
-        )
-    }
-
-    /// CSR element-wise division: C = A ./ B (intersection semantics)
-    pub(crate) fn div_csr_impl<T: Element>(
-        &self,
-        a_row_ptrs: &Tensor<WgpuRuntime>,
-        a_col_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_row_ptrs: &Tensor<WgpuRuntime>,
-        b_col_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csr_merge_binary_impl::<T>(
-            a_row_ptrs,
-            a_col_indices,
-            a_values,
-            b_row_ptrs,
-            b_col_indices,
-            b_values,
-            shape,
-            MergeOp::Div,
-        )
-    }
-
-    /// Internal CSR merge implementation
-    fn csr_merge_binary_impl<T: Element>(
-        &self,
-        a_row_ptrs: &Tensor<WgpuRuntime>,
-        a_col_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_row_ptrs: &Tensor<WgpuRuntime>,
-        b_col_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-        op: MergeOp,
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [nrows, _ncols] = shape;
+        format: CompressedFormat,
+        op: SparseMergeOp,
+        a: SparseParts<'_>,
+        b: SparseParts<'_>,
+        n: usize,
+    ) -> Result<SparseTriple> {
+        let (a_ptrs, a_indices, a_values) = a;
+        let (b_ptrs, b_indices, b_values) = b;
         let dtype = a_values.dtype();
-        validate_wgpu_dtype(dtype, "csr_merge")?;
-
-        // Step 1: Count output nnz per row
-        let row_counts = Tensor::<WgpuRuntime>::zeros(&[nrows], DType::I32, &self.device_id)?;
-        let count_params = CountParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let count_params_buffer = self.create_uniform_buffer("csr_count_params", 16);
-        self.write_buffer(
-            &count_params_buffer,
-            &[
-                count_params.n,
-                count_params._pad0,
-                count_params._pad1,
-                count_params._pad2,
-            ],
-        );
-
-        let a_row_ptrs_buf = get_tensor_buffer(a_row_ptrs)?;
-        let a_col_indices_buf = get_tensor_buffer(a_col_indices)?;
-        let b_row_ptrs_buf = get_tensor_buffer(b_row_ptrs)?;
-        let b_col_indices_buf = get_tensor_buffer(b_col_indices)?;
-        let row_counts_buf = get_tensor_buffer(&row_counts)?;
-
-        // Launch appropriate count kernel
-        if matches!(op, MergeOp::Mul | MergeOp::Div) {
-            // Intersection semantics
-            launch_csr_mul_count(
-                self.pipeline_cache(),
-                self.wgpu_queue(),
-                &a_row_ptrs_buf,
-                &a_col_indices_buf,
-                &b_row_ptrs_buf,
-                &b_col_indices_buf,
-                &row_counts_buf,
-                &count_params_buffer,
-                nrows,
-            )?;
-        } else {
-            // Union semantics
-            launch_csr_merge_count(
-                self.pipeline_cache(),
-                self.wgpu_queue(),
-                &a_row_ptrs_buf,
-                &a_col_indices_buf,
-                &b_row_ptrs_buf,
-                &b_col_indices_buf,
-                &row_counts_buf,
-                &count_params_buffer,
-                nrows,
-            )?;
+        let name = merge_name(format, op);
+        check_value_dtype(dtype, name)?;
+        // The check reads dtype metadata on the host. No data moves.
+        validate_sparse_operands::<T>(&[], &[dtype, b_values.dtype()])?;
+        if op == SparseMergeOp::Div && b_values.numel() == 0 && a_values.numel() > 0 {
+            return Err(Error::Internal(format!(
+                "{name}: B stores no entries, so each of the {} stored A entries divides by zero",
+                a_values.numel()
+            )));
         }
 
-        // Step 2: Exclusive scan to get output row_ptrs
-        let out_row_ptrs = Tensor::<WgpuRuntime>::zeros(&[nrows + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
+        let a_ptrs = indices_to_i32(self, a_ptrs, name)?;
+        let a_indices = bindable(self, &indices_to_i32(self, a_indices, name)?)?;
+        let a_values = bindable(self, a_values)?;
+        let b_ptrs = indices_to_i32(self, b_ptrs, name)?;
+        let b_indices = bindable(self, &indices_to_i32(self, b_indices, name)?)?;
+        let b_values = bindable(self, b_values)?;
 
-        let out_row_ptrs_buf = get_tensor_buffer(&out_row_ptrs)?;
+        let a_ptrs_buf = get_tensor_buffer(&a_ptrs)?;
+        let a_indices_buf = get_tensor_buffer(&a_indices)?;
+        let a_values_buf = get_tensor_buffer(&a_values)?;
+        let b_ptrs_buf = get_tensor_buffer(&b_ptrs)?;
+        let b_indices_buf = get_tensor_buffer(&b_indices)?;
+        let b_values_buf = get_tensor_buffer(&b_values)?;
+        let params = uniform_words(self, "sparse_merge_params", [n as u32, 0, 0, 0]);
 
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &row_counts_buf,
-            &out_row_ptrs_buf,
-            &scan_params_buffer,
+        let counts = bindable(
+            self,
+            &Tensor::<WgpuRuntime>::zeros(&[n], DType::I32, &self.device_id)?,
         )?;
-
-        // Step 3: Read total nnz from last element of out_row_ptrs
-        // Note: This requires a sync and GPU->CPU read. We'll estimate conservatively.
-        // For now, we'll allocate worst-case (sum of both nnzs for union, min for intersection)
-        let a_nnz = a_values.numel();
-        let b_nnz = b_values.numel();
-        let max_nnz = if matches!(op, MergeOp::Mul | MergeOp::Div) {
-            // Intersection: at most min(a_nnz, b_nnz)
-            std::cmp::min(a_nnz, b_nnz)
-        } else {
-            // Union: at most a_nnz + b_nnz
-            a_nnz + b_nnz
-        };
-
-        // Allocate output arrays (may have unused space at end)
-        let out_col_indices =
-            Tensor::<WgpuRuntime>::zeros(&[max_nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[max_nnz], dtype, &self.device_id)?;
-
-        let out_col_indices_buf = get_tensor_buffer(&out_col_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        // Step 4: Compute pass
-        let compute_params = ComputeParams {
-            n: nrows as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let compute_params_buffer = self.create_uniform_buffer("csr_compute_params", 16);
-        self.write_buffer(
-            &compute_params_buffer,
-            &[
-                compute_params.n,
-                compute_params._pad0,
-                compute_params._pad1,
-                compute_params._pad2,
-            ],
-        );
-
-        let a_values_buf = get_tensor_buffer(a_values)?;
-        let b_values_buf = get_tensor_buffer(b_values)?;
-
-        match op {
-            MergeOp::Add => {
-                launch_csr_add_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_row_ptrs_buf,
-                    &a_col_indices_buf,
-                    &a_values_buf,
-                    &b_row_ptrs_buf,
-                    &b_col_indices_buf,
-                    &b_values_buf,
-                    &out_row_ptrs_buf,
-                    &out_col_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    nrows,
-                    dtype,
-                )?;
-            }
-            MergeOp::Sub => {
-                launch_csr_sub_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_row_ptrs_buf,
-                    &a_col_indices_buf,
-                    &a_values_buf,
-                    &b_row_ptrs_buf,
-                    &b_col_indices_buf,
-                    &b_values_buf,
-                    &out_row_ptrs_buf,
-                    &out_col_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    nrows,
-                    dtype,
-                )?;
-            }
-            MergeOp::Mul => {
-                launch_csr_mul_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_row_ptrs_buf,
-                    &a_col_indices_buf,
-                    &a_values_buf,
-                    &b_row_ptrs_buf,
-                    &b_col_indices_buf,
-                    &b_values_buf,
-                    &out_row_ptrs_buf,
-                    &out_col_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    nrows,
-                    dtype,
-                )?;
-            }
-            MergeOp::Div => {
-                launch_csr_div_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_row_ptrs_buf,
-                    &a_col_indices_buf,
-                    &a_values_buf,
-                    &b_row_ptrs_buf,
-                    &b_col_indices_buf,
-                    &b_values_buf,
-                    &out_row_ptrs_buf,
-                    &out_col_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    nrows,
-                    dtype,
-                )?;
-            }
-        }
-
-        Ok((out_row_ptrs, out_col_indices, out_values))
-    }
-
-    // =========================================================================
-    // CSC Operations
-    // =========================================================================
-
-    /// CSC element-wise addition
-    pub(crate) fn add_csc_impl<T: Element>(
-        &self,
-        a_col_ptrs: &Tensor<WgpuRuntime>,
-        a_row_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_col_ptrs: &Tensor<WgpuRuntime>,
-        b_row_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csc_merge_binary_impl::<T>(
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            MergeOp::Add,
-        )
-    }
-
-    /// CSC element-wise subtraction
-    pub(crate) fn sub_csc_impl<T: Element>(
-        &self,
-        a_col_ptrs: &Tensor<WgpuRuntime>,
-        a_row_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_col_ptrs: &Tensor<WgpuRuntime>,
-        b_row_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csc_merge_binary_impl::<T>(
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            MergeOp::Sub,
-        )
-    }
-
-    /// CSC element-wise multiplication
-    pub(crate) fn mul_csc_impl<T: Element>(
-        &self,
-        a_col_ptrs: &Tensor<WgpuRuntime>,
-        a_row_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_col_ptrs: &Tensor<WgpuRuntime>,
-        b_row_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csc_merge_binary_impl::<T>(
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            MergeOp::Mul,
-        )
-    }
-
-    /// CSC element-wise division
-    pub(crate) fn div_csc_impl<T: Element>(
-        &self,
-        a_col_ptrs: &Tensor<WgpuRuntime>,
-        a_row_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_col_ptrs: &Tensor<WgpuRuntime>,
-        b_row_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        self.csc_merge_binary_impl::<T>(
-            a_col_ptrs,
-            a_row_indices,
-            a_values,
-            b_col_ptrs,
-            b_row_indices,
-            b_values,
-            shape,
-            MergeOp::Div,
-        )
-    }
-
-    /// Internal CSC merge implementation
-    fn csc_merge_binary_impl<T: Element>(
-        &self,
-        a_col_ptrs: &Tensor<WgpuRuntime>,
-        a_row_indices: &Tensor<WgpuRuntime>,
-        a_values: &Tensor<WgpuRuntime>,
-        b_col_ptrs: &Tensor<WgpuRuntime>,
-        b_row_indices: &Tensor<WgpuRuntime>,
-        b_values: &Tensor<WgpuRuntime>,
-        shape: [usize; 2],
-        op: MergeOp,
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        let [_nrows, ncols] = shape;
-        let dtype = a_values.dtype();
-        validate_wgpu_dtype(dtype, "csc_merge")?;
-
-        // Step 1: Count output nnz per column
-        let col_counts = Tensor::<WgpuRuntime>::zeros(&[ncols], DType::I32, &self.device_id)?;
-        let count_params = CountParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let count_params_buffer = self.create_uniform_buffer("csc_count_params", 16);
-        self.write_buffer(
-            &count_params_buffer,
-            &[
-                count_params.n,
-                count_params._pad0,
-                count_params._pad1,
-                count_params._pad2,
-            ],
-        );
-
-        let a_col_ptrs_buf = get_tensor_buffer(a_col_ptrs)?;
-        let a_row_indices_buf = get_tensor_buffer(a_row_indices)?;
-        let b_col_ptrs_buf = get_tensor_buffer(b_col_ptrs)?;
-        let b_row_indices_buf = get_tensor_buffer(b_row_indices)?;
-        let col_counts_buf = get_tensor_buffer(&col_counts)?;
-
-        if matches!(op, MergeOp::Mul | MergeOp::Div) {
-            launch_csc_mul_count(
+        if n > 0 {
+            let counts_buf = get_tensor_buffer(&counts)?;
+            launch_sparse_merge_count(
                 self.pipeline_cache(),
                 self.wgpu_queue(),
-                &a_col_ptrs_buf,
-                &a_row_indices_buf,
-                &b_col_ptrs_buf,
-                &b_row_indices_buf,
-                &col_counts_buf,
-                &count_params_buffer,
-                ncols,
+                format,
+                op,
+                &a_ptrs_buf,
+                &a_indices_buf,
+                &b_ptrs_buf,
+                &b_indices_buf,
+                &counts_buf,
+                &params,
+                n,
             )?;
-        } else {
-            launch_csc_merge_count(
+        }
+        let (out_ptrs, total) = scan_counts(self, &counts, n)?;
+
+        let out_indices = Tensor::<WgpuRuntime>::zeros(&[total], DType::I32, &self.device_id)?;
+        let out_values = Tensor::<WgpuRuntime>::zeros(&[total], dtype, &self.device_id)?;
+        if total > 0 {
+            let out_ptrs_buf = get_tensor_buffer(&out_ptrs)?;
+            let out_indices_buf = get_tensor_buffer(&out_indices)?;
+            let out_values_buf = get_tensor_buffer(&out_values)?;
+            launch_sparse_merge_compute(
                 self.pipeline_cache(),
                 self.wgpu_queue(),
-                &a_col_ptrs_buf,
-                &a_row_indices_buf,
-                &b_col_ptrs_buf,
-                &b_row_indices_buf,
-                &col_counts_buf,
-                &count_params_buffer,
-                ncols,
+                format,
+                op,
+                &CompressedBuffers {
+                    ptrs: &a_ptrs_buf,
+                    indices: &a_indices_buf,
+                    values: &a_values_buf,
+                },
+                &CompressedBuffers {
+                    ptrs: &b_ptrs_buf,
+                    indices: &b_indices_buf,
+                    values: &b_values_buf,
+                },
+                &out_ptrs_buf,
+                &out_indices_buf,
+                &out_values_buf,
+                &params,
+                n,
+                dtype,
             )?;
         }
 
-        // Step 2: Exclusive scan
-        let out_col_ptrs = Tensor::<WgpuRuntime>::zeros(&[ncols + 1], DType::I32, &self.device_id)?;
-        let scan_params = ScanParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let scan_params_buffer = self.create_uniform_buffer("scan_params", 16);
-        self.write_buffer(
-            &scan_params_buffer,
-            &[
-                scan_params.n,
-                scan_params._pad0,
-                scan_params._pad1,
-                scan_params._pad2,
-            ],
-        );
+        Ok((
+            indices_to_i64(self, &out_ptrs)?,
+            indices_to_i64(self, &out_indices)?,
+            out_values,
+        ))
+    }
 
-        let out_col_ptrs_buf = get_tensor_buffer(&out_col_ptrs)?;
-
-        launch_exclusive_scan_i32(
-            self.pipeline_cache(),
-            self.wgpu_queue(),
-            &col_counts_buf,
-            &out_col_ptrs_buf,
-            &scan_params_buffer,
+    /// Merge two COO matrices of `shape`. Both operands convert to CSR on the
+    /// GPU. The result is COO in row-major order with I64 indices.
+    pub(super) fn coo_merge<T: Element>(
+        &self,
+        op: SparseMergeOp,
+        a: SparseParts<'_>,
+        b: SparseParts<'_>,
+        shape: [usize; 2],
+    ) -> Result<SparseTriple> {
+        let (a_ptrs, a_cols, a_values) = self.coo_to_csr_impl::<T>(a.0, a.1, a.2, shape)?;
+        let (b_ptrs, b_cols, b_values) = self.coo_to_csr_impl::<T>(b.0, b.1, b.2, shape)?;
+        let (ptrs, cols, values) = self.compressed_merge::<T>(
+            CompressedFormat::Csr,
+            op,
+            (&a_ptrs, &a_cols, &a_values),
+            (&b_ptrs, &b_cols, &b_values),
+            shape[0],
         )?;
-
-        // Step 3: Allocate output
-        let a_nnz = a_values.numel();
-        let b_nnz = b_values.numel();
-        let max_nnz = if matches!(op, MergeOp::Mul | MergeOp::Div) {
-            std::cmp::min(a_nnz, b_nnz)
-        } else {
-            a_nnz + b_nnz
-        };
-
-        let out_row_indices =
-            Tensor::<WgpuRuntime>::zeros(&[max_nnz], DType::I32, &self.device_id)?;
-        let out_values = Tensor::<WgpuRuntime>::zeros(&[max_nnz], dtype, &self.device_id)?;
-
-        let out_row_indices_buf = get_tensor_buffer(&out_row_indices)?;
-        let out_values_buf = get_tensor_buffer(&out_values)?;
-
-        // Step 4: Compute
-        let compute_params = ComputeParams {
-            n: ncols as u32,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-        };
-        let compute_params_buffer = self.create_uniform_buffer("csc_compute_params", 16);
-        self.write_buffer(
-            &compute_params_buffer,
-            &[
-                compute_params.n,
-                compute_params._pad0,
-                compute_params._pad1,
-                compute_params._pad2,
-            ],
-        );
-
-        let a_values_buf = get_tensor_buffer(a_values)?;
-        let b_values_buf = get_tensor_buffer(b_values)?;
-
-        match op {
-            MergeOp::Add => {
-                launch_csc_add_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_col_ptrs_buf,
-                    &a_row_indices_buf,
-                    &a_values_buf,
-                    &b_col_ptrs_buf,
-                    &b_row_indices_buf,
-                    &b_values_buf,
-                    &out_col_ptrs_buf,
-                    &out_row_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    ncols,
-                    dtype,
-                )?;
-            }
-            MergeOp::Sub => {
-                launch_csc_sub_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_col_ptrs_buf,
-                    &a_row_indices_buf,
-                    &a_values_buf,
-                    &b_col_ptrs_buf,
-                    &b_row_indices_buf,
-                    &b_values_buf,
-                    &out_col_ptrs_buf,
-                    &out_row_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    ncols,
-                    dtype,
-                )?;
-            }
-            MergeOp::Mul => {
-                launch_csc_mul_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_col_ptrs_buf,
-                    &a_row_indices_buf,
-                    &a_values_buf,
-                    &b_col_ptrs_buf,
-                    &b_row_indices_buf,
-                    &b_values_buf,
-                    &out_col_ptrs_buf,
-                    &out_row_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    ncols,
-                    dtype,
-                )?;
-            }
-            MergeOp::Div => {
-                launch_csc_div_compute(
-                    self.pipeline_cache(),
-                    self.wgpu_queue(),
-                    &a_col_ptrs_buf,
-                    &a_row_indices_buf,
-                    &a_values_buf,
-                    &b_col_ptrs_buf,
-                    &b_row_indices_buf,
-                    &b_values_buf,
-                    &out_col_ptrs_buf,
-                    &out_row_indices_buf,
-                    &out_values_buf,
-                    &compute_params_buffer,
-                    ncols,
-                    dtype,
-                )?;
-            }
-        }
-
-        Ok((out_col_ptrs, out_row_indices, out_values))
-    }
-
-    // =========================================================================
-    // COO Operations (convert to CSR, operate, optionally convert back)
-    // =========================================================================
-
-    /// COO element-wise addition - converts to CSR, adds, returns as CSR
-    pub(crate) fn add_coo_impl<T: Element>(
-        &self,
-        _a_row_indices: &Tensor<WgpuRuntime>,
-        _a_col_indices: &Tensor<WgpuRuntime>,
-        _a_values: &Tensor<WgpuRuntime>,
-        _b_row_indices: &Tensor<WgpuRuntime>,
-        _b_col_indices: &Tensor<WgpuRuntime>,
-        _b_values: &Tensor<WgpuRuntime>,
-        _shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        // COO operations require format conversion which isn't implemented yet
-        Err(crate::error::Error::NotImplemented {
-            feature: "WebGPU COO merge operations - requires format conversion",
-        })
-    }
-
-    /// COO element-wise subtraction
-    pub(crate) fn sub_coo_impl<T: Element>(
-        &self,
-        _a_row_indices: &Tensor<WgpuRuntime>,
-        _a_col_indices: &Tensor<WgpuRuntime>,
-        _a_values: &Tensor<WgpuRuntime>,
-        _b_row_indices: &Tensor<WgpuRuntime>,
-        _b_col_indices: &Tensor<WgpuRuntime>,
-        _b_values: &Tensor<WgpuRuntime>,
-        _shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        Err(crate::error::Error::NotImplemented {
-            feature: "WebGPU COO merge operations - requires format conversion",
-        })
-    }
-
-    /// COO element-wise multiplication
-    pub(crate) fn mul_coo_impl<T: Element>(
-        &self,
-        _a_row_indices: &Tensor<WgpuRuntime>,
-        _a_col_indices: &Tensor<WgpuRuntime>,
-        _a_values: &Tensor<WgpuRuntime>,
-        _b_row_indices: &Tensor<WgpuRuntime>,
-        _b_col_indices: &Tensor<WgpuRuntime>,
-        _b_values: &Tensor<WgpuRuntime>,
-        _shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        Err(crate::error::Error::NotImplemented {
-            feature: "WebGPU COO merge operations - requires format conversion",
-        })
-    }
-
-    /// COO element-wise division
-    pub(crate) fn div_coo_impl<T: Element>(
-        &self,
-        _a_row_indices: &Tensor<WgpuRuntime>,
-        _a_col_indices: &Tensor<WgpuRuntime>,
-        _a_values: &Tensor<WgpuRuntime>,
-        _b_row_indices: &Tensor<WgpuRuntime>,
-        _b_col_indices: &Tensor<WgpuRuntime>,
-        _b_values: &Tensor<WgpuRuntime>,
-        _shape: [usize; 2],
-    ) -> Result<(
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-        Tensor<WgpuRuntime>,
-    )> {
-        Err(crate::error::Error::NotImplemented {
-            feature: "WebGPU COO merge operations - requires format conversion",
-        })
+        self.csr_to_coo_impl::<T>(&ptrs, &cols, &values, shape)
     }
 }
 
-/// Merge operation type
-#[derive(Debug, Clone, Copy)]
-enum MergeOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
+fn merge_name(format: CompressedFormat, op: SparseMergeOp) -> &'static str {
+    match (format, op) {
+        (CompressedFormat::Csr, SparseMergeOp::Add) => "add_csr (WebGPU)",
+        (CompressedFormat::Csr, SparseMergeOp::Sub) => "sub_csr (WebGPU)",
+        (CompressedFormat::Csr, SparseMergeOp::Mul) => "mul_csr (WebGPU)",
+        (CompressedFormat::Csr, SparseMergeOp::Div) => "div_csr (WebGPU)",
+        (CompressedFormat::Csc, SparseMergeOp::Add) => "add_csc (WebGPU)",
+        (CompressedFormat::Csc, SparseMergeOp::Sub) => "sub_csc (WebGPU)",
+        (CompressedFormat::Csc, SparseMergeOp::Mul) => "mul_csc (WebGPU)",
+        (CompressedFormat::Csc, SparseMergeOp::Div) => "div_csc (WebGPU)",
+    }
 }
