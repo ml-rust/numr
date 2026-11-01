@@ -1,6 +1,7 @@
 //! High-level sparse operations (format-agnostic wrappers, reductions, conversions)
 
 use super::{CpuClient, CpuRuntime};
+use crate::algorithm::sparse::validate_dtype_match;
 use crate::dtype::Element;
 use crate::error::{Error, Result};
 use crate::sparse::SparseTensor;
@@ -13,6 +14,8 @@ pub fn spmv(
     x: &Tensor<CpuRuntime>,
 ) -> Result<Tensor<CpuRuntime>> {
     use crate::sparse::SparseOps;
+
+    validate_dtype_match(a.dtype(), x.dtype())?;
 
     let csr = match a {
         SparseTensor::Csr(data) => data.clone(),
@@ -36,6 +39,8 @@ pub fn spmm(
 ) -> Result<Tensor<CpuRuntime>> {
     use crate::sparse::SparseOps;
 
+    validate_dtype_match(a.dtype(), b.dtype())?;
+
     let csr = match a {
         SparseTensor::Csr(data) => data.clone(),
         SparseTensor::Coo(data) => data.to_csr()?,
@@ -57,6 +62,8 @@ pub fn dsmm(
     b: &SparseTensor<CpuRuntime>,
 ) -> Result<Tensor<CpuRuntime>> {
     use crate::algorithm::sparse::SparseAlgorithms;
+
+    validate_dtype_match(a.dtype(), b.dtype())?;
 
     let csc = match b {
         SparseTensor::Csc(data) => data.clone(),
@@ -99,11 +106,11 @@ pub fn sparse_matmul(
     a: &SparseTensor<CpuRuntime>,
     b: &SparseTensor<CpuRuntime>,
 ) -> Result<SparseTensor<CpuRuntime>> {
-    use crate::algorithm::sparse::{SparseAlgorithms, validate_dtype_match};
+    use crate::algorithm::sparse::SparseAlgorithms;
 
+    validate_dtype_match(a.dtype(), b.dtype())?;
     let csr_a = to_csr(a)?;
     let csr_b = to_csr(b)?;
-    validate_dtype_match(csr_a.values.dtype(), csr_b.values.dtype())?;
     let result_csr = client.esc_spgemm_csr(&csr_a, &csr_b)?;
     Ok(SparseTensor::Csr(result_csr))
 }
@@ -315,14 +322,9 @@ pub fn dense_to_sparse(a: &Tensor<CpuRuntime>, threshold: f64) -> Result<SparseT
 /// Transpose sparse tensor
 pub fn sparse_transpose(a: &SparseTensor<CpuRuntime>) -> Result<SparseTensor<CpuRuntime>> {
     match a {
-        SparseTensor::Csr(data) => {
-            let csc = data.to_csc()?;
-            Ok(SparseTensor::Csc(csc))
-        }
-        SparseTensor::Csc(data) => {
-            let csr = data.to_csr()?;
-            Ok(SparseTensor::Csr(csr))
-        }
+        // The CSR arrays of A are the CSC arrays of A^T, and the reverse.
+        SparseTensor::Csr(data) => Ok(SparseTensor::Csc(data.transpose())),
+        SparseTensor::Csc(data) => Ok(SparseTensor::Csr(data.transpose())),
         SparseTensor::Coo(data) => {
             let [nrows, ncols] = data.shape;
             let transposed = crate::sparse::CooData {
@@ -351,13 +353,7 @@ fn validate_shapes_and_dtypes(
             got: vec![b.shape()[0], b.shape()[1]],
         });
     }
-    if a.dtype() != b.dtype() {
-        return Err(Error::DTypeMismatch {
-            lhs: a.dtype(),
-            rhs: b.dtype(),
-        });
-    }
-    Ok(())
+    validate_dtype_match(a.dtype(), b.dtype())
 }
 
 fn to_csr(a: &SparseTensor<CpuRuntime>) -> Result<crate::sparse::CsrData<CpuRuntime>> {
@@ -381,5 +377,60 @@ fn values_ref(a: &SparseTensor<CpuRuntime>) -> &Tensor<CpuRuntime> {
         SparseTensor::Csr(data) => &data.values,
         SparseTensor::Csc(data) => &data.values,
         SparseTensor::Coo(data) => &data.values,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dtype::DType;
+    use crate::runtime::Runtime;
+    use crate::sparse::SparseOps;
+
+    fn diag_csr<T: Element>(
+        values: &[T],
+        device: &<CpuRuntime as Runtime>::Device,
+    ) -> SparseTensor<CpuRuntime> {
+        SparseTensor::from_csr_slices(&[0i64, 1, 2], &[0i64, 1], values, [2, 2], device).unwrap()
+    }
+
+    fn assert_f32_f64_mismatch<T: std::fmt::Debug>(result: Result<T>) {
+        match result {
+            Err(Error::DTypeMismatch { lhs, rhs }) => {
+                assert_eq!((lhs, rhs), (DType::F32, DType::F64));
+            }
+            other => panic!("expected DTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_add_csr_mixed_dtype_returns_error() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
+        let row_ptrs = Tensor::from_slice(&[0i64, 1, 2], &[3], &device).unwrap();
+        let col_indices = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
+        let a_values = Tensor::from_slice(&[1.0f32, 2.0], &[2], &device).unwrap();
+        let b_values = Tensor::from_slice(&[3.0f64, 4.0], &[2], &device).unwrap();
+
+        assert_f32_f64_mismatch(client.add_csr::<f32>(
+            &row_ptrs,
+            &col_indices,
+            &a_values,
+            &row_ptrs,
+            &col_indices,
+            &b_values,
+            [2, 2],
+        ));
+    }
+
+    #[test]
+    fn test_sparse_add_mixed_dtype_returns_error() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
+        let a = diag_csr(&[1.0f32, 2.0], &device);
+        let b = diag_csr(&[3.0f64, 4.0], &device);
+
+        assert_f32_f64_mismatch(client.sparse_add(&a, &b));
+        assert_f32_f64_mismatch(client.sparse_matmul(&a, &b));
     }
 }

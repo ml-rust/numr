@@ -3,6 +3,7 @@
 use super::super::super::CpuRuntime;
 use super::OperationSemantics;
 use super::zero_tolerance;
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -40,6 +41,16 @@ where
     FB: Fn(T) -> T,
 {
     let device = a_values.device();
+
+    validate_sparse_operands::<T>(
+        &[
+            a_row_indices.dtype(),
+            a_col_indices.dtype(),
+            b_row_indices.dtype(),
+            b_col_indices.dtype(),
+        ],
+        &[a_values.dtype(), b_values.dtype()],
+    )?;
 
     // Handle empty inputs early to avoid bytemuck alignment errors
     let a_nnz = a_values.numel();
@@ -187,6 +198,16 @@ where
 {
     let device = a_values.device();
 
+    validate_sparse_operands::<T>(
+        &[
+            a_row_indices.dtype(),
+            a_col_indices.dtype(),
+            b_row_indices.dtype(),
+            b_col_indices.dtype(),
+        ],
+        &[a_values.dtype(), b_values.dtype()],
+    )?;
+
     // Handle empty inputs - multiplication by zero gives zero (empty)
     let a_nnz = a_values.numel();
     let b_nnz = b_values.numel();
@@ -271,6 +292,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::dtype::DType;
+    use crate::error::Error;
     use crate::runtime::Runtime;
     use crate::runtime::cpu::{CpuClient, CpuRuntime};
     use crate::sparse::SparseOps;
@@ -317,5 +340,45 @@ mod tests {
         );
         assert!((values_data[0] - 4.0).abs() < 1e-6);
         assert_eq!(col_indices_data, vec![1]);
+    }
+
+    #[test]
+    fn test_coo_add_mixed_dtype_returns_error() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
+
+        let rows = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
+        let cols = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
+        let a_values = Tensor::from_slice(&[1.0f32, 2.0], &[2], &device).unwrap();
+        let b_values = Tensor::from_slice(&[3.0f64, 4.0], &[2], &device).unwrap();
+
+        let result =
+            client.add_coo::<f32>(&rows, &cols, &a_values, &rows, &cols, &b_values, [2, 2]);
+        match result {
+            Err(Error::DTypeMismatch { lhs, rhs }) => {
+                assert_eq!((lhs, rhs), (DType::F32, DType::F64));
+            }
+            other => panic!("expected DTypeMismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_coo_mul_mixed_dtype_returns_error() {
+        let device = <CpuRuntime as Runtime>::Device::default();
+        let client = CpuClient::new(device.clone());
+
+        let rows = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
+        let cols = Tensor::from_slice(&[0i64, 1], &[2], &device).unwrap();
+        let a_values = Tensor::from_slice(&[1.0f32, 2.0], &[2], &device).unwrap();
+        let b_values = Tensor::from_slice(&[3.0f64, 4.0], &[2], &device).unwrap();
+
+        let result =
+            client.mul_coo::<f32>(&rows, &cols, &a_values, &rows, &cols, &b_values, [2, 2]);
+        match result {
+            Err(Error::DTypeMismatch { lhs, rhs }) => {
+                assert_eq!((lhs, rhs), (DType::F32, DType::F64));
+            }
+            other => panic!("expected DTypeMismatch, got {other:?}"),
+        }
     }
 }

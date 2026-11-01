@@ -53,7 +53,7 @@ pub use types::{
 };
 
 // Re-export traits
-pub use traits::{IterativeSolvers, validate_iterative_inputs};
+pub use traits::{IterativeSolvers, validate_iterative_dtypes, validate_iterative_inputs};
 
 // Re-export implementations
 pub use impl_generic::{

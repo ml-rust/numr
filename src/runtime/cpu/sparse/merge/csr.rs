@@ -3,6 +3,7 @@
 use super::super::super::CpuRuntime;
 use super::common::{MergeStrategy, OperationSemantics, handle_empty_compressed};
 use super::zero_tolerance;
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -50,6 +51,16 @@ where
 {
     let [nrows, _ncols] = shape;
     let device = a_values.device();
+
+    validate_sparse_operands::<T>(
+        &[
+            a_row_ptrs.dtype(),
+            a_col_indices.dtype(),
+            b_row_ptrs.dtype(),
+            b_col_indices.dtype(),
+        ],
+        &[a_values.dtype(), b_values.dtype()],
+    )?;
 
     // Handle empty inputs with centralized logic
     if let Some(result) = handle_empty_compressed::<T>(

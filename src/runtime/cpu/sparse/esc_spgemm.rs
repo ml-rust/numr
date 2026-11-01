@@ -26,7 +26,7 @@
 //!
 //! This algorithm matches the CUDA implementation for backend parity.
 
-use crate::algorithm::sparse::{validate_spgemm_shapes, zero_tolerance};
+use crate::algorithm::sparse::{validate_dtype_match, validate_spgemm_shapes, zero_tolerance};
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::runtime::cpu::{CpuClient, CpuRuntime};
@@ -42,6 +42,7 @@ pub(super) fn esc_spgemm_csr(
 ) -> Result<CsrData<CpuRuntime>> {
     // Validate shapes and dtypes
     let ([m, n], _k) = validate_spgemm_shapes(a_csr.shape, b_csr.shape)?;
+    validate_dtype_match(a_csr.values.dtype(), b_csr.values.dtype())?;
 
     let dtype = a_csr.values.dtype();
     let device = a_csr.values.device();

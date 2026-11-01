@@ -145,3 +145,25 @@ pub fn validate_dtype_match(lhs: DType, rhs: DType) -> Result<()> {
     }
     Ok(())
 }
+
+/// Check the operand dtypes of a sparse operation that reads its values as `T`.
+///
+/// Every index dtype must be `I64`. Every value dtype must equal `T::DTYPE`.
+/// The check reads dtype metadata only, so it moves no data on any backend.
+///
+/// # Errors
+///
+/// Returns `Error::DTypeMismatch` with `lhs` set to the expected dtype and
+/// `rhs` set to the first operand dtype that differs.
+pub fn validate_sparse_operands<T: crate::dtype::Element>(
+    indices: &[DType],
+    values: &[DType],
+) -> Result<()> {
+    for &dtype in indices {
+        validate_dtype_match(DType::I64, dtype)?;
+    }
+    for &dtype in values {
+        validate_dtype_match(T::DTYPE, dtype)?;
+    }
+    Ok(())
+}

@@ -25,11 +25,13 @@ pub(super) fn column_parallel_dsmm(
     dense_a: &Tensor<CpuRuntime>,
     sparse_b_csc: &CscData<CpuRuntime>,
 ) -> Result<Tensor<CpuRuntime>> {
-    use crate::algorithm::sparse::validate_dsmm_shapes;
+    use crate::algorithm::sparse::{validate_dsmm_shapes, validate_dtype_match};
 
     let [k, n] = sparse_b_csc.shape;
     let dtype = sparse_b_csc.values.dtype();
     let device = dense_a.device();
+
+    validate_dtype_match(dense_a.dtype(), dtype)?;
 
     // Validate dimensions
     let ([m, _output_n], _k) = validate_dsmm_shapes(dense_a.shape(), sparse_b_csc.shape)?;

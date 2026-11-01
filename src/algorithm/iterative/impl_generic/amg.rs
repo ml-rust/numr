@@ -246,6 +246,8 @@ where
     R::Client: SparseOps<R>,
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
+    super::super::traits::validate_iterative_dtypes(a, b, x0)?;
+
     let n = a.shape[0];
     let dtype = b.dtype();
     let device = b.device();

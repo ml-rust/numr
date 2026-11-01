@@ -401,4 +401,36 @@ mod tests {
             "With good initial guess, should converge in 0-1 iterations"
         );
     }
+
+    #[test]
+    fn test_iterative_solvers_mixed_dtype_return_error() {
+        use crate::dtype::DType;
+        use crate::error::Error;
+
+        let client = get_client();
+        let device = &client.device;
+
+        let n = 5;
+        // The Laplacian holds f64 values.
+        let a = create_1d_laplacian(n, device);
+        let b_f32 =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f32, 0.0, 0.0, 0.0, 1.0], &[n], device).unwrap();
+        let b_f64 =
+            Tensor::<CpuRuntime>::from_slice(&[1.0f64, 0.0, 0.0, 0.0, 1.0], &[n], device).unwrap();
+
+        let expect_mismatch = |err: Option<Error>| match err {
+            Some(Error::DTypeMismatch { lhs, rhs }) => {
+                assert_eq!((lhs, rhs), (DType::F64, DType::F32));
+            }
+            other => panic!("expected DTypeMismatch, got {other:?}"),
+        };
+
+        expect_mismatch(client.cg(&a, &b_f32, None, CgOptions::default()).err());
+        expect_mismatch(
+            client
+                .gmres(&a, &b_f64, Some(&b_f32), GmresOptions::default())
+                .err(),
+        );
+        expect_mismatch(client.sor(&a, &b_f32, None, SorOptions::default()).err());
+    }
 }

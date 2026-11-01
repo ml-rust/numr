@@ -39,6 +39,7 @@ where
     C: SparseOps<R> + BinaryOps<R> + UnaryOps<R> + ReduceOps<R> + ScalarOps<R>,
 {
     let n = super::super::traits::validate_iterative_inputs(a.shape, b, x0)?;
+    super::super::traits::validate_iterative_dtypes(a, b, x0)?;
     let device = b.device();
     let dtype = b.dtype();
 

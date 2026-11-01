@@ -352,4 +352,27 @@ mod tests {
         // Should succeed with the shift
         assert!(result.is_ok(), "ILU0 with diagonal shift should succeed");
     }
+
+    #[test]
+    fn test_sparse_solve_triangular_mixed_dtype_returns_error() {
+        use crate::dtype::DType;
+        use crate::error::Error;
+
+        let client = get_client();
+        let device = &client.device;
+
+        // L = diag(2, 4) stored as f32, b stored as f64.
+        let row_ptrs = Tensor::<CpuRuntime>::from_slice(&[0i64, 1, 2], &[3], device).unwrap();
+        let col_indices = Tensor::<CpuRuntime>::from_slice(&[0i64, 1], &[2], device).unwrap();
+        let values = Tensor::<CpuRuntime>::from_slice(&[2.0f32, 4.0], &[2], device).unwrap();
+        let l = CsrData::new(row_ptrs, col_indices, values, [2, 2]).unwrap();
+        let b = Tensor::<CpuRuntime>::from_slice(&[2.0f64, 4.0], &[2], device).unwrap();
+
+        match client.sparse_solve_triangular(&l, &b, true, false) {
+            Err(Error::DTypeMismatch { lhs, rhs }) => {
+                assert_eq!((lhs, rhs), (DType::F32, DType::F64));
+            }
+            other => panic!("expected DTypeMismatch, got {other:?}"),
+        }
+    }
 }

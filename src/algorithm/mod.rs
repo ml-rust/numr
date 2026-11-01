@@ -80,8 +80,8 @@ pub use special::{
 
 #[cfg(feature = "sparse")]
 pub use sparse::{
-    SparseAlgorithms, validate_dsmm_shapes, validate_dtype_match, validate_spgemm_shapes,
-    zero_tolerance,
+    SparseAlgorithms, validate_dsmm_shapes, validate_dtype_match, validate_sparse_operands,
+    validate_spgemm_shapes, zero_tolerance,
 };
 
 #[cfg(feature = "sparse")]
@@ -154,5 +154,6 @@ pub use iterative::{
     gmres_impl,
     lanczos_eig_impl,
     minres_impl,
+    validate_iterative_dtypes,
     validate_iterative_inputs,
 };

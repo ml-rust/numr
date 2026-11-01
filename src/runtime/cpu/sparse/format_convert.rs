@@ -1,6 +1,7 @@
 //! Sparse format conversion implementations (COO↔CSR↔CSC) for CPU
 
 use super::CpuRuntime;
+use crate::algorithm::sparse::validate_sparse_operands;
 use crate::dtype::Element;
 use crate::error::Result;
 use crate::tensor::Tensor;
@@ -11,6 +12,11 @@ pub fn coo_to_csr<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(
+        &[row_indices.dtype(), col_indices.dtype()],
+        &[values.dtype()],
+    )?;
+
     let [nrows, _ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -51,6 +57,11 @@ pub fn coo_to_csc<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(
+        &[row_indices.dtype(), col_indices.dtype()],
+        &[values.dtype()],
+    )?;
+
     let [_nrows, ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -91,6 +102,8 @@ pub fn csr_to_coo<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(&[row_ptrs.dtype(), col_indices.dtype()], &[values.dtype()])?;
+
     let [nrows, _ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -116,6 +129,8 @@ pub fn csc_to_coo<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(&[col_ptrs.dtype(), row_indices.dtype()], &[values.dtype()])?;
+
     let [_nrows, ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -141,6 +156,8 @@ pub fn csr_to_csc<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(&[row_ptrs.dtype(), col_indices.dtype()], &[values.dtype()])?;
+
     let [nrows, ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -188,6 +205,8 @@ pub fn csc_to_csr<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<(Tensor<CpuRuntime>, Tensor<CpuRuntime>, Tensor<CpuRuntime>)> {
+    validate_sparse_operands::<T>(&[col_ptrs.dtype(), row_indices.dtype()], &[values.dtype()])?;
+
     let [nrows, ncols] = shape;
     let nnz = values.numel();
     let device = values.device();
@@ -235,6 +254,8 @@ pub fn extract_diagonal_csr<T: Element>(
     values: &Tensor<CpuRuntime>,
     shape: [usize; 2],
 ) -> Result<Tensor<CpuRuntime>> {
+    validate_sparse_operands::<T>(&[row_ptrs.dtype(), col_indices.dtype()], &[values.dtype()])?;
+
     let [nrows, ncols] = shape;
     let n = nrows.min(ncols);
     let device = values.device();

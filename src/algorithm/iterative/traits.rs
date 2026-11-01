@@ -215,3 +215,26 @@ pub fn validate_iterative_inputs<R: Runtime>(
 
     Ok(n)
 }
+
+/// Check that the matrix, the right-hand side and the initial guess share one dtype.
+///
+/// The check reads dtype metadata only, so it moves no data on any backend.
+///
+/// # Errors
+///
+/// Returns `Error::DTypeMismatch` with `lhs` set to the dtype of `a`'s values
+/// and `rhs` set to the dtype of the first vector that differs.
+pub fn validate_iterative_dtypes<R: Runtime<DType = crate::dtype::DType>>(
+    a: &CsrData<R>,
+    b: &Tensor<R>,
+    x0: Option<&Tensor<R>>,
+) -> Result<()> {
+    use crate::algorithm::sparse::validate_dtype_match;
+
+    let dtype = a.values().dtype();
+    validate_dtype_match(dtype, b.dtype())?;
+    if let Some(x0) = x0 {
+        validate_dtype_match(dtype, x0.dtype())?;
+    }
+    Ok(())
+}

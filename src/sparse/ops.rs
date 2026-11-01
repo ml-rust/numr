@@ -33,6 +33,8 @@ use super::{CscData, CsrData, SparseTensor};
 /// - SpMV/SpMM are the most performance-critical operations
 /// - Format conversion may be needed for optimal performance
 /// - Backends implement low-level operations; high-level ones auto-delegate
+/// - Operands of different dtypes return `Error::DTypeMismatch`. So does a
+///   value dtype that differs from the type parameter `T` of a low-level method.
 ///
 /// # Example
 ///
@@ -45,7 +47,7 @@ use super::{CscData, CsrData, SparseTensor};
 /// # let client = CpuRuntime::default_client(&device);
 /// // High-level API
 /// # let sparse_a = SparseTensor::<CpuRuntime>::from_coo_slices(&[0, 1], &[1, 0], &[1.0f32, 2.0], [2, 2], &device)?;
-/// # let dense_x = Tensor::from_slice(&[1.0, 2.0], &[2], &device)?;
+/// # let dense_x = Tensor::from_slice(&[1.0f32, 2.0], &[2], &device)?;
 /// let y = client.spmv(&sparse_a, &dense_x)?;  // y = A * x
 ///
 /// // Low-level API (format-specific)
