@@ -25,7 +25,7 @@
 //! - `sparse_spmv` - Sparse matrix operations (SpMV, SpMM)
 //! - `sparse_merge` - Sparse matrix merge operations
 //! - `sparse_convert` - Sparse format conversions (COO/CSR/CSC)
-//! - `sparse_coo` - COO sparse element-wise operations with GPU sorting
+//! - `sparse_coo` - COO key sort and gathers for the format conversions
 //! - `scan` - Prefix sum operations
 //!
 //! # Kernel Files
@@ -44,7 +44,7 @@
 //! - `sparse_spmv.cu` - Sparse matrix operations
 //! - `sparse_merge.cu` - Sparse matrix merge operations
 //! - `sparse_convert.cu` - Sparse format conversions
-//! - `sparse_coo.cu` - COO sparse element-wise operations with GPU sorting
+//! - `sparse_coo.cu` - COO key sort and gathers for the format conversions
 //! - `scan.cu` - Prefix sum operations
 
 mod activation;
@@ -86,6 +86,8 @@ mod sparse_24_launcher;
 mod sparse_convert;
 #[cfg(feature = "sparse")]
 mod sparse_coo;
+#[cfg(feature = "sparse")]
+mod sparse_dtype;
 #[cfg(feature = "sparse")]
 mod sparse_linalg;
 #[cfg(feature = "sparse")]
@@ -144,14 +146,14 @@ pub use sparse_convert::*;
 #[cfg(feature = "sparse")]
 pub use sparse_coo::*;
 #[cfg(feature = "sparse")]
+pub use sparse_dtype::*;
+#[cfg(feature = "sparse")]
 pub use sparse_linalg::*;
 #[cfg(feature = "sparse")]
 pub use sparse_merge::*;
 #[cfg(feature = "sparse")]
 pub use sparse_spmv::*;
 #[cfg(feature = "sparse")]
-#[allow(unused_imports)]
-// Sparse strategy types (AddMerge, SubMerge, etc.) used internally in sparse_merge
 pub use sparse_strategy::*;
 #[cfg(feature = "sparse")]
 pub use sparse_utils::*;

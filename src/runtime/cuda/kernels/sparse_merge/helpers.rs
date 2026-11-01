@@ -11,9 +11,10 @@
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
-use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
+use super::super::sparse_dtype::merge_kernel_name;
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::CudaRuntime;
 use crate::runtime::cuda::GuardedStream;
@@ -22,24 +23,6 @@ use crate::tensor::Tensor;
 use super::super::loader::{
     BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_names, launch_config,
 };
-
-// ============================================================================
-// dtype suffix helper
-// ============================================================================
-
-/// Get dtype-specific kernel name suffix
-pub(super) fn dtype_suffix<T: CudaTypeName>() -> Result<&'static str> {
-    match T::NAME {
-        "f32" => Ok("f32"),
-        "f64" => Ok("f64"),
-        "__half" => Ok("f16"),
-        "__nv_bfloat16" => Ok("bf16"),
-        _ => Err(Error::Internal(format!(
-            "Unsupported dtype for sparse operation: {}",
-            T::NAME
-        ))),
-    }
-}
 
 // ============================================================================
 // Generic Kernel Launcher Helpers (DRY principle)
@@ -103,11 +86,12 @@ pub(super) unsafe fn launch_count_kernel(
 /// - Output buffers must be pre-allocated to the correct sizes (determined by a prior count pass).
 /// - `nrows` must match the number of rows in both input matrices.
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
-pub(super) unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
+pub(super) unsafe fn launch_csr_compute_kernel(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
     kernel_base_name: &str,
+    dtype: DType,
     row_ptrs_a: u64,
     col_indices_a: u64,
     values_a: u64,
@@ -120,8 +104,7 @@ pub(super) unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
     nrows: usize,
     error_context: &str,
 ) -> Result<()> {
-    let suffix = dtype_suffix::<T>()?;
-    let kernel_name = format!("{}_{}", kernel_base_name, suffix);
+    let kernel_name = merge_kernel_name(kernel_base_name, dtype, "sparse merge (CUDA)")?;
 
     let module = get_or_load_module(context, device_index, kernel_names::SPARSE_MERGE_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;
@@ -162,11 +145,12 @@ pub(super) unsafe fn launch_csr_compute_kernel<T: CudaTypeName>(
 /// - Output buffers must be pre-allocated to the correct sizes (determined by a prior count pass).
 /// - `ncols` must match the number of columns in both input matrices.
 /// - The stream must be from the same context and must not be destroyed while the kernel runs.
-pub(super) unsafe fn launch_csc_compute_kernel<T: CudaTypeName>(
+pub(super) unsafe fn launch_csc_compute_kernel(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
     kernel_base_name: &str,
+    dtype: DType,
     col_ptrs_a: u64,
     row_indices_a: u64,
     values_a: u64,
@@ -179,8 +163,7 @@ pub(super) unsafe fn launch_csc_compute_kernel<T: CudaTypeName>(
     ncols: usize,
     error_context: &str,
 ) -> Result<()> {
-    let suffix = dtype_suffix::<T>()?;
-    let kernel_name = format!("{}_{}", kernel_base_name, suffix);
+    let kernel_name = merge_kernel_name(kernel_base_name, dtype, "sparse merge (CUDA)")?;
 
     let module = get_or_load_module(context, device_index, kernel_names::SPARSE_MERGE_MODULE)?;
     let func = get_kernel_function(&module, &kernel_name)?;

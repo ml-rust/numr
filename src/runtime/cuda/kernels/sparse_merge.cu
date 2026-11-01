@@ -1857,3 +1857,87 @@ __global__ void csc_div_compute_bf16(
 }
 
 }  // extern "C"
+
+// ============================================================================
+// Integer merges (CSR and CSC share one body: a compressed merge over n major
+// slices). OP: 0 add, 1 sub (union), 2 mul, 3 div (intersection).
+// ============================================================================
+
+template<typename T, int OP>
+__device__ __forceinline__ void int_merge_compute(
+    const int* ptrs_a, const int* indices_a, const T* values_a,
+    const int* ptrs_b, const int* indices_b, const T* values_b,
+    const int* out_ptrs, int* out_indices, T* out_values,
+    int n
+) {
+    int major = blockIdx.x * blockDim.x + threadIdx.x;
+    if (major >= n) return;
+
+    int i = ptrs_a[major], end_a = ptrs_a[major + 1];
+    int j = ptrs_b[major], end_b = ptrs_b[major + 1];
+    int out = out_ptrs[major];
+
+    if (OP <= 1) {
+        while (i < end_a || j < end_b) {
+            int ka = (i < end_a) ? indices_a[i] : INT_MAX;
+            int kb = (j < end_b) ? indices_b[j] : INT_MAX;
+            if (ka < kb) {
+                out_indices[out] = ka;
+                out_values[out] = values_a[i];
+                i++;
+            } else if (ka > kb) {
+                out_indices[out] = kb;
+                out_values[out] = (OP == 0) ? values_b[j] : (T)(-values_b[j]);
+                j++;
+            } else {
+                out_indices[out] = ka;
+                out_values[out] = (OP == 0) ? (T)(values_a[i] + values_b[j])
+                                            : (T)(values_a[i] - values_b[j]);
+                i++; j++;
+            }
+            out++;
+        }
+    } else {
+        while (i < end_a && j < end_b) {
+            int ka = indices_a[i];
+            int kb = indices_b[j];
+            if (ka < kb) {
+                i++;
+            } else if (ka > kb) {
+                j++;
+            } else {
+                out_indices[out] = ka;
+                out_values[out] = (OP == 2) ? (T)(values_a[i] * values_b[j])
+                                            : (T)(values_a[i] / values_b[j]);
+                i++; j++; out++;
+            }
+        }
+    }
+}
+
+#define INT_MERGE_KERNEL(FMT, NAME, OP, TYPE, SUFFIX)                                   \
+extern "C" __global__ void FMT##_##NAME##_compute_##SUFFIX(                            \
+    const int* ptrs_a, const int* indices_a, const TYPE* values_a,                      \
+    const int* ptrs_b, const int* indices_b, const TYPE* values_b,                      \
+    const int* out_ptrs, int* out_indices, TYPE* out_values,                            \
+    int n                                                                               \
+) {                                                                                     \
+    int_merge_compute<TYPE, OP>(ptrs_a, indices_a, values_a, ptrs_b, indices_b,         \
+                                values_b, out_ptrs, out_indices, out_values, n);        \
+}
+
+#define INT_MERGE_KERNELS(TYPE, SUFFIX)               \
+    INT_MERGE_KERNEL(csr, add, 0, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csr, sub, 1, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csr, mul, 2, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csr, div, 3, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csc, add, 0, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csc, sub, 1, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csc, mul, 2, TYPE, SUFFIX)       \
+    INT_MERGE_KERNEL(csc, div, 3, TYPE, SUFFIX)
+
+// Signed integers only: sub negates B-only entries.
+INT_MERGE_KERNELS(signed char, i8)
+INT_MERGE_KERNELS(short, i16)
+INT_MERGE_KERNELS(int, i32)
+INT_MERGE_KERNELS(long long, i64)

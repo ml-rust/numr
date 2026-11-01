@@ -18,7 +18,7 @@
 //!
 //! This algorithm matches the CPU implementation for backend parity.
 
-use crate::algorithm::sparse::validate_dsmm_shapes;
+use crate::algorithm::sparse::{validate_dsmm_shapes, validate_dtype_match};
 use crate::error::Result;
 use crate::runtime::cuda::kernels::launch_dsmm_csc;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
@@ -33,6 +33,9 @@ pub(super) fn column_parallel_dsmm(
 ) -> Result<Tensor<CudaRuntime>> {
     let dtype = dense_a.dtype();
     let device = dense_a.device();
+
+    // The check reads dtype metadata on the host. No data moves.
+    validate_dtype_match(dtype, sparse_b_csc.values.dtype())?;
 
     // Validate dimensions
     let ([m, n], k) = validate_dsmm_shapes(dense_a.shape(), sparse_b_csc.shape)?;

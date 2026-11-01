@@ -1,605 +1,64 @@
-//! COO Sparse Matrix CUDA Kernel Launchers
-//!
-//! Low-level kernel wrappers for COO sparse operations.
-//! All functions are pub(crate) for use by high-level merge operations.
-
-#![allow(dead_code)]
-#![allow(unsafe_op_in_unsafe_fn)]
+//! Launchers for the COO sort kernels in `sparse_coo.cu`.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
-use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
+use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
 use crate::runtime::cuda::kernels::loader::{
-    BLOCK_SIZE, get_kernel_function, get_or_load_module, kernel_names, launch_config,
+    BLOCK_SIZE, LaunchConfig, get_kernel_function, get_or_load_module, kernel_names, launch_config,
 };
 
-/// Helper to compute launch config from element count
-pub(crate) fn compute_launch_config(
-    n: usize,
-) -> crate::runtime::cuda::kernels::loader::LaunchConfig {
-    let grid_size = (n as u32 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+fn linear_config(n: usize) -> LaunchConfig {
+    let grid_size = (n as u32).div_ceil(BLOCK_SIZE);
     launch_config((grid_size, 1, 1), (BLOCK_SIZE, 1, 1), 0)
 }
 
-// ============================================================================
-// Key Computation Launchers
-// ============================================================================
-
-/// Launch COO key computation kernel
-/// keys[i] = row_indices[i] * ncols + col_indices[i]
-pub(crate) unsafe fn launch_coo_compute_keys(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    row_indices: u64,
-    col_indices: u64,
-    keys_out: u64,
-    ncols: i64,
-    nnz: usize,
-) -> Result<()> {
-    let kernel_name = "coo_compute_keys_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(nnz);
-
-    let nnz_u32 = nnz as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&row_indices);
-    builder.arg(&col_indices);
-    builder.arg(&keys_out);
-    builder.arg(&ncols);
-    builder.arg(&nnz_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed (device={}, nnz={}, ncols={}): {:?}",
-                kernel_name, device_index, nnz, ncols, e
-            ))
-        })?;
-    }
-
-    Ok(())
+fn launch_failed(kernel: &str, n: usize, e: impl std::fmt::Debug) -> Error {
+    Error::Internal(format!(
+        "CUDA {kernel} launch over {n} entries failed: {e:?}"
+    ))
 }
 
-/// Launch COO index extraction kernel
-/// row_indices[i] = keys[i] / ncols, col_indices[i] = keys[i] % ncols
-pub(crate) unsafe fn launch_coo_extract_indices(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    keys: u64,
-    row_indices_out: u64,
-    col_indices_out: u64,
-    ncols: i64,
-    nnz: usize,
-) -> Result<()> {
-    let kernel_name = "coo_extract_indices_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(nnz);
-
-    let nnz_u32 = nnz as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&keys);
-    builder.arg(&row_indices_out);
-    builder.arg(&col_indices_out);
-    builder.arg(&ncols);
-    builder.arg(&nnz_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed (device={}, nnz={}, ncols={}): {:?}",
-                kernel_name, device_index, nnz, ncols, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Concatenation Launchers
-// ============================================================================
-
-/// Launch key concatenation kernel
-pub(crate) unsafe fn launch_coo_concat_keys(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    keys_a: u64,
-    keys_b: u64,
-    keys_out: u64,
-    nnz_a: usize,
-    nnz_b: usize,
-) -> Result<()> {
-    let kernel_name = "coo_concat_keys_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let total = nnz_a + nnz_b;
-    let cfg = compute_launch_config(total);
-
-    let nnz_a_u32 = nnz_a as u32;
-    let nnz_b_u32 = nnz_b as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&keys_a);
-    builder.arg(&keys_b);
-    builder.arg(&keys_out);
-    builder.arg(&nnz_a_u32);
-    builder.arg(&nnz_b_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch value concatenation with source flags kernel
-pub(crate) unsafe fn launch_coo_concat_values_with_source<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    values_a: u64,
-    values_b: u64,
-    values_out: u64,
-    source_out: u64,
-    nnz_a: usize,
-    nnz_b: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_concat_values_with_source_f32",
-        "f64" => "coo_concat_values_with_source_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO concat: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let total = nnz_a + nnz_b;
-    let cfg = compute_launch_config(total);
-
-    let nnz_a_u32 = nnz_a as u32;
-    let nnz_b_u32 = nnz_b as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&values_a);
-    builder.arg(&values_b);
-    builder.arg(&values_out);
-    builder.arg(&source_out);
-    builder.arg(&nnz_a_u32);
-    builder.arg(&nnz_b_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Unique Marking Launcher
-// ============================================================================
-
-/// Launch unique position marking kernel
-pub(crate) unsafe fn launch_coo_mark_unique(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    keys: u64,
-    unique_flags: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = "coo_mark_unique_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&keys);
-    builder.arg(&unique_flags);
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Merge Operation Launchers
-// ============================================================================
-
-/// Launch COO merge add kernel (union semantics)
-pub(crate) unsafe fn launch_coo_merge_add<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    sorted_values: u64,
-    source_flags: u64,
-    unique_positions: u64,
-    out_keys: u64,
-    out_values: u64,
-    n: usize,
-    num_unique: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_merge_add_f32",
-        "f64" => "coo_merge_add_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO merge add: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let num_unique_u32 = num_unique as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&sorted_values);
-    builder.arg(&source_flags);
-    builder.arg(&unique_positions);
-    builder.arg(&out_keys);
-    builder.arg(&out_values);
-    builder.arg(&n_u32);
-    builder.arg(&num_unique_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch COO merge sub kernel (union semantics)
-pub(crate) unsafe fn launch_coo_merge_sub<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    sorted_values: u64,
-    source_flags: u64,
-    unique_positions: u64,
-    out_keys: u64,
-    out_values: u64,
-    n: usize,
-    num_unique: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_merge_sub_f32",
-        "f64" => "coo_merge_sub_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO merge sub: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let num_unique_u32 = num_unique as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&sorted_values);
-    builder.arg(&source_flags);
-    builder.arg(&unique_positions);
-    builder.arg(&out_keys);
-    builder.arg(&out_values);
-    builder.arg(&n_u32);
-    builder.arg(&num_unique_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch intersection counting kernel
-pub(crate) unsafe fn launch_coo_count_intersections(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    source_flags: u64,
-    intersection_flags: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = "coo_count_intersections_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&source_flags);
-    builder.arg(&intersection_flags);
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch COO merge mul kernel (intersection semantics)
-pub(crate) unsafe fn launch_coo_merge_mul<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    sorted_values: u64,
-    source_flags: u64,
-    intersection_flags: u64,
-    output_positions: u64,
-    out_keys: u64,
-    out_values: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_merge_mul_f32",
-        "f64" => "coo_merge_mul_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO merge mul: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&sorted_values);
-    builder.arg(&source_flags);
-    builder.arg(&intersection_flags);
-    builder.arg(&output_positions);
-    builder.arg(&out_keys);
-    builder.arg(&out_values);
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch COO merge div kernel (intersection semantics)
-pub(crate) unsafe fn launch_coo_merge_div<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    sorted_values: u64,
-    source_flags: u64,
-    intersection_flags: u64,
-    output_positions: u64,
-    out_keys: u64,
-    out_values: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_merge_div_f32",
-        "f64" => "coo_merge_div_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO merge div: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&sorted_values);
-    builder.arg(&source_flags);
-    builder.arg(&intersection_flags);
-    builder.arg(&output_positions);
-    builder.arg(&out_keys);
-    builder.arg(&out_values);
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// Zero Filtering Launchers
-// ============================================================================
-
-/// Launch non-zero marking kernel
-pub(crate) unsafe fn launch_coo_mark_nonzero<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    values: u64,
-    nonzero_flags: u64,
-    threshold: f64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_mark_nonzero_f32",
-        "f64" => "coo_mark_nonzero_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO mark nonzero: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let threshold_f32 = threshold as f32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&values);
-    builder.arg(&nonzero_flags);
-    if T::NAME == "f32" {
-        builder.arg(&threshold_f32);
-    } else {
-        builder.arg(&threshold);
-    }
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-/// Launch compaction kernel
-pub(crate) unsafe fn launch_coo_compact<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    keys_in: u64,
-    values_in: u64,
-    flags: u64,
-    positions: u64,
-    keys_out: u64,
-    values_out: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_compact_f32",
-        "f64" => "coo_compact_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for COO compact: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-
-    let n_u32 = n as u32;
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&keys_in);
-    builder.arg(&values_in);
-    builder.arg(&flags);
-    builder.arg(&positions);
-    builder.arg(&keys_out);
-    builder.arg(&values_out);
-    builder.arg(&n_u32);
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed: {:?}",
-                kernel_name, e
-            ))
-        })?;
-    }
-
-    Ok(())
-}
-
-// ============================================================================
-// GPU Sort using Thrust
-// ============================================================================
-
-/// Sort (i64 keys, i32 indices) using Thrust `stable_sort_by_key` - fully on GPU
-///
-/// Sorts in-place: both `keys` and `indices` serve as input and output after sorting.
+/// `keys[i] = primary[i] * extent + secondary[i]` over `nnz` I64 entries.
 ///
 /// # Safety
 ///
-/// - `keys` must be a valid device memory pointer with at least `n` i64 elements.
-/// - `indices` must be a valid device memory pointer with at least `n` i32 elements.
-/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// `primary`, `secondary` and `keys_out` must be live device buffers of
+/// `nnz` I64 elements on `context`.
+pub unsafe fn launch_coo_compute_keys(
+    context: &Arc<CudaContext>,
+    stream: &GuardedStream,
+    device_index: usize,
+    primary: u64,
+    secondary: u64,
+    keys_out: u64,
+    extent: i64,
+    nnz: usize,
+) -> Result<()> {
+    let kernel = "coo_compute_keys_i64";
+    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
+    let function = get_kernel_function(&module, kernel)?;
+    let nnz_u32 = nnz as u32;
+    let mut builder = stream.launch_builder(&function);
+    builder.arg(&primary);
+    builder.arg(&secondary);
+    builder.arg(&keys_out);
+    builder.arg(&extent);
+    builder.arg(&nnz_u32);
+    unsafe { builder.launch(linear_config(nnz)) }.map_err(|e| launch_failed(kernel, nnz, e))?;
+    Ok(())
+}
+
+/// Stable sort of `n` (I64 key, I32 id) pairs by key, in place. Equal keys
+/// keep their input order.
+///
+/// # Safety
+///
+/// `keys` must hold `n` I64 elements and `indices` `n` I32 elements, both
+/// live device buffers on `context`.
 pub unsafe fn launch_thrust_sort_pairs_i64_i32(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
@@ -608,41 +67,24 @@ pub unsafe fn launch_thrust_sort_pairs_i64_i32(
     indices: u64,
     n: u32,
 ) -> Result<()> {
-    let kernel_name = "thrust_sort_pairs_i64_i32_kernel";
-
+    let kernel = "thrust_sort_pairs_i64_i32_kernel";
     let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    // Launch with single thread (thrust handles parallelism internally)
+    let function = get_kernel_function(&module, kernel)?;
+    // One thread: Thrust runs the sort from that thread.
     let cfg = launch_config((1, 1, 1), (1, 1, 1), 0);
-
     let mut builder = stream.launch_builder(&function);
     builder.arg(&keys);
     builder.arg(&indices);
     builder.arg(&n);
-
-    unsafe {
-        builder.launch(cfg).map_err(|e| {
-            Error::Internal(format!(
-                "CUDA {} kernel launch failed (n={}, keys=0x{:x}, indices=0x{:x}): {:?}",
-                kernel_name, n, keys, indices, e
-            ))
-        })?;
-    }
-
+    unsafe { builder.launch(cfg) }.map_err(|e| launch_failed(kernel, n as usize, e))?;
     Ok(())
 }
 
-// ============================================================================
-// Index and Gather Kernel Launchers
-// ============================================================================
-
-/// Initialize indices array `[0, 1, 2, ..., n-1]` on device
+/// `indices = [0, 1, ..., n - 1]` as I32.
 ///
 /// # Safety
 ///
-/// - `indices` must be a valid device memory pointer with at least `n` i32 elements.
-/// - The stream must be from the same context and must not be destroyed while the kernel runs.
+/// `indices` must be a live device buffer of `n` I32 elements on `context`.
 pub unsafe fn launch_coo_init_indices(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
@@ -650,206 +92,57 @@ pub unsafe fn launch_coo_init_indices(
     indices: u64,
     n: usize,
 ) -> Result<()> {
-    let kernel_name = "coo_init_indices_i32";
-
+    let kernel = "coo_init_indices_i32";
     let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
+    let function = get_kernel_function(&module, kernel)?;
     let n_u32 = n as u32;
-
     let mut builder = stream.launch_builder(&function);
     builder.arg(&indices);
     builder.arg(&n_u32);
-
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel launch failed (device={}, n={}, indices=0x{:x}): {:?}",
-            kernel_name, device_index, n, indices, e
-        ))
-    })?;
-
+    unsafe { builder.launch(linear_config(n)) }.map_err(|e| launch_failed(kernel, n, e))?;
     Ok(())
 }
 
-/// Gather values using a permutation index: `values_out[i] = values_in[indices[i]]`
+/// `values_out[i] = values_in[indices[i]]` for `n` elements of `dtype`.
+///
+/// The kernel moves raw words, so any dtype of 1, 2, 4 or 8 bytes works.
+/// Wider dtypes return `UnsupportedDType`.
 ///
 /// # Safety
 ///
-/// - `values_in`, `indices`, and `values_out` must be valid device memory pointers on the device
-///   associated with `context`, each with at least `n` elements of their respective types.
-/// - All values in `indices` must be valid indices into `values_in` (no out-of-bounds access).
-/// - The stream must be from the same context and must not be destroyed while the kernel runs.
-pub unsafe fn launch_coo_gather<T: CudaTypeName>(
+/// `values_in` must be a live device buffer of `dtype` holding every index in
+/// `indices`. `indices` must hold `n` I32 elements and `values_out` `n`
+/// elements of `dtype`.
+pub unsafe fn launch_coo_gather(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
+    dtype: DType,
     values_in: u64,
     indices: u64,
     values_out: u64,
     n: usize,
 ) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_gather_f32",
-        "f64" => "coo_gather_f64",
+    let kernel = match dtype.size_in_bytes() {
+        1 => "coo_gather_w1",
+        2 => "coo_gather_w2",
+        4 => "coo_gather_w4",
+        8 => "coo_gather_w8",
         _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for coo_gather: {}",
-                T::NAME
-            )));
+            return Err(Error::UnsupportedDType {
+                dtype,
+                op: "COO gather (CUDA moves elements of 1, 2, 4 or 8 bytes)",
+            });
         }
     };
-
     let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
+    let function = get_kernel_function(&module, kernel)?;
     let n_u32 = n as u32;
-
     let mut builder = stream.launch_builder(&function);
     builder.arg(&values_in);
     builder.arg(&indices);
     builder.arg(&values_out);
     builder.arg(&n_u32);
-
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel launch failed: {:?}",
-            kernel_name, e
-        ))
-    })?;
-
-    Ok(())
-}
-
-/// Gather i32 values using indices
-pub(crate) unsafe fn launch_coo_gather_i32(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    values_in: u64,
-    indices: u64,
-    values_out: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = "coo_gather_i32";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-    let n_u32 = n as u32;
-
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&values_in);
-    builder.arg(&indices);
-    builder.arg(&values_out);
-    builder.arg(&n_u32);
-
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel launch failed (device={}, n={}, dtype=i32): {:?}",
-            kernel_name, device_index, n, e
-        ))
-    })?;
-
-    Ok(())
-}
-
-/// Gather i64 values using a permutation index: `values_out[i] = values_in[indices[i]]`
-///
-/// Used for permuting row/col index arrays in COO format.
-///
-/// # Safety
-///
-/// - `values_in`, `indices`, and `values_out` must be valid device memory pointers on the device
-///   associated with `context`, each with at least `n` elements of their respective types.
-/// - All values in `indices` (i32) must be valid indices into `values_in` (i64 array).
-/// - The stream must be from the same context and must not be destroyed while the kernel runs.
-pub unsafe fn launch_coo_gather_i64(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    values_in: u64,
-    indices: u64,
-    values_out: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = "coo_gather_i64";
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-    let n_u32 = n as u32;
-
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&values_in);
-    builder.arg(&indices);
-    builder.arg(&values_out);
-    builder.arg(&n_u32);
-
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel launch failed (device={}, n={}, dtype=i64): {:?}",
-            kernel_name, device_index, n, e
-        ))
-    })?;
-
-    Ok(())
-}
-
-/// Merge duplicates with add operation
-pub(crate) unsafe fn launch_coo_merge_duplicates_add<T: CudaTypeName>(
-    context: &Arc<CudaContext>,
-    stream: &GuardedStream,
-    device_index: usize,
-    sorted_keys: u64,
-    sorted_values: u64,
-    sorted_sources: u64,
-    unique_flags: u64,
-    output_positions: u64,
-    out_keys: u64,
-    out_values: u64,
-    n: usize,
-) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "coo_merge_duplicates_add_f32",
-        "f64" => "coo_merge_duplicates_add_f64",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for coo_merge_duplicates_add: {}",
-                T::NAME
-            )));
-        }
-    };
-
-    let module = get_or_load_module(context, device_index, kernel_names::SPARSE_COO_MODULE)?;
-    let function = get_kernel_function(&module, kernel_name)?;
-
-    let cfg = compute_launch_config(n);
-    let n_u32 = n as u32;
-
-    let mut builder = stream.launch_builder(&function);
-    builder.arg(&sorted_keys);
-    builder.arg(&sorted_values);
-    builder.arg(&sorted_sources);
-    builder.arg(&unique_flags);
-    builder.arg(&output_positions);
-    builder.arg(&out_keys);
-    builder.arg(&out_values);
-    builder.arg(&n_u32);
-
-    builder.launch(cfg).map_err(|e| {
-        Error::Internal(format!(
-            "CUDA {} kernel launch failed (device={}, n={}, dtype={}, op=add): {:?}",
-            kernel_name,
-            device_index,
-            n,
-            T::NAME,
-            e
-        ))
-    })?;
-
+    unsafe { builder.launch(linear_config(n)) }.map_err(|e| launch_failed(kernel, n, e))?;
     Ok(())
 }

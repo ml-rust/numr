@@ -4,10 +4,11 @@
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
-use cudarc::types::CudaTypeName;
 use std::sync::Arc;
 
 use super::loader::{get_kernel_function, get_or_load_module, kernel_names, launch_config};
+use super::sparse_dtype::float_kernel_name;
+use crate::dtype::{DType, Element};
 use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
 
@@ -27,10 +28,11 @@ use crate::runtime::cuda::GuardedStream;
 /// - col_indices and values have length nnz
 /// - x has length ncols
 /// - y has length nrows
-pub unsafe fn launch_csr_spmv<T: CudaTypeName>(
+pub unsafe fn launch_csr_spmv(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
+    dtype: DType,
     row_ptrs: u64,
     col_indices: u64,
     values: u64,
@@ -38,22 +40,11 @@ pub unsafe fn launch_csr_spmv<T: CudaTypeName>(
     y: u64,
     nrows: usize,
 ) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "csr_spmv_f32",
-        "f64" => "csr_spmv_f64",
-        "__half" => "csr_spmv_f16",
-        "__nv_bfloat16" => "csr_spmv_bf16",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for sparse SpMV: {}",
-                T::NAME
-            )));
-        }
-    };
+    let kernel_name = float_kernel_name("csr_spmv", dtype, "spmv_csr (CUDA)")?;
 
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::SPARSE_SPMV_MODULE)?;
-        let func = get_kernel_function(&module, kernel_name)?;
+        let func = get_kernel_function(&module, &kernel_name)?;
 
         let block_size = 256;
         let grid_size = (nrows + block_size - 1) / block_size;
@@ -87,10 +78,11 @@ pub unsafe fn launch_csr_spmv<T: CudaTypeName>(
 /// # Safety
 ///
 /// Same safety requirements as `launch_csr_spmv`
-pub unsafe fn launch_csr_spmv_warp<T: CudaTypeName>(
+pub unsafe fn launch_csr_spmv_warp(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
+    dtype: DType,
     row_ptrs: u64,
     col_indices: u64,
     values: u64,
@@ -98,22 +90,11 @@ pub unsafe fn launch_csr_spmv_warp<T: CudaTypeName>(
     y: u64,
     nrows: usize,
 ) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "csr_spmv_warp_f32",
-        "f64" => "csr_spmv_warp_f64",
-        "__half" => "csr_spmv_warp_f16",
-        "__nv_bfloat16" => "csr_spmv_warp_bf16",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for sparse SpMV warp: {}",
-                T::NAME
-            )));
-        }
-    };
+    let kernel_name = float_kernel_name("csr_spmv_warp", dtype, "spmv_csr (CUDA)")?;
 
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::SPARSE_SPMV_MODULE)?;
-        let func = get_kernel_function(&module, kernel_name)?;
+        let func = get_kernel_function(&module, &kernel_name)?;
 
         // One block per row, 32 threads (one warp) per block
         let cfg = launch_config((nrows as u32, 1, 1), (32, 1, 1), 0);
@@ -153,10 +134,11 @@ pub unsafe fn launch_csr_spmv_warp<T: CudaTypeName>(
 /// - col_indices and values have length nnz
 /// - B has shape [ncols, ncols_B] stored row-major
 /// - C has shape [nrows, ncols_B] stored row-major
-pub unsafe fn launch_csr_spmm<T: CudaTypeName>(
+pub unsafe fn launch_csr_spmm(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
+    dtype: DType,
     row_ptrs: u64,
     col_indices: u64,
     values: u64,
@@ -165,22 +147,11 @@ pub unsafe fn launch_csr_spmm<T: CudaTypeName>(
     nrows: usize,
     ncols_b: usize,
 ) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "f32" => "csr_spmm_f32",
-        "f64" => "csr_spmm_f64",
-        "__half" => "csr_spmm_f16",
-        "__nv_bfloat16" => "csr_spmm_bf16",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for sparse SpMM: {}",
-                T::NAME
-            )));
-        }
-    };
+    let kernel_name = float_kernel_name("csr_spmm", dtype, "spmm_csr (CUDA)")?;
 
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::SPARSE_SPMV_MODULE)?;
-        let func = get_kernel_function(&module, kernel_name)?;
+        let func = get_kernel_function(&module, &kernel_name)?;
 
         // One block per row, ncols_b threads per block (up to 1024)
         let block_size = ncols_b.min(1024);
@@ -233,7 +204,7 @@ pub fn should_use_warp_kernel(avg_nnz_per_row: f32) -> bool {
 /// - A, C are valid dense matrices with correct dimensions
 /// - col_ptrs, row_indices, values describe valid CSC matrix
 /// - All pointers are device pointers
-pub unsafe fn launch_dsmm_csc<T: CudaTypeName>(
+pub unsafe fn launch_dsmm_csc<T: Element>(
     context: &Arc<CudaContext>,
     stream: &GuardedStream,
     device_index: usize,
@@ -246,22 +217,11 @@ pub unsafe fn launch_dsmm_csc<T: CudaTypeName>(
     k: usize,
     n: usize,
 ) -> Result<()> {
-    let kernel_name = match T::NAME {
-        "float" => "dsmm_csc_f32",
-        "double" => "dsmm_csc_f64",
-        "__half" => "dsmm_csc_f16",
-        "__nv_bfloat16" => "dsmm_csc_bf16",
-        _ => {
-            return Err(Error::Internal(format!(
-                "Unsupported dtype for DSMM: {}",
-                T::NAME
-            )));
-        }
-    };
+    let kernel_name = float_kernel_name("dsmm_csc", T::DTYPE, "dsmm (CUDA)")?;
 
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::DSMM_MODULE)?;
-        let func = get_kernel_function(&module, kernel_name)?;
+        let func = get_kernel_function(&module, &kernel_name)?;
 
         // One block per column, BLOCK_SIZE threads per block
         let block_size = 256;

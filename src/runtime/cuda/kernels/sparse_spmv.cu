@@ -149,92 +149,8 @@ __global__ void csr_spmv_warp_kernel(
 // SpMM: Sparse Matrix-Dense Matrix multiplication (batched SpMV)
 // ============================================================================
 
-template<typename T>
-__global__ void csr_spmm_kernel(
-    const int* row_ptrs,
-    const int* col_indices,
-    const T* values,
-    const T* B,        // Dense matrix [K, N]
-    T* C,              // Output [M, N]
-    int nrows,
-    int ncols_B
-) {
-    int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    T sum = static_cast<T>(0);
-    int start = row_ptrs[row];
-    int end = row_ptrs[row + 1];
-
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        sum += values[j] * B[k * ncols_B + col];
-    }
-
-    C[row * ncols_B + col] = sum;
-}
-
-// Specialization for F16 (accumulate in F32)
-template<>
-__global__ void csr_spmm_kernel<__half>(
-    const int* row_ptrs,
-    const int* col_indices,
-    const __half* values,
-    const __half* B,
-    __half* C,
-    int nrows,
-    int ncols_B
-) {
-    int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    float sum = 0.0f;
-    int start = row_ptrs[row];
-    int end = row_ptrs[row + 1];
-
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        float val = __half2float(values[j]);
-        float b_val = __half2float(B[k * ncols_B + col]);
-        sum += val * b_val;
-    }
-
-    C[row * ncols_B + col] = __float2half(sum);
-}
-
-// Specialization for BF16 (accumulate in F32)
-template<>
-__global__ void csr_spmm_kernel<__nv_bfloat16>(
-    const int* row_ptrs,
-    const int* col_indices,
-    const __nv_bfloat16* values,
-    const __nv_bfloat16* B,
-    __nv_bfloat16* C,
-    int nrows,
-    int ncols_B
-) {
-    int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    float sum = 0.0f;
-    int start = row_ptrs[row];
-    int end = row_ptrs[row + 1];
-
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        float val = __bfloat162float(values[j]);
-        float b_val = __bfloat162float(B[k * ncols_B + col]);
-        sum += val * b_val;
-    }
-
-    C[row * ncols_B + col] = __float2bfloat16(sum);
-}
+// The extern "C" csr_spmm_* kernels below implement SpMM: one block per
+// row, threads striding over the dense columns.
 
 // ============================================================================
 // Extern "C" wrapper kernels for Rust FFI
@@ -401,6 +317,8 @@ __global__ void csr_spmv_warp_bf16(
 }
 
 // SpMM kernels
+// One block per row. The block's threads stride over all ncols_B columns,
+// so ncols_B can exceed the block size.
 __global__ void csr_spmm_f32(
     const int* row_ptrs,
     const int* col_indices,
@@ -411,20 +329,18 @@ __global__ void csr_spmm_f32(
     int ncols_B
 ) {
     int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    float sum = 0.0f;
+    if (row >= nrows) return;
     int start = row_ptrs[row];
     int end = row_ptrs[row + 1];
 
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        sum += values[j] * B[k * ncols_B + col];
+    for (int col = threadIdx.x; col < ncols_B; col += blockDim.x) {
+        float sum = 0.0f;
+        for (int j = start; j < end; j++) {
+            long long k = col_indices[j];
+            sum += values[j] * B[k * ncols_B + col];
+        }
+        C[(long long)row * ncols_B + col] = sum;
     }
-
-    C[row * ncols_B + col] = sum;
 }
 
 __global__ void csr_spmm_f64(
@@ -437,20 +353,18 @@ __global__ void csr_spmm_f64(
     int ncols_B
 ) {
     int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    double sum = 0.0;
+    if (row >= nrows) return;
     int start = row_ptrs[row];
     int end = row_ptrs[row + 1];
 
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        sum += values[j] * B[k * ncols_B + col];
+    for (int col = threadIdx.x; col < ncols_B; col += blockDim.x) {
+        double sum = 0.0;
+        for (int j = start; j < end; j++) {
+            long long k = col_indices[j];
+            sum += values[j] * B[k * ncols_B + col];
+        }
+        C[(long long)row * ncols_B + col] = sum;
     }
-
-    C[row * ncols_B + col] = sum;
 }
 
 __global__ void csr_spmm_f16(
@@ -463,22 +377,18 @@ __global__ void csr_spmm_f16(
     int ncols_B
 ) {
     int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    float sum = 0.0f;
+    if (row >= nrows) return;
     int start = row_ptrs[row];
     int end = row_ptrs[row + 1];
 
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        float val = __half2float(values[j]);
-        float b_val = __half2float(B[k * ncols_B + col]);
-        sum += val * b_val;
+    for (int col = threadIdx.x; col < ncols_B; col += blockDim.x) {
+        float sum = 0.0f;
+        for (int j = start; j < end; j++) {
+            long long k = col_indices[j];
+            sum += __half2float(values[j]) * __half2float(B[k * ncols_B + col]);
+        }
+        C[(long long)row * ncols_B + col] = __float2half(sum);
     }
-
-    C[row * ncols_B + col] = __float2half(sum);
 }
 
 __global__ void csr_spmm_bf16(
@@ -491,22 +401,18 @@ __global__ void csr_spmm_bf16(
     int ncols_B
 ) {
     int row = blockIdx.x;
-    int col = threadIdx.x;
-
-    if (row >= nrows || col >= ncols_B) return;
-
-    float sum = 0.0f;
+    if (row >= nrows) return;
     int start = row_ptrs[row];
     int end = row_ptrs[row + 1];
 
-    for (int j = start; j < end; j++) {
-        int k = col_indices[j];
-        float val = __bfloat162float(values[j]);
-        float b_val = __bfloat162float(B[k * ncols_B + col]);
-        sum += val * b_val;
+    for (int col = threadIdx.x; col < ncols_B; col += blockDim.x) {
+        float sum = 0.0f;
+        for (int j = start; j < end; j++) {
+            long long k = col_indices[j];
+            sum += __bfloat162float(values[j]) * __bfloat162float(B[k * ncols_B + col]);
+        }
+        C[(long long)row * ncols_B + col] = __float2bfloat16(sum);
     }
-
-    C[row * ncols_B + col] = __float2bfloat16(sum);
 }
 
 } // extern "C"

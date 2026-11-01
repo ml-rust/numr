@@ -1,15 +1,11 @@
-//! Sparse matrix element-wise merge kernel launchers
+//! Sparse element-wise merge kernel launchers for CSR and CSC operands.
 //!
-//! Two-pass algorithm for CSR element-wise operations:
-//! 1. Count output size per row
-//! 2. Exclusive scan to get row_ptrs
-//! 3. Compute merged output
+//! Two-pass algorithm:
+//! 1. Count output entries per row (CSR) or column (CSC).
+//! 2. Exclusive scan of the counts into output pointers.
+//! 3. Compute the merged output.
 
-mod csc;
-mod csr;
-mod generic;
+mod compressed;
 mod helpers;
 
-pub use csc::*;
-pub use csr::*;
-pub use generic::*;
+pub use compressed::*;

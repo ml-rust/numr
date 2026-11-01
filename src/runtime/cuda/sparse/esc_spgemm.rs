@@ -1,162 +1,145 @@
-//! Native ESC (Exact Symbolic Computation) + Hash Accumulation SpGEMM implementation.
+//! SpGEMM `C = A * B` for CSR operands on CUDA.
 //!
-//! This implements the SAME algorithm as the CPU backend for perfect backend parity.
+//! The same result as the CPU backend: every output row sorted by column,
+//! and entries with `|value| <= zero_tolerance` dropped.
 //!
-//! Algorithm:
-//! Phase 1: Symbolic - Count unique columns per output row using bitmap
-//! Phase 2: Numeric - Compute values with pre-sized hash accumulator (no resizing)
+//! 1. Bound each output row by its product count, and scan the bounds into
+//!    scratch slices.
+//! 2. Hash-accumulate each row into its slice, sort it and count the kept
+//!    entries.
+//! 3. Scan the kept counts into the output pointers and gather the entries.
+//!
+//! Each scan reads one `i32` total to the host to size the next allocation.
 
 use super::super::{CudaClient, CudaRuntime};
-use crate::dtype::{DType, Element};
-use crate::error::{Error, Result};
+use super::indices::{check_float_dtype, indices_to_i64};
+use crate::algorithm::sparse::{validate_dtype_match, validate_spgemm_shapes};
+use crate::dtype::DType;
+use crate::error::Result;
+use crate::runtime::common::sparse_utils::zero_tolerance;
 use crate::runtime::cuda::kernels::{
-    exclusive_scan_i32_gpu, launch_cast, spgemm_numeric_phase, spgemm_symbolic_phase,
+    SpgemmCsr, exclusive_scan_i32_gpu, spgemm_accumulate, spgemm_gather, spgemm_row_bound,
 };
 use crate::sparse::CsrData;
 use crate::tensor::Tensor;
-use cudarc::driver::DeviceRepr;
-use cudarc::types::CudaTypeName;
 
-/// Public function to be called from the combined trait implementation
+/// Called from `SparseAlgorithms::esc_spgemm_csr`.
 pub(super) fn esc_spgemm_csr(
     client: &CudaClient,
     a_csr: &CsrData<CudaRuntime>,
     b_csr: &CsrData<CudaRuntime>,
 ) -> Result<CsrData<CudaRuntime>> {
-    use crate::algorithm::sparse::validate_spgemm_shapes;
-
-    // Validate shapes
-    let ([_m, _n], _k) = validate_spgemm_shapes(a_csr.shape, b_csr.shape)?;
-
+    // Check shapes and dtypes. The dtype check reads metadata only, so no data moves.
+    let ([m, n], _k) = validate_spgemm_shapes(a_csr.shape, b_csr.shape)?;
     let dtype = a_csr.values.dtype();
-
-    // Dispatch to typed implementation
-    crate::dispatch_dtype!(dtype, T => {
-        client.sparse_matmul_csr_esc::<T>(
-            &a_csr.row_ptrs,
-            &a_csr.col_indices,
-            &a_csr.values,
-            &b_csr.row_ptrs,
-            &b_csr.col_indices,
-            &b_csr.values,
-            a_csr.shape,
-            b_csr.shape,
-        )
-    }, "esc_spgemm")
+    validate_dtype_match(dtype, b_csr.values.dtype())?;
+    check_float_dtype(dtype, "sparse_matmul (CUDA)")?;
+    let threshold = crate::dispatch_dtype!(dtype, T => { zero_tolerance::<T>() }, "sparse_matmul");
+    client.spgemm(a_csr, b_csr, [m, n], threshold)
 }
 
 impl CudaClient {
-    /// Sparse × Sparse matrix multiplication using native ESC+Hash algorithm
-    ///
-    /// This uses the SAME algorithm as the CPU backend:
-    /// - Phase 1: Symbolic - count NNZ per row using bitmap
-    /// - Phase 2: Numeric - compute values with pre-sized hash accumulator
-    ///
-    /// Backend parity is guaranteed by algorithmic consistency.
-    pub(super) fn sparse_matmul_csr_esc<T: Element + CudaTypeName + Copy + DeviceRepr>(
+    fn spgemm(
         &self,
-        a_row_ptrs: &Tensor<CudaRuntime>,
-        a_col_indices: &Tensor<CudaRuntime>,
-        a_values: &Tensor<CudaRuntime>,
-        b_row_ptrs: &Tensor<CudaRuntime>,
-        b_col_indices: &Tensor<CudaRuntime>,
-        b_values: &Tensor<CudaRuntime>,
-        a_shape: [usize; 2],
-        b_shape: [usize; 2],
-    ) -> Result<crate::sparse::CsrData<CudaRuntime>> {
-        use crate::runtime::common::sparse_utils::zero_tolerance;
+        a: &CsrData<CudaRuntime>,
+        b: &CsrData<CudaRuntime>,
+        [m, n]: [usize; 2],
+        threshold: f64,
+    ) -> Result<CsrData<CudaRuntime>> {
+        let device = a.values.device();
+        let dtype = a.values.dtype();
+        let empty = || -> Result<CsrData<CudaRuntime>> {
+            CsrData::new(
+                Tensor::zeros(&[m + 1], DType::I64, device)?,
+                Tensor::zeros(&[0], DType::I64, device)?,
+                Tensor::zeros(&[0], dtype, device)?,
+                [m, n],
+            )
+        };
+        if m == 0 || a.values.numel() == 0 || b.values.numel() == 0 {
+            return empty();
+        }
 
-        let [m, _k] = a_shape;
-        let [_, n] = b_shape;
-        let device = a_values.device();
-        let dtype = a_values.dtype();
-
-        // ====================================================================
-        // PHASE 1: Symbolic (Count NNZ per output row)
-        // ====================================================================
-        let row_nnz = unsafe {
-            spgemm_symbolic_phase(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                device,
-                a_row_ptrs,
-                a_col_indices,
-                b_row_ptrs,
-                b_col_indices,
-                m,
-                n,
-            )?
+        let a_ptrs = indices_to_i64(self, &a.row_ptrs.contiguous()?)?;
+        let a_cols = indices_to_i64(self, &a.col_indices.contiguous()?)?;
+        let a_vals = a.values.contiguous()?;
+        let b_ptrs = indices_to_i64(self, &b.row_ptrs.contiguous()?)?;
+        let b_cols = indices_to_i64(self, &b.col_indices.contiguous()?)?;
+        let b_vals = b.values.contiguous()?;
+        let a_dev = SpgemmCsr {
+            row_ptrs: a_ptrs.ptr(),
+            col_indices: a_cols.ptr(),
+            values: a_vals.ptr(),
+        };
+        let b_dev = SpgemmCsr {
+            row_ptrs: b_ptrs.ptr(),
+            col_indices: b_cols.ptr(),
+            values: b_vals.ptr(),
+        };
+        let (ctx, stream, index) = (&self.context, &self.stream, self.device.index);
+        let scan = |counts: &Tensor<CudaRuntime>| {
+            // SAFETY: `counts` is a live I32 device tensor of m entries.
+            unsafe { exclusive_scan_i32_gpu(ctx, stream, index, device, counts) }
         };
 
-        // Build row_ptrs via exclusive scan
-        let (c_row_ptrs_i32, total_nnz_i32) = unsafe {
-            exclusive_scan_i32_gpu(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                device,
-                &row_nnz,
-            )?
+        // 1. Product bound per row, scanned into scratch slices.
+        let bound = Tensor::<CudaRuntime>::zeros(&[m], DType::I32, device)?;
+        // SAFETY: both operands are live CSR device buffers; `bound` holds m I32.
+        unsafe { spgemm_row_bound(ctx, stream, index, &a_dev, &b_dev, bound.ptr(), m)? };
+        let (slot_ptrs, slots) = scan(&bound)?;
+        if slots == 0 {
+            return empty();
+        }
+
+        // 2. Accumulate, sort and filter each row in its slice.
+        let acc_dtype = if dtype == DType::F64 {
+            DType::F64
+        } else {
+            DType::F32
         };
-
-        // Cast row_ptrs from I32 to I64 (numr internal format)
-        let c_row_ptrs = unsafe {
-            let output = Tensor::zeros(&[m + 1], DType::I64, device)?;
-            launch_cast(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                DType::I32,
-                DType::I64,
-                c_row_ptrs_i32.ptr(),
-                output.ptr(),
-                m + 1,
-            )?;
-            output
-        };
-
-        // Get total NNZ from the last element of row_ptrs
-        let total_nnz = total_nnz_i32;
-
-        // Allocate output arrays
-        let c_col_indices = Tensor::zeros(&[total_nnz], crate::dtype::DType::I64, device)?;
-        let c_values = Tensor::zeros(&[total_nnz], dtype, device)?;
-
-        // ====================================================================
-        // PHASE 2: Numeric (Compute values with pre-sized hash accumulator)
-        // ====================================================================
-        let threshold = zero_tolerance::<T>();
+        let slot_cols = Tensor::<CudaRuntime>::zeros(&[slots], DType::I64, device)?;
+        let slot_vals = Tensor::<CudaRuntime>::zeros(&[slots], acc_dtype, device)?;
+        let kept = Tensor::<CudaRuntime>::zeros(&[m], DType::I32, device)?;
+        // SAFETY: scratch holds `slots` entries, `kept` holds m I32.
         unsafe {
-            spgemm_numeric_phase::<T>(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                a_row_ptrs,
-                a_col_indices,
-                a_values,
-                b_row_ptrs,
-                b_col_indices,
-                b_values,
-                &c_row_ptrs,
-                &c_col_indices,
-                &c_values,
+            spgemm_accumulate(
+                ctx,
+                stream,
+                index,
+                dtype,
+                &a_dev,
+                &b_dev,
+                slot_ptrs.ptr(),
+                slot_cols.ptr(),
+                slot_vals.ptr(),
+                kept.ptr(),
                 m,
-                n,
-                T::from_f64(threshold),
+                threshold,
             )?;
         }
 
-        // Synchronize to ensure kernels complete
-        self.stream
-            .synchronize()
-            .map_err(|e| Error::Internal(format!("CUDA stream synchronization failed: {:?}", e)))?;
-
-        Ok(crate::sparse::CsrData::new(
-            c_row_ptrs,
-            c_col_indices,
-            c_values,
-            [m, n],
-        )?)
+        // 3. Output pointers from the kept counts, then the gather.
+        let (out_ptrs, total) = scan(&kept)?;
+        let out_cols = Tensor::<CudaRuntime>::zeros(&[total], DType::I64, device)?;
+        let out_vals = Tensor::<CudaRuntime>::zeros(&[total], dtype, device)?;
+        if total > 0 {
+            // SAFETY: the outputs hold `total` = out_ptrs[m] entries.
+            unsafe {
+                spgemm_gather(
+                    ctx,
+                    stream,
+                    index,
+                    dtype,
+                    slot_ptrs.ptr(),
+                    slot_cols.ptr(),
+                    slot_vals.ptr(),
+                    out_ptrs.ptr(),
+                    out_cols.ptr(),
+                    out_vals.ptr(),
+                    m,
+                )?;
+            }
+        }
+        CsrData::new(indices_to_i64(self, &out_ptrs)?, out_cols, out_vals, [m, n])
     }
 }
