@@ -11,7 +11,8 @@ mod shader_registry;
 
 pub use creation::{launch_arange, launch_eye, launch_linspace};
 pub use data_movement::{
-    launch_cat_copy, launch_pad, launch_pad_reflect, launch_repeat, launch_roll,
+    launch_cat_copy, launch_pad, launch_pad_reflect, launch_pad_replicate, launch_repeat,
+    launch_roll,
 };
 pub use multinomial::{
     launch_multinomial_with_replacement, launch_multinomial_without_replacement,

@@ -64,6 +64,9 @@ mod advanced_random;
 #[path = "../../../ops/wgpu/linalg.rs"]
 mod linalg;
 
+#[path = "../../../ops/wgpu/pad_replicate.rs"]
+mod pad_replicate;
+
 #[path = "../../../ops/wgpu/shape.rs"]
 mod shape;
 

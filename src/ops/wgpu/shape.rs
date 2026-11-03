@@ -17,6 +17,8 @@ use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::shaders::shape;
 use crate::tensor::Tensor;
 
+use super::pad_replicate::pad_replicate;
+
 impl ShapeOps<WgpuRuntime> for WgpuClient {
     fn cat(&self, tensors: &[&Tensor<WgpuRuntime>], dim: isize) -> Result<Tensor<WgpuRuntime>> {
         let cat_params = validate_cat(tensors, dim)?;
@@ -312,8 +314,10 @@ impl ShapeOps<WgpuRuntime> for WgpuClient {
         padding: &[usize],
         mode: PadMode,
     ) -> Result<Tensor<WgpuRuntime>> {
-        if let PadMode::Constant(value) = mode {
-            return self.pad(tensor, padding, value);
+        match mode {
+            PadMode::Constant(value) => return self.pad(tensor, padding, value),
+            PadMode::Replicate => return pad_replicate(self, tensor, padding),
+            PadMode::Reflect => {}
         }
 
         let params = shape_ops::validate_reflect_pad(tensor, padding)?;

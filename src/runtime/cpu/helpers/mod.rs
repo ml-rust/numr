@@ -12,6 +12,7 @@ pub mod fused_elementwise;
 pub mod fwht;
 pub mod indexing;
 pub mod pad_reflect;
+pub mod pad_replicate;
 pub mod reduce;
 pub mod scalar;
 pub mod shape;
@@ -35,6 +36,7 @@ pub use indexing::{
     slice_assign_impl,
 };
 pub use pad_reflect::pad_reflect_impl;
+pub use pad_replicate::pad_replicate_impl;
 pub use reduce::{reduce_impl, reduce_impl_with_precision};
 pub use scalar::scalar_op_impl;
 pub use shape::{cat_impl, chunk_impl, pad_impl, repeat_impl, roll_impl, split_impl, stack_impl};

@@ -41,6 +41,14 @@ const PAD_REFLECT_SHADER_I32: &str = include_str!("../pad_reflect_i32.wgsl");
 const PAD_REFLECT_SHADER_U32: &str = include_str!("../pad_reflect_u32.wgsl");
 
 // ============================================================================
+// Static shaders — pad_replicate (data-movement: F32 / I32 / U32)
+// ============================================================================
+
+const PAD_REPLICATE_SHADER_F32: &str = include_str!("../pad_replicate_f32.wgsl");
+const PAD_REPLICATE_SHADER_I32: &str = include_str!("../pad_replicate_i32.wgsl");
+const PAD_REPLICATE_SHADER_U32: &str = include_str!("../pad_replicate_u32.wgsl");
+
+// ============================================================================
 // Static shaders — roll (data-movement: F32 / I32 / U32)
 // ============================================================================
 
@@ -140,6 +148,22 @@ pub(super) fn shader_info(
         ("pad_reflect", DType::U32) => {
             Ok((PAD_REFLECT_SHADER_U32, "pad_reflect_u32", "pad_reflect_u32"))
         }
+        // pad_replicate
+        ("pad_replicate", DType::F32) => Ok((
+            PAD_REPLICATE_SHADER_F32,
+            "pad_replicate_f32",
+            "pad_replicate_f32",
+        )),
+        ("pad_replicate", DType::I32) => Ok((
+            PAD_REPLICATE_SHADER_I32,
+            "pad_replicate_i32",
+            "pad_replicate_i32",
+        )),
+        ("pad_replicate", DType::U32) => Ok((
+            PAD_REPLICATE_SHADER_U32,
+            "pad_replicate_u32",
+            "pad_replicate_u32",
+        )),
         // roll
         ("roll", DType::F32) => Ok((ROLL_SHADER_F32, "roll_f32", "roll_f32")),
         ("roll", DType::I32) => Ok((ROLL_SHADER_I32, "roll_i32", "roll_i32")),

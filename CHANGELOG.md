@@ -16,6 +16,7 @@ version. Every later entry is a delta against the one below it.
 
 ### Added
 
+- `PadMode::Replicate` for `ShapeOps::pad_mode`. It repeats the edge element, matching PyTorch `F.pad(mode="replicate")`: `src = clamp(i - before, 0, size - 1)`. Any pad size is valid on a dimension of size 1 or more. A padded dimension of size 0 returns `Error::InvalidArgument` that names the dimension. CPU, CUDA and WebGPU each have a native kernel. Dtypes and rank limits match `Reflect`: CUDA covers every dtype up to 8 dimensions, WebGPU covers F32, I32 and U32 up to 8 dimensions. `PadMode` is not `#[non_exhaustive]`, so a downstream exhaustive `match` on `PadMode` needs a `Replicate` arm.
 - `ActivationOps::prelu` on CPU, CUDA and WebGPU. `weight` broadcasts to the input, matching `torch.nn.functional.prelu`.
 - `var_prelu` with gradients for the input and the weight.
 - `BinaryOps::copy_into` accepts a strided `out` view on CPU, CUDA and WebGPU, so an op can write into a channel slice of a larger buffer. It rejects `out` and `src` views of one storage whose element spans intersect, and does nothing for an identical view. WebGPU supports 4-byte-multiple elements for a strided `out`.

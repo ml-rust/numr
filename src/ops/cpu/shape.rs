@@ -6,8 +6,8 @@ use crate::ops::{PadMode, ShapeOps};
 use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
-        cat_impl, chunk_impl, pad_impl, pad_reflect_impl, repeat_impl, roll_impl, split_impl,
-        stack_impl,
+        cat_impl, chunk_impl, pad_impl, pad_reflect_impl, pad_replicate_impl, repeat_impl,
+        roll_impl, split_impl, stack_impl,
     },
 };
 use crate::tensor::Tensor;
@@ -62,6 +62,7 @@ impl ShapeOps<CpuRuntime> for CpuClient {
         match mode {
             PadMode::Constant(value) => pad_impl(self, tensor, padding, value),
             PadMode::Reflect => pad_reflect_impl(self, tensor, padding),
+            PadMode::Replicate => pad_replicate_impl(self, tensor, padding),
         }
     }
 

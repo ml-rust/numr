@@ -1,4 +1,5 @@
 pub(crate) mod helpers;
+pub(crate) mod pad_replicate;
 pub(crate) mod shape_ops;
 pub(crate) mod statistics_common;
 pub(crate) mod view_span;

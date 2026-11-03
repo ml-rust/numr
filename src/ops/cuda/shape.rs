@@ -2,8 +2,10 @@
 use crate::error::Result;
 use crate::ops::impl_generic::{repeat_interleave_impl, unfold_impl};
 use crate::ops::{PadMode, ShapeOps};
+use crate::runtime::common::pad_replicate::validate_replicate_pad;
 use crate::runtime::cuda::kernels::{
-    launch_cat_copy, launch_pad, launch_pad_reflect, launch_repeat, launch_roll,
+    launch_cat_copy, launch_pad, launch_pad_reflect, launch_pad_replicate, launch_repeat,
+    launch_roll,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::runtime::{common::shape_ops, ensure_contiguous};
@@ -156,7 +158,12 @@ impl ShapeOps<CudaRuntime> for CudaClient {
             return self.pad(tensor, padding, value);
         }
 
-        let params = shape_ops::validate_reflect_pad(tensor, padding)?;
+        let replicate = matches!(mode, PadMode::Replicate);
+        let params = if replicate {
+            validate_replicate_pad(tensor, padding)?
+        } else {
+            shape_ops::validate_reflect_pad(tensor, padding)?
+        };
 
         // Handle no-op case (all padding is zero)
         if params.pad_per_dim.iter().all(|&(b, a)| b == 0 && a == 0) {
@@ -169,17 +176,31 @@ impl ShapeOps<CudaRuntime> for CudaClient {
         let pad_before: Vec<usize> = params.pad_per_dim.iter().map(|(b, _)| *b).collect();
 
         unsafe {
-            launch_pad_reflect(
-                &self.context,
-                &self.stream,
-                self.device.index,
-                tensor.dtype(),
-                tensor_contig.ptr(),
-                out.ptr(),
-                tensor.shape(),
-                &params.out_shape,
-                &pad_before,
-            )?;
+            if replicate {
+                launch_pad_replicate(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    tensor.dtype(),
+                    tensor_contig.ptr(),
+                    out.ptr(),
+                    tensor.shape(),
+                    &params.out_shape,
+                    &pad_before,
+                )?;
+            } else {
+                launch_pad_reflect(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    tensor.dtype(),
+                    tensor_contig.ptr(),
+                    out.ptr(),
+                    tensor.shape(),
+                    &params.out_shape,
+                    &pad_before,
+                )?;
+            }
         }
 
         Ok(out)

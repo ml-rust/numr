@@ -12,6 +12,9 @@ pub enum PadMode {
     /// Mirror the interior of the tensor into the padded region, excluding
     /// the edge element. Matches PyTorch's `F.pad(mode="reflect")`.
     Reflect,
+    /// Repeat the edge element into the padded region. Matches PyTorch's
+    /// `F.pad(mode="replicate")`: source index = `clamp(i - before, 0, size - 1)`.
+    Replicate,
 }
 
 /// Shape manipulation operations
@@ -202,6 +205,11 @@ pub trait ShapeOps<R: Runtime> {
     /// `F.pad(mode="reflect")`. Each `before`/`after` pad size on a padded
     /// dimension must be strictly less than that dimension's size; an equal
     /// or larger pad returns [`crate::error::Error::InvalidArgument`].
+    ///
+    /// [`PadMode::Replicate`] repeats the edge element, matching PyTorch's
+    /// `F.pad(mode="replicate")`. Any pad size is valid on a dimension of
+    /// size 1 or more. A padded dimension of size 0 returns
+    /// [`crate::error::Error::InvalidArgument`] that names the dimension.
     ///
     /// # Example
     ///
