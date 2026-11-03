@@ -2,7 +2,9 @@
 //!
 //! The kernels live in `kernels/conv_implicit_gemm.cu`: F16 and BF16, NHWC
 //! input, OHWI weight, fused bias, activation and scaled residual. The tile
-//! comes from [`super::conv_implicit_gemm_tile::select_conv_tile`].
+//! comes from [`super::conv_implicit_gemm_tile::select_conv_tile`] and the
+//! staging variant from
+//! [`super::conv_implicit_gemm_tile::select_conv_staging`].
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
@@ -12,7 +14,9 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
 
-use super::conv_implicit_gemm_tile::{conv_kernel_name, conv_launch_config, select_conv_tile};
+use super::conv_implicit_gemm_tile::{
+    conv_kernel_name, conv_launch_config, select_conv_staging, select_conv_tile,
+};
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::kernel_names;
 
@@ -42,6 +46,10 @@ impl ConvEpilogueActivation {
         }
     }
 }
+
+/// Largest `Kh` and `Kw` the kernel takes. Each output row keeps one 32-bit
+/// mask per kernel axis, one bit per tap.
+pub(crate) const CONV_MAX_KERNEL_EXTENT: usize = 32;
 
 /// Element strides `(n, h, w)` of a 4D NHWC view whose channel stride is 1.
 pub(crate) type NhwcStrides = [i64; 3];
@@ -128,6 +136,13 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
             "conv2d implicit GEMM: Kh*Kw*C_in is 0; route this shape to the generic path".into(),
         ));
     }
+    if args.kernel_h > CONV_MAX_KERNEL_EXTENT || args.kernel_w > CONV_MAX_KERNEL_EXTENT {
+        return Err(Error::Internal(format!(
+            "conv2d implicit GEMM: kernel {}x{} exceeds the {CONV_MAX_KERNEL_EXTENT}x\
+             {CONV_MAX_KERNEL_EXTENT} tap masks; route this shape to the generic path",
+            args.kernel_h, args.kernel_w
+        )));
+    }
 
     let m_i32 = to_i32(m, "N*H_out*W_out")?;
     to_i32(k, "Kh*Kw*C_in")?;
@@ -151,7 +166,13 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
     let [out_sn, out_sh, out_sw] = args.out_strides;
     let [res_sn, res_sh, res_sw] = args.residual_strides;
 
-    let tile = select_conv_tile(m, args.c_out, k, device_index);
+    let tile = select_conv_tile(args.c_out);
+    let staging = select_conv_staging(
+        args.c_in,
+        args.input_ptr,
+        args.input_strides,
+        args.weight_ptr,
+    );
     let cfg = conv_launch_config(m, args.c_out, tile).ok_or_else(|| {
         Error::Internal(format!(
             "conv2d implicit GEMM: grid for M = {m}, C_out = {} exceeds the CUDA grid limit",
@@ -163,7 +184,8 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         device_index,
         kernel_names::CONV_IMPLICIT_GEMM_MODULE,
     )?;
-    let func = get_kernel_function(&module, &conv_kernel_name(dtype, tile))?;
+    let name = conv_kernel_name(dtype, tile, staging);
+    let func = get_kernel_function(&module, &name)?;
 
     // SAFETY: the argument list matches DEFINE_CONV_IGEMM in
     // conv_implicit_gemm.cu in order and width. The caller guarantees the
@@ -206,8 +228,8 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         builder.arg(&args.residual_scale);
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!(
-                "CUDA conv2d implicit GEMM kernel launch failed: {:?}",
-                e
+                "CUDA conv2d implicit GEMM: launch of {name} failed: {e:?}; check the \
+                 device and driver state"
             ))
         })?;
     }

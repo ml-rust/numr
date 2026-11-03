@@ -174,32 +174,30 @@ fn test_native_conv_into_dense_block() {
     }
 }
 
-/// The input is channels `[start, start + 64)` of an 80-channel buffer. Start
-/// 8 keeps 16-byte alignment (128-bit staging); start 3 breaks it
-/// (one-element staging). Both match the reference.
-#[test]
-fn test_native_conv_channel_slice_input() {
-    const WIDE: usize = 80;
-    const C_IN: usize = 64;
-    const C_OUT: usize = 48;
+/// The input is channels `[start, start + c_in)` of a `wide`-channel buffer,
+/// for each start in `starts`. Every result matches the reference.
+fn check_channel_slice_input(wide: usize, c_in: usize, c_out: usize, starts: &[usize]) {
     const BATCH: usize = 2;
     for dtype in half_dtypes("cuda") {
         let (rtol, atol) = native_tolerance(dtype);
-        let data = rounded(pattern(BATCH * H * W * WIDE, 60), dtype);
-        let w_shape = [C_OUT, KERNEL, KERNEL, C_IN];
+        let data = rounded(pattern(BATCH * H * W * wide, 60), dtype);
+        let w_shape = [c_out, KERNEL, KERNEL, c_in];
         let w = rounded(pattern(w_shape.iter().product(), 61), dtype);
-        let bias = rounded(pattern(C_OUT, 62), dtype);
+        let bias = rounded(pattern(c_out, 62), dtype);
         with_cuda_backend(|client, device| {
             let make = |values: &[f64], shape: &[usize]| {
                 tensor_from_f64(values, shape, dtype, &device, &client).unwrap()
             };
-            let buf = make(&data, &[BATCH, H, W, WIDE]);
+            let buf = make(&data, &[BATCH, H, W, wide]);
             let w_t = make(&w, &w_shape);
-            let bias_t = make(&bias, &[C_OUT]);
+            let bias_t = make(&bias, &[c_out]);
             let config = Conv2dConfig::new(ConvLayout::Nhwc).with_padding(PaddingMode::Same);
-            for start in [8, 3] {
-                let label = format!("channel slice from {start} [{dtype:?}]");
-                let input = buf.narrow(-1, start, C_IN).unwrap();
+            for &start in starts {
+                let label = format!(
+                    "channel slice [{start}, {}) of {wide}, c_out {c_out} [{dtype:?}]",
+                    start + c_in
+                );
+                let input = buf.narrow(-1, start, c_in).unwrap();
                 let got = client
                     .conv2d_fused(
                         &input,
@@ -211,8 +209,8 @@ fn test_native_conv_channel_slice_input() {
                     )
                     .unwrap_or_else(|e| panic!("{label}: {e}"));
                 let expected = cpu_reference(
-                    &channel_slice(&data, WIDE, start, C_IN),
-                    [BATCH, H, W, C_IN],
+                    &channel_slice(&data, wide, start, c_in),
+                    [BATCH, H, W, c_in],
                     &w,
                     w_shape,
                     &bias,
@@ -220,6 +218,111 @@ fn test_native_conv_channel_slice_input() {
                     None,
                 );
                 assert_values_close(&host_f64(&client, &got), &expected, rtol, atol, &label);
+            }
+        });
+    }
+}
+
+/// The input is channels `[start, start + 64)` of an 80-channel buffer. Start
+/// 8 keeps 16-byte alignment (vector staging); start 3 breaks it (scalar
+/// staging). Both match the reference.
+#[test]
+fn test_native_conv_channel_slice_input() {
+    check_channel_slice_input(80, 64, 48, &[8, 3]);
+}
+
+/// Channel-slice inputs across C_in and C_out. Starts 0, 8 and 16 in an
+/// 80-channel buffer keep the vector variant; start 3 and every start in an
+/// 84-channel buffer (pixel stride not a multiple of 8) take the scalar
+/// variant.
+#[test]
+fn test_native_conv_channel_slice_input_sweep() {
+    for (c_in, c_out) in [(24, 16), (40, 96), (8, 48)] {
+        check_channel_slice_input(80, c_in, c_out, &[0, 8, 16, 3]);
+        check_channel_slice_input(84, c_in, c_out, &[8, 5]);
+    }
+}
+
+/// `conv2d_fused_into` writes channels `[start, start + c_out)` of a
+/// `wide`-channel output buffer, with a residual read from the same channels
+/// of a second `wide`-channel buffer. Every written channel matches the
+/// reference, and every other channel keeps its sentinel exactly.
+///
+/// Cases reach every store path of the epilogue: 16-byte stores (aligned
+/// start, stride a multiple of 8, whole N tile), the half2 path (partial N
+/// tile, or an even stride that is not a multiple of 8), and one-element
+/// stores (odd start or odd stride). The residual takes the half2 load on
+/// even strides and starts, and the one-element load otherwise.
+#[test]
+fn test_native_conv_into_channel_slice_output() {
+    const BATCH: usize = 2;
+    // (c_in, c_out, wide, start)
+    let cases = [
+        (24, 64, 72, 0),
+        (24, 32, 48, 8),
+        (40, 48, 64, 8),
+        (24, 96, 120, 16),
+        (3, 32, 40, 3),
+        (8, 16, 21, 5),
+        (40, 64, 70, 2),
+    ];
+    for dtype in half_dtypes("cuda") {
+        let (rtol, atol) = native_tolerance(dtype);
+        with_cuda_backend(|client, device| {
+            let make = |values: &[f64], shape: &[usize]| {
+                tensor_from_f64(values, shape, dtype, &device, &client).unwrap()
+            };
+            let config = Conv2dConfig::new(ConvLayout::Nhwc).with_padding(PaddingMode::Same);
+            for (c_in, c_out, wide, start) in cases {
+                let label = format!(
+                    "out slice [{start}, {}) of {wide}, c_in {c_in} [{dtype:?}]",
+                    start + c_out
+                );
+                let x = rounded(pattern(BATCH * H * W * c_in, 70), dtype);
+                let w_shape = [c_out, KERNEL, KERNEL, c_in];
+                let w = rounded(pattern(w_shape.iter().product(), 71), dtype);
+                let bias = rounded(pattern(c_out, 72), dtype);
+                let res_data = rounded(pattern(BATCH * H * W * wide, 73), dtype);
+                let out_buf = make(&vec![SENTINEL; BATCH * H * W * wide], &[BATCH, H, W, wide]);
+                let res_buf = make(&res_data, &[BATCH, H, W, wide]);
+                let out = out_buf.narrow(-1, start, c_out).unwrap();
+                client
+                    .conv2d_fused_into(
+                        &out,
+                        &make(&x, &[BATCH, H, W, c_in]),
+                        &make(&w, &w_shape),
+                        Some(&make(&bias, &[c_out])),
+                        &config,
+                        ConvActivation::LeakyRelu(LEAKY_SLOPE),
+                        Some(ConvResidual {
+                            tensor: &res_buf.narrow(-1, start, c_out).unwrap(),
+                            scale: RESIDUAL_SCALE,
+                        }),
+                    )
+                    .unwrap_or_else(|e| panic!("{label}: {e}"));
+                let residual = channel_slice(&res_data, wide, start, c_out);
+                let expected = cpu_reference(
+                    &x,
+                    [BATCH, H, W, c_in],
+                    &w,
+                    w_shape,
+                    &bias,
+                    Some(LEAKY_SLOPE),
+                    Some((&residual, RESIDUAL_SCALE)),
+                );
+                let after = host_f64(&client, &out_buf);
+                let written = channel_slice(&after, wide, start, c_out);
+                assert_values_close(&written, &expected, rtol, atol, &label);
+                for (i, v) in after.iter().enumerate() {
+                    let c = i % wide;
+                    if c < start || c >= start + c_out {
+                        assert_eq!(
+                            v.to_bits(),
+                            SENTINEL.to_bits(),
+                            "{label}: channel {c} outside the slice changed"
+                        );
+                    }
+                }
             }
         });
     }

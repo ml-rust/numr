@@ -10,7 +10,8 @@ use crate::ops::conv_fused_common::FusedConv2dParams;
 use crate::ops::{Conv2dConfig, ConvActivation, ConvLayout, ConvResidual};
 use crate::runtime::Device;
 use crate::runtime::cuda::kernels::{
-    ConvEpilogueActivation, ConvImplicitGemmArgs, NhwcStrides, launch_conv_implicit_gemm,
+    CONV_MAX_KERNEL_EXTENT, ConvEpilogueActivation, ConvImplicitGemmArgs, NhwcStrides,
+    launch_conv_implicit_gemm,
 };
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
@@ -55,7 +56,8 @@ fn contiguous_nhwc_strides(shape: [usize; 4]) -> Option<NhwcStrides> {
     ])
 }
 
-/// True when every geometry value fits the kernel's `i32` arguments.
+/// True when every geometry value, and every tap position the kernel forms
+/// in `i32`, fits the kernel's `i32` arithmetic.
 fn fits_i32(params: &FusedConv2dParams) -> bool {
     let c = &params.conv;
     let pixels = c
@@ -66,12 +68,25 @@ fn fits_i32(params: &FusedConv2dParams) -> bool {
         .kernel_h
         .checked_mul(c.kernel_w)
         .and_then(|v| v.checked_mul(c.c_in));
-    let (Some(pixels), Some(taps)) = (pixels, taps) else {
+    // Last output row and column times the stride, and last tap times the
+    // dilation. An empty output or kernel gives `None` here.
+    let last_times = |n: usize, step: usize| n.checked_sub(1).and_then(|v| v.checked_mul(step));
+    let reach_h = last_times(c.output_h, c.stride_h);
+    let reach_w = last_times(c.output_w, c.stride_w);
+    let span_h = last_times(c.kernel_h, c.dilation_h);
+    let span_w = last_times(c.kernel_w, c.dilation_w);
+    let (Some(pixels), Some(taps), Some(reach_h), Some(reach_w), Some(span_h), Some(span_w)) =
+        (pixels, taps, reach_h, reach_w, span_h, span_w)
+    else {
         return false;
     };
     [
         pixels,
         taps,
+        reach_h,
+        reach_w,
+        span_h,
+        span_w,
         c.height,
         c.width,
         c.output_h,
@@ -90,9 +105,12 @@ fn fits_i32(params: &FusedConv2dParams) -> bool {
 /// Launch arguments when the native kernel can run this call, else `None`.
 ///
 /// Conditions, all required:
-/// - F16 on a device with `caps.f16_mma`, or BF16 with `caps.bf16`.
+/// - F16 on sm_75+ (`caps.f16_mma` and `caps.int8_mma`), or BF16 on sm_80+
+///   (`caps.bf16`). The kernel needs `ldmatrix` and `mma.sync`, which sm_70
+///   lacks.
 /// - `Nhwc` layout and one group.
 /// - A non-empty output and `Kh * Kw * C_in >= 1`.
+/// - `Kh` and `Kw` at most [`CONV_MAX_KERNEL_EXTENT`].
 /// - Input, output and residual views with channel stride 1 and no negative
 ///   stride. Other strides are free, so channel slices work.
 /// - A contiguous weight, bias and PReLU weight.
@@ -114,8 +132,10 @@ pub(super) fn native_args(
     out: Option<&Tensor<CudaRuntime>>,
 ) -> Option<ConvImplicitGemmArgs> {
     let caps = client.device.profile().caps;
+    // `int8_mma` marks sm_75+, the first generation with `ldmatrix` and
+    // `mma.sync.m16n8k8`.
     let dtype_ok = match input.dtype() {
-        DType::F16 => caps.f16_mma,
+        DType::F16 => caps.f16_mma && caps.int8_mma,
         DType::BF16 => caps.bf16,
         _ => false,
     };
@@ -128,6 +148,8 @@ pub(super) fn native_args(
         || c.c_in == 0
         || c.kernel_h == 0
         || c.kernel_w == 0
+        || c.kernel_h > CONV_MAX_KERNEL_EXTENT
+        || c.kernel_w > CONV_MAX_KERNEL_EXTENT
         || !fits_i32(params)
     {
         return None;

@@ -291,6 +291,7 @@ fn compile_cuda_kernels() {
         "conv_implicit_gemm.cuh",
         "conv_implicit_gemm_stage.cuh",
         "conv_implicit_gemm_epilogue.cuh",
+        "conv_implicit_gemm_mma.cuh",
         "semiring_matmul_ops.cuh",
         "sort_bitonic.cuh",
         "sort_compare.cuh",

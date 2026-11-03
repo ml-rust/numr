@@ -7,12 +7,21 @@
 // tolerance is one storage ulp relative plus a small absolute floor for the
 // F32 sum (`native_tolerance`).
 //
-// Cases cover the one-element staging path (C_in 3, 12) and the 128-bit path
-// (C_in 8, 16, 64), every tile width (C_out 32, 40, 48, 64, 130), ragged
-// spatial sizes, stride, dilation, Same and asymmetric padding, every
-// activation, bias on and off, and residual scales 0.2 and 1.0. Routing is
-// covered by native-vs-generic agreement on CUDA and by a grouped case that
-// takes the generic path.
+// Cases cover the scalar staging variant (C_in 3, 12, and any C_in with a
+// misaligned view) and the vector variant (C_in a multiple of 8), every tile
+// (256x32 for C_out <= 32, 128x64 for wider C_out), partial N tiles, C_out
+// over several grid-y tiles, M below one tile and not a multiple of 256, 1x1,
+// 3x3 and 5x5 kernels, stride, dilation, Valid, Same and asymmetric padding,
+// every activation, bias on and off, and residual scales 0.2 and 1.0.
+//
+// The crate exposes no routing probe, so these tests cannot assert that a
+// call took the native kernel. Every spec here meets the native conditions
+// of `ops/cuda/conv_fused_native.rs`: F16 or BF16, NHWC, one group, a
+// contiguous OHWI weight, channel stride 1, and Kh, Kw <= 32. On a device
+// without the native path (below sm_75, or BF16 below sm_80) the same cases
+// check the generic path instead. Routing is also covered by
+// native-vs-generic agreement and by a grouped case that takes the generic
+// path.
 
 use numr::dtype::DType;
 use numr::ops::{
@@ -247,7 +256,10 @@ fn check(spec: Spec, epilogues: &[Epilogue]) {
         let (rtol, atol) = native_tolerance(dtype);
         with_cuda_backend(|client, device| {
             for &epi in epilogues {
-                let label = format!("{} {epi:?} [{dtype:?}]", spec.name);
+                let label = format!(
+                    "{} c_in {} c_out {} {epi:?} [{dtype:?}]",
+                    spec.name, spec.c_in, spec.c_out
+                );
                 let got = run(&client, &device, dtype, spec, &v, epi);
                 assert_eq!(got.shape(), v.out_shape.as_slice(), "{label}: shape");
                 assert!(got.is_contiguous(), "{label}: output must be contiguous");
@@ -450,5 +462,162 @@ fn test_native_conv_grouped_falls_back() {
             let got = host_f64(&client, &run(&client, &device, dtype, s, &v, epi));
             assert_values_close(&got, &expected, 0.0, atol, &format!("groups2 [{dtype:?}]"));
         });
+    }
+}
+
+/// `spec` on a 9x13 image: M = 234, below one 256-row tile and above one
+/// 128-row tile.
+const fn small(name: &'static str, c_in: usize, c_out: usize) -> Spec {
+    Spec {
+        h: 9,
+        w: 13,
+        ..spec(name, c_in, c_out)
+    }
+}
+
+/// Every operand in one, PReLU alone in the other.
+const SWEEP_EPILOGUES: [Epilogue; 2] = [
+    Epilogue {
+        act: Act::Leaky,
+        bias: true,
+        residual_scale: Some(0.2),
+    },
+    Epilogue {
+        act: Act::PreluPerChannel,
+        bias: false,
+        residual_scale: None,
+    },
+];
+
+/// C_in 3, 24 and 40 leave a partial chunk or K-tile, 8 and 72 fill whole
+/// chunks; 3 takes the scalar variant. C_out 16 and 32 take 256x32, the
+/// rest a 64-wide tile with a partial N tile at 48 and 96 and two or three
+/// grid-y tiles at 96 and 160.
+#[test]
+fn test_native_conv_channel_sweep() {
+    for c_in in [3, 8, 24, 40, 72] {
+        for c_out in [16, 32, 48, 64, 96, 160] {
+            check(small("channel_sweep", c_in, c_out), &SWEEP_EPILOGUES);
+        }
+    }
+}
+
+/// Every epilogue on a vector-variant spec with a partial N tile, and on a
+/// scalar-variant spec with the 256x32 tile.
+#[test]
+fn test_native_conv_mid_channels_all_epilogues() {
+    check(spec("cin40_cout96_same", 40, 96), &all_epilogues());
+    check(spec("cin24_cout16_same", 24, 16), &all_epilogues());
+    check(spec("cin3_cout48_same", 3, 48), &all_epilogues());
+}
+
+/// Stride 2, dilation 2, Valid and Same padding, 1x1 and 5x5 kernels, on
+/// both staging variants.
+#[test]
+fn test_native_conv_geometry_sweep() {
+    let specs = [
+        Spec {
+            stride: (2, 2),
+            ..spec("cin40_cout96_stride2_same", 40, 96)
+        },
+        Spec {
+            stride: (2, 2),
+            padding: PaddingMode::Valid,
+            ..spec("cin24_cout48_stride2_valid", 24, 48)
+        },
+        Spec {
+            stride: (2, 2),
+            dilation: (2, 2),
+            ..spec("cin3_cout32_stride2_dilation2_same", 3, 32)
+        },
+        Spec {
+            kernel: 5,
+            dilation: (2, 2),
+            ..spec("cin24_cout32_5x5_dilation2_same", 24, 32)
+        },
+        Spec {
+            kernel: 5,
+            padding: PaddingMode::Valid,
+            ..spec("cin3_cout16_5x5_valid", 3, 16)
+        },
+        Spec {
+            kernel: 5,
+            ..spec("cin72_cout160_5x5_same", 72, 160)
+        },
+        Spec {
+            kernel: 1,
+            padding: PaddingMode::Valid,
+            ..spec("cin40_cout64_1x1_valid", 40, 64)
+        },
+        Spec {
+            kernel: 1,
+            ..spec("cin3_cout48_1x1_same", 3, 48)
+        },
+        Spec {
+            dilation: (2, 2),
+            padding: PaddingMode::Valid,
+            ..spec("cin8_cout96_dilation2_valid", 8, 96)
+        },
+    ];
+    for s in specs {
+        check(s, &SWEEP_EPILOGUES);
+    }
+}
+
+/// M far below one tile: a 5x7 image, a 1x1 image, and a Valid 3x3 on a
+/// 3x3 image, which leaves one output pixel per batch.
+#[test]
+fn test_native_conv_tiny_m() {
+    let specs = [
+        Spec {
+            batch: 1,
+            h: 5,
+            w: 7,
+            ..spec("m35_cin8_cout64", 8, 64)
+        },
+        Spec {
+            batch: 1,
+            h: 5,
+            w: 7,
+            ..spec("m35_cin3_cout32", 3, 32)
+        },
+        Spec {
+            batch: 1,
+            h: 1,
+            w: 1,
+            ..spec("m1_cin24_cout48", 24, 48)
+        },
+        Spec {
+            h: 3,
+            w: 3,
+            padding: PaddingMode::Valid,
+            ..spec("m2_cin40_cout16_valid", 40, 16)
+        },
+    ];
+    for s in specs {
+        check(s, &SWEEP_EPILOGUES);
+    }
+}
+
+/// M = 16384: 128 row tiles of 128 at C_out 64, and a second, partial grid-y
+/// tile at C_out 96. Both take the 128x64 tile.
+#[test]
+fn test_native_conv_large_grid() {
+    let specs = [
+        Spec {
+            batch: 1,
+            h: 128,
+            w: 128,
+            ..spec("m16384_cin16_cout64", 16, 64)
+        },
+        Spec {
+            batch: 1,
+            h: 128,
+            w: 128,
+            ..spec("m16384_cin16_cout96", 16, 96)
+        },
+    ];
+    for s in specs {
+        check(s, &SWEEP_EPILOGUES[..1]);
     }
 }

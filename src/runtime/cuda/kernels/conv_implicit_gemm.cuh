@@ -3,32 +3,28 @@
 // GEMM view:
 //   M = N * H_out * W_out   one row per output pixel, row m <-> (n, ho, wo)
 //   N = C_out               one column per output channel
-//   K = Kh * Kw * C_in      ordered (kh, kw, ci), the OHWI weight order
-// A[m][k] is the input element under tap (kh, kw) of pixel m, or 0 in the
-// padding. It is never written to memory: the staging loop gathers it
-// straight from the NHWC input into shared memory. B is the OHWI weight read
-// as [C_out][K] row-major, so B is stored N x K with K contiguous.
+//   K = Kh * Kw * C_in      the OHWI weight order
+// A[m][k] is the input element under one tap of pixel m, or 0 in the
+// padding. It is never written to memory: the loaders gather it straight
+// from the NHWC input. B is the OHWI weight read as [C_out][K] row-major.
 //
-// Reused unchanged from the GEMM headers: the 16x16x16 fragment shape, the
-// launch bounds, the default BLOCK_K, the two-stage ring, the 128-bit staging
-// store (WMMA_VEC_STAGE), the accumulator declarations and the scratch
-// stores (NUMR_WMMA_ACC_DECL_*, NUMR_WMMA_SCRATCH_*). The GEMM body macro
-// hard-codes a row-major [K][N] B and a flat C index, so this file has its
-// own body, K-step and staging.
+// Block tile BM x BN x 32, warp tile 64 x 32. Per k16 step a warp issues 4
+// A ldmatrix.x4, 2 B ldmatrix.x4 and 16 mma.sync m16n8k16 (see
+// conv_implicit_gemm_mma.cuh for sm_75). Both operands sit in shared memory
+// K-contiguous, as rows of 32 halves with the XOR swizzle of
+// conv_stage_swizzle. B is [n][k], so ldmatrix without .trans hands
+// mma.sync .row.col its B operand directly.
 //
-// Shared memory per stage:
-//   A: BLOCK_TILE_M x (BLOCK_K + 8) halves, [m][k]
-//   B: BLOCK_TILE_N x (BLOCK_K + 8) halves, [n][k]
-// Both operands are K-contiguous. F16 reads B as a col_major wmma matrix_b.
-// BF16 reads B with ldmatrix without .trans, which hands mma.sync .row.col
-// its B operand directly. The weight is never transposed in memory.
+// Pipeline: two stages and a register prefetch. Global loads for K-tile
+// k + 1 issue into registers before the mma work of tile k, and land in the
+// other stage after it. One barrier per K-tile. cp.async is not used, so
+// sm_75 runs the same pipeline.
 //
-// A separate table holds (n, ho, wo) for every row of the block tile. It is
-// filled once per block, read by every A staging pass, and read again by the
-// epilogue to address the strided output and residual.
-//
-// Staging is synchronous double buffering, as in matmul_wmma.cuh. cp.async
-// is not used: see matmul_wmma.cu for the unresolved race.
+// Shared memory, all static:
+//   stages     2 x (BM + BN) x 32 halves; the epilogue reuses it as the
+//              [BM][BN] output tile
+//   row table  BM x {i64 out offset, i64 residual offset}
+//   col table  2 x 32 int4, scalar loader only
 //
 // Results are deterministic: every output element sums its K terms in one
 // fixed order, with no split-K.
@@ -36,236 +32,223 @@
 #ifndef NUMR_CONV_IMPLICIT_GEMM_CUH
 #define NUMR_CONV_IMPLICIT_GEMM_CUH
 
-// The `#if __CUDA_ARCH__ >= 700` guard lives in the including .cu file.
+// The `#if __CUDA_ARCH__ >= 750` guard lives in the including .cu file.
 
-#include "matmul_wmma.cuh"
+#include "conv_implicit_gemm_mma.cuh"
 
-// Threads per block. Every tile keeps 16 warps, the count WMMA_LAUNCH_BOUNDS
-// is written for. Tiles differ in the warp grid and the fragments per warp.
-#define CONV_IGEMM_THREADS 512
+/* Kernel arguments. `out` can share an allocation with `input` or
+   `residual` only as a disjoint view; the host checks that, so no element is
+   both read and written, and the read-only cache path is safe. */
+template <typename T>
+struct ConvIgemmParams {
+    const T* input;
+    const T* weight;
+    const T* bias;
+    const T* prelu;
+    const T* residual;
+    T* out;
+    int M;
+    int in_h;
+    int in_w;
+    int c_in;
+    int out_h;
+    int out_w;
+    int c_out;
+    int kernel_h;
+    int kernel_w;
+    int stride_h;
+    int stride_w;
+    int pad_top;
+    int pad_left;
+    int dil_h;
+    int dil_w;
+    long long in_sn;
+    long long in_sh;
+    long long in_sw;
+    long long out_sn;
+    long long out_sh;
+    long long out_sw;
+    long long res_sn;
+    long long res_sh;
+    long long res_sw;
+    unsigned int act;
+    float slope;
+    int prelu_len;
+    float res_scale;
+};
+
+/* Block tile BM x BN on a WARPS_M x WARPS_N warp grid. */
+template <int BM_, int BN_, int WARPS_M_, int WARPS_N_>
+struct ConvTileCfg {
+    static constexpr int BM = BM_;
+    static constexpr int BN = BN_;
+    static constexpr int BK = 32;
+    static constexpr int WARPS_M = WARPS_M_;
+    static constexpr int WARPS_N = WARPS_N_;
+    static constexpr int THREADS = WARPS_M * WARPS_N * 32;
+    static constexpr int WARP_M = BM / WARPS_M;
+    static constexpr int WARP_N = BN / WARPS_N;
+    static constexpr int FRAG_M = WARP_M / 16;
+    static constexpr int FRAG_N = WARP_N / 8;
+    /* Four threads share a row, one 16-byte chunk each. One pass of all
+       threads covers ROWS_PER_PASS rows. */
+    static constexpr int ROWS_PER_PASS = THREADS / 4;
+    static constexpr int A_ITERS = BM / ROWS_PER_PASS;
+    static constexpr int B_ITERS = BN / ROWS_PER_PASS;
+    static constexpr int STAGE_A_BYTES = BM * BK * 2;
+    static constexpr int STAGE_B_BYTES = BN * BK * 2;
+    static constexpr int STAGE_BYTES = STAGE_A_BYTES + STAGE_B_BYTES;
+    static constexpr int POOL_BYTES = 2 * STAGE_BYTES;
+    static constexpr int ROW_TABLE_BYTES = BM * 16;
+    static constexpr int COL_TABLE_BYTES = 2 * BK * 16;
+
+    static_assert(WARP_M == 64 && WARP_N == 32, "the mma loop is written for a 64x32 warp tile");
+    static_assert(BM % ROWS_PER_PASS == 0 && BN % ROWS_PER_PASS == 0 && B_ITERS >= 1,
+                  "every thread stages whole A and B rows");
+    static_assert(BM * BN * 2 <= POOL_BYTES, "the output tile must fit the stage buffers");
+    static_assert((BM * (BN / 8)) % THREADS == 0, "the vector store covers the tile evenly");
+    static_assert(POOL_BYTES + ROW_TABLE_BYTES + COL_TABLE_BYTES <= 49152,
+                  "conv static shared memory exceeds the 48 KiB per-block cap");
+};
 
 #include "conv_implicit_gemm_stage.cuh"
 #include "conv_implicit_gemm_epilogue.cuh"
 
-/* Tile constants, declared inside the kernel body so each instantiation can
-   pick its own tile.
-     WR x WC : warp grid (WR * WC * 32 == CONV_IGEMM_THREADS)
-     WM x WN : 16x16 fragments per warp
-   Block tile = (WR * WM * 16) x (WC * WN * 16). */
-#define CONV_TILE_CONSTANTS(WR, WC, WM, WN, BLOCK_K_ARG, HALF_T)             \
-    constexpr int BLOCK_K = (BLOCK_K_ARG);                                   \
-    constexpr int CONV_WARP_COLS = (WC);                                     \
-    constexpr int BLOCK_TILE_M = (WR) * (WM) * WMMA_M;                       \
-    constexpr int BLOCK_TILE_N = (WC) * (WN) * WMMA_N;                       \
-    constexpr int SMEM_STRIDE_K = BLOCK_K + 8;                               \
-    constexpr int SMEM_A_ELEMS = BLOCK_TILE_M * SMEM_STRIDE_K;               \
-    constexpr int SMEM_B_ELEMS = BLOCK_TILE_N * SMEM_STRIDE_K;               \
-    constexpr int K_VECS_PER_ROW = BLOCK_K / WMMA_VEC_HALVES;                \
-    constexpr unsigned int SMEM_STAGE_BYTES_C =                              \
-        WMMA_STAGES * (SMEM_A_ELEMS + SMEM_B_ELEMS) * sizeof(HALF_T);        \
-    constexpr unsigned int SMEM_SCRATCH_BYTES_C =                            \
-        (WR) * (WC) * WMMA_M * WMMA_N * sizeof(float);                       \
-    constexpr unsigned int SMEM_POOL_BYTES =                                 \
-        SMEM_STAGE_BYTES_C > SMEM_SCRATCH_BYTES_C                            \
-            ? SMEM_STAGE_BYTES_C : SMEM_SCRATCH_BYTES_C;                     \
-    constexpr unsigned int SMEM_ROWS_BYTES = BLOCK_TILE_M * sizeof(int4);    \
-    static_assert((WR) * (WC) * 32 == CONV_IGEMM_THREADS,                    \
-                  "the warp grid must fill CONV_IGEMM_THREADS");             \
-    static_assert(BLOCK_K % WMMA_K == 0, "BLOCK_K must be whole K-steps");   \
-    /* A thread stages the same K column in every K-tile only when the      \
-       thread count is a multiple of the columns per row. The K cursor      \
-       relies on it. */                                                      \
-    static_assert(CONV_IGEMM_THREADS % BLOCK_K == 0 &&                       \
-                  CONV_IGEMM_THREADS % K_VECS_PER_ROW == 0,                  \
-                  "thread count must be a multiple of the staging columns"); \
-    /* 128-bit staging stores and ldmatrix need 16-byte aligned rows. wmma  \
-       fragment pointers need 32-byte alignment: every fragment starts at a \
-       multiple of 16 rows and 16 halves, so 16 rows must span 32 bytes.    */ \
-    static_assert(SMEM_STRIDE_K % WMMA_VEC_HALVES == 0 &&                    \
-                  (SMEM_STRIDE_K * sizeof(HALF_T)) % 16 == 0,                \
-                  "smem rows must be 16-byte aligned");                      \
-    static_assert((SMEM_A_ELEMS * sizeof(HALF_T)) % 32 == 0 &&               \
-                  (SMEM_B_ELEMS * sizeof(HALF_T)) % 32 == 0,                 \
-                  "smem stage bases must be 32-byte aligned");               \
-    static_assert(SMEM_POOL_BYTES + SMEM_ROWS_BYTES <= 49152,                \
-                  "conv static smem exceeds the 49152 B per-block cap");
+template <typename T, typename Cfg, bool VEC> struct ConvLoaderFor;
+template <typename T, typename Cfg> struct ConvLoaderFor<T, Cfg, true> {
+    using type = ConvLoaderVec<T, Cfg>;
+};
+template <typename T, typename Cfg> struct ConvLoaderFor<T, Cfg, false> {
+    using type = ConvLoaderScalar<T, Cfg>;
+};
 
-/* One K-step of WMMA_K for F16: B is [n][k] in smem, so matrix_b is
-   col_major with leading dimension SMEM_STRIDE_K. */
-#define CONV_KSTEP_WMMA(WM, WN, HALF_T, SMEM_A, SMEM_B, K_SUB)               \
-    fragment<matrix_a, WMMA_M, WMMA_N, WMMA_K, HALF_T, row_major>            \
-        frag_a[WM];                                                          \
-    fragment<matrix_b, WMMA_M, WMMA_N, WMMA_K, HALF_T, col_major>            \
-        frag_b[WN];                                                          \
-    for (int wi = 0; wi < (WM); wi++) {                                      \
-        const int row = (warp_row * (WM) + wi) * WMMA_M;                     \
-        load_matrix_sync(frag_a[wi],                                         \
-                         (SMEM_A) + row * SMEM_STRIDE_K + (K_SUB),           \
-                         SMEM_STRIDE_K);                                     \
-    }                                                                        \
-    for (int wj = 0; wj < (WN); wj++) {                                      \
-        const int col = (warp_col * (WN) + wj) * WMMA_N;                     \
-        load_matrix_sync(frag_b[wj],                                         \
-                         (SMEM_B) + col * SMEM_STRIDE_K + (K_SUB),           \
-                         SMEM_STRIDE_K);                                     \
-    }                                                                        \
-    for (int wi = 0; wi < (WM); wi++) {                                      \
-        for (int wj = 0; wj < (WN); wj++) {                                  \
-            mma_sync(frag_c[wi][wj], frag_a[wi], frag_b[wj],                 \
-                     frag_c[wi][wj]);                                        \
-        }                                                                    \
+/* Shared-window byte offsets of this lane's ldmatrix rows at k16 step 0 and
+   1, from the start of a stage's A or B buffer. Fragment i of the warp tile
+   adds i * 16 rows; 16 is a multiple of the swizzle period, so the chunk
+   XOR is the same for every fragment. */
+template <typename Cfg>
+struct ConvLdmOffsets {
+    unsigned int a[2];
+    unsigned int b[2];
+
+    __device__ __forceinline__ ConvLdmOffsets(int lane, int warp_m, int warp_n) {
+        const int a_row = warp_m * Cfg::WARP_M + (lane & 15);
+        const int b_row = warp_n * Cfg::WARP_N + (lane & 7) + ((lane >> 4) << 3);
+#pragma unroll
+        for (int ks = 0; ks < 2; ++ks) {
+            /* A matrices: (rows 0-7, k lo) (rows 8-15, k lo) (rows 0-7, k hi)
+               (rows 8-15, k hi), the m16n8k16 a0..a3 order. */
+            const int a_chunk = conv_stage_swizzle(a_row, ks * 2 + (lane >> 4));
+            a[ks] = static_cast<unsigned int>((a_row * Cfg::BK + a_chunk * 8) * 2);
+            /* B matrices: (n 0-7, k lo) (n 0-7, k hi) (n 8-15, k lo)
+               (n 8-15, k hi), so regs {0, 1} are n-fragment 0 and {2, 3}
+               n-fragment 1. */
+            const int b_chunk = conv_stage_swizzle(b_row, ks * 2 + ((lane >> 3) & 1));
+            b[ks] = static_cast<unsigned int>((b_row * Cfg::BK + b_chunk * 8) * 2);
+            /* Opaque copies: the compiler keeps these in registers instead
+               of recomputing them in every K-tile. */
+            asm volatile("mov.b32 %0, %0;" : "+r"(a[ks]));
+            asm volatile("mov.b32 %0, %0;" : "+r"(b[ks]));
+        }
+    }
+};
+
+/* The mma work of one K-tile on the stage at shared address `stage`. */
+template <typename T, typename Cfg>
+__device__ __forceinline__ void conv_mma_tile(float (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][4], unsigned int stage,
+                                              const ConvLdmOffsets<Cfg>& off) {
+    constexpr unsigned int FRAG_ROW_BYTES = 16 * Cfg::BK * 2;
+#pragma unroll
+    for (int ks = 0; ks < 2; ++ks) {
+        unsigned int a[Cfg::FRAG_M][4];
+        unsigned int b[Cfg::FRAG_N / 2][4];
+#pragma unroll
+        for (int i = 0; i < Cfg::FRAG_M; ++i) {
+            conv_ldmatrix_x4(a[i], stage + off.a[ks] + i * FRAG_ROW_BYTES);
+        }
+#pragma unroll
+        for (int jj = 0; jj < Cfg::FRAG_N / 2; ++jj) {
+            conv_ldmatrix_x4(b[jj], stage + Cfg::STAGE_A_BYTES + off.b[ks] + jj * FRAG_ROW_BYTES);
+        }
+#pragma unroll
+        for (int i = 0; i < Cfg::FRAG_M; ++i) {
+#pragma unroll
+            for (int j = 0; j < Cfg::FRAG_N; ++j) {
+                ConvHalf<T>::mma_k16(acc[i][j], a[i], b[j >> 1][(j & 1) * 2], b[j >> 1][(j & 1) * 2 + 1]);
+            }
+        }
+    }
+}
+
+template <typename T, typename Cfg, bool VEC>
+__device__ __forceinline__ void conv_igemm_run(const ConvIgemmParams<T>& p) {
+    using Loader = typename ConvLoaderFor<T, Cfg, VEC>::type;
+
+    __shared__ __align__(128) unsigned char smem_pool[Cfg::POOL_BYTES];
+    __shared__ __align__(16) longlong2 smem_rows[Cfg::BM];
+    __shared__ __align__(16) int4 smem_cols[VEC ? 1 : 2 * Cfg::BK];
+
+    /* Read once through volatile asm, so the compiler keeps the values
+       derived from it in registers instead of recomputing them from the
+       special register inside the K loop. */
+    int tid;
+    asm volatile("mov.u32 %0, %%tid.x;" : "=r"(tid));
+    const int lane = tid & 31;
+    const int warp = tid >> 5;
+    const int warp_m = warp / Cfg::WARPS_N;
+    const int warp_n = warp % Cfg::WARPS_N;
+    const long long block_row = static_cast<long long>(blockIdx.x) * Cfg::BM;
+    const int block_col = static_cast<int>(blockIdx.y) * Cfg::BN;
+
+    conv_fill_row_table<T, Cfg>(p, smem_rows, tid, block_row);
+
+    Loader ld;
+    ld.init(p, tid, block_row, block_col);
+    const int num_k_tiles = Loader::num_k_tiles(p);
+    const ConvLdmOffsets<Cfg> ldm(lane, warp_m, warp_n);
+    const unsigned int pool = conv_smem_addr(smem_pool);
+
+    float acc[Cfg::FRAG_M][Cfg::FRAG_N][4];
+#pragma unroll
+    for (int i = 0; i < Cfg::FRAG_M; ++i) {
+#pragma unroll
+        for (int j = 0; j < Cfg::FRAG_N; ++j) {
+#pragma unroll
+            for (int e = 0; e < 4; ++e) acc[i][j][e] = 0.0f;
+        }
     }
 
-/* One K-step of WMMA_K for BF16 (sm_80+). A loads as in the GEMM. B is
-   [n][k] in smem, so ldmatrix without .trans gives each lane the
-   k-contiguous pairs mma.sync .row.col expects. With the shared lane split
-   (row = mma_row, col = mma_col) the four matrices come back as
-     d0 = (n 0-7, k 0-7)   d1 = (n 8-15, k 0-7)
-     d2 = (n 0-7, k 8-15)  d3 = (n 8-15, k 8-15)
-   so n-sub 0 takes {d0, d2} and n-sub 1 takes {d1, d3}. */
-#define CONV_KSTEP_RAW(WM, WN, HALF_T, SMEM_A, SMEM_B, K_SUB)                \
-    unsigned int frag_a[WM][4];                                              \
-    unsigned int frag_b[WN][4];                                              \
-    for (int wi = 0; wi < (WM); wi++) {                                      \
-        const int row = (warp_row * (WM) + wi) * WMMA_M + mma_row;           \
-        NUMR_MMA_LDM_X4(frag_a[wi][0], frag_a[wi][1], frag_a[wi][2],         \
-                        frag_a[wi][3],                                       \
-                        (SMEM_A) + row * SMEM_STRIDE_K + (K_SUB) + mma_col); \
-    }                                                                        \
-    for (int wj = 0; wj < (WN); wj++) {                                      \
-        const int col = (warp_col * (WN) + wj) * WMMA_N + mma_row;           \
-        NUMR_MMA_LDM_X4(frag_b[wj][0], frag_b[wj][1], frag_b[wj][2],         \
-                        frag_b[wj][3],                                       \
-                        (SMEM_B) + col * SMEM_STRIDE_K + (K_SUB) + mma_col); \
-    }                                                                        \
-    for (int wi = 0; wi < (WM); wi++) {                                      \
-        for (int wj = 0; wj < (WN); wj++) {                                  \
-            NUMR_MMA_M16N8K16_BF16(                                          \
-                frag_c[wi][wj][0], frag_c[wi][wj][1],                        \
-                frag_c[wi][wj][2], frag_c[wi][wj][3],                        \
-                frag_a[wi][0], frag_a[wi][1], frag_a[wi][2], frag_a[wi][3],  \
-                frag_b[wj][0], frag_b[wj][2]);                               \
-            NUMR_MMA_M16N8K16_BF16(                                          \
-                frag_c[wi][wj][4], frag_c[wi][wj][5],                        \
-                frag_c[wi][wj][6], frag_c[wi][wj][7],                        \
-                frag_a[wi][0], frag_a[wi][1], frag_a[wi][2], frag_a[wi][3],  \
-                frag_b[wj][1], frag_b[wj][3]);                               \
-        }                                                                    \
+    /* Column tables of K-tiles 0 and 1. Table t % 2 serves K-tile t. */
+    if (!VEC) {
+        ld.write_cols(p, smem_cols, tid);
+        ld.write_cols(p, smem_cols + Cfg::BK, tid);
+        __syncthreads();
+    }
+    ld.load(p, smem_cols);
+    ld.store(smem_pool);
+    __syncthreads();
+
+    for (int kt = 0; kt < num_k_tiles; ++kt) {
+        const bool more = kt + 1 < num_k_tiles;
+        const int cur = kt & 1;
+        if (more) {
+            ld.advance(p);
+            ld.load(p, smem_cols + (cur ^ 1) * Cfg::BK);
+        }
+        conv_mma_tile<T, Cfg>(acc, pool + cur * Cfg::STAGE_BYTES, ldm);
+        if (more) {
+            ld.store(smem_pool + (cur ^ 1) * Cfg::STAGE_BYTES);
+        }
+        /* Table `cur` last served the load of K-tile kt, before the
+           previous barrier. It now takes K-tile kt + 2. */
+        if (!VEC) ld.write_cols(p, smem_cols + cur * Cfg::BK, tid);
+        /* Publishes the stage and table written above, and orders every
+           ldmatrix of stage `cur` before its next overwrite. After the last
+           K-tile it frees the stages for the epilogue's output tile. */
+        __syncthreads();
     }
 
-/* Kernel body. Expands against the kernel parameters declared by
-   DEFINE_CONV_IGEMM in conv_implicit_gemm.cu.
-     HALF_T   : __half | __nv_bfloat16
-     MMA      : WMMA (F16) | RAW (BF16)
-     ZERO_EXPR: the HALF_T zero
-     LOAD_F32 : HALF_T -> float
-     STORE_FN : float -> HALF_T */
-#define CONV_IGEMM_BODY(WR, WC, WM, WN, BLOCK_K_ARG, HALF_T, MMA, ZERO_EXPR, LOAD_F32, STORE_FN) \
-{                                                                            \
-    CONV_TILE_CONSTANTS(WR, WC, WM, WN, BLOCK_K_ARG, HALF_T)                 \
-                                                                             \
-    const int tid = threadIdx.x;                                             \
-    const int warp_id = tid / 32;                                            \
-    const int warp_row = warp_id / CONV_WARP_COLS;                           \
-    const int warp_col = warp_id % CONV_WARP_COLS;                           \
-    const int block_row = (int)(blockIdx.x * BLOCK_TILE_M);                  \
-    const int block_col = (int)(blockIdx.y * BLOCK_TILE_N);                  \
-    const int K = kernel_h * kernel_w * c_in;                                \
-                                                                             \
-    /* Staging ring and epilogue scratch share one array. The scratch is    \
-       written only after the barrier that follows the K-loop. */           \
-    __shared__ __align__(128) char smem_raw[SMEM_POOL_BYTES];                \
-    /* (n, ho, wo, unused) per block row. n is -1 past the last row. */     \
-    __shared__ int4 smem_rows[BLOCK_TILE_M];                                 \
-    HALF_T* const smem_A0 = reinterpret_cast<HALF_T*>(smem_raw);             \
-    HALF_T* const smem_B0 = smem_A0 + SMEM_A_ELEMS;                          \
-    HALF_T* const smem_A1 = smem_B0 + SMEM_B_ELEMS;                          \
-    HALF_T* const smem_B1 = smem_A1 + SMEM_A_ELEMS;                          \
-    float* const smem_scratch = reinterpret_cast<float*>(smem_raw);          \
-    static_assert(WMMA_STAGES == 2, "the stage selection below names two"); \
-                                                                             \
-    CONV_FILL_ROW_TABLE(smem_rows)                                           \
-    __syncthreads();                                                         \
-                                                                             \
-    NUMR_WMMA_ACC_DECL_##MMA(WM, WN)                                         \
-                                                                             \
-    /* Staging paths. Both tests are block-uniform. The 128-bit A path      \
-       needs every 8-element K group to be 8 contiguous, 16-byte aligned    \
-       channels of one tap. The 128-bit B path needs 16-byte aligned rows. */ \
-    const bool a_vec = (c_in % WMMA_VEC_HALVES) == 0 &&                      \
-        CONV_ALIGNED16(input) && (in_sn % WMMA_VEC_HALVES) == 0 &&           \
-        (in_sh % WMMA_VEC_HALVES) == 0 && (in_sw % WMMA_VEC_HALVES) == 0;    \
-    const bool b_vec = (K % WMMA_VEC_HALVES) == 0 && CONV_ALIGNED16(weight); \
-    /* The K column this thread stages. It is the same in every K-tile. */  \
-    const int a_col = a_vec ? (tid % K_VECS_PER_ROW) * WMMA_VEC_HALVES       \
-                            : tid % BLOCK_K;                                 \
-    const int b_col = b_vec ? (tid % K_VECS_PER_ROW) * WMMA_VEC_HALVES       \
-                            : tid % BLOCK_K;                                 \
-    ConvKCursor a_k = conv_k_cursor_init(a_col, c_in, kernel_w);             \
-                                                                             \
-    const int num_k_tiles = (K + BLOCK_K - 1) / BLOCK_K;                     \
-    if (num_k_tiles > 0) {                                                   \
-        CONV_STAGE_A(HALF_T, ZERO_EXPR, smem_A0)                             \
-        CONV_STAGE_B(HALF_T, ZERO_EXPR, smem_B0, 0)                          \
-        conv_k_cursor_advance(a_k, BLOCK_K, c_in, kernel_w);                 \
-        __syncthreads();                                                     \
-                                                                             \
-        for (int bk = 0; bk < num_k_tiles; bk++) {                           \
-            const int stage_cur = bk % WMMA_STAGES;                          \
-            const HALF_T* smem_A_cur = (stage_cur == 0) ? smem_A0 : smem_A1; \
-            const HALF_T* smem_B_cur = (stage_cur == 0) ? smem_B0 : smem_B1; \
-            HALF_T* smem_A_nxt = (stage_cur == 0) ? smem_A1 : smem_A0;       \
-            HALF_T* smem_B_nxt = (stage_cur == 0) ? smem_B1 : smem_B0;       \
-                                                                             \
-            /* Loads for tile bk+1 go into the stage last read at bk-1,     \
-               before that iteration's closing barrier. They are issued     \
-               ahead of the mma work so their latency overlaps it. */       \
-            if (bk + 1 < num_k_tiles) {                                      \
-                CONV_STAGE_A(HALF_T, ZERO_EXPR, smem_A_nxt)                  \
-                CONV_STAGE_B(HALF_T, ZERO_EXPR, smem_B_nxt,                  \
-                             (bk + 1) * BLOCK_K)                             \
-                conv_k_cursor_advance(a_k, BLOCK_K, c_in, kernel_w);         \
-            }                                                                \
-                                                                             \
-            for (int k = 0; k < BLOCK_K; k += WMMA_K) {                      \
-                CONV_KSTEP_##MMA(WM, WN, HALF_T, smem_A_cur, smem_B_cur, k)  \
-            }                                                                \
-                                                                             \
-            if (bk + 1 < num_k_tiles) {                                      \
-                __syncthreads();                                             \
-            }                                                                \
-        }                                                                    \
-    }                                                                        \
-                                                                             \
-    /* Orders every fragment read of the staging buffers before the first  \
-       scratch write, since the scratch aliases them. */                    \
-    __syncthreads();                                                         \
-                                                                             \
-    /* Epilogue: F32 fragment -> per-warp scratch -> bias, activation,      \
-       residual in F32 -> one narrowing store at the output's strides. */   \
-    float* const warp_scratch = smem_scratch + warp_id * (WMMA_M * WMMA_N);  \
-    const int lane = tid % 32;                                               \
-    /* Unrolled so frag_c is indexed by constants and stays in registers. */ \
-    _Pragma("unroll")                                                        \
-    for (int wi = 0; wi < (WM); wi++) {                                      \
-        _Pragma("unroll")                                                    \
-        for (int wj = 0; wj < (WN); wj++) {                                  \
-            const int local_r0 = (warp_row * (WM) + wi) * WMMA_M;            \
-            const int gc = block_col + (warp_col * (WN) + wj) * WMMA_N;      \
-            NUMR_WMMA_SCRATCH_##MMA(warp_scratch, wi, wj)                    \
-            __syncwarp();                                                    \
-            for (int idx = lane; idx < WMMA_M * WMMA_N; idx += 32) {         \
-                const int r = idx / WMMA_N;                                  \
-                const int co = gc + idx % WMMA_N;                            \
-                const int4 pix = smem_rows[local_r0 + r];                    \
-                if (pix.x >= 0 && co < c_out) {                              \
-                    CONV_EPILOGUE_STORE(LOAD_F32, STORE_FN,                  \
-                                        warp_scratch[idx], pix, co)          \
-                }                                                            \
-            }                                                                \
-            __syncwarp();                                                    \
-        }                                                                    \
-    }                                                                        \
+    conv_igemm_epilogue<T, Cfg>(p, acc, smem_pool, smem_rows, tid, warp_m, warp_n, block_col);
 }
 
 #endif  // NUMR_CONV_IMPLICIT_GEMM_CUH
