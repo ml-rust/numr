@@ -7,7 +7,7 @@
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::conv_fused_common::FusedConv2dParams;
-use crate::ops::{Conv2dConfig, ConvActivation, ConvLayout, ConvResidual};
+use crate::ops::{Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout, ConvResidual};
 use crate::runtime::Device;
 use crate::runtime::cuda::kernels::{
     CONV_MAX_KERNEL_EXTENT, ConvEpilogueActivation, ConvImplicitGemmArgs, NhwcStrides,
@@ -116,6 +116,10 @@ fn fits_i32(params: &FusedConv2dParams) -> bool {
 /// - A contiguous weight, bias and PReLU weight.
 /// - Geometry within the kernel's `i32` arguments and the grid limit.
 ///
+/// The F16 accumulator runs when `config.accumulation` is
+/// [`ConvAccumulation::AllowHalf`] and the input is F16. BF16 and the
+/// default [`ConvAccumulation::F32`] use the F32 accumulator.
+///
 /// `out` is the destination view of `conv2d_fused_into`. `None` means a
 /// fresh contiguous output: the returned `out_ptr` is 0 and the caller sets
 /// it after allocating.
@@ -175,6 +179,8 @@ pub(super) fn native_args(
         Some(o) => (o.ptr(), nhwc_strides(o)?),
         None => (0, contiguous_nhwc_strides(params.output_shape)?),
     };
+    let half_accumulate =
+        config.accumulation == ConvAccumulation::AllowHalf && input.dtype() == DType::F16;
 
     Some(ConvImplicitGemmArgs {
         input_ptr: input.ptr(),
@@ -202,6 +208,7 @@ pub(super) fn native_args(
         activation,
         prelu_len,
         residual_scale,
+        half_accumulate,
     })
 }
 

@@ -110,11 +110,12 @@ pub(crate) use reduce::{
 };
 pub use traits::Fp8MatmulOps;
 pub use traits::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, Conv2dConfig, ConvActivation,
-    ConvLayout, ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, EinsumOps,
-    FusedConvOps, FwhtOps, GemmActivation, GemmEpilogueOps, GroupedMatmulOps, HostCopyOps,
-    IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NormalizationOps,
-    PadMode, PaddingMode, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps,
-    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, Conv2dConfig,
+    ConvAccumulation, ConvActivation, ConvLayout, ConvOps, ConvResidual, CumulativeOps,
+    DistanceMetric, DistanceOps, EinsumOps, FusedConvOps, FwhtOps, GemmActivation, GemmEpilogueOps,
+    GroupedMatmulOps, HostCopyOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
+    MeshgridIndexing, NormalizationOps, PadMode, PaddingMode, ReduceOps, ScalarOps,
+    ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
+    TypeConversionOps, UnaryOps, UtilityOps,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

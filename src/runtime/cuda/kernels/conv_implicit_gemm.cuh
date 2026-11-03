@@ -1,24 +1,46 @@
 // Implicit-GEMM tensor-core conv2d body for NHWC input and OHWI weight.
 //
 // GEMM view:
-//   M = N * H_out * W_out   one row per output pixel, row m <-> (n, ho, wo)
+//   M = N * H_out * W_out   one row per output pixel
 //   N = C_out               one column per output channel
 //   K = Kh * Kw * C_in      the OHWI weight order
 // A[m][k] is the input element under one tap of pixel m, or 0 in the
 // padding. It is never written to memory: the loaders gather it straight
 // from the NHWC input. B is the OHWI weight read as [C_out][K] row-major.
 //
-// Block tile BM x BN x 32, warp tile 64 x 32. Per k16 step a warp issues 4
-// A ldmatrix.x4, 2 B ldmatrix.x4 and 16 mma.sync m16n8k16 (see
-// conv_implicit_gemm_mma.cuh for sm_75). Both operands sit in shared memory
+// Block tile BM x BN x 32, warp tile 64 x WN with WN = 32 or 64. Per k16
+// step a warp issues 4 A ldmatrix.x4, WN / 16 B ldmatrix.x4 and WN / 2
+// mma.sync m16n8k16 (see conv_implicit_gemm_mma.cuh for sm_75). The
+// accumulator is F32, or F16 for F16 inputs when the host asks for it. A
+// 64x64 warp tile needs the F16 accumulator: its F32 accumulators take
+// 128 registers. After the K loop an F16 accumulator widens to F32, so the
+// epilogue always runs in F32. Both operands sit in shared memory
 // K-contiguous, as rows of 32 halves with the XOR swizzle of
 // conv_stage_swizzle. B is [n][k], so ldmatrix without .trans hands
 // mma.sync .row.col its B operand directly.
 //
-// Pipeline: two stages and a register prefetch. Global loads for K-tile
-// k + 1 issue into registers before the mma work of tile k, and land in the
-// other stage after it. One barrier per K-tile. cp.async is not used, so
-// sm_75 runs the same pipeline.
+// Two bodies:
+//   conv_igemm_run       gather, in conv_implicit_gemm_gather.cuh. Row m of
+//                        a block is GEMM row blockIdx.x * BM + m. K runs
+//                        tap-major, and every K-tile gathers its A rows from
+//                        global memory.
+//   conv_igemm_run_halo  halo, in conv_implicit_gemm_halo.cuh. A block owns
+//                        a PATCH_H x PATCH_W patch of output pixels of one
+//                        image. K runs channel-chunk-major, and each
+//                        32-channel chunk of the input patch plus its halo
+//                        is staged once and serves every tap.
+//
+// Gather pipeline: two stages and one register set. Per K-tile t:
+//   ldmatrix k16 step 1 of t      mma k16 step 0 of t
+//   STS of tile t + 1 into the other stage
+//   barrier
+//   ldmatrix k16 step 0 of t + 1  global loads of tile t + 2
+//   mma k16 step 1 of t
+// The fragments of the next k16 step load while the current one runs, also
+// across the barrier. The scalar gather keeps its loads at the top of the
+// K-tile instead, before any fragment is live: its packed 16-bit loads hold
+// many registers in flight. The stage addresses toggle by XOR. cp.async is
+// not used, so sm_75 runs the same pipeline.
 //
 // Shared memory, all static:
 //   stages     2 x (BM + BN) x 32 halves; the epilogue reuses it as the
@@ -77,8 +99,10 @@ struct ConvIgemmParams {
     float res_scale;
 };
 
-/* Block tile BM x BN on a WARPS_M x WARPS_N warp grid. */
-template <int BM_, int BN_, int WARPS_M_, int WARPS_N_>
+/* Block tile BM x BN on a WARPS_M x WARPS_N warp grid. The halo body
+   covers a PATCH_H x PATCH_W patch of output pixels with BM = PATCH_H *
+   PATCH_W, and stages at most HALO_ITERS * ROWS_PER_PASS halo pixels. */
+template <int BM_, int BN_, int WARPS_M_, int WARPS_N_, int PATCH_W_, int HALO_ITERS_>
 struct ConvTileCfg {
     static constexpr int BM = BM_;
     static constexpr int BN = BN_;
@@ -101,14 +125,31 @@ struct ConvTileCfg {
     static constexpr int POOL_BYTES = 2 * STAGE_BYTES;
     static constexpr int ROW_TABLE_BYTES = BM * 16;
     static constexpr int COL_TABLE_BYTES = 2 * BK * 16;
+    static constexpr int OUT_TILE_BYTES = BM * BN * 2;
 
-    static_assert(WARP_M == 64 && WARP_N == 32, "the mma loop is written for a 64x32 warp tile");
+    static constexpr int PATCH_W = PATCH_W_;
+    static constexpr int PATCH_H = BM / PATCH_W;
+    static constexpr int HALO_ITERS = HALO_ITERS_;
+    static constexpr int HALO_PIX = HALO_ITERS * ROWS_PER_PASS;
+    static constexpr int HALO_BYTES = HALO_PIX * BK * 2;
+    /* Halo, then two B stages. The epilogue reuses the start as the output
+       tile. */
+    static constexpr int HALO_POOL_BYTES = HALO_BYTES + 2 * STAGE_B_BYTES > OUT_TILE_BYTES
+                                         ? HALO_BYTES + 2 * STAGE_B_BYTES
+                                         : OUT_TILE_BYTES;
+
+    static_assert(WARP_M == 64 && (WARP_N == 32 || WARP_N == 64),
+                  "the mma loop is written for a 64x32 or 64x64 warp tile");
     static_assert(BM % ROWS_PER_PASS == 0 && BN % ROWS_PER_PASS == 0 && B_ITERS >= 1,
                   "every thread stages whole A and B rows");
-    static_assert(BM * BN * 2 <= POOL_BYTES, "the output tile must fit the stage buffers");
+    static_assert(OUT_TILE_BYTES <= POOL_BYTES, "the output tile must fit the stage buffers");
     static_assert((BM * (BN / 8)) % THREADS == 0, "the vector store covers the tile evenly");
     static_assert(POOL_BYTES + ROW_TABLE_BYTES + COL_TABLE_BYTES <= 49152,
-                  "conv static shared memory exceeds the 48 KiB per-block cap");
+                  "gather static shared memory exceeds the 48 KiB per-block cap");
+    static_assert(PATCH_W % 16 == 0 && BM % PATCH_W == 0,
+                  "a 16-row mma fragment must lie in one patch row");
+    static_assert(HALO_POOL_BYTES + ROW_TABLE_BYTES <= 49152,
+                  "halo static shared memory exceeds the 48 KiB per-block cap");
 };
 
 #include "conv_implicit_gemm_stage.cuh"
@@ -122,10 +163,29 @@ template <typename T, typename Cfg> struct ConvLoaderFor<T, Cfg, false> {
     using type = ConvLoaderScalar<T, Cfg>;
 };
 
-/* Shared-window byte offsets of this lane's ldmatrix rows at k16 step 0 and
-   1, from the start of a stage's A or B buffer. Fragment i of the warp tile
-   adds i * 16 rows; 16 is a multiple of the swizzle period, so the chunk
-   XOR is the same for every fragment. */
+/* Shared-window byte offsets of this lane's B ldmatrix rows at k16 step 0
+   and 1, from the start of a B tile of BN rows of 32 halves. Fragment pair
+   jj adds jj * 16 rows; 16 is a multiple of the swizzle period, so the
+   chunk XOR is the same for every pair.
+   B matrices: (n 0-7, k lo) (n 0-7, k hi) (n 8-15, k lo) (n 8-15, k hi),
+   so regs {0, 1} are n-fragment 0 and {2, 3} n-fragment 1. */
+template <typename Cfg>
+__device__ __forceinline__ void conv_b_ldm_offsets(unsigned int (&b)[2], int lane, int warp_n) {
+    const int b_row = warp_n * Cfg::WARP_N + (lane & 7) + ((lane >> 4) << 3);
+#pragma unroll
+    for (int ks = 0; ks < 2; ++ks) {
+        const int b_chunk = conv_stage_swizzle(b_row, ks * 2 + ((lane >> 3) & 1));
+        b[ks] = static_cast<unsigned int>((b_row * Cfg::BK + b_chunk * 8) * 2);
+        /* Opaque copy: the compiler keeps it in a register instead of
+           recomputing it in every K-tile. */
+        asm volatile("mov.b32 %0, %0;" : "+r"(b[ks]));
+    }
+}
+
+/* Gather-body ldmatrix offsets of this lane at k16 step 0 and 1, from the
+   start of a stage. Fragment i of the warp tile adds i * 16 rows; 16 is a
+   multiple of the swizzle period, so the chunk XOR is the same for every
+   fragment. */
 template <typename Cfg>
 struct ConvLdmOffsets {
     unsigned int a[2];
@@ -133,122 +193,122 @@ struct ConvLdmOffsets {
 
     __device__ __forceinline__ ConvLdmOffsets(int lane, int warp_m, int warp_n) {
         const int a_row = warp_m * Cfg::WARP_M + (lane & 15);
-        const int b_row = warp_n * Cfg::WARP_N + (lane & 7) + ((lane >> 4) << 3);
 #pragma unroll
         for (int ks = 0; ks < 2; ++ks) {
             /* A matrices: (rows 0-7, k lo) (rows 8-15, k lo) (rows 0-7, k hi)
                (rows 8-15, k hi), the m16n8k16 a0..a3 order. */
             const int a_chunk = conv_stage_swizzle(a_row, ks * 2 + (lane >> 4));
             a[ks] = static_cast<unsigned int>((a_row * Cfg::BK + a_chunk * 8) * 2);
-            /* B matrices: (n 0-7, k lo) (n 0-7, k hi) (n 8-15, k lo)
-               (n 8-15, k hi), so regs {0, 1} are n-fragment 0 and {2, 3}
-               n-fragment 1. */
-            const int b_chunk = conv_stage_swizzle(b_row, ks * 2 + ((lane >> 3) & 1));
-            b[ks] = static_cast<unsigned int>((b_row * Cfg::BK + b_chunk * 8) * 2);
-            /* Opaque copies: the compiler keeps these in registers instead
-               of recomputing them in every K-tile. */
             asm volatile("mov.b32 %0, %0;" : "+r"(a[ks]));
-            asm volatile("mov.b32 %0, %0;" : "+r"(b[ks]));
         }
+        /* B sits after A in a gather stage. */
+        conv_b_ldm_offsets<Cfg>(b, lane, warp_n);
+        b[0] += Cfg::STAGE_A_BYTES;
+        b[1] += Cfg::STAGE_A_BYTES;
     }
 };
 
-/* The mma work of one K-tile on the stage at shared address `stage`. */
-template <typename T, typename Cfg>
-__device__ __forceinline__ void conv_mma_tile(float (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][4], unsigned int stage,
-                                              const ConvLdmOffsets<Cfg>& off) {
+/* ldmatrix fragments of one k16 step of the warp tile. */
+template <typename Cfg>
+struct ConvFrags {
+    unsigned int a[Cfg::FRAG_M][4];
+    unsigned int b[Cfg::FRAG_N / 2][4];
+};
+
+/* B fragments of one k16 step. `addr` is the shared-window address of the
+   B tile plus this lane's offset for the step. */
+template <typename Cfg>
+__device__ __forceinline__ void conv_load_b_frags(ConvFrags<Cfg>& f, unsigned int addr) {
     constexpr unsigned int FRAG_ROW_BYTES = 16 * Cfg::BK * 2;
 #pragma unroll
-    for (int ks = 0; ks < 2; ++ks) {
-        unsigned int a[Cfg::FRAG_M][4];
-        unsigned int b[Cfg::FRAG_N / 2][4];
+    for (int jj = 0; jj < Cfg::FRAG_N / 2; ++jj) {
+        conv_ldmatrix_x4(f.b[jj], addr + jj * FRAG_ROW_BYTES);
+    }
+}
+
+/* Gather-body fragments of k16 step KS from the stage at shared-window
+   address `stage`. */
+template <typename Cfg, int KS>
+__device__ __forceinline__ void conv_load_frags(ConvFrags<Cfg>& f, unsigned int stage,
+                                                const ConvLdmOffsets<Cfg>& off) {
+    constexpr unsigned int FRAG_ROW_BYTES = 16 * Cfg::BK * 2;
 #pragma unroll
-        for (int i = 0; i < Cfg::FRAG_M; ++i) {
-            conv_ldmatrix_x4(a[i], stage + off.a[ks] + i * FRAG_ROW_BYTES);
-        }
+    for (int i = 0; i < Cfg::FRAG_M; ++i) {
+        conv_ldmatrix_x4(f.a[i], stage + off.a[KS] + i * FRAG_ROW_BYTES);
+    }
+    conv_load_b_frags<Cfg>(f, stage + off.b[KS]);
+}
+
+/* The mma work of one k16 step. */
+template <typename T, typename Cfg, bool HALF_ACC>
+__device__ __forceinline__ void conv_mma_k16(
+    typename ConvAccum<HALF_ACC>::type (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][ConvAccum<HALF_ACC>::REGS],
+    const ConvFrags<Cfg>& f) {
 #pragma unroll
-        for (int jj = 0; jj < Cfg::FRAG_N / 2; ++jj) {
-            conv_ldmatrix_x4(b[jj], stage + Cfg::STAGE_A_BYTES + off.b[ks] + jj * FRAG_ROW_BYTES);
-        }
+    for (int i = 0; i < Cfg::FRAG_M; ++i) {
 #pragma unroll
-        for (int i = 0; i < Cfg::FRAG_M; ++i) {
-#pragma unroll
-            for (int j = 0; j < Cfg::FRAG_N; ++j) {
-                ConvHalf<T>::mma_k16(acc[i][j], a[i], b[j >> 1][(j & 1) * 2], b[j >> 1][(j & 1) * 2 + 1]);
-            }
+        for (int j = 0; j < Cfg::FRAG_N; ++j) {
+            ConvHalf<T>::mma_k16(acc[i][j], f.a[i], f.b[j >> 1][(j & 1) * 2], f.b[j >> 1][(j & 1) * 2 + 1]);
         }
     }
 }
 
-template <typename T, typename Cfg, bool VEC>
-__device__ __forceinline__ void conv_igemm_run(const ConvIgemmParams<T>& p) {
-    using Loader = typename ConvLoaderFor<T, Cfg, VEC>::type;
-
-    __shared__ __align__(128) unsigned char smem_pool[Cfg::POOL_BYTES];
-    __shared__ __align__(16) longlong2 smem_rows[Cfg::BM];
-    __shared__ __align__(16) int4 smem_cols[VEC ? 1 : 2 * Cfg::BK];
-
-    /* Read once through volatile asm, so the compiler keeps the values
-       derived from it in registers instead of recomputing them from the
-       special register inside the K loop. */
-    int tid;
-    asm volatile("mov.u32 %0, %%tid.x;" : "=r"(tid));
-    const int lane = tid & 31;
-    const int warp = tid >> 5;
-    const int warp_m = warp / Cfg::WARPS_N;
-    const int warp_n = warp % Cfg::WARPS_N;
-    const long long block_row = static_cast<long long>(blockIdx.x) * Cfg::BM;
-    const int block_col = static_cast<int>(blockIdx.y) * Cfg::BN;
-
-    conv_fill_row_table<T, Cfg>(p, smem_rows, tid, block_row);
-
-    Loader ld;
-    ld.init(p, tid, block_row, block_col);
-    const int num_k_tiles = Loader::num_k_tiles(p);
-    const ConvLdmOffsets<Cfg> ldm(lane, warp_m, warp_n);
-    const unsigned int pool = conv_smem_addr(smem_pool);
-
-    float acc[Cfg::FRAG_M][Cfg::FRAG_N][4];
+/* F32 copy of an F16 accumulator, in the F32 fragment layout the epilogue
+   reads. */
+template <typename Cfg>
+__device__ __forceinline__ void conv_widen_acc(const unsigned int (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][2],
+                                               float (&wide)[Cfg::FRAG_M][Cfg::FRAG_N][4]) {
 #pragma unroll
     for (int i = 0; i < Cfg::FRAG_M; ++i) {
 #pragma unroll
         for (int j = 0; j < Cfg::FRAG_N; ++j) {
 #pragma unroll
-            for (int e = 0; e < 4; ++e) acc[i][j][e] = 0.0f;
+            for (int h = 0; h < 2; ++h) {
+                const float2 v = ConvHalf<__half>::acc_to_float2(acc[i][j][h]);
+                wide[i][j][h * 2] = v.x;
+                wide[i][j][h * 2 + 1] = v.y;
+            }
         }
     }
-
-    /* Column tables of K-tiles 0 and 1. Table t % 2 serves K-tile t. */
-    if (!VEC) {
-        ld.write_cols(p, smem_cols, tid);
-        ld.write_cols(p, smem_cols + Cfg::BK, tid);
-        __syncthreads();
-    }
-    ld.load(p, smem_cols);
-    ld.store(smem_pool);
-    __syncthreads();
-
-    for (int kt = 0; kt < num_k_tiles; ++kt) {
-        const bool more = kt + 1 < num_k_tiles;
-        const int cur = kt & 1;
-        if (more) {
-            ld.advance(p);
-            ld.load(p, smem_cols + (cur ^ 1) * Cfg::BK);
-        }
-        conv_mma_tile<T, Cfg>(acc, pool + cur * Cfg::STAGE_BYTES, ldm);
-        if (more) {
-            ld.store(smem_pool + (cur ^ 1) * Cfg::STAGE_BYTES);
-        }
-        /* Table `cur` last served the load of K-tile kt, before the
-           previous barrier. It now takes K-tile kt + 2. */
-        if (!VEC) ld.write_cols(p, smem_cols + cur * Cfg::BK, tid);
-        /* Publishes the stage and table written above, and orders every
-           ldmatrix of stage `cur` before its next overwrite. After the last
-           K-tile it frees the stages for the epilogue's output tile. */
-        __syncthreads();
-    }
-
-    conv_igemm_epilogue<T, Cfg>(p, acc, smem_pool, smem_rows, tid, warp_m, warp_n, block_col);
 }
+
+/* Zero the accumulator. Zero bits are +0.0 in F32 and in F16. */
+template <typename Cfg, bool HALF_ACC>
+__device__ __forceinline__ void conv_zero_acc(
+    typename ConvAccum<HALF_ACC>::type (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][ConvAccum<HALF_ACC>::REGS]) {
+#pragma unroll
+    for (int i = 0; i < Cfg::FRAG_M; ++i) {
+#pragma unroll
+        for (int j = 0; j < Cfg::FRAG_N; ++j) {
+#pragma unroll
+            for (int e = 0; e < ConvAccum<HALF_ACC>::REGS; ++e) acc[i][j][e] = 0;
+        }
+    }
+}
+
+/* Widen when needed, then run the epilogue. The caller's last barrier
+   orders every ldmatrix before the epilogue's tile stores. */
+template <typename T, typename Cfg, bool HALF_ACC>
+__device__ __forceinline__ void conv_finish(
+    const ConvIgemmParams<T>& p,
+    typename ConvAccum<HALF_ACC>::type (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][ConvAccum<HALF_ACC>::REGS],
+    void* pool, const longlong2* rows, int tid, int warp_m, int warp_n, int block_col) {
+    if constexpr (HALF_ACC) {
+        float wide[Cfg::FRAG_M][Cfg::FRAG_N][4];
+        conv_widen_acc<Cfg>(acc, wide);
+        conv_igemm_epilogue<T, Cfg>(p, wide, pool, rows, tid, warp_m, warp_n, block_col);
+    } else {
+        conv_igemm_epilogue<T, Cfg>(p, acc, pool, rows, tid, warp_m, warp_n, block_col);
+    }
+}
+
+template <typename T, typename Cfg, bool HALF_ACC>
+__device__ __forceinline__ void conv_check_acc() {
+    static_assert(!HALF_ACC || ConvHalf<T>::HALF_ACCUMULATE, "half accumulation is for __half inputs only");
+    static_assert(HALF_ACC || Cfg::WARP_N == 32, "a 64x64 warp tile needs the half accumulator");
+}
+
+#include "conv_implicit_gemm_gather.cuh"
+#include "conv_implicit_gemm_halo.cuh"
 
 #endif  // NUMR_CONV_IMPLICIT_GEMM_CUH

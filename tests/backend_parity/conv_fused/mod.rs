@@ -13,6 +13,11 @@
 // against an F64 CPU reference on the same values, including strided views,
 // determinism and the generic fallback.
 //
+// CUDA native half accumulation (`native_cuda_half_acc`): F16 with
+// `ConvAccumulation::AllowHalf` against the same reference with a K-dependent
+// tolerance, a control that proves the F16 accumulator ran, and BF16, which
+// ignores `AllowHalf`.
+//
 // CUDA and WebGPU (`parity`) must match the CPU result. Their conv runs as
 // im2col + GEMM with a different accumulation order, so the tolerance is
 // accumulation-aware.
@@ -23,6 +28,8 @@
 mod into;
 #[cfg(feature = "cuda")]
 mod native_cuda;
+#[cfg(feature = "cuda")]
+mod native_cuda_half_acc;
 #[cfg(feature = "cuda")]
 mod native_cuda_into;
 mod parity;

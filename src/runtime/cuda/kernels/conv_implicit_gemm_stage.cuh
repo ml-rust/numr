@@ -3,13 +3,15 @@
 // Each thread owns one 16-byte chunk column of the K-tile (chunk = tid % 4)
 // and rows tid / 4 + i * (THREADS / 4) of the A and B tiles. A K-tile moves
 // in three steps:
-//   load    predicated global loads into registers, zeros where masked
+//   load    predicated global loads into a caller-owned register set,
+//           zeros where masked
 //   store   one STS.128 per owned row into the swizzled stage buffer
 //   advance move the K cursor to the next K-tile
-// The body issues `load` for tile k + 1 before the mma work of tile k and
-// `store` after it, so the global latency overlaps the tensor-core work.
+// The body keeps up to two register sets in flight, so the global latency
+// of a K-tile overlaps the tensor-core work of the tiles before it.
 //
-// Two loaders, picked on the host per launch:
+// Two gather loaders, picked on the host per launch. The halo loader of the
+// halo body lives in conv_implicit_gemm_halo.cuh.
 //
 // ConvLoaderVec: C_in % 8 == 0, a 16-byte aligned input with N/H/W strides
 // that are multiples of 8, and a 16-byte aligned weight. K runs tap-major:
@@ -77,19 +79,36 @@ __device__ __forceinline__ unsigned int conv_store_offset(int tid) {
     return static_cast<unsigned int>((r * 4 + conv_stage_swizzle(r, tid & 3)) * 16);
 }
 
-/* One STS.128 per owned A row and B row. `stage` is the stage base. */
+/* 16 bytes to shared-window address `addr`. Volatile with a memory
+   clobber: the store keeps its place between the barriers that order it
+   against the ldmatrix reads of the same stage. */
+__device__ __forceinline__ void conv_sts_128(unsigned int addr, int4 v) {
+    asm volatile("st.shared.v4.b32 [%0], {%1, %2, %3, %4};"
+                 :
+                 : "r"(addr), "r"(v.x), "r"(v.y), "r"(v.z), "r"(v.w)
+                 : "memory");
+}
+
+/* One register set: the owned A rows and B rows of one K-tile. */
 template <typename Cfg>
-__device__ __forceinline__ void conv_stage_store(unsigned char* stage, unsigned int off,
-                                                 const int4 (&a)[Cfg::A_ITERS],
-                                                 const int4 (&b)[Cfg::B_ITERS]) {
+struct ConvStageRegs {
+    int4 a[Cfg::A_ITERS];
+    int4 b[Cfg::B_ITERS];
+};
+
+/* One STS.128 per owned A row and B row. `addr` is the shared-window
+   address of the stage base plus this thread's `conv_store_offset`. Row
+   offsets are compile-time, so each store takes an immediate offset. */
+template <typename Cfg>
+__device__ __forceinline__ void conv_stage_store(unsigned int addr, const ConvStageRegs<Cfg>& r) {
     static_assert(Cfg::ROWS_PER_PASS % 8 == 0, "owned rows must share one swizzle phase");
 #pragma unroll
     for (int i = 0; i < Cfg::A_ITERS; ++i) {
-        *reinterpret_cast<int4*>(stage + off + i * Cfg::ROWS_PER_PASS * 64) = a[i];
+        conv_sts_128(addr + i * Cfg::ROWS_PER_PASS * 64, r.a[i]);
     }
 #pragma unroll
     for (int j = 0; j < Cfg::B_ITERS; ++j) {
-        *reinterpret_cast<int4*>(stage + Cfg::STAGE_A_BYTES + off + j * Cfg::ROWS_PER_PASS * 64) = b[j];
+        conv_sts_128(addr + Cfg::STAGE_A_BYTES + j * Cfg::ROWS_PER_PASS * 64, r.b[j]);
     }
 }
 
@@ -114,8 +133,6 @@ struct ConvLoaderVec {
     long long tap_off;
     /* Weight elements from a B row base to the current tap. */
     int b_tap;
-    int4 a_regs[Cfg::A_ITERS];
-    int4 b_regs[Cfg::B_ITERS];
 
     static __device__ __forceinline__ int num_k_tiles(const ConvIgemmParams<T>& p) {
         return p.kernel_h * p.kernel_w * ((p.c_in + Cfg::BK - 1) / Cfg::BK);
@@ -181,7 +198,7 @@ struct ConvLoaderVec {
     /* The vector loader keeps its K position in registers. */
     __device__ __forceinline__ void write_cols(const ConvIgemmParams<T>&, int4*, int) {}
 
-    __device__ __forceinline__ void load(const ConvIgemmParams<T>& p, const int4*) {
+    __device__ __forceinline__ void load(const ConvIgemmParams<T>& p, const int4*, ConvStageRegs<Cfg>& r) const {
         const bool c_ok = c0 + chunk8 < p.c_in;
         const unsigned int a_bits = c_ok ? tap_ok : 0u;
         const unsigned int b_bits = c_ok ? b_ok : 0u;
@@ -189,11 +206,11 @@ struct ConvLoaderVec {
         const unsigned long long b_koff = static_cast<unsigned long long>(b_tap + c0) * 2ull;
 #pragma unroll
         for (int i = 0; i < Cfg::A_ITERS; ++i) {
-            a_regs[i] = conv_ldg_128(a_addr[i] + a_koff, (a_bits >> i) & 1u);
+            r.a[i] = conv_ldg_128(a_addr[i] + a_koff, (a_bits >> i) & 1u);
         }
 #pragma unroll
         for (int j = 0; j < Cfg::B_ITERS; ++j) {
-            b_regs[j] = conv_ldg_128(b_addr[j] + b_koff, (b_bits >> j) & 1u);
+            r.b[j] = conv_ldg_128(b_addr[j] + b_koff, (b_bits >> j) & 1u);
         }
     }
 
@@ -213,9 +230,6 @@ struct ConvLoaderVec {
         }
     }
 
-    __device__ __forceinline__ void store(unsigned char* stage) const {
-        conv_stage_store<Cfg>(stage, sts_off, a_regs, b_regs);
-    }
 };
 
 template <typename T, typename Cfg>
@@ -244,8 +258,6 @@ struct ConvLoaderScalar {
     int step_ci;
     int step_kw;
     int step_kh;
-    int4 a_regs[Cfg::A_ITERS];
-    int4 b_regs[Cfg::B_ITERS];
 
     static __device__ __forceinline__ int num_k_tiles(const ConvIgemmParams<T>& p) {
         const int k = p.kernel_h * p.kernel_w * p.c_in;
@@ -329,7 +341,7 @@ struct ConvLoaderScalar {
     }
 
     /* `table` holds the column entries of the K-tile at k0. */
-    __device__ __forceinline__ void load(const ConvIgemmParams<T>& p, const int4* table) {
+    __device__ __forceinline__ void load(const ConvIgemmParams<T>& p, const int4* table, ConvStageRegs<Cfg>& r) const {
         const int kb = k0 + chunk8;
         int4 col[8];
 #pragma unroll
@@ -351,7 +363,7 @@ struct ConvLoaderScalar {
                     | static_cast<unsigned int>(col[j].z);
                 w[j >> 1] |= conv_ldg_16(a_addr[i] + off, ok ? 1u : 0u) << ((j & 1) * 16);
             }
-            a_regs[i] = make_int4(static_cast<int>(w[0]), static_cast<int>(w[1]),
+            r.a[i] = make_int4(static_cast<int>(w[0]), static_cast<int>(w[1]),
                                   static_cast<int>(w[2]), static_cast<int>(w[3]));
         }
         const unsigned long long b_koff = static_cast<unsigned long long>(k0) * 2ull;
@@ -364,16 +376,13 @@ struct ConvLoaderScalar {
                 const unsigned int ok = (row_ok && kb + j < K) ? 1u : 0u;
                 w[j >> 1] |= conv_ldg_16(b_addr[jb] + b_koff + j * 2, ok) << ((j & 1) * 16);
             }
-            b_regs[jb] = make_int4(static_cast<int>(w[0]), static_cast<int>(w[1]),
+            r.b[jb] = make_int4(static_cast<int>(w[0]), static_cast<int>(w[1]),
                                    static_cast<int>(w[2]), static_cast<int>(w[3]));
         }
     }
 
     __device__ __forceinline__ void advance(const ConvIgemmParams<T>&) { k0 += Cfg::BK; }
 
-    __device__ __forceinline__ void store(unsigned char* stage) const {
-        conv_stage_store<Cfg>(stage, sts_off, a_regs, b_regs);
-    }
 };
 
 #endif  // NUMR_CONV_IMPLICIT_GEMM_STAGE_CUH

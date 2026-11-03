@@ -1,9 +1,11 @@
 //! Launcher for the implicit-GEMM tensor-core conv2d.
 //!
 //! The kernels live in `kernels/conv_implicit_gemm.cu`: F16 and BF16, NHWC
-//! input, OHWI weight, fused bias, activation and scaled residual. The tile
-//! comes from [`super::conv_implicit_gemm_tile::select_conv_tile`] and the
-//! staging variant from
+//! input, OHWI weight, fused bias, activation and scaled residual. The
+//! accumulator is F32, or F16 for F16 inputs when
+//! [`ConvImplicitGemmArgs::half_accumulate`] is set. The tile comes from
+//! [`super::conv_implicit_gemm_tile::select_conv_tile`] and the staging
+//! variant (halo, vector gather or scalar gather) from
 //! [`super::conv_implicit_gemm_tile::select_conv_staging`].
 
 use cudarc::driver::PushKernelArg;
@@ -15,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
 
 use super::conv_implicit_gemm_tile::{
-    conv_kernel_name, conv_launch_config, select_conv_staging, select_conv_tile,
+    ConvWindow, conv_kernel_name, conv_launch_config, select_conv_staging, select_conv_tile,
 };
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::kernel_names;
@@ -87,6 +89,8 @@ pub(crate) struct ConvImplicitGemmArgs {
     /// 1 or `c_out` when the activation is PReLU, else 0.
     pub prelu_len: usize,
     pub residual_scale: f32,
+    /// Accumulate the K sum in F16. F16 inputs only.
+    pub half_accumulate: bool,
 }
 
 /// Convert a geometry value to the kernel's `int`.
@@ -130,6 +134,12 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
     if m == 0 || args.c_out == 0 {
         return Ok(());
     }
+    if args.half_accumulate && dtype != DType::F16 {
+        return Err(Error::Internal(format!(
+            "conv2d implicit GEMM: half_accumulate is set for {dtype:?}, but only F16 has \
+             F16-accumulator kernels. Set half_accumulate only for F16 inputs"
+        )));
+    }
     // The kernel divides by C_in and Kw to place a K index.
     if k == 0 {
         return Err(Error::Internal(
@@ -166,16 +176,27 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
     let [out_sn, out_sh, out_sw] = args.out_strides;
     let [res_sn, res_sh, res_sw] = args.residual_strides;
 
-    let tile = select_conv_tile(args.c_out);
+    let tile = select_conv_tile(args.c_out, args.half_accumulate);
+    let window = ConvWindow {
+        batch: args.batch,
+        out_h: args.out_h,
+        out_w: args.out_w,
+        kernel: (args.kernel_h, args.kernel_w),
+        stride: args.stride,
+        dilation: args.dilation,
+    };
     let staging = select_conv_staging(
         args.c_in,
         args.input_ptr,
         args.input_strides,
         args.weight_ptr,
+        tile,
+        &window,
     );
-    let cfg = conv_launch_config(m, args.c_out, tile).ok_or_else(|| {
+    let cfg = conv_launch_config(&window, args.c_out, tile, staging).ok_or_else(|| {
         Error::Internal(format!(
-            "conv2d implicit GEMM: grid for M = {m}, C_out = {} exceeds the CUDA grid limit",
+            "conv2d implicit GEMM: grid for M = {m}, C_out = {} exceeds the CUDA grid limit; \
+             route this shape to the generic path",
             args.c_out
         ))
     })?;
@@ -184,7 +205,7 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         device_index,
         kernel_names::CONV_IMPLICIT_GEMM_MODULE,
     )?;
-    let name = conv_kernel_name(dtype, tile, staging);
+    let name = conv_kernel_name(dtype, args.half_accumulate, tile, staging);
     let func = get_kernel_function(&module, &name)?;
 
     // SAFETY: the argument list matches DEFINE_CONV_IGEMM in

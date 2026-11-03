@@ -6,6 +6,8 @@
 //! tail convs, and RRDB dense-block convs. Inputs are NHWC, weights are OHWI.
 //! Native routing needs F16 or BF16, NHWC, one group and a contiguous weight,
 //! bias and PReLU weight. A strided weight forces the generic path.
+//! The `conv_fused_srvgg_f16acc` group runs F16 with
+//! `Acc::AllowHalf`, which takes the F16-accumulator kernels.
 
 // Every benchmark here targets a CUDA kernel on half dtypes, so without those
 // features the file has no bodies and even the harness imports are unused.
@@ -14,6 +16,8 @@ use fluxbench::{Bencher, flux};
 #[cfg(all(feature = "cuda", feature = "f16"))]
 use std::hint::black_box;
 
+#[cfg(all(feature = "cuda", feature = "f16"))]
+use numr::ops::ConvAccumulation as Acc;
 #[cfg(all(feature = "cuda", feature = "f16"))]
 use numr::ops::{
     Conv2dConfig, ConvActivation, ConvLayout, ConvResidual, FusedConvOps, PaddingMode,
@@ -62,6 +66,7 @@ fn run_conv_fused(
     c_out: usize,
     prelu: bool,
     strided_weight: bool,
+    accumulation: Acc,
 ) {
     let device = CudaDevice::new(0);
     let client = CudaRuntime::default_client(&device);
@@ -69,7 +74,7 @@ fn run_conv_fused(
     let weight = weight_ohwi(c_out, c_in, strided_weight, dtype, &device);
     let bias = rand_cuda(&[c_out], dtype, &device);
     let slopes = rand_cuda(&[c_out], dtype, &device);
-    let config = same_config();
+    let config = same_config().with_accumulation(accumulation);
     b.iter(|| {
         let activation = if prelu {
             ConvActivation::Prelu(&slopes)
@@ -95,14 +100,14 @@ fn run_conv_fused(
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_srvgg_f16")]
 fn cuda_conv_fused_body_1080p_64to64_prelu_f16(b: &mut Bencher) {
-    run_conv_fused(b, DType::F16, (1080, 1920, 64), 64, true, false);
+    run_conv_fused(b, DType::F16, (1080, 1920, 64), 64, true, false, Acc::F32);
 }
 
 /// Body conv at 720p: [1,720,1280,64] -> 64, PReLU.
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_srvgg_f16")]
 fn cuda_conv_fused_body_720p_64to64_prelu_f16(b: &mut Bencher) {
-    run_conv_fused(b, DType::F16, (720, 1280, 64), 64, true, false);
+    run_conv_fused(b, DType::F16, (720, 1280, 64), 64, true, false, Acc::F32);
 }
 
 /// Head conv at 1080p: [1,1080,1920,3] -> 64, PReLU. C_in = 3 takes the
@@ -110,14 +115,14 @@ fn cuda_conv_fused_body_720p_64to64_prelu_f16(b: &mut Bencher) {
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_srvgg_f16")]
 fn cuda_conv_fused_head_1080p_3to64_prelu_f16(b: &mut Bencher) {
-    run_conv_fused(b, DType::F16, (1080, 1920, 3), 64, true, false);
+    run_conv_fused(b, DType::F16, (1080, 1920, 3), 64, true, false, Acc::F32);
 }
 
 /// Tail conv at 1080p: [1,1080,1920,64] -> 48, no activation.
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_srvgg_f16")]
 fn cuda_conv_fused_tail_1080p_64to48_f16(b: &mut Bencher) {
-    run_conv_fused(b, DType::F16, (1080, 1920, 64), 48, false, false);
+    run_conv_fused(b, DType::F16, (1080, 1920, 64), 48, false, false, Acc::F32);
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +132,7 @@ fn cuda_conv_fused_tail_1080p_64to48_f16(b: &mut Bencher) {
 /// Dense-block conv: reads channels [0, c_in) of one NHWC buffer, writes the
 /// next 32-channel slice [c_in, c_in + 32) of the same buffer, LeakyReLU 0.2.
 #[cfg(all(feature = "cuda", feature = "f16"))]
-fn run_dense_conv(b: &mut Bencher, c_in: usize) {
+fn run_dense_conv(b: &mut Bencher, c_in: usize, accumulation: Acc) {
     let dtype = DType::F16;
     let device = CudaDevice::new(0);
     let client = CudaRuntime::default_client(&device);
@@ -136,7 +141,7 @@ fn run_dense_conv(b: &mut Bencher, c_in: usize) {
     let out = dense.narrow(-1, c_in, 32).unwrap();
     let weight = weight_ohwi(32, c_in, false, dtype, &device);
     let bias = rand_cuda(&[32], dtype, &device);
-    let config = same_config();
+    let config = same_config().with_accumulation(accumulation);
     b.iter(|| {
         client
             .conv2d_fused_into(
@@ -159,28 +164,28 @@ fn run_dense_conv(b: &mut Bencher, c_in: usize) {
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_rrdb_f16")]
 fn cuda_conv_fused_dense_540x960_64to32_leaky_f16(b: &mut Bencher) {
-    run_dense_conv(b, 64);
+    run_dense_conv(b, 64, Acc::F32);
 }
 
 /// Dense conv 2: C_in 96 -> 32, LeakyReLU 0.2.
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_rrdb_f16")]
 fn cuda_conv_fused_dense_540x960_96to32_leaky_f16(b: &mut Bencher) {
-    run_dense_conv(b, 96);
+    run_dense_conv(b, 96, Acc::F32);
 }
 
 /// Dense conv 3: C_in 128 -> 32, LeakyReLU 0.2.
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_rrdb_f16")]
 fn cuda_conv_fused_dense_540x960_128to32_leaky_f16(b: &mut Bencher) {
-    run_dense_conv(b, 128);
+    run_dense_conv(b, 128, Acc::F32);
 }
 
 /// Dense conv 4: C_in 160 -> 32, LeakyReLU 0.2.
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_rrdb_f16")]
 fn cuda_conv_fused_dense_540x960_160to32_leaky_f16(b: &mut Bencher) {
-    run_dense_conv(b, 160);
+    run_dense_conv(b, 160, Acc::F32);
 }
 
 /// Dense conv 5: C_in 192 -> 64, no activation, residual scale 0.2 into a
@@ -226,7 +231,7 @@ fn cuda_conv_fused_dense_540x960_192to64_residual_f16(b: &mut Bencher) {
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_srvgg_bf16")]
 fn cuda_conv_fused_body_1080p_64to64_prelu_bf16(b: &mut Bencher) {
-    run_conv_fused(b, DType::BF16, (1080, 1920, 64), 64, true, false);
+    run_conv_fused(b, DType::BF16, (1080, 1920, 64), 64, true, false, Acc::F32);
 }
 
 /// Body conv at 720p on the generic path. The weight is a strided view with the
@@ -234,7 +239,35 @@ fn cuda_conv_fused_body_1080p_64to64_prelu_bf16(b: &mut Bencher) {
 #[cfg(all(feature = "cuda", feature = "f16"))]
 #[flux::bench(group = "conv_fused_generic_f16")]
 fn cuda_conv_fused_body_720p_64to64_prelu_generic_f16(b: &mut Bencher) {
-    run_conv_fused(b, DType::F16, (720, 1280, 64), 64, true, true);
+    run_conv_fused(b, DType::F16, (720, 1280, 64), 64, true, true, Acc::F32);
+}
+
+// ---------------------------------------------------------------------------
+// F16 with half accumulation
+// ---------------------------------------------------------------------------
+
+/// Body conv at 1080p with `AllowHalf`: [1,1080,1920,64] -> 64, PReLU. Takes
+/// the 256x64 F16-accumulator tile.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "conv_fused_srvgg_f16acc")]
+fn cuda_conv_fused_body_1080p_64to64_prelu_f16acc(b: &mut Bencher) {
+    run_conv_fused(
+        b,
+        DType::F16,
+        (1080, 1920, 64),
+        64,
+        true,
+        false,
+        Acc::AllowHalf,
+    );
+}
+
+/// Dense conv 1 with `AllowHalf`: C_in 64 -> 32, LeakyReLU 0.2. Takes the
+/// 256x32 F16-accumulator tile.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "conv_fused_srvgg_f16acc")]
+fn cuda_conv_fused_dense_540x960_64to32_leaky_f16acc(b: &mut Bencher) {
+    run_dense_conv(b, 64, Acc::AllowHalf);
 }
 
 fn main() {

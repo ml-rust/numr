@@ -48,7 +48,9 @@ pub use compare::CompareOps;
 pub use complex::ComplexOps;
 pub use conditional::ConditionalOps;
 pub use conv::{ConvOps, PaddingMode};
-pub use conv_fused::{Conv2dConfig, ConvActivation, ConvLayout, ConvResidual, FusedConvOps};
+pub use conv_fused::{
+    Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout, ConvResidual, FusedConvOps,
+};
 pub use cumulative::CumulativeOps;
 pub use distance::{DistanceMetric, DistanceOps};
 pub use einsum::EinsumOps;

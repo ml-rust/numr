@@ -4,13 +4,23 @@
 // Instantiations only. The body, staging and epilogue live in
 // conv_implicit_gemm.cuh and the headers it includes.
 //
-// Symbols are conv2d_implicit_gemm_{dtype}_{tile}_{staging}. Block tiles,
-// each with a 64x32 warp tile:
-//   128x64  4 warps, 2x2 warp grid, for C_out > 32
-//   256x32  4 warps, 4x1 warp grid, for C_out <= 32
-// Staging is `vec` (16-byte loads, tap-major K) or `scalar` (16-bit
-// gathers, flat K). The host picks the tile and the staging per launch in
-// loader/conv_implicit_gemm_tile.rs.
+// Symbols are conv2d_implicit_gemm_{acc}_{tile}_{staging}. {acc} is the
+// dtype (f16, bf16) for the F32 accumulator, or f16acc for F16 inputs with
+// the F16 accumulator. Block tiles, all with 4 warps:
+//   128x64  2x2 warp grid, 64x32 warp tile, F32 accumulator, C_out > 32,
+//           8x16 halo patch
+//   256x32  4x1 warp grid, 64x32 warp tile, both accumulators, C_out <= 32,
+//           8x32 halo patch
+//   256x64  4x1 warp grid, 64x64 warp tile, F16 accumulator, C_out > 32,
+//           8x32 halo patch
+// Staging is `halo` (2D output patch, input patch plus halo staged once per
+// 32-channel chunk), `vec` (16-byte gathers per tap, tap-major K) or
+// `scalar` (16-bit gathers, flat K). The host picks the accumulator, the
+// tile and the staging per launch in loader/conv_implicit_gemm_tile.rs.
+//
+// F32-accumulator kernels allow one block per SM in __launch_bounds__. The
+// F16-accumulator kernels allow two: their registers and static shared
+// memory fit two blocks on an SM with 100 KiB of shared memory.
 //
 // F16 needs sm_75+ (ldmatrix, mma.sync). BF16 needs sm_80+.
 
@@ -18,14 +28,23 @@
 
 #include "conv_implicit_gemm.cuh"
 
-typedef ConvTileCfg<128, 64, 2, 2> ConvTile128x64;
-typedef ConvTileCfg<256, 32, 4, 1> ConvTile256x32;
+/* Patch 8x16 with up to 192 halo pixels for 128-row tiles, 8x32 with up to
+   352 for 256-row tiles. Both hold a 3x3 stride-1 halo: 10x18 = 180 and
+   10x34 = 340 pixels. */
+typedef ConvTileCfg<128, 64, 2, 2, 16, 6> ConvTile128x64;
+typedef ConvTileCfg<256, 32, 4, 1, 32, 11> ConvTile256x32;
+typedef ConvTileCfg<256, 64, 4, 1, 32, 11> ConvTile256x64;
+
+/* RUN picks the body: the gather body conv_igemm_run or the halo body
+   conv_igemm_run_halo. */
+#define CONV_RUN_GATHER(T, CFG, VEC, HALF_ACC) conv_igemm_run<T, CFG, VEC, HALF_ACC>
+#define CONV_RUN_HALO(T, CFG, VEC, HALF_ACC) conv_igemm_run_halo<T, CFG, HALF_ACC>
 
 // Every pointer except `out` is read-only. `out` can share an allocation
 // with `input` or `residual` only as a disjoint view; the host checks that,
 // so no element is both read and written.
-#define DEFINE_CONV_IGEMM(NAME, T, CFG, VEC)                                 \
-extern "C" __global__ void __launch_bounds__(CFG::THREADS, 1)                \
+#define DEFINE_CONV_IGEMM(NAME, T, CFG, RUN, VEC, HALF_ACC, MIN_BLOCKS)      \
+extern "C" __global__ void __launch_bounds__(CFG::THREADS, MIN_BLOCKS)       \
 conv2d_implicit_gemm_##NAME(                                                 \
     const T* __restrict__ input,                                             \
     const T* __restrict__ weight,                                            \
@@ -47,16 +66,22 @@ conv2d_implicit_gemm_##NAME(                                                 \
         pad_top, pad_left, dil_h, dil_w,                                     \
         in_sn, in_sh, in_sw, out_sn, out_sh, out_sw, res_sn, res_sh, res_sw, \
         act, slope, prelu_len, res_scale};                                   \
-    conv_igemm_run<T, CFG, VEC>(p);                                          \
+    RUN(T, CFG, VEC, HALF_ACC)(p);                                           \
 }
 
-#define DEFINE_CONV_IGEMM_DTYPE(DT, T)                                       \
-    DEFINE_CONV_IGEMM(DT##_128x64_vec, T, ConvTile128x64, true)              \
-    DEFINE_CONV_IGEMM(DT##_128x64_scalar, T, ConvTile128x64, false)          \
-    DEFINE_CONV_IGEMM(DT##_256x32_vec, T, ConvTile256x32, true)              \
-    DEFINE_CONV_IGEMM(DT##_256x32_scalar, T, ConvTile256x32, false)
+#define DEFINE_CONV_IGEMM_TILE(PRE, TILE, T, CFG, HALF_ACC, MIN_BLOCKS)                          \
+    DEFINE_CONV_IGEMM(PRE##_##TILE##_vec, T, CFG, CONV_RUN_GATHER, true, HALF_ACC, MIN_BLOCKS)    \
+    DEFINE_CONV_IGEMM(PRE##_##TILE##_scalar, T, CFG, CONV_RUN_GATHER, false, HALF_ACC, MIN_BLOCKS) \
+    DEFINE_CONV_IGEMM(PRE##_##TILE##_halo, T, CFG, CONV_RUN_HALO, true, HALF_ACC, MIN_BLOCKS)
+
+#define DEFINE_CONV_IGEMM_DTYPE(DT, T)                                \
+    DEFINE_CONV_IGEMM_TILE(DT, 128x64, T, ConvTile128x64, false, 1)   \
+    DEFINE_CONV_IGEMM_TILE(DT, 256x32, T, ConvTile256x32, false, 1)
 
 DEFINE_CONV_IGEMM_DTYPE(f16, __half)
+
+DEFINE_CONV_IGEMM_TILE(f16acc, 256x32, __half, ConvTile256x32, true, 2)
+DEFINE_CONV_IGEMM_TILE(f16acc, 256x64, __half, ConvTile256x64, true, 2)
 
 #if __CUDA_ARCH__ >= 800
 DEFINE_CONV_IGEMM_DTYPE(bf16, __nv_bfloat16)

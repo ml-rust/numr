@@ -84,11 +84,36 @@ impl<R: Runtime> fmt::Debug for ConvResidual<'_, R> {
     }
 }
 
-/// Geometry of a fused 2D convolution.
+/// Accumulator precision a fused convolution can use for its K sum.
 ///
-/// [`Conv2dConfig::new`] sets stride 1, `Valid` padding, dilation 1 and one
-/// group. The `with_*` setters change one field each.
+/// On the native CUDA path the bias, activation and residual run in F32
+/// under either choice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[non_exhaustive]
+pub enum ConvAccumulation {
+    /// Accumulate in F32, or in F64 for F64 inputs.
+    #[default]
+    F32,
+    /// Permit the K sum in the input's half dtype.
+    ///
+    /// This is a permission. A backend can ignore it and accumulate in F32.
+    /// Only the native CUDA path honours it, and only for F16 inputs on
+    /// sm_75+. BF16 always accumulates in F32.
+    ///
+    /// The result can differ from F32 accumulation. The difference grows
+    /// with `K = Kh * Kw * C_in / groups`. A partial sum past the F16 range
+    /// becomes `inf`. A fixed input still gives a bit-identical output on
+    /// every run.
+    AllowHalf,
+}
+
+/// Geometry and accumulator precision of a fused 2D convolution.
+///
+/// [`Conv2dConfig::new`] sets stride 1, `Valid` padding, dilation 1, one
+/// group and [`ConvAccumulation::F32`]. The `with_*` setters change one
+/// field each.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Conv2dConfig {
     /// Stride as `(stride_h, stride_w)`. Each must be positive.
     pub stride: (usize, usize),
@@ -100,10 +125,13 @@ pub struct Conv2dConfig {
     pub groups: usize,
     /// Layout of input, weight, output and residual.
     pub layout: ConvLayout,
+    /// Accumulator precision of the K sum. See [`ConvAccumulation`].
+    pub accumulation: ConvAccumulation,
 }
 
 impl Conv2dConfig {
-    /// Stride 1, `Valid` padding, dilation 1, one group, in `layout`.
+    /// Stride 1, `Valid` padding, dilation 1, one group, F32 accumulation,
+    /// in `layout`.
     pub fn new(layout: ConvLayout) -> Self {
         Self {
             stride: (1, 1),
@@ -111,6 +139,7 @@ impl Conv2dConfig {
             dilation: (1, 1),
             groups: 1,
             layout,
+            accumulation: ConvAccumulation::F32,
         }
     }
 
@@ -135,6 +164,12 @@ impl Conv2dConfig {
     /// Set the number of channel groups.
     pub fn with_groups(mut self, groups: usize) -> Self {
         self.groups = groups;
+        self
+    }
+
+    /// Set the accumulator precision. See [`ConvAccumulation`].
+    pub fn with_accumulation(mut self, accumulation: ConvAccumulation) -> Self {
+        self.accumulation = accumulation;
         self
     }
 }
@@ -167,6 +202,11 @@ impl Conv2dConfig {
 /// Every operand has the input's float dtype. Each backend supports the
 /// dtypes its [`ConvOps::conv2d`](super::ConvOps::conv2d) supports. WebGPU
 /// supports F32 only.
+///
+/// # Accumulation
+///
+/// The K sum runs in F32 unless [`Conv2dConfig::accumulation`] permits half
+/// accumulation and the backend honours it. See [`ConvAccumulation`].
 ///
 /// # Autograd
 ///

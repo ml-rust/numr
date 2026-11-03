@@ -7,12 +7,15 @@
 // tolerance is one storage ulp relative plus a small absolute floor for the
 // F32 sum (`native_tolerance`).
 //
-// Cases cover the scalar staging variant (C_in 3, 12, and any C_in with a
-// misaligned view) and the vector variant (C_in a multiple of 8), every tile
-// (256x32 for C_out <= 32, 128x64 for wider C_out), partial N tiles, C_out
-// over several grid-y tiles, M below one tile and not a multiple of 256, 1x1,
-// 3x3 and 5x5 kernels, stride, dilation, Valid, Same and asymmetric padding,
-// every activation, bias on and off, and residual scales 0.2 and 1.0.
+// Cases cover all three staging variants: scalar (C_in 3, 12, and any C_in
+// with a misaligned view), halo (C_in a multiple of 8 with a stride-1
+// kernel of up to 3x3) and vector gather (C_in a multiple of 8 with stride
+// 2, dilation 2 or 5x5). They cover every tile (256x32 for C_out <= 32,
+// 128x64 for wider C_out), partial N tiles, C_out over several grid-y
+// tiles, M below one tile and not a multiple of 256, halo patches cut by
+// the image edge in H, in W and in both, 1x1, 2x2, 3x3 and 5x5 kernels,
+// stride, dilation, Valid, Same and asymmetric padding, every activation,
+// bias on and off, and residual scales 0.2 and 1.0.
 //
 // The crate exposes no routing probe, so these tests cannot assert that a
 // call took the native kernel. Every spec here meets the native conditions
@@ -25,8 +28,8 @@
 
 use numr::dtype::DType;
 use numr::ops::{
-    Conv2dConfig, ConvActivation, ConvLayout, ConvResidual, FusedConvOps, PaddingMode,
-    TypeConversionOps,
+    Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout, ConvResidual, FusedConvOps,
+    PaddingMode, TypeConversionOps,
 };
 use numr::runtime::Runtime;
 use numr::runtime::cpu::CpuRuntime;
@@ -83,6 +86,7 @@ pub(super) struct Spec {
     pub padding: PaddingMode,
     pub dilation: (usize, usize),
     pub groups: usize,
+    pub accumulation: ConvAccumulation,
 }
 
 impl Spec {
@@ -92,9 +96,10 @@ impl Spec {
             .with_padding(self.padding)
             .with_dilation(self.dilation)
             .with_groups(self.groups)
+            .with_accumulation(self.accumulation)
     }
 
-    fn input_shape(self) -> [usize; 4] {
+    pub(super) fn input_shape(self) -> [usize; 4] {
         [self.batch, self.h, self.w, self.c_in]
     }
 
@@ -107,7 +112,7 @@ impl Spec {
         ]
     }
 
-    fn contraction(self) -> usize {
+    pub(super) fn contraction(self) -> usize {
         self.kernel * self.kernel * self.c_in / self.groups
     }
 }
@@ -122,7 +127,7 @@ pub(super) struct Epilogue {
 
 /// Every epilogue: each activation, bias off and on, no residual and
 /// residual scales 0.2 and 1.0.
-fn all_epilogues() -> Vec<Epilogue> {
+pub(super) fn all_epilogues() -> Vec<Epilogue> {
     let mut out = Vec::new();
     for act in ACTS {
         for bias in [false, true] {
@@ -140,16 +145,16 @@ fn all_epilogues() -> Vec<Epilogue> {
 
 /// Operand values of one spec, rounded to the dtype, in NHWC / OHWI order.
 pub(super) struct Values {
-    x: Vec<f64>,
-    w: Vec<f64>,
-    bias: Vec<f64>,
-    slope_c: Vec<f64>,
-    slope_1: Vec<f64>,
-    residual: Vec<f64>,
-    out_shape: Vec<usize>,
+    pub x: Vec<f64>,
+    pub w: Vec<f64>,
+    pub bias: Vec<f64>,
+    pub slope_c: Vec<f64>,
+    pub slope_1: Vec<f64>,
+    pub residual: Vec<f64>,
+    pub out_shape: Vec<usize>,
 }
 
-fn values(spec: Spec, dtype: DType) -> Values {
+pub(super) fn values(spec: Spec, dtype: DType) -> Values {
     let x = rounded(pattern(spec.input_shape().iter().product(), 1), dtype);
     let w = rounded(pattern(spec.weight_shape().iter().product(), 2), dtype);
     let (cpu, device) = create_cpu_client();
@@ -196,6 +201,52 @@ where
     run_with_weight(client, device, dtype, spec, v, epi, &w)
 }
 
+/// Bias, PReLU weights and residual of one [`Values`], as tensors.
+struct EpilogueTensors<R: Runtime> {
+    bias: Tensor<R>,
+    slope_c: Tensor<R>,
+    slope_1: Tensor<R>,
+    residual: Tensor<R>,
+}
+
+impl<R: Runtime<DType = DType>> EpilogueTensors<R> {
+    fn new<C>(client: &C, device: &R::Device, dtype: DType, spec: Spec, v: &Values) -> Self
+    where
+        C: TypeConversionOps<R>,
+    {
+        let make = |data: &[f64], shape: &[usize]| {
+            tensor_from_f64(data, shape, dtype, device, client).unwrap()
+        };
+        Self {
+            bias: make(&v.bias, &[spec.c_out]),
+            slope_c: make(&v.slope_c, &[spec.c_out]),
+            slope_1: make(&v.slope_1, &[1]),
+            residual: make(&v.residual, &v.out_shape),
+        }
+    }
+
+    fn bias(&self, epi: Epilogue) -> Option<&Tensor<R>> {
+        epi.bias.then_some(&self.bias)
+    }
+
+    fn activation(&self, epi: Epilogue) -> ConvActivation<'_, R> {
+        match epi.act {
+            Act::None => ConvActivation::None,
+            Act::Relu => ConvActivation::Relu,
+            Act::Leaky => ConvActivation::LeakyRelu(LEAKY_SLOPE),
+            Act::PreluPerChannel => ConvActivation::Prelu(&self.slope_c),
+            Act::PreluShared => ConvActivation::Prelu(&self.slope_1),
+        }
+    }
+
+    fn residual(&self, epi: Epilogue) -> Option<ConvResidual<'_, R>> {
+        epi.residual_scale.map(|scale| ConvResidual {
+            tensor: &self.residual,
+            scale,
+        })
+    }
+}
+
 /// `conv2d_fused` with a caller-built weight, so a test can pass a strided
 /// weight view.
 fn run_with_weight<R, C>(
@@ -211,39 +262,54 @@ where
     R: Runtime<DType = DType>,
     C: FusedConvOps<R> + TypeConversionOps<R>,
 {
-    let make = |data: &[f64], shape: &[usize]| {
-        tensor_from_f64(data, shape, dtype, device, client).unwrap()
-    };
-    let x = make(&v.x, &spec.input_shape());
-    let bias = make(&v.bias, &[spec.c_out]);
-    let slope_c = make(&v.slope_c, &[spec.c_out]);
-    let slope_1 = make(&v.slope_1, &[1]);
-    let residual = make(&v.residual, &v.out_shape);
-    let activation = match epi.act {
-        Act::None => ConvActivation::None,
-        Act::Relu => ConvActivation::Relu,
-        Act::Leaky => ConvActivation::LeakyRelu(LEAKY_SLOPE),
-        Act::PreluPerChannel => ConvActivation::Prelu(&slope_c),
-        Act::PreluShared => ConvActivation::Prelu(&slope_1),
-    };
-    let residual = epi.residual_scale.map(|scale| ConvResidual {
-        tensor: &residual,
-        scale,
-    });
+    let x = tensor_from_f64(&v.x, &spec.input_shape(), dtype, device, client).unwrap();
+    let ep = EpilogueTensors::new(client, device, dtype, spec, v);
     client
         .conv2d_fused(
             &x,
             w,
-            epi.bias.then_some(&bias),
+            ep.bias(epi),
             &spec.config(),
-            activation,
-            residual,
+            ep.activation(epi),
+            ep.residual(epi),
         )
         .unwrap_or_else(|e| panic!("conv2d_fused {} {epi:?} [{dtype:?}]: {e}", spec.name))
 }
 
+/// `conv2d_fused_into` into `out` with a caller-built input, so a test can
+/// pass channel slices of one buffer. Weight, bias, PReLU weights and
+/// residual come from `v`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_into<R, C>(
+    client: &C,
+    device: &R::Device,
+    dtype: DType,
+    spec: Spec,
+    v: &Values,
+    epi: Epilogue,
+    x: &Tensor<R>,
+    out: &Tensor<R>,
+) where
+    R: Runtime<DType = DType>,
+    C: FusedConvOps<R> + TypeConversionOps<R>,
+{
+    let w = tensor_from_f64(&v.w, &spec.weight_shape(), dtype, device, client).unwrap();
+    let ep = EpilogueTensors::new(client, device, dtype, spec, v);
+    client
+        .conv2d_fused_into(
+            out,
+            x,
+            &w,
+            ep.bias(epi),
+            &spec.config(),
+            ep.activation(epi),
+            ep.residual(epi),
+        )
+        .unwrap_or_else(|e| panic!("conv2d_fused_into {} {epi:?} [{dtype:?}]: {e}", spec.name));
+}
+
 /// The CPU result in F64 from the same rounded values.
-fn reference(spec: Spec, v: &Values, epi: Epilogue) -> Vec<f64> {
+pub(super) fn reference(spec: Spec, v: &Values, epi: Epilogue) -> Vec<f64> {
     let (cpu, device) = create_cpu_client();
     let out = run(&cpu, &device, DType::F64, spec, v, epi);
     out.to_vec::<f64>()
@@ -252,22 +318,27 @@ fn reference(spec: Spec, v: &Values, epi: Epilogue) -> Vec<f64> {
 /// Run every epilogue of `spec` on CUDA and compare with the F64 reference.
 fn check(spec: Spec, epilogues: &[Epilogue]) {
     for dtype in half_dtypes("cuda") {
-        let v = values(spec, dtype);
-        let (rtol, atol) = native_tolerance(dtype);
-        with_cuda_backend(|client, device| {
-            for &epi in epilogues {
-                let label = format!(
-                    "{} c_in {} c_out {} {epi:?} [{dtype:?}]",
-                    spec.name, spec.c_in, spec.c_out
-                );
-                let got = run(&client, &device, dtype, spec, &v, epi);
-                assert_eq!(got.shape(), v.out_shape.as_slice(), "{label}: shape");
-                assert!(got.is_contiguous(), "{label}: output must be contiguous");
-                let got = host_f64(&client, &got);
-                assert_values_close(&got, &reference(spec, &v, epi), rtol, atol, &label);
-            }
-        });
+        check_dtype(spec, epilogues, dtype);
     }
+}
+
+/// [`check`] for one dtype, with the [`native_tolerance`] of that dtype.
+pub(super) fn check_dtype(spec: Spec, epilogues: &[Epilogue], dtype: DType) {
+    let v = values(spec, dtype);
+    let (rtol, atol) = native_tolerance(dtype);
+    with_cuda_backend(|client, device| {
+        for &epi in epilogues {
+            let label = format!(
+                "{} c_in {} c_out {} {epi:?} [{dtype:?}]",
+                spec.name, spec.c_in, spec.c_out
+            );
+            let got = run(&client, &device, dtype, spec, &v, epi);
+            assert_eq!(got.shape(), v.out_shape.as_slice(), "{label}: shape");
+            assert!(got.is_contiguous(), "{label}: output must be contiguous");
+            let got = host_f64(&client, &got);
+            assert_values_close(&got, &reference(spec, &v, epi), rtol, atol, &label);
+        }
+    });
 }
 
 pub(super) fn assert_values_close(
@@ -288,7 +359,7 @@ pub(super) fn assert_values_close(
     }
 }
 
-const fn spec(name: &'static str, c_in: usize, c_out: usize) -> Spec {
+pub(super) const fn spec(name: &'static str, c_in: usize, c_out: usize) -> Spec {
     Spec {
         name,
         batch: 2,
@@ -301,6 +372,7 @@ const fn spec(name: &'static str, c_in: usize, c_out: usize) -> Spec {
         padding: PaddingMode::Same,
         dilation: (1, 1),
         groups: 1,
+        accumulation: ConvAccumulation::F32,
     }
 }
 
@@ -467,7 +539,7 @@ fn test_native_conv_grouped_falls_back() {
 
 /// `spec` on a 9x13 image: M = 234, below one 256-row tile and above one
 /// 128-row tile.
-const fn small(name: &'static str, c_in: usize, c_out: usize) -> Spec {
+pub(super) const fn small(name: &'static str, c_in: usize, c_out: usize) -> Spec {
     Spec {
         h: 9,
         w: 13,
@@ -476,7 +548,7 @@ const fn small(name: &'static str, c_in: usize, c_out: usize) -> Spec {
 }
 
 /// Every operand in one, PReLU alone in the other.
-const SWEEP_EPILOGUES: [Epilogue; 2] = [
+pub(super) const SWEEP_EPILOGUES: [Epilogue; 2] = [
     Epilogue {
         act: Act::Leaky,
         bias: true,
@@ -619,5 +691,79 @@ fn test_native_conv_large_grid() {
     ];
     for s in specs {
         check(s, &SWEEP_EPILOGUES[..1]);
+    }
+}
+
+/// Halo-staging shapes whose output patches (8x16 for 128x64, 8x32 for the
+/// 256-row tiles) are cut by the image edge: H not a multiple of 8, W not a
+/// multiple of 16 or 32, one image or two, and kernels whose halo still fits.
+pub(super) fn halo_edge_specs() -> [Spec; 9] {
+    [
+        Spec {
+            batch: 1,
+            h: 19,
+            w: 45,
+            ..spec("halo_h19_w45_cin64_cout64", 64, 64)
+        },
+        Spec {
+            batch: 1,
+            h: 19,
+            w: 45,
+            ..spec("halo_h19_w45_cin16_cout32", 16, 32)
+        },
+        Spec {
+            batch: 1,
+            h: 8,
+            w: 32,
+            ..spec("halo_h8_w32_exact_cin64_cout96", 64, 96)
+        },
+        Spec {
+            h: 17,
+            w: 33,
+            ..spec("halo_h17_w33_batch2_cin24_cout48", 24, 48)
+        },
+        Spec {
+            batch: 1,
+            h: 9,
+            w: 70,
+            ..spec("halo_h9_w70_cin72_cout16", 72, 16)
+        },
+        Spec {
+            batch: 1,
+            h: 19,
+            w: 45,
+            padding: PaddingMode::Valid,
+            ..spec("halo_h19_w45_valid_cin40_cout64", 40, 64)
+        },
+        Spec {
+            batch: 1,
+            h: 19,
+            w: 45,
+            padding: PaddingMode::Custom(2, 0, 1, 3),
+            ..spec("halo_h19_w45_custom_pad_cin8_cout32", 8, 32)
+        },
+        Spec {
+            batch: 1,
+            h: 19,
+            w: 45,
+            kernel: 1,
+            padding: PaddingMode::Valid,
+            ..spec("halo_h19_w45_1x1_cin64_cout96", 64, 96)
+        },
+        Spec {
+            h: 11,
+            w: 37,
+            kernel: 2,
+            padding: PaddingMode::Custom(1, 0, 0, 1),
+            ..spec("halo_h11_w37_2x2_cin32_cout64", 32, 64)
+        },
+    ]
+}
+
+/// Halo patches cut by the image edge, every tile.
+#[test]
+fn test_native_conv_halo_patch_edges() {
+    for s in halo_edge_specs() {
+        check(s, &SWEEP_EPILOGUES);
     }
 }

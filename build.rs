@@ -292,6 +292,8 @@ fn compile_cuda_kernels() {
         "conv_implicit_gemm_stage.cuh",
         "conv_implicit_gemm_epilogue.cuh",
         "conv_implicit_gemm_mma.cuh",
+        "conv_implicit_gemm_gather.cuh",
+        "conv_implicit_gemm_halo.cuh",
         "semiring_matmul_ops.cuh",
         "sort_bitonic.cuh",
         "sort_compare.cuh",
