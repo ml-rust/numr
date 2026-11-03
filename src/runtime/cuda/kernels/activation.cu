@@ -240,12 +240,11 @@ __global__ void leaky_relu_f32(const float* a, float* out, unsigned int n, float
     }
 }
 
-__global__ void leaky_relu_f64(const double* a, double* out, unsigned int n, float negative_slope) {
+__global__ void leaky_relu_f64(const double* a, double* out, unsigned int n, double negative_slope) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         double x = a[idx];
-        double ns = (double)negative_slope;
-        out[idx] = x > 0.0 ? x : ns * x;
+        out[idx] = x > 0.0 ? x : negative_slope * x;
     }
 }
 
@@ -293,12 +292,11 @@ __global__ void elu_f32(const float* a, float* out, unsigned int n, float alpha)
     }
 }
 
-__global__ void elu_f64(const double* a, double* out, unsigned int n, float alpha) {
+__global__ void elu_f64(const double* a, double* out, unsigned int n, double alpha) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
         double x = a[idx];
-        double a_d = (double)alpha;
-        out[idx] = x > 0.0 ? x : a_d * (exp(x) - 1.0);
+        out[idx] = x > 0.0 ? x : alpha * (exp(x) - 1.0);
     }
 }
 

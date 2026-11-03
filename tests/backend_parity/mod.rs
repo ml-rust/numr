@@ -2,6 +2,7 @@ pub mod dtype_helpers;
 pub mod helpers;
 
 pub mod activation;
+pub mod activation_scalar_param;
 pub mod advanced_random;
 pub mod advanced_random_philox;
 pub mod argreduce_ties;

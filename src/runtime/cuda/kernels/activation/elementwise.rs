@@ -158,7 +158,7 @@ pub unsafe fn launch_leaky_relu(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-    negative_slope: f32,
+    negative_slope: f64,
 ) -> Result<()> {
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
@@ -174,7 +174,13 @@ pub unsafe fn launch_leaky_relu(
         builder.arg(&input_ptr);
         builder.arg(&output_ptr);
         builder.arg(&n);
-        builder.arg(&negative_slope);
+        // F64 kernels take the scalar as `double`; every other dtype takes `float`.
+        let slope_f32 = negative_slope as f32;
+        if dtype == DType::F64 {
+            builder.arg(&negative_slope);
+        } else {
+            builder.arg(&slope_f32);
+        }
 
         builder.launch(cfg).map_err(|e| {
             Error::Internal(format!("CUDA leaky_relu kernel launch failed: {:?}", e))
@@ -200,7 +206,7 @@ pub unsafe fn launch_elu(
     input_ptr: u64,
     output_ptr: u64,
     numel: usize,
-    alpha: f32,
+    alpha: f64,
 ) -> Result<()> {
     unsafe {
         let module = get_or_load_module(context, device_index, kernel_names::ACTIVATION_MODULE)?;
@@ -216,7 +222,13 @@ pub unsafe fn launch_elu(
         builder.arg(&input_ptr);
         builder.arg(&output_ptr);
         builder.arg(&n);
-        builder.arg(&alpha);
+        // F64 kernels take the scalar as `double`; every other dtype takes `float`.
+        let alpha_f32 = alpha as f32;
+        if dtype == DType::F64 {
+            builder.arg(&alpha);
+        } else {
+            builder.arg(&alpha_f32);
+        }
 
         builder
             .launch(cfg)

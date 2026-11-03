@@ -20,6 +20,10 @@ version. Every later entry is a delta against the one below it.
 - `var_prelu` with gradients for the input and the weight.
 - `BinaryOps::copy_into` accepts a strided `out` view on CPU, CUDA and WebGPU, so an op can write into a channel slice of a larger buffer. It rejects `out` and `src` views of one storage whose element spans intersect, and does nothing for an identical view. WebGPU supports 4-byte-multiple elements for a strided `out`.
 
+### Fixed
+
+- CUDA `leaky_relu` and `elu` on F64 used the slope or `alpha` rounded to f32. The F64 kernels now take the scalar as `double`.
+
 ## [0.14.0] — 2026-11-01
 
 Sparse ops run on WebGPU and CUDA, autograd gains grad mode and many `var_*` ops, and `lstsq` returns minimum-norm solutions.

@@ -215,7 +215,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 a_contig.ptr(),
                 out.ptr(),
                 out.numel(),
-                negative_slope as f32,
+                negative_slope,
             )?;
         }
 
@@ -236,7 +236,7 @@ impl ActivationOps<CudaRuntime> for CudaClient {
                 a_contig.ptr(),
                 out.ptr(),
                 out.numel(),
-                alpha as f32,
+                alpha,
             )?;
         }
 
