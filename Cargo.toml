@@ -142,6 +142,10 @@ name = "conv"
 harness = false
 
 [[bench]]
+name = "conv_fused"
+harness = false
+
+[[bench]]
 name = "softmax"
 harness = false
 
