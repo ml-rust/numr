@@ -5,10 +5,12 @@
 // in `conv.rs`, is `[1,1,3,3] @ [1,1,2,2]` — contraction 4, far below
 // `MIN_CONTRACTION`, so it runs the direct kernel and never touches this path.
 //
-// Every shape here MUST clear `MIN_CONTRACTION`, `MIN_C_OUT`, `MAX_COL_ELEMENTS`
-// and `groups == 1` in `src/ops/cuda/conv2d_im2col.rs`. If those shapes drop
+// Every shape here MUST clear `MIN_CONTRACTION` (27), `MIN_C_OUT` (4) and
+// `groups == 1` in `src/ops/cuda/conv2d_im2col.rs`. If those shapes drop
 // below the gate, the test does not fail — it silently starts running the
-// direct kernel again and stops covering this path at all.
+// direct kernel again and stops covering this path at all. The column size
+// does not gate the path: a column past `MAX_COL_ELEMENTS` (1 << 26) runs in
+// chunks (`conv2d_im2col_over_column_budget_parity`).
 //
 // The GEMM reassociates the sum the direct kernel accumulates tap-outer /
 // channel-inner, so the result is within tolerance rather than bit-identical.
@@ -123,11 +125,11 @@ fn assert_conv2d_im2col_parity(
 
 /// Plain geometry, simplest shape that clears every floor.
 ///
-/// `c_in=16, kh=4, kw=4` gives contraction `16*4*4 = 256`, exactly
+/// `c_in=16, kh=4, kw=4` gives contraction `16*4*4 = 256`, past
 /// `MIN_CONTRACTION`. `c_out = 4` meets `MIN_C_OUT`. `groups = 1`.
 /// `H=W=6` with `Valid` padding, stride 1, dilation 1 gives
 /// `output_h=output_w=3`, so `spatial = 9` and
-/// `col_elements = 1*256*9 = 2304`, far under `MAX_COL_ELEMENTS`.
+/// `col_elements = 1*256*9 = 2304`, one chunk.
 #[test]
 fn conv2d_im2col_plain_parity() {
     let input_shape = [1usize, 16, 6, 6];
@@ -178,7 +180,7 @@ fn conv2d_im2col_asymmetric_spatial_parity() {
 /// Stride and dilation both greater than 1, with asymmetric `Custom`
 /// padding, so out-of-range taps are exercised in both spatial dimensions.
 ///
-/// `c_in=16, kh=4, kw=4` gives contraction `16*4*4 = 256`, exactly
+/// `c_in=16, kh=4, kw=4` gives contraction `16*4*4 = 256`, past
 /// `MIN_CONTRACTION`. `c_out=4` meets `MIN_C_OUT`, `groups=1`. `stride=(2,3)`,
 /// `dilation=(2,2)`, padding `Custom(top=1, bottom=0, left=2, right=1)`,
 /// `H=9, W=11` give `output_h=2, output_w=3`, `spatial=6`, so
@@ -206,7 +208,7 @@ fn conv2d_im2col_stride_dilation_asymmetric_padding_parity() {
 /// Batched input, `batch > 1`, so the per-sample GEMM offset in the batched
 /// dispatch is exercised.
 ///
-/// `c_in=16, kh=4, kw=4` gives contraction `256`, exactly `MIN_CONTRACTION`.
+/// `c_in=16, kh=4, kw=4` gives contraction `256`, past `MIN_CONTRACTION`.
 /// `c_out=4` meets `MIN_C_OUT`, `groups=1`. `batch=2`, `H=W=6`, `Valid`
 /// padding, stride 1, dilation 1 give `output_h=output_w=3`, `spatial=9`, so
 /// `col_elements = 2*256*9 = 4608`.
@@ -232,7 +234,7 @@ fn conv2d_im2col_batched_parity() {
 /// `H_out * W_out` not a multiple of a common GEMM tile size (16, 32, 64),
 /// to exercise the partial-tile path on the spatial axis.
 ///
-/// `c_in=16, kh=4, kw=4` gives contraction `256`, exactly `MIN_CONTRACTION`.
+/// `c_in=16, kh=4, kw=4` gives contraction `256`, past `MIN_CONTRACTION`.
 /// `c_out=4` meets `MIN_C_OUT`, `groups=1`. `H=6, W=10` with `Valid` padding
 /// give `output_h=3, output_w=7`, so `spatial = 21` — not a multiple of 16,
 /// 32 or 64 — and `col_elements = 1*256*21 = 5376`.
@@ -252,6 +254,37 @@ fn conv2d_im2col_partial_tile_parity() {
         Some(&bias),
         (1, 1),
         PaddingMode::Valid,
+        (1, 1),
+    );
+}
+
+/// One batch row whose column exceeds `MAX_COL_ELEMENTS` (1 << 26), so the
+/// output splits into windows of flattened output positions.
+///
+/// `c_in=8, kh=kw=3` gives contraction `72`, past `MIN_CONTRACTION`.
+/// `c_out=4` meets `MIN_C_OUT`, `groups=1`. `H=1000, W=934` with padding 1
+/// keeps `output_h=1000, output_w=934`, so `spatial = 934000` and
+/// `col_elements = 72*934000 = 67248000`, past the budget. The planner
+/// cuts one aligned window and a ragged tail. `H != W` catches a transposed
+/// window offset. `c_out` sits at the floor to keep the CPU reference short.
+#[test]
+fn conv2d_im2col_over_column_budget_parity() {
+    let input_shape = [1usize, 8, 1000, 934];
+    let weight_shape = [4usize, 8, 3, 3];
+    let contraction = 8 * 3 * 3;
+    assert!(contraction * 1000 * 934 > 1usize << 26);
+    let input = gemm_input(input_shape.iter().product());
+    let weight = gemm_weight(weight_shape.iter().product());
+    let bias = gemm_bias(weight_shape[0]);
+    assert_conv2d_im2col_parity(
+        "conv2d_im2col_over_column_budget",
+        &input,
+        &input_shape,
+        &weight,
+        &weight_shape,
+        Some(&bias),
+        (1, 1),
+        PaddingMode::Custom(1, 1, 1, 1),
         (1, 1),
     );
 }

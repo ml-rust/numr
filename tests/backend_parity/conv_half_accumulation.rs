@@ -9,7 +9,7 @@
 //
 // The shapes are chosen so CUDA reaches its direct kernels rather than an
 // im2col or GEMM path; each test's doc comment names the kernel and the gate
-// that routes to it (`src/ops/cuda/conv.rs`, `src/runtime/cuda/kernels/conv.rs`).
+// that routes to it (`src/ops/cuda/conv.rs`, `src/runtime/cuda/kernels/conv/`).
 // Without `--features f16` there are no half dtypes and each test checks
 // nothing.
 
@@ -172,8 +172,9 @@ fn conv1d_ox_kernel_half_sum_reaches_four() {
 }
 
 /// `conv2d`, direct kernel. `c_in = 256`, `k = 4x4`, `c_out = 1`: one
-/// output channel is below `MIN_C_OUT`, so im2col stays off. CUDA runs
-/// `conv2d_*`.
+/// output channel is below `MIN_C_OUT`, so `use_conv2d_im2col` refuses the
+/// shape and CUDA runs `conv2d_*`. The column size never gates that path, so
+/// `c_out` is the only thing keeping this case on the direct kernel.
 #[test]
 fn conv2d_kernel_half_sum_reaches_four() {
     check_half_backends!("conv2d_kernel", vec![4.0], |client, device, dtype| {

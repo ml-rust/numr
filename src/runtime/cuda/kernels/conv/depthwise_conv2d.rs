@@ -17,7 +17,7 @@ use super::super::loader::{
 use super::tuning::{
     CONV_BLOCK_THREADS, CONV_MODULE, CUDA_MAX_GRID_YZ, DEPTHWISE_CONV2D_OX_BLOCK,
     DEPTHWISE_CONV2D_OX_MIN_OUTPUT_WIDTH, DEPTHWISE_CONV2D_OX_MIN_WAVES,
-    DEPTHWISE_CONV2D_OX_MODULE, fills_device,
+    DEPTHWISE_CONV2D_OX_MODULE, conv_arg_u32, conv_output_numel, fills_device,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -61,11 +61,12 @@ fn depthwise_conv2d_variant(
 
     let blocked = output_w >= DEPTHWISE_CONV2D_OX_MIN_OUTPUT_WIDTH
         && fills_device(ox_threads, compute_units, DEPTHWISE_CONV2D_OX_MIN_WAVES)
-        // A shape that overflows the channel y axis or the batch z axis falls
-        // back to the flat kernel instead of failing. The x axis carries the
-        // folded work and is bounded far higher, so it needs no gate.
+        // A shape that overflows the channel y axis, the batch z axis, or the
+        // blocked kernel's 32-bit folded x index falls back to the flat
+        // kernel instead of failing. The flat kernel indexes in 64 bits.
         && channels <= CUDA_MAX_GRID_YZ
-        && batch <= CUDA_MAX_GRID_YZ;
+        && batch <= CUDA_MAX_GRID_YZ
+        && u32::try_from(x_work).is_ok();
 
     if blocked {
         DepthwiseConv2dVariant::Ox
@@ -180,7 +181,8 @@ unsafe fn launch_depthwise_conv2d_variant(
     dilation_w: usize,
     variant: DepthwiseConv2dVariant,
 ) -> Result<()> {
-    let total = batch * channels * output_h * output_w;
+    const OP: &str = "depthwise_conv2d";
+    let total = conv_output_numel(&[batch, channels, output_h, output_w], OP)?;
     if total == 0 {
         return Ok(());
     }
@@ -205,10 +207,12 @@ unsafe fn launch_depthwise_conv2d_variant(
         let func = get_kernel_function(&module, &func_name)?;
 
         let cfg = if ox_blocked {
+            // The kernel decodes the folded (oy, column-block) index in 32 bits.
+            let x_work_u32 = conv_arg_u32(x_work, "output_h * output column blocks", OP)?;
             let grid = (
-                (x_work as u32).div_ceil(CONV_BLOCK_THREADS),
-                channels as u32,
-                batch as u32,
+                x_work_u32.div_ceil(CONV_BLOCK_THREADS),
+                conv_arg_u32(channels, "channels", OP)?,
+                conv_arg_u32(batch, "batch", OP)?,
             );
             launch_config(grid, (CONV_BLOCK_THREADS, 1, 1), 0)
         } else {
@@ -216,20 +220,20 @@ unsafe fn launch_depthwise_conv2d_variant(
             launch_config(grid, (BLOCK_SIZE, 1, 1), 0)
         };
 
-        let batch_u32 = batch as u32;
-        let channels_u32 = channels as u32;
-        let height_u32 = height as u32;
-        let width_u32 = width as u32;
-        let kernel_h_u32 = kernel_h as u32;
-        let kernel_w_u32 = kernel_w as u32;
-        let output_h_u32 = output_h as u32;
-        let output_w_u32 = output_w as u32;
-        let stride_h_u32 = stride_h as u32;
-        let stride_w_u32 = stride_w as u32;
-        let pad_h_u32 = pad_h as u32;
-        let pad_w_u32 = pad_w as u32;
-        let dilation_h_u32 = dilation_h as u32;
-        let dilation_w_u32 = dilation_w as u32;
+        let batch_u32 = conv_arg_u32(batch, "batch", OP)?;
+        let channels_u32 = conv_arg_u32(channels, "channels", OP)?;
+        let height_u32 = conv_arg_u32(height, "height", OP)?;
+        let width_u32 = conv_arg_u32(width, "width", OP)?;
+        let kernel_h_u32 = conv_arg_u32(kernel_h, "kernel_h", OP)?;
+        let kernel_w_u32 = conv_arg_u32(kernel_w, "kernel_w", OP)?;
+        let output_h_u32 = conv_arg_u32(output_h, "output_h", OP)?;
+        let output_w_u32 = conv_arg_u32(output_w, "output_w", OP)?;
+        let stride_h_u32 = conv_arg_u32(stride_h, "stride_h", OP)?;
+        let stride_w_u32 = conv_arg_u32(stride_w, "stride_w", OP)?;
+        let pad_h_u32 = conv_arg_u32(pad_h, "pad_h", OP)?;
+        let pad_w_u32 = conv_arg_u32(pad_w, "pad_w", OP)?;
+        let dilation_h_u32 = conv_arg_u32(dilation_h, "dilation_h", OP)?;
+        let dilation_w_u32 = conv_arg_u32(dilation_w, "dilation_w", OP)?;
         let has_bias_u32: u32 = if bias_ptr.is_some() { 1 } else { 0 };
         let bias_ptr_val = bias_ptr.unwrap_or(0);
 

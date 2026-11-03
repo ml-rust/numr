@@ -3,8 +3,36 @@
 //! The blocking factors here are duplicated in the kernel sources; the tests
 //! at the bottom parse the `.cu` files and check the two still agree.
 
+use crate::error::{Error, Result};
+
 /// Module name for convolution operations
 pub const CONV_MODULE: &str = "conv";
+
+/// Element count of an output with extents `dims`, or an error naming `op`
+/// and the shape when the product overflows `usize`.
+pub(super) fn conv_output_numel(dims: &[usize], op: &str) -> Result<usize> {
+    dims.iter()
+        .try_fold(1usize, |acc, &d| acc.checked_mul(d))
+        .ok_or_else(|| Error::InvalidArgument {
+            arg: "output",
+            reason: format!(
+                "{op} output {dims:?} overflows the element count; split the batch or the input"
+            ),
+        })
+}
+
+/// `value` as a 32-bit kernel argument of `op`, or an error naming the
+/// argument. The direct kernels take every extent as `unsigned int`, and a
+/// silent truncation launches over the wrong shape.
+pub(crate) fn conv_arg_u32(value: usize, what: &'static str, op: &str) -> Result<u32> {
+    u32::try_from(value).map_err(|_| Error::InvalidArgument {
+        arg: what,
+        reason: format!(
+            "{value} exceeds the 32-bit range of the {op} kernel; split the input into \
+             smaller convolutions"
+        ),
+    })
+}
 
 /// Candidate conv1d block widths (threads per block along the output axis),
 /// narrowest first. `output_length` is as small as ~26 at some hot shapes, so a

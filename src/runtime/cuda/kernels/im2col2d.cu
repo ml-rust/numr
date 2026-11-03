@@ -2,7 +2,9 @@
 // Supports: f32, f64, f16, bf16
 //
 // Input:  (N, C_in, H, W)
-// Output: (N, C_in*Kh*Kw, H_out*W_out)
+// Output: (N, C_in*Kh*Kw, spatial_len), output positions
+//         [spatial_start, spatial_start + spatial_len) of the flattened
+//         H_out*W_out axis
 //
 // The contraction axis (input channel x kh x kw) is the ROW axis and the
 // flattened spatial axis (oh*W_out + ow) is the COLUMN axis. A conv2d weight
@@ -15,8 +17,14 @@
 // This path is restricted to groups == 1 by the caller, so groups do not
 // appear here.
 //
+// SPATIAL WINDOW. The caller can gather a window of the flattened output
+// positions instead of all of them, so a large output runs as several
+// column chunks that each fit the memory budget. A full window is
+// spatial_start = 0, spatial_len = H_out*W_out.
+//
 // THREAD MAP. threadIdx.x walks consecutive flattened output positions
-// (oh*W_out + ow), so the written column row is contiguous and coalesces.
+// (oh*W_out + ow) inside the window, so the written column row is contiguous
+// and coalesces.
 // blockIdx.y walks the contraction rows and blockIdx.z the batch, each with a
 // grid-stride loop so neither axis can exceed the 65535 grid limit.
 //
@@ -38,18 +46,19 @@ __global__ void im2col2d_##suffix( \
     unsigned int width, \
     unsigned int kernel_h, \
     unsigned int kernel_w, \
-    unsigned int output_h, \
     unsigned int output_w, \
     unsigned int stride_h, \
     unsigned int stride_w, \
     unsigned int pad_top, \
     unsigned int pad_left, \
     unsigned int dilation_h, \
-    unsigned int dilation_w \
+    unsigned int dilation_w, \
+    unsigned int spatial_start, \
+    unsigned int spatial_len \
 ) { \
-    unsigned int spatial = output_h * output_w; \
-    unsigned int op = blockIdx.x * blockDim.x + threadIdx.x; \
-    if (op >= spatial) return; \
+    unsigned int local = blockIdx.x * blockDim.x + threadIdx.x; \
+    if (local >= spatial_len) return; \
+    unsigned int op = spatial_start + local; \
     \
     unsigned int oh = op / output_w; \
     unsigned int ow = op - oh * output_w; \
@@ -77,7 +86,7 @@ __global__ void im2col2d_##suffix( \
                         + (size_t)(unsigned int)ih * width \
                         + (unsigned int)iw]; \
             } \
-            col[((size_t)b * rows + r) * spatial + op] = v; \
+            col[((size_t)b * rows + r) * spatial_len + local] = v; \
         } \
     } \
 }

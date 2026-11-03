@@ -2,6 +2,8 @@
 //!
 //! One kernel, one output element per thread, summing over `ic` then `ky`
 //! then `kx`. No variant, so nothing about the launch shape can move a bit.
+//! The kernel indexes the output and both operands in 64 bits, so an output
+//! past 2^32 elements is addressed in full.
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
@@ -11,7 +13,7 @@ use super::super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     launch_config,
 };
-use super::tuning::CONV_MODULE;
+use super::tuning::{CONV_MODULE, conv_arg_u32, conv_output_numel};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
@@ -26,6 +28,12 @@ use crate::runtime::cuda::GuardedStream;
 /// * `weight_ptr` - Weight tensor (C_out, C_in/groups, K_h, K_w)
 /// * `bias_ptr` - Optional bias tensor (C_out,)
 /// * `output_ptr` - Output tensor (N, C_out, H_out, W_out)
+///
+/// # Errors
+///
+/// Returns `Error::InvalidArgument` when an extent does not fit the kernel's
+/// 32-bit arguments, when the output element count overflows `usize`, or when
+/// the output needs more blocks than one grid axis holds.
 ///
 /// # Safety
 ///
@@ -57,7 +65,8 @@ pub unsafe fn launch_conv2d(
     dilation_w: usize,
     groups: usize,
 ) -> Result<()> {
-    let total = batch * c_out * output_h * output_w;
+    const OP: &str = "conv2d";
+    let total = conv_output_numel(&[batch, c_out, output_h, output_w], OP)?;
     if total == 0 {
         return Ok(());
     }
@@ -71,22 +80,22 @@ pub unsafe fn launch_conv2d(
         let block = (BLOCK_SIZE, 1, 1);
         let cfg = launch_config(grid, block, 0);
 
-        let batch_u32 = batch as u32;
-        let c_in_u32 = c_in as u32;
-        let height_u32 = height as u32;
-        let width_u32 = width as u32;
-        let c_out_u32 = c_out as u32;
-        let kernel_h_u32 = kernel_h as u32;
-        let kernel_w_u32 = kernel_w as u32;
-        let output_h_u32 = output_h as u32;
-        let output_w_u32 = output_w as u32;
-        let stride_h_u32 = stride_h as u32;
-        let stride_w_u32 = stride_w as u32;
-        let pad_h_u32 = pad_h as u32;
-        let pad_w_u32 = pad_w as u32;
-        let dilation_h_u32 = dilation_h as u32;
-        let dilation_w_u32 = dilation_w as u32;
-        let groups_u32 = groups as u32;
+        let batch_u32 = conv_arg_u32(batch, "batch", OP)?;
+        let c_in_u32 = conv_arg_u32(c_in, "c_in", OP)?;
+        let height_u32 = conv_arg_u32(height, "height", OP)?;
+        let width_u32 = conv_arg_u32(width, "width", OP)?;
+        let c_out_u32 = conv_arg_u32(c_out, "c_out", OP)?;
+        let kernel_h_u32 = conv_arg_u32(kernel_h, "kernel_h", OP)?;
+        let kernel_w_u32 = conv_arg_u32(kernel_w, "kernel_w", OP)?;
+        let output_h_u32 = conv_arg_u32(output_h, "output_h", OP)?;
+        let output_w_u32 = conv_arg_u32(output_w, "output_w", OP)?;
+        let stride_h_u32 = conv_arg_u32(stride_h, "stride_h", OP)?;
+        let stride_w_u32 = conv_arg_u32(stride_w, "stride_w", OP)?;
+        let pad_h_u32 = conv_arg_u32(pad_h, "pad_h", OP)?;
+        let pad_w_u32 = conv_arg_u32(pad_w, "pad_w", OP)?;
+        let dilation_h_u32 = conv_arg_u32(dilation_h, "dilation_h", OP)?;
+        let dilation_w_u32 = conv_arg_u32(dilation_w, "dilation_w", OP)?;
+        let groups_u32 = conv_arg_u32(groups, "groups", OP)?;
         let has_bias_u32: u32 = if bias_ptr.is_some() { 1 } else { 0 };
         let bias_ptr_val = bias_ptr.unwrap_or(0);
 

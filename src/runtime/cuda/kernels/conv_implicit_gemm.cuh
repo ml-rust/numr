@@ -132,11 +132,12 @@ struct ConvTileCfg {
     static constexpr int HALO_ITERS = HALO_ITERS_;
     static constexpr int HALO_PIX = HALO_ITERS * ROWS_PER_PASS;
     static constexpr int HALO_BYTES = HALO_PIX * BK * 2;
-    /* Halo, then two B stages. The epilogue reuses the start as the output
-       tile. */
-    static constexpr int HALO_POOL_BYTES = HALO_BYTES + 2 * STAGE_B_BYTES > OUT_TILE_BYTES
-                                         ? HALO_BYTES + 2 * STAGE_B_BYTES
-                                         : OUT_TILE_BYTES;
+    /* One i64 input byte offset per halo pixel. */
+    static constexpr int HALO_TABLE_BYTES = HALO_PIX * 8;
+    static constexpr int HALO_MAIN_BYTES = HALO_BYTES + 2 * STAGE_B_BYTES + HALO_TABLE_BYTES;
+    /* Halo, two B stages, then the halo offset table. The epilogue reuses
+       the start as the output tile. */
+    static constexpr int HALO_POOL_BYTES = HALO_MAIN_BYTES > OUT_TILE_BYTES ? HALO_MAIN_BYTES : OUT_TILE_BYTES;
 
     static_assert(WARP_M == 64 && (WARP_N == 32 || WARP_N == 64),
                   "the mma loop is written for a 64x32 or 64x64 warp tile");

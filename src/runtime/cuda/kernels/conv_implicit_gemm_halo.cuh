@@ -28,16 +28,23 @@
 //       as in the gather body.
 //   A   one halo buffer. The halo of chunk c + 1 loads into registers at
 //       the start of chunk c, so its global latency overlaps every tap of
-//       chunk c. After the barrier of the last tap of chunk c it goes to
-//       shared memory, and a second barrier publishes it.
+//       chunk c. After the barrier of the last tap of chunk c, each warp
+//       issues the k16 step 1 mma of that tap, then stores the halo, and a
+//       second barrier publishes it. The mma work runs while the stores and
+//       the barrier wait.
 // The fragments of the next k16 step load while the current one runs, as
 // in the gather body. A chunk of T taps costs T + 1 barriers.
 //
 // Shared memory, all static:
-//   halo       HALO_PIX x 32 halves
-//   B stages   2 x BN x 32 halves
-//   row table  BM x {i64 out offset, i64 residual offset}
-// The epilogue reuses the halo and B stages as the [BM][BN] output tile.
+//   halo         HALO_PIX x 32 halves
+//   B stages     2 x BN x 32 halves
+//   offset table HALO_PIX x i64: input byte offset of each halo pixel from
+//                image n, or -1 outside the image or past the halo. Only
+//                the chunk start differs between chunks, so a halo reload
+//                is one table read and one add per owned pixel.
+//   row table    BM x {i64 out offset, i64 residual offset}
+// The epilogue reuses the halo, B stages and offset table as the [BM][BN]
+// output tile.
 
 #ifndef NUMR_CONV_IMPLICIT_GEMM_HALO_CUH
 #define NUMR_CONV_IMPLICIT_GEMM_HALO_CUH
@@ -124,24 +131,34 @@ struct ConvHaloLoader {
         b_tap = 0;
     }
 
-    /* Owned halo pixels of the chunk at halo_c0 into `r`. */
-    __device__ __forceinline__ void load_halo(const ConvIgemmParams<T>& p, ConvHaloRegs<Cfg>& r) const {
-        const bool c_ok = halo_c0 + chunk8 < p.c_in;
-        /* Opaque copy: without it the compiler hoists every pixel's address
-           and bounds test out of the K loop, which holds them in registers
-           through the whole loop. */
-        unsigned int hw = static_cast<unsigned int>(halo_w);
-        asm volatile("mov.b32 %0, %0;" : "+r"(hw));
+    /* Offset-table entries of the owned halo pixels. Thread tid % 4 == 0 of
+       each pixel writes; the caller's barrier publishes them to the other
+       three. */
+    __device__ __forceinline__ void fill_table(const ConvIgemmParams<T>& p, long long* table) const {
+        if (chunk8 != 0) return;
 #pragma unroll
         for (int i = 0; i < Cfg::HALO_ITERS; ++i) {
-            const unsigned int q = static_cast<unsigned int>(q0 + i * Cfg::ROWS_PER_PASS);
-            const unsigned int hr = q / hw;
-            const int hi = hi0 + static_cast<int>(hr);
-            const int wi = wi0 + static_cast<int>(q - hr * hw);
-            const bool ok = c_ok && q < static_cast<unsigned int>(halo_pix) && hi >= 0 && hi < p.in_h && wi >= 0 && wi < p.in_w;
-            const long long off = static_cast<long long>(hi) * p.in_sh + static_cast<long long>(wi) * p.in_sw
-                                + halo_c0 + chunk8;
-            r.v[i] = conv_ldg_128(in_base + static_cast<unsigned long long>(off * 2), ok ? 1u : 0u);
+            const int q = q0 + i * Cfg::ROWS_PER_PASS;
+            const int hr = q / halo_w;
+            const int hi = hi0 + hr;
+            const int wi = wi0 + (q - hr * halo_w);
+            const bool ok = q < halo_pix && hi >= 0 && hi < p.in_h && wi >= 0 && wi < p.in_w;
+            table[q] = ok ? (static_cast<long long>(hi) * p.in_sh + static_cast<long long>(wi) * p.in_sw) * 2
+                          : -1ll;
+        }
+    }
+
+    /* Owned halo pixels of the chunk at halo_c0 into `r`. `table` is the
+       published offset table. */
+    __device__ __forceinline__ void load_halo(const ConvIgemmParams<T>& p, const long long* table,
+                                              ConvHaloRegs<Cfg>& r) const {
+        const bool c_ok = halo_c0 + chunk8 < p.c_in;
+        const unsigned long long base = in_base + static_cast<unsigned long long>((halo_c0 + chunk8) * 2);
+#pragma unroll
+        for (int i = 0; i < Cfg::HALO_ITERS; ++i) {
+            const long long off = table[q0 + i * Cfg::ROWS_PER_PASS];
+            const bool ok = c_ok && off >= 0;
+            r.v[i] = conv_ldg_128(base + static_cast<unsigned long long>(off), ok ? 1u : 0u);
         }
     }
 
@@ -259,6 +276,10 @@ __device__ __forceinline__ void conv_igemm_run_halo(const ConvIgemmParams<T>& p)
 
     const unsigned int halo = conv_smem_addr(smem_pool);
     const unsigned int bbase = halo + Cfg::HALO_BYTES;
+    long long* const table = reinterpret_cast<long long*>(smem_pool + Cfg::HALO_BYTES + 2 * Cfg::STAGE_B_BYTES);
+    ld.fill_table(p, table);
+    /* Publishes the offset table. */
+    __syncthreads();
     /* B stage the current K-tile reads from and the next one lands in. */
     unsigned int rd = 0u;
     unsigned int wr = Cfg::STAGE_B_BYTES;
@@ -268,7 +289,7 @@ __device__ __forceinline__ void conv_igemm_run_halo(const ConvIgemmParams<T>& p)
 
     ConvHaloRegs<Cfg> hregs;
     ConvBRegs<Cfg> bregs;
-    ld.load_halo(p, hregs);
+    ld.load_halo(p, table, hregs);
     ld.store_halo(halo, hregs);
     ld.load_b(p, bregs);
     ld.store_b(bbase, bregs);
@@ -278,7 +299,7 @@ __device__ __forceinline__ void conv_igemm_run_halo(const ConvIgemmParams<T>& p)
     }
     if (chunks > 1) {
         ld.next_halo_chunk();
-        ld.load_halo(p, hregs);
+        ld.load_halo(p, table, hregs);
     }
     __syncthreads();
 
@@ -318,26 +339,31 @@ __device__ __forceinline__ void conv_igemm_run_halo(const ConvIgemmParams<T>& p)
            overwrite. After the last K-tile it frees shared memory for the
            epilogue's output tile. */
         __syncthreads();
-        const bool reload = chunk_end && more;
-        if (reload) {
+        if (chunk_end && more) {
+            /* Chunk end. The halo is free once every warp passed the barrier
+               above. The mma of k16 step 1 issues first, so it runs while
+               the halo stores and the second barrier wait. */
+            conv_mma_k16<T, Cfg, HALF_ACC>(acc, f1);
             ld.store_halo(halo, hregs);
-            ++chunk;
-            if (chunk + 1 < chunks) {
-                ld.next_halo_chunk();
-                ld.load_halo(p, hregs);
-            }
-        } else if (more) {
-            conv_load_halo_frags<Cfg, 0>(f0, halo, ntap_off, bbase + wr, ldm);
-        }
-        if (kt + 2 < num_k_tiles) {
-            ld.advance_b();
-            ld.load_b(p, bregs);
-        }
-        conv_mma_k16<T, Cfg, HALF_ACC>(acc, f1);
-        if (reload) {
             /* Publishes the halo of the next chunk. */
             __syncthreads();
             conv_load_halo_frags<Cfg, 0>(f0, halo, 0, bbase + wr, ldm);
+            ++chunk;
+            if (chunk + 1 < chunks) {
+                ld.next_halo_chunk();
+                ld.load_halo(p, table, hregs);
+            }
+            if (kt + 2 < num_k_tiles) {
+                ld.advance_b();
+                ld.load_b(p, bregs);
+            }
+        } else {
+            if (more) conv_load_halo_frags<Cfg, 0>(f0, halo, ntap_off, bbase + wr, ldm);
+            if (kt + 2 < num_k_tiles) {
+                ld.advance_b();
+                ld.load_b(p, bregs);
+            }
+            conv_mma_k16<T, Cfg, HALF_ACC>(acc, f1);
         }
         kh = nkh;
         kw = nkw;

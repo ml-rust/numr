@@ -17,7 +17,7 @@ use super::super::loader::{
 use super::tuning::{
     CONV_BLOCK_THREADS, CONV_MODULE, CONV1D_BLOCK_CANDIDATES, CONV1D_BLOCK_MAX, CONV1D_OC_BLOCK,
     CONV1D_OX_BLOCK, CONV1D_OX_MIN_OUTPUT_LENGTH, CONV1D_OX_MIN_WAVES, CONV1D_OX_MODULE,
-    CUDA_MAX_GRID_YZ, fills_device, position_block_width,
+    CUDA_MAX_GRID_YZ, conv_arg_u32, conv_output_numel, fills_device, position_block_width,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -166,7 +166,8 @@ unsafe fn launch_conv1d_variant(
     groups: usize,
     variant: Conv1dVariant,
 ) -> Result<()> {
-    let total = batch * c_out * output_length;
+    const OP: &str = "conv1d";
+    let total = conv_output_numel(&[batch, c_out, output_length], OP)?;
     if total == 0 {
         return Ok(());
     }
@@ -231,35 +232,43 @@ unsafe fn launch_conv1d_variant(
             let grid_y = slots.div_ceil(block_y as usize);
 
             if grid_y > CUDA_MAX_GRID_YZ || batch > CUDA_MAX_GRID_YZ {
-                return Err(Error::Internal(format!(
-                    "CUDA conv1d: grid y={} z={} exceed the grid limit of {}",
-                    grid_y, batch, CUDA_MAX_GRID_YZ
-                )));
+                return Err(Error::InvalidArgument {
+                    arg: if batch > CUDA_MAX_GRID_YZ {
+                        "batch"
+                    } else {
+                        "c_out"
+                    },
+                    reason: format!(
+                        "conv1d batch {batch} and c_out {c_out} need a grid of y={grid_y} \
+                         z={batch}, past the limit of {CUDA_MAX_GRID_YZ}; split the batch or \
+                         the output channels"
+                    ),
+                });
             }
 
-            let grid = (
-                (x_extent as u32).div_ceil(block_x),
-                grid_y as u32,
-                batch as u32,
-            );
+            // The scalar and oc4 kernels form the x thread index in 32 bits,
+            // so the whole padded x extent must fit, not only `x_extent`.
+            let grid_x = conv_arg_u32(x_extent, "output_length", OP)?.div_ceil(block_x);
+            conv_arg_u32(grid_x as usize * block_x as usize, "output_length", OP)?;
+            let grid = (grid_x, grid_y as u32, batch as u32);
             launch_config(grid, (block_x, block_y, 1), 0)
         } else {
             let grid = elementwise_launch_config(total)?;
             launch_config(grid, (BLOCK_SIZE, 1, 1), 0)
         };
 
-        let batch_u32 = batch as u32;
-        let c_in_u32 = c_in as u32;
-        let length_u32 = length as u32;
-        let c_out_u32 = c_out as u32;
-        let kernel_size_u32 = kernel_size as u32;
-        let output_length_u32 = output_length as u32;
-        let stride_u32 = stride as u32;
-        let padding_u32 = padding as u32;
-        let dilation_u32 = dilation as u32;
-        let groups_u32 = groups as u32;
-        let c_in_per_group_u32 = c_in_per_group as u32;
-        let c_out_per_group_u32 = c_out_per_group as u32;
+        let batch_u32 = conv_arg_u32(batch, "batch", OP)?;
+        let c_in_u32 = conv_arg_u32(c_in, "c_in", OP)?;
+        let length_u32 = conv_arg_u32(length, "length", OP)?;
+        let c_out_u32 = conv_arg_u32(c_out, "c_out", OP)?;
+        let kernel_size_u32 = conv_arg_u32(kernel_size, "kernel_size", OP)?;
+        let output_length_u32 = conv_arg_u32(output_length, "output_length", OP)?;
+        let stride_u32 = conv_arg_u32(stride, "stride", OP)?;
+        let padding_u32 = conv_arg_u32(padding, "padding", OP)?;
+        let dilation_u32 = conv_arg_u32(dilation, "dilation", OP)?;
+        let groups_u32 = conv_arg_u32(groups, "groups", OP)?;
+        let c_in_per_group_u32 = conv_arg_u32(c_in_per_group, "c_in / groups", OP)?;
+        let c_out_per_group_u32 = conv_arg_u32(c_out_per_group, "c_out / groups", OP)?;
         let has_bias_u32: u32 = if bias_ptr.is_some() { 1 } else { 0 };
         let bias_ptr_val = bias_ptr.unwrap_or(0);
 

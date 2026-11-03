@@ -11,7 +11,7 @@ use super::super::loader::{
     BLOCK_SIZE, elementwise_launch_config, get_kernel_function, get_or_load_module, kernel_name,
     launch_config,
 };
-use super::tuning::CONV_MODULE;
+use super::tuning::{CONV_MODULE, conv_arg_u32, conv_output_numel};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::cuda::GuardedStream;
@@ -51,7 +51,8 @@ pub unsafe fn launch_conv_transpose1d(
     dilation: usize,
     groups: usize,
 ) -> Result<()> {
-    let total = batch * c_out * output_length;
+    const OP: &str = "conv_transpose1d";
+    let total = conv_output_numel(&[batch, c_out, output_length], OP)?;
     if total == 0 {
         return Ok(());
     }
@@ -65,16 +66,16 @@ pub unsafe fn launch_conv_transpose1d(
         let block = (BLOCK_SIZE, 1, 1);
         let cfg = launch_config(grid, block, 0);
 
-        let batch_u32 = batch as u32;
-        let c_in_u32 = c_in as u32;
-        let length_u32 = length as u32;
-        let c_out_u32 = c_out as u32;
-        let kernel_size_u32 = kernel_size as u32;
-        let output_length_u32 = output_length as u32;
-        let stride_u32 = stride as u32;
-        let padding_u32 = padding as u32;
-        let dilation_u32 = dilation as u32;
-        let groups_u32 = groups as u32;
+        let batch_u32 = conv_arg_u32(batch, "batch", OP)?;
+        let c_in_u32 = conv_arg_u32(c_in, "c_in", OP)?;
+        let length_u32 = conv_arg_u32(length, "length", OP)?;
+        let c_out_u32 = conv_arg_u32(c_out, "c_out", OP)?;
+        let kernel_size_u32 = conv_arg_u32(kernel_size, "kernel_size", OP)?;
+        let output_length_u32 = conv_arg_u32(output_length, "output_length", OP)?;
+        let stride_u32 = conv_arg_u32(stride, "stride", OP)?;
+        let padding_u32 = conv_arg_u32(padding, "padding", OP)?;
+        let dilation_u32 = conv_arg_u32(dilation, "dilation", OP)?;
+        let groups_u32 = conv_arg_u32(groups, "groups", OP)?;
         let has_bias_u32: u32 = if bias_ptr.is_some() { 1 } else { 0 };
         let bias_ptr_val = bias_ptr.unwrap_or(0);
 

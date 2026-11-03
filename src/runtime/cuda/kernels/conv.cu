@@ -14,6 +14,59 @@
 #include "conv1d_common.cuh"
 
 // ============================================================================
+// 64-bit output indexing for the one-thread-per-element kernels
+//
+// An output can hold more than 2^32 elements. A 32-bit flat index wraps there
+// and the thread writes another element, so the flat index and every buffer
+// offset stay 64-bit. The decoded coordinates each fit 32 bits.
+// ============================================================================
+
+__device__ __forceinline__ unsigned long long conv_flat_index() {
+    return (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x;
+}
+
+// Elements in an (N, C, L_out) output.
+__device__ __forceinline__ unsigned long long conv1d_output_numel(
+    unsigned int batch, unsigned int channels, unsigned int out_len
+) {
+    return (unsigned long long)batch * channels * out_len;
+}
+
+// Decode a flat NCL output index into (b, c, x).
+__device__ __forceinline__ void conv1d_decode_ncl(
+    unsigned long long idx, unsigned int channels, unsigned int out_len,
+    unsigned int* b, unsigned int* c, unsigned int* x
+) {
+    unsigned long long row = idx / out_len;
+    *x = (unsigned int)(idx - row * out_len);
+    *c = (unsigned int)(row % channels);
+    *b = (unsigned int)(row / channels);
+}
+
+// Elements in an (N, C, H_out, W_out) output.
+__device__ __forceinline__ unsigned long long conv2d_output_numel(
+    unsigned int batch, unsigned int channels,
+    unsigned int out_h, unsigned int out_w
+) {
+    return (unsigned long long)batch * channels * out_h * out_w;
+}
+
+// Decode a flat NCHW output index into (b, c, y, x).
+__device__ __forceinline__ void conv2d_decode_nchw(
+    unsigned long long idx, unsigned int channels,
+    unsigned int out_h, unsigned int out_w,
+    unsigned int* b, unsigned int* c, unsigned int* y, unsigned int* x
+) {
+    unsigned long long spatial = (unsigned long long)out_h * out_w;
+    unsigned long long plane = idx / spatial;
+    unsigned int pixel = (unsigned int)(idx - plane * spatial);
+    *y = pixel / out_w;
+    *x = pixel - *y * out_w;
+    *c = (unsigned int)(plane % channels);
+    *b = (unsigned int)(plane / channels);
+}
+
+// ============================================================================
 // Conv1d Kernel Templates
 // Input:  (N, C_in, L)
 // Weight: (C_out, C_in/groups, K)
@@ -258,13 +311,11 @@ __global__ void conv_transpose1d_##suffix( \
     unsigned int groups, \
     unsigned int has_bias \
 ) { \
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
-    unsigned int total = batch * c_out * output_length; \
-    if (idx >= total) return; \
+    unsigned long long idx = conv_flat_index(); \
+    if (idx >= conv1d_output_numel(batch, c_out, output_length)) return; \
     \
-    unsigned int ox = idx % output_length; \
-    unsigned int oc = (idx / output_length) % c_out; \
-    unsigned int b = idx / (c_out * output_length); \
+    unsigned int b, oc, ox; \
+    conv1d_decode_ncl(idx, c_out, output_length, &b, &oc, &ox); \
     \
     unsigned int c_in_per_group = c_in / groups; \
     unsigned int c_out_per_group = c_out / groups; \
@@ -284,9 +335,9 @@ __global__ void conv_transpose1d_##suffix( \
         \
         for (unsigned int ic = 0; ic < c_in_per_group; ic++) { \
             unsigned int c_in_idx = c_in_start + ic; \
-            unsigned int input_idx = b * c_in * length + c_in_idx * length + j; \
-            unsigned int weight_idx = c_in_idx * c_out_per_group * kernel_size \
-                                    + oc_local * kernel_size + kx; \
+            size_t input_idx = (size_t)b * c_in * length + (size_t)c_in_idx * length + j; \
+            size_t weight_idx = (size_t)c_in_idx * c_out_per_group * kernel_size \
+                              + (size_t)oc_local * kernel_size + kx; \
             sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
         } \
     } \
@@ -329,14 +380,11 @@ __global__ void conv2d_##suffix( \
     unsigned int groups, \
     unsigned int has_bias \
 ) { \
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
-    unsigned int total = batch * c_out * output_h * output_w; \
-    if (idx >= total) return; \
+    unsigned long long idx = conv_flat_index(); \
+    if (idx >= conv2d_output_numel(batch, c_out, output_h, output_w)) return; \
     \
-    unsigned int ox = idx % output_w; \
-    unsigned int oy = (idx / output_w) % output_h; \
-    unsigned int oc = (idx / (output_w * output_h)) % c_out; \
-    unsigned int b = idx / (c_out * output_h * output_w); \
+    unsigned int b, oc, oy, ox; \
+    conv2d_decode_nchw(idx, c_out, output_h, output_w, &b, &oc, &oy, &ox); \
     \
     unsigned int c_in_per_group = c_in / groups; \
     unsigned int c_out_per_group = c_out / groups; \
@@ -355,12 +403,12 @@ __global__ void conv2d_##suffix( \
                 int ix = (int)(ox * stride_w + kx * dilation_w) - (int)pad_w; \
                 \
                 if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) { \
-                    unsigned int input_idx = b * c_in * height * width \
-                        + c_in_idx * height * width \
-                        + (unsigned int)iy * width \
+                    size_t input_idx = (size_t)b * c_in * height * width \
+                        + (size_t)c_in_idx * height * width \
+                        + (size_t)iy * width \
                         + (unsigned int)ix; \
-                    unsigned int weight_idx = oc * c_in_per_group * kernel_h * kernel_w \
-                        + ic * kernel_h * kernel_w \
+                    size_t weight_idx = (size_t)oc * c_in_per_group * kernel_h * kernel_w \
+                        + (size_t)ic * kernel_h * kernel_w \
                         + ky * kernel_w \
                         + kx; \
                     sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
@@ -406,14 +454,11 @@ __global__ void depthwise_conv2d_##suffix( \
     unsigned int dilation_w, \
     unsigned int has_bias \
 ) { \
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; \
-    unsigned int total = batch * channels * output_h * output_w; \
-    if (idx >= total) return; \
+    unsigned long long idx = conv_flat_index(); \
+    if (idx >= conv2d_output_numel(batch, channels, output_h, output_w)) return; \
     \
-    unsigned int ox = idx % output_w; \
-    unsigned int oy = (idx / output_w) % output_h; \
-    unsigned int c = (idx / (output_w * output_h)) % channels; \
-    unsigned int b = idx / (channels * output_h * output_w); \
+    unsigned int b, c, oy, ox; \
+    conv2d_decode_nchw(idx, channels, output_h, output_w, &b, &c, &oy, &ox); \
     \
     typedef AccumTraits<dtype, acc> AT; \
     acc sum = AT::zero(); \
@@ -424,11 +469,11 @@ __global__ void depthwise_conv2d_##suffix( \
             int ix = (int)(ox * stride_w + kx * dilation_w) - (int)pad_w; \
             \
             if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) { \
-                unsigned int input_idx = b * channels * height * width \
-                    + c * height * width \
-                    + (unsigned int)iy * width \
+                size_t input_idx = (size_t)b * channels * height * width \
+                    + (size_t)c * height * width \
+                    + (size_t)iy * width \
                     + (unsigned int)ix; \
-                unsigned int weight_idx = c * kernel_h * kernel_w + ky * kernel_w + kx; \
+                size_t weight_idx = (size_t)c * kernel_h * kernel_w + ky * kernel_w + kx; \
                 sum = AT::add(sum, AT::mul(AT::load(input + input_idx, 0), AT::load(weight + weight_idx, 0))); \
             } \
         } \
@@ -493,13 +538,11 @@ __global__ void conv1d_fp8_e4m3(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * output_length;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv1d_output_numel(batch, c_out, output_length)) return;
 
-    unsigned int ox = idx % output_length;
-    unsigned int oc = (idx / output_length) % c_out;
-    unsigned int b = idx / (c_out * output_length);
+    unsigned int b, oc, ox;
+    conv1d_decode_ncl(idx, c_out, output_length, &b, &oc, &ox);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -513,8 +556,8 @@ __global__ void conv1d_fp8_e4m3(
         for (unsigned int kx = 0; kx < kernel_size; kx++) {
             int ix = (int)(ox * stride + kx * dilation) - (int)padding;
             if (ix >= 0 && ix < (int)length) {
-                unsigned int input_idx = b * c_in * length + c_in_idx * length + (unsigned int)ix;
-                unsigned int weight_idx = oc * c_in_per_group * kernel_size + ic * kernel_size + kx;
+                size_t input_idx = (size_t)b * c_in * length + (size_t)c_in_idx * length + (unsigned int)ix;
+                size_t weight_idx = (size_t)oc * c_in_per_group * kernel_size + (size_t)ic * kernel_size + kx;
                 sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
             }
         }
@@ -550,14 +593,11 @@ __global__ void conv2d_fp8_e4m3(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * out_h * out_w;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv2d_output_numel(batch, c_out, out_h, out_w)) return;
 
-    unsigned int ow = idx % out_w;
-    unsigned int oh = (idx / out_w) % out_h;
-    unsigned int oc = (idx / (out_w * out_h)) % c_out;
-    unsigned int b = idx / (c_out * out_h * out_w);
+    unsigned int b, oc, oh, ow;
+    conv2d_decode_nchw(idx, c_out, out_h, out_w, &b, &oc, &oh, &ow);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -573,8 +613,8 @@ __global__ void conv2d_fp8_e4m3(
                 int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
                 int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
                 if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
-                    unsigned int input_idx = b * c_in * height * width + c_in_idx * height * width + (unsigned int)iy * width + (unsigned int)ix;
-                    unsigned int weight_idx = oc * c_in_per_group * kh * kw + ic * kh * kw + ky * kw + kx;
+                    size_t input_idx = (size_t)b * c_in * height * width + (size_t)c_in_idx * height * width + (size_t)iy * width + (unsigned int)ix;
+                    size_t weight_idx = (size_t)oc * c_in_per_group * kh * kw + (size_t)ic * kh * kw + ky * kw + kx;
                     sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
                 }
             }
@@ -609,14 +649,11 @@ __global__ void depthwise_conv2d_fp8_e4m3(
     unsigned int dilation_w,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * channels * out_h * out_w;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv2d_output_numel(batch, channels, out_h, out_w)) return;
 
-    unsigned int ow = idx % out_w;
-    unsigned int oh = (idx / out_w) % out_h;
-    unsigned int c = (idx / (out_w * out_h)) % channels;
-    unsigned int b = idx / (channels * out_h * out_w);
+    unsigned int b, c, oh, ow;
+    conv2d_decode_nchw(idx, channels, out_h, out_w, &b, &c, &oh, &ow);
 
     float sum = 0.0f;
 
@@ -625,8 +662,8 @@ __global__ void depthwise_conv2d_fp8_e4m3(
             int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
             int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
             if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
-                unsigned int input_idx = b * channels * height * width + c * height * width + (unsigned int)iy * width + (unsigned int)ix;
-                unsigned int weight_idx = c * kh * kw + ky * kw + kx;
+                size_t input_idx = (size_t)b * channels * height * width + (size_t)c * height * width + (size_t)iy * width + (unsigned int)ix;
+                size_t weight_idx = (size_t)c * kh * kw + ky * kw + kx;
                 sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
             }
         }
@@ -658,13 +695,11 @@ __global__ void conv_transpose1d_fp8_e4m3(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * output_length;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv1d_output_numel(batch, c_out, output_length)) return;
 
-    unsigned int ox = idx % output_length;
-    unsigned int oc = (idx / output_length) % c_out;
-    unsigned int b = idx / (c_out * output_length);
+    unsigned int b, oc, ox;
+    conv1d_decode_ncl(idx, c_out, output_length, &b, &oc, &ox);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -683,9 +718,9 @@ __global__ void conv_transpose1d_fp8_e4m3(
 
         for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
             unsigned int c_in_idx = c_in_start + ic;
-            unsigned int input_idx = b * c_in * length + c_in_idx * length + j;
-            unsigned int weight_idx = c_in_idx * c_out_per_group * kernel_size
-                                    + oc_local * kernel_size + kx;
+            size_t input_idx = (size_t)b * c_in * length + (size_t)c_in_idx * length + j;
+            size_t weight_idx = (size_t)c_in_idx * c_out_per_group * kernel_size
+                              + (size_t)oc_local * kernel_size + kx;
             sum += fp8_e4m3_to_f32(input[input_idx].data) * fp8_e4m3_to_f32(weight[weight_idx].data);
         }
     }
@@ -715,13 +750,11 @@ __global__ void conv1d_fp8_e5m2(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * output_length;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv1d_output_numel(batch, c_out, output_length)) return;
 
-    unsigned int ox = idx % output_length;
-    unsigned int oc = (idx / output_length) % c_out;
-    unsigned int b = idx / (c_out * output_length);
+    unsigned int b, oc, ox;
+    conv1d_decode_ncl(idx, c_out, output_length, &b, &oc, &ox);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -735,8 +768,8 @@ __global__ void conv1d_fp8_e5m2(
         for (unsigned int kx = 0; kx < kernel_size; kx++) {
             int ix = (int)(ox * stride + kx * dilation) - (int)padding;
             if (ix >= 0 && ix < (int)length) {
-                unsigned int input_idx = b * c_in * length + c_in_idx * length + (unsigned int)ix;
-                unsigned int weight_idx = oc * c_in_per_group * kernel_size + ic * kernel_size + kx;
+                size_t input_idx = (size_t)b * c_in * length + (size_t)c_in_idx * length + (unsigned int)ix;
+                size_t weight_idx = (size_t)oc * c_in_per_group * kernel_size + (size_t)ic * kernel_size + kx;
                 sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
             }
         }
@@ -772,14 +805,11 @@ __global__ void conv2d_fp8_e5m2(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * out_h * out_w;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv2d_output_numel(batch, c_out, out_h, out_w)) return;
 
-    unsigned int ow = idx % out_w;
-    unsigned int oh = (idx / out_w) % out_h;
-    unsigned int oc = (idx / (out_w * out_h)) % c_out;
-    unsigned int b = idx / (c_out * out_h * out_w);
+    unsigned int b, oc, oh, ow;
+    conv2d_decode_nchw(idx, c_out, out_h, out_w, &b, &oc, &oh, &ow);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -795,8 +825,8 @@ __global__ void conv2d_fp8_e5m2(
                 int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
                 int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
                 if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
-                    unsigned int input_idx = b * c_in * height * width + c_in_idx * height * width + (unsigned int)iy * width + (unsigned int)ix;
-                    unsigned int weight_idx = oc * c_in_per_group * kh * kw + ic * kh * kw + ky * kw + kx;
+                    size_t input_idx = (size_t)b * c_in * height * width + (size_t)c_in_idx * height * width + (size_t)iy * width + (unsigned int)ix;
+                    size_t weight_idx = (size_t)oc * c_in_per_group * kh * kw + (size_t)ic * kh * kw + ky * kw + kx;
                     sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
                 }
             }
@@ -831,14 +861,11 @@ __global__ void depthwise_conv2d_fp8_e5m2(
     unsigned int dilation_w,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * channels * out_h * out_w;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv2d_output_numel(batch, channels, out_h, out_w)) return;
 
-    unsigned int ow = idx % out_w;
-    unsigned int oh = (idx / out_w) % out_h;
-    unsigned int c = (idx / (out_w * out_h)) % channels;
-    unsigned int b = idx / (channels * out_h * out_w);
+    unsigned int b, c, oh, ow;
+    conv2d_decode_nchw(idx, channels, out_h, out_w, &b, &c, &oh, &ow);
 
     float sum = 0.0f;
 
@@ -847,8 +874,8 @@ __global__ void depthwise_conv2d_fp8_e5m2(
             int iy = (int)(oh * stride_h + ky * dilation_h) - (int)pad_h;
             int ix = (int)(ow * stride_w + kx * dilation_w) - (int)pad_w;
             if (iy >= 0 && iy < (int)height && ix >= 0 && ix < (int)width) {
-                unsigned int input_idx = b * channels * height * width + c * height * width + (unsigned int)iy * width + (unsigned int)ix;
-                unsigned int weight_idx = c * kh * kw + ky * kw + kx;
+                size_t input_idx = (size_t)b * channels * height * width + (size_t)c * height * width + (size_t)iy * width + (unsigned int)ix;
+                size_t weight_idx = (size_t)c * kh * kw + ky * kw + kx;
                 sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
             }
         }
@@ -880,13 +907,11 @@ __global__ void conv_transpose1d_fp8_e5m2(
     unsigned int groups,
     unsigned int has_bias
 ) {
-    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    unsigned int total = batch * c_out * output_length;
-    if (idx >= total) return;
+    unsigned long long idx = conv_flat_index();
+    if (idx >= conv1d_output_numel(batch, c_out, output_length)) return;
 
-    unsigned int ox = idx % output_length;
-    unsigned int oc = (idx / output_length) % c_out;
-    unsigned int b = idx / (c_out * output_length);
+    unsigned int b, oc, ox;
+    conv1d_decode_ncl(idx, c_out, output_length, &b, &oc, &ox);
 
     unsigned int c_in_per_group = c_in / groups;
     unsigned int c_out_per_group = c_out / groups;
@@ -905,9 +930,9 @@ __global__ void conv_transpose1d_fp8_e5m2(
 
         for (unsigned int ic = 0; ic < c_in_per_group; ic++) {
             unsigned int c_in_idx = c_in_start + ic;
-            unsigned int input_idx = b * c_in * length + c_in_idx * length + j;
-            unsigned int weight_idx = c_in_idx * c_out_per_group * kernel_size
-                                    + oc_local * kernel_size + kx;
+            size_t input_idx = (size_t)b * c_in * length + (size_t)c_in_idx * length + j;
+            size_t weight_idx = (size_t)c_in_idx * c_out_per_group * kernel_size
+                              + (size_t)oc_local * kernel_size + kx;
             sum += fp8_e5m2_to_f32(input[input_idx].data) * fp8_e5m2_to_f32(weight[weight_idx].data);
         }
     }

@@ -66,10 +66,13 @@
 #define DEFINE_CONV1D_OX_KERNEL(suffix, dtype, acc) \
 __global__ void conv1d_ox_##suffix(CONV1D_PARAMS(dtype)) { \
     typedef AccumTraits<dtype, acc> AT; \
-    unsigned int ox_base = (blockIdx.x * blockDim.x + threadIdx.x) * CONV1D_OX_BLOCK; \
+    /* 64-bit so the block multiply cannot wrap past output_length. */ \
+    unsigned long long ox_base_wide = \
+        ((unsigned long long)blockIdx.x * blockDim.x + threadIdx.x) * CONV1D_OX_BLOCK; \
     unsigned int oc = blockIdx.y * blockDim.y + threadIdx.y; \
     unsigned int b = blockIdx.z; \
-    if (ox_base >= output_length || oc >= c_out) return; \
+    if (ox_base_wide >= output_length || oc >= c_out) return; \
+    unsigned int ox_base = (unsigned int)ox_base_wide; \
     \
     unsigned int active = output_length - ox_base; \
     if (active > CONV1D_OX_BLOCK) { active = CONV1D_OX_BLOCK; } \

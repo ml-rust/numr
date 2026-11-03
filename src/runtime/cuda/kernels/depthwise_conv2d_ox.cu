@@ -88,11 +88,15 @@ __global__ void depthwise_conv2d_ox_##suffix(DEPTHWISE_CONV2D_OX_PARAMS(dtype)) 
        except at the row-wrap boundary. Channel and batch stay on grid y and z: \
        folding them in as well would cost three more integer divisions, which \
        does not pay against the lanes recovered. */ \
-    unsigned int x_extent = (output_w + (DEPTHWISE_CONV2D_OX_BLOCK - 1u)) / DEPTHWISE_CONV2D_OX_BLOCK; \
-    unsigned int wid = blockIdx.x * blockDim.x + threadIdx.x; \
+    /* Ceiling division that cannot wrap near the top of the 32-bit range. */ \
+    unsigned int x_extent = output_w / DEPTHWISE_CONV2D_OX_BLOCK \
+        + (output_w % DEPTHWISE_CONV2D_OX_BLOCK != 0u ? 1u : 0u); \
+    unsigned long long wid_wide = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; \
     unsigned int c = blockIdx.y; \
     unsigned int b = blockIdx.z; \
-    if (wid >= output_h * x_extent) return; \
+    if (wid_wide >= (unsigned long long)output_h * x_extent) return; \
+    /* The launcher refuses an output_h * x_extent past 32 bits, so wid fits. */ \
+    unsigned int wid = (unsigned int)wid_wide; \
     \
     unsigned int oy = wid / x_extent; \
     /* Subtract rather than take a second modulus: one division serves both. */ \
