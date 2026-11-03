@@ -58,6 +58,9 @@ mod conv_fused;
 #[path = "../../ops/cpu/cumulative.rs"]
 mod cumulative;
 
+#[path = "../../ops/cpu/color.rs"]
+mod color;
+
 #[path = "../../ops/cpu/fwht.rs"]
 mod fwht;
 

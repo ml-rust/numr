@@ -110,12 +110,13 @@ pub mod prelude {
 
     // Operation traits (same API across all backends)
     pub use crate::ops::{
-        ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, Conv2dConfig,
-        ConvAccumulation, ConvActivation, ConvLayout, ConvOps, ConvResidual, CumulativeOps,
-        DistanceMetric, DistanceOps, FusedConvOps, FwhtOps, HostCopyOps, ImageOps, IndexingOps,
-        LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NearestSize, NormalizationOps, PadMode,
-        PaddingMode, ReduceOps, ResizeConfig, ResizeFilter, ScalarOps, ShapeOps, SortingOps,
-        StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+        ActivationOps, BinaryOps, ChromaSiting, ColorMatrix, ColorOps, ColorRange, CompareOps,
+        ComplexOps, ConditionalOps, Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout,
+        ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, FusedConvOps, FwhtOps,
+        HostCopyOps, ImageOps, IndexingOps, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing,
+        NearestSize, NormalizationOps, PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter,
+        ScalarOps, ShapeOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps,
+        UtilityOps, YuvPlanes, YuvSpec,
     };
     pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 

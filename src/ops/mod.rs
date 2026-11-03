@@ -110,12 +110,13 @@ pub(crate) use reduce::{
 };
 pub use traits::Fp8MatmulOps;
 pub use traits::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, Conv2dConfig,
-    ConvAccumulation, ConvActivation, ConvLayout, ConvOps, ConvResidual, CumulativeOps,
-    DistanceMetric, DistanceOps, EinsumOps, FusedConvOps, FwhtOps, GemmActivation, GemmEpilogueOps,
-    GroupedMatmulOps, HostCopyOps, ImageOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
-    MeshgridIndexing, NearestSize, NormalizationOps, PadMode, PaddingMode, ReduceOps, ResizeConfig,
-    ResizeFilter, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps,
-    StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, ChromaSiting, ColorMatrix, ColorOps, ColorRange, CompareOps,
+    ComplexOps, ConditionalOps, Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout,
+    ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, FusedConvOps,
+    FwhtOps, GemmActivation, GemmEpilogueOps, GroupedMatmulOps, HostCopyOps, ImageOps, IndexingOps,
+    Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NearestSize, NormalizationOps,
+    PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter, ScalarOps, ScatterReduceOp,
+    SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps, TypeConversionOps,
+    UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

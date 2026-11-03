@@ -38,6 +38,13 @@ version. Every later entry is a delta against the one below it.
   - CPU and CUDA cover F32, F64, F16 and BF16. F64 accumulates in F64, the rest in F32, and F16 and BF16 round once at the store. CPU needs the `f16` feature for F16 and BF16. CUDA matches CPU bit for bit, except that the CUDA build flushes F32 subnormals to zero. CUDA indexes in 64 bits. WebGPU covers F32 and matches CPU within rounding. Other dtypes return `Error::UnsupportedDType`.
   - Strided input views run in place. `resize_into` writes into a strided `out` view, such as a channel slice, under the rules of `pixel_shuffle_into`.
   - A zero output size returns `Error::InvalidArgument` for argument `config`. A rank other than 4 or a zero input H or W returns it for argument `input`.
+- `ColorOps` on CPU and CUDA: video frame colour conversion for one frame per call. `yuv_to_rgb` and `yuv_to_rgb_into` convert 4:2:0 planes to float RGB `[1, 3, H, W]` (`ConvLayout::Nchw`) or `[1, H, W, 3]` (`ConvLayout::Nhwc`). `rgb_to_yuv_into` writes caller-given planes. `rgb24_to_float`, `rgb24_to_float_into`, `float_to_rgb24` and `float_to_rgb24_into` convert packed U8 `[H, W, 3]` RGB24. A batch takes one `_into` call per `narrow(0, n, 1)` frame.
+  - `YuvPlanes::Nv12` (U8 Y, interleaved U8 UV), `YuvPlanes::I420` (U8 Y, U, V) and `YuvPlanes::P010` (U16 Y and UV, value in the high 10 bits). Every plane is a strided view, so a surface with a row pitch passes as is. An odd H or W returns `Error::InvalidArgument` that names the dimension.
+  - `YuvSpec::new(matrix, range, siting)` takes `ColorMatrix::Bt601` or `Bt709`, `ColorRange::Limited` or `Full`, and `ChromaSiting::Left` or `Center`. All four types are `#[non_exhaustive]`.
+  - The trait doc states the normative formulas and the F32 evaluation order. Chroma upsamples bilinearly at the siting's sample positions and downsamples with a 2x2 box (`Center`) or `[1, 2, 1] / 4` over two rows (`Left`). Decoded RGB is clamped to `[0, 1]`. Encoding clamps RGB to `[0, 1]`, then quantises with the legal code range and rounds ties to even.
+  - RGB24 unpacks as `f32(v) / 255` and packs as `round_ties_even(clamp(x, 0, 1)·255)`, matching `x.clamp(0, 1).mul(255).round().to(torch.uint8)`.
+  - Float RGB is F32, F64, F16 or BF16. Kernels compute in F32, so F64 holds the F32 result. CPU needs the `f16` feature for F16 and BF16. CUDA runs the same F32 operations in the same order as CPU and indexes in 64 bits.
+  - WebGPU takes the trait's default methods, which return `Error::NotImplemented`. WGSL kernels are a follow-up.
   - `ImageOps` has two new required methods. A downstream implementor of `ImageOps` must add `resize` and `resize_into`.
 
 ### Fixed

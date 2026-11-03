@@ -9,7 +9,8 @@ use cudarc::driver::safe::CudaContext;
 use std::sync::Arc;
 
 use super::loader::{
-    BLOCK_SIZE, MAX_GRID_DIM_X, get_kernel_function, get_or_load_module, launch_config,
+    BLOCK_SIZE, MAX_GRID_DIM_X, dtype_suffix, get_kernel_function, get_or_load_module,
+    launch_config,
 };
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -43,14 +44,9 @@ pub struct ResizeLaunch {
     pub out_size: usize,
 }
 
-fn dtype_suffix(dtype: DType) -> Option<&'static str> {
-    match dtype {
-        DType::F32 => Some("f32"),
-        DType::F64 => Some("f64"),
-        DType::F16 => Some("f16"),
-        DType::BF16 => Some("bf16"),
-        _ => None,
-    }
+/// Kernel-name suffix of a float dtype, or `None` for a dtype with no kernel.
+fn float_suffix(dtype: DType) -> Option<&'static str> {
+    matches!(dtype, DType::F32 | DType::F64 | DType::F16 | DType::BF16).then(|| dtype_suffix(dtype))
 }
 
 /// Kernel name of a pass from `src` to `dst` elements, or `None` for a pair
@@ -70,8 +66,8 @@ fn kernel_name(src: DType, dst: DType) -> Option<String> {
     }
     Some(format!(
         "resize_pass_{}_{}",
-        dtype_suffix(src)?,
-        dtype_suffix(dst)?
+        float_suffix(src)?,
+        float_suffix(dst)?
     ))
 }
 

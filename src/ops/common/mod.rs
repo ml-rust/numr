@@ -1,5 +1,8 @@
 //! Common utilities and validation logic shared across operation backends.
 
+pub mod color_calls;
+pub mod color_plan;
+pub mod color_validation;
 pub mod complex_validation;
 pub mod fwht_validation;
 pub mod group_norm_validation;
@@ -12,6 +15,12 @@ pub mod quasirandom;
 pub mod scatter_axes;
 pub mod scatter_reduce_validation;
 
+pub use color_calls::{
+    plan_decode, plan_decode_into, plan_encode, plan_pack, plan_pack_into, plan_unpack,
+    plan_unpack_into,
+};
+pub use color_plan::{ColorCoeffs, PlaneView, YuvFrame, rgb_strides, rgb24_strides};
+pub use color_validation::rgb_shape;
 pub use complex_validation::{validate_complex_real_inputs, validate_make_complex_inputs};
 #[cfg(feature = "wgpu")]
 pub use complex_validation::{

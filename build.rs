@@ -50,6 +50,7 @@ fn compile_cuda_kernels() {
         "cast.cu",
         "col2im_transpose1d.cu",
         "col_transpose1d.cu",
+        "color.cu",
         "compare.cu",
         "complex.cu",
         "conv.cu",

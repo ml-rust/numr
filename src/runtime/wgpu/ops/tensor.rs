@@ -37,6 +37,9 @@ mod conv_fused;
 #[path = "../../../ops/wgpu/cumulative.rs"]
 mod cumulative;
 
+#[path = "../../../ops/wgpu/color.rs"]
+mod color;
+
 #[path = "../../../ops/wgpu/fwht.rs"]
 mod fwht;
 

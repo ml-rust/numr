@@ -9,6 +9,8 @@ pub mod advanced_random;
 pub mod binary;
 pub mod binary_int;
 mod binary_rows;
+pub mod color;
+pub mod color_rgb24;
 pub mod compare;
 pub mod complex;
 pub mod conv;
@@ -56,6 +58,8 @@ pub use advanced_random::{
     xoshiro256_uniform_kernel,
 };
 pub use binary::{binary_op_kernel, binary_op_strided_kernel};
+pub use color::{PlaneSample, rgb_to_yuv_kernel, yuv_to_rgb_kernel};
+pub use color_rgb24::{Rgb24Geometry, float_to_rgb24_kernel, rgb24_to_float_kernel};
 pub use compare::{compare_op_kernel, compare_op_strided_kernel};
 pub use complex::{
     angle_complex64, angle_complex128, angle_real_f32, angle_real_f64, complex64_div_real,

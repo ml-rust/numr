@@ -6,6 +6,7 @@
 pub mod activation;
 pub mod binary;
 pub mod bincount;
+pub mod color;
 pub mod compare;
 pub mod cumulative;
 pub mod fused_elementwise;
@@ -28,6 +29,9 @@ pub use activation::{
 };
 pub use binary::{binary_op_impl, binary_op_into_impl};
 pub use bincount::{bincount_impl, bincount_with_len_impl};
+pub use color::{
+    color_float_ok, float_to_rgb24_run, rgb_to_yuv_run, rgb24_to_float_run, yuv_to_rgb_run,
+};
 pub use compare::compare_op_impl;
 pub use cumulative::{cumprod_impl, cumsum_impl, logsumexp_impl};
 pub use fused_elementwise::{fused_add_mul_impl, fused_mul_add_impl, fused_mul_add_scalar_impl};

@@ -6,6 +6,8 @@
 mod activation;
 mod advanced_random;
 mod binary;
+mod color;
+mod color_spec;
 mod compare;
 mod complex;
 mod conditional;
@@ -46,6 +48,8 @@ mod utility;
 pub use activation::ActivationOps;
 pub use advanced_random::AdvancedRandomOps;
 pub use binary::BinaryOps;
+pub use color::ColorOps;
+pub use color_spec::{ChromaSiting, ColorMatrix, ColorRange, YuvPlanes, YuvSpec};
 pub use compare::CompareOps;
 pub use complex::ComplexOps;
 pub use conditional::ConditionalOps;
