@@ -96,7 +96,7 @@ pub(super) fn canonical_dims<R: Runtime<DType = DType>>(
 }
 
 /// Shape in `layout` order of canonical extents `dims`.
-fn layout_shape(dims: [usize; 4], layout: ConvLayout) -> [usize; 4] {
+pub(super) fn layout_shape(dims: [usize; 4], layout: ConvLayout) -> [usize; 4] {
     match layout {
         ConvLayout::Nchw => dims,
         ConvLayout::Nhwc => [dims[0], dims[2], dims[3], dims[1]],

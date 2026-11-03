@@ -1,4 +1,5 @@
-//! CUDA implementation of pixel shuffle, pixel unshuffle and nearest upsampling.
+//! CUDA implementation of pixel shuffle, pixel unshuffle, nearest upsampling
+//! and resize.
 //!
 //! Strided input and output views pass to the kernel with their strides, so
 //! no operand is copied to contiguous first and no data leaves the device.
@@ -8,7 +9,7 @@ use crate::ops::common::{
     ImageMap, ImagePlan, canonical_strides, plan_pixel_shuffle, plan_pixel_unshuffle,
     plan_upsample_nearest2d, validate_image_out,
 };
-use crate::ops::{ConvLayout, ImageOps, NearestSize};
+use crate::ops::{ConvLayout, ImageOps, NearestSize, ResizeConfig};
 use crate::runtime::cuda::kernels::{ImageKernel, ImageLaunch, launch_image};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
@@ -84,7 +85,8 @@ impl CudaClient {
     }
 }
 
-/// ImageOps implementation for CUDA runtime. Every dtype.
+/// ImageOps implementation for CUDA runtime. Every dtype, and F32, F64, F16
+/// and BF16 for `resize`.
 impl ImageOps<CudaRuntime> for CudaClient {
     fn pixel_shuffle(
         &self,
@@ -141,5 +143,24 @@ impl ImageOps<CudaRuntime> for CudaClient {
         layout: ConvLayout,
     ) -> Result<()> {
         self.image_into(&plan_upsample_nearest2d(input, size, layout)?, out, input)
+    }
+
+    fn resize(
+        &self,
+        input: &Tensor<CudaRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<Tensor<CudaRuntime>> {
+        self.resize_alloc(input, config, layout)
+    }
+
+    fn resize_into(
+        &self,
+        out: &Tensor<CudaRuntime>,
+        input: &Tensor<CudaRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        self.resize_into_view(out, input, config, layout)
     }
 }

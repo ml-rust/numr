@@ -1,13 +1,17 @@
-//! WebGPU implementation of pixel shuffle, pixel unshuffle and nearest upsampling.
+//! WebGPU implementation of pixel shuffle, pixel unshuffle, nearest upsampling
+//! and resize.
 
 use crate::error::Result;
 use crate::ops::common::{plan_pixel_shuffle, plan_pixel_unshuffle, plan_upsample_nearest2d};
-use crate::ops::{ConvLayout, ImageOps, NearestSize};
-use crate::runtime::wgpu::ops::native::{native_image, native_image_into};
+use crate::ops::{ConvLayout, ImageOps, NearestSize, ResizeConfig};
+use crate::runtime::wgpu::ops::native::{
+    native_image, native_image_into, native_resize, native_resize_into,
+};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
-/// ImageOps implementation for WebGPU runtime. F32, I32 and U32.
+/// ImageOps implementation for WebGPU runtime. F32, I32 and U32, and F32 for
+/// `resize`.
 impl ImageOps<WgpuRuntime> for WgpuClient {
     fn pixel_shuffle(
         &self,
@@ -79,5 +83,24 @@ impl ImageOps<WgpuRuntime> for WgpuClient {
             out,
             input,
         )
+    }
+
+    fn resize(
+        &self,
+        input: &Tensor<WgpuRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        native_resize(self, input, config, layout)
+    }
+
+    fn resize_into(
+        &self,
+        out: &Tensor<WgpuRuntime>,
+        input: &Tensor<WgpuRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        native_resize_into(self, out, input, config, layout)
     }
 }

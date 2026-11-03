@@ -72,6 +72,7 @@ fn compile_cuda_kernels() {
         "im2col.cu",
         "im2col2d.cu",
         "image.cu",
+        "image_resize.cu",
         "index.cu",
         "index_nd.cu",
         "linalg_advanced.cu",

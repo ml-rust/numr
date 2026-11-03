@@ -18,6 +18,7 @@ pub mod dtype_support;
 pub mod fft;
 pub mod fwht;
 pub mod image;
+pub mod image_resize;
 pub mod index;
 pub mod linalg;
 pub(crate) mod linear_grid;

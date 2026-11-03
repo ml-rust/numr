@@ -5,6 +5,7 @@ pub mod fwht_validation;
 pub mod group_norm_validation;
 pub mod image_nearest;
 pub mod image_nearest_plan;
+pub mod image_resize_plan;
 pub mod image_validation;
 pub mod quasirandom;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
@@ -20,6 +21,9 @@ pub use fwht_validation::validate_fwht_args;
 pub use group_norm_validation::group_norm_channels_per_group;
 pub use image_nearest::NearestAxis;
 pub use image_nearest_plan::plan_upsample_nearest2d;
+pub use image_resize_plan::{
+    ResizeMode, ResizePlan, ResizeSchedule, ResizeStep, plan_resize, validate_resize_out,
+};
 pub use image_validation::{
     ImageMap, ImagePlan, canonical_strides, plan_pixel_shuffle, plan_pixel_unshuffle,
     validate_image_out,

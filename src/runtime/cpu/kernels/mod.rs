@@ -22,6 +22,9 @@ pub mod fused_elementwise;
 pub mod fwht;
 pub mod gemm_epilogue;
 pub mod image;
+pub mod image_resize;
+pub mod image_resize_acc;
+pub mod image_resize_taps;
 pub mod index;
 pub mod ipow;
 pub mod logical;
@@ -89,6 +92,9 @@ pub use gemm_epilogue::{
     matmul_bias_activation_bwd_kernel, matmul_bias_activation_kernel, matmul_bias_residual_kernel,
 };
 pub use image::{GatherGeometry, GatherMap, image_gather_kernel};
+pub use image_resize::{ResizePassGeometry, resize_pass_kernel};
+pub use image_resize_acc::ResizeAcc;
+pub use image_resize_taps::AxisTaps;
 pub use index::{
     bincount_kernel, embedding_lookup_kernel, gather_2d_kernel, gather_kernel, gather_nd_kernel,
     index_put_kernel, index_select_kernel, masked_fill_kernel, masked_select_kernel,

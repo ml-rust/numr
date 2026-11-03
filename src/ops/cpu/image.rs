@@ -1,12 +1,16 @@
-//! CPU implementation of pixel shuffle, pixel unshuffle and nearest upsampling.
+//! CPU implementation of pixel shuffle, pixel unshuffle, nearest upsampling
+//! and resize.
 
 use crate::error::Result;
 use crate::ops::common::{
     ImagePlan, plan_pixel_shuffle, plan_pixel_unshuffle, plan_upsample_nearest2d,
     validate_image_out,
 };
-use crate::ops::{ConvLayout, ImageOps, NearestSize};
-use crate::runtime::cpu::{CpuClient, CpuRuntime, helpers::image_run};
+use crate::ops::{ConvLayout, ImageOps, NearestSize, ResizeConfig};
+use crate::runtime::cpu::{
+    CpuClient, CpuRuntime,
+    helpers::{image_run, resize_alloc, resize_into},
+};
 use crate::tensor::Tensor;
 
 impl CpuClient {
@@ -33,7 +37,8 @@ impl CpuClient {
     }
 }
 
-/// ImageOps implementation for CPU runtime. Every dtype.
+/// ImageOps implementation for CPU runtime. Every dtype, and F32, F64, F16
+/// and BF16 for `resize`.
 impl ImageOps<CpuRuntime> for CpuClient {
     fn pixel_shuffle(
         &self,
@@ -90,5 +95,24 @@ impl ImageOps<CpuRuntime> for CpuClient {
         layout: ConvLayout,
     ) -> Result<()> {
         self.image_into(&plan_upsample_nearest2d(input, size, layout)?, out, input)
+    }
+
+    fn resize(
+        &self,
+        input: &Tensor<CpuRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<Tensor<CpuRuntime>> {
+        resize_alloc(self, input, config, layout)
+    }
+
+    fn resize_into(
+        &self,
+        out: &Tensor<CpuRuntime>,
+        input: &Tensor<CpuRuntime>,
+        config: &ResizeConfig,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        resize_into(self, out, input, config, layout)
     }
 }

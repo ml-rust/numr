@@ -13,7 +13,7 @@ use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
 
 /// Narrow `value` to u32, or name `what` in a `BackendLimitation`.
-fn word(value: usize, what: &str, op: &'static str) -> Result<u32> {
+pub(super) fn word(value: usize, what: &str, op: &'static str) -> Result<u32> {
     u32::try_from(value).map_err(|_| {
         Error::backend_limitation(
             "WebGPU",
@@ -24,7 +24,7 @@ fn word(value: usize, what: &str, op: &'static str) -> Result<u32> {
 }
 
 /// Pack strides as two's complement words.
-fn stride_words(strides: [isize; 4], op: &'static str) -> Result<[u32; 4]> {
+pub(super) fn stride_words(strides: [isize; 4], op: &'static str) -> Result<[u32; 4]> {
     let mut words = [0u32; 4];
     for (slot, stride) in words.iter_mut().zip(strides) {
         let stride = i32::try_from(stride).map_err(|_| {

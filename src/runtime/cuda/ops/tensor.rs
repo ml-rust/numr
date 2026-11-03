@@ -60,6 +60,9 @@ mod fwht;
 #[path = "../../../ops/cuda/image.rs"]
 mod image;
 
+#[path = "../../../ops/cuda/image_resize.rs"]
+mod image_resize;
+
 #[path = "../../../ops/cuda/activation.rs"]
 mod activation;
 

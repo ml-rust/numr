@@ -114,8 +114,8 @@ pub mod prelude {
         ConvAccumulation, ConvActivation, ConvLayout, ConvOps, ConvResidual, CumulativeOps,
         DistanceMetric, DistanceOps, FusedConvOps, FwhtOps, HostCopyOps, ImageOps, IndexingOps,
         LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NearestSize, NormalizationOps, PadMode,
-        PaddingMode, ReduceOps, ScalarOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
-        TypeConversionOps, UnaryOps, UtilityOps,
+        PaddingMode, ReduceOps, ResizeConfig, ResizeFilter, ScalarOps, ShapeOps, SortingOps,
+        StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
     };
     pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 
