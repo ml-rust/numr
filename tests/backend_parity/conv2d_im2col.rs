@@ -12,6 +12,13 @@
 // does not gate the path: a column past `MAX_COL_ELEMENTS` (1 << 26) runs in
 // chunks (`conv2d_im2col_over_column_budget_parity`).
 //
+// F16 and BF16 on sm_75+ (BF16 on sm_80+) take the native implicit-GEMM
+// route first (`conv2d_native` in `src/ops/cuda/conv_fused_native.rs`), so
+// on such a device these shapes check that route for the half dtypes and
+// im2col for F32 and F64. The half-dtype parity of im2col itself is the
+// unit test `half_im2col_matches_cpu_reference` in
+// `src/ops/cuda/conv2d_im2col_tests.rs`, which calls the path directly.
+//
 // The GEMM reassociates the sum the direct kernel accumulates tap-outer /
 // channel-inner, so the result is within tolerance rather than bit-identical.
 // The tolerance is therefore accumulation-aware (`gemm_long_k_tolerance`), not

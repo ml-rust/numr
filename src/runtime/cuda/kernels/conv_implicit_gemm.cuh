@@ -1,4 +1,5 @@
-// Implicit-GEMM tensor-core conv2d body for NHWC input and OHWI weight.
+// Implicit-GEMM tensor-core conv2d body for NHWC or NCHW input and OHWI
+// weight.
 //
 // GEMM view:
 //   M = N * H_out * W_out   one row per output pixel
@@ -6,7 +7,15 @@
 //   K = Kh * Kw * C_in      the OHWI weight order
 // A[m][k] is the input element under one tap of pixel m, or 0 in the
 // padding. It is never written to memory: the loaders gather it straight
-// from the NHWC input. B is the OHWI weight read as [C_out][K] row-major.
+// from the input. B is the OHWI weight read as [C_out][K] row-major. An
+// NCHW call gets its OIHW weight relaid to OHWI on the host, so B staging
+// and K order are the same for both layouts.
+//
+// Layout changes only the A staging and the epilogue store. Shared memory
+// holds A as [pixel][32 channels] for both layouts, so the mma core, the
+// ldmatrix addressing and the swizzle are the same. The NCHW A staging is
+// in conv_implicit_gemm_halo_nchw.cuh (halo) and ConvLoaderScalar (gather),
+// the NCHW store in conv_implicit_gemm_epilogue_nchw.cuh.
 //
 // Block tile BM x BN x 32, warp tile 64 x WN with WN = 32 or 64. Per k16
 // step a warp issues 4 A ldmatrix.x4, WN / 16 B ldmatrix.x4 and WN / 2
@@ -93,6 +102,12 @@ struct ConvIgemmParams {
     long long res_sn;
     long long res_sh;
     long long res_sw;
+    /* Channel strides. NHWC kernels set them to 1: only ConvLoaderScalar
+       reads in_sc there, and the NHWC epilogue reads neither of the other
+       two. In NCHW kernels the *_sw fields hold the W strides. */
+    long long in_sc;
+    long long out_sc;
+    long long res_sc;
     unsigned int act;
     float slope;
     int prelu_len;
@@ -101,8 +116,10 @@ struct ConvIgemmParams {
 
 /* Block tile BM x BN on a WARPS_M x WARPS_N warp grid. The halo body
    covers a PATCH_H x PATCH_W patch of output pixels with BM = PATCH_H *
-   PATCH_W, and stages at most HALO_ITERS * ROWS_PER_PASS halo pixels. */
-template <int BM_, int BN_, int WARPS_M_, int WARPS_N_, int PATCH_W_, int HALO_ITERS_>
+   PATCH_W, and stages at most HALO_ITERS * ROWS_PER_PASS halo pixels. The
+   NCHW halo loader stages at most NCHW_ITERS * NCHW_RUN_STEP runs of 4
+   halo pixels per chunk. */
+template <int BM_, int BN_, int WARPS_M_, int WARPS_N_, int PATCH_W_, int HALO_ITERS_, int NCHW_ITERS_>
 struct ConvTileCfg {
     static constexpr int BM = BM_;
     static constexpr int BN = BN_;
@@ -138,6 +155,12 @@ struct ConvTileCfg {
     /* Halo, two B stages, then the halo offset table. The epilogue reuses
        the start as the output tile. */
     static constexpr int HALO_POOL_BYTES = HALO_MAIN_BYTES > OUT_TILE_BYTES ? HALO_MAIN_BYTES : OUT_TILE_BYTES;
+    /* NCHW halo: 16 threads share a run of 4 halo pixels, one channel pair
+       each, so one pass of all threads covers NCHW_RUN_STEP runs. Its run
+       table, one int4 per run, takes the place of the offset table. */
+    static constexpr int NCHW_ITERS = NCHW_ITERS_;
+    static constexpr int NCHW_RUN_STEP = THREADS / 16;
+    static constexpr int NCHW_RUNS = NCHW_ITERS * NCHW_RUN_STEP;
 
     static_assert(WARP_M == 64 && (WARP_N == 32 || WARP_N == 64),
                   "the mma loop is written for a 64x32 or 64x64 warp tile");
@@ -151,6 +174,8 @@ struct ConvTileCfg {
                   "a 16-row mma fragment must lie in one patch row");
     static_assert(HALO_POOL_BYTES + ROW_TABLE_BYTES <= 49152,
                   "halo static shared memory exceeds the 48 KiB per-block cap");
+    static_assert(NCHW_RUNS * 16 <= HALO_TABLE_BYTES, "the NCHW run table must fit the offset table");
+    static_assert((BN * (BM / 8)) % THREADS == 0, "the NCHW vector store covers the tile evenly");
 };
 
 #include "conv_implicit_gemm_stage.cuh"
@@ -288,18 +313,20 @@ __device__ __forceinline__ void conv_zero_acc(
 }
 
 /* Widen when needed, then run the epilogue. The caller's last barrier
-   orders every ldmatrix before the epilogue's tile stores. */
-template <typename T, typename Cfg, bool HALF_ACC>
+   orders every ldmatrix before the epilogue's tile stores. `runs_in_rows`
+   is the NCHW store's promise that each aligned run of 8 block rows lies
+   in one output row (see conv_implicit_gemm_epilogue_nchw.cuh). */
+template <typename T, typename Cfg, bool HALF_ACC, bool NCHW>
 __device__ __forceinline__ void conv_finish(
     const ConvIgemmParams<T>& p,
     typename ConvAccum<HALF_ACC>::type (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][ConvAccum<HALF_ACC>::REGS],
-    void* pool, const longlong2* rows, int tid, int warp_m, int warp_n, int block_col) {
+    void* pool, const longlong2* rows, int tid, int warp_m, int warp_n, int block_col, bool runs_in_rows) {
     if constexpr (HALF_ACC) {
         float wide[Cfg::FRAG_M][Cfg::FRAG_N][4];
         conv_widen_acc<Cfg>(acc, wide);
-        conv_igemm_epilogue<T, Cfg>(p, wide, pool, rows, tid, warp_m, warp_n, block_col);
+        conv_igemm_epilogue<T, Cfg, NCHW>(p, wide, pool, rows, tid, warp_m, warp_n, block_col, runs_in_rows);
     } else {
-        conv_igemm_epilogue<T, Cfg>(p, acc, pool, rows, tid, warp_m, warp_n, block_col);
+        conv_igemm_epilogue<T, Cfg, NCHW>(p, acc, pool, rows, tid, warp_m, warp_n, block_col, runs_in_rows);
     }
 }
 

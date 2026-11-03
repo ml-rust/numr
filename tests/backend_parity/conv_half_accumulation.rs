@@ -7,9 +7,10 @@
 // has spacing 2^-9 already on [0.25, 0.5) and stalls at 0.25. A sum kept in
 // F32 lands on 4.0 exactly, so the assertion is one storage ulp at 4.0.
 //
-// The shapes are chosen so CUDA reaches its direct kernels rather than an
-// im2col or GEMM path; each test's doc comment names the kernel and the gate
-// that routes to it (`src/ops/cuda/conv.rs`, `src/runtime/cuda/kernels/conv/`).
+// The shapes are chosen so CUDA reaches its direct kernels rather than the
+// native implicit-GEMM, im2col or GEMM paths; each test's doc comment names
+// the kernel and the gates that route to it (`src/ops/cuda/conv.rs`,
+// `src/ops/cuda/conv_fused_native.rs`, `src/runtime/cuda/kernels/conv/`).
 // Without `--features f16` there are no half dtypes and each test checks
 // nothing.
 
@@ -172,8 +173,9 @@ fn conv1d_ox_kernel_half_sum_reaches_four() {
 }
 
 /// `conv2d`, direct kernel. `c_in = 256`, `k = 4x4`, `c_out = 1`: one
-/// output channel is below `MIN_C_OUT`, so `use_conv2d_im2col` refuses the
-/// shape and CUDA runs `conv2d_*`. The column size never gates that path, so
+/// output channel is below `MIN_C_OUT`, so both `conv2d_native` (the
+/// implicit-GEMM route for F16 and BF16) and `use_conv2d_im2col` refuse the
+/// shape and CUDA runs `conv2d_*`. Neither gate reads the column size, so
 /// `c_out` is the only thing keeping this case on the direct kernel.
 #[test]
 fn conv2d_kernel_half_sum_reaches_four() {

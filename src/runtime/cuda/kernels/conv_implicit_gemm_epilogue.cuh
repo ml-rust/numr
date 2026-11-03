@@ -11,12 +11,16 @@
 // the activation switch run once per thread, outside the element loops. The
 // residual loads in the accumulator fragment layout.
 //
-// Rounded values go to a swizzled [BM][BN] tile in the stage buffers, then
-// leave by rows: one 16-byte store per 8 channels when the output is 16-byte
-// aligned, its N/H/W strides are multiples of 8, and the block's N tile is
-// whole. Otherwise half2 stores where a channel pair is in range and 4-byte
-// aligned, and one-element stores for the rest. Channel slices of a wider
-// output take either path.
+// NHWC: rounded values go to a swizzled [BM][BN] tile in the stage buffers,
+// then leave by rows: one 16-byte store per 8 channels when the output is
+// 16-byte aligned, its N/H/W strides are multiples of 8, and the block's N
+// tile is whole. Otherwise half2 stores where a channel pair is in range and
+// 4-byte aligned, and one-element stores for the rest. Channel slices of a
+// wider output take either path.
+//
+// NCHW: the residual and the store are in
+// conv_implicit_gemm_epilogue_nchw.cuh. Bias, activation and the F32 math
+// are the same code for both layouts.
 //
 // Activation codes are this kernel's own. They are not the GEMM epilogue
 // codes of gemm_activation.cuh. The host maps them in
@@ -24,6 +28,8 @@
 
 #ifndef NUMR_CONV_IMPLICIT_GEMM_EPILOGUE_CUH
 #define NUMR_CONV_IMPLICIT_GEMM_EPILOGUE_CUH
+
+#include "conv_implicit_gemm_epilogue_nchw.cuh"
 
 #define CONV_ACT_NONE  0u
 #define CONV_ACT_RELU  1u
@@ -66,12 +72,14 @@ __device__ __forceinline__ void conv_fill_row_table(const ConvIgemmParams<T>& p,
 /* acc[i][j][e] holds row warp_m0 + i * 16 + g + (e / 2) * 8 and column
    warp_n0 + j * 8 + 2t + e % 2, with g = lane / 4 and t = lane % 4.
    The stage buffers must be free: the caller's barrier after the last
-   ldmatrix orders every read of them before the first tile store here. */
-template <typename T, typename Cfg>
+   ldmatrix orders every read of them before the first tile store here.
+   `runs_in_rows` is read by the NCHW store only. */
+template <typename T, typename Cfg, bool NCHW>
 __device__ __forceinline__ void conv_igemm_epilogue(const ConvIgemmParams<T>& p,
                                                     float (&acc)[Cfg::FRAG_M][Cfg::FRAG_N][4],
                                                     void* pool, const longlong2* rows, int tid,
-                                                    int warp_m, int warp_n, int block_col) {
+                                                    int warp_m, int warp_n, int block_col,
+                                                    bool runs_in_rows) {
     using H = ConvHalf<T>;
     using T2 = typename H::T2;
     constexpr int FM = Cfg::FRAG_M;
@@ -126,6 +134,12 @@ __device__ __forceinline__ void conv_igemm_epilogue(const ConvIgemmParams<T>& p,
         }
         default:
             break;
+    }
+
+    if constexpr (NCHW) {
+        if (p.residual != nullptr) conv_epi_residual_nchw<T, Cfg>(p, acc, rows, row0, col0, block_col);
+        conv_epi_store_nchw<T, Cfg>(p, acc, pool, rows, tid, row0, col0, block_col, runs_in_rows);
+        return;
     }
 
     if (p.residual != nullptr) {

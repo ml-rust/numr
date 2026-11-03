@@ -13,14 +13,22 @@
 // against an F64 CPU reference on the same values, including strided views,
 // determinism and the generic fallback.
 //
+// CUDA native kernel, NCHW (`native_cuda_nchw`, `native_cuda_nchw_views`,
+// `native_cuda_nchw_conv2d`): F16 and BF16 NCHW `conv2d_fused`,
+// `conv2d_fused_into` on strided views and plain `conv2d` against the same
+// F64 CPU reference.
+//
 // CUDA native half accumulation (`native_cuda_half_acc`): F16 with
 // `ConvAccumulation::AllowHalf` against the same reference with a K-dependent
 // tolerance, a control that proves the F16 accumulator ran, and BF16, which
 // ignores `AllowHalf`.
 //
 // CUDA and WebGPU (`parity`) must match the CPU result. Their conv runs as
-// im2col + GEMM with a different accumulation order, so the tolerance is
-// accumulation-aware.
+// the native kernel or im2col + GEMM with a different accumulation order,
+// so the tolerance is accumulation-aware.
+//
+// Every reference is a CPU result. The residual shape comes from the CPU
+// `conv2d` too, so no backend checks itself.
 //
 // This file holds only the declarations and the helpers shared by more than
 // one test file.
@@ -32,6 +40,12 @@ mod native_cuda;
 mod native_cuda_half_acc;
 #[cfg(feature = "cuda")]
 mod native_cuda_into;
+#[cfg(feature = "cuda")]
+mod native_cuda_nchw;
+#[cfg(feature = "cuda")]
+mod native_cuda_nchw_conv2d;
+#[cfg(feature = "cuda")]
+mod native_cuda_nchw_views;
 mod parity;
 mod reference;
 
@@ -41,9 +55,11 @@ use numr::ops::{
     TypeConversionOps,
 };
 use numr::runtime::Runtime;
+use numr::runtime::cpu::CpuRuntime;
 use numr::tensor::Tensor;
 
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
+use crate::common::create_cpu_client;
 
 const NCHW_TO_NHWC: [usize; 4] = [0, 2, 3, 1];
 const NHWC_TO_NCHW: [usize; 4] = [0, 3, 1, 2];
@@ -171,18 +187,21 @@ where
         &[BATCH, C_IN, HEIGHT, WIDTH],
     );
     let w = make(pattern(w_shape.iter().product(), 2), &w_shape);
-    // The plain conv gives the output shape the residual must have.
-    let out_shape = client
+    // The plain CPU conv gives the output shape the residual must have.
+    let (cpu, cpu_device) = create_cpu_client();
+    let zeros =
+        |shape: &[usize]| Tensor::<CpuRuntime>::zeros(shape, DType::F32, &cpu_device).unwrap();
+    let out_shape = cpu
         .conv2d(
-            &x,
-            &w,
+            &zeros(&[BATCH, C_IN, HEIGHT, WIDTH]),
+            &zeros(&w_shape),
             None,
             case.stride,
             case.padding,
             case.dilation,
             case.groups,
         )
-        .unwrap_or_else(|e| panic!("conv2d {} [{dtype:?}]: {e}", case.name))
+        .unwrap_or_else(|e| panic!("CPU conv2d {}: {e}", case.name))
         .shape()
         .to_vec();
     Operands {

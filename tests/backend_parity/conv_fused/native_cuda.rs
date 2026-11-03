@@ -103,7 +103,7 @@ impl Spec {
         [self.batch, self.h, self.w, self.c_in]
     }
 
-    fn weight_shape(self) -> [usize; 4] {
+    pub(super) fn weight_shape(self) -> [usize; 4] {
         [
             self.c_out,
             self.kernel,

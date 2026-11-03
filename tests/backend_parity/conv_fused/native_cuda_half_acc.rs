@@ -40,7 +40,7 @@ use crate::backend_parity::helpers::with_cuda_backend;
 use crate::common::half_dtypes;
 
 /// `spec` with `AllowHalf`.
-fn half(spec: Spec) -> Spec {
+pub(super) fn half(spec: Spec) -> Spec {
     Spec {
         accumulation: ConvAccumulation::AllowHalf,
         ..spec
@@ -58,7 +58,7 @@ fn half(spec: Spec) -> Spec {
 ///
 /// The epilogue scales this error by at most 1. Every activation here is
 /// 1-Lipschitz, and every residual scale is at most 1.
-fn accumulation_bound(spec: Spec, v: &Values) -> Vec<f64> {
+pub(super) fn accumulation_bound(spec: Spec, v: &Values) -> Vec<f64> {
     let abs = Values {
         x: v.x.iter().map(|a| a.abs()).collect(),
         w: v.w.iter().map(|a| a.abs()).collect(),
@@ -83,7 +83,7 @@ fn accumulation_bound(spec: Spec, v: &Values) -> Vec<f64> {
 /// Per-element tolerance against the F64 reference `expected`: the
 /// [`accumulation_bound`], plus `2^-10 |expected_i|` for the final rounding
 /// to F16 and `1e-3` for the F32 epilogue.
-fn half_acc_tolerance(bound: &[f64], expected: &[f64]) -> Vec<f64> {
+pub(super) fn half_acc_tolerance(bound: &[f64], expected: &[f64]) -> Vec<f64> {
     bound
         .iter()
         .zip(expected)
@@ -92,7 +92,7 @@ fn half_acc_tolerance(bound: &[f64], expected: &[f64]) -> Vec<f64> {
 }
 
 /// Every element of `got` is within its entry of `tol` of `expected`.
-fn assert_within(got: &[f64], expected: &[f64], tol: &[f64], label: &str) {
+pub(super) fn assert_within(got: &[f64], expected: &[f64], tol: &[f64], label: &str) {
     assert_eq!(got.len(), expected.len(), "{label}: length");
     for (i, ((&g, &e), &t)) in got.iter().zip(expected).zip(tol).enumerate() {
         assert!(
@@ -104,7 +104,7 @@ fn assert_within(got: &[f64], expected: &[f64], tol: &[f64], label: &str) {
 }
 
 /// True when this build has F16 on CUDA.
-fn has_f16() -> bool {
+pub(super) fn has_f16() -> bool {
     half_dtypes("cuda").contains(&DType::F16)
 }
 

@@ -1,12 +1,11 @@
 //! Launcher for the implicit-GEMM tensor-core conv2d.
 //!
 //! The kernels live in `kernels/conv_implicit_gemm.cu`: F16 and BF16, NHWC
-//! input, OHWI weight, fused bias, activation and scaled residual. The
-//! accumulator is F32, or F16 for F16 inputs when
+//! or NCHW input, OHWI weight, fused bias, activation and scaled residual.
+//! The accumulator is F32, or F16 for F16 inputs when
 //! [`ConvImplicitGemmArgs::half_accumulate`] is set. The tile comes from
 //! [`super::conv_implicit_gemm_tile::select_conv_tile`] and the staging
-//! variant (halo, vector gather or scalar gather) from
-//! [`super::conv_implicit_gemm_tile::select_conv_staging`].
+//! variant from [`super::conv_implicit_gemm_staging::select_conv_staging`].
 
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::safe::CudaContext;
@@ -14,10 +13,12 @@ use std::sync::Arc;
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::ConvLayout;
 use crate::runtime::cuda::GuardedStream;
 
+use super::conv_implicit_gemm_staging::select_conv_staging;
 use super::conv_implicit_gemm_tile::{
-    ConvWindow, conv_kernel_name, conv_launch_config, select_conv_staging, select_conv_tile,
+    ConvWindow, conv_kernel_name, conv_launch_config, select_conv_tile,
 };
 use super::module_cache::{get_kernel_function, get_or_load_module};
 use super::names::kernel_names;
@@ -53,14 +54,16 @@ impl ConvEpilogueActivation {
 /// mask per kernel axis, one bit per tap.
 pub(crate) const CONV_MAX_KERNEL_EXTENT: usize = 32;
 
-/// Element strides `(n, h, w)` of a 4D NHWC view whose channel stride is 1.
-pub(crate) type NhwcStrides = [i64; 3];
+/// Element strides `(n, c, h, w)` of a 4D view, whatever its layout. NHWC
+/// views have channel stride 1, and the NHWC kernels never read it.
+pub(crate) type ConvStrides = [i64; 4];
 
 /// Every argument of one implicit-GEMM conv launch.
 ///
 /// Pointers are device addresses of the first element of each view. A zero
 /// `bias_ptr`, `prelu_ptr` or `residual_ptr` means that operand is absent.
-/// Geometry is in NHWC terms and every value fits `i32`.
+/// Every geometry value fits `i32`. `layout` applies to the input, output
+/// and residual; the weight is OHWI in both layouts.
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct ConvImplicitGemmArgs {
     pub input_ptr: u64,
@@ -69,6 +72,7 @@ pub(crate) struct ConvImplicitGemmArgs {
     pub prelu_ptr: u64,
     pub residual_ptr: u64,
     pub out_ptr: u64,
+    pub layout: ConvLayout,
     pub batch: usize,
     pub in_h: usize,
     pub in_w: usize,
@@ -82,9 +86,9 @@ pub(crate) struct ConvImplicitGemmArgs {
     pub pad_top: usize,
     pub pad_left: usize,
     pub dilation: (usize, usize),
-    pub input_strides: NhwcStrides,
-    pub out_strides: NhwcStrides,
-    pub residual_strides: NhwcStrides,
+    pub input_strides: ConvStrides,
+    pub out_strides: ConvStrides,
+    pub residual_strides: ConvStrides,
     pub activation: ConvEpilogueActivation,
     /// 1 or `c_out` when the activation is PReLU, else 0.
     pub prelu_len: usize,
@@ -97,7 +101,8 @@ pub(crate) struct ConvImplicitGemmArgs {
 fn to_i32(value: usize, what: &str) -> Result<i32> {
     i32::try_from(value).map_err(|_| {
         Error::Internal(format!(
-            "conv2d implicit GEMM: {what} = {value} exceeds the kernel's i32 range"
+            "conv2d implicit GEMM: {what} = {value} exceeds the kernel's i32 range; route this \
+             shape to the generic path"
         ))
     })
 }
@@ -111,7 +116,8 @@ fn to_i32(value: usize, what: &str) -> Result<i32> {
 ///
 /// - Every non-zero pointer addresses a live device allocation of `dtype`
 ///   that holds every element its view reaches through the given strides.
-/// - The weight is a contiguous `[c_out, kernel_h, kernel_w, c_in]` tensor.
+/// - The weight is a contiguous `[c_out, kernel_h, kernel_w, c_in]` tensor,
+///   for either layout.
 /// - The bias holds `c_out` elements and the PReLU weight `prelu_len`.
 /// - `out` repeats no element and shares none with a read operand.
 pub(crate) unsafe fn launch_conv_implicit_gemm(
@@ -125,12 +131,22 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         .batch
         .checked_mul(args.out_h)
         .and_then(|v| v.checked_mul(args.out_w))
-        .ok_or_else(|| Error::Internal("conv2d implicit GEMM: N*H_out*W_out overflows".into()))?;
+        .ok_or_else(|| {
+            Error::Internal(
+            "conv2d implicit GEMM: N*H_out*W_out overflows; route this shape to the generic path"
+                .into(),
+        )
+        })?;
     let k = args
         .kernel_h
         .checked_mul(args.kernel_w)
         .and_then(|v| v.checked_mul(args.c_in))
-        .ok_or_else(|| Error::Internal("conv2d implicit GEMM: Kh*Kw*C_in overflows".into()))?;
+        .ok_or_else(|| {
+            Error::Internal(
+                "conv2d implicit GEMM: Kh*Kw*C_in overflows; route this shape to the generic path"
+                    .into(),
+            )
+        })?;
     if m == 0 || args.c_out == 0 {
         return Ok(());
     }
@@ -172,9 +188,6 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
     let dil_w = to_i32(args.dilation.1, "dilation_w")?;
     let prelu_len = to_i32(args.prelu_len, "prelu_len")?;
     let (act, slope) = args.activation.code_and_slope();
-    let [in_sn, in_sh, in_sw] = args.input_strides;
-    let [out_sn, out_sh, out_sw] = args.out_strides;
-    let [res_sn, res_sh, res_sw] = args.residual_strides;
 
     let tile = select_conv_tile(args.c_out, args.half_accumulate);
     let window = ConvWindow {
@@ -184,8 +197,10 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         kernel: (args.kernel_h, args.kernel_w),
         stride: args.stride,
         dilation: args.dilation,
+        pad_left: args.pad_left,
     };
     let staging = select_conv_staging(
+        args.layout,
         args.c_in,
         args.input_ptr,
         args.input_strides,
@@ -208,9 +223,18 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
     let name = conv_kernel_name(dtype, args.half_accumulate, tile, staging);
     let func = get_kernel_function(&module, &name)?;
 
-    // SAFETY: the argument list matches DEFINE_CONV_IGEMM in
-    // conv_implicit_gemm.cu in order and width. The caller guarantees the
-    // pointers and strides address valid memory (see `# Safety`).
+    // NHWC kernels take (n, h, w) strides per tensor, NCHW kernels
+    // (n, c, h, w).
+    let strides = [args.input_strides, args.out_strides, args.residual_strides];
+    let pushed: &[usize] = match args.layout {
+        ConvLayout::Nhwc => &[0, 2, 3],
+        ConvLayout::Nchw => &[0, 1, 2, 3],
+    };
+
+    // SAFETY: the argument list matches DEFINE_CONV_IGEMM (NHWC) or
+    // DEFINE_CONV_IGEMM_NCHW in conv_implicit_gemm.cu in order and width.
+    // The caller guarantees the pointers and strides address valid memory
+    // (see `# Safety`).
     unsafe {
         let mut builder = stream.launch_builder(&func);
         builder.arg(&args.input_ptr);
@@ -234,15 +258,11 @@ pub(crate) unsafe fn launch_conv_implicit_gemm(
         builder.arg(&pad_left);
         builder.arg(&dil_h);
         builder.arg(&dil_w);
-        builder.arg(&in_sn);
-        builder.arg(&in_sh);
-        builder.arg(&in_sw);
-        builder.arg(&out_sn);
-        builder.arg(&out_sh);
-        builder.arg(&out_sw);
-        builder.arg(&res_sn);
-        builder.arg(&res_sh);
-        builder.arg(&res_sw);
+        for tensor in &strides {
+            for &d in pushed {
+                builder.arg(&tensor[d]);
+            }
+        }
         builder.arg(&act);
         builder.arg(&slope);
         builder.arg(&prelu_len);

@@ -1,16 +1,18 @@
 // Gather body of the implicit-GEMM conv2d in conv_implicit_gemm.cuh.
 //
-// Row m of a block is GEMM row blockIdx.x * BM + m. K runs tap-major and
-// every K-tile gathers its A rows from global memory. The pipeline is
-// described at the top of conv_implicit_gemm.cuh.
+// Row m of a block is GEMM row blockIdx.x * BM + m. Every K-tile gathers
+// its A rows from global memory: tap-major K for the vector loader, flat K
+// for the scalar loader. The pipeline is described at the top of
+// conv_implicit_gemm.cuh. NCHW runs the scalar loader only.
 
 #ifndef NUMR_CONV_IMPLICIT_GEMM_GATHER_CUH
 #define NUMR_CONV_IMPLICIT_GEMM_GATHER_CUH
 
 /* Gather body. See the pipeline at the top of conv_implicit_gemm.cuh. */
-template <typename T, typename Cfg, bool VEC, bool HALF_ACC>
+template <typename T, typename Cfg, bool VEC, bool HALF_ACC, bool NCHW>
 __device__ __forceinline__ void conv_igemm_run(const ConvIgemmParams<T>& p) {
     conv_check_acc<T, Cfg, HALF_ACC>();
+    static_assert(!(NCHW && VEC), "the vector gather reads 8 channels of one NHWC pixel");
     using Loader = typename ConvLoaderFor<T, Cfg, VEC>::type;
     using Acc = ConvAccum<HALF_ACC>;
 
@@ -112,7 +114,11 @@ __device__ __forceinline__ void conv_igemm_run(const ConvIgemmParams<T>& p) {
         }
     }
 
-    conv_finish<T, Cfg, HALF_ACC>(p, acc, smem_pool, smem_rows, tid, warp_m, warp_n, block_col);
+    /* Block rows are consecutive GEMM rows. With W_out a multiple of 8,
+       every aligned run of 8 lies in one output row. */
+    const bool runs_in_rows = p.out_w % 8 == 0;
+    conv_finish<T, Cfg, HALF_ACC, NCHW>(p, acc, smem_pool, smem_rows, tid, warp_m, warp_n, block_col,
+                                        runs_in_rows);
 }
 
 #endif  // NUMR_CONV_IMPLICIT_GEMM_GATHER_CUH

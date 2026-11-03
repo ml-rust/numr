@@ -1,5 +1,6 @@
 //! CUDA implementation of convolution operations.
 
+use super::conv_fused_native::conv2d_native;
 use super::conv_transpose1d_gemm::{conv_transpose1d_gemm, use_conv_transpose1d_gemm};
 use super::conv_transpose1d_gemm_first::{
     conv_transpose1d_gemm_first, gemm_first_row_col_elements, use_conv_transpose1d_gemm_first,
@@ -258,13 +259,19 @@ impl ConvOps<CudaRuntime> for CudaClient {
             )?);
         }
 
+        // F16 and BF16 run the implicit-GEMM tensor-core kernel when it
+        // takes the shape. It reads strided views as they are.
+        if let Some(out) = conv2d_native(self, &params, input, weight, bias)? {
+            return Ok(out);
+        }
+
         // Ensure contiguous
         let input = ensure_contiguous(input)?;
         let weight = ensure_contiguous(weight)?;
         let bias = bias.map(ensure_contiguous).transpose()?;
 
-        // Well-shaped convolutions run as im2col + GEMM; the direct kernel
-        // below stays the path for every other shape.
+        // Every other well-shaped convolution runs as im2col + GEMM; the
+        // direct kernel below stays the path for every other shape.
         if use_conv2d_im2col(&params, dtype) {
             return conv2d_im2col(self, &input, &weight, bias.as_ref(), &params);
         }

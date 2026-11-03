@@ -8,6 +8,9 @@
 //! bias and PReLU weight. A strided weight forces the generic path.
 //! The `conv_fused_srvgg_f16acc` group runs F16 with
 //! `Acc::AllowHalf`, which takes the F16-accumulator kernels.
+//! The `conv2d_nchw_f16` group runs plain `ConvOps::conv2d` on NCHW input
+//! and OIHW weight, which routes F16 to the same kernel through its NCHW
+//! staging.
 
 // Every benchmark here targets a CUDA kernel on half dtypes, so without those
 // features the file has no bodies and even the harness imports are unused.
@@ -268,6 +271,42 @@ fn cuda_conv_fused_body_1080p_64to64_prelu_f16acc(b: &mut Bencher) {
 #[flux::bench(group = "conv_fused_srvgg_f16acc")]
 fn cuda_conv_fused_dense_540x960_64to32_leaky_f16acc(b: &mut Bencher) {
     run_dense_conv(b, 64, Acc::AllowHalf);
+}
+
+// ---------------------------------------------------------------------------
+// Plain conv2d, NCHW: F16
+// ---------------------------------------------------------------------------
+
+/// Body conv at 1080p through `conv2d`: [1,64,1080,1920] -> 64, 3x3, Same,
+/// bias, NCHW input and OIHW weight. Each call also relays the weight to
+/// OHWI.
+#[cfg(all(feature = "cuda", feature = "f16"))]
+#[flux::bench(group = "conv2d_nchw_f16")]
+fn cuda_conv2d_nchw_body_1080p_64to64_f16(b: &mut Bencher) {
+    let dtype = DType::F16;
+    let device = CudaDevice::new(0);
+    let client = CudaRuntime::default_client(&device);
+    let input = rand_cuda(&[1, 64, 1080, 1920], dtype, &device);
+    let weight = rand_cuda(&[64, 64, 3, 3], dtype, &device);
+    let bias = rand_cuda(&[64], dtype, &device);
+    b.iter(|| {
+        let r = black_box(
+            client
+                .conv2d(
+                    &input,
+                    &weight,
+                    Some(&bias),
+                    (1, 1),
+                    PaddingMode::Same,
+                    (1, 1),
+                    1,
+                )
+                .unwrap(),
+        );
+        // Sync to get accurate wall-clock time.
+        client.synchronize();
+        r
+    });
 }
 
 fn main() {

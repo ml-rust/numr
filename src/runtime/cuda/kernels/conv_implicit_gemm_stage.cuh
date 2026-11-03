@@ -20,10 +20,14 @@
 // kh (kw) is set when that tap row (column) lands inside the image. Per
 // K-tile the address is one 64-bit add per row, with no division.
 //
-// ConvLoaderScalar: every other shape. K runs flat in (kh, kw, ci) order, so
-// C_in = 3 pads no K. A per-K-tile column table in shared memory holds
-// (kh * dil_h, kw * dil_w, input byte offset) for the 32 columns. Each
-// thread gathers 8 predicated 16-bit loads per row into one 16-byte chunk.
+// ConvLoaderScalar: every other NHWC shape, and the NCHW gather. K runs
+// flat in (kh, kw, ci) order, so C_in = 3 pads no K. A per-K-tile column
+// table in shared memory holds (kh * dil_h, kw * dil_w, input byte offset)
+// for the 32 columns; the offset includes ci * in_sc, so the same loader
+// reads NHWC (in_sc = 1) and NCHW. Each thread gathers 8 predicated 16-bit
+// loads per row into one 16-byte chunk. In NCHW the 8 threads of one chunk
+// hold 8 consecutive rows, so each load reads consecutive pixels of one
+// channel.
 //
 // Both loaders store +0.0 for every position outside the image, past K, past
 // C_in, past M or past C_out, in A and in B. Shared memory is never
@@ -323,7 +327,7 @@ struct ConvLoaderScalar {
             const int dh = col_kh * p.dil_h;
             const int dw = col_kw * p.dil_w;
             const long long off = (static_cast<long long>(dh) * p.in_sh
-                                 + static_cast<long long>(dw) * p.in_sw + col_ci) * 2;
+                                 + static_cast<long long>(dw) * p.in_sw + col_ci * p.in_sc) * 2;
             e = make_int4(dh, dw, static_cast<int>(off & 0xffffffffll), static_cast<int>(off >> 32));
         }
         table[tid] = e;

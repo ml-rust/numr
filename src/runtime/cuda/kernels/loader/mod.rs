@@ -7,6 +7,7 @@
 mod col2im_transpose1d;
 mod col_transpose1d;
 mod conv_implicit_gemm;
+mod conv_implicit_gemm_staging;
 mod conv_implicit_gemm_tile;
 mod dtype_modules;
 mod elementwise;
@@ -38,7 +39,7 @@ mod semiring_matmul;
 pub use col_transpose1d::{col_transpose1d_has_kernel, launch_col_transpose1d};
 pub use col2im_transpose1d::launch_col2im_transpose1d;
 pub(crate) use conv_implicit_gemm::{
-    CONV_MAX_KERNEL_EXTENT, ConvEpilogueActivation, ConvImplicitGemmArgs, NhwcStrides,
+    CONV_MAX_KERNEL_EXTENT, ConvEpilogueActivation, ConvImplicitGemmArgs, ConvStrides,
     launch_conv_implicit_gemm,
 };
 pub(crate) use dtype_modules::{cumulative_module, reduce_module, unary_module};

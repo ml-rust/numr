@@ -96,7 +96,7 @@ pub mod kernel_names {
     pub const GROUPED_MATMUL_MODULE: &str = "grouped_matmul";
     /// Tensor-core WMMA GEMM for F16/BF16 (sm_70+)
     pub const MATMUL_WMMA_MODULE: &str = "matmul_wmma";
-    /// Implicit-GEMM tensor-core conv2d for F16/BF16, NHWC input, OHWI weight
+    /// Implicit-GEMM tensor-core conv2d for F16/BF16, NHWC or NCHW input, OHWI weight
     pub const CONV_IMPLICIT_GEMM_MODULE: &str = "conv_implicit_gemm";
     /// Half-precision GEMV against a transposed weight (small M)
     pub const GEMV_MODULE: &str = "gemv";
