@@ -40,6 +40,9 @@ mod cumulative;
 #[path = "../../../ops/wgpu/fwht.rs"]
 mod fwht;
 
+#[path = "../../../ops/wgpu/image.rs"]
+mod image;
+
 #[path = "../../../ops/wgpu/activation.rs"]
 mod activation;
 

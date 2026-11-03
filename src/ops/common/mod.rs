@@ -3,6 +3,9 @@
 pub mod complex_validation;
 pub mod fwht_validation;
 pub mod group_norm_validation;
+pub mod image_nearest;
+pub mod image_nearest_plan;
+pub mod image_validation;
 pub mod quasirandom;
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub mod scatter_axes;
@@ -15,6 +18,12 @@ pub use complex_validation::{
 };
 pub use fwht_validation::validate_fwht_args;
 pub use group_norm_validation::group_norm_channels_per_group;
+pub use image_nearest::NearestAxis;
+pub use image_nearest_plan::plan_upsample_nearest2d;
+pub use image_validation::{
+    ImageMap, ImagePlan, canonical_strides, plan_pixel_shuffle, plan_pixel_unshuffle,
+    validate_image_out,
+};
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use scatter_axes::collapse_scatter_axes;
 pub use scatter_reduce_validation::validate_scatter_extents;

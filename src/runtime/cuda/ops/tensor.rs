@@ -57,6 +57,9 @@ mod cumulative;
 #[path = "../../../ops/cuda/fwht.rs"]
 mod fwht;
 
+#[path = "../../../ops/cuda/image.rs"]
+mod image;
+
 #[path = "../../../ops/cuda/activation.rs"]
 mod activation;
 

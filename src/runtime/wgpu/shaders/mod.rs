@@ -17,6 +17,7 @@ pub mod distributions;
 pub mod dtype_support;
 pub mod fft;
 pub mod fwht;
+pub mod image;
 pub mod index;
 pub mod linalg;
 pub(crate) mod linear_grid;

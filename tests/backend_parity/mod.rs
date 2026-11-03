@@ -54,6 +54,7 @@ pub mod gemm_epilogue;
 pub mod gemm_epilogue_wmma;
 pub mod group_norm;
 pub mod grouped_matmul;
+pub mod image;
 pub mod indexing;
 pub mod indexing_advanced;
 pub mod int_accumulate_wgpu;

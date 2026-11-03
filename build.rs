@@ -71,6 +71,7 @@ fn compile_cuda_kernels() {
         "fwht.cu",
         "im2col.cu",
         "im2col2d.cu",
+        "image.cu",
         "index.cu",
         "index_nd.cu",
         "linalg_advanced.cu",

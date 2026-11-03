@@ -61,6 +61,9 @@ mod cumulative;
 #[path = "../../ops/cpu/fwht.rs"]
 mod fwht;
 
+#[path = "../../ops/cpu/image.rs"]
+mod image;
+
 #[path = "../../ops/cpu/activation.rs"]
 mod activation;
 

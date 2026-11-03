@@ -14,6 +14,7 @@ mod cumulative;
 mod fused_elementwise;
 mod fwht;
 mod gemm_epilogue;
+mod image;
 mod indexing;
 pub(crate) mod logical;
 mod masking;
@@ -42,6 +43,7 @@ pub(crate) use fwht::native_fwht;
 pub(crate) use gemm_epilogue::{
     native_gemm_bias_activation, native_gemm_bias_activation_bwd, native_gemm_bias_residual,
 };
+pub(crate) use image::{native_image, native_image_into};
 pub(crate) use indexing::{
     native_gather, native_index_put, native_index_select, native_scatter, native_slice_assign,
 };
