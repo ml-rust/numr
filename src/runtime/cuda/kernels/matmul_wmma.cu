@@ -28,13 +28,12 @@
 #include "matmul_wmma.cuh"
 
 // ---------------------------------------------------------------------------
-// cp.async double-buffering is DISABLED: it has a data race that corrupts GEMM
-// output nondeterministically (observed as a downstream model's results
-// flipping run-to-run). A WAR barrier fix (sync before buf swap) was necessary but NOT
-// sufficient — at least one more hazard remains in the async path. The synchronous
-// path is deterministic AND equally fast here, so we use it on all arches. Do NOT
-// re-enable the async path until the race is fully fixed and verified by REPEATED-RUN
-// determinism on the real workload (parity tests with clean shapes did not catch it).
+// Staging is synchronous on every arch. The removed cp.async pipeline had a
+// bug: its last iteration committed no group, then ran
+// `cp.async.wait_group 1`, so the newest group stayed in flight while the
+// mma read it. With one K-tile, tile 0 was never waited on. An async
+// pipeline must commit a group in every iteration, empty or not, or wait
+// with `cp.async.wait_group 0` before it reads the last tile.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
