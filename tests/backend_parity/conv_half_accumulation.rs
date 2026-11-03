@@ -22,18 +22,10 @@ use numr::tensor::Tensor;
 use crate::backend_parity::helpers::with_cuda_backend;
 #[cfg(feature = "cuda")]
 use crate::common::is_dtype_supported;
-use crate::common::{DTypeDomain, assert_tensor_allclose_tol, create_cpu_client, parity_dtypes};
+use crate::common::{assert_tensor_allclose_tol, create_cpu_client, half_dtypes};
 
 /// Weight value: 4096 of them sum to exactly 4.0.
 const WEIGHT: f64 = 1.0 / 1024.0;
-
-/// The half dtypes the CPU backend runs; empty without `--features f16`.
-fn half_dtypes() -> Vec<DType> {
-    parity_dtypes(DTypeDomain::FloatsOnly, "cpu")
-        .into_iter()
-        .filter(|d| matches!(d, DType::F16 | DType::BF16))
-        .collect()
-}
 
 /// One storage ulp at 4.0. A stalled sum sits at least 2.0 away.
 fn half_atol(dtype: DType) -> f64 {
@@ -68,7 +60,7 @@ fn assert_matches<R: Runtime<DType = DType>>(
 /// checks the result against `$expected` (a `Vec<f64>` per dtype).
 macro_rules! check_half_backends {
     ($label:expr, $expected:expr, |$client:ident, $device:ident, $dtype:ident| $body:expr) => {{
-        for $dtype in half_dtypes() {
+        for $dtype in half_dtypes("cpu") {
             let expected: Vec<f64> = $expected;
             let (cpu_client, cpu_device) = create_cpu_client();
             let out = {

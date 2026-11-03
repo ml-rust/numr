@@ -221,6 +221,14 @@ pub fn parity_dtypes(domain: DTypeDomain, backend: &str) -> Vec<DType> {
         .collect()
 }
 
+/// The half dtypes (F16, BF16) `backend` runs. Empty without `--features f16`.
+pub fn half_dtypes(backend: &str) -> Vec<DType> {
+    [DType::F16, DType::BF16]
+        .into_iter()
+        .filter(|&dtype| is_dtype_supported(backend, dtype))
+        .collect()
+}
+
 /// Returns (rtol, atol) tolerance pair for a given dtype
 ///
 /// See `assert_allclose_for_dtype` for precision details per dtype.

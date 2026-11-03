@@ -17,7 +17,7 @@ use numr::tensor::Tensor;
 
 use crate::backend_parity::dtype_helpers::tensor_from_f64;
 use crate::common::{
-    assert_allclose_f64, create_cpu_client, gemm_long_k_tolerance, is_dtype_supported,
+    assert_allclose_f64, create_cpu_client, gemm_long_k_tolerance, half_dtypes, is_dtype_supported,
 };
 
 /// Values on a 2^-5 grid in `[-1, 1]`: six significant bits, exact in F16
@@ -106,14 +106,6 @@ fn reference(
         }
     }
     out
-}
-
-/// The half dtypes this build carries.
-fn half_dtypes() -> Vec<DType> {
-    [DType::F16, DType::BF16]
-        .into_iter()
-        .filter(|&d| is_dtype_supported("cpu", d))
-        .collect()
 }
 
 /// One shape: operand shapes and the batch-broadcast output shape.
@@ -216,7 +208,7 @@ fn matmul_wide_half_cpu_matches_f64_reference_at_f32_tolerance() {
             &case.out_shape(),
         );
         let (rtol, atol) = f32_tolerance(case.k());
-        for dtype in half_dtypes() {
+        for dtype in half_dtypes("cpu") {
             let got = run_case_on::<CpuRuntime>(&case, dtype, &device, &client, "CPU");
             assert_allclose_f64(
                 &as_f64(&got),
@@ -251,7 +243,7 @@ fn matmul_wide_long_k_cancellation_keeps_f32_precision() {
     );
     let (rtol, atol) = f32_tolerance(case.k());
 
-    for dtype in half_dtypes() {
+    for dtype in half_dtypes("cpu") {
         let got = run_case_on::<CpuRuntime>(&case, dtype, &device, &client, "CPU");
         assert_allclose_f64(
             &as_f64(&got),
@@ -368,7 +360,7 @@ fn matmul_wide_half_cuda_matches_reference_and_cpu() {
             &case.out_shape(),
         );
         let (rtol, atol) = f32_tolerance(case.k());
-        for dtype in half_dtypes() {
+        for dtype in half_dtypes("cpu") {
             if !is_dtype_supported("cuda", dtype) {
                 continue;
             }
