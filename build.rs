@@ -104,6 +104,7 @@ fn compile_cuda_kernels() {
         "special.cu",
         "statistics.cu",
         "strided_copy.cu",
+        "strided_copy_into.cu",
         "strided_transpose.cu",
         "ternary.cu",
         "unary.cu",

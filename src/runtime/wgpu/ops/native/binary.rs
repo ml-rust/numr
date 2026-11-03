@@ -3,11 +3,13 @@
 use super::helpers::*;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::runtime::wgpu::shaders::elementwise;
+use crate::runtime::wgpu::client::get_buffer;
 use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
+use crate::runtime::wgpu::shaders::{self, elementwise};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::runtime::{
-    compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes, validate_copy_into,
+    CopyIntoPlan, compute_broadcast_shape, ensure_contiguous, validate_binary_dtypes,
+    validate_copy_into,
 };
 use crate::tensor::Tensor;
 
@@ -62,17 +64,41 @@ pub(crate) fn native_binary_op_into(
     run_binary(client, op, a, b, out, &out_shape, dtype)
 }
 
-/// Destination-passing copy: writes `src` into the caller-owned `out` tensor
-/// with one buffer-to-buffer copy on the queue. `out` must be contiguous and
-/// share `src`'s shape and dtype; a strided `src` is made contiguous first.
+/// Destination-passing copy: writes `src` into the caller-owned `out` tensor.
+///
+/// `out` must share `src`'s shape and dtype and can be a strided view. A
+/// contiguous `out` at offset 0 takes one buffer-to-buffer copy on the queue,
+/// and a strided `src` is made contiguous first. Any other `out` takes the
+/// strided-to-strided kernel, which supports elements of 4-byte multiples
+/// (F32, I32, U32) and returns `BackendLimitation` for other sizes.
 pub(crate) fn native_copy_into(
     client: &WgpuClient,
     out: &Tensor<WgpuRuntime>,
     src: &Tensor<WgpuRuntime>,
 ) -> Result<()> {
-    validate_copy_into(out, src, "native_copy_into")?;
-    if out.numel() == 0 {
+    if validate_copy_into(out, src, "native_copy_into")? == CopyIntoPlan::Skip {
         return Ok(());
+    }
+    let elem_size = src.dtype().size_in_bytes();
+    if !out.is_contiguous() || out.offset() != 0 {
+        let src_buf = get_buffer(src.storage().ptr()).ok_or_else(|| {
+            Error::Internal("native_copy_into: source buffer is not in the registry".into())
+        })?;
+        let out_buf = get_buffer(out.storage().ptr()).ok_or_else(|| {
+            Error::Internal("native_copy_into: destination buffer is not in the registry".into())
+        })?;
+        return shaders::copy_into::launch_strided_copy_into(
+            client,
+            &src_buf,
+            &out_buf,
+            out.shares_storage_with(src),
+            src.shape(),
+            src.strides(),
+            out.strides(),
+            elem_size,
+            src.offset() * elem_size,
+            out.offset() * elem_size,
+        );
     }
     let src_contig = ensure_contiguous(src)?;
     let src_buf = get_tensor_buffer(&src_contig)?;
@@ -80,9 +106,20 @@ pub(crate) fn native_copy_into(
 
     // `copy_buffer_to_buffer` rejects a size that is not a multiple of 4.
     // `allocate` rounds every buffer up the same way, so the padded tail is
-    // in bounds on both sides.
-    let size_bytes = src.numel() * src.dtype().size_in_bytes();
+    // in bounds on both sides. Rounding up writes past `out`, so it is only
+    // allowed when `out` covers its whole buffer.
+    let size_bytes = src.numel() * elem_size;
     let aligned_len = size_bytes.div_ceil(4) * 4;
+    if aligned_len != size_bytes && size_bytes != out.storage().size_in_bytes() {
+        return Err(Error::BackendLimitation {
+            backend: "wgpu",
+            operation: "copy_into",
+            reason: format!(
+                "a destination of {size_bytes} bytes inside a larger buffer needs a multiple \
+                 of 4 bytes"
+            ),
+        });
+    }
 
     let mut encoder =
         client

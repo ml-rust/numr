@@ -7,6 +7,9 @@ use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::broadcast_shape;
 use crate::runtime::Runtime;
+use crate::runtime::common::view_span::{
+    check_views_disjoint, has_broadcast_dim, is_identical_view,
+};
 use crate::tensor::Tensor;
 
 // ============================================================================
@@ -291,22 +294,35 @@ pub fn compute_broadcast_shape<R: Runtime<DType = DType>>(
     })
 }
 
+/// What a validated `copy_into` has left to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyIntoPlan {
+    /// No element moves: the tensors are empty or `out` is the same view as `src`.
+    Skip,
+    /// Copy every logical element of `src` to `out`.
+    Copy,
+}
+
 /// Validate a destination-passing copy `out <- src`.
 ///
-/// `out` must be contiguous and match `src` in dtype and shape exactly.
+/// `out` can be any strided view. It must match `src` in dtype and shape
+/// exactly and must not repeat an element (no stride 0 on a dimension larger
+/// than 1). When `out` shares storage with `src`, the element spans of the two
+/// views must not intersect, unless both are the identical view.
 /// Shared by the CPU, CUDA, and WebGPU `copy_into` implementations.
 ///
 /// # Errors
 ///
 /// Returns `Error::DTypeMismatch` when the dtypes differ,
-/// `Error::ShapeMismatch` when the shapes differ, and `Error::Backend`
-/// when `out` is not contiguous.
+/// `Error::ShapeMismatch` when the shapes differ, and
+/// `Error::InvalidArgument` for `out` when it repeats an element or its span
+/// intersects the span of a `src` in the same storage.
 #[inline]
 pub fn validate_copy_into<R: Runtime<DType = DType>>(
     out: &Tensor<R>,
     src: &Tensor<R>,
     op_name: &'static str,
-) -> Result<()> {
+) -> Result<CopyIntoPlan> {
     if out.dtype() != src.dtype() {
         return Err(Error::DTypeMismatch {
             lhs: src.dtype(),
@@ -319,12 +335,24 @@ pub fn validate_copy_into<R: Runtime<DType = DType>>(
             got: out.shape().to_vec(),
         });
     }
-    if !out.is_contiguous() {
-        return Err(Error::Backend(format!(
-            "{op_name}: destination tensor must be contiguous"
-        )));
+    if out.numel() == 0 {
+        return Ok(CopyIntoPlan::Skip);
     }
-    Ok(())
+    if has_broadcast_dim(out.shape(), out.strides()) {
+        return Err(Error::InvalidArgument {
+            arg: "out",
+            reason: format!(
+                "{op_name}: destination repeats elements (stride 0 on a dimension > 1)"
+            ),
+        });
+    }
+    if out.shares_storage_with(src) {
+        if is_identical_view(out, src) {
+            return Ok(CopyIntoPlan::Skip);
+        }
+        check_views_disjoint(out, src, op_name)?;
+    }
+    Ok(CopyIntoPlan::Copy)
 }
 
 /// Validate a host-to-device write `out <- host slice`.

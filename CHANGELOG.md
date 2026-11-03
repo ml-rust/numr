@@ -18,6 +18,7 @@ version. Every later entry is a delta against the one below it.
 
 - `ActivationOps::prelu` on CPU, CUDA and WebGPU. `weight` broadcasts to the input, matching `torch.nn.functional.prelu`.
 - `var_prelu` with gradients for the input and the weight.
+- `BinaryOps::copy_into` accepts a strided `out` view on CPU, CUDA and WebGPU, so an op can write into a channel slice of a larger buffer. It rejects `out` and `src` views of one storage whose element spans intersect, and does nothing for an identical view. WebGPU supports 4-byte-multiple elements for a strided `out`.
 
 ## [0.14.0] — 2026-11-01
 

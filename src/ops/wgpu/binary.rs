@@ -125,4 +125,20 @@ mod tests {
         client.copy_into(&out, &transposed).unwrap();
         assert_eq!(out.to_vec::<f32>(), vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
     }
+
+    #[test]
+    fn copy_into_writes_a_channel_slice_and_keeps_the_rest() {
+        let client = create_client();
+        let buf =
+            Tensor::<WgpuRuntime>::from_slice(&[9.0f32; 8], &[2, 4], client.device()).unwrap();
+        let slice = buf.narrow(-1, 1, 2).unwrap();
+        let src =
+            Tensor::<WgpuRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], client.device())
+                .unwrap();
+        client.copy_into(&slice, &src).unwrap();
+        assert_eq!(
+            buf.to_vec::<f32>(),
+            vec![9.0, 1.0, 2.0, 9.0, 9.0, 3.0, 4.0, 9.0]
+        );
+    }
 }

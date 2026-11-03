@@ -1,6 +1,7 @@
 pub(crate) mod helpers;
 pub(crate) mod shape_ops;
 pub(crate) mod statistics_common;
+pub(crate) mod view_span;
 
 mod allocator;
 mod graph;
@@ -19,7 +20,7 @@ pub use graph::{Graph, NoOpGraph};
 
 // Helper re-exports
 pub(crate) use helpers::{
-    cap_ipow_exponent, compute_broadcast_shape, ensure_contiguous, normalize_dim,
+    CopyIntoPlan, cap_ipow_exponent, compute_broadcast_shape, ensure_contiguous, normalize_dim,
     pow_scalar_output_dtype, row_layout, validate_arange, validate_binary_dtypes,
     validate_copy_into, validate_eye, validate_host_write, validate_rand_into,
 };

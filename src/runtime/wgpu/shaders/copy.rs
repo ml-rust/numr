@@ -22,7 +22,11 @@ use std::sync::LazyLock;
 use wgpu::{Buffer, BufferUsages};
 
 use super::pipeline::{LayoutKey, WORKGROUP_SIZE};
-use crate::error::{Error, Result};
+use super::strided_common::{
+    THREAD_INDEX_WGSL, limitation as limitation_for, shape_words, stride_words,
+    to_u32 as to_u32_for,
+};
+use crate::error::Result;
 use crate::runtime::wgpu::client::WgpuClient;
 
 /// Maximum tensor rank the kernels accept.
@@ -31,23 +35,19 @@ pub const MAX_DIMS: usize = 8;
 /// Workgroups per row of the 2-D dispatch grid.
 const GRID_X: u32 = 65535;
 
-/// Shared WGSL prelude: bindings, parameter access and the strided offset.
+/// WGSL bindings of both kernels.
+const BINDINGS: &str = r#"
+@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read> params: array<u32>;
+@group(0) @binding(2) var<storage, read_write> dst: array<u32>;
+"#;
+
+/// WGSL parameter access and the strided offset.
 ///
 /// Params layout: `[count, ndim, elem_size, src_offset, shape[8], strides[8]]`.
 /// `strided_copy` reads `elem_size` and `src_offset` in 4-byte units and
 /// `count` in elements. `strided_copy_bytes` reads all three in bytes.
-const PRELUDE: &str = r#"
-@group(0) @binding(0) var<storage, read> src: array<u32>;
-@group(0) @binding(1) var<storage, read> params: array<u32>;
-@group(0) @binding(2) var<storage, read_write> dst: array<u32>;
-
-const GRID_X: u32 = 65535u;
-const WORKGROUP_SIZE: u32 = 256u;
-
-fn thread_index(gid: vec3<u32>) -> u32 {
-    return gid.x + gid.y * GRID_X * WORKGROUP_SIZE;
-}
-
+const OFFSET_FN: &str = r#"
 // Element offset of linear index `linear` in the source, in elements.
 // Strides can be negative. u32 arithmetic wraps, so the sum is exact
 // modulo 2^32 and lands in range once the base offset is added.
@@ -111,8 +111,10 @@ fn strided_copy_bytes(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 "#;
 
-static WORD_SOURCE: LazyLock<String> = LazyLock::new(|| format!("{PRELUDE}{WORD_KERNEL}"));
-static BYTE_SOURCE: LazyLock<String> = LazyLock::new(|| format!("{PRELUDE}{BYTE_KERNEL}"));
+static WORD_SOURCE: LazyLock<String> =
+    LazyLock::new(|| format!("{BINDINGS}{THREAD_INDEX_WGSL}{OFFSET_FN}{WORD_KERNEL}"));
+static BYTE_SOURCE: LazyLock<String> =
+    LazyLock::new(|| format!("{BINDINGS}{THREAD_INDEX_WGSL}{OFFSET_FN}{BYTE_KERNEL}"));
 
 /// Which kernel a copy needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,20 +144,15 @@ pub fn dispatch_grid(threads: usize) -> (u32, u32) {
     (x as u32, y as u32)
 }
 
-fn limitation(reason: String) -> Error {
-    Error::BackendLimitation {
-        backend: "wgpu",
-        operation: "copy_strided",
-        reason,
-    }
+/// Operation name in this file's errors.
+const OPERATION: &str = "copy_strided";
+
+fn limitation(reason: String) -> crate::error::Error {
+    limitation_for(OPERATION, reason)
 }
 
 fn to_u32(value: usize, what: &str) -> Result<u32> {
-    u32::try_from(value).map_err(|_| {
-        limitation(format!(
-            "{what} {value} exceeds the 32-bit addressing of the copy kernel"
-        ))
-    })
+    to_u32_for(OPERATION, value, what)
 }
 
 /// Copy a strided source view into the contiguous buffer `dst`.
@@ -209,13 +206,8 @@ pub fn launch_strided_copy(
     params.push(to_u32(offset, "source offset")?);
     let mut dims = [0u32; MAX_DIMS];
     let mut steps = [0u32; MAX_DIMS];
-    for (d, (&dim, &stride)) in shape.iter().zip(strides).enumerate() {
-        dims[d] = to_u32(dim, "dimension")?;
-        let stride = i32::try_from(stride)
-            .map_err(|_| limitation(format!("stride {stride} does not fit 32 bits")))?;
-        // The kernel adds strides as wrapping u32, which equals i32 addition.
-        steps[d] = stride as u32;
-    }
+    shape_words(OPERATION, shape, &mut dims)?;
+    stride_words(OPERATION, strides, &mut steps)?;
     params.extend_from_slice(&dims);
     params.extend_from_slice(&steps);
 

@@ -311,20 +311,43 @@ pub trait BinaryOps<R: Runtime> {
     /// caller-owned `out` tensor instead of allocating a new one. This is
     /// required for destination-passing workflows such as CUDA graph
     /// capture, where a state buffer must keep its device address across
-    /// replays. On CUDA the copy is a stream-ordered device-to-device
-    /// memcpy on the client's compute stream, so it captures as a memcpy
-    /// node.
+    /// replays.
     ///
-    /// `src` may be non-contiguous; it is read through its strides. `out`
-    /// must be contiguous, have exactly `src`'s shape and dtype, and must
-    /// not overlap `src`.
+    /// Both `out` and `src` can be strided views. Each logical element of
+    /// `src` goes to the same logical position of `out`, so a later op can
+    /// write into a channel slice of a larger buffer through the view. The
+    /// rest of the parent storage keeps its values. `out` must have exactly
+    /// `src`'s shape and dtype. `out` must not repeat an element (stride 0
+    /// on a dimension larger than 1).
+    ///
+    /// Overlap rule: when `out` and `src` share storage, the element span of
+    /// each view is `[offset + sum(min(0, (dim - 1) * stride)),
+    /// offset + sum(max(0, (dim - 1) * stride))]`. The call is rejected when
+    /// the two spans intersect. The rule is conservative. Interleaved but
+    /// disjoint views, such as two channel slices of one NHWC buffer, have
+    /// intersecting spans and are rejected. If `out` and `src` are the
+    /// identical view (same storage, offset, shape and strides), the call
+    /// does nothing. A zero-sized tensor also does nothing.
+    ///
+    /// Backends:
+    /// - CPU: a contiguous `out` takes one memcpy or the strided-source
+    ///   copy. A strided `out` takes a strided loop.
+    /// - CUDA: a contiguous `out` is a stream-ordered device-to-device memcpy,
+    ///   or the strided-source kernel, and captures into a CUDA graph. A
+    ///   strided `out` runs a strided-to-strided kernel. It takes shape and
+    ///   strides as kernel arguments, allocates nothing, and captures into a
+    ///   graph. It supports up to 8 dimensions and fewer than 2^32 elements.
+    /// - WebGPU: a strided `out` supports 4-byte-multiple elements (F32, I32,
+    ///   U32). Other element sizes return `BackendLimitation`.
     ///
     /// # Arguments
-    /// * `out` - Pre-allocated, contiguous destination tensor (overwritten)
-    /// * `src` - Source tensor
+    /// * `out` - Pre-allocated destination view (overwritten)
+    /// * `src` - Source view
     ///
     /// # Errors
-    /// Returns an error if dtypes mismatch, if `out` is not contiguous, or if
-    /// `src`'s shape does not equal `out`'s shape.
+    /// Returns `Error::DTypeMismatch` if the dtypes differ,
+    /// `Error::ShapeMismatch` if the shapes differ, and
+    /// `Error::InvalidArgument` (argument `out`) if `out` repeats an element
+    /// or overlaps `src` under the rule above.
     fn copy_into(&self, out: &Tensor<R>, src: &Tensor<R>) -> Result<()>;
 }

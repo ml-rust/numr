@@ -10,6 +10,7 @@ pub mod cast_i64;
 pub mod complex;
 pub mod conv;
 pub mod copy;
+pub mod copy_into;
 pub mod cumulative;
 pub mod distance;
 pub mod distributions;
@@ -28,6 +29,7 @@ pub(crate) mod sort_global;
 pub mod sort_search;
 pub mod special;
 pub mod statistics;
+mod strided_common;
 
 // Operation launchers
 pub mod activation_launcher;

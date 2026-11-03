@@ -50,27 +50,55 @@
 ///
 /// Callers must have already rejected `numel == 0`.
 fn coalesce(shape: &[usize], strides: &[isize]) -> (Vec<usize>, Vec<isize>) {
-    let mut out_shape: Vec<usize> = Vec::with_capacity(shape.len());
-    let mut out_strides: Vec<isize> = Vec::with_capacity(shape.len());
+    let (shape, [strides]) = coalesce_n(shape, [strides]);
+    (shape, strides)
+}
 
-    for (&n, &s) in shape.iter().zip(strides.iter()) {
+/// Coalesce `shape` against several stride sets at once.
+///
+/// Two adjacent dimensions merge only when the merge rule of [`coalesce`]
+/// holds for every stride set. Each returned stride list lines up with the
+/// returned shape. With one stride set the result equals [`coalesce`].
+///
+/// Callers must have already rejected `numel == 0`.
+pub(super) fn coalesce_n<const N: usize>(
+    shape: &[usize],
+    strides: [&[isize]; N],
+) -> (Vec<usize>, [Vec<isize>; N]) {
+    let mut out_shape: Vec<usize> = Vec::with_capacity(shape.len());
+    let mut out_strides: [Vec<isize>; N] = std::array::from_fn(|_| Vec::with_capacity(shape.len()));
+
+    for (d, &n) in shape.iter().enumerate() {
         if n == 1 {
             continue;
         }
-        if let (Some(last_n), Some(last_s)) = (out_shape.last_mut(), out_strides.last_mut())
-            && *last_s == s * n as isize
-        {
-            *last_n *= n;
-            *last_s = s;
+        let mergeable = !out_shape.is_empty()
+            && out_strides
+                .iter()
+                .zip(&strides)
+                .all(|(out, set)| out.last().is_some_and(|&last| last == set[d] * n as isize));
+        if mergeable {
+            if let Some(last_n) = out_shape.last_mut() {
+                *last_n *= n;
+            }
+            for (out, set) in out_strides.iter_mut().zip(&strides) {
+                if let Some(last) = out.last_mut() {
+                    *last = set[d];
+                }
+            }
             continue;
         }
         out_shape.push(n);
-        out_strides.push(s);
+        for (out, set) in out_strides.iter_mut().zip(&strides) {
+            out.push(set[d]);
+        }
     }
 
     if out_shape.is_empty() {
         out_shape.push(1);
-        out_strides.push(1);
+        for out in out_strides.iter_mut() {
+            out.push(1);
+        }
     }
     (out_shape, out_strides)
 }
@@ -457,6 +485,22 @@ mod tests {
         assert_eq!(coalesce(&[3, 4], &[1, 3]), (vec![3, 4], vec![1, 3]));
         // All-unit layouts become one single-element dimension.
         assert_eq!(coalesce(&[1, 1], &[5, 0]), (vec![1], vec![1]));
+    }
+
+    #[test]
+    fn test_coalesce_n_needs_every_stride_set_to_merge() {
+        // Both sets are row-major: one dimension.
+        let (shape, [a, b]) = coalesce_n(&[2, 3, 4], [&[12, 4, 1], &[12, 4, 1]]);
+        assert_eq!((shape, a, b), (vec![24], vec![1], vec![1]));
+        // The second set has a gap, so the outer dimension stays.
+        let (shape, [a, b]) = coalesce_n(&[2, 3, 4], [&[12, 4, 1], &[16, 4, 1]]);
+        assert_eq!((shape, a, b), (vec![2, 12], vec![12, 1], vec![16, 1]));
+        // One set merges and the other does not, so nothing merges.
+        let (shape, [a, b]) = coalesce_n(&[3, 4], [&[4, 1], &[1, 3]]);
+        assert_eq!((shape, a, b), (vec![3, 4], vec![4, 1], vec![1, 3]));
+        // All-unit layouts become one single-element dimension.
+        let (shape, [a, b]) = coalesce_n(&[1, 1], [&[5, 0], &[7, 0]]);
+        assert_eq!((shape, a, b), (vec![1], vec![1], vec![1]));
     }
 
     #[test]

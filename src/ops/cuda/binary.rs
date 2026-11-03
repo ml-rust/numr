@@ -1,10 +1,12 @@
 //! Binary operations for CUDA runtime
 use crate::error::{Error, Result};
 use crate::ops::BinaryOps;
-use crate::runtime::cuda::kernels::{launch_fused_add_mul, launch_fused_mul_add};
+use crate::runtime::cuda::kernels::{
+    launch_fused_add_mul, launch_fused_mul_add, launch_strided_copy_into,
+};
 use crate::runtime::cuda::ops::helpers::{native_binary_op, native_binary_op_into};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{Runtime, ensure_contiguous, validate_copy_into};
+use crate::runtime::{CopyIntoPlan, Runtime, ensure_contiguous, validate_copy_into};
 use crate::tensor::Tensor;
 
 impl BinaryOps<CudaRuntime> for CudaClient {
@@ -140,11 +142,33 @@ impl BinaryOps<CudaRuntime> for CudaClient {
     }
 
     fn copy_into(&self, out: &Tensor<CudaRuntime>, src: &Tensor<CudaRuntime>) -> Result<()> {
-        validate_copy_into(out, src, "copy_into")?;
-        if out.numel() == 0 {
+        if validate_copy_into(out, src, "copy_into")? == CopyIntoPlan::Skip {
             return Ok(());
         }
         let elem_size = src.dtype().size_in_bytes();
+        if !out.is_contiguous() {
+            // Strided-to-strided kernel. Shape and both stride sets travel as
+            // kernel arguments, so the launch allocates nothing and records
+            // into a CUDA graph like the strided-source path below.
+            // SAFETY: both views lie inside their allocations because the
+            // tensors hold valid layouts, `validate_copy_into` matched the
+            // shapes, and it rejected overlapping or repeating destinations.
+            return unsafe {
+                launch_strided_copy_into(
+                    &self.context,
+                    &self.stream,
+                    self.device.index,
+                    src.storage().ptr(),
+                    out.storage().ptr(),
+                    src.shape(),
+                    src.strides(),
+                    out.strides(),
+                    elem_size,
+                    src.offset() * elem_size,
+                    out.offset() * elem_size,
+                )
+            };
+        }
         if !src.is_contiguous() {
             // Strided read straight into `out`; the kernel takes shape and
             // strides by value, so it captures into a graph.
@@ -225,5 +249,23 @@ mod tests {
         let out = Tensor::<CudaRuntime>::zeros(&[3, 2], DType::F32, client.device()).unwrap();
         client.copy_into(&out, &transposed).unwrap();
         assert_eq!(out.to_vec::<f32>(), vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn copy_into_writes_a_channel_slice_and_keeps_the_rest() {
+        let Some(client) = setup() else {
+            return;
+        };
+        let buf =
+            Tensor::<CudaRuntime>::from_slice(&[9.0f32; 8], &[2, 4], client.device()).unwrap();
+        let slice = buf.narrow(-1, 1, 2).unwrap();
+        let src =
+            Tensor::<CudaRuntime>::from_slice(&[1.0f32, 2.0, 3.0, 4.0], &[2, 2], client.device())
+                .unwrap();
+        client.copy_into(&slice, &src).unwrap();
+        assert_eq!(
+            buf.to_vec::<f32>(),
+            vec![9.0, 1.0, 2.0, 9.0, 9.0, 3.0, 4.0, 9.0]
+        );
     }
 }
