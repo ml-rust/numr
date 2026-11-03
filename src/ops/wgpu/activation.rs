@@ -4,7 +4,7 @@ use crate::error::Result;
 use crate::ops::ActivationOps;
 use crate::ops::impl_generic::activation::{
     dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
-    softmax_with_bias_impl, softplus_impl,
+    prelu_impl, softmax_with_bias_impl, softplus_impl,
 };
 use crate::runtime::wgpu::WgpuClient;
 use crate::runtime::wgpu::WgpuRuntime;
@@ -57,6 +57,14 @@ impl ActivationOps<WgpuRuntime> for WgpuClient {
 
     fn gelu(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {
         native_unary_op(self, "gelu", a)
+    }
+
+    fn prelu(
+        &self,
+        a: &Tensor<WgpuRuntime>,
+        weight: &Tensor<WgpuRuntime>,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        prelu_impl(self, a, weight)
     }
 
     fn gelu_erf(&self, a: &Tensor<WgpuRuntime>) -> Result<Tensor<WgpuRuntime>> {

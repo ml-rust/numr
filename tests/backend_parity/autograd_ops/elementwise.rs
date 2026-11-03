@@ -5,8 +5,8 @@
 // divergence in any of them shows up in the gradient, not the forward.
 
 use numr::autograd::var_ops::{
-    var_elu, var_erf, var_gelu, var_gelu_erf, var_leaky_relu, var_maximum, var_minimum, var_rsqrt,
-    var_where,
+    var_elu, var_erf, var_gelu, var_gelu_erf, var_leaky_relu, var_maximum, var_minimum, var_prelu,
+    var_rsqrt, var_where,
 };
 
 use super::harness::{OnWgpu, TOL, check_parity, graph_op, leaf};
@@ -17,6 +17,7 @@ const X: [f64; 10] = [-3.0, -1.5, -0.5, 0.0, 0.25, 0.7, 1.2, 2.0, 3.0, -2.2];
 graph_op!(Gelu, |v, ctx| var_gelu(&v[0], ctx.client));
 graph_op!(GeluErf, |v, ctx| var_gelu_erf(&v[0], ctx.client));
 graph_op!(LeakyRelu, |v, ctx| var_leaky_relu(&v[0], 0.1, ctx.client));
+graph_op!(Prelu, |v, ctx| var_prelu(&v[0], &v[1], ctx.client));
 graph_op!(Elu, |v, ctx| var_elu(&v[0], 1.0, ctx.client));
 graph_op!(EluHalf, |v, ctx| var_elu(&v[0], 0.5, ctx.client));
 graph_op!(Erf, |v, ctx| var_erf(&v[0], ctx.client));
@@ -45,6 +46,18 @@ fn test_var_leaky_relu_parity() {
         "var_leaky_relu",
         &LeakyRelu,
         &[leaf(&X, &[2, 5])],
+        TOL,
+        OnWgpu::Run,
+    );
+}
+
+/// Per-channel weight `[5]` broadcast over `[2, 5]`. `X` holds an exact zero.
+#[test]
+fn test_var_prelu_parity() {
+    check_parity(
+        "var_prelu",
+        &Prelu,
+        &[leaf(&X, &[2, 5]), leaf(&[0.25, 0.1, 0.5, 0.05, 0.3], &[5])],
         TOL,
         OnWgpu::Run,
     );

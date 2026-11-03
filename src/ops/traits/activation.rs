@@ -66,6 +66,21 @@ pub trait ActivationOps<R: Runtime> {
         })
     }
 
+    /// PReLU (parametric ReLU): a if a > 0, else weight * a
+    ///
+    /// Matches PyTorch `F.prelu`. Like [`leaky_relu`](Self::leaky_relu), but the
+    /// negative slope is a learned tensor instead of a scalar.
+    ///
+    /// `weight` must have the dtype of `a` and must broadcast to `a` without
+    /// changing its shape. Pass `[C, 1, 1]` for NCHW input, `[C]` for NHWC input,
+    /// or a single-element tensor for one shared slope. The output has the shape of `a`.
+    fn prelu(&self, a: &Tensor<R>, weight: &Tensor<R>) -> Result<Tensor<R>> {
+        let _ = (a, weight);
+        Err(Error::NotImplemented {
+            feature: "ActivationOps::prelu",
+        })
+    }
+
     /// ELU (Exponential Linear Unit): a if a > 0, else alpha * (exp(a) - 1)
     ///
     /// Smooth approximation to ReLU with negative values saturating to -alpha.

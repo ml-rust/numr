@@ -845,3 +845,108 @@ fn test_softmax_with_bias_parity() {
     test_softmax_with_bias_parity_for_dtype(DType::F32);
     test_softmax_with_bias_parity_for_dtype(DType::F64);
 }
+
+// ============================================================================
+// PReLU parity: composite op, weight broadcasts to the input
+// ============================================================================
+
+struct PreluCase {
+    x: Vec<f64>,
+    x_shape: Vec<usize>,
+    w: Vec<f64>,
+    w_shape: Vec<usize>,
+}
+
+fn prelu_test_cases() -> Vec<PreluCase> {
+    let x: Vec<f64> = (0..24).map(|i| (i as f64 - 11.5) * 0.25).collect();
+    vec![
+        // NCHW input, per-channel weight [C, 1, 1].
+        PreluCase {
+            x: x.clone(),
+            x_shape: vec![1, 3, 2, 4],
+            w: vec![0.25, 0.1, 0.5],
+            w_shape: vec![3, 1, 1],
+        },
+        // NHWC input, per-channel weight [C].
+        PreluCase {
+            x: x.clone(),
+            x_shape: vec![1, 2, 4, 3],
+            w: vec![0.25, 0.1, 0.5],
+            w_shape: vec![3],
+        },
+        // One shared slope, with an exact zero in the input.
+        PreluCase {
+            x: vec![-2.0, -0.5, 0.0, 0.5, 2.0, -1.0],
+            x_shape: vec![6],
+            w: vec![0.2],
+            w_shape: vec![1],
+        },
+    ]
+}
+
+fn test_prelu_parity_for_dtype(dtype: DType) {
+    let (cpu_client, cpu_device) = create_cpu_client();
+    let cases = prelu_test_cases();
+
+    let cpu_results: Vec<Tensor<numr::runtime::cpu::CpuRuntime>> = cases
+        .iter()
+        .map(|tc| {
+            let a = tensor_from_f64(&tc.x, &tc.x_shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            let w = tensor_from_f64(&tc.w, &tc.w_shape, dtype, &cpu_device, &cpu_client)
+                .unwrap_or_else(|e| panic!("CPU tensor_from_f64 failed for {dtype:?}: {e}"));
+            cpu_client
+                .prelu(&a, &w)
+                .unwrap_or_else(|e| panic!("CPU prelu failed for {dtype:?}: {e}"))
+        })
+        .collect();
+
+    #[cfg(feature = "cuda")]
+    if is_dtype_supported("cuda", dtype) {
+        with_cuda_backend(|cuda_client, cuda_device| {
+            for (idx, tc) in cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.x, &tc.x_shape, dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let w = tensor_from_f64(&tc.w, &tc.w_shape, dtype, &cuda_device, &cuda_client)
+                    .unwrap_or_else(|e| panic!("CUDA tensor_from_f64 failed for {dtype:?}: {e}"));
+                let result = cuda_client
+                    .prelu(&a, &w)
+                    .unwrap_or_else(|e| panic!("CUDA prelu failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("prelu CUDA vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+
+    #[cfg(feature = "wgpu")]
+    if is_dtype_supported("wgpu", dtype) {
+        with_wgpu_backend(|wgpu_client, wgpu_device| {
+            for (idx, tc) in cases.iter().enumerate() {
+                let a = tensor_from_f64(&tc.x, &tc.x_shape, dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let w = tensor_from_f64(&tc.w, &tc.w_shape, dtype, &wgpu_device, &wgpu_client)
+                    .unwrap_or_else(|e| panic!("WebGPU tensor_from_f64 failed for {dtype:?}: {e}"));
+                let result = wgpu_client
+                    .prelu(&a, &w)
+                    .unwrap_or_else(|e| panic!("WebGPU prelu failed for {dtype:?}: {e}"));
+                assert_tensor_allclose(
+                    &result,
+                    &cpu_results[idx],
+                    dtype,
+                    &format!("prelu WebGPU vs CPU [{dtype:?}] case {idx}"),
+                );
+            }
+        });
+    }
+}
+
+#[test]
+fn test_prelu_parity() {
+    for dtype in parity_dtypes(DTypeDomain::FloatsOnly, "cpu") {
+        test_prelu_parity_for_dtype(dtype);
+    }
+}

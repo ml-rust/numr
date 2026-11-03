@@ -14,6 +14,11 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+### Added
+
+- `ActivationOps::prelu` on CPU, CUDA and WebGPU. `weight` broadcasts to the input, matching `torch.nn.functional.prelu`.
+- `var_prelu` with gradients for the input and the weight.
+
 ## [0.14.0] — 2026-11-01
 
 Sparse ops run on WebGPU and CUDA, autograd gains grad mode and many `var_*` ops, and `lstsq` returns minimum-norm solutions.

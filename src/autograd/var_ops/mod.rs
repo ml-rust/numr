@@ -56,6 +56,7 @@ mod maximum;
 mod minimum;
 mod normalization;
 mod pad;
+mod prelu;
 mod prod;
 pub mod reduce;
 mod rsqrt;
@@ -102,6 +103,7 @@ pub use normalization::{
     var_fused_add_layer_norm, var_fused_add_rms_norm, var_group_norm, var_layer_norm, var_rms_norm,
 };
 pub use pad::var_pad;
+pub use prelu::var_prelu;
 pub use prod::var_prod;
 pub use reduce::{var_max, var_mean, var_min, var_sum};
 pub use rsqrt::var_rsqrt;

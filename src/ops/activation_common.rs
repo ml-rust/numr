@@ -10,6 +10,7 @@
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::activation::normalize_softmax_dim;
+use crate::ops::broadcast_shape;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -93,6 +94,29 @@ pub fn validate_snake_beta<R: Runtime<DType = DType>>(
         channels,
         inner: shape[dim_idx + 1..].iter().product(),
     })
+}
+
+/// Check the inputs of a `prelu` call.
+///
+/// `weight` must have the dtype of `a` and must broadcast to `a` without
+/// changing `a`'s shape. Every backend and the autograd op call this, so they
+/// reject the same inputs with the same error.
+pub fn validate_prelu(
+    a_dtype: DType,
+    a_shape: &[usize],
+    weight_dtype: DType,
+    weight_shape: &[usize],
+) -> Result<()> {
+    if a_dtype != weight_dtype {
+        return Err(Error::DTypeMismatch {
+            lhs: a_dtype,
+            rhs: weight_dtype,
+        });
+    }
+    match broadcast_shape(a_shape, weight_shape) {
+        Some(shape) if shape == a_shape => Ok(()),
+        _ => Err(Error::broadcast(a_shape, weight_shape)),
+    }
 }
 
 #[cfg(test)]

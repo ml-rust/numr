@@ -3,7 +3,7 @@
 use crate::error::{Error, Result};
 use crate::ops::impl_generic::activation::{
     dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
-    softmax_with_bias_impl, softplus_impl,
+    prelu_impl, softmax_with_bias_impl, softplus_impl,
 };
 use crate::ops::{
     ActivationOps, BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps,
@@ -36,6 +36,14 @@ impl ActivationOps<CpuRuntime> for CpuClient {
 
     fn gelu(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {
         activation_op_impl(self, a, ActivationOp::Gelu, "gelu")
+    }
+
+    fn prelu(
+        &self,
+        a: &Tensor<CpuRuntime>,
+        weight: &Tensor<CpuRuntime>,
+    ) -> Result<Tensor<CpuRuntime>> {
+        prelu_impl(self, a, weight)
     }
 
     fn gelu_erf(&self, a: &Tensor<CpuRuntime>) -> Result<Tensor<CpuRuntime>> {

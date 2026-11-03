@@ -4,6 +4,7 @@ use crate::algorithm::special::SpecialFunctions;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::activation::normalize_softmax_dim;
+use crate::ops::activation_common::validate_prelu;
 use crate::ops::traits::{
     ActivationOps, BinaryOps, CompareOps, ConditionalOps, CumulativeOps, RandomOps, ScalarOps,
     UnaryOps,
@@ -184,6 +185,24 @@ where
     client.where_cond(&mask, &scaled, &zeros)
 }
 
+/// Generic PReLU implementation: `where(a > 0, a, weight * a)`.
+///
+/// `weight` must have the dtype of `a` and must broadcast to `a` without
+/// changing `a`'s shape. All backends delegate here.
+pub fn prelu_impl<R, C>(client: &C, a: &Tensor<R>, weight: &Tensor<R>) -> Result<Tensor<R>>
+where
+    R: Runtime<DType = DType>,
+    C: CompareOps<R> + ConditionalOps<R> + BinaryOps<R> + RuntimeClient<R>,
+{
+    validate_prelu(a.dtype(), a.shape(), weight.dtype(), weight.shape())?;
+
+    // A rank-0 zero broadcasts to any shape, so the mask needs no full-size zeros.
+    let zero = Tensor::<R>::zeros(&[], a.dtype(), client.device())?;
+    let positive = client.gt(a, &zero)?;
+    let scaled = client.mul(a, weight)?;
+    client.where_cond(&positive, a, &scaled)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +272,84 @@ mod tests {
                 result[i]
             );
         }
+    }
+
+    fn cpu() -> (crate::runtime::cpu::CpuClient, CpuDevice) {
+        let device = CpuDevice::new();
+        (CpuRuntime::default_client(&device), device)
+    }
+
+    fn prelu_f64(x: &[f64], x_shape: &[usize], w: &[f64], w_shape: &[usize]) -> Vec<f64> {
+        let (client, device) = cpu();
+        let a = Tensor::<CpuRuntime>::from_slice(x, x_shape, &device).unwrap();
+        let weight = Tensor::<CpuRuntime>::from_slice(w, w_shape, &device).unwrap();
+        let out = client.prelu(&a, &weight).unwrap();
+        assert_eq!(out.shape(), x_shape);
+        out.to_vec()
+    }
+
+    #[test]
+    fn test_prelu_positive_negative_zero() {
+        let out = prelu_f64(&[2.0, -2.0, 0.0, 0.5, -0.5], &[5], &[0.25], &[1]);
+        assert_eq!(out, vec![2.0, -0.5, 0.0, 0.5, -0.125]);
+    }
+
+    #[test]
+    fn test_prelu_per_channel_nchw() {
+        // [N=1, C=2, H=1, W=2], weight [C, 1, 1].
+        let out = prelu_f64(
+            &[-1.0, 1.0, -2.0, 2.0],
+            &[1, 2, 1, 2],
+            &[0.5, 0.1],
+            &[2, 1, 1],
+        );
+        assert_eq!(out, vec![-0.5, 1.0, -0.2, 2.0]);
+    }
+
+    #[test]
+    fn test_prelu_per_channel_nhwc() {
+        // [N=1, H=1, W=2, C=2], weight [C].
+        let out = prelu_f64(&[-1.0, -2.0, 3.0, -4.0], &[1, 1, 2, 2], &[0.5, 0.25], &[2]);
+        assert_eq!(out, vec![-0.5, -0.5, 3.0, -1.0]);
+    }
+
+    #[test]
+    fn test_prelu_scalar_weight() {
+        let device = CpuDevice::new();
+        let client = CpuRuntime::default_client(&device);
+        let a = Tensor::<CpuRuntime>::from_slice(&[-4.0f64, 4.0], &[2], &device).unwrap();
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.5f64], &[], &device).unwrap();
+        let out = client.prelu(&a, &weight).unwrap();
+        assert_eq!(out.to_vec::<f64>(), vec![-2.0, 4.0]);
+    }
+
+    #[test]
+    fn test_prelu_rejects_non_broadcasting_weight() {
+        let (client, device) = cpu();
+        let a = Tensor::<CpuRuntime>::from_slice(&[0.0f64; 6], &[2, 3], &device).unwrap();
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.0f64; 4], &[4], &device).unwrap();
+        let err = client.prelu(&a, &weight).unwrap_err();
+        assert!(matches!(err, Error::BroadcastError { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("[2, 3]") && msg.contains("[4]"), "{msg}");
+    }
+
+    #[test]
+    fn test_prelu_rejects_weight_that_grows_input() {
+        // Broadcasts, but the output shape [3, 2] differs from the input shape [2].
+        let (client, device) = cpu();
+        let a = Tensor::<CpuRuntime>::from_slice(&[0.0f64; 2], &[2], &device).unwrap();
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.0f64; 3], &[3, 1], &device).unwrap();
+        let err = client.prelu(&a, &weight).unwrap_err();
+        assert!(matches!(err, Error::BroadcastError { .. }));
+    }
+
+    #[test]
+    fn test_prelu_rejects_dtype_mismatch() {
+        let (client, device) = cpu();
+        let a = Tensor::<CpuRuntime>::from_slice(&[1.0f64, -1.0], &[2], &device).unwrap();
+        let weight = Tensor::<CpuRuntime>::from_slice(&[0.5f32], &[1], &device).unwrap();
+        let err = client.prelu(&a, &weight).unwrap_err();
+        assert!(matches!(err, Error::DTypeMismatch { .. }));
     }
 }

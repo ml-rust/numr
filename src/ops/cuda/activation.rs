@@ -5,7 +5,7 @@ use crate::ops::ActivationOps;
 use crate::ops::activation::normalize_softmax_dim;
 use crate::ops::impl_generic::activation::{
     dropout_impl, gelu_erf_impl, gelu_erf_mul_bwd_impl, gelu_erf_mul_impl, log_softmax_impl,
-    softmax_with_bias_impl, softplus_impl,
+    prelu_impl, softmax_with_bias_impl, softplus_impl,
 };
 use crate::runtime::cuda::kernels::{
     launch_elu, launch_gelu, launch_gelu_mul, launch_gelu_mul_bwd, launch_leaky_relu, launch_relu,
@@ -98,6 +98,14 @@ impl ActivationOps<CudaRuntime> for CudaClient {
         }
 
         Ok(out)
+    }
+
+    fn prelu(
+        &self,
+        a: &Tensor<CudaRuntime>,
+        weight: &Tensor<CudaRuntime>,
+    ) -> Result<Tensor<CudaRuntime>> {
+        prelu_impl(self, a, weight)
     }
 
     fn gelu_erf(&self, a: &Tensor<CudaRuntime>) -> Result<Tensor<CudaRuntime>> {
