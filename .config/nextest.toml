@@ -1,0 +1,24 @@
+# nextest runs each test in its own process, so the in-process backend lock in
+# tests/common/backend_lock.rs does not limit GPU use across tests. Each
+# process creates its own CUDA context and WebGPU device. Without a cap, a
+# parallel run exhausts device memory and context creation fails with
+# CUDA_ERROR_OUT_OF_MEMORY.
+#
+# The `gpu` group caps tests that can touch a device. A new test binary that
+# uses a GPU and has no `cuda`, `wgpu` or `wmma` in its name must join this
+# filter.
+
+[test-groups]
+gpu = { max-threads = 8 }
+
+[[profile.default.overrides]]
+filter = '''
+binary(backend_parity_all)
+| binary(/cuda|wgpu|wmma/)
+| binary(bincount_degenerate)
+| binary(bool_parity)
+| binary(int_rounding_identity)
+| binary(matmul_perf)
+| test(/cuda|wgpu/)
+'''
+test-group = 'gpu'
