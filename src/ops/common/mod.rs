@@ -1,6 +1,8 @@
 //! Common utilities and validation logic shared across operation backends.
 
 pub mod color_calls;
+pub mod color_packed;
+pub mod color_packed_calls;
 pub mod color_plan;
 pub mod color_validation;
 pub mod complex_validation;
@@ -18,6 +20,10 @@ pub mod scatter_reduce_validation;
 pub use color_calls::{
     plan_decode, plan_decode_into, plan_encode, plan_pack, plan_pack_into, plan_unpack,
     plan_unpack_into,
+};
+pub use color_packed::packed_rgb24_strides;
+pub use color_packed_calls::{
+    packed_rgb24_shape, plan_pack_packed_into, plan_unpack_packed, plan_unpack_packed_into,
 };
 pub use color_plan::{ColorCoeffs, PlaneView, YuvFrame, rgb_strides, rgb24_strides};
 pub use color_validation::rgb_shape;

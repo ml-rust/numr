@@ -3,6 +3,7 @@
 //! Planes, float RGB and RGB24 tensors are checked here, so every backend
 //! rejects the same calls with the same errors.
 
+use super::color_packed::validate_packed_planes;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::ops::traits::{ConvLayout, YuvPlanes};
@@ -63,11 +64,15 @@ fn check_plane<R: Runtime<DType = DType>>(
 /// # Errors
 ///
 /// `Error::InvalidArgument` for argument `planes` when a plane has the wrong
-/// dtype, rank or shape, or when H or W is odd.
+/// dtype, rank or shape, or when H or W is odd. Packed planes take the
+/// checks of [`validate_packed_planes`].
 pub fn validate_planes<R: Runtime<DType = DType>>(
     planes: &YuvPlanes<'_, R>,
     op: &'static str,
 ) -> Result<[usize; 2]> {
+    if planes.is_packed() {
+        return validate_packed_planes(planes, op);
+    }
     let format = planes.format_name();
     let y = planes.y();
     let sample = match planes {
@@ -106,6 +111,10 @@ pub fn validate_planes<R: Runtime<DType = DType>>(
             check_plane(u, "u", format, sample, [h / 2, w / 2], op)?;
             check_plane(v, "v", format, sample, [h / 2, w / 2], op)?;
         }
+        // Packed planes returned from `validate_packed_planes` above.
+        YuvPlanes::Nv12Packed { .. }
+        | YuvPlanes::I420Packed { .. }
+        | YuvPlanes::P010Packed { .. } => {}
     }
     Ok([h, w])
 }
@@ -252,6 +261,14 @@ pub fn named_planes<'a, R: Runtime>(
             vec![(y, "plane y"), (uv, "plane uv")]
         }
         YuvPlanes::I420 { y, u, v } => vec![(y, "plane y"), (u, "plane u"), (v, "plane v")],
+        YuvPlanes::Nv12Packed { y, uv } | YuvPlanes::P010Packed { y, uv } => {
+            vec![(y.words, "plane y"), (uv.words, "plane uv")]
+        }
+        YuvPlanes::I420Packed { y, u, v } => vec![
+            (y.words, "plane y"),
+            (u.words, "plane u"),
+            (v.words, "plane v"),
+        ],
     }
 }
 

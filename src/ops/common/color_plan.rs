@@ -3,10 +3,11 @@
 //! [`ColorCoeffs`] holds every constant of the documented formulas, each
 //! computed in f64 and rounded to f32 once. The CPU kernels and the CUDA
 //! kernels read the same struct, so both evaluate the same f32 operations.
-//! [`YuvFrame`] holds the planes as addresses and strides, with an NV12 or
-//! P010 chroma plane split into a U view and a V view, so one kernel serves
-//! every format.
+//! [`YuvFrame`] holds the planes as addresses and strides in samples, with an
+//! NV12 or P010 chroma plane split into a U view and a V view, so one kernel
+//! serves every format, packed or not.
 
+use super::color_packed::{packed_interleaved_views, packed_view};
 use super::color_validation::validate_planes;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -180,25 +181,37 @@ fn split_interleaved<R: Runtime<DType = DType>>(
 /// # Errors
 ///
 /// Every error of [`validate_planes`], and `Error::InvalidArgument` for a
-/// chroma column stride that overflows when doubled.
+/// chroma column stride that overflows when doubled or a packed row stride
+/// that overflows in samples.
 pub fn plan_yuv_frame<R: Runtime<DType = DType>>(
     planes: &YuvPlanes<'_, R>,
     spec: &YuvSpec,
     op: &'static str,
 ) -> Result<YuvFrame> {
     let [height, width] = validate_planes(planes, op)?;
-    let (u, v) = match *planes {
-        YuvPlanes::Nv12 { uv, .. } | YuvPlanes::P010 { uv, .. } => split_interleaved(uv, op)?,
-        YuvPlanes::I420 { u, v, .. } => (plane_view(u), plane_view(v)),
+    let bytes = planes.sample_bytes();
+    let (y, (u, v)) = match *planes {
+        YuvPlanes::Nv12 { y, uv } | YuvPlanes::P010 { y, uv } => {
+            (plane_view(y), split_interleaved(uv, op)?)
+        }
+        YuvPlanes::I420 { y, u, v } => (plane_view(y), (plane_view(u), plane_view(v))),
+        YuvPlanes::Nv12Packed { y, uv } | YuvPlanes::P010Packed { y, uv } => (
+            packed_view(&y, bytes, op)?,
+            packed_interleaved_views(&uv, bytes, op)?,
+        ),
+        YuvPlanes::I420Packed { y, u, v } => (
+            packed_view(&y, bytes, op)?,
+            (packed_view(&u, bytes, op)?, packed_view(&v, bytes, op)?),
+        ),
     };
-    let wide = matches!(planes, YuvPlanes::P010 { .. });
+    let wide = bytes == 2;
     Ok(YuvFrame {
         height,
         width,
         wide,
         shift: if wide { 6 } else { 0 },
         center: spec.siting == ChromaSiting::Center,
-        y: plane_view(planes.y()),
+        y,
         u,
         v,
         coeffs: ColorCoeffs::new(spec, planes.bits()),

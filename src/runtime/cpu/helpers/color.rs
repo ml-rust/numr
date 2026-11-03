@@ -46,6 +46,7 @@ macro_rules! with_float {
         }
     };
 }
+pub(crate) use with_float;
 
 /// # Safety
 ///

@@ -1,12 +1,14 @@
 // Host helpers for ColorOps tests: plane and RGB tensors in and out of a
-// backend, contiguous or as views into one pitched surface.
+// backend, contiguous or as views into one pitched surface, as samples or as
+// packed words (see packed.rs).
 
 use numr::dtype::DType;
-use numr::ops::{ConvLayout, YuvPlanes};
+use numr::ops::{ConvLayout, PackedPlane, YuvPlanes};
 use numr::runtime::Runtime;
 use numr::tensor::Tensor;
 
 use super::golden::Format;
+use super::packed::{packed_form, unpack_rows, upload_packed};
 
 /// Sample every byte of a surface starts as, outside the plane views.
 pub const SENTINEL: u16 = 0xA5;
@@ -20,11 +22,31 @@ pub struct PlaneSet<R: Runtime> {
     /// The pitched surface every plane views, or `None` for separate planes.
     pub surface: Option<Tensor<R>>,
     pub planes: Vec<Tensor<R>>,
+    /// Columns per row of each plane when `planes` are packed U32 words.
+    pub packed_widths: Option<Vec<usize>>,
 }
 
 impl<R: Runtime<DType = DType>> PlaneSet<R> {
     pub fn yuv(&self) -> YuvPlanes<'_, R> {
         let p = &self.planes;
+        if let Some(w) = &self.packed_widths {
+            let at = |i: usize| PackedPlane::new(&p[i], w[i]);
+            return match self.format {
+                Format::Nv12 => YuvPlanes::Nv12Packed {
+                    y: at(0),
+                    uv: at(1),
+                },
+                Format::I420 => YuvPlanes::I420Packed {
+                    y: at(0),
+                    u: at(1),
+                    v: at(2),
+                },
+                Format::P010 => YuvPlanes::P010Packed {
+                    y: at(0),
+                    uv: at(1),
+                },
+            };
+        }
         match self.format {
             Format::Nv12 => YuvPlanes::Nv12 {
                 y: &p[0],
@@ -44,15 +66,32 @@ impl<R: Runtime<DType = DType>> PlaneSet<R> {
 
     /// Samples of each plane in row-major order.
     pub fn download(&self) -> Vec<Vec<u16>> {
+        let dtype = self.format.dtype();
+        let Some(widths) = &self.packed_widths else {
+            return self
+                .planes
+                .iter()
+                .map(|t| samples(&t.to_bytes().expect("plane readback"), t.dtype()))
+                .collect();
+        };
         self.planes
             .iter()
-            .map(|t| samples(&t.to_bytes().expect("plane readback"), t.dtype()))
+            .zip(widths)
+            .map(|(t, &cols)| {
+                let row_bytes = cols * dtype.size_in_bytes();
+                let bytes = t.to_bytes().expect("plane readback");
+                samples(&unpack_rows(&bytes, t.shape(), row_bytes), dtype)
+            })
             .collect()
     }
 
     /// Every sample of the surface outside the plane views keeps
     /// [`SENTINEL`].
     pub fn assert_padding_kept(&self, h: usize, w: usize, label: &str) {
+        if self.packed_widths.is_some() {
+            super::packed::assert_packed_padding_kept(self, label);
+            return;
+        }
         let Some(surface) = &self.surface else {
             return;
         };
@@ -104,7 +143,8 @@ pub fn samples(bytes: &[u8], dtype: DType) -> Vec<u16> {
 ///
 /// With `pitched`, the planes stack top to bottom in one surface whose row
 /// pitch exceeds the widest plane by [`PITCH_PAD`], and every other sample
-/// holds [`SENTINEL`].
+/// holds [`SENTINEL`]. Inside `packed::with_packed` the planes upload as
+/// packed U32 words instead.
 pub fn upload<R: Runtime<DType = DType>>(
     format: Format,
     h: usize,
@@ -113,6 +153,9 @@ pub fn upload<R: Runtime<DType = DType>>(
     pitched: bool,
     device: &R::Device,
 ) -> PlaneSet<R> {
+    if packed_form() {
+        return upload_packed(format, h, w, data, pitched, device);
+    }
     let dtype = format.dtype();
     let shapes = format.plane_shapes(h, w);
     if !pitched {
@@ -128,6 +171,7 @@ pub fn upload<R: Runtime<DType = DType>>(
             format,
             surface: None,
             planes,
+            packed_widths: None,
         };
     }
     let pitch = w + PITCH_PAD;
@@ -160,6 +204,7 @@ pub fn upload<R: Runtime<DType = DType>>(
         format,
         surface: Some(surface),
         planes,
+        packed_widths: None,
     }
 }
 

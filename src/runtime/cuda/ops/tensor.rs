@@ -57,6 +57,9 @@ mod cumulative;
 #[path = "../../../ops/cuda/color.rs"]
 mod color;
 
+#[path = "../../../ops/cuda/color_packed.rs"]
+mod color_packed;
+
 #[path = "../../../ops/cuda/fwht.rs"]
 mod fwht;
 

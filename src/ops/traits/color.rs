@@ -1,7 +1,7 @@
 //! Video frame colour conversion: 4:2:0 YCbCr planes to and from float RGB,
 //! and packed RGB24 to and from float RGB.
 
-use super::{ConvLayout, YuvPlanes, YuvSpec};
+use super::{ConvLayout, PackedPlane, YuvPlanes, YuvSpec};
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::Runtime;
@@ -23,6 +23,23 @@ fn not_implemented<T>(feature: &'static str) -> Result<T> {
 ///
 /// Every input and every `out` can be any strided view, such as a surface
 /// with a row pitch. No operand is copied to contiguous first.
+///
+/// # Packed words
+///
+/// A plane or an RGB24 frame can also pass as [`PackedPlane`] words: U32
+/// `[rows, n]` holding the bytes of each row from the start of its first
+/// word. The `YuvPlanes` `Packed` variants and the `packed_rgb24` methods
+/// take this form. Results are the same bits as the U8 and U16 form on
+/// every backend.
+///
+/// - CPU and CUDA read and write the words in place as U8 or U16 samples.
+/// - WebGPU kernels address 32-bit words only, so WebGPU takes planes and
+///   RGB24 in this form only. Each invocation owns whole words of every
+///   plane it writes, and merges a partial last word of a row with the
+///   bytes it keeps.
+/// - A row pitch in bytes converts to a word shape with
+///   [`PackedPlane::words_shape`], which refuses a pitch that is not a
+///   multiple of 4.
 ///
 /// # YCbCr to RGB
 ///
@@ -101,8 +118,16 @@ fn not_implemented<T>(feature: &'static str) -> Result<T> {
 ///   `((c00 + c01) + (c10 + c11))·0.25`. The `Left` filter is
 ///   `(h0 + h1)·0.125` with `h = (c[2j-1] + 2·c[2j]) + c[2j+1]` per row.
 ///
-/// Each coefficient is computed in F64 and rounded to F32 once. CPU and CUDA
-/// run the same operations on the same constants.
+/// Each coefficient is computed in F64 and rounded to F32 once. Every
+/// backend runs the same operations on the same constants, so integer and
+/// F32 outputs match bit for bit across backends. The CUDA build flushes a
+/// subnormal F32 input to zero, which moves no output code.
+///
+/// WGSL leaves the rounding direction of `+`, `-` and `*` to the
+/// implementation, allows 2.5 ULP for `/`, can flush subnormals, and can
+/// fuse or reassociate float operations. The WebGPU kernels therefore run
+/// each F32 operation in integer arithmetic on the bit pattern, which WGSL
+/// defines exactly, and round to nearest even with subnormals kept.
 ///
 /// # Dtypes
 ///
@@ -110,6 +135,7 @@ fn not_implemented<T>(feature: &'static str) -> Result<T> {
 /// | --- | --- |
 /// | CPU | F32, F64, F16, BF16 |
 /// | CUDA | F32, F64, F16, BF16 |
+/// | WebGPU | F32 |
 ///
 /// F16 and BF16 round once at the store, to nearest even. F64 holds the F32
 /// result exactly, and an F64 input rounds to F32 at the load. CPU needs the
@@ -122,8 +148,10 @@ fn not_implemented<T>(feature: &'static str) -> Result<T> {
 ///
 /// # Backends
 ///
-/// The WebGPU backend takes the default methods, which return
-/// `Error::NotImplemented`. It has no WGSL colour kernels.
+/// CPU, CUDA and WebGPU implement every method. WebGPU returns
+/// `Error::BackendLimitation` for U8 and U16 planes and U8 RGB24, and names
+/// the packed form to pass instead. A backend without colour kernels takes
+/// the default methods, which return `Error::NotImplemented`.
 ///
 /// # Autograd
 ///
@@ -134,10 +162,12 @@ pub trait ColorOps<R: Runtime> {
     /// # Errors
     ///
     /// - `Error::InvalidArgument` for argument `planes` when a plane has the
-    ///   wrong rank, shape or dtype, or when H or W is odd. The reason names
-    ///   the plane and the dimension.
+    ///   wrong rank, shape or dtype, or when H or W is odd. A packed plane
+    ///   also fails with a column stride other than 1 or too few words per
+    ///   row. The reason names the plane and the dimension.
     /// - `Error::UnsupportedDType` for an `out_dtype` the backend does not
     ///   produce.
+    /// - `Error::BackendLimitation` on WebGPU for planes that are not packed.
     /// - `Error::NotImplemented` on a backend without colour kernels.
     fn yuv_to_rgb(
         &self,
@@ -185,6 +215,7 @@ pub trait ColorOps<R: Runtime> {
     /// - `Error::ShapeMismatch` when `rgb` does not match the planes' frame.
     /// - `Error::UnsupportedDType` for an `rgb` dtype the backend does not
     ///   read.
+    /// - `Error::BackendLimitation` on WebGPU for planes that are not packed.
     /// - `Error::NotImplemented` on a backend without colour kernels.
     fn rgb_to_yuv_into(
         &self,
@@ -206,6 +237,8 @@ pub trait ColorOps<R: Runtime> {
     ///   `[H, W, 3]`.
     /// - `Error::UnsupportedDType` for an `out_dtype` the backend does not
     ///   produce.
+    /// - `Error::BackendLimitation` on WebGPU, which takes
+    ///   [`packed_rgb24_to_float`](Self::packed_rgb24_to_float) instead.
     /// - `Error::NotImplemented` on a backend without colour kernels.
     fn rgb24_to_float(
         &self,
@@ -245,6 +278,8 @@ pub trait ColorOps<R: Runtime> {
     ///   the RGB shape of `layout`.
     /// - `Error::UnsupportedDType` for an `rgb` dtype the backend does not
     ///   read.
+    /// - `Error::BackendLimitation` on WebGPU, which takes
+    ///   [`float_to_packed_rgb24`](Self::float_to_packed_rgb24) instead.
     /// - `Error::NotImplemented` on a backend without colour kernels.
     fn float_to_rgb24(&self, rgb: &Tensor<R>, layout: ConvLayout) -> Result<Tensor<R>> {
         let _ = (rgb, layout);
@@ -268,5 +303,77 @@ pub trait ColorOps<R: Runtime> {
     ) -> Result<()> {
         let _ = (out, rgb, layout);
         not_implemented("ColorOps::float_to_rgb24_into")
+    }
+
+    /// Unpack packed RGB24 words into float RGB, as
+    /// [`rgb24_to_float`](Self::rgb24_to_float).
+    ///
+    /// # Errors
+    ///
+    /// - `Error::InvalidArgument` for argument `rgb24` when its words are not
+    ///   U32 `[H, n]` with column stride 1 and `n >= ceil(3·W / 4)`.
+    /// - `Error::UnsupportedDType` for an `out_dtype` the backend does not
+    ///   produce.
+    /// - `Error::NotImplemented` on a backend without colour kernels.
+    fn packed_rgb24_to_float(
+        &self,
+        rgb24: PackedPlane<'_, R>,
+        out_dtype: DType,
+        layout: ConvLayout,
+    ) -> Result<Tensor<R>> {
+        let _ = (rgb24, out_dtype, layout);
+        not_implemented("ColorOps::packed_rgb24_to_float")
+    }
+
+    /// Run [`packed_rgb24_to_float`](Self::packed_rgb24_to_float) and write
+    /// the result into `out`.
+    ///
+    /// # Errors
+    ///
+    /// Every error of [`packed_rgb24_to_float`](Self::packed_rgb24_to_float),
+    /// plus the `out` errors of [`yuv_to_rgb_into`](Self::yuv_to_rgb_into).
+    fn packed_rgb24_to_float_into(
+        &self,
+        out: &Tensor<R>,
+        rgb24: PackedPlane<'_, R>,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        let _ = (out, rgb24, layout);
+        not_implemented("ColorOps::packed_rgb24_to_float_into")
+    }
+
+    /// Pack float RGB into new RGB24 words, U32 `[H, ceil(3·W / 4)]`, as
+    /// [`float_to_rgb24`](Self::float_to_rgb24). Bytes past `3·W` in the
+    /// last word of a row are 0. Pass the result as `PackedPlane::new(&t, W)`.
+    ///
+    /// # Errors
+    ///
+    /// Every error of [`float_to_rgb24`](Self::float_to_rgb24) but the
+    /// WebGPU one.
+    fn float_to_packed_rgb24(&self, rgb: &Tensor<R>, layout: ConvLayout) -> Result<Tensor<R>> {
+        let _ = (rgb, layout);
+        not_implemented("ColorOps::float_to_packed_rgb24")
+    }
+
+    /// Run [`float_to_packed_rgb24`](Self::float_to_packed_rgb24) and write
+    /// the result into the packed words `out`. Bytes of a row past `3·W`
+    /// keep their values.
+    ///
+    /// # Errors
+    ///
+    /// Every error of [`float_to_packed_rgb24`](Self::float_to_packed_rgb24),
+    /// plus:
+    /// - `Error::InvalidArgument` for argument `out` when its words are not
+    ///   U32 `[H, n]` with column stride 1 and `n >= ceil(3·W / 4)`, repeat a
+    ///   word or overlap `rgb`.
+    /// - `Error::ShapeMismatch` when `out` holds another `[H, W]`.
+    fn float_to_packed_rgb24_into(
+        &self,
+        out: PackedPlane<'_, R>,
+        rgb: &Tensor<R>,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        let _ = (out, rgb, layout);
+        not_implemented("ColorOps::float_to_packed_rgb24_into")
     }
 }

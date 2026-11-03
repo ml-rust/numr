@@ -1,5 +1,6 @@
 //! Colour spec and plane types of [`ColorOps`](super::ColorOps).
 
+use super::PackedPlane;
 use crate::runtime::Runtime;
 use crate::tensor::Tensor;
 
@@ -91,6 +92,10 @@ impl YuvSpec {
 ///
 /// A P010 sample holds its 10-bit value in the high bits: `value = raw >> 6`.
 /// A read ignores the low 6 bits, and a write stores `value << 6`.
+///
+/// The `Packed` variants hold the same planes as [`PackedPlane`] words, with
+/// the shapes above as `rows` and `width`. Every backend takes them. WebGPU
+/// takes only them.
 #[non_exhaustive]
 pub enum YuvPlanes<'a, R: Runtime> {
     /// 8-bit luma plane and one interleaved chroma plane.
@@ -116,6 +121,30 @@ pub enum YuvPlanes<'a, R: Runtime> {
         /// Chroma, U16 `[H/2, W]`. Column `2j` holds U and `2j + 1` holds V.
         uv: &'a Tensor<R>,
     },
+    /// NV12 as packed words: one byte per column.
+    Nv12Packed {
+        /// Luma, `H` rows of `W` columns.
+        y: PackedPlane<'a, R>,
+        /// Chroma, `H/2` rows of `W` columns, interleaved `U, V`.
+        uv: PackedPlane<'a, R>,
+    },
+    /// I420 as packed words: one byte per column.
+    I420Packed {
+        /// Luma, `H` rows of `W` columns.
+        y: PackedPlane<'a, R>,
+        /// Cb, `H/2` rows of `W/2` columns.
+        u: PackedPlane<'a, R>,
+        /// Cr, `H/2` rows of `W/2` columns.
+        v: PackedPlane<'a, R>,
+    },
+    /// P010 as packed words: two bytes per column, the sample in the high
+    /// 10 bits.
+    P010Packed {
+        /// Luma, `H` rows of `W` columns.
+        y: PackedPlane<'a, R>,
+        /// Chroma, `H/2` rows of `W` columns, interleaved `U, V`.
+        uv: PackedPlane<'a, R>,
+    },
 }
 
 impl<R: Runtime> Clone for YuvPlanes<'_, R> {
@@ -136,24 +165,43 @@ impl<'a, R: Runtime> YuvPlanes<'a, R> {
     /// Format name for errors: `"NV12"`, `"I420"` or `"P010"`.
     pub fn format_name(&self) -> &'static str {
         match self {
-            Self::Nv12 { .. } => "NV12",
-            Self::I420 { .. } => "I420",
-            Self::P010 { .. } => "P010",
+            Self::Nv12 { .. } | Self::Nv12Packed { .. } => "NV12",
+            Self::I420 { .. } | Self::I420Packed { .. } => "I420",
+            Self::P010 { .. } | Self::P010Packed { .. } => "P010",
         }
     }
 
     /// Sample depth in bits: 8 for NV12 and I420, 10 for P010.
     pub fn bits(&self) -> u32 {
         match self {
-            Self::Nv12 { .. } | Self::I420 { .. } => 8,
-            Self::P010 { .. } => 10,
+            Self::Nv12 { .. }
+            | Self::I420 { .. }
+            | Self::Nv12Packed { .. }
+            | Self::I420Packed { .. } => 8,
+            Self::P010 { .. } | Self::P010Packed { .. } => 10,
         }
     }
 
-    /// Luma plane.
+    /// Bytes per stored sample: 1 for NV12 and I420, 2 for P010.
+    pub fn sample_bytes(&self) -> usize {
+        if self.bits() > 8 { 2 } else { 1 }
+    }
+
+    /// Whether the planes are [`PackedPlane`] words.
+    pub fn is_packed(&self) -> bool {
+        matches!(
+            self,
+            Self::Nv12Packed { .. } | Self::I420Packed { .. } | Self::P010Packed { .. }
+        )
+    }
+
+    /// Luma tensor: the plane, or its packed words.
     pub fn y(&self) -> &'a Tensor<R> {
         match *self {
             Self::Nv12 { y, .. } | Self::I420 { y, .. } | Self::P010 { y, .. } => y,
+            Self::Nv12Packed { y, .. }
+            | Self::I420Packed { y, .. }
+            | Self::P010Packed { y, .. } => y.words,
         }
     }
 }

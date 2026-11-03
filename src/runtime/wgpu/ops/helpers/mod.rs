@@ -6,6 +6,7 @@
 
 mod broadcast;
 mod buffer;
+mod color_params;
 mod creation_params;
 mod cumulative_params;
 mod distribution_params;
@@ -25,6 +26,7 @@ mod sort_params;
 
 pub(crate) use broadcast::*;
 pub(crate) use buffer::*;
+pub(crate) use color_params::*;
 pub(crate) use creation_params::*;
 pub(crate) use cumulative_params::*;
 pub(crate) use distribution_params::*;

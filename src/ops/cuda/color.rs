@@ -7,10 +7,11 @@
 use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::common::{
-    YuvFrame, plan_decode, plan_decode_into, plan_encode, plan_pack, plan_pack_into, plan_unpack,
-    plan_unpack_into, rgb_shape, rgb_strides, rgb24_strides,
+    YuvFrame, packed_rgb24_shape, plan_decode, plan_decode_into, plan_encode, plan_pack,
+    plan_pack_into, plan_pack_packed_into, plan_unpack, plan_unpack_into, plan_unpack_packed,
+    plan_unpack_packed_into, rgb_shape, rgb_strides, rgb24_strides,
 };
-use crate::ops::{ColorOps, ConvLayout, YuvPlanes, YuvSpec};
+use crate::ops::{ColorOps, ConvLayout, PackedPlane, YuvPlanes, YuvSpec};
 use crate::runtime::cuda::kernels::{
     Rgb24Direction, Rgb24Launch, YuvDirection, launch_rgb24, launch_yuv,
 };
@@ -80,7 +81,8 @@ impl CudaClient {
     }
 }
 
-/// ColorOps implementation for CUDA runtime. F32, F64, F16 and BF16.
+/// ColorOps implementation for CUDA runtime. F32, F64, F16 and BF16. Packed
+/// planes and packed RGB24 are read and written in place as bytes.
 impl ColorOps<CudaRuntime> for CudaClient {
     fn yuv_to_rgb(
         &self,
@@ -160,5 +162,53 @@ impl ColorOps<CudaRuntime> for CudaClient {
     ) -> Result<()> {
         let size = plan_pack_into(out, rgb, layout, float_ok, "float_to_rgb24_into")?;
         self.color_rgb24_run(Rgb24Direction::Pack, out, rgb, layout, size)
+    }
+
+    fn packed_rgb24_to_float(
+        &self,
+        rgb24: PackedPlane<'_, CudaRuntime>,
+        out_dtype: DType,
+        layout: ConvLayout,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let op = "packed_rgb24_to_float";
+        let [h, w] = plan_unpack_packed(&rgb24, out_dtype, float_ok, op)?;
+        let out = Tensor::<CudaRuntime>::empty(&rgb_shape(layout, h, w), out_dtype, &self.device)?;
+        self.color_packed_rgb24_run(Rgb24Direction::Unpack, &rgb24, &out, layout, [h, w])?;
+        Ok(out)
+    }
+
+    fn packed_rgb24_to_float_into(
+        &self,
+        out: &Tensor<CudaRuntime>,
+        rgb24: PackedPlane<'_, CudaRuntime>,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        let op = "packed_rgb24_to_float_into";
+        let size = plan_unpack_packed_into(out, &rgb24, layout, float_ok, op)?;
+        self.color_packed_rgb24_run(Rgb24Direction::Unpack, &rgb24, out, layout, size)
+    }
+
+    fn float_to_packed_rgb24(
+        &self,
+        rgb: &Tensor<CudaRuntime>,
+        layout: ConvLayout,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let size = plan_pack(rgb, layout, float_ok, "float_to_packed_rgb24")?;
+        let words =
+            Tensor::<CudaRuntime>::zeros(&packed_rgb24_shape(size), DType::U32, &self.device)?;
+        let out = PackedPlane::new(&words, size[1]);
+        self.color_packed_rgb24_run(Rgb24Direction::Pack, &out, rgb, layout, size)?;
+        Ok(words)
+    }
+
+    fn float_to_packed_rgb24_into(
+        &self,
+        out: PackedPlane<'_, CudaRuntime>,
+        rgb: &Tensor<CudaRuntime>,
+        layout: ConvLayout,
+    ) -> Result<()> {
+        let op = "float_to_packed_rgb24_into";
+        let size = plan_pack_packed_into(&out, rgb, layout, float_ok, op)?;
+        self.color_packed_rgb24_run(Rgb24Direction::Pack, &out, rgb, layout, size)
     }
 }

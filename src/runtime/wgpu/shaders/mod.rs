@@ -7,6 +7,7 @@
 
 pub mod advanced_random;
 pub mod cast_i64;
+pub mod color;
 pub mod complex;
 pub mod conv;
 pub mod copy;
