@@ -21,6 +21,7 @@ version. Every later entry is a delta against the one below it.
 - `BinaryOps::copy_into` accepts a strided `out` view on CPU, CUDA and WebGPU, so an op can write into a channel slice of a larger buffer. It rejects `out` and `src` views of one storage whose element spans intersect, and does nothing for an identical view. WebGPU supports 4-byte-multiple elements for a strided `out`.
 - `FusedConvOps::conv2d_fused` on CPU, CUDA and WebGPU: 2D convolution, bias, activation (`None`, `Relu`, `LeakyRelu`, `Prelu`) and an optional scaled residual in one call. It takes `ConvLayout::Nchw` (OIHW weight) or `ConvLayout::Nhwc` (OHWI weight) through `Conv2dConfig`. It is inference-only. WebGPU supports F32.
 - `FusedConvOps::conv2d_fused_into` writes the result into a strided `out` view, such as a channel slice of a dense-block buffer. `out` can share storage with a read operand when the two views are disjoint along one dimension, so a conv can read channels `[0, k)` and write channels `[k, k + g)` of one buffer.
+- CUDA `conv2d_fused` and `conv2d_fused_into` run a native implicit-GEMM tensor-core kernel for F16 (sm_70+) and BF16 (sm_80+) with `ConvLayout::Nhwc` and one group. It accumulates in F32, applies bias, activation and residual in F32, and reads and writes channel-slice views in place. Other calls take the generic path.
 
 ### Fixed
 

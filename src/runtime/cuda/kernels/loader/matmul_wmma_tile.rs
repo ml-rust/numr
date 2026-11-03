@@ -15,14 +15,14 @@ use super::names::dtype_suffix;
 // WMMA block: 16 warps (4×4 warp grid), each warp = 32 threads → 512 threads.
 // The thread count is identical for every block tile: the tile varies through
 // the per-warp fragment count, not through the warp grid (matmul_wmma.cuh).
-const WMMA_BLOCK_THREADS: u32 = 512;
+pub(super) const WMMA_BLOCK_THREADS: u32 = 512;
 
 /// Resident blocks per SM the WMMA kernels are compiled for. This is the
 /// `minBlocksPerMultiprocessor` argument of `WMMA_LAUNCH_BOUNDS`
 /// (`matmul_wmma.cuh`): ptxas caps registers so at least this many blocks stay
 /// resident, and the shared-memory footprint of every tile is small enough
 /// not to lower it.
-const WMMA_BLOCKS_PER_UNIT: u32 = 2;
+pub(super) const WMMA_BLOCKS_PER_UNIT: u32 = 2;
 
 /// Device waves the larger tile's grid must reach when the tile divides the
 /// output exactly. One wave is `compute_units * WMMA_BLOCKS_PER_UNIT` blocks.
@@ -225,7 +225,7 @@ fn wmma_tile_clears_gates(
 // extern __shared__ (dynamic) allocation.  Pass 0 so CUDA does not add
 // extra dynamic smem on top of the static pool (which would push total over
 // the 48 KB default per-block limit on sm_86).
-const WMMA_SMEM_BYTES: u32 = 0;
+pub(super) const WMMA_SMEM_BYTES: u32 = 0;
 
 /// Grid and block for one WMMA launch: one block per `tile` output tile, one
 /// grid-z slice per batch index (`batch` is 1 for the 2-D forms).

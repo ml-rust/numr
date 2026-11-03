@@ -174,6 +174,7 @@ mod tests {
             MATMUL_MODULE,
             GROUPED_MATMUL_MODULE,
             MATMUL_WMMA_MODULE,
+            CONV_IMPLICIT_GEMM_MODULE,
             GEMV_MODULE,
             MATMUL_INT_MODULE,
             MATMUL_FP8_MODULE,

@@ -9,6 +9,10 @@
 // channel slice of one buffer while reading the growing prefix of the same
 // buffer. Channels outside the written slice must keep their values exactly.
 //
+// CUDA native kernel (`native_cuda`, `native_cuda_into`): F16 and BF16 NHWC
+// against an F64 CPU reference on the same values, including strided views,
+// determinism and the generic fallback.
+//
 // CUDA and WebGPU (`parity`) must match the CPU result. Their conv runs as
 // im2col + GEMM with a different accumulation order, so the tolerance is
 // accumulation-aware.
@@ -17,6 +21,10 @@
 // one test file.
 
 mod into;
+#[cfg(feature = "cuda")]
+mod native_cuda;
+#[cfg(feature = "cuda")]
+mod native_cuda_into;
 mod parity;
 mod reference;
 

@@ -186,6 +186,7 @@ pub use loader::{
     smallm_applies, smallm_block_count, smallm_max_waves,
 };
 pub(crate) use loader::{
+    ConvEpilogueActivation, ConvImplicitGemmArgs, NhwcStrides, launch_conv_implicit_gemm,
     launch_matmul_wmma_f32out_batched_kernel, launch_matmul_wmma_f32out_kernel, use_wmma,
     use_wmma_after_padding, wmma_padded_dims,
 };

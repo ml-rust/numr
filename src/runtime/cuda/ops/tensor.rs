@@ -36,6 +36,9 @@ mod conv;
 #[path = "../../../ops/cuda/conv_fused.rs"]
 mod conv_fused;
 
+#[path = "../../../ops/cuda/conv_fused_native.rs"]
+mod conv_fused_native;
+
 #[path = "../../../ops/cuda/conv1d_im2col.rs"]
 mod conv1d_im2col;
 
