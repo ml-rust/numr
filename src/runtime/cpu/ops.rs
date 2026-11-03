@@ -52,6 +52,9 @@ mod matmul_columns;
 #[path = "../../ops/cpu/conv.rs"]
 mod conv;
 
+#[path = "../../ops/cpu/conv_fused.rs"]
+mod conv_fused;
+
 #[path = "../../ops/cpu/cumulative.rs"]
 mod cumulative;
 

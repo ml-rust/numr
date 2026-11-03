@@ -75,6 +75,7 @@ pub(crate) mod activation_common;
 mod arithmetic;
 pub(crate) mod common;
 pub(crate) mod conv_common;
+pub(crate) mod conv_fused_common;
 pub(crate) mod conv_transpose_common;
 mod dispatch;
 pub(crate) mod distance_common;
@@ -109,11 +110,11 @@ pub(crate) use reduce::{
 };
 pub use traits::Fp8MatmulOps;
 pub use traits::{
-    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, ConvOps, CumulativeOps,
-    DistanceMetric, DistanceOps, EinsumOps, FwhtOps, GemmActivation, GemmEpilogueOps,
-    GroupedMatmulOps, HostCopyOps, IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps,
-    MeshgridIndexing, NormalizationOps, PadMode, PaddingMode, ReduceOps, ScalarOps,
-    ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UnaryOps, UtilityOps,
+    ActivationOps, BinaryOps, CompareOps, ComplexOps, ConditionalOps, Conv2dConfig, ConvActivation,
+    ConvLayout, ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, EinsumOps,
+    FusedConvOps, FwhtOps, GemmActivation, GemmEpilogueOps, GroupedMatmulOps, HostCopyOps,
+    IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NormalizationOps,
+    PadMode, PaddingMode, ReduceOps, ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps,
+    SortingOps, StatisticalOps, TensorOps, TypeConversionOps, UnaryOps, UtilityOps,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

@@ -20,6 +20,7 @@ pub mod complex;
 pub mod conditional;
 pub mod conv;
 pub mod conv1d_depthwise;
+pub mod conv_fused;
 pub mod copy_into;
 // CUDA-only fast path; without the feature the whole module is dead code.
 #[cfg(feature = "cuda")]

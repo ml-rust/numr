@@ -20,6 +20,7 @@
 //! ```
 
 pub mod activation;
+pub mod conv_fused;
 pub mod einsum;
 pub mod linalg;
 pub mod multivariate;
@@ -28,6 +29,7 @@ pub mod random;
 pub mod shape;
 pub mod utility;
 
+pub use conv_fused::{conv2d_fused_impl, conv2d_fused_into_impl};
 #[cfg(any(feature = "cuda", feature = "wgpu"))]
 pub use linalg::{slogdet_impl, tril_impl, triu_impl};
 pub use multivariate::{

@@ -33,6 +33,9 @@ mod grouped_matmul;
 #[path = "../../../ops/cuda/conv.rs"]
 mod conv;
 
+#[path = "../../../ops/cuda/conv_fused.rs"]
+mod conv_fused;
+
 #[path = "../../../ops/cuda/conv1d_im2col.rs"]
 mod conv1d_im2col;
 

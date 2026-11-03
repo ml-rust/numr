@@ -31,6 +31,9 @@ mod matmul;
 #[path = "../../../ops/wgpu/conv.rs"]
 mod conv;
 
+#[path = "../../../ops/wgpu/conv_fused.rs"]
+mod conv_fused;
+
 #[path = "../../../ops/wgpu/cumulative.rs"]
 mod cumulative;
 
