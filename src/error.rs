@@ -250,6 +250,19 @@ impl Error {
         Self::UnsupportedDType { dtype, op }
     }
 
+    /// Returns `true` when an allocation fails for lack of memory.
+    ///
+    /// This holds for [`Error::OutOfMemory`], and for [`Error::AllocFailed`]
+    /// that wraps it. A caller can then name the next action, such as a smaller
+    /// input, without reading the message.
+    pub fn is_out_of_memory(&self) -> bool {
+        match self {
+            Self::OutOfMemory { .. } => true,
+            Self::AllocFailed { source, .. } => source.is_out_of_memory(),
+            _ => false,
+        }
+    }
+
     /// Create a backend limitation error
     pub fn backend_limitation(
         backend: &'static str,
@@ -261,5 +274,32 @@ impl Error {
             operation,
             reason: reason.into(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn alloc_failed(source: Error) -> Error {
+        Error::AllocFailed {
+            shape: vec![2, 2],
+            dtype: "f32".to_string(),
+            device: "cpu".to_string(),
+            source: Box::new(source),
+        }
+    }
+
+    #[test]
+    fn out_of_memory_is_found_directly_and_through_alloc_failed() {
+        assert!(Error::OutOfMemory { size: 16 }.is_out_of_memory());
+        assert!(alloc_failed(Error::OutOfMemory { size: 16 }).is_out_of_memory());
+    }
+
+    #[test]
+    fn other_errors_are_not_out_of_memory() {
+        assert!(!Error::Backend("cuMemAllocAsync failed".to_string()).is_out_of_memory());
+        assert!(!alloc_failed(Error::Backend("capture".to_string())).is_out_of_memory());
+        assert!(!Error::NotContiguous.is_out_of_memory());
     }
 }

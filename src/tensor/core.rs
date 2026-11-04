@@ -1301,6 +1301,7 @@ mod tests {
                 if matches!(**source, Error::OutOfMemory { .. })),
             "the underlying OutOfMemory must be preserved as the source: {msg}"
         );
+        assert!(err.is_out_of_memory(), "not out of memory: {msg}");
     }
 
     /// `try_to_vec` is the fallible twin of `to_vec`, not a different readback.
