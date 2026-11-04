@@ -103,11 +103,13 @@ fn random_planes(format: Format, seed: u32) -> Vec<Vec<u16>> {
         .collect()
 }
 
-fn specs() -> [YuvSpec; 3] {
+fn specs() -> [YuvSpec; 5] {
     [
         YuvSpec::new(ColorMatrix::Bt709, ColorRange::Limited, ChromaSiting::Left),
         YuvSpec::new(ColorMatrix::Bt601, ColorRange::Full, ChromaSiting::Center),
         YuvSpec::new(ColorMatrix::Bt709, ColorRange::Full, ChromaSiting::Left),
+        YuvSpec::new(ColorMatrix::Fcc, ColorRange::Limited, ChromaSiting::Center),
+        YuvSpec::new(ColorMatrix::Smpte240m, ColorRange::Full, ChromaSiting::Left),
     ]
 }
 

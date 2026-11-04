@@ -54,6 +54,13 @@ fn not_implemented<T>(feature: &'static str) -> Result<T> {
 /// Then, with `Kr`, `Kb` from [`ColorMatrix`](super::ColorMatrix) and
 /// `Kg = 1 - Kr - Kb`:
 ///
+/// | Matrix | `Kr` | `Kb` |
+/// | --- | --- | --- |
+/// | `Bt601` | 0.299 | 0.114 |
+/// | `Bt709` | 0.2126 | 0.0722 |
+/// | `Fcc` | 0.30 | 0.11 |
+/// | `Smpte240m` | 0.212 | 0.087 |
+///
 /// ```text
 /// R = Y' + 2(1 - Kr)·Cr'
 /// B = Y' + 2(1 - Kb)·Cb'

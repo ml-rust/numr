@@ -12,6 +12,10 @@ pub enum ColorMatrix {
     Bt601,
     /// ITU-R BT.709: `Kr = 0.2126`, `Kb = 0.0722`.
     Bt709,
+    /// FCC (ITU-R BT.470 System M): `Kr = 0.30`, `Kb = 0.11`.
+    Fcc,
+    /// SMPTE 240M: `Kr = 0.212`, `Kb = 0.087`.
+    Smpte240m,
 }
 
 impl ColorMatrix {
@@ -20,7 +24,22 @@ impl ColorMatrix {
         match self {
             Self::Bt601 => (0.299, 0.114),
             Self::Bt709 => (0.2126, 0.0722),
+            Self::Fcc => (0.30, 0.11),
+            Self::Smpte240m => (0.212, 0.087),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_kr_kb_of_every_matrix() {
+        assert_eq!(ColorMatrix::Bt601.kr_kb(), (0.299, 0.114));
+        assert_eq!(ColorMatrix::Bt709.kr_kb(), (0.2126, 0.0722));
+        assert_eq!(ColorMatrix::Fcc.kr_kb(), (0.30, 0.11));
+        assert_eq!(ColorMatrix::Smpte240m.kr_kb(), (0.212, 0.087));
     }
 }
 

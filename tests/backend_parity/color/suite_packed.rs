@@ -34,11 +34,13 @@ pub fn noise(seed: u32, n: usize, bound: u32) -> Vec<u32> {
 /// partial encode group.
 const SIZES: [(usize, usize); 6] = [(2, 2), (4, 6), (2, 10), (4, 14), (6, 30), (34, 130)];
 
-fn specs() -> [YuvSpec; 3] {
+fn specs() -> [YuvSpec; 5] {
     [
         YuvSpec::new(ColorMatrix::Bt709, ColorRange::Limited, ChromaSiting::Left),
         YuvSpec::new(ColorMatrix::Bt601, ColorRange::Full, ChromaSiting::Center),
         YuvSpec::new(ColorMatrix::Bt709, ColorRange::Full, ChromaSiting::Left),
+        YuvSpec::new(ColorMatrix::Fcc, ColorRange::Limited, ChromaSiting::Center),
+        YuvSpec::new(ColorMatrix::Smpte240m, ColorRange::Full, ChromaSiting::Left),
     ]
 }
 

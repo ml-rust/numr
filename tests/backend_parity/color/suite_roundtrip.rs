@@ -13,7 +13,12 @@ const W: usize = 12;
 
 fn specs() -> Vec<YuvSpec> {
     let mut out = Vec::new();
-    for matrix in [ColorMatrix::Bt601, ColorMatrix::Bt709] {
+    for matrix in [
+        ColorMatrix::Bt601,
+        ColorMatrix::Bt709,
+        ColorMatrix::Fcc,
+        ColorMatrix::Smpte240m,
+    ] {
         for range in [ColorRange::Limited, ColorRange::Full] {
             for siting in [ChromaSiting::Left, ChromaSiting::Center] {
                 out.push(YuvSpec::new(matrix, range, siting));
