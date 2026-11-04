@@ -10,6 +10,7 @@ pub mod cast_i64;
 pub mod color;
 pub mod complex;
 pub mod conv;
+pub(crate) mod conv2d_tile;
 pub mod copy;
 pub mod copy_into;
 pub mod cumulative;

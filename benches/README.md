@@ -36,6 +36,10 @@ overhead, not the kernel.
 | `parallelism.rs`   | Thread scaling and chunk tuning on the CPU backend |
 | `ci_regression.rs` | The gate set CI runs                               |
 
+WebGPU wall-time diagnostics are examples, because a FluxBench iteration count
+does not fit one layer at these sizes: `cargo run --release --example
+wgpu_conv2d_profile --features wgpu`.
+
 ## Gates
 
 A suite declares its regression gates with `#[flux::verify]`:

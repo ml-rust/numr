@@ -27,6 +27,9 @@
 // the native kernel or im2col + GEMM with a different accumulation order,
 // so the tolerance is accumulation-aware.
 //
+// WebGPU tile kernels (`wgpu_tile`): shapes across each kernel edge, in both
+// layouts, against the CPU result.
+//
 // Every reference is a CPU result. The residual shape comes from the CPU
 // `conv2d` too, so no backend checks itself.
 //
@@ -48,6 +51,8 @@ mod native_cuda_nchw_conv2d;
 mod native_cuda_nchw_views;
 mod parity;
 mod reference;
+#[cfg(feature = "wgpu")]
+mod wgpu_tile;
 
 use numr::dtype::DType;
 use numr::ops::{

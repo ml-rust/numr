@@ -34,6 +34,9 @@ mod conv;
 #[path = "../../../ops/wgpu/conv_fused.rs"]
 mod conv_fused;
 
+#[path = "../../../ops/wgpu/conv2d_tile.rs"]
+mod conv2d_tile;
+
 #[path = "../../../ops/wgpu/cumulative.rs"]
 mod cumulative;
 

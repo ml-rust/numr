@@ -86,7 +86,7 @@ fn leaky_relu_f32(
     if (idx < scalar_params.numel) {
         let x = scalar_a[idx];
         let slope = scalar_params.scalar;
-        scalar_out[idx] = max(slope * x, x);
+        scalar_out[idx] = select(slope * x, x, x > 0.0);
     }
 }
 

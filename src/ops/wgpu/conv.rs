@@ -3,7 +3,7 @@
 use crate::error::Result;
 use crate::ops::conv_common::{validate_conv1d, validate_conv2d, validate_depthwise_conv2d};
 use crate::ops::conv_transpose_common::validate_conv_transpose1d;
-use crate::ops::{ConvOps, PaddingMode};
+use crate::ops::{ConvActivation, ConvLayout, ConvOps, PaddingMode};
 use crate::runtime::RuntimeClient;
 use crate::runtime::ensure_contiguous;
 use crate::runtime::wgpu::ops::helpers::{alloc_output, create_params_buffer, get_tensor_buffer};
@@ -11,6 +11,8 @@ use crate::runtime::wgpu::shaders::conv as conv_launcher;
 use crate::runtime::wgpu::shaders::linear_grid::element_count_u32;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
 use crate::tensor::Tensor;
+
+use super::conv2d_tile::{TileCall, tile_grid_for};
 
 // ============================================================================
 // Params Structs (must match WGSL shader structs)
@@ -317,6 +319,22 @@ impl ConvOps<WgpuRuntime> for WgpuClient {
             &[params.batch, params.c_out, params.output_h, params.output_w],
             dtype,
         )?;
+
+        if let Some(grid) = tile_grid_for(&params, dtype) {
+            let call = TileCall {
+                input: &input,
+                weight: &weight,
+                bias: bias.as_ref(),
+                activation: ConvActivation::None,
+                residual: None,
+                layout: ConvLayout::Nchw,
+                conv: params,
+                grid,
+            };
+            let buffers = call.buffers()?;
+            call.launch(self, &output, &buffers)?;
+            return Ok(output);
+        }
 
         // The input, weight and output counts bound every size cast to u32 below.
         element_count_u32(input.numel(), "conv")?;
