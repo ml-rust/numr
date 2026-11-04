@@ -8,8 +8,8 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::common::{
     YuvFrame, packed_rgb24_shape, plan_decode, plan_decode_into, plan_encode, plan_pack,
-    plan_pack_into, plan_pack_packed_into, plan_unpack, plan_unpack_into, plan_unpack_packed,
-    plan_unpack_packed_into, rgb_shape, rgb_strides, rgb24_strides,
+    plan_pack_into, plan_pack_packed_into, plan_pad_packed_luma, plan_unpack, plan_unpack_into,
+    plan_unpack_packed, plan_unpack_packed_into, rgb_shape, rgb_strides, rgb24_strides,
 };
 use crate::ops::{ColorOps, ConvLayout, PackedPlane, YuvPlanes, YuvSpec};
 use crate::runtime::cuda::kernels::{
@@ -210,5 +210,18 @@ impl ColorOps<CudaRuntime> for CudaClient {
         let op = "float_to_packed_rgb24_into";
         let size = plan_pack_packed_into(&out, rgb, layout, float_ok, op)?;
         self.color_packed_rgb24_run(Rgb24Direction::Pack, &out, rgb, layout, size)
+    }
+
+    fn pad_packed_luma(
+        &self,
+        y: PackedPlane<'_, CudaRuntime>,
+        rows: usize,
+        columns: usize,
+        sample: DType,
+    ) -> Result<Tensor<CudaRuntime>> {
+        let plan = plan_pad_packed_luma(&y, rows, columns, sample, "pad_packed_luma")?;
+        let out = Tensor::<CudaRuntime>::zeros(&plan.out_shape(), DType::U32, &self.device)?;
+        self.color_pad_packed_luma_run(&y, &plan, &out)?;
+        Ok(out)
     }
 }

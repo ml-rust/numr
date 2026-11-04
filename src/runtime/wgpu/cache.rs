@@ -3,6 +3,7 @@
 use super::client::WgpuClient;
 use super::device::WgpuDevice;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::{Mutex, OnceLock};
 
 /// Global client cache: device index -> cached WgpuClient
@@ -33,4 +34,26 @@ pub(super) fn get_or_create_client(
     cache_guard.insert(device.index, client.clone());
 
     Ok(client)
+}
+
+/// Cache `client` under its device index, unless the index already has one.
+///
+/// The check and the insert happen under one lock, so a concurrent
+/// `get_or_create_client` for the index cannot build a second device.
+///
+/// # Errors
+///
+/// `WgpuError::IndexInUse` when the cache already holds the index.
+pub(super) fn install_client(client: WgpuClient) -> Result<WgpuClient, super::device::WgpuError> {
+    let cache = CLIENT_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+
+    let index = client.device_id.index;
+    match cache_guard.entry(index) {
+        Entry::Occupied(_) => Err(super::device::WgpuError::IndexInUse { index }),
+        Entry::Vacant(slot) => {
+            slot.insert(client.clone());
+            Ok(client)
+        }
+    }
 }

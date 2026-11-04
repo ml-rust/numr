@@ -8,12 +8,13 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::common::{
     packed_rgb24_shape, plan_decode, plan_decode_into, plan_encode, plan_pack,
-    plan_pack_packed_into, plan_unpack_packed, plan_unpack_packed_into, rgb_shape,
+    plan_pack_packed_into, plan_pad_packed_luma, plan_unpack_packed, plan_unpack_packed_into,
+    rgb_shape,
 };
 use crate::ops::{ColorOps, ConvLayout, PackedPlane, YuvPlanes, YuvSpec};
 use crate::runtime::RuntimeClient;
 use crate::runtime::wgpu::ops::native::{
-    native_rgb24, native_yuv, packed_rgb24_only, require_packed,
+    native_pad_packed_luma, native_rgb24, native_yuv, packed_rgb24_only, require_packed,
 };
 use crate::runtime::wgpu::shaders::color::ColorEntry;
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
@@ -189,5 +190,18 @@ impl ColorOps<WgpuRuntime> for WgpuClient {
             size,
             false,
         )
+    }
+
+    fn pad_packed_luma(
+        &self,
+        y: PackedPlane<'_, WgpuRuntime>,
+        rows: usize,
+        columns: usize,
+        sample: DType,
+    ) -> Result<Tensor<WgpuRuntime>> {
+        let plan = plan_pad_packed_luma(&y, rows, columns, sample, "pad_packed_luma")?;
+        let out = Tensor::<WgpuRuntime>::empty(&plan.out_shape(), DType::U32, self.device())?;
+        native_pad_packed_luma(self, &y, &plan, &out)?;
+        Ok(out)
     }
 }

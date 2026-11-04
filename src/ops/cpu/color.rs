@@ -4,7 +4,7 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::common::{
     packed_rgb24_shape, plan_decode, plan_decode_into, plan_encode, plan_pack, plan_pack_into,
-    plan_pack_packed_into, plan_unpack, plan_unpack_into, plan_unpack_packed,
+    plan_pack_packed_into, plan_pad_packed_luma, plan_unpack, plan_unpack_into, plan_unpack_packed,
     plan_unpack_packed_into, rgb_shape,
 };
 use crate::ops::{ColorOps, ConvLayout, PackedPlane, YuvPlanes, YuvSpec};
@@ -12,7 +12,7 @@ use crate::runtime::cpu::{
     CpuClient, CpuRuntime,
     helpers::{
         color_float_ok, float_to_packed_rgb24_run, float_to_rgb24_run, packed_rgb24_to_float_run,
-        rgb_to_yuv_run, rgb24_to_float_run, yuv_to_rgb_run,
+        pad_packed_luma_run, rgb_to_yuv_run, rgb24_to_float_run, yuv_to_rgb_run,
     },
 };
 use crate::tensor::Tensor;
@@ -150,5 +150,18 @@ impl ColorOps<CpuRuntime> for CpuClient {
         let op = "float_to_packed_rgb24_into";
         let size = plan_pack_packed_into(&out, rgb, layout, color_float_ok, op)?;
         float_to_packed_rgb24_run(self, rgb, &out, layout, size)
+    }
+
+    fn pad_packed_luma(
+        &self,
+        y: PackedPlane<'_, CpuRuntime>,
+        rows: usize,
+        columns: usize,
+        sample: DType,
+    ) -> Result<Tensor<CpuRuntime>> {
+        let plan = plan_pad_packed_luma(&y, rows, columns, sample, "pad_packed_luma")?;
+        let out = Tensor::<CpuRuntime>::zeros(&plan.out_shape(), DType::U32, &self.device)?;
+        pad_packed_luma_run(&y, &plan, &out)?;
+        Ok(out)
     }
 }

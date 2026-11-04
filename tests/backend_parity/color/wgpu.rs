@@ -6,6 +6,7 @@
 use numr::dtype::DType;
 use numr::error::Error;
 use numr::ops::{ChromaSiting, ColorMatrix, ColorOps, ColorRange, ConvLayout, YuvPlanes, YuvSpec};
+use numr::runtime::Runtime;
 use numr::runtime::wgpu::WgpuRuntime;
 use numr::tensor::Tensor;
 
@@ -14,6 +15,9 @@ use super::packed::{upload_packed, with_packed};
 use super::suite_golden::{check_decode_golden, check_decode_into_slice, check_encode_golden};
 use super::suite_packed::{check_packed_ffmpeg_bytes, check_packed_matches_cpu};
 use super::suite_packed_errors::{check_packed_rgb24_errors, check_packed_yuv_errors};
+use super::suite_packed_pad::{
+    check_pad_packed_luma, check_pad_packed_luma_errors, check_padded_luma_decodes,
+};
 use super::suite_packed_rgb24::{
     check_packed_rgb24, check_packed_rgb24_ties_and_clamps, check_packed_rgb24_views,
 };
@@ -64,6 +68,21 @@ fn test_color_wgpu_errors() {
         check_packed_yuv_errors::<WgpuRuntime, _>(&client, &device);
         check_packed_rgb24_errors::<WgpuRuntime, _>(&client, &device);
     });
+}
+
+#[test]
+fn test_color_wgpu_pad_packed_luma() {
+    with_wgpu_backend_or_skip(|client, device| {
+        check_pad_packed_luma::<WgpuRuntime, _>(&client, &device);
+        check_padded_luma_decodes::<WgpuRuntime, _>(&client, &device);
+        check_pad_packed_luma_errors::<WgpuRuntime, _>(&client, &device);
+    });
+}
+
+/// WebGPU kernels address 32-bit words, so generic code must pack.
+#[test]
+fn test_color_wgpu_requires_packed_planes() {
+    assert!(WgpuRuntime::packed_color_planes());
 }
 
 fn limitation<T: std::fmt::Debug>(result: numr::error::Result<T>, text: &str) {

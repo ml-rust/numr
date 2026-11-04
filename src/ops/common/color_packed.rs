@@ -113,7 +113,7 @@ pub fn validate_packed_planes<R: Runtime<DType = DType>>(
                 arg: "planes",
                 reason: format!(
                     "{op}: {format} luma {name} = {size} (packed plane y) is odd, but 4:2:0 \
-                     needs an even H and W; pad the frame to an even size first"
+                     needs an even H and W. Pad luma to an even size with pad_packed_luma first"
                 ),
             });
         }
@@ -144,6 +144,26 @@ pub fn packed_rgb24_frame_size<R: Runtime<DType = DType>>(
     check_words(p, &name, arg, op)?;
     let rows = p.words.shape()[0];
     check_extent(p, &name, [rows, p.width, RGB24_COL_BYTES], arg, op)?;
+    Ok([rows, p.width])
+}
+
+/// Check that `p` is a packed plane of `sample_bytes`-byte samples and return
+/// `[H, W]`.
+///
+/// # Errors
+///
+/// `Error::InvalidArgument` for argument `arg` when the words are not U32
+/// `[H, words]` with column stride 1, or hold too few words per row.
+pub fn packed_plane_size<R: Runtime<DType = DType>>(
+    p: &PackedPlane<'_, R>,
+    sample_bytes: usize,
+    arg: &'static str,
+    op: &'static str,
+) -> Result<[usize; 2]> {
+    let name = format!("packed plane {arg}");
+    check_words(p, &name, arg, op)?;
+    let rows = p.words.shape()[0];
+    check_extent(p, &name, [rows, p.width, sample_bytes], arg, op)?;
     Ok([rows, p.width])
 }
 

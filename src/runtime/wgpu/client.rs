@@ -10,10 +10,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device, Queue};
+use wgpu::{Adapter, Buffer, BufferDescriptor, BufferUsages, Device, Queue};
 
 use super::WgpuRuntime;
-use super::device::{WgpuDevice, WgpuError, query_adapter_info_blocking};
+use super::device::{WgpuDevice, WgpuError, describe_installed, query_adapter_info_blocking};
 use super::shaders::PipelineCache;
 use crate::runtime::{Allocator, RuntimeClient};
 
@@ -109,6 +109,46 @@ impl WgpuClient {
         })
         .map_err(|e| WgpuError::DeviceError(format!("{:?}", e)))?;
 
+        let device_with_info = WgpuDevice::with_info(device.index, info);
+        Ok(Self::from_parts(device_with_info, wgpu_device, queue))
+    }
+
+    /// Adopt a `wgpu::Device` that the caller opened, as the client of `index`.
+    ///
+    /// Every later `WgpuClient::new`, `Runtime::default_client` and tensor
+    /// allocation for `index` then uses this device. Use it when the device
+    /// needs more than `WgpuClient::new` requests, such as extensions or
+    /// queues opened through wgpu-hal.
+    ///
+    /// `adapter` must be the adapter that opened `device`. It supplies the
+    /// reported name and backend, and the compute capability check. The
+    /// reported limits and subgroup support come from `device`, since a
+    /// device can use less than its adapter offers. `WgpuClient::new` requests
+    /// the adapter's maxima. A device opened with less caps buffers at its own
+    /// limits.
+    ///
+    /// `device` and `queue` are cloneable handles, so the caller can keep
+    /// clones. A refused install drops the handles it received.
+    ///
+    /// # Errors
+    ///
+    /// - `WgpuError::IndexInUse` when `index` already has a client, either
+    ///   installed or created on first use.
+    /// - `WgpuError::DeviceUnsupported` when the adapter has no compute
+    ///   shaders, or `device` has a limit below what numr kernels need.
+    pub fn install(
+        index: usize,
+        adapter: &Adapter,
+        device: Device,
+        queue: Queue,
+    ) -> Result<Self, WgpuError> {
+        let info = describe_installed(index, adapter, &device)?;
+        let client = Self::from_parts(WgpuDevice::with_info(index, info), device, queue);
+        super::cache::install_client(client)
+    }
+
+    /// Build a client over an open device and queue.
+    fn from_parts(device_id: WgpuDevice, wgpu_device: Device, queue: Queue) -> Self {
         let wgpu_device = Arc::new(wgpu_device);
         let queue = Arc::new(queue);
 
@@ -124,16 +164,14 @@ impl WgpuClient {
 
         let pipeline_cache = Arc::new(PipelineCache::new(wgpu_device.clone(), queue.clone()));
 
-        let device_with_info = WgpuDevice::with_info(device.index, info);
-
-        Ok(Self {
-            device_id: device_with_info,
+        Self {
+            device_id,
             wgpu_device,
             queue,
             allocator,
             raw_handle,
             pipeline_cache,
-        })
+        }
     }
 
     /// Get reference to the WebGPU device.

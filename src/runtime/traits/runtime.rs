@@ -82,6 +82,17 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         true
     }
 
+    /// Whether this backend's colour kernels take planes in packed form only.
+    ///
+    /// When `true`, generic code passes planes as
+    /// [`PackedPlane`](crate::ops::PackedPlane) words and the `YuvPlanes`
+    /// `Packed` variants, since the U8 and U16 forms return
+    /// `Error::BackendLimitation`. CPU and CUDA take both forms and return
+    /// `false`. WebGPU kernels address 32-bit words only and return `true`.
+    fn packed_color_planes() -> bool {
+        false
+    }
+
     /// Destination-passing graph capture.
     ///
     /// Captures the operations performed by `f` into a replayable

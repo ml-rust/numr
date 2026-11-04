@@ -15,7 +15,7 @@ fn zeros<R: Runtime<DType = DType>>(shape: &[usize], dtype: DType, d: &R::Device
 }
 
 /// Assert `InvalidArgument` for `arg` whose reason contains `text`.
-fn invalid<T: std::fmt::Debug>(result: numr::error::Result<T>, arg: &str, text: &str) {
+pub fn invalid<T: std::fmt::Debug>(result: numr::error::Result<T>, arg: &str, text: &str) {
     match result {
         Err(Error::InvalidArgument { arg: a, reason }) => {
             assert_eq!(a, arg, "wrong argument in: {reason}");

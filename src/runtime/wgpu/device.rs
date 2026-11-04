@@ -9,7 +9,7 @@
 
 use std::fmt;
 use std::sync::Arc;
-use wgpu::{Adapter, Backend, Limits};
+use wgpu::{Adapter, Backend, DownlevelFlags, Features, Limits};
 
 /// Error type for WebGPU operations.
 #[derive(Debug, Clone)]
@@ -22,6 +22,18 @@ pub enum WgpuError {
     BufferError(String),
     /// Shader compilation failed.
     ShaderError(String),
+    /// `WgpuClient::install` received an index that already has a client.
+    IndexInUse {
+        /// The device index the cache already holds.
+        index: usize,
+    },
+    /// `WgpuClient::install` received a device that cannot run numr kernels.
+    DeviceUnsupported {
+        /// The device index of the refused install.
+        index: usize,
+        /// The unmet requirement.
+        reason: String,
+    },
 }
 
 impl fmt::Display for WgpuError {
@@ -31,6 +43,17 @@ impl fmt::Display for WgpuError {
             WgpuError::DeviceError(msg) => write!(f, "WebGPU device error: {}", msg),
             WgpuError::BufferError(msg) => write!(f, "WebGPU buffer error: {}", msg),
             WgpuError::ShaderError(msg) => write!(f, "WebGPU shader error: {}", msg),
+            WgpuError::IndexInUse { index } => write!(
+                f,
+                "WebGPU device index {index} already has a client. Call WgpuClient::install \
+                 before the first use of the index, or pass an unused index"
+            ),
+            WgpuError::DeviceUnsupported { index, reason } => write!(
+                f,
+                "WebGPU device for index {index} cannot run numr kernels: {reason}. Open the \
+                 device on a compute-capable adapter with at least these limits, for example \
+                 adapter.limits()"
+            ),
         }
     }
 }
@@ -52,6 +75,116 @@ pub(crate) struct AdapterInfo {
     min_subgroup_size: u32,
     /// Maximum subgroup size (0 if not supported)
     max_subgroup_size: u32,
+}
+
+impl AdapterInfo {
+    /// Describe a device on an adapter from what the device can use.
+    fn new(adapter: wgpu::AdapterInfo, limits: Limits, features: Features) -> Arc<Self> {
+        let subgroups_supported = features.contains(Features::SUBGROUP);
+        // In wgpu 28+, subgroup sizes are not directly available via limits,
+        // so we use typical GPU subgroup sizes as fallback (most GPUs use 32)
+        let (min_subgroup_size, max_subgroup_size) = if subgroups_supported {
+            (4, 64) // Common range across NVIDIA (32), AMD (32-64), Intel (8-32)
+        } else {
+            (0, 0)
+        };
+        Arc::new(Self {
+            name: adapter.name,
+            backend: adapter.backend,
+            limits,
+            subgroups_supported,
+            min_subgroup_size,
+            max_subgroup_size,
+        })
+    }
+}
+
+/// Storage buffers the largest kernel binds. The sparse merge kernels bind 9.
+const MIN_STORAGE_BUFFERS: u32 = if cfg!(feature = "sparse") { 9 } else { 8 };
+
+/// Check that a device can run numr kernels, and describe it.
+///
+/// numr needs no optional wgpu feature: no kernel enables a WGSL extension,
+/// and subgroups are unused. It needs compute shaders and the limits its
+/// kernels bind and dispatch at. A device past these floors still caps buffer
+/// sizes at its own `max_buffer_size` and `max_storage_buffer_binding_size`.
+///
+/// # Errors
+///
+/// `WgpuError::DeviceUnsupported` names the unmet requirement.
+pub(crate) fn describe_installed(
+    index: usize,
+    adapter: &Adapter,
+    device: &wgpu::Device,
+) -> Result<Arc<AdapterInfo>, WgpuError> {
+    let limits = device.limits();
+    check_installable(index, adapter.get_downlevel_capabilities().flags, &limits)?;
+    Ok(AdapterInfo::new(
+        adapter.get_info(),
+        limits,
+        device.features(),
+    ))
+}
+
+/// The requirement check of [`describe_installed`], on values alone.
+fn check_installable(
+    index: usize,
+    flags: DownlevelFlags,
+    limits: &Limits,
+) -> Result<(), WgpuError> {
+    if !flags.contains(DownlevelFlags::COMPUTE_SHADERS) {
+        return Err(WgpuError::DeviceUnsupported {
+            index,
+            reason: "the adapter does not run compute shaders".to_string(),
+        });
+    }
+    let floors = [
+        (
+            "max_storage_buffers_per_shader_stage",
+            limits.max_storage_buffers_per_shader_stage,
+            MIN_STORAGE_BUFFERS,
+        ),
+        (
+            "max_uniform_buffers_per_shader_stage",
+            limits.max_uniform_buffers_per_shader_stage,
+            1,
+        ),
+        ("max_bind_groups", limits.max_bind_groups, 1),
+        (
+            "max_bindings_per_bind_group",
+            limits.max_bindings_per_bind_group,
+            MIN_STORAGE_BUFFERS + 1,
+        ),
+        (
+            "max_compute_invocations_per_workgroup",
+            limits.max_compute_invocations_per_workgroup,
+            256,
+        ),
+        (
+            "max_compute_workgroup_size_x",
+            limits.max_compute_workgroup_size_x,
+            256,
+        ),
+        (
+            "max_compute_workgroup_size_y",
+            limits.max_compute_workgroup_size_y,
+            16,
+        ),
+        (
+            "max_compute_workgroups_per_dimension",
+            limits.max_compute_workgroups_per_dimension,
+            65535,
+        ),
+    ];
+    for (name, have, need) in floors {
+        if have < need {
+            return Err(WgpuError::DeviceUnsupported {
+                index,
+                reason: format!("{name} is {have}, and numr kernels need {need}"),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// WebGPU device identifier.
@@ -206,27 +339,7 @@ pub(crate) async fn query_adapter_info(
         )));
     };
 
-    let wgpu_info = adapter.get_info();
-    let limits = adapter.limits();
-    let features = adapter.features();
-
-    let subgroups_supported = features.contains(wgpu::Features::SUBGROUP);
-    // In wgpu 28+, subgroup sizes are not directly available via limits,
-    // so we use typical GPU subgroup sizes as fallback (most GPUs use 32)
-    let (min_subgroup_size, max_subgroup_size) = if subgroups_supported {
-        (4, 64) // Common range across NVIDIA (32), AMD (32-64), Intel (8-32)
-    } else {
-        (0, 0)
-    };
-
-    let info = Arc::new(AdapterInfo {
-        name: wgpu_info.name,
-        backend: wgpu_info.backend,
-        limits,
-        subgroups_supported,
-        min_subgroup_size,
-        max_subgroup_size,
-    });
+    let info = AdapterInfo::new(adapter.get_info(), adapter.limits(), adapter.features());
 
     Ok((adapter, info))
 }
@@ -269,6 +382,34 @@ mod tests {
             Err(e) => {
                 println!("No GPU available, skipping test: {}", e);
             }
+        }
+    }
+
+    #[test]
+    fn test_install_floors_name_the_unmet_limit() {
+        let compute = DownlevelFlags::COMPUTE_SHADERS;
+        let at_floor = Limits {
+            max_storage_buffers_per_shader_stage: MIN_STORAGE_BUFFERS,
+            ..Limits::default()
+        };
+        assert!(check_installable(7, compute, &at_floor).is_ok());
+
+        let below = Limits {
+            max_storage_buffers_per_shader_stage: MIN_STORAGE_BUFFERS - 1,
+            ..Limits::default()
+        };
+        match check_installable(7, compute, &below) {
+            Err(WgpuError::DeviceUnsupported { index: 7, reason }) => {
+                assert!(reason.contains("max_storage_buffers_per_shader_stage"));
+            }
+            other => panic!("expected DeviceUnsupported, got {other:?}"),
+        }
+
+        match check_installable(7, DownlevelFlags::empty(), &at_floor) {
+            Err(WgpuError::DeviceUnsupported { index: 7, reason }) => {
+                assert!(reason.contains("compute shaders"));
+            }
+            other => panic!("expected DeviceUnsupported, got {other:?}"),
         }
     }
 

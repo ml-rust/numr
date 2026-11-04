@@ -383,4 +383,40 @@ pub trait ColorOps<R: Runtime> {
         let _ = (out, rgb, layout);
         not_implemented("ColorOps::float_to_packed_rgb24_into")
     }
+
+    /// Replicate-pad a packed luma plane on the bottom and right into new
+    /// words, U32 `[rows, ceil(columns · sample_bytes / 4)]`.
+    ///
+    /// The YCbCr methods refuse an odd H or W. Pad the luma of a frame with an
+    /// odd display size to the next even size first. Its chroma has that even
+    /// size's shape already, with `ceil(W / 2)` samples per row.
+    ///
+    /// `sample` is `DType::U8` for NV12 and I420 or `DType::U16` for P010,
+    /// because packed words do not record their sample size. Sample
+    /// `[r, c]` of the result is sample `[min(r, H - 1), min(c, W - 1)]` of
+    /// `y`, every stored bit included. Bytes past `columns` in the last word
+    /// of a row are 0. Bytes of `y` past its width are not read. Pass the
+    /// result as `PackedPlane::new(&t, columns)`. Target sizes need not be
+    /// even, and equal sizes give a tight copy.
+    ///
+    /// # Errors
+    ///
+    /// - `Error::InvalidArgument` for argument `sample` when it is neither
+    ///   U8 nor U16.
+    /// - `Error::InvalidArgument` for argument `y` when its words are not U32
+    ///   `[H, n]` with column stride 1 and enough words per row, or `H` or
+    ///   `W` is 0.
+    /// - `Error::InvalidArgument` for argument `rows` or `columns` when the
+    ///   target is below the source size.
+    /// - `Error::NotImplemented` on a backend without colour kernels.
+    fn pad_packed_luma(
+        &self,
+        y: PackedPlane<'_, R>,
+        rows: usize,
+        columns: usize,
+        sample: DType,
+    ) -> Result<Tensor<R>> {
+        let _ = (y, rows, columns, sample);
+        not_implemented("ColorOps::pad_packed_luma")
+    }
 }

@@ -1,4 +1,5 @@
-//! Launcher for the colour kernels in color_yuv.wgsl and color_rgb24.wgsl.
+//! Launcher for the colour kernels in color_yuv.wgsl, color_rgb24.wgsl and
+//! color_pad.wgsl.
 //!
 //! Every operand binds as a read-write `array<u32>`, and views of one
 //! storage bind once. WebGPU rejects one buffer bound both read-only and
@@ -23,12 +24,15 @@ use crate::runtime::wgpu::client::get_buffer;
 const FLOAT_SHADER: &str = include_str!("color_float.wgsl");
 const YUV_SHADER: &str = include_str!("color_yuv.wgsl");
 const RGB24_SHADER: &str = include_str!("color_rgb24.wgsl");
+const PAD_SHADER: &str = include_str!("color_pad.wgsl");
 
 static YUV_BODY: LazyLock<String> =
     LazyLock::new(|| format!("{THREAD_INDEX_WGSL}{FLOAT_SHADER}{YUV_SHADER}"));
 
 static RGB24_BODY: LazyLock<String> =
     LazyLock::new(|| format!("{THREAD_INDEX_WGSL}{FLOAT_SHADER}{RGB24_SHADER}"));
+
+static PAD_BODY: LazyLock<String> = LazyLock::new(|| format!("{THREAD_INDEX_WGSL}{PAD_SHADER}"));
 
 /// Colour kernel entry point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +45,8 @@ pub enum ColorEntry {
     Rgb24ToFloat,
     /// `float_to_rgb24` in color_rgb24.wgsl.
     FloatToRgb24,
+    /// `pad_packed_luma` in color_pad.wgsl.
+    PadPackedLuma,
 }
 
 impl ColorEntry {
@@ -51,6 +57,7 @@ impl ColorEntry {
             Self::RgbToYuv => "rgb_to_yuv",
             Self::Rgb24ToFloat => "rgb24_to_float",
             Self::FloatToRgb24 => "float_to_rgb24",
+            Self::PadPackedLuma => "pad_packed_luma",
         }
     }
 
@@ -58,7 +65,7 @@ impl ColorEntry {
     pub fn operands(self) -> &'static [&'static str] {
         match self {
             Self::YuvToRgb | Self::RgbToYuv => &["rgb", "y", "u", "v"],
-            Self::Rgb24ToFloat | Self::FloatToRgb24 => &["src", "dst"],
+            Self::Rgb24ToFloat | Self::FloatToRgb24 | Self::PadPackedLuma => &["src", "dst"],
         }
     }
 
@@ -70,6 +77,7 @@ impl ColorEntry {
             Self::Rgb24ToFloat | Self::FloatToRgb24 => {
                 ("color_rgb24", "Rgb24Params", RGB24_BODY.as_str())
             }
+            Self::PadPackedLuma => ("color_pad", "PadLumaParams", PAD_BODY.as_str()),
         }
     }
 }
@@ -221,6 +229,7 @@ mod tests {
             ColorEntry::RgbToYuv,
             ColorEntry::Rgb24ToFloat,
             ColorEntry::FloatToRgb24,
+            ColorEntry::PadPackedLuma,
         ] {
             let (_, params, body) = entry.module();
             assert!(body.contains(&format!("fn {}(", entry.name())));

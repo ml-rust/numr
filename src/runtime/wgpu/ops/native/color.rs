@@ -7,7 +7,7 @@
 use super::helpers::*;
 use super::image::word;
 use crate::error::{Error, Result};
-use crate::ops::common::{YuvFrame, rgb_strides};
+use crate::ops::common::{PackedLumaPad, YuvFrame, rgb_strides};
 use crate::ops::{ConvLayout, PackedPlane, YuvPlanes};
 use crate::runtime::wgpu::shaders::color::{ColorEntry, launch_color};
 use crate::runtime::wgpu::{WgpuClient, WgpuRuntime};
@@ -187,5 +187,34 @@ pub(crate) fn native_rgb24(
         ColorEntry::FloatToRgb24 => [rgb_ptr, packed_ptr],
         _ => [packed_ptr, rgb_ptr],
     };
+    launch_color(client, entry, &storages, &params_buf, total)
+}
+
+/// Run the replicate padding kernel from the checked packed luma `y` into the
+/// new tight words `out`, which have the shape of `plan`.
+pub(crate) fn native_pad_packed_luma(
+    client: &WgpuClient,
+    y: &PackedPlane<'_, WgpuRuntime>,
+    plan: &PackedLumaPad,
+    out: &Tensor<WgpuRuntime>,
+) -> Result<()> {
+    let entry = ColorEntry::PadPackedLuma;
+    let op = entry.name();
+    let [h, w] = plan.source;
+    let [rows, columns] = plan.target;
+    let total = rows * plan.row_words;
+    let (src_base, src_rs) = plane_words(y, op)?;
+    let params = PadLumaParams {
+        total: word(total, "invocation count", op)?,
+        row_words: word(plan.row_words, "words per row", op)?,
+        src_base,
+        src_rs,
+        src_rows: word(h, "source rows", op)?,
+        src_width: word(w, "source columns", op)?,
+        columns: word(columns, "target columns", op)?,
+        sample_bytes: word(plan.sample_bytes, "sample bytes", op)?,
+    };
+    let params_buf = create_params_buffer(client, &params);
+    let storages = [y.words.storage().ptr(), out.storage().ptr()];
     launch_color(client, entry, &storages, &params_buf, total)
 }

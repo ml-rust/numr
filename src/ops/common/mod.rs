@@ -23,7 +23,8 @@ pub use color_calls::{
 };
 pub use color_packed::packed_rgb24_strides;
 pub use color_packed_calls::{
-    packed_rgb24_shape, plan_pack_packed_into, plan_unpack_packed, plan_unpack_packed_into,
+    PackedLumaPad, packed_rgb24_shape, plan_pack_packed_into, plan_pad_packed_luma,
+    plan_unpack_packed, plan_unpack_packed_into,
 };
 pub use color_plan::{ColorCoeffs, PlaneView, YuvFrame, rgb_strides, rgb24_strides};
 pub use color_validation::rgb_shape;

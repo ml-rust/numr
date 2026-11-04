@@ -3,6 +3,7 @@
 // round-trip, float dtype, RGB24 and error suites, and bit parity with CPU
 // on the U8 and U16 form.
 
+use numr::runtime::Runtime;
 use numr::runtime::cuda::CudaRuntime;
 
 use super::packed::with_packed;
@@ -11,6 +12,9 @@ use super::suite_golden::{
 };
 use super::suite_packed::{check_packed_ffmpeg_bytes, check_packed_matches_cpu};
 use super::suite_packed_errors::{check_packed_rgb24_errors, check_packed_yuv_errors};
+use super::suite_packed_pad::{
+    check_pad_packed_luma, check_pad_packed_luma_errors, check_padded_luma_decodes,
+};
 use super::suite_packed_rgb24::{
     check_packed_rgb24, check_packed_rgb24_ties_and_clamps, check_packed_rgb24_views,
 };
@@ -48,4 +52,19 @@ fn test_color_cuda_packed_rgb24_and_errors() {
         check_packed_yuv_errors::<CudaRuntime, _>(&client, &device);
         check_packed_rgb24_errors::<CudaRuntime, _>(&client, &device);
     });
+}
+
+#[test]
+fn test_color_cuda_pad_packed_luma() {
+    with_cuda_backend(|client, device| {
+        check_pad_packed_luma::<CudaRuntime, _>(&client, &device);
+        check_padded_luma_decodes::<CudaRuntime, _>(&client, &device);
+        check_pad_packed_luma_errors::<CudaRuntime, _>(&client, &device);
+    });
+}
+
+/// CUDA kernels take the U8 and U16 forms, so generic code need not pack.
+#[test]
+fn test_color_cuda_does_not_require_packed_planes() {
+    assert!(!CudaRuntime::packed_color_planes());
 }

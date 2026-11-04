@@ -1,5 +1,6 @@
 //! Params structs of the colour kernels, laid out to match `YuvParams` in
-//! color_yuv.wgsl and `Rgb24Params` in color_rgb24.wgsl byte for byte.
+//! color_yuv.wgsl, `Rgb24Params` in color_rgb24.wgsl and `PadLumaParams` in
+//! color_pad.wgsl byte for byte.
 //!
 //! F32 constants travel as their bit patterns, because the kernels compute
 //! on bits.
@@ -70,6 +71,27 @@ pub(crate) struct Rgb24Params {
     pub(crate) _pad: [u32; 2],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct PadLumaParams {
+    /// Invocation count: one per output word.
+    pub(crate) total: u32,
+    /// Output words per row, which is also the output row stride.
+    pub(crate) row_words: u32,
+    /// Word of source row 0 in its buffer.
+    pub(crate) src_base: u32,
+    /// Source row stride in words, two's complement.
+    pub(crate) src_rs: u32,
+    /// Source rows `H`.
+    pub(crate) src_rows: u32,
+    /// Source columns `W`.
+    pub(crate) src_width: u32,
+    /// Output columns.
+    pub(crate) columns: u32,
+    /// Bytes per sample: 1 or 2.
+    pub(crate) sample_bytes: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +100,6 @@ mod tests {
     fn params_match_the_wgsl_layout() {
         assert_eq!(std::mem::size_of::<YuvParams>(), 36 * 4);
         assert_eq!(std::mem::size_of::<Rgb24Params>(), 12 * 4);
+        assert_eq!(std::mem::size_of::<PadLumaParams>(), 8 * 4);
     }
 }

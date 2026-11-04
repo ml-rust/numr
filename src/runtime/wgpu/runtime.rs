@@ -46,6 +46,11 @@ impl Runtime for WgpuRuntime {
         false
     }
 
+    /// WGSL kernels address 32-bit words, so colour planes pass as packed words.
+    fn packed_color_planes() -> bool {
+        true
+    }
+
     /// Allocate GPU memory (storage buffer).
     ///
     /// Returns `Err(OutOfMemory)` if buffer creation fails.
