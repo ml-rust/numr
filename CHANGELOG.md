@@ -14,47 +14,47 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-05
+
+Fused 2D convolution, image resize and shuffle, and video colour conversion run on CPU, CUDA, and WebGPU.
+
+### Breaking
+
+- New enum variants `PadMode::Replicate`, `WgpuError::IndexInUse`, `WgpuError::DeviceUnsupported`, and `ColorEntry::PadPackedLuma`: add arms to each exhaustive `match`.
+- `copy_into`: `out` and `src` with intersecting element spans return `Error::InvalidArgument`. Interleaved but disjoint views count as overlapping. Pass views that do not overlap.
+- `conv2d` on CUDA: the last bits of the result change for F16 and BF16 on the native kernel, and for shapes past the old column limit. Update tests that compare exact bits.
+- `conv2d` on WebGPU: the last bits of the result change for F32 calls on the new kernels. Update tests that compare exact bits.
+- `launch_im2col2d`: takes `spatial_start` and `spatial_len`. Pass both.
+- `launch_leaky_relu`, `launch_elu`: take `f64` scalars. Pass `f64`.
+
 ### Added
 
-- `PadMode::Replicate` for `ShapeOps::pad_mode`. It repeats the edge element, matching PyTorch `F.pad(mode="replicate")`: `src = clamp(i - before, 0, size - 1)`. Any pad size is valid on a dimension of size 1 or more. A padded dimension of size 0 returns `Error::InvalidArgument` that names the dimension. CPU, CUDA and WebGPU each have a native kernel. Dtypes and rank limits match `Reflect`: CUDA covers every dtype up to 8 dimensions, WebGPU covers F32, I32 and U32 up to 8 dimensions. `PadMode` is not `#[non_exhaustive]`, so a downstream exhaustive `match` on `PadMode` needs a `Replicate` arm.
-- `ActivationOps::prelu` on CPU, CUDA and WebGPU. `weight` broadcasts to the input, matching `torch.nn.functional.prelu`.
-- `var_prelu` with gradients for the input and the weight.
-- `BinaryOps::copy_into` accepts a strided `out` view on CPU, CUDA and WebGPU, so an op can write into a channel slice of a larger buffer. It rejects `out` and `src` views of one storage whose element spans intersect, and does nothing for an identical view. WebGPU supports 4-byte-multiple elements for a strided `out`.
-- `FusedConvOps::conv2d_fused` on CPU, CUDA and WebGPU: 2D convolution, bias, activation (`None`, `Relu`, `LeakyRelu`, `Prelu`) and an optional scaled residual in one call. It takes `ConvLayout::Nchw` (OIHW weight) or `ConvLayout::Nhwc` (OHWI weight) through `Conv2dConfig`. It is inference-only. WebGPU supports F32.
-- `FusedConvOps::conv2d_fused_into` writes the result into a strided `out` view, such as a channel slice of a dense-block buffer. `out` can share storage with a read operand when the two views are disjoint along one dimension, so a conv can read channels `[0, k)` and write channels `[k, k + g)` of one buffer.
-- CUDA `conv2d_fused` and `conv2d_fused_into` run a native implicit-GEMM tensor-core kernel for F16 (sm_75+) and BF16 (sm_80+) with `ConvLayout::Nhwc` and one group. It accumulates in F32, applies bias, activation and residual in F32, and reads and writes channel-slice views in place. Other calls take the generic path.
-- `Conv2dConfig::accumulation` and `Conv2dConfig::with_accumulation` take a `ConvAccumulation`. The default `F32` keeps the F32 accumulator. `AllowHalf` permits a half-precision K sum. Only the CUDA native kernel honours it, for F16 on sm_75+, with F16-accumulator kernels and a 256x64 tile for `C_out > 32`. Other backends and BF16 ignore it. The result can differ from F32 accumulation by an amount that grows with K, and a partial sum past the F16 range becomes `inf`. Bias, activation and residual stay in F32.
-- CUDA native `conv2d_fused` stages a 2D output patch per block (8x16 for the 128x64 tile, 8x32 for the 256-row tiles). Each 32-channel chunk of the input patch plus its halo loads once and serves every tap, so the input is read about once instead of once per tap. It runs when `C_in % 8 == 0`, the input and weight are 16-byte aligned, the input strides are multiples of 8, and the halo fits the tile (any stride-1, dilation-1 kernel up to 3x3). Other shapes keep the per-tap gather. K is now summed chunk by chunk, so results differ in the last bits from the per-tap order. A fixed input still gives a bit-identical output.
-- CUDA native `conv2d_fused` and `conv2d_fused_into` take `ConvLayout::Nchw` with an OIHW weight, which they relay to OHWI on the device per call. The input stages along W into the same shared-memory layout as NHWC, through the halo body when `C_in % 8 == 0`, the input is 8-byte aligned with N/C/H strides that are multiples of 4 and W stride 1, and the halo fits; other NCHW shapes take a flat-K gather. The output stores along pixels, with 16-byte stores when W stride is 1 and the N/C/H strides are multiples of 8, and one-element stores otherwise. `AllowHalf` has F16-accumulator NCHW kernels too.
-- CUDA `ConvOps::conv2d` on F16 (sm_75+) and BF16 (sm_80+) runs the same native kernel in NCHW with the F32 accumulator when it takes the shape: one group, `Kh` and `Kw` at most 32, geometry within `i32`, and `C_out >= 4`. It reads strided input views in place and adds the bias in F32 before one rounding. Other shapes keep im2col + GEMM, then the direct kernel.
-- `Conv2dConfig` is `#[non_exhaustive]`. Build it with `Conv2dConfig::new` and the `with_*` setters.
-- `ImageOps` on CPU, CUDA and WebGPU: `pixel_shuffle`, `pixel_unshuffle` and `upsample_nearest2d`. Each has an `_into` variant that writes into a strided `out` view, such as a channel slice. Each takes `ConvLayout::Nchw` or `ConvLayout::Nhwc`. An NHWC call returns the NCHW result with its dimensions permuted.
-  - `pixel_shuffle` and `pixel_unshuffle` match `torch.nn.functional.pixel_shuffle` and `pixel_unshuffle`. These return `Error::InvalidArgument`: a channel count not divisible by `factor²`, an H or W not divisible by `factor`, a zero factor, or a rank other than 4.
-  - `upsample_nearest2d` takes `NearestSize::Scale(sh, sw)` or `NearestSize::Size(oh, ow)` and matches PyTorch CPU `mode="nearest"`. The output size is `floor(in * s)`. The source index is `min(floor(f32(dst) * scale), in - 1)` in f32, with `scale = f32(1 / s)` or `f32(in) / f32(out)`. An output equal to the input size copies. An output twice the input size uses `dst / 2`, as PyTorch's `nearest_idx` does. PyTorch's CUDA kernel skips that rule. A non-2 scale factor whose output is exactly twice the input therefore matches PyTorch CPU, not PyTorch CUDA.
-  - Strided input views run in place on every backend, with no contiguous copy. CPU and CUDA cover every dtype through element-size kernels. CUDA indexes in 64 bits. WebGPU covers F32, I32 and U32 and returns `Error::UnsupportedDType` for the rest.
-- `ImageOps::resize` and `ImageOps::resize_into` on CPU, CUDA and WebGPU: bilinear and bicubic resize matching PyTorch CPU `F.interpolate(size=..., align_corners=False)` with `antialias=False` or `True`. Build the config with `ResizeConfig::new((oh, ow), ResizeFilter::Bilinear | ResizeFilter::Bicubic)` and `with_antialias`. Both types are `#[non_exhaustive]`. `align_corners` is always false. The output is not clamped.
-  - The resize runs as two separable passes, W then H, through a device intermediate in the accumulation type. With antialias, an axis of equal size is skipped and equal sizes copy. Without antialias both passes always run, as PyTorch's do, so an `inf` or NaN meets zero weights at equal sizes.
-  - Every output computes its window and weights in the kernel. No table is uploaded. The rounding follows PyTorch's x86-64 AVX2 CPU kernel, including its fused multiply-adds. Against PyTorch 2.8 on that build, every F32 bicubic and antialias case tested matches bit for bit. Bilinear without antialias matches PyTorch's generic kernel bit for bit. PyTorch takes a channels-last kernel instead for outputs with `H + W <= 128`, for channels-last inputs with `C > 3`, and for `C = 3` on one thread. That kernel fuses the source index and sums four products, which moves results by up to `u·in` times the input range.
-  - CPU and CUDA cover F32, F64, F16 and BF16. F64 accumulates in F64, the rest in F32, and F16 and BF16 round once at the store. CPU needs the `f16` feature for F16 and BF16. CUDA matches CPU bit for bit, except that the CUDA build flushes F32 subnormals to zero. CUDA indexes in 64 bits. WebGPU covers F32 and matches CPU within rounding. Other dtypes return `Error::UnsupportedDType`.
-  - Strided input views run in place. `resize_into` writes into a strided `out` view, such as a channel slice, under the rules of `pixel_shuffle_into`.
-  - A zero output size returns `Error::InvalidArgument` for argument `config`. A rank other than 4 or a zero input H or W returns it for argument `input`.
-- `ColorOps` on CPU, CUDA and WebGPU: video frame colour conversion for one frame per call. `yuv_to_rgb` and `yuv_to_rgb_into` convert 4:2:0 planes to float RGB `[1, 3, H, W]` (`ConvLayout::Nchw`) or `[1, H, W, 3]` (`ConvLayout::Nhwc`). `rgb_to_yuv_into` writes caller-given planes. `rgb24_to_float`, `rgb24_to_float_into`, `float_to_rgb24` and `float_to_rgb24_into` convert packed U8 `[H, W, 3]` RGB24. A batch takes one `_into` call per `narrow(0, n, 1)` frame.
-  - `YuvPlanes::Nv12` (U8 Y, interleaved U8 UV), `YuvPlanes::I420` (U8 Y, U, V) and `YuvPlanes::P010` (U16 Y and UV, value in the high 10 bits). Every plane is a strided view, so a surface with a row pitch passes as is. An odd H or W returns `Error::InvalidArgument` that names the dimension.
-  - `YuvSpec::new(matrix, range, siting)` takes `ColorMatrix::Bt601`, `Bt709`, `Fcc` (`Kr = 0.30`, `Kb = 0.11`) or `Smpte240m` (`Kr = 0.212`, `Kb = 0.087`), `ColorRange::Limited` or `Full`, and `ChromaSiting::Left` or `Center`. All four types are `#[non_exhaustive]`.
-  - The trait doc states the normative formulas and the F32 evaluation order. Chroma upsamples bilinearly at the siting's sample positions and downsamples with a 2x2 box (`Center`) or `[1, 2, 1] / 4` over two rows (`Left`). Decoded RGB is clamped to `[0, 1]`. Encoding clamps RGB to `[0, 1]`, then quantises with the legal code range and rounds ties to even.
-  - RGB24 unpacks as `f32(v) / 255` and packs as `round_ties_even(clamp(x, 0, 1)·255)`, matching `x.clamp(0, 1).mul(255).round().to(torch.uint8)`.
-  - Float RGB is F32, F64, F16 or BF16. Kernels compute in F32, so F64 holds the F32 result. CPU needs the `f16` feature for F16 and BF16. CUDA runs the same F32 operations in the same order as CPU and indexes in 64 bits.
-  - `PackedPlane` passes a plane or an RGB24 frame as packed little-endian U32 words `[rows, n]`, with `width` the unpacked column count. A row's bytes start at its first word, the row stride is the pitch in words, and words along a row are contiguous. `PackedPlane::words_shape(rows, pitch_bytes)` refuses a pitch that is not a multiple of 4 with `Error::InvalidArgument` for argument `pitch_bytes`. Bytes of a row past its last column keep their values on every write.
-  - `YuvPlanes::Nv12Packed`, `I420Packed` and `P010Packed` hold packed planes. `packed_rgb24_to_float`, `packed_rgb24_to_float_into`, `float_to_packed_rgb24` and `float_to_packed_rgb24_into` take packed RGB24. Every backend takes the packed form with the same results as the U8 and U16 form. CPU and CUDA read and write the words in place. `YuvPlanes` is `#[non_exhaustive]`, so the new variants break no downstream `match`. The four new methods have defaults that return `Error::NotImplemented`.
-  - WebGPU takes planes and RGB24 in the packed form only, and float RGB in F32 only. U8 and U16 planes and U8 RGB24 return `Error::BackendLimitation` that names the packed form. Other float dtypes return `Error::UnsupportedDType`. Each kernel invocation owns whole output words: one pixel per decode invocation, one packed word per RGB24 pack invocation, and per encode invocation one chroma word of each chroma plane plus the luma words of its two rows. A partial last word of a row is read and merged, so no atomics are needed. Nothing is copied to contiguous and nothing leaves the device.
-  - WGSL leaves the rounding direction of float operations to the implementation, allows 2.5 ULP for division, and may flush subnormals, fuse or reassociate. The WebGPU kernels compute every F32 operation in integer arithmetic on the bit pattern with round to nearest even, so F32 outputs, codes and RGB24 bytes match CPU bit for bit.
-  - `ImageOps` has two new required methods. A downstream implementor of `ImageOps` must add `resize` and `resize_into`.
+- `FusedConvOps::conv2d_fused`: runs convolution, bias, activation, and scaled residual in one call, in NCHW or NHWC. Inference only. WebGPU takes F32 only.
+- `FusedConvOps::conv2d_fused_into`: the same call, writing into a strided view.
+- `ConvAccumulation::AllowHalf`: permits half-precision accumulation. Only the CUDA native kernel honours it, for F16 on compute capability 7.5 or newer.
+- `ImageOps`: `pixel_shuffle`, `pixel_unshuffle`, `upsample_nearest2d`, and `resize` (bilinear, bicubic, antialias), each with an `_into` form. They match PyTorch CPU. The trait docs state exceptions and dtypes per backend.
+- `ColorOps`: NV12, I420, and P010 to and from float RGB, RGB24 pack and unpack, and packed `U32` word planes through `PackedPlane`. WebGPU takes the packed form only, and matches CPU bit for bit.
+- `ColorOps::pad_packed_luma`: pads an odd-sized frame in packed form.
+- `Runtime::packed_color_planes`: reports whether a backend needs the packed form.
+- `WgpuClient::install`: adopts a `wgpu::Device` the caller opened, such as one with video queues.
+- `PadMode::Replicate`: pads with the edge value.
+- `ActivationOps::prelu`: adds PReLU. `var_prelu` is its autograd form.
+- `Error::is_out_of_memory`: reports an out-of-memory error.
+- `copy_into`: takes a strided destination on every backend. WebGPU takes elements of a 4-byte multiple only.
+
+### Changed
+
+- WebGPU F32 `conv2d` and `conv2d_fused` with one group: run on new tile-based kernels with bias, activation, and residual fused in. A 1080p super-resolution model ran about nine times faster on an RTX 3060. More than one group keeps the old kernel.
+- CUDA F16 and BF16 `conv2d`: run a native tensor-core kernel where the shape fits. Other shapes keep im2col and GEMM.
 
 ### Fixed
 
-- CUDA `leaky_relu` and `elu` on F64 used the slope or `alpha` rounded to f32. The F64 kernels now take the scalar as `double`.
+- WebGPU `leaky_relu`: a slope outside `[0, 1]` no longer returns `max(slope * x, x)`.
+- CUDA `leaky_relu`, `elu` on F64: the slope and `alpha` are no longer rounded to f32.
+- CUDA `conv2d` on large outputs: im2col and GEMM run in chunks, so the column buffer bounds memory.
+- CUDA conv launchers: an extent past 32 bits returns `Error::InvalidArgument`. It no longer truncates and runs over the wrong shape.
 
-## [0.14.0] — 2026-11-01
+## [0.14.0] - 2026-11-01
 
 Sparse ops run on WebGPU and CUDA, autograd gains grad mode and many `var_*` ops, and `lstsq` returns minimum-norm solutions.
 
@@ -116,7 +116,7 @@ Sparse ops run on WebGPU and CUDA, autograd gains grad mode and many `var_*` ops
 - **`pinverse` backends** — CUDA computes the cutoff on the device, and CPU uses tensor ops. `cond`, `cov` and `corrcoef` return `UnsupportedDType` instead of panicking.
 - **`nexar` requirement** — the `distributed` and `distributed-gpu` features require `nexar` 0.2 and `nexar-nccl` 0.2.
 
-## [0.13.0] — 2026-10-13
+## [0.13.0] - 2026-10-13
 
 Triangular solves take a batch of matrices in one call and behave the same on every backend.
 
@@ -136,7 +136,7 @@ Triangular solves take a batch of matrices in one call and behave the same on ev
 
 ---
 
-## [0.12.0] — 2026-10-11
+## [0.12.0] - 2026-10-11
 
 WebGPU copies and gathers any element size at any offset, and runs past the 65535-workgroup and 256 MiB defaults.
 
@@ -164,7 +164,7 @@ WebGPU copies and gathers any element size at any offset, and runs past the 6553
 
 ---
 
-## [0.11.0] — 2026-10-11
+## [0.11.0] - 2026-10-11
 
 GPU `scatter_reduce` is deterministic and bit-equal to the CPU, and the CUDA client works from any thread.
 
@@ -193,7 +193,7 @@ GPU `scatter_reduce` is deterministic and bit-equal to the CPU, and the CUDA cli
 
 ---
 
-## [0.10.0] — 2026-10-10
+## [0.10.0] - 2026-10-10
 
 A public `numr::distance` API on plain slices. SIMD kernels back it, and CPU `cdist` and `pdist` now use them.
 
@@ -264,7 +264,7 @@ User-space instructions per `cdist` call, measured with `perf stat -e instructio
 
 ---
 
-## [0.9.0] — 2026-10-09
+## [0.9.0] - 2026-10-09
 
 The WebGPU backend moves to wgpu 30.
 
@@ -282,7 +282,7 @@ The WebGPU backend moves to wgpu 30.
 
 ---
 
-## [0.8.0] — 2026-10-09
+## [0.8.0] - 2026-10-09
 
 Destination-passing ops and a capture-safe CUDA stream for graph replay. CUDA kernels ship as multi-arch fatbins inside the binary. New activation, padding, grouped-matmul, and transform ops.
 
@@ -338,7 +338,7 @@ Destination-passing ops and a capture-safe CUDA stream for graph replay. CUDA ke
 
 ---
 
-## [0.7.0] — 2026-08-30
+## [0.7.0] - 2026-08-30
 
 Tensors, linear algebra, FFT, and autograd behind one API on CPU, CUDA, and WebGPU.
 Every kernel is written in-house — no cuBLAS, cuSOLVER, or MKL.
