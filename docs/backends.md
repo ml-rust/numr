@@ -5,7 +5,7 @@ so switching backends changes the type parameter, not the algorithm.
 
 | Runtime | Hardware | Feature | Kernels |
 | ------- | -------- | ------- | ------- |
-| `CpuRuntime` | x86-64 and ARM64 CPUs | `cpu` (default, always available) | Native SIMD (AVX-512, AVX2, NEON) |
+| `CpuRuntime` | x86-64 and ARM64 CPUs | None, always built | Native SIMD (AVX-512, AVX2, NEON) |
 | `CudaRuntime` | NVIDIA GPUs | `cuda` | Native CUDA kernels in multi-arch fatbins, with a caching allocator |
 | `WgpuRuntime` | Vulkan, Metal, and DX12 GPUs through WebGPU | `wgpu` | WGSL compute shaders |
 

@@ -4,14 +4,38 @@ Thanks for contributing to [numr](https://crates.io/crates/numr). This guide cov
 
 ## Before you start
 
-- Rust 1.95 or newer (edition 2024).
-- Optional: CUDA 12.8+ or 13.x, or a WebGPU-capable device, to run GPU tests locally.
-- A clean working tree before you open a pull request.
+| Need | For |
+| ---- | --- |
+| Rust 1.95 or newer (edition 2024) | Every build |
+| CUDA toolkit 12.8 or newer, with `nvcc` on `PATH` or `CUDA_PATH` set | `--features cuda` |
+| Vulkan, Metal, or DX12 driver | `--features wgpu` tests |
 
-Useful contributions:
+## Build and test
 
-- **Missing primitives**: a tensor operation, dtype, or linear-algebra routine that NumPy has and numr lacks.
-- **Backend coverage**: a CUDA or WebGPU implementation of an operation that runs only on CPU.
+Run these from the repository root before you open a pull request. They match the commands in `.github/workflows/test.yml`.
+
+```bash
+cargo fmt --all --check
+cargo clippy --all-targets --features f16,sparse -- -D warnings
+cargo test --no-fail-fast
+cargo test --features f16,sparse --no-fail-fast
+cargo test backend_parity --features f16,sparse --no-fail-fast
+cargo test --doc --features f16,sparse --no-fail-fast
+```
+
+CI has no GPU. When you touch a GPU backend, run clippy and the tests locally with `--features cuda` and `--features wgpu`.
+
+CI also runs:
+
+- `cargo test` and `cargo test --features f16,sparse` on Linux, macOS, and Windows.
+- `cargo doc --no-deps --features f16,sparse,fp8,wgpu`.
+- `cargo check --no-default-features`, `cargo check --features f16,sparse`, and `cargo check --features wgpu,f16,sparse`.
+- `cargo build --examples --features sparse`, the six examples listed in `test.yml`, and `bash scripts/ci/test_release_verifiers.sh`.
+
+## Useful contributions
+
+- Missing primitives: a tensor operation, dtype, or linear-algebra routine that NumPy has and numr lacks.
+- Backend coverage: a CUDA or WebGPU implementation of an operation that runs only on CPU.
 - Bug fixes and numerical-accuracy improvements.
 
 Open an issue before you write a non-trivial operation. Describe the addition and the crate it belongs in. Small, self-contained fixes can go straight to a pull request.
@@ -101,11 +125,11 @@ Split a file at its soft limit when a logical boundary exists.
 
 ### Backend rules
 
-- **No GPU↔CPU transfers.** Host/device transfers cost far more than the computation. In GPU code, never call `tensor.to_vec()`, loop over device data on the host, or hide a transfer in a helper.
-- If a GPU kernel does not exist, return `Err(Error::Unsupported { .. })`. Do not fall back to CPU.
-- **No vendor libraries.** numr builds and runs without cuBLAS, cuDNN, MKL, or other vendor libraries. Kernels are native: PTX for CUDA, WGSL for WebGPU, SIMD intrinsics for CPU.
-- **Every supported dtype.** Implement each dtype the backend supports, not only `F32`. Use `dispatch_dtype!` for runtime dispatch.
-- WebGPU supports only `F32`, `I32`, and `U32`. Return an `UnsupportedDType` error for other dtypes. Do not degrade precision silently.
+- No GPU↔CPU transfers: host/device transfers cost far more than the computation. In GPU code, never call `tensor.to_vec()`, loop over device data on the host, or hide a transfer in a helper.
+- No CPU fallback: if a GPU kernel does not exist, return `Err(Error::NotImplemented { .. })`.
+- No vendor libraries: numr builds and runs without cuBLAS, cuDNN, MKL, or other vendor libraries. Kernels are native: PTX for CUDA, WGSL for WebGPU, SIMD intrinsics for CPU.
+- Every supported dtype: implement each dtype the backend supports, not only `F32`. Use `dispatch_dtype!` for runtime dispatch.
+- WebGPU dtypes: element-wise, scalar, comparison, and activation operations take `F32`. `cast` runs on the GPU among `F32`, `I32`, `U32`, and `I64`. Return `Error::UnsupportedDType` for other dtypes, and never degrade precision silently.
 
 ### CPU SIMD
 
@@ -127,43 +151,17 @@ unsafe fn my_kernel_avx512(data: *const f32, len: usize) -> f32 { /* ... */ }
 
 Use two or more accumulators in FMA loops to hide the 4–5 cycle latency. Always provide a scalar fallback.
 
-## Build
-
-```bash
-cargo build --release                    # CPU (default)
-cargo build --release --features cuda    # CUDA (requires a CUDA 12.8+ or 13.x toolchain)
-cargo build --release --features wgpu    # WebGPU
-cargo build --release --features sparse  # sparse tensors
-```
-
 ## Testing
 
 - Put unit tests in the same file as the code, in `#[cfg(test)] mod tests`. They can reach private functions.
-- Put public-API tests in `tests/`. Each subdirectory needs a `mod.rs`, so Cargo does not compile it as a separate test binary.
+- Put public-API tests in `tests/`. Each top-level file compiles as its own test binary. Group tests in a subdirectory with a `mod.rs`, and declare it from a top-level file, as `tests/backend_parity_all.rs` does.
 - Test numerical correctness against a reference value, not only that the call returns `Ok`.
 - A backend-specific test skips gracefully when no device is present.
 - Register each new module under `tests/backend_parity/` in `tests/backend_parity/mod.rs`. An unregistered module never compiles, and the suite still reports green.
 
-```bash
-cargo test --release
-cargo test --release --features cuda
-cargo test --release --features wgpu
-```
-
-## Quality checks
-
-Run these before you submit. CI runs clippy with `-D warnings`, so treat a warning as an error.
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --release
-```
-
-If you touch a GPU backend, run clippy and the tests with `--features cuda` and `--features wgpu`.
-
 ## Pull requests
 
+- Start from a clean working tree.
 - Keep each pull request focused and scoped.
 - Keep the module structure. Add files instead of growing existing ones.
 - Include backend parity tests for each new or changed operation.

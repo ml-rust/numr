@@ -14,11 +14,13 @@ The backends use native kernels, with no cuBLAS, MKL, or other vendor math libra
   ·
   <a href="https://crates.io/crates/numr"><strong>Crate</strong></a>
   ·
-  <a href="#operations"><strong>Operations</strong></a>
-  ·
   <a href="#backends"><strong>Backends</strong></a>
   ·
+  <a href="#installation"><strong>Install</strong></a>
+  ·
   <a href="#quick-start"><strong>Example</strong></a>
+  ·
+  <a href="#operations"><strong>Operations</strong></a>
   ·
   <a href="CONTRIBUTING.md"><strong>Contributing</strong></a>
 </p>
@@ -50,41 +52,37 @@ The backends use native kernels, with no cuBLAS, MKL, or other vendor math libra
 </div>
 
 numr is the foundation library for numerical code in Rust. Tensors are generic over a `Runtime`.
-Switching from CPU to CUDA or WebGPU changes the runtime type. Generic functions keep their body.
+Switching from CPU to CUDA or WebGPU changes the runtime type. Generic functions keep their body, and gain new backends when numr adds them.
 
-## What numr Is
+## Backends
 
-numr provides building blocks for higher-level libraries and applications.
+| Runtime | Hardware | Feature | Needs | Dtypes |
+| ------- | -------- | ------- | ----- | ------ |
+| `CpuRuntime` | x86-64 and ARM64 CPUs | None, always built | Nothing | All 15. `F16` and `BF16` need `f16`. FP8 types need `fp8` |
+| `CudaRuntime` | NVIDIA GPUs, compute capability 7.5 (Turing) or newer | `cuda` | CUDA toolkit 12.8 or newer, with `nvcc` on `PATH` or `CUDA_PATH` set | Same as CPU |
+| `WgpuRuntime` | Vulkan, Metal, and DX12 GPUs | `wgpu` | Platform GPU driver | `F32` for computation. `cast` runs on the GPU among `F32`, `I32`, `U32`, and `I64`. Other dtypes return `Error::UnsupportedDType` |
 
-| numr IS | numr is NOT |
-| ------- | ----------- |
-| Tensor library (like NumPy's ndarray) | A deep learning framework |
-| Linear algebra (decompositions, solvers) | A high-level ML API |
-| FFT, statistics, random distributions | Domain-specific |
-| Native GPU (CUDA + WebGPU) and autograd | |
-
-For optimization, ODE solvers, interpolation, and signal processing, use [solvr](https://github.com/ml-rust/solvr).
+- Kernels: SIMD on CPU (AVX-512, AVX2, NEON), native CUDA kernels, and WGSL compute shaders. No cuBLAS, MKL, or other vendor library.
+- ROCm: not implemented.
+- Dtype coverage: the table lists what a backend holds. Check the operation before you rely on a dtype.
+- CUDA binaries: a build targets the GPUs on the build host. Set `NUMR_CUDA_ARCH=all` for a binary that runs on another machine.
+- Details: the dtype table, SIMD, graph capture, and every `NUMR_CUDA_ARCH` value are in [docs/backends.md](docs/backends.md). The CUDA build steps are in [CUDA Build](docs/backends.md#cuda-build).
 
 ## Installation
 
-```bash
-cargo add numr
-```
-
-For GPU support, add a backend feature:
+Needs Rust 1.95 or newer.
 
 ```bash
-cargo add numr --features cuda   # NVIDIA GPUs, CUDA 12.8+ or 13.x
-cargo add numr --features wgpu   # WebGPU: Vulkan, Metal, and DX12 GPUs
+cargo add numr                   # CPU
+cargo add numr --features cuda   # NVIDIA GPUs
+cargo add numr --features wgpu   # WebGPU
 ```
 
-Feature flags:
+Other feature flags:
 
 | Feature | Description | Default |
 | ------- | ----------- | ------- |
 | `rayon` | Multi-threaded CPU through Rayon | ✓ |
-| `cuda` | NVIDIA CUDA backend | ✗ |
-| `wgpu` | Cross-platform GPU through WebGPU | ✗ |
 | `f16` | F16 and BF16 types | ✗ |
 | `fp8` | FP8 types (E4M3, E5M2) | ✗ |
 | `sparse` | Sparse tensors (CSR, CSC, COO) and sparse linear algebra | ✗ |
@@ -92,7 +90,21 @@ Feature flags:
 | `distributed` | Multi-machine communication through nexar | ✗ |
 | `distributed-gpu` | NCCL within a node, nexar between nodes (implies `distributed` and `nccl`) | ✗ |
 
-The CPU backend needs no feature flag. The CUDA build details are in [Backends](docs/backends.md#cuda-build).
+## What numr Is
+
+numr provides:
+
+- Tensors: N-dimensional arrays
+- Linear algebra: decompositions and solvers
+- FFT, statistics, and random distributions
+- Autograd
+
+numr is not a deep learning framework, a high-level ML API, or domain-specific.
+
+| You need | Use |
+| -------- | --- |
+| Optimization, ODE solvers, interpolation, signal processing | [solvr](https://github.com/ml-rust/solvr) |
+| Attention, model architectures, quantization, training | [boostr](https://github.com/ml-rust/boostr) |
 
 ## Quick Start
 
@@ -100,11 +112,10 @@ The CPU backend needs no feature flag. The CUDA build details are in [Backends](
 
 ```rust
 use numr::prelude::*;
-use numr::runtime::cpu::{CpuClient, CpuDevice, CpuRuntime};
+use numr::runtime::cpu::{CpuDevice, CpuRuntime};
 
 fn main() -> Result<()> {
     let device = CpuDevice::new();
-    let client = CpuClient::new(device.clone());
 
     let a = Tensor::<CpuRuntime>::from_slice(&[1.0_f32, 2.0, 3.0, 4.0], &[2, 2], &device)?;
     let b = Tensor::<CpuRuntime>::from_slice(&[5.0_f32, 6.0, 7.0, 8.0], &[2, 2], &device)?;
@@ -187,7 +198,7 @@ The full list is in [docs/operations.md](docs/operations.md):
 - Core arithmetic: unary, binary, scalar, type conversion, utility
 - Shape and data movement: `cat`, `stack`, `gather`, `scatter`, `sort`, `topk`, and more
 - Reductions, cumulative operations, comparisons, and logic
-- Activations, normalization, convolution, einsum, and fused GEMM epilogues
+- Activations, normalization, convolution, einsum, and matmul with fused bias and activation
 - Linear algebra and complex operations
 - Statistics, random distributions, and quasi-random sequences
 - Distance metrics on tensors and on plain slices
@@ -199,17 +210,6 @@ The algorithm modules are in [docs/algorithms.md](docs/algorithms.md):
 - Special functions and polynomials
 - Iterative solvers and preconditioners
 - Sparse tensors (CSR, CSC, COO) and sparse linear algebra
-
-## Backends
-
-| Runtime | Hardware | Feature | Kernels |
-| ------- | -------- | ------- | ------- |
-| `CpuRuntime` | x86-64 and ARM64 CPUs | `cpu` (default) | SIMD: AVX-512, AVX2, NEON |
-| `CudaRuntime` | NVIDIA GPUs | `cuda` | Native CUDA kernels |
-| `WgpuRuntime` | Vulkan, Metal, and DX12 GPUs | `wgpu` | WGSL compute shaders |
-
-The WebGPU backend computes in `F32` only. The dtype table, SIMD details, graph capture, and the
-`NUMR_CUDA_ARCH` variable are in [docs/backends.md](docs/backends.md).
 
 ## Documentation
 
@@ -232,11 +232,6 @@ cargo build --release --features wgpu    # WebGPU
 cargo test --release                     # Tests
 cargo bench                              # Benchmarks
 ```
-
-## How numr Fits in the Stack
-
-numr is the base layer. [solvr](https://github.com/ml-rust/solvr) builds scientific algorithms on numr.
-Code written against numr's `Runtime` gains new backends when numr adds them.
 
 ## Contributing
 

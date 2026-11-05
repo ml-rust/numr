@@ -38,7 +38,7 @@
 //!
 //! ## Feature Flags
 //!
-//! - `cpu` (default): CPU backend
+//! - The CPU backend is always built, and takes no feature.
 //! - `cuda`: NVIDIA CUDA backend
 //! - `wgpu`: Cross-platform GPU via WebGPU
 //! - `rayon` (default): Multi-threaded CPU operations
