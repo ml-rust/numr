@@ -14,6 +14,16 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+### Added
+
+- `Tensor::compact`: a tensor whose storage holds exactly its own elements. Call it on a slice that outlives the tensor it was cut from.
+- `CudaAllocator::memory_stats`: reports free-list and CUDA pool bytes. Read it to tell live tensors from cached buffers.
+
+### Fixed
+
+- CUDA and WebGPU linear algebra and FFT results: free device memory on drop. Remove any manual free of a result.
+- `qr_decompose_thin` on every backend, `qr_decompose` on WebGPU: `Q @ R` reconstructs the input on every shape. Recompute any stored `Q`.
+
 ## [0.15.0] - 2026-11-05
 
 Fused 2D convolution, image resize and shuffle, and video colour conversion run on CPU, CUDA, and WebGPU.

@@ -39,29 +39,36 @@ pub fn eig_decompose_symmetric_impl(
     if n == 1 {
         let eigenvalues_size = dtype.size_in_bytes();
         let eigenvectors_size = dtype.size_in_bytes();
-        let eigenvalues_ptr = client.allocator().allocate(eigenvalues_size)?;
-        let eigenvectors_ptr = client.allocator().allocate(eigenvectors_size)?;
+        let eigenvalues_guard = AllocGuard::new(client.allocator(), eigenvalues_size)?;
+        let eigenvectors_guard = AllocGuard::new(client.allocator(), eigenvectors_size)?;
 
         // Copy the single element as eigenvalue
-        CudaRuntime::copy_within_device(a.ptr(), eigenvalues_ptr, eigenvalues_size, device)?;
+        CudaRuntime::copy_within_device(
+            a.ptr(),
+            eigenvalues_guard.ptr(),
+            eigenvalues_size,
+            device,
+        )?;
 
         // Eigenvector is [1.0]
         match dtype {
             DType::F32 => {
                 let one: [u8; 4] = 1.0f32.to_ne_bytes();
-                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device)?;
+                CudaRuntime::copy_to_device(&one, eigenvectors_guard.ptr(), device)?;
             }
             DType::F64 => {
                 let one: [u8; 8] = 1.0f64.to_ne_bytes();
-                CudaRuntime::copy_to_device(&one, eigenvectors_ptr, device)?;
+                CudaRuntime::copy_to_device(&one, eigenvectors_guard.ptr(), device)?;
             }
             _ => unreachable!(),
         }
 
-        let eigenvalues =
-            unsafe { CudaClient::tensor_from_raw(eigenvalues_ptr, &[1], dtype, device) };
-        let eigenvectors =
-            unsafe { CudaClient::tensor_from_raw(eigenvectors_ptr, &[1, 1], dtype, device) };
+        let eigenvalues = unsafe {
+            CudaClient::tensor_from_raw(eigenvalues_guard.release(), &[1], dtype, device)
+        };
+        let eigenvectors = unsafe {
+            CudaClient::tensor_from_raw(eigenvectors_guard.release(), &[1, 1], dtype, device)
+        };
         return Ok(EigenDecomposition {
             eigenvalues,
             eigenvectors,
@@ -213,4 +220,25 @@ pub fn eig_decompose_symmetric_impl(
         eigenvalues,
         eigenvectors,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::*;
+    use super::*;
+
+    /// A 1x1 matrix has its own value as eigenvalue, and the eigenvector `[1]`.
+    /// Both results own their device memory.
+    #[test]
+    fn one_by_one_matrix_gives_its_value_and_a_unit_eigenvector() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let a = Tensor::<CudaRuntime>::from_slice(&[3.5f32], &[1, 1], client.device()).unwrap();
+        let eig = eig_decompose_symmetric_impl(&client, &a).unwrap();
+        assert_eq!(eig.eigenvalues.to_vec::<f32>(), [3.5]);
+        assert_eq!(eig.eigenvectors.to_vec::<f32>(), [1.0]);
+        assert!(eig.eigenvalues.owns_memory());
+        assert!(eig.eigenvectors.owns_memory());
+    }
 }

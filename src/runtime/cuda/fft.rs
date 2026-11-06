@@ -17,7 +17,7 @@ use crate::algorithm::fft::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
-use crate::tensor::{Layout, Storage, Tensor};
+use crate::tensor::Tensor;
 
 impl FftAlgorithms<CudaRuntime> for CudaClient {
     fn fft(
@@ -872,28 +872,5 @@ impl FftAlgorithms<CudaRuntime> for CudaClient {
                 op: "rfftfreq",
             }),
         }
-    }
-}
-
-// Helper method - reuse from linalg.rs pattern
-impl CudaClient {
-    /// Create a tensor from a raw CUDA GPU pointer for FFT operations.
-    ///
-    /// This wraps the tensor_from_raw helper defined in linalg.rs.
-    #[allow(dead_code)]
-    unsafe fn fft_tensor_from_raw(
-        ptr: u64,
-        shape: &[usize],
-        dtype: DType,
-        device: &super::CudaDevice,
-    ) -> Tensor<CudaRuntime> {
-        let len = if shape.is_empty() {
-            1
-        } else {
-            shape.iter().product()
-        };
-        let storage = unsafe { Storage::<CudaRuntime>::from_ptr(ptr, len, dtype, device) };
-        let layout = Layout::contiguous(shape);
-        Tensor::from_parts(storage, layout)
     }
 }

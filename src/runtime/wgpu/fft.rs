@@ -149,7 +149,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                     scale as f32,
                 )?;
                 let storage = unsafe {
-                    Storage::<WgpuRuntime>::from_ptr(guard.release(), total_elements, dtype, device)
+                    Storage::<WgpuRuntime>::from_ptr_owned(
+                        guard.release(),
+                        total_elements,
+                        dtype,
+                        device,
+                    )
                 };
                 let layout = Layout::contiguous(input_contig.shape());
                 return Ok(Tensor::from_parts(storage, layout));
@@ -281,7 +286,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Create output tensor
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+            Storage::<WgpuRuntime>::from_ptr_owned(
+                output_guard.release(),
+                total_elements,
+                dtype,
+                device,
+            )
         };
         let layout = Layout::contiguous(input_contig.shape());
         Ok(Tensor::from_parts(storage, layout))
@@ -358,7 +368,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 2: Full complex FFT
         let complex_storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(
+            Storage::<WgpuRuntime>::from_ptr_owned(
                 complex_guard.release(),
                 total_input,
                 complex_dtype,
@@ -393,7 +403,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Create output tensor
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(
+            Storage::<WgpuRuntime>::from_ptr_owned(
                 output_guard.release(),
                 total_output,
                 complex_dtype,
@@ -488,7 +498,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Step 2: Full inverse FFT
         let extended_storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(
+            Storage::<WgpuRuntime>::from_ptr_owned(
                 extended_guard.release(),
                 batch_size * full_n,
                 dtype,
@@ -525,7 +535,7 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
 
         // Create output tensor
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(
+            Storage::<WgpuRuntime>::from_ptr_owned(
                 output_guard.release(),
                 total_output,
                 real_dtype,
@@ -624,7 +634,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         )?;
 
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+            Storage::<WgpuRuntime>::from_ptr_owned(
+                output_guard.release(),
+                total_elements,
+                dtype,
+                device,
+            )
         };
         let layout = Layout::contiguous(&shape);
         Ok(Tensor::from_parts(storage, layout))
@@ -683,7 +698,12 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
         )?;
 
         let storage = unsafe {
-            Storage::<WgpuRuntime>::from_ptr(output_guard.release(), total_elements, dtype, device)
+            Storage::<WgpuRuntime>::from_ptr_owned(
+                output_guard.release(),
+                total_elements,
+                dtype,
+                device,
+            )
         };
         let layout = Layout::contiguous(&shape);
         Ok(Tensor::from_parts(storage, layout))
@@ -774,5 +794,59 @@ impl FftAlgorithms<WgpuRuntime> for WgpuClient {
                 op: "rfftfreq",
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::wgpu::is_wgpu_available;
+
+    /// Every FFT result owns its buffer, on each path that wraps one directly:
+    /// `rfft`, power-of-two `fft`, Bluestein `fft`, `irfft`, and both shifts.
+    /// A result built with `Storage::from_ptr` fails here and leaks its buffer.
+    #[test]
+    fn fft_results_own_their_buffers() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = WgpuRuntime::default_client(&super::super::WgpuDevice::new(0));
+        let device = client.device();
+        let norm = FftNormalization::None;
+        let real = |len: usize| {
+            let values: Vec<f32> = (0..len).map(|i| i as f32 + 1.0).collect();
+            Tensor::<WgpuRuntime>::from_slice(&values, &[len], device).unwrap()
+        };
+
+        // A real input of 8 gives 5 complex bins, which Bluestein transforms.
+        let five = client.rfft(&real(8), norm).unwrap();
+        assert_eq!(five.shape(), &[5]);
+        assert!(five.owns_memory(), "rfft");
+        assert!(
+            client.irfft(&five, Some(8), norm).unwrap().owns_memory(),
+            "irfft"
+        );
+        let bluestein = client.fft(&five, FftDirection::Forward, norm).unwrap();
+        assert!(bluestein.owns_memory(), "Bluestein fft");
+        assert!(
+            client.fftshift(&bluestein).unwrap().owns_memory(),
+            "fftshift"
+        );
+        assert!(
+            client.ifftshift(&bluestein).unwrap().owns_memory(),
+            "ifftshift"
+        );
+
+        // A real input of 6 gives 4 bins, which the Stockham shader transforms.
+        let four = client.rfft(&real(6), norm).unwrap();
+        assert_eq!(four.shape(), &[4]);
+        assert!(
+            client
+                .fft(&four, FftDirection::Forward, norm)
+                .unwrap()
+                .owns_memory(),
+            "power-of-two fft"
+        );
     }
 }

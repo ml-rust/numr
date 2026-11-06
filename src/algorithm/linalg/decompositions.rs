@@ -580,3 +580,68 @@ pub struct TensorTrainDecomposition<R: Runtime> {
     /// Note: `R₀ = Rₙ = 1` are implicit boundary conditions.
     pub ranks: Vec<usize>,
 }
+
+/// Host-side checks of a QR result, shared by each backend's tests.
+#[cfg(test)]
+pub(crate) mod qr_check {
+    /// `(m, n, thin)`: tall, square and wide, full and thin.
+    ///
+    /// Square and tall full cases past 2x2 need the reflections in order. Tall
+    /// thin cases need each reflection on all `m` columns of `Q`.
+    pub(crate) const CASES: &[(usize, usize, bool)] = &[
+        (7, 3, true),
+        (7, 3, false),
+        (4, 4, true),
+        (4, 4, false),
+        (3, 5, true),
+        (3, 5, false),
+    ];
+
+    /// A deterministic `m` x `n` matrix with no zero column.
+    pub(crate) fn matrix(m: usize, n: usize) -> Vec<f32> {
+        (0..m * n)
+            .map(|at| {
+                let (i, j) = (at / n, at % n);
+                ((i * i + 3 * j + 1) % 7) as f32 + if i == j { 2.0 } else { 0.0 }
+            })
+            .collect()
+    }
+
+    /// `Q` and `R` take the documented shapes, `Q @ R` is `a`, and the columns
+    /// of `Q` are orthonormal.
+    pub(crate) fn assert_holds(
+        a: &[f32],
+        (m, n, thin): (usize, usize, bool),
+        (q_shape, q): (&[usize], &[f32]),
+        (r_shape, r): (&[usize], &[f32]),
+    ) {
+        let k = m.min(n);
+        let q_cols = if thin { k } else { m };
+        let r_rows = if thin { k } else { m };
+        let case = format!("{m}x{n} thin={thin}");
+        assert_eq!(q_shape, [m, q_cols], "{case}: Q shape");
+        assert_eq!(r_shape, [r_rows, n], "{case}: R shape");
+        for i in 0..m {
+            for j in 0..n {
+                let got: f32 = (0..q_cols.min(r_rows))
+                    .map(|c| q[i * q_cols + c] * r[c * n + j])
+                    .sum();
+                let want = a[i * n + j];
+                assert!(
+                    (got - want).abs() < 1e-3,
+                    "{case}: (Q @ R)[{i}, {j}] is {got}, A holds {want}"
+                );
+            }
+        }
+        for b in 0..q_cols {
+            for c in 0..q_cols {
+                let got: f32 = (0..m).map(|i| q[i * q_cols + b] * q[i * q_cols + c]).sum();
+                let want = if b == c { 1.0 } else { 0.0 };
+                assert!(
+                    (got - want).abs() < 1e-3,
+                    "{case}: (Q^T @ Q)[{b}, {c}] is {got}, want {want}"
+                );
+            }
+        }
+    }
+}

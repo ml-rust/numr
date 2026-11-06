@@ -156,9 +156,16 @@ fn qr_decompose_f32() {
         }
     }
 
-    // Householder reflections
+    // Householder reflections. The workspace holds one vector of m elements per
+    // reflection, at `col * m`, indexed by row. Q is built from them afterwards.
     let num_reflections = min(m - 1u, n);
     for (var col: u32 = 0u; col < num_reflections; col = col + 1u) {
+        let base = col * m;
+        // A skipped column keeps a zero vector, whose reflection changes nothing.
+        for (var i: u32 = 0u; i < m; i = i + 1u) {
+            qr_workspace[base + i] = 0.0;
+        }
+
         // Compute norm of column below diagonal
         var norm_sq: f32 = 0.0;
         for (var i: u32 = col; i < m; i = i + 1u) {
@@ -177,48 +184,54 @@ fn qr_decompose_f32() {
         let alpha = -sign_x0 * norm;
 
         // v = x - alpha * e1 (stored in workspace)
-        for (var i: u32 = 0u; i < col; i = i + 1u) {
-            qr_workspace[i] = 0.0;
-        }
-        qr_workspace[col] = x0 - alpha;
+        qr_workspace[base + col] = x0 - alpha;
         for (var i: u32 = col + 1u; i < m; i = i + 1u) {
-            qr_workspace[i] = qr_r[i * n + col];
+            qr_workspace[base + i] = qr_r[i * n + col];
         }
 
         // Normalize v
         var v_norm_sq: f32 = 0.0;
         for (var i: u32 = col; i < m; i = i + 1u) {
-            v_norm_sq = v_norm_sq + qr_workspace[i] * qr_workspace[i];
+            v_norm_sq = v_norm_sq + qr_workspace[base + i] * qr_workspace[base + i];
         }
 
         if (v_norm_sq < 1e-20) {
+            qr_workspace[base + col] = 0.0;
+            for (var i: u32 = col + 1u; i < m; i = i + 1u) {
+                qr_workspace[base + i] = 0.0;
+            }
             continue;
         }
 
         let v_norm = sqrt(v_norm_sq);
         for (var i: u32 = col; i < m; i = i + 1u) {
-            qr_workspace[i] = qr_workspace[i] / v_norm;
+            qr_workspace[base + i] = qr_workspace[base + i] / v_norm;
         }
 
         // Apply H = I - 2vv^T to R
         for (var j: u32 = col; j < n; j = j + 1u) {
             var dot: f32 = 0.0;
             for (var i: u32 = col; i < m; i = i + 1u) {
-                dot = dot + qr_workspace[i] * qr_r[i * n + j];
+                dot = dot + qr_workspace[base + i] * qr_r[i * n + j];
             }
             for (var i: u32 = col; i < m; i = i + 1u) {
-                qr_r[i * n + j] = qr_r[i * n + j] - 2.0 * qr_workspace[i] * dot;
+                qr_r[i * n + j] = qr_r[i * n + j] - 2.0 * qr_workspace[base + i] * dot;
             }
         }
+    }
 
-        // Apply H to Q
+    // Q = H_0 @ H_1 @ ... @ I, so the last reflection applies first. Each one
+    // applies from the left, which needs only the q_cols columns kept here.
+    for (var step: u32 = num_reflections; step > 0u; step = step - 1u) {
+        let col = step - 1u;
+        let base = col * m;
         for (var j: u32 = 0u; j < q_cols; j = j + 1u) {
             var dot: f32 = 0.0;
             for (var i: u32 = col; i < m; i = i + 1u) {
-                dot = dot + qr_workspace[i] * qr_q[i * q_cols + j];
+                dot = dot + qr_workspace[base + i] * qr_q[i * q_cols + j];
             }
             for (var i: u32 = col; i < m; i = i + 1u) {
-                qr_q[i * q_cols + j] = qr_q[i * q_cols + j] - 2.0 * qr_workspace[i] * dot;
+                qr_q[i * q_cols + j] = qr_q[i * q_cols + j] - 2.0 * qr_workspace[base + i] * dot;
             }
         }
     }

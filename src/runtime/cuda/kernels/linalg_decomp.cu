@@ -137,9 +137,15 @@ __device__ void qr_decompose_impl(T* __restrict__ q,
         }
     }
 
-    T* v = workspace;
-
+    // `workspace` holds k Householder vectors of m elements each. Q is built
+    // from all of them after the loop, so no thin column is lost.
     for (unsigned int col = 0; col < k; col++) {
+        T* v = workspace + col * m;
+        // A skipped column keeps a zero vector, whose reflection changes nothing.
+        for (unsigned int i = 0; i < m - col; i++) {
+            v[i] = dtype_traits<T>::zero();
+        }
+
         // Compute norm of column below diagonal
         T norm_sq = dtype_traits<T>::zero();
         for (unsigned int i = col; i < m; i++) {
@@ -179,17 +185,20 @@ __device__ void qr_decompose_impl(T* __restrict__ q,
                 r[(col + i) * n + j] -= dtype_traits<T>::two() * v[i] * dot;
             }
         }
+    }
 
-        // Apply reflection to Q
-        for (unsigned int i = 0; i < m; i++) {
+    // Q = H_0 @ H_1 @ ... @ I, so the last reflection applies first. Each one
+    // applies from the left, which needs only the q_cols columns kept here.
+    for (unsigned int col = k; col-- > 0;) {
+        const T* v = workspace + col * m;
+        unsigned int v_len = m - col;
+        for (unsigned int j = 0; j < q_cols; j++) {
             T dot = dtype_traits<T>::zero();
-            unsigned int max_jj = v_len;
-            if (col + max_jj > q_cols) max_jj = q_cols - col;
-            for (unsigned int jj = 0; jj < max_jj; jj++) {
-                dot += q[i * q_cols + col + jj] * v[jj];
+            for (unsigned int i = 0; i < v_len; i++) {
+                dot += v[i] * q[(col + i) * q_cols + j];
             }
-            for (unsigned int jj = 0; jj < max_jj; jj++) {
-                q[i * q_cols + col + jj] -= dtype_traits<T>::two() * dot * v[jj];
+            for (unsigned int i = 0; i < v_len; i++) {
+                q[(col + i) * q_cols + j] -= dtype_traits<T>::two() * v[i] * dot;
             }
         }
     }

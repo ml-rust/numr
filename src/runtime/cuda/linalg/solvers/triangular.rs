@@ -114,6 +114,7 @@ mod tests {
     };
     use crate::dtype::DType;
     use crate::ops::TypeConversionOps;
+    use crate::runtime::RuntimeClient;
 
     fn solve(
         client: &CudaClient,
@@ -242,6 +243,43 @@ mod tests {
                 assert!(text.contains("[2, 4, 4]"), "{text}");
             }
         }
+    }
+
+    /// The solver's output returns to the allocator when it drops.
+    #[test]
+    fn solve_output_is_freed_on_drop() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
+        let n = 256;
+        let m = 256;
+        let a = to_f32(&triangular_batch(0x51, 1, n, true, true));
+        let a = Tensor::<CudaRuntime>::from_slice(&a, &[1, n, n], device).unwrap();
+        let b =
+            Tensor::<CudaRuntime>::from_slice(&vec![1.0f32; n * m], &[1, n, m], device).unwrap();
+        let live = || {
+            let stats = client.allocator().memory_stats();
+            stats.pool_used.saturating_sub(stats.free_list_bytes)
+        };
+        let first = client.solve_triangular_lower(&a, &b, true).unwrap();
+        client.stream().synchronize().unwrap();
+        // A pool that reports nothing makes the growth check below pass on any leak.
+        assert!(client.allocator().memory_stats().pool_used > 0);
+        assert!(first.owns_memory());
+        drop(first);
+        client.stream().synchronize().unwrap();
+        let before = live();
+        for _ in 0..32 {
+            drop(client.solve_triangular_lower(&a, &b, true).unwrap());
+        }
+        client.stream().synchronize().unwrap();
+        let grown = live().saturating_sub(before);
+        let leaked = 32 * (n * m * 4) as u64;
+        assert!(
+            grown < leaked / 4,
+            "{grown} bytes stayed live over 32 solves"
+        );
     }
 
     /// F32 inverse of `I + A`, strictly lower `A` near 0.8, against F64.

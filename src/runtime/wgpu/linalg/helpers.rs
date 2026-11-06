@@ -29,16 +29,16 @@ macro_rules! get_buffer_or_err {
 pub(crate) use get_buffer_or_err;
 
 impl WgpuClient {
-    /// Create a tensor from a raw WebGPU buffer pointer.
+    /// Create a tensor that owns a raw WebGPU buffer pointer.
+    ///
+    /// The tensor frees the buffer on drop, so the caller gives up ownership.
     ///
     /// # Safety
     ///
     /// The caller MUST ensure:
-    /// 1. `ptr` is a valid WebGPU buffer ID
-    /// 2. The allocation contains sufficient bytes
-    /// 3. The buffer remains valid for tensor lifetime
-    /// 4. No aliasing (single owner)
-    /// 5. Buffer was allocated on the same device
+    /// 1. `ptr` is a WebGPU buffer ID from this device's allocator
+    /// 2. The allocation holds exactly `shape.iter().product() * dtype.size_in_bytes()` bytes
+    /// 3. Nothing else frees `ptr` or holds ownership of it
     pub(crate) unsafe fn tensor_from_raw(
         ptr: u64,
         shape: &[usize],
@@ -50,8 +50,23 @@ impl WgpuClient {
         } else {
             shape.iter().product()
         };
-        let storage = unsafe { Storage::<WgpuRuntime>::from_ptr(ptr, len, dtype, device) };
+        let storage = unsafe { Storage::<WgpuRuntime>::from_ptr_owned(ptr, len, dtype, device) };
         let layout = Layout::contiguous(shape);
         Tensor::from_parts(storage, layout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::WgpuDevice;
+    use super::*;
+
+    /// Runs on any device list: pointer 0 of an empty shape touches no GPU.
+    #[test]
+    fn a_tensor_from_a_raw_pointer_owns_it() {
+        let device = WgpuDevice::new(0);
+        // SAFETY: pointer 0 of an empty shape holds nothing, and its drop frees nothing.
+        let t = unsafe { WgpuClient::tensor_from_raw(0, &[0], DType::F32, &device) };
+        assert!(t.owns_memory());
     }
 }

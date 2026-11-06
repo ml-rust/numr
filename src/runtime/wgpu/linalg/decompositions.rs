@@ -10,7 +10,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
-use crate::tensor::Tensor;
+use crate::tensor::{Layout, Storage, Tensor};
 
 pub fn lu_decompose(
     client: &WgpuClient,
@@ -242,8 +242,8 @@ pub fn qr_decompose_internal(
     let r_buffer =
         get_buffer(r_ptr).ok_or_else(|| Error::Internal("Failed to get R buffer".to_string()))?;
 
-    // Workspace for Householder vector (size m elements)
-    let workspace_size = m * dtype.size_in_bytes();
+    // One Householder vector of `m` elements per reflection.
+    let workspace_size = m * k.max(1) * dtype.size_in_bytes();
     let workspace_guard = AllocGuard::new(client.allocator(), workspace_size)?;
     let workspace_ptr = workspace_guard.ptr();
     let workspace_buffer = get_buffer(workspace_ptr)
@@ -274,14 +274,13 @@ pub fn qr_decompose_internal(
 
     let q = unsafe { WgpuClient::tensor_from_raw(q_guard.release(), &[m, q_cols], dtype, device) };
 
-    // For thin QR, R should be [k, n]
-    let r = if thin && m > n {
-        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[k, n], dtype, device) }
-    } else if thin {
-        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
-    } else {
-        unsafe { WgpuClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
-    };
+    // R holds the first `r_rows` rows of its `m` x `n` allocation. Thin QR with
+    // `m > n` reads fewer rows than it allocates, and the storage states the
+    // allocation.
+    let r_rows = if thin && m > n { k } else { m };
+    let r_storage =
+        unsafe { Storage::<WgpuRuntime>::from_ptr_owned(r_guard.release(), m * n, dtype, device) };
+    let r = Tensor::from_parts(r_storage, Layout::contiguous(&[r_rows, n]));
 
     Ok(QrDecomposition { q, r })
 }
@@ -291,8 +290,33 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
     use crate::algorithm::LinearAlgebraAlgorithms;
+    use crate::algorithm::linalg::decompositions::qr_check;
     use crate::ops::MatmulOps;
     use crate::runtime::wgpu::is_wgpu_available;
+
+    #[test]
+    fn qr_reconstructs_every_shape() {
+        if !is_wgpu_available() {
+            println!("No GPU available, skipping test");
+            return;
+        }
+        let client = create_client();
+        for &(m, n, thin) in qr_check::CASES {
+            let values = qr_check::matrix(m, n);
+            let a = Tensor::<WgpuRuntime>::from_slice(&values, &[m, n], client.device()).unwrap();
+            let qr = if thin {
+                client.qr_decompose_thin(&a).unwrap()
+            } else {
+                client.qr_decompose(&a).unwrap()
+            };
+            qr_check::assert_holds(
+                &values,
+                (m, n, thin),
+                (qr.q.shape(), &qr.q.to_vec::<f32>()),
+                (qr.r.shape(), &qr.r.to_vec::<f32>()),
+            );
+        }
+    }
 
     #[test]
     fn test_lu_decomposition() {

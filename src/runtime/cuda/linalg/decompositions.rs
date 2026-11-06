@@ -10,7 +10,7 @@ use crate::algorithm::linalg::{
 use crate::dtype::DType;
 use crate::error::{Error, Result};
 use crate::runtime::{AllocGuard, Runtime, RuntimeClient};
-use crate::tensor::Tensor;
+use crate::tensor::{Layout, Storage, Tensor};
 
 /// LU decomposition with partial pivoting
 pub fn lu_decompose_impl(
@@ -168,7 +168,8 @@ pub fn qr_decompose_internal(
     let q_cols = if thin { k } else { m };
     let q_size = m * q_cols * dtype.size_in_bytes();
     let r_size = m * n * dtype.size_in_bytes();
-    let workspace_size = m * dtype.size_in_bytes();
+    // One Householder vector of `m` elements per reflection.
+    let workspace_size = m * k * dtype.size_in_bytes();
 
     let q_guard = AllocGuard::new(client.allocator(), q_size)?;
     let r_guard = AllocGuard::new(client.allocator(), r_size)?;
@@ -203,17 +204,13 @@ pub fn qr_decompose_internal(
 
     let q = unsafe { CudaClient::tensor_from_raw(q_guard.release(), &[m, q_cols], dtype, device) };
 
-    // For thin QR, R should be [k, n]
-    let r = if thin && m > n {
-        // For thin QR with m > n, R is k x n
-        unsafe { CudaClient::tensor_from_raw(r_guard.release(), &[k, n], dtype, device) }
-    } else if thin {
-        // For thin QR with m <= n, R is m x n
-        unsafe { CudaClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
-    } else {
-        // Full QR, R is m x n
-        unsafe { CudaClient::tensor_from_raw(r_guard.release(), &[m, n], dtype, device) }
-    };
+    // R holds the first `r_rows` rows of its `m` x `n` allocation. Thin QR with
+    // `m > n` reads fewer rows than it allocates, and the storage states the
+    // allocation, so the drop frees the same size it allocated.
+    let r_rows = if thin && m > n { k } else { m };
+    let r_storage =
+        unsafe { Storage::<CudaRuntime>::from_ptr_owned(r_guard.release(), m * n, dtype, device) };
+    let r = Tensor::from_parts(r_storage, Layout::contiguous(&[r_rows, n]));
 
     Ok(QrDecomposition { q, r })
 }
@@ -223,6 +220,7 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
     use crate::algorithm::linalg::LinearAlgebraAlgorithms;
+    use crate::algorithm::linalg::decompositions::qr_check;
     use crate::ops::MatmulOps;
 
     #[test]
@@ -260,6 +258,52 @@ mod tests {
         // L should be lower triangular
         let l_data: Vec<f32> = chol.l.to_vec();
         assert!((l_data[1]).abs() < 1e-5); // Upper triangle should be 0
+    }
+
+    /// Thin QR with `m > n` shows `[n, n]` of an `m` x `n` allocation. The drop
+    /// returns the whole allocation to the free list. Storage that states
+    /// `[n, n]` returns `n * n` elements, to the wrong bucket, and the byte count
+    /// below fails.
+    #[test]
+    fn thin_qr_frees_its_whole_r_allocation() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        let device = client.device();
+        let (m, n) = (7, 3);
+        let a =
+            Tensor::<CudaRuntime>::from_slice(&qr_check::matrix(m, n), &[m, n], device).unwrap();
+
+        let qr = client.qr_decompose_thin(&a).unwrap();
+        assert_eq!(qr.r.shape(), &[n, n]);
+        assert!(qr.r.owns_memory());
+
+        let before = client.allocator().memory_stats().free_list_bytes;
+        drop(qr.r);
+        let returned = client.allocator().memory_stats().free_list_bytes - before;
+        assert_eq!(returned, (m * n * std::mem::size_of::<f32>()) as u64);
+    }
+
+    #[test]
+    fn qr_reconstructs_every_shape() {
+        let Some(client) = create_client() else {
+            return;
+        };
+        for &(m, n, thin) in qr_check::CASES {
+            let values = qr_check::matrix(m, n);
+            let a = Tensor::<CudaRuntime>::from_slice(&values, &[m, n], client.device()).unwrap();
+            let qr = if thin {
+                client.qr_decompose_thin(&a).unwrap()
+            } else {
+                client.qr_decompose(&a).unwrap()
+            };
+            qr_check::assert_holds(
+                &values,
+                (m, n, thin),
+                (qr.q.shape(), &qr.q.to_vec::<f32>()),
+                (qr.r.shape(), &qr.r.to_vec::<f32>()),
+            );
+        }
     }
 
     #[test]

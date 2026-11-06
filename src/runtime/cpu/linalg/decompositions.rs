@@ -205,6 +205,7 @@ fn qr_decompose_typed<T: Element + LinalgElement>(
     }
 
     // Householder vectors storage
+    let mut reflections: Vec<(usize, Vec<T>)> = Vec::with_capacity(k);
     for col in 0..k {
         // Extract column vector below diagonal: x = R[col:m, col]
         let x_len = m - col;
@@ -269,24 +270,21 @@ fn qr_decompose_typed<T: Element + LinalgElement>(
             }
         }
 
-        // Apply reflection to Q: Q[:, col:m] -= 2 * Q[:, col:m] @ v @ v^T
-        // Q[:, col:m] = Q[:, col:m] @ (I - 2*v*v^T)
-        // For each row of Q, compute the update
-        for row in 0..m {
-            // Compute dot product of Q[row, col:m] with v
-            let mut dot = T::zero();
-            for i in 0..x_len {
-                if col + i < q_cols {
-                    dot = dot + q[row * q_cols + (col + i)] * v[i];
-                }
-            }
+        reflections.push((col, v));
+    }
 
-            // Update Q[row, col:m] -= 2 * dot * v
-            for i in 0..x_len {
-                if col + i < q_cols {
-                    let update = two * dot * v[i];
-                    q[row * q_cols + (col + i)] = q[row * q_cols + (col + i)] - update;
-                }
+    // Q = H_0 @ H_1 @ ... @ I, so the last reflection applies first. Each one
+    // applies from the left, which needs only the `q_cols` columns kept here.
+    let two = T::from_f64(2.0);
+    for (col, v) in reflections.iter().rev() {
+        for j in 0..q_cols {
+            let mut dot = T::zero();
+            for (i, &vi) in v.iter().enumerate() {
+                dot = dot + vi * q[(col + i) * q_cols + j];
+            }
+            for (i, &vi) in v.iter().enumerate() {
+                let at = (col + i) * q_cols + j;
+                q[at] = q[at] - two * vi * dot;
             }
         }
     }
@@ -315,6 +313,27 @@ mod tests {
     use super::super::test_support::*;
     use super::*;
     use crate::algorithm::LinearAlgebraAlgorithms;
+    use crate::algorithm::linalg::decompositions::qr_check;
+
+    #[test]
+    fn qr_reconstructs_every_shape() {
+        let client = create_client();
+        for &(m, n, thin) in qr_check::CASES {
+            let values = qr_check::matrix(m, n);
+            let a = Tensor::<CpuRuntime>::from_slice(&values, &[m, n], client.device()).unwrap();
+            let qr = if thin {
+                client.qr_decompose_thin(&a).unwrap()
+            } else {
+                client.qr_decompose(&a).unwrap()
+            };
+            qr_check::assert_holds(
+                &values,
+                (m, n, thin),
+                (qr.q.shape(), &qr.q.to_vec::<f32>()),
+                (qr.r.shape(), &qr.r.to_vec::<f32>()),
+            );
+        }
+    }
 
     #[test]
     fn test_lu_decomposition_2x2() {
