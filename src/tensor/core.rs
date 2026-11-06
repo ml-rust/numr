@@ -581,44 +581,66 @@ impl<R: Runtime> Tensor<R> {
         if self.is_contiguous() && self.layout.offset() == 0 {
             Ok(self.clone())
         } else {
-            // Need to copy data to a new contiguous storage
-            let dtype = self.dtype();
-            let device = self.storage.device();
-            let numel = self.numel();
-
-            // Allocate new contiguous storage
-            let new_storage = Storage::new(numel, dtype, device)?;
-            let new_layout = Layout::contiguous(self.shape());
-
-            // Use Runtime::copy_strided which handles buffer ID vs pointer correctly
-            let elem_size = dtype.size_in_bytes();
-            let src_handle = self.storage.ptr();
-            let dst_handle = new_storage.ptr();
-            let src_byte_offset = self.layout.offset() * elem_size;
-
-            // A rank-0 view holds one element. Backends skip an empty shape,
-            // so the copy runs as shape `[1]`.
-            let (shape, strides): (&[usize], &[isize]) = if self.shape().is_empty() {
-                (&[1], &[1])
-            } else {
-                (self.shape(), self.strides())
-            };
-            R::copy_strided(
-                src_handle,
-                src_byte_offset,
-                dst_handle,
-                shape,
-                strides,
-                elem_size,
-                device,
-            )?;
-
-            Ok(Self {
-                id: TensorId::new(),
-                storage: new_storage,
-                layout: new_layout,
-            })
+            self.copied_contiguous()
         }
+    }
+
+    /// A tensor whose storage holds exactly its own elements.
+    ///
+    /// [`contiguous`](Self::contiguous) returns a view of the same storage when
+    /// the view starts at offset 0, so a slice from the front of a large buffer
+    /// keeps the whole buffer alive. This copies such a slice. Call it on a part
+    /// that outlives the tensor it was cut from.
+    ///
+    /// # Errors
+    ///
+    /// An error when the new storage does not allocate.
+    pub fn compact(&self) -> Result<Self> {
+        if self.is_contiguous() && self.layout.offset() == 0 && self.storage.len() == self.numel() {
+            Ok(self.clone())
+        } else {
+            self.copied_contiguous()
+        }
+    }
+
+    /// Copy this tensor's elements to a new contiguous storage.
+    fn copied_contiguous(&self) -> Result<Self> {
+        let dtype = self.dtype();
+        let device = self.storage.device();
+        let numel = self.numel();
+
+        // Allocate new contiguous storage
+        let new_storage = Storage::new(numel, dtype, device)?;
+        let new_layout = Layout::contiguous(self.shape());
+
+        // Use Runtime::copy_strided which handles buffer ID vs pointer correctly
+        let elem_size = dtype.size_in_bytes();
+        let src_handle = self.storage.ptr();
+        let dst_handle = new_storage.ptr();
+        let src_byte_offset = self.layout.offset() * elem_size;
+
+        // A rank-0 view holds one element. Backends skip an empty shape,
+        // so the copy runs as shape `[1]`.
+        let (shape, strides): (&[usize], &[isize]) = if self.shape().is_empty() {
+            (&[1], &[1])
+        } else {
+            (self.shape(), self.strides())
+        };
+        R::copy_strided(
+            src_handle,
+            src_byte_offset,
+            dst_handle,
+            shape,
+            strides,
+            elem_size,
+            device,
+        )?;
+
+        Ok(Self {
+            id: TensorId::new(),
+            storage: new_storage,
+            layout: new_layout,
+        })
     }
 
     /// Detach from computation graph (for autograd)
@@ -1070,6 +1092,30 @@ fn half_from_f32(value: f32, dtype: DType) -> u16 {
 
 #[cfg(test)]
 mod tests {
+    /// A slice from the front of a buffer shares it under `contiguous` and owns
+    /// its own elements under `compact`.
+    #[test]
+    fn compact_copies_a_front_slice_and_keeps_an_exact_tensor() {
+        use crate::runtime::cpu::{CpuDevice, CpuRuntime};
+        let device = CpuDevice::new();
+        let t = crate::tensor::Tensor::<CpuRuntime>::from_slice(
+            &[1.0f32, 2.0, 3.0, 4.0],
+            &[4],
+            &device,
+        )
+        .unwrap();
+        let front = t.narrow(0, 0, 2).unwrap();
+        assert_eq!(front.contiguous().unwrap().storage().len(), 4);
+        let compact = front.compact().unwrap();
+        assert_eq!(compact.storage().len(), 2);
+        assert_eq!(compact.to_vec::<f32>(), vec![1.0, 2.0]);
+        let back = t.narrow(0, 2, 2).unwrap().compact().unwrap();
+        assert_eq!(back.storage().len(), 2);
+        assert_eq!(back.to_vec::<f32>(), vec![3.0, 4.0]);
+        let whole = t.compact().unwrap();
+        assert_eq!(whole.storage().ptr(), t.storage().ptr());
+    }
+
     use super::*;
     use crate::runtime::cpu::{CpuDevice, CpuRuntime};
 

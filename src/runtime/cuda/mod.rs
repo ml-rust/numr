@@ -50,7 +50,7 @@ mod special;
 pub mod tune;
 
 pub use crate::tensor::Tensor;
-pub use allocator::CudaAllocator;
+pub use allocator::{CudaAllocator, CudaMemoryStats};
 pub use capture::{GuardedLaunchBuilder, GuardedStream};
 pub use client::{CudaClient, CudaRawHandle};
 #[cfg(feature = "nccl")]

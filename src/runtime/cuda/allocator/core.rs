@@ -5,6 +5,23 @@ use super::super::arena::CudaArena;
 use super::super::capture::{GuardedStream, thread_is_capturing};
 use super::free_list::{FreeList, resolve_free_list_cap_bytes};
 
+/// What a [`CudaAllocator`] holds on the device, in bytes.
+///
+/// `pool_used` counts every driver allocation not yet freed, which includes
+/// `free_list_bytes`. So live tensors take `pool_used - free_list_bytes`.
+/// `pool_reserved - pool_used` is memory the driver pool keeps for reuse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CudaMemoryStats {
+    /// Bytes of freed buffers the Rust free list keeps.
+    pub free_list_bytes: u64,
+    /// Buffers the Rust free list keeps.
+    pub free_list_buffers: u64,
+    /// Bytes the driver pool has handed out. 0 when the pool does not answer.
+    pub pool_used: u64,
+    /// Bytes the driver pool took from the OS. 0 when the pool does not answer.
+    pub pool_reserved: u64,
+}
+
 /// CUDA stream-ordered allocator with a Rust-side free list.
 ///
 /// Combines a per-size-bucket Rust free list (fast path: no driver call) with
@@ -101,6 +118,53 @@ impl CudaAllocator {
             captured_ptrs: Arc::new(Mutex::new(HashSet::new())),
             pool_handle,
             arena: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// What this allocator holds on the device.
+    ///
+    /// The pool counters lag behind any free still queued on the stream.
+    pub fn memory_stats(&self) -> CudaMemoryStats {
+        let (free_list_bytes, free_list_buffers) = {
+            let fl = self.free_list.lock().unwrap_or_else(|p| p.into_inner());
+            (
+                fl.total_bytes as u64,
+                fl.map.values().map(|b| b.len() as u64).sum(),
+            )
+        };
+        CudaMemoryStats {
+            free_list_bytes,
+            free_list_buffers,
+            pool_used: self.pool_attribute(
+                cudarc::driver::sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_USED_MEM_CURRENT,
+            ),
+            pool_reserved: self.pool_attribute(
+                cudarc::driver::sys::CUmemPool_attribute::CU_MEMPOOL_ATTR_RESERVED_MEM_CURRENT,
+            ),
+        }
+    }
+
+    /// One byte counter of the default pool, or 0 when the pool has no handle
+    /// or does not answer.
+    fn pool_attribute(&self, attribute: cudarc::driver::sys::CUmemPool_attribute) -> u64 {
+        if self.pool_handle == 0 {
+            return 0;
+        }
+        let pool = self.pool_handle as cudarc::driver::sys::CUmemoryPool;
+        let mut value: u64 = 0;
+        // SAFETY: `pool` is the device's default pool, which lives as long as
+        // the context, and each byte counter attribute writes one u64.
+        let result = unsafe {
+            cudarc::driver::sys::cuMemPoolGetAttribute(
+                pool,
+                attribute,
+                (&mut value as *mut u64).cast(),
+            )
+        };
+        if result == cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+            value
+        } else {
+            0
         }
     }
 
