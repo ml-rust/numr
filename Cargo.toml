@@ -3,11 +3,11 @@ name = "numr"
 version = "0.15.1"
 edition = "2024"
 rust-version = "1.95"
-description = "High-performance numerical computing with multi-backend GPU acceleration (CPU/CUDA/WebGPU)"
+description = "Numerical computing and tensor library for Rust, in the role of NumPy: n-dimensional arrays, linear algebra, FFT, statistics and autograd on CPU, CUDA and WebGPU"
 license = "Apache-2.0"
 repository = "https://github.com/ml-rust/numr"
 documentation = "https://docs.rs/numr"
-keywords = ["tensor", "ndarray", "linear-algebra", "gpu", "fft"]
+keywords = ["tensor", "ndarray", "numpy", "linear-algebra", "gpu"]
 categories = ["science", "mathematics", "data-structures"]
 # CI scripts, bench config, and the CUDA profiling binaries never build into
 # the crate. `build.rs` reads only `src/runtime/cuda/kernels`, which ships.
