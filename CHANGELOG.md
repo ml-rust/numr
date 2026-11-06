@@ -14,6 +14,10 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-06
+
+CUDA and WebGPU linear algebra and FFT results free their device memory, and QR reconstructs its input on every shape.
+
 ### Added
 
 - `Tensor::compact`: a tensor whose storage holds exactly its own elements. Call it on a slice that outlives the tensor it was cut from.
