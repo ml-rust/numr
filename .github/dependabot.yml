@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # Workflows pin each third-party action to a commit SHA. Dependabot reads the
+  # `# vX.Y.Z` comment beside each SHA and moves both in one PR.
+  #
+  # `dtolnay/rust-toolchain` publishes no version series, so its pins track
+  # branches such as `refs/heads/stable`. Dependabot cannot track a branch pin.
+  # A maintainer bumps that SHA by hand.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # One weekly PR for all action bumps. Each PR costs a full matrix run.
+    groups:
+      actions:
+        patterns:
+          - "*"
+    # `default-days` is the only cooldown key for this ecosystem. Cooldown never
+    # delays security updates.
+    cooldown:
+      default-days: 7
+
+  # Cargo dependencies. Runtime bumps ship to every consumer. Dev bumps touch
+  # tests only, so each kind has its own group.
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      runtime:
+        dependency-type: "production"
+        patterns:
+          - "*"
+      dev:
+        dependency-type: "development"
+        patterns:
+          - "*"
+    cooldown:
+      default-days: 7
