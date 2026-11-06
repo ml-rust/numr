@@ -51,8 +51,17 @@ The backends use native kernels, with no cuBLAS, MKL, or other vendor math libra
 
 </div>
 
-numr is the foundation library for numerical code in Rust. Tensors are generic over a `Runtime`.
+numr is a tensor and numerical computing library for Rust. It fills the role NumPy has in Python, and it also runs on GPUs.
+Tensors are generic over a `Runtime`.
 Switching from CPU to CUDA or WebGPU changes the runtime type. Generic functions keep their body, and gain new backends when numr adds them.
+
+- Pure Rust on CPU and WebGPU. No Python is needed. The CUDA backend compiles its `.cu` kernels with `nvcc` at build time.
+- numr is the base of [solvr](https://github.com/ml-rust/solvr) (SciPy role) and [boostr](https://github.com/ml-rust/boostr) (ML framework).
+
+Not supported yet:
+
+- ROCm.
+- WebGPU computes in `F32` only.
 
 ## Backends
 
@@ -210,6 +219,44 @@ The algorithm modules are in [docs/algorithms.md](docs/algorithms.md):
 - Special functions and polynomials
 - Iterative solvers and preconditioners
 - Sparse tensors (CSR, CSC, COO) and sparse linear algebra
+
+## For NumPy Users
+
+Most numr operations are methods on the backend client, such as `client.sum(&a, &[0], false)`.
+Import `numr::prelude::*`. The traits named below are in the prelude unless a row says otherwise.
+
+| NumPy | numr |
+| ----- | ---- |
+| `np.array(data).reshape(shape)` | `Tensor::from_slice(&data, &shape, &device)` |
+| `np.zeros`, `np.ones` | `Tensor::zeros`, `Tensor::ones` |
+| `np.full` | `Tensor::full_scalar` |
+| `np.arange`, `np.linspace`, `np.eye` | `UtilityOps`: `arange`, `linspace`, `eye` |
+| `np.meshgrid` | `UtilityOps::meshgrid` |
+| `a + b`, `a * b` with broadcasting | `a.add(&b)`, `a.mul(&b)`, or `BinaryOps` |
+| `np.exp`, `np.sqrt`, `np.sin`, `np.abs` | `a.exp()`, `a.sqrt()`, `a.sin()`, `a.abs()`, or `UnaryOps` |
+| `np.clip` | `UtilityOps::clamp` |
+| `np.isnan` | `UnaryOps::isnan` |
+| `a @ b`, `np.matmul` | `a.matmul(&b)`, or `MatmulOps::matmul` |
+| `np.einsum` | `EinsumOps::einsum` |
+| `a.reshape`, `a.T`, `np.transpose`, `np.squeeze` | `reshape`, `transpose`, `permute`, `squeeze`, `unsqueeze` |
+| `np.concatenate`, `np.stack` | `Tensor::cat`, `Tensor::stack` |
+| `np.split`, `np.repeat`, `np.roll`, `np.pad` | `ShapeOps`: `split`, `chunk`, `repeat`, `roll`, `pad` |
+| `a.sum`, `a.mean`, `a.max`, `a.min` | `ReduceOps`: `sum`, `mean`, `max`, `min` |
+| `np.argmax`, `np.argmin` | `IndexingOps::argmax`, `argmin` |
+| `np.cumsum`, `np.cumprod`, `scipy.special.logsumexp` | `CumulativeOps`: `cumsum`, `cumprod`, `logsumexp` |
+| `np.sort`, `np.argsort`, `np.unique`, `np.searchsorted` | `SortingOps`: `sort`, `argsort`, `unique`, `searchsorted` |
+| `np.nonzero`, `np.where(cond, x, y)` | `SortingOps::nonzero`, `ConditionalOps::where_cond` |
+| `np.take_along_axis` | `IndexingOps::gather` |
+| `np.var`, `np.std`, `np.median`, `np.percentile`, `np.histogram` | `StatisticalOps`: `var`, `std`, `median`, `percentile`, `histogram` |
+| `np.cov`, `np.corrcoef` | `StatisticalOps::cov`, `corrcoef` |
+| `np.random.rand`, `randn`, `randint`, `permutation` | `RandomOps`: `rand`, `randn`, `randint`, `randperm` |
+| `np.random.seed` | `numr::random::manual_seed` |
+| `np.linalg.solve`, `inv`, `det`, `lstsq` | `LinalgOps`: `solve`, `inverse`, `det`, `lstsq` |
+| `np.trace`, `np.kron`, `np.tril` | `LinalgOps`: `trace`, `kron`, `tril` |
+| `np.linalg.svd`, `qr`, `cholesky`, `eig` | `numr::algorithm::linalg::LinearAlgebraAlgorithms`: `svd_decompose`, `qr_decompose`, `cholesky_decompose`, `eig_decompose` |
+| `np.fft.fft`, `rfft`, `fftfreq` | `FftAlgorithms`: `fft`, `rfft`, `fftfreq` |
+
+NumPy has no equivalent for autograd, CUDA and WebGPU execution, or the fused ML operations. Those are in [Operations](#operations).
 
 ## Documentation
 
