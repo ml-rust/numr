@@ -1,6 +1,6 @@
 [package]
 name = "numr"
-version = "0.15.1"
+version = "0.15.2"
 edition = "2024"
 rust-version = "1.95"
 description = "Numerical computing and tensor library for Rust, in the role of NumPy: n-dimensional arrays, linear algebra, FFT, statistics and autograd on CPU, CUDA and WebGPU"

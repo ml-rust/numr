@@ -14,6 +14,12 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-11-06
+
+### Changed
+
+- `README`, crate description: state what the crate does.
+
 ## [0.15.1] - 2026-11-06
 
 CUDA and WebGPU linear algebra and FFT results free their device memory, and QR reconstructs its input on every shape.
