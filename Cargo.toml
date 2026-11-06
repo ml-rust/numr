@@ -49,7 +49,7 @@ thiserror = "2.0"
 smallvec = "1"
 bytemuck = { version = "1.25", features = ["derive"] }
 num-traits = "0.2"
-parking_lot = "0.12"
+parking_lot = "0.13"
 
 # Optional: Parallelism
 rayon = { version = "1.12", optional = true }
