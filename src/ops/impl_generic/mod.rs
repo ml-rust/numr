@@ -22,6 +22,7 @@
 pub mod activation;
 pub mod conv_fused;
 pub mod einsum;
+pub mod hypot;
 pub mod linalg;
 pub mod multivariate;
 pub mod normalization;

@@ -63,6 +63,8 @@ mod color;
 
 #[path = "../../ops/cpu/fwht.rs"]
 mod fwht;
+#[path = "../../ops/cpu/hypot.rs"]
+mod hypot;
 
 #[path = "../../ops/cpu/image.rs"]
 mod image;

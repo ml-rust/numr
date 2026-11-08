@@ -234,6 +234,7 @@ Import `numr::prelude::*`. The traits named below are in the prelude unless a ro
 | `np.meshgrid` | `UtilityOps::meshgrid` |
 | `a + b`, `a * b` with broadcasting | `a.add(&b)`, `a.mul(&b)`, or `BinaryOps` |
 | `np.exp`, `np.sqrt`, `np.sin`, `np.abs` | `a.exp()`, `a.sqrt()`, `a.sin()`, `a.abs()`, or `UnaryOps` |
+| `np.hypot` | `HypotOps::hypot` (client dispatch, scaled floating computation) |
 | `np.clip` | `UtilityOps::clamp` |
 | `np.isnan` | `UnaryOps::isnan` |
 | `a @ b`, `np.matmul` | `a.matmul(&b)`, or `MatmulOps::matmul` |

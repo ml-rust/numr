@@ -19,6 +19,7 @@ pub mod distributions;
 pub mod dtype_support;
 pub mod fft;
 pub mod fwht;
+pub(crate) mod hypot;
 pub mod image;
 pub mod image_resize;
 pub mod index;

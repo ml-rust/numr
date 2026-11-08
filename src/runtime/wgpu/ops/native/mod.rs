@@ -15,6 +15,7 @@ mod cumulative;
 mod fused_elementwise;
 mod fwht;
 mod gemm_epilogue;
+mod hypot;
 mod image;
 mod image_resize;
 mod indexing;
@@ -48,6 +49,7 @@ pub(crate) use fwht::native_fwht;
 pub(crate) use gemm_epilogue::{
     native_gemm_bias_activation, native_gemm_bias_activation_bwd, native_gemm_bias_residual,
 };
+pub(crate) use hypot::native_hypot;
 pub(crate) use image::{native_image, native_image_into};
 pub(crate) use image_resize::{native_resize, native_resize_into};
 pub(crate) use indexing::{

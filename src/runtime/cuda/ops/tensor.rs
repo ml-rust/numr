@@ -62,6 +62,8 @@ mod color_packed;
 
 #[path = "../../../ops/cuda/fwht.rs"]
 mod fwht;
+#[path = "../../../ops/cuda/hypot.rs"]
+mod hypot;
 
 #[path = "../../../ops/cuda/image.rs"]
 mod image;

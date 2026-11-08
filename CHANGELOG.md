@@ -14,6 +14,10 @@ version. Every later entry is a delta against the one below it.
 
 ## [Unreleased]
 
+### Added
+
+- `HypotOps::hypot`: Adds scaled floating magnitudes on CPU, CUDA, and WebGPU. Use `HypotOps` for stable elementwise magnitudes.
+
 ## [0.15.2] - 2026-11-06
 
 ### Changed

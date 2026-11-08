@@ -45,6 +45,8 @@ mod color;
 
 #[path = "../../../ops/wgpu/fwht.rs"]
 mod fwht;
+#[path = "../../../ops/wgpu/hypot.rs"]
+mod hypot;
 
 #[path = "../../../ops/wgpu/image.rs"]
 mod image;
