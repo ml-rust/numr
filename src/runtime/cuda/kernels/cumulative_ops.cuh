@@ -153,10 +153,14 @@ __device__ __forceinline__ typename P::A logsumexp_reduce(
 ) {
     typedef typename P::A A;
     A max_val = P::load(input, base);
+    bool all_negative_infinity = (max_val == (A)-INFINITY);
     for (unsigned int i = 1; i < n; i++) {
         A v = P::load(input, base + i * stride);
+        all_negative_infinity = all_negative_infinity && (v == (A)-INFINITY);
         if (v > max_val) max_val = v;
     }
+
+    if (all_negative_infinity) return (A)-INFINITY;
 
     A sum = (A)0;
     for (unsigned int i = 0; i < n; i++) {

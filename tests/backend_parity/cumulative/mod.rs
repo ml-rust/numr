@@ -9,6 +9,7 @@
 // keep their hand-built I64/U64 and overflow-boundary coverage.
 
 pub mod cuda;
+pub mod logsumexp_limits;
 pub mod wgpu;
 
 use numr::dtype::DType;

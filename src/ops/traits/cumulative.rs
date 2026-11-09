@@ -74,6 +74,7 @@ pub trait CumulativeOps<R: Runtime> {
     /// logsumexp(x) = max(x) + log(sum(exp(x - max(x))))
     ///
     /// This is commonly used in softmax computation and log-probability calculations.
+    /// A nonempty row containing only negative infinity returns negative infinity.
     ///
     /// # Arguments
     ///

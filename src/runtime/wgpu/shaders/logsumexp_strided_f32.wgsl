@@ -26,9 +26,24 @@ fn logsumexp_strided_f32(
 
     // Step 1: Find max value along reduce dimension
     var max_val: f32 = -3.402823e+38;
+    var all_negative_infinity = true;
+    var any_nan = false;
     for (var r: u32 = 0u; r < params.reduce_size; r = r + 1u) {
         let offset = outer_idx * params.reduce_size * params.inner_size + r * params.inner_size + inner_idx;
-        max_val = max(max_val, input[offset]);
+        let val = input[offset];
+        let bits = bitcast<u32>(val);
+        all_negative_infinity = all_negative_infinity && bits == 0xff800000u;
+        any_nan = any_nan || (bits & 0x7fffffffu) > 0x7f800000u;
+        max_val = max(max_val, val);
+    }
+
+    if (any_nan) {
+        output[outer_idx * params.inner_size + inner_idx] = bitcast<f32>(0x7fc00000u);
+        return;
+    }
+    if (all_negative_infinity) {
+        output[outer_idx * params.inner_size + inner_idx] = bitcast<f32>(0xff800000u);
+        return;
     }
 
     // Step 2: Compute sum(exp(x - max))

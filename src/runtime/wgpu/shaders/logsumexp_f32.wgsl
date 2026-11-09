@@ -26,9 +26,23 @@ fn logsumexp_f32(
 
     // Step 1: Find max value
     var max_val: f32 = -3.402823e+38;
+    var all_negative_infinity = true;
+    var any_nan = false;
     for (var i: u32 = 0u; i < params.reduce_size; i = i + 1u) {
         let val = input[base + i];
+        let bits = bitcast<u32>(val);
+        all_negative_infinity = all_negative_infinity && bits == 0xff800000u;
+        any_nan = any_nan || (bits & 0x7fffffffu) > 0x7f800000u;
         max_val = max(max_val, val);
+    }
+
+    if (any_nan) {
+        output[outer_idx] = bitcast<f32>(0x7fc00000u);
+        return;
+    }
+    if (all_negative_infinity) {
+        output[outer_idx] = bitcast<f32>(0xff800000u);
+        return;
     }
 
     // Step 2: Compute sum(exp(x - max))

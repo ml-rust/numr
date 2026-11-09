@@ -52,6 +52,13 @@ pub unsafe fn logsumexp_f32(a: *const f32, out: *mut f32, reduce_size: usize, ou
             }
         }
 
+        if (max_val == f32::NEG_INFINITY || max_val.is_nan())
+            && let Some(limit) = super::super::limits::original_row_limit(base, reduce_size)
+        {
+            *out.add(o) = limit;
+            continue;
+        }
+
         let v_max = vdupq_n_f32(max_val);
 
         // Phase 2: Sum of exp(x - max)
@@ -105,10 +112,10 @@ pub unsafe fn logsumexp_f64(a: *const f64, out: *mut f64, reduce_size: usize, ou
             }
         }
 
-        // Every element is -inf, so exp(x - max) would be exp(-inf - (-inf)) = NaN.
-        // logsumexp of an all-masked row is -inf.
-        if max_val == f64::NEG_INFINITY {
-            *out.add(o) = f64::NEG_INFINITY;
+        if (max_val == f64::NEG_INFINITY || max_val.is_nan())
+            && let Some(limit) = super::super::limits::original_row_limit(base, reduce_size)
+        {
+            *out.add(o) = limit;
             continue;
         }
 
