@@ -65,6 +65,8 @@ mod color;
 mod fwht;
 #[path = "../../ops/cpu/hypot.rs"]
 mod hypot;
+#[path = "../../ops/cpu/two_sum.rs"]
+mod two_sum;
 
 #[path = "../../ops/cpu/image.rs"]
 mod image;

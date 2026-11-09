@@ -28,6 +28,7 @@ pub mod multivariate;
 pub mod normalization;
 pub mod random;
 pub mod shape;
+pub mod two_sum;
 pub mod utility;
 
 pub use conv_fused::{conv2d_fused_impl, conv2d_fused_into_impl};

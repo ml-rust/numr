@@ -117,6 +117,6 @@ pub use traits::{
     IndexingOps, Kernel, LinalgOps, LogicalOps, MatmulOps, MeshgridIndexing, NearestSize,
     NormalizationOps, PackedPlane, PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter,
     ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
-    TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
+    TwoSumOps, TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

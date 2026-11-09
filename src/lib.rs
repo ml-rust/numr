@@ -116,7 +116,7 @@ pub mod prelude {
         HostCopyOps, HypotOps, ImageOps, IndexingOps, LinalgOps, LogicalOps, MatmulOps,
         MeshgridIndexing, NearestSize, NormalizationOps, PackedPlane, PadMode, PaddingMode,
         ReduceOps, ResizeConfig, ResizeFilter, ScalarOps, ShapeOps, SortingOps, StatisticalOps,
-        TensorOps, TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
+        TensorOps, TwoSumOps, TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
     };
     pub use crate::ops::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};
 

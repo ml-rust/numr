@@ -64,6 +64,8 @@ mod color_packed;
 mod fwht;
 #[path = "../../../ops/cuda/hypot.rs"]
 mod hypot;
+#[path = "../../../ops/cuda/two_sum.rs"]
+mod two_sum;
 
 #[path = "../../../ops/cuda/image.rs"]
 mod image;
