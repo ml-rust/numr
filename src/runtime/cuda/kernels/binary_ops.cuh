@@ -37,6 +37,10 @@ template<typename T> __device__ __forceinline__ T binop_add(T a, T b) { return a
 template<typename T> __device__ __forceinline__ T binop_sub(T a, T b) { return a - b; }
 template<typename T> __device__ __forceinline__ T binop_mul(T a, T b) { return a * b; }
 template<typename T> __device__ __forceinline__ T binop_div(T a, T b) { return a / b; }
+// Explicit rounding preserves basic F32 division under translation-unit fast math.
+template<> __device__ __forceinline__ float binop_div(float a, float b) {
+    return __fdiv_rn(a, b);
+}
 template<typename T> __device__ __forceinline__ T binop_max(T a, T b) { return a > b ? a : b; }
 template<typename T> __device__ __forceinline__ T binop_min(T a, T b) { return a < b ? a : b; }
 template<typename T> __device__ __forceinline__ T binop_pow(T a, T b) {

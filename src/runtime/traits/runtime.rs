@@ -72,6 +72,17 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         true
     }
 
+    /// Declared provider contract for separate basic floating operations on `dtype`.
+    ///
+    /// The conservative default preserves external runtime implementations without asserting IEEE arithmetic.
+    /// A stronger declaration describes provider semantics under its required active execution environment.
+    /// It does not inspect the current device mode or replace execution-time arithmetic admission.
+    /// Fused operations, reductions, transcendental functions, and scalar conversion remain outside this contract.
+    fn float_arithmetic_contract(dtype: Self::DType) -> super::FloatArithmeticContract {
+        let _ = dtype;
+        super::FloatArithmeticContract::BackendDefined
+    }
+
     /// Whether a storage handle plus a byte offset addresses device memory.
     ///
     /// CPU and CUDA handles are pointers, so a kernel reads a view at an

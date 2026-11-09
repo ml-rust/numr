@@ -2,7 +2,7 @@
 
 use super::client::{CpuAllocator, CpuClient};
 use super::device::CpuDevice;
-use crate::runtime::{NoOpGraph, Runtime};
+use crate::runtime::{FloatArithmeticContract, NoOpGraph, Runtime};
 use std::alloc::{Layout as AllocLayout, alloc, dealloc};
 
 /// CPU compute runtime
@@ -22,6 +22,15 @@ impl Runtime for CpuRuntime {
 
     fn name() -> &'static str {
         "cpu"
+    }
+
+    fn float_arithmetic_contract(dtype: Self::DType) -> FloatArithmeticContract {
+        match dtype {
+            crate::dtype::DType::F32 | crate::dtype::DType::F64 => {
+                FloatArithmeticContract::Ieee754Basic
+            }
+            _ => FloatArithmeticContract::BackendDefined,
+        }
     }
 
     fn allocate(size_bytes: usize, _device: &Self::Device) -> crate::error::Result<u64> {

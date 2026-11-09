@@ -104,8 +104,8 @@ pub mod prelude {
 
     // Runtime traits and graph types
     pub use crate::runtime::{
-        CapturedGraph, Device, DeviceArch, DeviceCaps, DeviceProfile, Graph, NoOpGraph, Runtime,
-        RuntimeClient,
+        CapturedGraph, Device, DeviceArch, DeviceCaps, DeviceProfile, FloatArithmeticContract,
+        Graph, NoOpGraph, Runtime, RuntimeClient,
     };
 
     // Operation traits (same API across all backends)

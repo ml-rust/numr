@@ -21,6 +21,11 @@
 
 mod common;
 
+#[path = "cuda_binary_dtype_coverage/division.rs"]
+mod division;
+#[path = "common/division_reference.rs"]
+mod division_reference;
+
 use common::backend_lock::with_cuda_backend;
 use common::create_cpu_client;
 use numr::dtype::DType;

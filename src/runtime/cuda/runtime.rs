@@ -8,8 +8,8 @@ use super::cache::{
 use super::client::CudaClient;
 use super::device::CudaDevice;
 use super::kernels;
-use crate::runtime::Runtime;
 use crate::runtime::common::Allocator;
+use crate::runtime::{FloatArithmeticContract, Runtime};
 
 /// CUDA Runtime adapter
 ///
@@ -28,6 +28,15 @@ impl Runtime for CudaRuntime {
 
     fn name() -> &'static str {
         "cuda"
+    }
+
+    fn float_arithmetic_contract(dtype: Self::DType) -> FloatArithmeticContract {
+        match dtype {
+            crate::dtype::DType::F32 | crate::dtype::DType::F64 => {
+                FloatArithmeticContract::Ieee754Basic
+            }
+            _ => FloatArithmeticContract::BackendDefined,
+        }
     }
 
     fn supports_graph_capture() -> bool {

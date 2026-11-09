@@ -7,6 +7,11 @@ use numr::error;
 use numr::prelude::*;
 use numr::runtime::Allocator;
 
+#[path = "common/float_arithmetic_types.rs"]
+mod arithmetic_types;
+#[path = "external_backend_api/float_arithmetic.rs"]
+mod float_arithmetic;
+
 // =============================================================================
 // Mock backend types
 // =============================================================================
