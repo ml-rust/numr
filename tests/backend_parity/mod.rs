@@ -83,6 +83,7 @@ pub mod matrix_functions_expm;
 pub mod matrix_functions_logm;
 pub mod matrix_functions_other;
 pub mod matrix_functions_sqrtm;
+pub mod midpoint;
 pub mod multivariate;
 pub mod normalization;
 pub mod pad_reflect;

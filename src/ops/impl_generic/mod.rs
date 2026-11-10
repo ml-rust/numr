@@ -24,6 +24,7 @@ pub mod conv_fused;
 pub mod einsum;
 pub mod hypot;
 pub mod linalg;
+pub mod midpoint;
 pub mod multivariate;
 pub mod normalization;
 pub mod random;

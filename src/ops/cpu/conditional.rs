@@ -93,9 +93,10 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
             let x_broadcast = x.broadcast_to(&out_shape)?;
             let y_broadcast = y.broadcast_to(&out_shape)?;
 
-            let cond_ptr = cond_broadcast.ptr();
-            let x_ptr = x_broadcast.ptr();
-            let y_ptr = y_broadcast.ptr();
+            // Strided kernels apply layout offsets to these storage-base pointers.
+            let cond_ptr = cond_broadcast.storage().ptr();
+            let x_ptr = x_broadcast.storage().ptr();
+            let y_ptr = y_broadcast.storage().ptr();
 
             // Get strides from broadcast layouts
             let cond_strides: Vec<isize> = cond_broadcast.layout().strides().to_vec();
@@ -149,5 +150,101 @@ impl ConditionalOps<CpuRuntime> for CpuClient {
         }
 
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ops::TypeConversionOps;
+    use crate::runtime::cpu::CpuDevice;
+
+    fn select_offset_views(mask_dtype: DType, value_dtype: DType, reverse: bool) -> Result<()> {
+        let device = CpuDevice::new();
+        let client = CpuClient::new(device.clone());
+        // Padding keeps doubled-offset reads inside storage when checking this regression.
+        let x_storage = Tensor::<CpuRuntime>::from_slice(
+            &[
+                91.0f64, 1.0, 2.0, 3.0, 92.0, 93.0, 94.0, 4.0, 5.0, 6.0, 95.0, 96.0, 97.0, 98.0,
+                99.0, 100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0,
+            ],
+            &[4, 6],
+            &device,
+        )?;
+        let x_storage = client.cast(&x_storage, value_dtype)?;
+        let x = x_storage
+            .narrow(0, 0, 2)?
+            .narrow(1, 1, 3)?
+            .transpose(0, 1)?;
+        let y_storage = Tensor::<CpuRuntime>::from_slice(
+            &[81.0f64, 10.0, 20.0, 30.0, 82.0, 83.0, 84.0, 85.0],
+            &[8, 1],
+            &device,
+        )?;
+        let y_storage = client.cast(&y_storage, value_dtype)?;
+        let y = y_storage.narrow(0, 1, 3)?;
+        let mask_storage = Tensor::<CpuRuntime>::from_slice(
+            &[70.0f64, 1.0, 0.0, 71.0, 72.0, 73.0, 74.0, 75.0],
+            &[8],
+            &device,
+        )?;
+        let mask_storage = client.cast(&mask_storage, mask_dtype)?;
+        let cond = mask_storage.narrow(0, 1, 2)?;
+        let (cond, x, y, expected) = if reverse {
+            (
+                cond.flip(0)?,
+                x.flip(0)?,
+                y.flip(0)?,
+                [30.0, 6.0, 20.0, 5.0, 10.0, 4.0],
+            )
+        } else {
+            (cond, x, y, [1.0, 10.0, 2.0, 20.0, 3.0, 30.0])
+        };
+        assert_eq!(x.shape(), &[3, 2]);
+        assert_eq!(
+            x.layout().strides(),
+            if reverse { &[-1, 6] } else { &[1, 6] }
+        );
+        assert_eq!(x.offset(), if reverse { 3 } else { 1 });
+        assert_eq!(y.offset(), if reverse { 3 } else { 1 });
+        assert_eq!(cond.offset(), if reverse { 2 } else { 1 });
+        let output = client.where_cond(&cond, &x, &y)?;
+        assert_eq!(output.shape(), &[3, 2]);
+        assert_eq!(output.dtype(), value_dtype);
+        let actual = if value_dtype == DType::F32 {
+            output
+                .try_to_vec::<f32>()?
+                .into_iter()
+                .map(f64::from)
+                .collect::<Vec<_>>()
+        } else {
+            output.try_to_vec::<f64>()?
+        };
+        assert_eq!(
+            actual.as_slice(),
+            expected.as_slice(),
+            "mask={mask_dtype:?}, values={value_dtype:?}, reverse={reverse}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn where_cond_broadcast_applies_each_view_offset_once() -> Result<()> {
+        for mask_dtype in [DType::U8, DType::F32, DType::F64] {
+            for value_dtype in [DType::F32, DType::F64] {
+                select_offset_views(mask_dtype, value_dtype, false)?;
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn where_cond_broadcast_preserves_reversed_offset_views() -> Result<()> {
+        for mask_dtype in [DType::U8, DType::F32, DType::F64] {
+            for value_dtype in [DType::F32, DType::F64] {
+                select_offset_views(mask_dtype, value_dtype, true)?;
+            }
+        }
+        Ok(())
     }
 }

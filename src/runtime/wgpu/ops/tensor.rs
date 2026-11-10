@@ -47,6 +47,8 @@ mod color;
 mod fwht;
 #[path = "../../../ops/wgpu/hypot.rs"]
 mod hypot;
+#[path = "../../../ops/wgpu/midpoint.rs"]
+mod midpoint;
 #[path = "../../../ops/wgpu/two_sum.rs"]
 mod two_sum;
 
