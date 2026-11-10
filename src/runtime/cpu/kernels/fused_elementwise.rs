@@ -72,6 +72,31 @@ pub unsafe fn fused_mul_add_kernel<T: Element>(
         }
     }
 
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    match T::DTYPE {
+        crate::dtype::DType::F32 => {
+            super::fused_mul_add::fused_mul_add_scalar_f32(
+                a as *const f32,
+                b as *const f32,
+                c as *const f32,
+                out as *mut f32,
+                len,
+            );
+            return;
+        }
+        crate::dtype::DType::F64 => {
+            super::fused_mul_add::fused_mul_add_scalar_f64(
+                a as *const f64,
+                b as *const f64,
+                c as *const f64,
+                out as *mut f64,
+                len,
+            );
+            return;
+        }
+        _ => {}
+    }
+
     fused_ternary_scalar(
         a,
         b,
@@ -222,6 +247,31 @@ pub unsafe fn fused_mul_add_scalar_kernel<T: Element>(
             }
             _ => {}
         }
+    }
+
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    match T::DTYPE {
+        crate::dtype::DType::F32 => {
+            super::fused_mul_add::fused_mul_add_scalar_loop_f32(
+                a as *const f32,
+                scale as f32,
+                bias as f32,
+                out as *mut f32,
+                len,
+            );
+            return;
+        }
+        crate::dtype::DType::F64 => {
+            super::fused_mul_add::fused_mul_add_scalar_loop_f64(
+                a as *const f64,
+                scale,
+                bias,
+                out as *mut f64,
+                len,
+            );
+            return;
+        }
+        _ => {}
     }
 
     // Scalar fallback

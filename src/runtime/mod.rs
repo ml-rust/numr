@@ -56,5 +56,6 @@ pub use captured_graph::CapturedGraph;
 
 // Trait re-exports
 pub use traits::{
-    Device, DeviceArch, DeviceCaps, DeviceProfile, FloatArithmeticContract, Runtime, RuntimeClient,
+    Device, DeviceArch, DeviceCaps, DeviceProfile, FloatArithmeticContract, FusedMulAddContract,
+    Runtime, RuntimeClient,
 };

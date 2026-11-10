@@ -261,6 +261,7 @@ pub trait BinaryOps<R: Runtime> {
     /// Computes the element-wise fused multiply-add of three tensors in a single pass,
     /// reducing memory bandwidth compared to separate multiply and add operations.
     /// Uses hardware FMA instructions where available (AVX2/AVX-512/NEON).
+    /// Check [`Runtime::fused_mul_add_contract`] before requiring portable single-rounding semantics.
     ///
     /// All three tensors must have the same shape (no broadcasting).
     ///

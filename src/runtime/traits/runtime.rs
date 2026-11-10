@@ -83,6 +83,15 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         super::FloatArithmeticContract::BackendDefined
     }
 
+    /// Declared provider contract for floating multiply-add operations on `dtype`.
+    ///
+    /// The conservative default preserves external runtimes without asserting single-rounding arithmetic.
+    /// This declaration does not inspect or change the active execution environment.
+    fn fused_mul_add_contract(dtype: Self::DType) -> super::FusedMulAddContract {
+        let _ = dtype;
+        super::FusedMulAddContract::BackendDefined
+    }
+
     /// Whether a storage handle plus a byte offset addresses device memory.
     ///
     /// CPU and CUDA handles are pointers, so a kernel reads a view at an

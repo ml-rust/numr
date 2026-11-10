@@ -21,6 +21,7 @@ pub mod distributions;
 pub mod fft;
 pub mod fused_add_norm;
 pub mod fused_elementwise;
+pub mod fused_mul_add;
 pub mod fwht;
 pub mod gemm_epilogue;
 pub mod image;

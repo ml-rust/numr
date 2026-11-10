@@ -50,5 +50,6 @@ pub trait ScalarOps<R: Runtime>: TensorOps<R> {
     ///
     /// Applies an affine transform to each element in a single pass.
     /// Common in normalization (scale + shift) and quantization.
+    /// Check [`Runtime::fused_mul_add_contract`] before requiring single rounding after native-dtype scalar conversion.
     fn fused_mul_add_scalar(&self, a: &Tensor<R>, scale: f64, bias: f64) -> Result<Tensor<R>>;
 }

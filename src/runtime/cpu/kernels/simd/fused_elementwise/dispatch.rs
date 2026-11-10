@@ -12,6 +12,10 @@
 use super::aarch64;
 #[cfg(target_arch = "x86_64")]
 use super::x86_64;
+pub use crate::runtime::cpu::kernels::fused_mul_add::{
+    fused_mul_add_scalar_f32, fused_mul_add_scalar_f64, fused_mul_add_scalar_loop_f32,
+    fused_mul_add_scalar_loop_f64,
+};
 use crate::runtime::cpu::kernels::simd::{SimdLevel, detect_simd};
 
 /// Minimum length to justify SIMD overhead
@@ -263,32 +267,6 @@ pub unsafe fn fused_mul_add_scalar_f64_kernel(
 // ============================================================================
 
 #[inline]
-pub unsafe fn fused_mul_add_scalar_f32(
-    a: *const f32,
-    b: *const f32,
-    c: *const f32,
-    out: *mut f32,
-    len: usize,
-) {
-    for i in 0..len {
-        *out.add(i) = (*a.add(i)).mul_add(*b.add(i), *c.add(i));
-    }
-}
-
-#[inline]
-pub unsafe fn fused_mul_add_scalar_f64(
-    a: *const f64,
-    b: *const f64,
-    c: *const f64,
-    out: *mut f64,
-    len: usize,
-) {
-    for i in 0..len {
-        *out.add(i) = (*a.add(i)).mul_add(*b.add(i), *c.add(i));
-    }
-}
-
-#[inline]
 pub unsafe fn fused_add_mul_scalar_f32(
     a: *const f32,
     b: *const f32,
@@ -311,32 +289,6 @@ pub unsafe fn fused_add_mul_scalar_f64(
 ) {
     for i in 0..len {
         *out.add(i) = (*a.add(i) + *b.add(i)) * *c.add(i);
-    }
-}
-
-#[inline]
-pub unsafe fn fused_mul_add_scalar_loop_f32(
-    a: *const f32,
-    scale: f32,
-    bias: f32,
-    out: *mut f32,
-    len: usize,
-) {
-    for i in 0..len {
-        *out.add(i) = (*a.add(i)).mul_add(scale, bias);
-    }
-}
-
-#[inline]
-pub unsafe fn fused_mul_add_scalar_loop_f64(
-    a: *const f64,
-    scale: f64,
-    bias: f64,
-    out: *mut f64,
-    len: usize,
-) {
-    for i in 0..len {
-        *out.add(i) = (*a.add(i)).mul_add(scale, bias);
     }
 }
 
