@@ -1,11 +1,12 @@
 //! CUDA implementation of scalar operations.
 
+use super::fused_inputs::{check_input, materialize};
 use crate::error::Result;
 use crate::ops::{ScalarOps, TypeConversionOps};
 use crate::runtime::cuda::kernels::launch_fused_mul_add_scalar;
 use crate::runtime::cuda::ops::helpers::native_scalar_op;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{ensure_contiguous, pow_scalar_output_dtype};
+use crate::runtime::pow_scalar_output_dtype;
 use crate::tensor::Tensor;
 
 impl ScalarOps<CudaRuntime> for CudaClient {
@@ -48,9 +49,14 @@ impl ScalarOps<CudaRuntime> for CudaClient {
         scale: f64,
         bias: f64,
     ) -> Result<Tensor<CudaRuntime>> {
+        let count = check_input(self, a, "fused_mul_add_scalar")?;
         let dtype = a.dtype();
-        let a_contig = ensure_contiguous(a)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
+        if count == 0 {
+            return Ok(out);
+        }
+        let a_materialized = materialize(self, a, count)?;
+        let a_contig = a_materialized.as_ref().unwrap_or(a);
 
         unsafe {
             launch_fused_mul_add_scalar(

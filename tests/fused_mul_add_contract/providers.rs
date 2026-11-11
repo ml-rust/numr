@@ -19,11 +19,14 @@ fn cpu_advertises_only_f32_and_f64_fused_mul_add() {
 
 #[cfg(feature = "cuda")]
 #[test]
-fn cuda_keeps_fused_mul_add_backend_defined() {
+fn cuda_advertises_only_f32_and_f64_fused_mul_add() {
     for dtype in DTYPES {
         assert_eq!(
             numr::runtime::cuda::CudaRuntime::fused_mul_add_contract(dtype),
-            FusedMulAddContract::BackendDefined,
+            match dtype {
+                DType::F32 | DType::F64 => FusedMulAddContract::Ieee754Fused,
+                _ => FusedMulAddContract::BackendDefined,
+            },
             "dtype={dtype:?}"
         );
     }

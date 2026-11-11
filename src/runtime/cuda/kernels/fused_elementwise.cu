@@ -29,14 +29,14 @@ extern "C" {
 __global__ void fused_mul_add_f32(const float* a, const float* b, const float* c, float* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = fmaf(a[idx], b[idx], c[idx]);
+        out[idx] = __fmaf_rn(a[idx], b[idx], c[idx]);
     }
 }
 
 __global__ void fused_mul_add_f64(const double* a, const double* b, const double* c, double* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = fma(a[idx], b[idx], c[idx]);
+        out[idx] = __fma_rn(a[idx], b[idx], c[idx]);
     }
 }
 
@@ -105,14 +105,14 @@ __global__ void fused_add_mul_bf16(const __nv_bfloat16* a, const __nv_bfloat16* 
 __global__ void fused_mul_add_scalar_f32(const float* a, float* out, unsigned int n, float scale, float bias) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = fmaf(a[idx], scale, bias);
+        out[idx] = __fmaf_rn(a[idx], scale, bias);
     }
 }
 
 __global__ void fused_mul_add_scalar_f64(const double* a, double* out, unsigned int n, double scale, double bias) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = fma(a[idx], scale, bias);
+        out[idx] = __fma_rn(a[idx], scale, bias);
     }
 }
 

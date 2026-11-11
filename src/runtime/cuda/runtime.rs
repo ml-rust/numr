@@ -9,7 +9,7 @@ use super::client::CudaClient;
 use super::device::CudaDevice;
 use super::kernels;
 use crate::runtime::common::Allocator;
-use crate::runtime::{FloatArithmeticContract, Runtime, SquareRootContract};
+use crate::runtime::{FloatArithmeticContract, FusedMulAddContract, Runtime, SquareRootContract};
 
 /// CUDA Runtime adapter
 ///
@@ -45,6 +45,15 @@ impl Runtime for CudaRuntime {
                 SquareRootContract::Ieee754RoundToNearest
             }
             _ => SquareRootContract::BackendDefined,
+        }
+    }
+
+    fn fused_mul_add_contract(dtype: Self::DType) -> FusedMulAddContract {
+        match dtype {
+            crate::dtype::DType::F32 | crate::dtype::DType::F64 => {
+                FusedMulAddContract::Ieee754Fused
+            }
+            _ => FusedMulAddContract::BackendDefined,
         }
     }
 

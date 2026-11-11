@@ -1,4 +1,5 @@
 //! Binary operations for CUDA runtime
+use super::fused_inputs::{check_ternary, materialize};
 use crate::error::{Error, Result};
 use crate::ops::BinaryOps;
 use crate::runtime::cuda::kernels::{
@@ -6,7 +7,7 @@ use crate::runtime::cuda::kernels::{
 };
 use crate::runtime::cuda::ops::helpers::{native_binary_op, native_binary_op_into};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::{CopyIntoPlan, Runtime, ensure_contiguous, validate_copy_into};
+use crate::runtime::{CopyIntoPlan, Runtime, validate_copy_into};
 use crate::tensor::Tensor;
 
 impl BinaryOps<CudaRuntime> for CudaClient {
@@ -60,21 +61,18 @@ impl BinaryOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
         c: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
+        let count = check_ternary(self, a, b, c, "fused_mul_add")?;
         let dtype = a.dtype();
-        if b.dtype() != dtype || c.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: if b.dtype() != dtype {
-                    b.dtype()
-                } else {
-                    c.dtype()
-                },
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let c_contig = ensure_contiguous(c)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
+        if count == 0 {
+            return Ok(out);
+        }
+        let a_materialized = materialize(self, a, count)?;
+        let b_materialized = materialize(self, b, count)?;
+        let c_materialized = materialize(self, c, count)?;
+        let a_contig = a_materialized.as_ref().unwrap_or(a);
+        let b_contig = b_materialized.as_ref().unwrap_or(b);
+        let c_contig = c_materialized.as_ref().unwrap_or(c);
 
         unsafe {
             launch_fused_mul_add(
@@ -99,21 +97,18 @@ impl BinaryOps<CudaRuntime> for CudaClient {
         b: &Tensor<CudaRuntime>,
         c: &Tensor<CudaRuntime>,
     ) -> Result<Tensor<CudaRuntime>> {
+        let count = check_ternary(self, a, b, c, "fused_add_mul")?;
         let dtype = a.dtype();
-        if b.dtype() != dtype || c.dtype() != dtype {
-            return Err(Error::DTypeMismatch {
-                lhs: dtype,
-                rhs: if b.dtype() != dtype {
-                    b.dtype()
-                } else {
-                    c.dtype()
-                },
-            });
-        }
-        let a_contig = ensure_contiguous(a)?;
-        let b_contig = ensure_contiguous(b)?;
-        let c_contig = ensure_contiguous(c)?;
         let out = Tensor::<CudaRuntime>::empty(a.shape(), dtype, &self.device)?;
+        if count == 0 {
+            return Ok(out);
+        }
+        let a_materialized = materialize(self, a, count)?;
+        let b_materialized = materialize(self, b, count)?;
+        let c_materialized = materialize(self, c, count)?;
+        let a_contig = a_materialized.as_ref().unwrap_or(a);
+        let b_contig = b_materialized.as_ref().unwrap_or(b);
+        let c_contig = c_materialized.as_ref().unwrap_or(c);
 
         unsafe {
             launch_fused_add_mul(
