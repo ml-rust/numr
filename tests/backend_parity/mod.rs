@@ -128,3 +128,5 @@ pub mod unary;
 pub mod unary_signed_int;
 pub mod utility;
 pub mod utility_float_precision;
+
+pub mod next_representable;

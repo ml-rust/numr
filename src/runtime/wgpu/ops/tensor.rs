@@ -49,6 +49,8 @@ mod fwht;
 mod hypot;
 #[path = "../../../ops/wgpu/midpoint.rs"]
 mod midpoint;
+#[path = "../../../ops/wgpu/next_representable.rs"]
+mod next_representable;
 #[path = "../../../ops/wgpu/two_sum.rs"]
 mod two_sum;
 

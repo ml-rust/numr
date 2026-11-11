@@ -198,3 +198,6 @@ pub(crate) use loader::{
     launch_conv_implicit_gemm, launch_matmul_wmma_f32out_batched_kernel,
     launch_matmul_wmma_f32out_kernel, use_wmma, use_wmma_after_padding, wmma_padded_dims,
 };
+
+pub mod next_representable;
+pub use next_representable::launch_next_representable;

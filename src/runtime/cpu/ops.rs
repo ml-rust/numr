@@ -67,6 +67,8 @@ mod fwht;
 mod hypot;
 #[path = "../../ops/cpu/midpoint.rs"]
 mod midpoint;
+#[path = "../../ops/cpu/next_representable.rs"]
+mod next_representable;
 #[path = "../../ops/cpu/two_sum.rs"]
 mod two_sum;
 

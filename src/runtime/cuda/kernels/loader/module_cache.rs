@@ -141,6 +141,7 @@ mod tests {
         let mut names = vec![
             BINARY_MODULE,
             UNARY_MODULE,
+            NEXT_REPRESENTABLE_MODULE,
             UNARY_INT_MODULE,
             SCALAR_MODULE,
             REDUCE_MODULE,

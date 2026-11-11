@@ -93,3 +93,5 @@ pub mod where_select;
 pub mod streaming;
 
 pub use detect::{SimdLevel, detect_simd};
+
+pub mod next_representable;

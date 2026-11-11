@@ -113,6 +113,7 @@ fn compile_cuda_kernels() {
         "strided_transpose.cu",
         "ternary.cu",
         "unary.cu",
+        "next_representable.cu",
         "unary_int.cu",
         "utility.cu",
         "utility_random.cu",

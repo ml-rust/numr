@@ -158,3 +158,5 @@ pub use special::{
 };
 pub use statistics::{launch_mode_dim, launch_mode_full};
 pub use where_launcher::{launch_where_broadcast_op, launch_where_generic_op, launch_where_op};
+
+pub(crate) mod next_representable;

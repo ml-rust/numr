@@ -149,3 +149,5 @@ pub use sparse::{
     divide_by_pivot, find_pivot, find_pivot_range, gather_and_clear, gather_and_clear_i32,
     scatter_column, scatter_column_i32, sparse_axpy, sparse_axpy_i32, swap_rows,
 };
+
+pub mod next_representable;
