@@ -158,3 +158,7 @@ pub type DefaultRuntime = runtime::wgpu::WgpuRuntime;
 pub type DefaultRuntime = runtime::cpu::CpuRuntime;
 
 pub use random::{manual_seed, next_call_seed, seed_state, set_seed_state, with_seed};
+
+#[cfg(test)]
+#[path = "../tests/common/sqrt_f32_oracle.rs"]
+pub(crate) mod sqrt_f32_oracle;

@@ -111,7 +111,7 @@ __global__ void abs_f32(const float* a, float* out, unsigned int n) {
 __global__ void sqrt_f32(const float* a, float* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = sqrtf(a[idx]);
+        out[idx] = __fsqrt_rn(a[idx]);
     }
 }
 

@@ -47,3 +47,6 @@ pub use crate::runtime::cpu::kernels::unary::{
 };
 
 pub use dispatch::*;
+
+#[cfg(test)]
+mod sqrt_tests;

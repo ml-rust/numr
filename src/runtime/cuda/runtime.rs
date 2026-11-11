@@ -41,7 +41,9 @@ impl Runtime for CudaRuntime {
 
     fn square_root_contract(dtype: Self::DType) -> SquareRootContract {
         match dtype {
-            crate::dtype::DType::F64 => SquareRootContract::Ieee754RoundToNearest,
+            crate::dtype::DType::F32 | crate::dtype::DType::F64 => {
+                SquareRootContract::Ieee754RoundToNearest
+            }
             _ => SquareRootContract::BackendDefined,
         }
     }

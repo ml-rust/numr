@@ -69,6 +69,13 @@ unsafe fn unary_op_scalar<T: Element>(op: UnaryOp, a: *const T, out: *mut T, len
         return;
     }
 
+    if T::DTYPE == DType::F32 && matches!(op, UnaryOp::Sqrt) {
+        unsafe {
+            super::unary_scalar_f32(op, a.cast::<f32>(), out.cast::<f32>(), len);
+        }
+        return;
+    }
+
     let a_slice = std::slice::from_raw_parts(a, len);
     let out_slice = std::slice::from_raw_parts_mut(out, len);
 
@@ -303,3 +310,7 @@ mod tests {
         assert_eq!(out, [1.0, 2.0, 3.0, 4.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "sqrt_tests.rs"]
+mod sqrt_tests;

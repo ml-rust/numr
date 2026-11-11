@@ -2,10 +2,10 @@ use super::arithmetic_types::DTYPES;
 use numr::dtype::DType;
 use numr::runtime::{Runtime, SquareRootContract, cpu::CpuRuntime};
 
-fn f64_square_root_types<R: Runtime<DType = DType>>() {
+fn ieee_square_root_types<R: Runtime<DType = DType>>() {
     for dtype in DTYPES {
         let expected = match dtype {
-            DType::F64 => SquareRootContract::Ieee754RoundToNearest,
+            DType::F32 | DType::F64 => SquareRootContract::Ieee754RoundToNearest,
             _ => SquareRootContract::BackendDefined,
         };
         assert_eq!(
@@ -18,14 +18,14 @@ fn f64_square_root_types<R: Runtime<DType = DType>>() {
 }
 
 #[test]
-fn cpu_advertises_only_f64_square_root() {
-    f64_square_root_types::<CpuRuntime>();
+fn cpu_advertises_f32_and_f64_square_roots() {
+    ieee_square_root_types::<CpuRuntime>();
 }
 
 #[cfg(feature = "cuda")]
 #[test]
-fn cuda_advertises_only_f64_square_root() {
-    f64_square_root_types::<numr::runtime::cuda::CudaRuntime>();
+fn cuda_advertises_f32_and_f64_square_roots() {
+    ieee_square_root_types::<numr::runtime::cuda::CudaRuntime>();
 }
 
 #[cfg(feature = "wgpu")]
