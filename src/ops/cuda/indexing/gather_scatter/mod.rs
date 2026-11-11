@@ -3,6 +3,7 @@
 
 mod gather;
 mod index_put;
+mod index_put_admission;
 mod index_select;
 mod scatter;
 mod validate;

@@ -1,5 +1,5 @@
 //! Binary operations for CUDA runtime
-use super::fused_inputs::{check_ternary, materialize};
+use super::tensor_inputs::{check_ternary, materialize};
 use crate::error::{Error, Result};
 use crate::ops::BinaryOps;
 use crate::runtime::cuda::kernels::{

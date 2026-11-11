@@ -1,15 +1,16 @@
 //! `index_put` for the CUDA runtime.
 
-use crate::error::{Error, Result};
+use crate::error::Result;
 use crate::runtime::cuda::kernels::launch_index_put;
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
-use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
+use super::super::super::tensor_inputs::{copy_admitted, materialize};
 use super::super::helpers::normalize_indices_to_i64;
+use super::index_put_admission::admit;
 use super::validate::validate_indices_or_capture;
 
-/// Execute index_put operation.
+/// Return an independent input copy with indexed values replaced by `src`.
 pub fn index_put(
     client: &CudaClient,
     a: &Tensor<CudaRuntime>,
@@ -17,81 +18,38 @@ pub fn index_put(
     index: &Tensor<CudaRuntime>,
     src: &Tensor<CudaRuntime>,
 ) -> Result<Tensor<CudaRuntime>> {
-    let dtype = a.dtype();
-    let shape = a.shape();
-    let ndim = shape.len();
-
-    // Validate dimension
-    if dim >= ndim {
-        return Err(Error::InvalidDimension {
-            dim: dim as isize,
-            ndim,
-        });
+    let admitted = admit(client, a, dim, index, src)?;
+    if admitted.index_len == 0 {
+        return copy_admitted(client, a, admitted.input_count);
     }
+    // Cast only a contiguous index, keeping every enqueue on the supplied stream.
+    let index_materialized = materialize(client, index, admitted.index_len)?;
+    let index_contig = index_materialized.as_ref().unwrap_or(index);
+    let index_i64 = normalize_indices_to_i64(client, index_contig)?;
+    validate_indices_or_capture(client, &index_i64, admitted.index_len, admitted.dim_size)?;
 
-    let index_i64 = normalize_indices_to_i64(client, index)?;
-
-    // Validate index is 1D
-    if index_i64.ndim() != 1 {
-        return Err(Error::ShapeMismatch {
-            expected: vec![index_i64.numel()],
-            got: index_i64.shape().to_vec(),
-        });
+    let out = copy_admitted(client, a, admitted.input_count)?;
+    if admitted.src_count == 0 {
+        return Ok(out);
     }
+    let src_materialized = materialize(client, src, admitted.src_count)?;
+    let src_contig = src_materialized.as_ref().unwrap_or(src);
 
-    // Validate src dtype matches
-    if src.dtype() != dtype {
-        return Err(Error::DTypeMismatch {
-            lhs: dtype,
-            rhs: src.dtype(),
-        });
-    }
-
-    let index_len = index_i64.numel();
-
-    // Validate src shape: must match a's shape except at dim where it equals index_len
-    let mut expected_src_shape = shape.to_vec();
-    expected_src_shape[dim] = index_len;
-    if src.shape() != expected_src_shape {
-        return Err(Error::ShapeMismatch {
-            expected: expected_src_shape,
-            got: src.shape().to_vec(),
-        });
-    }
-
-    let a_contig = ensure_contiguous(a)?;
-    let index_contig = ensure_contiguous(&index_i64)?;
-    let src_contig = ensure_contiguous(src)?;
-
-    // Compute dim_size for validation
-    let dim_size = shape[dim];
-
-    validate_indices_or_capture(client, &index_contig, index_len, dim_size)?;
-
-    // Clone a to output first
-    let out = a_contig.clone();
-
-    // Compute outer/dim/inner sizes. Never clamp these with `.max(1)`: a clamp
-    // fires only on a genuinely zero extent, and then defeats the launcher's own
-    // `total == 0` early return so the kernel reads past an empty allocation.
-    // Unclamped, `total` is 0 and the launcher returns without dispatching, which
-    // leaves `out` as the copy of `a` that CPU also produces.
-    let outer_size: usize = shape[..dim].iter().product();
-    let inner_size: usize = shape[dim + 1..].iter().product();
-
+    // SAFETY: admission checks devices, layouts, allocation bytes, and kernel scalar ranges.
+    // Caller storage is read-only. Every write targets independent output storage.
     unsafe {
         launch_index_put(
             &client.context,
             &client.stream,
             client.device.index,
-            dtype,
-            index_contig.ptr(),
+            a.dtype(),
+            index_i64.ptr(),
             src_contig.ptr(),
             out.ptr(),
-            outer_size,
-            dim_size,
-            inner_size,
-            index_len,
+            admitted.outer_size,
+            admitted.dim_size,
+            admitted.inner_size,
+            admitted.index_len,
         )?;
     }
 

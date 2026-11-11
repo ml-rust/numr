@@ -1,7 +1,7 @@
-//! Input admission and supplied-stream copies for CUDA fused operations.
+//! Tensor admission and supplied-stream copies for CUDA operations.
 
 use crate::error::{Error, Result};
-use crate::runtime::cuda::kernels::{MAX_DIMS, launch_strided_copy};
+use crate::runtime::cuda::kernels::{MAX_DIMS, launch_copy, launch_strided_copy};
 use crate::runtime::cuda::{CudaClient, CudaRuntime};
 use crate::tensor::Tensor;
 
@@ -137,23 +137,47 @@ pub(super) fn materialize(
     if input.is_contiguous() || count == 0 {
         return Ok(None);
     }
+    Ok(Some(copy_admitted(client, input, count)?))
+}
+
+/// Copy an admitted tensor into independent contiguous storage on the supplied stream.
+pub(super) fn copy_admitted(
+    client: &CudaClient,
+    input: &Tensor<CudaRuntime>,
+    count: usize,
+) -> Result<Tensor<CudaRuntime>> {
     let output = Tensor::<CudaRuntime>::empty(input.shape(), input.dtype(), &client.device)?;
+    if count == 0 {
+        return Ok(output);
+    }
     // SAFETY: admission checks the count, rank, byte ranges, and client's device.
     // The fresh destination owns count elements and cannot overlap the source.
     unsafe {
-        launch_strided_copy(
-            &client.context,
-            &client.stream,
-            client.device.index,
-            input.storage().ptr(),
-            output.ptr(),
-            input.shape(),
-            input.strides(),
-            count,
-            input.ndim(),
-            input.dtype().size_in_bytes(),
-            input.offset() * input.dtype().size_in_bytes(),
-        )?;
+        if input.is_contiguous() {
+            launch_copy(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                input.dtype(),
+                input.ptr(),
+                output.ptr(),
+                count,
+            )?;
+        } else {
+            launch_strided_copy(
+                &client.context,
+                &client.stream,
+                client.device.index,
+                input.storage().ptr(),
+                output.ptr(),
+                input.shape(),
+                input.strides(),
+                count,
+                input.ndim(),
+                input.dtype().size_in_bytes(),
+                input.offset() * input.dtype().size_in_bytes(),
+            )?;
+        }
     }
-    Ok(Some(output))
+    Ok(output)
 }

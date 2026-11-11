@@ -83,8 +83,8 @@ mod activation;
 #[path = "../../../ops/cuda/snake.rs"]
 mod snake;
 
-#[path = "../../../ops/cuda/fused_inputs.rs"]
-mod fused_inputs;
+#[path = "../../../ops/cuda/tensor_inputs.rs"]
+mod tensor_inputs;
 
 #[path = "../../../ops/cuda/binary.rs"]
 mod binary;

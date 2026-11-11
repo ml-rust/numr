@@ -1,11 +1,12 @@
 //! Indexing CUDA kernel launchers
 //!
 //! Provides launchers for indexing operations: gather, scatter, scatter_reduce,
-//! index_select, masked_select, masked_fill, embedding, and slice_assign.
+//! index_select, index_put, masked_select, masked_fill, embedding, and slice_assign.
 
 mod dtype_gate;
 mod embedding;
 mod gather;
+mod index_put;
 mod index_select;
 mod masked_fill;
 mod masked_select;
@@ -17,6 +18,7 @@ mod slice_assign;
 pub use dtype_gate::*;
 pub use embedding::*;
 pub use gather::*;
+pub use index_put::*;
 pub use index_select::*;
 pub use masked_fill::*;
 pub use masked_select::*;

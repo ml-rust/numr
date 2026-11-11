@@ -7,8 +7,8 @@ use super::super::{CpuClient, CpuRuntime};
 use crate::dispatch_dtype;
 use crate::dtype::DType;
 use crate::error::{Error, Result};
-use crate::ops::ScatterReduceOp;
 use crate::ops::common::validate_scatter_extents;
+use crate::ops::{ScatterReduceOp, TypeConversionOps};
 use crate::runtime::ensure_contiguous;
 use crate::tensor::Tensor;
 
@@ -22,11 +22,7 @@ fn normalize_indices_to_i64(
 ) -> Result<Tensor<CpuRuntime>> {
     match indices.dtype() {
         DType::I64 => Ok(indices.clone()),
-        DType::I32 => {
-            let idx_i32: Vec<i32> = indices.to_vec();
-            let idx_i64: Vec<i64> = idx_i32.into_iter().map(i64::from).collect();
-            Tensor::<CpuRuntime>::from_slice(&idx_i64, indices.shape(), &client.device)
-        }
+        DType::I32 => client.cast(indices, DType::I64),
         other => Err(Error::DTypeMismatch {
             lhs: DType::I64,
             rhs: other,

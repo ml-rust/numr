@@ -59,3 +59,6 @@ pub use device::{CudaDevice, CudaError};
 pub use graph::CudaGraph;
 pub use runtime::{CudaRuntime, cuda_device, cuda_device_id, is_cuda_available};
 pub use tune::{time_launches, tuned};
+
+#[cfg(test)]
+mod index_put_stream_tests;

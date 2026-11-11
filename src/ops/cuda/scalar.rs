@@ -1,6 +1,6 @@
 //! CUDA implementation of scalar operations.
 
-use super::fused_inputs::{check_input, materialize};
+use super::tensor_inputs::{check_input, materialize};
 use crate::error::Result;
 use crate::ops::{ScalarOps, TypeConversionOps};
 use crate::runtime::cuda::kernels::launch_fused_mul_add_scalar;
