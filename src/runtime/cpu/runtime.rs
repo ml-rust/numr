@@ -2,7 +2,9 @@
 
 use super::client::{CpuAllocator, CpuClient};
 use super::device::CpuDevice;
-use crate::runtime::{FloatArithmeticContract, FusedMulAddContract, NoOpGraph, Runtime};
+use crate::runtime::{
+    FloatArithmeticContract, FusedMulAddContract, NoOpGraph, Runtime, SquareRootContract,
+};
 use std::alloc::{Layout as AllocLayout, alloc, dealloc};
 
 /// CPU compute runtime
@@ -39,6 +41,13 @@ impl Runtime for CpuRuntime {
                 FusedMulAddContract::Ieee754Fused
             }
             _ => FusedMulAddContract::BackendDefined,
+        }
+    }
+
+    fn square_root_contract(dtype: Self::DType) -> SquareRootContract {
+        match dtype {
+            crate::dtype::DType::F64 => SquareRootContract::Ieee754RoundToNearest,
+            _ => SquareRootContract::BackendDefined,
         }
     }
 

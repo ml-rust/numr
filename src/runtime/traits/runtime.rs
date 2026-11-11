@@ -92,6 +92,15 @@ pub trait Runtime: Clone + Send + Sync + 'static {
         super::FusedMulAddContract::BackendDefined
     }
 
+    /// Declared provider contract for tensor square roots on `dtype`.
+    ///
+    /// The conservative default preserves external runtimes without asserting correctly rounded square roots.
+    /// This declaration does not inspect or change the active execution environment.
+    fn square_root_contract(dtype: Self::DType) -> super::SquareRootContract {
+        let _ = dtype;
+        super::SquareRootContract::BackendDefined
+    }
+
     /// Whether a storage handle plus a byte offset addresses device memory.
     ///
     /// CPU and CUDA handles are pointers, so a kernel reads a view at an

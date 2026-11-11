@@ -333,7 +333,7 @@ __global__ void abs_f64(const double* a, double* out, unsigned int n) {
 __global__ void sqrt_f64(const double* a, double* out, unsigned int n) {
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx < n) {
-        out[idx] = sqrt(a[idx]);
+        out[idx] = __dsqrt_rn(a[idx]);
     }
 }
 

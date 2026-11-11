@@ -23,6 +23,8 @@ pub trait UnaryOps<R: Runtime> {
     // ===== Power and Root =====
 
     /// Square root: sqrt(a)
+    ///
+    /// Check [`Runtime::square_root_contract`] before requiring correctly rounded results.
     fn sqrt(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Reciprocal square root: 1/sqrt(a) - critical for normalization layers
