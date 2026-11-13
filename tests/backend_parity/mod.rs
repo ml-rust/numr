@@ -19,6 +19,7 @@ pub mod color;
 pub mod compare;
 pub mod complex;
 pub mod conditional;
+pub mod conditional_numeric;
 pub mod conv;
 pub mod conv1d_depthwise;
 pub mod conv_fused;

@@ -18,10 +18,8 @@
 // unlike the arithmetic kernels there is nothing here that can overflow: one
 // template covers every dtype, integers included.
 //
-// The non-U8 condition pairs are an explicit list, not a cross product. A pair
-// with no instantiation is reported as an unsupported CONDITION dtype by
-// launch_where_generic_op, which is why the list is spelled out rather than
-// generated.
+// Every real numeric condition supports every real value dtype in both layouts.
+// U8 conditions retain their existing specialized kernels.
 
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
@@ -205,41 +203,44 @@ NUMR_WHERE_ROW(uint16_t, u16)
 NUMR_WHERE_ROW(uint8_t, u8)
 
 // ============================================================================
-// Non-U8 condition, element-wise
+// Non-U8 conditions: the complete real condition/value dtype matrix
 // ============================================================================
 
-NUMR_WHERE_COND(float, float, f32, f32)
-NUMR_WHERE_COND(double, double, f64, f64)
-NUMR_WHERE_COND(float, double, f32, f64)
-NUMR_WHERE_COND(double, float, f64, f32)
-NUMR_WHERE_COND(int32_t, float, i32, f32)
-NUMR_WHERE_COND(int32_t, double, i32, f64)
-NUMR_WHERE_COND(int64_t, float, i64, f32)
-NUMR_WHERE_COND(int64_t, double, i64, f64)
-NUMR_WHERE_COND(uint32_t, float, u32, f32)
-NUMR_WHERE_COND(uint32_t, double, u32, f64)
-NUMR_WHERE_COND(__half, __half, f16, f16)
-NUMR_WHERE_COND(__half, float, f16, f32)
-NUMR_WHERE_COND(__half, double, f16, f64)
-NUMR_WHERE_COND(__nv_bfloat16, __nv_bfloat16, bf16, bf16)
-NUMR_WHERE_COND(__nv_bfloat16, float, bf16, f32)
-NUMR_WHERE_COND(__nv_bfloat16, double, bf16, f64)
-NUMR_WHERE_COND(numr_fp8_e4m3, numr_fp8_e4m3, fp8_e4m3, fp8_e4m3)
-NUMR_WHERE_COND(numr_fp8_e5m2, numr_fp8_e5m2, fp8_e5m2, fp8_e5m2)
+#define NUMR_WHERE_PAIR(C, T, CSUF, TSUF)                                       \
+    NUMR_WHERE_COND(C, T, CSUF, TSUF)                                          \
+    NUMR_WHERE_COND_BROADCAST(C, T, CSUF, TSUF)
 
-// ============================================================================
-// Non-U8 condition, broadcast
-// ============================================================================
+#define NUMR_WHERE_CONDITION_ROW(C, CSUF)                                      \
+    NUMR_WHERE_PAIR(C, float, CSUF, f32)                                       \
+    NUMR_WHERE_PAIR(C, double, CSUF, f64)                                      \
+    NUMR_WHERE_PAIR(C, __half, CSUF, f16)                                      \
+    NUMR_WHERE_PAIR(C, __nv_bfloat16, CSUF, bf16)                              \
+    NUMR_WHERE_PAIR(C, numr_fp8_e4m3, CSUF, fp8_e4m3)                          \
+    NUMR_WHERE_PAIR(C, numr_fp8_e5m2, CSUF, fp8_e5m2)                          \
+    NUMR_WHERE_PAIR(C, int64_t, CSUF, i64)                                     \
+    NUMR_WHERE_PAIR(C, int32_t, CSUF, i32)                                     \
+    NUMR_WHERE_PAIR(C, int16_t, CSUF, i16)                                     \
+    NUMR_WHERE_PAIR(C, int8_t, CSUF, i8)                                       \
+    NUMR_WHERE_PAIR(C, uint64_t, CSUF, u64)                                    \
+    NUMR_WHERE_PAIR(C, uint32_t, CSUF, u32)                                    \
+    NUMR_WHERE_PAIR(C, uint16_t, CSUF, u16)                                    \
+    NUMR_WHERE_PAIR(C, uint8_t, CSUF, u8)
 
-NUMR_WHERE_COND_BROADCAST(float, float, f32, f32)
-NUMR_WHERE_COND_BROADCAST(double, double, f64, f64)
-NUMR_WHERE_COND_BROADCAST(float, double, f32, f64)
-NUMR_WHERE_COND_BROADCAST(double, float, f64, f32)
-NUMR_WHERE_COND_BROADCAST(int32_t, float, i32, f32)
-NUMR_WHERE_COND_BROADCAST(int32_t, double, i32, f64)
-NUMR_WHERE_COND_BROADCAST(int64_t, float, i64, f32)
-NUMR_WHERE_COND_BROADCAST(int64_t, double, i64, f64)
-NUMR_WHERE_COND_BROADCAST(uint32_t, float, u32, f32)
-NUMR_WHERE_COND_BROADCAST(uint32_t, double, u32, f64)
+NUMR_WHERE_CONDITION_ROW(float, f32)
+NUMR_WHERE_CONDITION_ROW(double, f64)
+NUMR_WHERE_CONDITION_ROW(__half, f16)
+NUMR_WHERE_CONDITION_ROW(__nv_bfloat16, bf16)
+NUMR_WHERE_CONDITION_ROW(numr_fp8_e4m3, fp8_e4m3)
+NUMR_WHERE_CONDITION_ROW(numr_fp8_e5m2, fp8_e5m2)
+NUMR_WHERE_CONDITION_ROW(int64_t, i64)
+NUMR_WHERE_CONDITION_ROW(int32_t, i32)
+NUMR_WHERE_CONDITION_ROW(int16_t, i16)
+NUMR_WHERE_CONDITION_ROW(int8_t, i8)
+NUMR_WHERE_CONDITION_ROW(uint64_t, u64)
+NUMR_WHERE_CONDITION_ROW(uint32_t, u32)
+NUMR_WHERE_CONDITION_ROW(uint16_t, u16)
+
+#undef NUMR_WHERE_CONDITION_ROW
+#undef NUMR_WHERE_PAIR
 
 } // extern "C"
