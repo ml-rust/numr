@@ -98,6 +98,23 @@ mod tests {
     }
 
     #[test]
+    fn unary_neg_flips_sign_bits_in_vector_and_tail_lanes() {
+        let values = [0.0, -0.0, f64::NAN, -f64::NAN, 1.5, f64::INFINITY, 5e-324];
+        let a64: Vec<f64> = (0..67).map(|i| values[i % values.len()]).collect();
+        let a32: Vec<f32> = a64.iter().map(|&v| v as f32).collect();
+        let mut out64 = vec![0.0f64; a64.len()];
+        let mut out32 = vec![0.0f32; a32.len()];
+        unsafe {
+            basic_f64(UnaryOp::Neg, a64.as_ptr(), out64.as_mut_ptr(), a64.len());
+            basic_f32(UnaryOp::Neg, a32.as_ptr(), out32.as_mut_ptr(), a32.len());
+        }
+        for i in 0..a64.len() {
+            assert_eq!(out64[i].to_bits(), (-a64[i]).to_bits(), "f64 lane {i}");
+            assert_eq!(out32[i].to_bits(), (-a32[i]).to_bits(), "f32 lane {i}");
+        }
+    }
+
+    #[test]
     fn test_unary_abs_f32() {
         let a: Vec<f32> = (0..100).map(|x| x as f32 - 50.0).collect();
         let mut out = vec![0.0f32; 100];

@@ -226,11 +226,12 @@ pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
 
 #[target_feature(enable = "avx512f")]
 unsafe fn unary_neg_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let zero = _mm512_setzero_ps();
+    // Flipping the sign bit matches scalar negation for zeros and NaNs.
+    let sign = _mm512_castps_si512(_mm512_set1_ps(-0.0));
     for i in 0..chunks {
         let offset = i * F32_LANES;
         let va = _mm512_loadu_ps(a.add(offset));
-        let vr = _mm512_sub_ps(zero, va);
+        let vr = _mm512_castsi512_ps(_mm512_xor_epi32(_mm512_castps_si512(va), sign));
         _mm512_storeu_ps(out.add(offset), vr);
     }
 }
@@ -594,11 +595,12 @@ unsafe fn unary_trunc_f32(a: *const f32, out: *mut f32, chunks: usize) {
 
 #[target_feature(enable = "avx512f")]
 unsafe fn unary_neg_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let zero = _mm512_setzero_pd();
+    // Flipping the sign bit matches scalar negation for zeros and NaNs.
+    let sign = _mm512_castpd_si512(_mm512_set1_pd(-0.0));
     for i in 0..chunks {
         let offset = i * F64_LANES;
         let va = _mm512_loadu_pd(a.add(offset));
-        let vr = _mm512_sub_pd(zero, va);
+        let vr = _mm512_castsi512_pd(_mm512_xor_epi64(_mm512_castpd_si512(va), sign));
         _mm512_storeu_pd(out.add(offset), vr);
     }
 }

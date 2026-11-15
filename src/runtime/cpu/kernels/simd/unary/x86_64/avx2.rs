@@ -225,11 +225,12 @@ pub unsafe fn relu_f64(a: *const f64, out: *mut f64, len: usize) {
 
 #[target_feature(enable = "avx2")]
 unsafe fn unary_neg_f32(a: *const f32, out: *mut f32, chunks: usize) {
-    let zero = _mm256_setzero_ps();
+    // Flipping the sign bit matches scalar negation for zeros and NaNs.
+    let sign = _mm256_set1_ps(-0.0);
     for i in 0..chunks {
         let offset = i * F32_LANES;
         let va = _mm256_loadu_ps(a.add(offset));
-        let vr = _mm256_sub_ps(zero, va);
+        let vr = _mm256_xor_ps(va, sign);
         _mm256_storeu_ps(out.add(offset), vr);
     }
 }
@@ -580,11 +581,12 @@ unsafe fn unary_trunc_f32(a: *const f32, out: *mut f32, chunks: usize) {
 
 #[target_feature(enable = "avx2")]
 unsafe fn unary_neg_f64(a: *const f64, out: *mut f64, chunks: usize) {
-    let zero = _mm256_setzero_pd();
+    // Flipping the sign bit matches scalar negation for zeros and NaNs.
+    let sign = _mm256_set1_pd(-0.0);
     for i in 0..chunks {
         let offset = i * F64_LANES;
         let va = _mm256_loadu_pd(a.add(offset));
-        let vr = _mm256_sub_pd(zero, va);
+        let vr = _mm256_xor_pd(va, sign);
         _mm256_storeu_pd(out.add(offset), vr);
     }
 }
