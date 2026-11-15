@@ -13,6 +13,8 @@ pub mod kernel_names {
     pub const UNARY_MODULE: &str = "unary";
     /// Adjacent IEEE encodings through integer bit stepping.
     pub const NEXT_REPRESENTABLE_MODULE: &str = "next_representable";
+    /// Single-pass interval and expansion arithmetic with a shared status flag.
+    pub const INTERVAL_MODULE: &str = "interval";
     /// Integer unary operations, which wrap in the dtype instead of computing
     /// in a float register
     pub const UNARY_INT_MODULE: &str = "unary_int";

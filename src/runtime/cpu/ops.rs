@@ -61,10 +61,16 @@ mod cumulative;
 #[path = "../../ops/cpu/color.rs"]
 mod color;
 
+#[path = "../../ops/cpu/expansion.rs"]
+mod expansion;
 #[path = "../../ops/cpu/fwht.rs"]
 mod fwht;
 #[path = "../../ops/cpu/hypot.rs"]
 mod hypot;
+#[path = "../../ops/cpu/interval.rs"]
+mod interval;
+#[path = "../../ops/cpu/interval_lanes.rs"]
+mod interval_lanes;
 #[path = "../../ops/cpu/midpoint.rs"]
 mod midpoint;
 #[path = "../../ops/cpu/next_representable.rs"]

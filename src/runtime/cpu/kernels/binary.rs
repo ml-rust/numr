@@ -4,8 +4,10 @@
 //! On x86-64, f32 and f64 operations use AVX-512 or AVX2 when available.
 //! On aarch64, f32 and f64 operations use NEON when available.
 
-use super::binary_int::{binary_int_elem, binary_int_kernel};
+use super::binary_elem::binary_elem;
+use super::binary_int::binary_int_kernel;
 use super::binary_rows::try_binary_rows;
+use super::flat_operands::try_binary_flat;
 use super::ipow::pow_elem;
 use crate::dtype::Element;
 use crate::ops::BinaryOp;
@@ -391,41 +393,20 @@ pub unsafe fn binary_op_strided_kernel<T: Element>(
         return;
     }
 
+    // Every operand either walks the output contiguously or repeats one element.
+    if try_binary_flat(
+        op, a, b, out, out_shape, a_strides, b_strides, a_offset, b_offset,
+    ) {
+        return;
+    }
+
     // General strided iteration
     let mut indices = vec![0usize; ndim];
     let mut a_idx = a_offset as isize;
     let mut b_idx = b_offset as isize;
 
     for out_idx in 0..total {
-        let a_val = *a.offset(a_idx);
-        let b_val = *b.offset(b_idx);
-
-        // Integer dtypes take the wrapping path; see `binary_int`.
-        let result = match binary_int_elem(op, a_val, b_val) {
-            Some(v) => v,
-            None => match op {
-                BinaryOp::Add => a_val + b_val,
-                BinaryOp::Sub => a_val - b_val,
-                BinaryOp::Mul => a_val * b_val,
-                BinaryOp::Div => a_val / b_val,
-                BinaryOp::Pow => pow_elem(a_val, b_val),
-                BinaryOp::Max => {
-                    if a_val > b_val {
-                        a_val
-                    } else {
-                        b_val
-                    }
-                }
-                BinaryOp::Min => {
-                    if a_val < b_val {
-                        a_val
-                    } else {
-                        b_val
-                    }
-                }
-                BinaryOp::Atan2 => T::from_f64(a_val.to_f64().atan2(b_val.to_f64())),
-            },
-        };
+        let result = binary_elem(op, *a.offset(a_idx), *b.offset(b_idx));
 
         *out.add(out_idx) = result;
 

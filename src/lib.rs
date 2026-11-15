@@ -112,8 +112,9 @@ pub mod prelude {
     pub use crate::ops::{
         ActivationOps, BinaryOps, ChromaSiting, ColorMatrix, ColorOps, ColorRange, CompareOps,
         ComplexOps, ConditionalOps, Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout,
-        ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, FusedConvOps, FwhtOps,
-        HostCopyOps, HypotOps, ImageOps, IndexingOps, LinalgOps, LogicalOps, MatmulOps,
+        ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, ExpansionOperand,
+        ExpansionOps, FusedConvOps, FwhtOps, HostCopyOps, HypotOps, ImageOps, IndexingOps,
+        IntervalEnclosure, IntervalOperand, IntervalOps, LinalgOps, LogicalOps, MatmulOps,
         MeshgridIndexing, MidpointOps, NearestSize, NextRepresentableOps, NormalizationOps,
         PackedPlane, PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter, ScalarOps,
         ShapeOps, SortingOps, StatisticalOps, TensorOps, TwoSumOps, TypeConversionOps, UnaryOps,

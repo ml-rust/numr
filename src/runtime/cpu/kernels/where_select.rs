@@ -6,6 +6,7 @@
 //! - `where_strided_kernel<T>` - U8 condition with broadcasting
 //! - `where_strided_kernel_generic<C, T>` - Generic condition with broadcasting
 
+use super::flat_operands::try_where_flat;
 use crate::dtype::Element;
 
 /// Where (conditional select): out[i] = cond[i] ? x[i] : y[i]
@@ -178,6 +179,20 @@ unsafe fn where_strided_impl<C, T: Element, F>(
     let total = out_shape.iter().product::<usize>();
 
     if total == 0 {
+        return;
+    }
+
+    // Every operand either walks the output contiguously or repeats one element.
+    if try_where_flat(
+        cond,
+        x,
+        y,
+        out,
+        out_shape,
+        [cond_strides, x_strides, y_strides],
+        [cond_offset, x_offset, y_offset],
+        &is_true,
+    ) {
         return;
     }
 

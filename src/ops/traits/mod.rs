@@ -17,6 +17,7 @@ mod conv_fused;
 mod cumulative;
 mod distance;
 mod einsum;
+mod expansion;
 mod fp8_matmul;
 mod fwht;
 mod gemm_epilogue;
@@ -26,6 +27,8 @@ mod hypot;
 mod image;
 mod image_resize;
 mod indexing;
+mod interval;
+mod interval_operand;
 mod kernel;
 mod linalg;
 mod logical;
@@ -66,6 +69,7 @@ pub use conv_fused::{
 pub use cumulative::CumulativeOps;
 pub use distance::{DistanceMetric, DistanceOps};
 pub use einsum::EinsumOps;
+pub use expansion::ExpansionOps;
 pub use fp8_matmul::Fp8MatmulOps;
 pub use fwht::FwhtOps;
 pub use gemm_epilogue::{GemmActivation, GemmEpilogueOps};
@@ -75,6 +79,10 @@ pub use hypot::HypotOps;
 pub use image::{ImageOps, NearestSize};
 pub use image_resize::{ResizeConfig, ResizeFilter};
 pub use indexing::{IndexingOps, ScatterReduceOp};
+pub use interval::IntervalOps;
+pub use interval_operand::{
+    ExpansionOperand, ExpansionTriple, IntervalEnclosure, IntervalOperand, IntervalPair,
+};
 pub use kernel::Kernel;
 pub use linalg::LinalgOps;
 pub use logical::LogicalOps;

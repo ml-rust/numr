@@ -131,16 +131,15 @@ impl Layout {
             return true;
         }
 
-        let expected = Self::compute_contiguous_strides(&self.shape);
-        if self.strides == expected {
-            return true;
+        // Walk row-major strides without building them. Size-1 dims do not matter.
+        let mut expected = 1isize;
+        for (&dim, &actual) in self.shape.iter().zip(self.strides.iter()).rev() {
+            if dim != 1 && actual != expected {
+                return false;
+            }
+            expected = expected.wrapping_mul(dim as isize);
         }
-
-        // Lenient check: strides for size-1 dims don't matter
-        self.shape
-            .iter()
-            .zip(self.strides.iter().zip(expected.iter()))
-            .all(|(&s, (&actual, &expect))| s == 1 || actual == expect)
+        true
     }
 
     /// Get size along a specific dimension

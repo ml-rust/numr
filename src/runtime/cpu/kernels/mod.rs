@@ -7,6 +7,7 @@
 
 pub mod advanced_random;
 pub mod binary;
+mod binary_elem;
 pub mod binary_int;
 mod binary_rows;
 pub mod color;
@@ -19,6 +20,7 @@ pub mod cumulative;
 pub mod distance;
 pub mod distributions;
 pub mod fft;
+mod flat_operands;
 pub mod fused_add_norm;
 pub mod fused_elementwise;
 pub mod fused_mul_add;
@@ -29,6 +31,7 @@ pub mod image_resize;
 pub mod image_resize_acc;
 pub mod image_resize_taps;
 pub mod index;
+pub mod interval;
 pub mod ipow;
 pub mod logical;
 pub mod matmul;

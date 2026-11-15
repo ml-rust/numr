@@ -17,6 +17,11 @@ version. Every later entry is a delta against the one below it.
 ### Added
 
 - `HypotOps::hypot`: Adds scaled floating magnitudes on CPU, CUDA, and WebGPU. Use `HypotOps` for stable elementwise magnitudes.
+- `IntervalOps`, `ExpansionOps`: Run each outward interval or certified expansion operation in one pass with a shared status flag. Use them through `TensorOps` clients.
+
+### Fixed
+
+- `UnaryOps::neg`: AVX2 and AVX-512 lanes now flip the sign bit, so `-0.0` and NaN signs match the scalar tail. No action needed.
 
 ## [0.15.2] - 2026-11-06
 

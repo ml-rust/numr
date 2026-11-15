@@ -60,10 +60,16 @@ mod color;
 #[path = "../../../ops/cuda/color_packed.rs"]
 mod color_packed;
 
+#[path = "../../../ops/cuda/expansion.rs"]
+mod expansion;
 #[path = "../../../ops/cuda/fwht.rs"]
 mod fwht;
 #[path = "../../../ops/cuda/hypot.rs"]
 mod hypot;
+#[path = "../../../ops/cuda/interval.rs"]
+mod interval;
+#[path = "../../../ops/cuda/interval_lanes.rs"]
+mod interval_lanes;
 #[path = "../../../ops/cuda/midpoint.rs"]
 mod midpoint;
 #[path = "../../../ops/cuda/next_representable.rs"]

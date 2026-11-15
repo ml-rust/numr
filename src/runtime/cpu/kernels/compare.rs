@@ -1,5 +1,6 @@
 //! Comparison operation kernels
 
+use super::flat_operands::try_compare_flat;
 use crate::dtype::Element;
 use crate::ops::CompareOp;
 
@@ -164,8 +165,12 @@ pub unsafe fn compare_op_strided_kernel<T: Element>(
         return;
     }
 
-    let one = T::one();
-    let zero = T::zero();
+    // Every operand either walks the output contiguously or repeats one element.
+    if try_compare_flat(
+        op, a, b, out, out_shape, a_strides, b_strides, a_offset, b_offset,
+    ) {
+        return;
+    }
 
     // General strided iteration with incremental offset updates
     let mut indices = vec![0usize; ndim];
@@ -173,53 +178,7 @@ pub unsafe fn compare_op_strided_kernel<T: Element>(
     let mut b_idx = b_offset as isize;
 
     for out_idx in 0..total {
-        let a_val = *a.offset(a_idx);
-        let b_val = *b.offset(b_idx);
-
-        let result = match op {
-            CompareOp::Eq => {
-                if a_val == b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-            CompareOp::Ne => {
-                if a_val != b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-            CompareOp::Lt => {
-                if a_val < b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-            CompareOp::Le => {
-                if a_val <= b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-            CompareOp::Gt => {
-                if a_val > b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-            CompareOp::Ge => {
-                if a_val >= b_val {
-                    one
-                } else {
-                    zero
-                }
-            }
-        };
+        let result = compare_elem(op, *a.offset(a_idx), *b.offset(b_idx));
 
         *out.add(out_idx) = result;
 
@@ -239,4 +198,18 @@ pub unsafe fn compare_op_strided_kernel<T: Element>(
             b_idx -= (out_shape[dim] as isize) * b_strides[dim];
         }
     }
+}
+
+/// One strided comparison element: one for true, zero for false.
+#[inline(always)]
+pub(super) fn compare_elem<T: Element>(op: CompareOp, a: T, b: T) -> T {
+    let result = match op {
+        CompareOp::Eq => a == b,
+        CompareOp::Ne => a != b,
+        CompareOp::Lt => a < b,
+        CompareOp::Le => a <= b,
+        CompareOp::Gt => a > b,
+        CompareOp::Ge => a >= b,
+    };
+    if result { T::one() } else { T::zero() }
 }

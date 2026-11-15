@@ -277,13 +277,20 @@ mod tests {
             .expect("input b");
         let c = Tensor::<CudaRuntime>::zeros(&[4], DType::F32, &device).expect("output c");
 
+        let capturing = Arc::new(AtomicBool::new(false));
         let waiting = Arc::new(AtomicBool::new(false));
         let synced = Arc::new(AtomicBool::new(false));
 
         let worker_client = client.clone();
+        let worker_capturing = Arc::clone(&capturing);
         let worker_waiting = Arc::clone(&waiting);
         let worker_synced = Arc::clone(&synced);
         let worker = thread::spawn(move || {
+            // Start the wait only once the capture is open. A wait that
+            // finishes before capture begins proves nothing.
+            while !worker_capturing.load(Ordering::SeqCst) {
+                thread::yield_now();
+            }
             worker_waiting.store(true, Ordering::SeqCst);
             worker_client.synchronize();
             worker_synced.store(true, Ordering::SeqCst);
@@ -291,6 +298,7 @@ mod tests {
 
         let captured = CudaRuntime::capture_graph_into(&client, &[&a, &b], &[&c], |cc| {
             cc.add_into(&c, &a, &b)?;
+            capturing.store(true, Ordering::SeqCst);
             while !waiting.load(Ordering::SeqCst) {
                 thread::yield_now();
             }

@@ -43,10 +43,14 @@ mod cumulative;
 #[path = "../../../ops/wgpu/color.rs"]
 mod color;
 
+#[path = "../../../ops/wgpu/expansion.rs"]
+mod expansion;
 #[path = "../../../ops/wgpu/fwht.rs"]
 mod fwht;
 #[path = "../../../ops/wgpu/hypot.rs"]
 mod hypot;
+#[path = "../../../ops/wgpu/interval.rs"]
+mod interval;
 #[path = "../../../ops/wgpu/midpoint.rs"]
 mod midpoint;
 #[path = "../../../ops/wgpu/next_representable.rs"]

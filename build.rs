@@ -114,6 +114,7 @@ fn compile_cuda_kernels() {
         "ternary.cu",
         "unary.cu",
         "next_representable.cu",
+        "interval.cu",
         "unary_int.cu",
         "utility.cu",
         "utility_random.cu",
@@ -306,6 +307,9 @@ fn compile_cuda_kernels() {
         "sort_bitonic.cuh",
         "sort_compare.cuh",
         "sort_scan.cuh",
+        "interval_lane.cuh",
+        "interval_tighten.cuh",
+        "expansion_lane.cuh",
     ] {
         println!(
             "cargo:rerun-if-changed={}",
