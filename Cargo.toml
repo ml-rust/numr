@@ -33,7 +33,7 @@ cuda = ["dep:cudarc"]
 nccl = ["cuda", "cudarc?/nccl"]
 distributed = ["dep:nexar", "dep:tokio"]
 distributed-gpu = ["distributed", "nccl", "dep:nexar-nccl"]
-wgpu = ["dep:wgpu", "dep:pollster"]
+wgpu = ["dep:wgpu", "dep:pollster", "dep:parking_lot"]
 rayon = ["dep:rayon"]
 f16 = [
   "dep:half",
@@ -49,7 +49,7 @@ thiserror = "2.0"
 smallvec = "1"
 bytemuck = { version = "1.25", features = ["derive"] }
 num-traits = "0.2"
-parking_lot = "0.13"
+parking_lot = { version = "0.13", optional = true }
 
 # Optional: Parallelism
 rayon = { version = "1.12", optional = true }
