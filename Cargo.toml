@@ -95,8 +95,6 @@ wgpu = { version = "30.0", optional = true, features = [
 ] }
 
 [dev-dependencies]
-approx = "0.5"
-rand = "0.10"
 fluxbench = "0.2"
 ndarray = "0.17"
 nalgebra = "0.35"
