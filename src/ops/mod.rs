@@ -112,13 +112,14 @@ pub use traits::Fp8MatmulOps;
 pub use traits::{
     ActivationOps, BinaryOps, ChromaSiting, ColorMatrix, ColorOps, ColorRange, CompareOps,
     ComplexOps, ConditionalOps, Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout,
-    ConvOps, ConvResidual, CumulativeOps, DistanceMetric, DistanceOps, EinsumOps, ExpansionOperand,
-    ExpansionOps, ExpansionTriple, FusedConvOps, FwhtOps, GemmActivation, GemmEpilogueOps,
-    GroupedMatmulOps, HostCopyOps, HypotOps, ImageOps, IndexingOps, IntervalEnclosure,
-    IntervalOperand, IntervalOps, IntervalPair, Kernel, LinalgOps, LogicalOps, MatmulOps,
-    MeshgridIndexing, MidpointOps, NearestSize, NextRepresentableOps, NormalizationOps,
-    PackedPlane, PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter, ScalarOps,
-    ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps, TwoSumOps,
-    TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
+    ConvOps, ConvResidual, CorrectlyRoundedOps, CumulativeOps, DistanceMetric, DistanceOps,
+    EinsumOps, ExpansionOperand, ExpansionOps, ExpansionTriple, FusedConvOps, FwhtOps,
+    GemmActivation, GemmEpilogueOps, GroupedMatmulOps, HostCopyOps, HypotOps, ImageOps,
+    IndexingOps, IntervalEnclosure, IntervalOperand, IntervalOps, IntervalPair, Kernel, LinalgOps,
+    LogicalOps, MatmulOps, MeshgridIndexing, MidpointOps, NearestSize, NextRepresentableOps,
+    NormalizationOps, PackedPlane, PadMode, PaddingMode, ReduceOps, ResizeConfig, ResizeFilter,
+    ScalarOps, ScatterReduceOp, SemiringMatmulOps, ShapeOps, SortingOps, StatisticalOps, TensorOps,
+    TwoSumOps, TypeConversionOps, UnaryOps, UtilityOps, YuvPlanes, YuvSpec,
+    require_correctly_rounded_contracts,
 };
 pub use traits::{AdvancedRandomOps, MultivariateRandomOps, QuasiRandomOps, RandomOps};

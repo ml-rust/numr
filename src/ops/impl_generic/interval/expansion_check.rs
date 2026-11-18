@@ -71,13 +71,13 @@ pub fn require_fused<R: Runtime<DType = DType>>(dtype: DType, op: &'static str) 
     Ok(())
 }
 
-/// Reject runtimes without IEEE basic arithmetic, with the error midpoint reports.
-pub fn require_basic<R: Runtime<DType = DType>>(dtype: DType) -> Result<()> {
+/// Reject runtimes without IEEE basic arithmetic for `dtype`, naming `op`.
+pub fn require_basic<R: Runtime<DType = DType>>(dtype: DType, op: &'static str) -> Result<()> {
     let contract = R::float_arithmetic_contract(dtype);
     if contract != FloatArithmeticContract::Ieee754Basic {
         return Err(Error::backend_limitation(
             R::name(),
-            "midpoint",
+            op,
             format!(
                 "dtype={dtype:?}, contract={contract:?}. Select a runtime providing IEEE 754 basic arithmetic"
             ),

@@ -12,7 +12,7 @@ fn around(bits: u64, reach: u64) -> Vec<f64> {
         .collect()
 }
 
-fn specials() -> Vec<f64> {
+pub fn specials() -> Vec<f64> {
     let mut v = vec![
         0.0,
         -0.0,

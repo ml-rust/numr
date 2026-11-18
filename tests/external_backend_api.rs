@@ -9,6 +9,8 @@ use numr::runtime::Allocator;
 
 #[path = "common/float_arithmetic_types.rs"]
 mod arithmetic_types;
+#[path = "external_backend_api/correctly_rounded.rs"]
+mod correctly_rounded;
 #[path = "external_backend_api/float_arithmetic.rs"]
 mod float_arithmetic;
 

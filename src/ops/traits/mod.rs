@@ -14,6 +14,7 @@ mod complex;
 mod conditional;
 mod conv;
 mod conv_fused;
+mod correctly_rounded;
 mod cumulative;
 mod distance;
 mod einsum;
@@ -66,6 +67,7 @@ pub use conv::{ConvOps, PaddingMode};
 pub use conv_fused::{
     Conv2dConfig, ConvAccumulation, ConvActivation, ConvLayout, ConvResidual, FusedConvOps,
 };
+pub use correctly_rounded::{CorrectlyRoundedOps, require_correctly_rounded_contracts};
 pub use cumulative::CumulativeOps;
 pub use distance::{DistanceMetric, DistanceOps};
 pub use einsum::EinsumOps;

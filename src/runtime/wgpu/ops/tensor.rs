@@ -58,6 +58,9 @@ mod next_representable;
 #[path = "../../../ops/wgpu/two_sum.rs"]
 mod two_sum;
 
+#[path = "../../../ops/wgpu/correctly_rounded.rs"]
+mod correctly_rounded;
+
 #[path = "../../../ops/wgpu/image.rs"]
 mod image;
 

@@ -212,7 +212,7 @@ impl ExpansionOps<CudaRuntime> for CudaClient {
             validate::float_dtype(self, "expansion_from_interval", &[value.lower, value.upper])?;
         validate::interval(value)?;
         validate::status(self, status)?;
-        require_basic::<CudaRuntime>(dtype)?;
+        require_basic::<CudaRuntime>(dtype, "expansion_from_interval")?;
         let parts = [value.lower, value.upper, value.lower];
         let out = fresh::<3>(self, value.lower, dtype)?;
         run(

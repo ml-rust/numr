@@ -2,7 +2,8 @@
 //!
 //! The oracle is MPFR through `rug`: each function at 53-bit precision, rounded to
 //! nearest, with binary64 underflow emulated and NaN canonical. Every output must equal
-//! the oracle's bits.
+//! the oracle's bits. `tensor` checks the CPU `CorrectlyRoundedOps` against the host
+//! functions.
 //!
 //! MSVC targets cannot build MPFR, so this binary is empty there.
 #![cfg(not(target_env = "msvc"))]
@@ -25,5 +26,7 @@ mod pow_dense;
 mod pow_hard_cases;
 #[path = "correctly_rounded/pow_special.rs"]
 mod pow_special;
+#[path = "correctly_rounded/tensor.rs"]
+mod tensor;
 #[path = "correctly_rounded/thresholds.rs"]
 mod thresholds;

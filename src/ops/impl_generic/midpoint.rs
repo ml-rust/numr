@@ -2,10 +2,10 @@
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
+use crate::ops::impl_generic::interval::require_basic;
 use crate::ops::{BinaryOps, CompareOps, ConditionalOps, ScalarOps, UnaryOps};
 use crate::runtime::{
-    Device, FloatArithmeticContract, Runtime, RuntimeClient, compute_broadcast_shape,
-    validate_binary_dtypes,
+    Device, Runtime, RuntimeClient, compute_broadcast_shape, validate_binary_dtypes,
 };
 use crate::tensor::Tensor;
 
@@ -41,16 +41,7 @@ where
             op: "midpoint",
         });
     }
-    let contract = R::float_arithmetic_contract(dtype);
-    if contract != FloatArithmeticContract::Ieee754Basic {
-        return Err(Error::backend_limitation(
-            R::name(),
-            "midpoint",
-            format!(
-                "dtype={dtype:?}, contract={contract:?}. Select a runtime providing IEEE 754 basic arithmetic"
-            ),
-        ));
-    }
+    require_basic::<R>(dtype, "midpoint")?;
     if shape.contains(&0) {
         return Tensor::empty(&shape, dtype, client.device());
     }

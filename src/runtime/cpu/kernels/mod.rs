@@ -16,6 +16,7 @@ pub mod compare;
 pub mod complex;
 pub mod conv;
 pub mod conv_transpose;
+pub mod correctly_rounded;
 pub mod cumulative;
 pub mod distance;
 pub mod distributions;

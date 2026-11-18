@@ -78,6 +78,9 @@ mod next_representable;
 #[path = "../../ops/cpu/two_sum.rs"]
 mod two_sum;
 
+#[path = "../../ops/cpu/correctly_rounded.rs"]
+mod correctly_rounded;
+
 #[path = "../../ops/cpu/image.rs"]
 mod image;
 

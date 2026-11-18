@@ -263,7 +263,7 @@ impl ExpansionOps<CpuRuntime> for CpuClient {
             validate::float_dtype(self, "expansion_from_interval", &[value.lower, value.upper])?;
         validate::interval(value)?;
         validate::status(self, status)?;
-        require_basic::<CpuRuntime>(dtype)?;
+        require_basic::<CpuRuntime>(dtype, "expansion_from_interval")?;
         let shape = value.lower.shape();
         let out = outputs(self, shape, dtype)?;
         if out[0].numel() > 0 {

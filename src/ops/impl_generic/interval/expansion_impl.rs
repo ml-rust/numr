@@ -111,6 +111,6 @@ where
     )?;
     validate::interval(value)?;
     validate::status(client, status)?;
-    require_basic::<R>(dtype)?;
+    require_basic::<R>(dtype, "expansion_from_interval")?;
     Composed::new(client, dtype, status)?.expansion_from_interval(value)
 }

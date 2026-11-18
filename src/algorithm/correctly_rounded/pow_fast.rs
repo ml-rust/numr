@@ -99,6 +99,7 @@ fn p_1(z: f64) -> (f64, f64) {
 ///
 /// The relative error is below `2^-73.527`, or `2^-67.0544` for `1/sqrt(2) < x < sqrt(2)`.
 /// `cancel` selects the larger fast-path bound.
+#[inline(always)]
 pub fn log_1(x: f64) -> (f64, f64, bool) {
     let bits = x.to_bits();
     let mut m = bits & (u64::MAX >> 12);
@@ -156,6 +157,7 @@ fn q_1(z: f64) -> (f64, f64) {
 ///
 /// Returns a NaN pair where the result can overflow or be subnormal: the rounding test
 /// then fails and the accurate path decides.
+#[inline(always)]
 pub fn exp_1(rh: f64, rl: f64, s: f64) -> (f64, f64) {
     if rh.is_nan() || rh > RHO2 {
         if !rh.is_nan() && rh > RHO3 {

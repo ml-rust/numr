@@ -40,4 +40,6 @@ pub(crate) mod strided_copy_into;
 pub use crate::tensor::Tensor;
 pub use client::{CpuAllocator, CpuClient, ParallelismConfig};
 pub use device::CpuDevice;
+#[doc(hidden)]
+pub use kernels::correctly_rounded as correctly_rounded_lanes;
 pub use runtime::CpuRuntime;
