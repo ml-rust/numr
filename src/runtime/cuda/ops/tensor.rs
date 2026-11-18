@@ -60,6 +60,8 @@ mod color;
 #[path = "../../../ops/cuda/color_packed.rs"]
 mod color_packed;
 
+#[path = "../../../ops/cuda/correctly_rounded.rs"]
+mod correctly_rounded;
 #[path = "../../../ops/cuda/expansion.rs"]
 mod expansion;
 #[path = "../../../ops/cuda/fwht.rs"]

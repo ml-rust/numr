@@ -10,7 +10,8 @@ documentation = "https://docs.rs/numr"
 keywords = ["tensor", "ndarray", "numpy", "linear-algebra", "gpu"]
 categories = ["science", "mathematics", "data-structures"]
 # CI scripts, bench config, test fixtures, and the CUDA profiling binaries never
-# build into the crate. `build.rs` reads only `src/runtime/cuda/kernels`, which ships.
+# build into the crate. `build.rs` reads `buildscript/`, `src/runtime/cuda/kernels`
+# and `src/algorithm/correctly_rounded/tables_data.rs`, which all ship.
 exclude = [
   ".github/",
   "scripts/ci/",

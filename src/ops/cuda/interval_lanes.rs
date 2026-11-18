@@ -1,4 +1,5 @@
-//! CUDA lane operands and launches shared by the interval and expansion kernels.
+//! CUDA lane operands and launches shared by the interval, expansion and correctly
+//! rounded kernels.
 
 use crate::dtype::DType;
 use crate::error::{Error, Result};
@@ -23,13 +24,13 @@ pub(super) fn lanes(count: usize, op: &'static str) -> Result<u32> {
     })
 }
 
-/// Copy a broadcast view into contiguous storage on the client's stream.
+/// Copy a broadcast or strided view into contiguous storage on the client's stream.
 fn materialize(client: &CudaClient, view: &CudaTensor) -> Result<CudaTensor> {
     if view.ndim() > MAX_DIMS {
         return Err(Error::InvalidArgument {
             arg: "operand",
             reason: format!(
-                "CUDA interval operand rank {} exceeds {MAX_DIMS}. Collapse compatible dimensions.",
+                "CUDA lane operand rank {} exceeds {MAX_DIMS}. Collapse compatible dimensions.",
                 view.ndim()
             ),
         });

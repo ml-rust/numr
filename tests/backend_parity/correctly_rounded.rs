@@ -1,4 +1,12 @@
 //! `CorrectlyRoundedOps` across backends.
+//!
+//! CUDA must equal CPU bit for bit. The CPU tensor ops equal the host functions, which
+//! the `correctly_rounded` test target checks against MPFR.
+
+#[cfg(feature = "cuda")]
+mod cuda;
+#[cfg(feature = "cuda")]
+mod inputs;
 
 #[cfg(feature = "wgpu")]
 use super::helpers::with_wgpu_backend_or_skip;

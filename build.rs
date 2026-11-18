@@ -24,6 +24,10 @@
 //! 2. Ensure nvcc is in your PATH, or set CUDA_PATH environment variable
 //! 3. Common paths: /usr/local/cuda, /opt/cuda, C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\vX.Y
 
+#[cfg(feature = "cuda")]
+#[path = "buildscript/correctly_rounded.rs"]
+mod correctly_rounded;
+
 fn main() {
     // Only compile CUDA kernels when the cuda feature is enabled
     #[cfg(feature = "cuda")]
@@ -32,6 +36,7 @@ fn main() {
 
 #[cfg(feature = "cuda")]
 fn compile_cuda_kernels() {
+    use correctly_rounded::{CORRECTLY_ROUNDED_KERNEL, nvcc_flags, write_correctly_rounded_tables};
     use std::env;
     use std::path::PathBuf;
     use std::process::Command;
@@ -115,6 +120,7 @@ fn compile_cuda_kernels() {
         "unary.cu",
         "next_representable.cu",
         "interval.cu",
+        CORRECTLY_ROUNDED_KERNEL,
         "unary_int.cu",
         "utility.cu",
         "utility_random.cu",
@@ -310,6 +316,22 @@ fn compile_cuda_kernels() {
         "interval_lane.cuh",
         "interval_tighten.cuh",
         "expansion_lane.cuh",
+        "correctly_rounded_lane.cuh",
+        "correctly_rounded_ops.cuh",
+        "correctly_rounded_u128.cuh",
+        "correctly_rounded_dint.cuh",
+        "correctly_rounded_exp.cuh",
+        "correctly_rounded_log.cuh",
+        "correctly_rounded_log1p.cuh",
+        "correctly_rounded_log1p_refine.cuh",
+        "correctly_rounded_pow_dint.cuh",
+        "correctly_rounded_pow_fast.cuh",
+        "correctly_rounded_pow_accurate.cuh",
+        "correctly_rounded_pow_exact.cuh",
+        "correctly_rounded_qint.cuh",
+        "correctly_rounded_qint_mul.cuh",
+        "correctly_rounded_pow_extended.cuh",
+        "correctly_rounded_pow.cuh",
     ] {
         println!(
             "cargo:rerun-if-changed={}",
@@ -331,6 +353,8 @@ fn compile_cuda_kernels() {
             );
         }
     }
+
+    write_correctly_rounded_tables(&out_dir);
 
     // Compiling every kernel to a multi-arch fatbin multiplies nvcc's work
     // ~7x over the old single-arch PTX build, so the loop is parallelized
@@ -369,12 +393,7 @@ fn compile_cuda_kernels() {
                     let fatbin_name = kernel_file.replace(".cu", ".fatbin");
                     let fatbin_path = out_dir.join(&fatbin_name);
 
-                    let mut args: Vec<String> = vec![
-                        "-fatbin".to_string(),
-                        "-O3".to_string(),
-                        "--use_fast_math".to_string(),
-                        "--ftz=false".to_string(),
-                    ];
+                    let mut args = nvcc_flags(kernel_file, &out_dir);
                     for gc in &gencode_flags {
                         args.push("-gencode".to_string());
                         args.push(gc.clone());

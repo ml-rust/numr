@@ -199,6 +199,8 @@ pub(crate) use loader::{
     launch_matmul_wmma_f32out_kernel, use_wmma, use_wmma_after_padding, wmma_padded_dims,
 };
 
+pub mod correctly_rounded;
+pub use correctly_rounded::{CrKernel, launch_correctly_rounded};
 pub mod interval;
 pub use interval::{IntervalArg, launch_interval};
 pub mod next_representable;

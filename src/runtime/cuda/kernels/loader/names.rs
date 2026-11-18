@@ -15,6 +15,8 @@ pub mod kernel_names {
     pub const NEXT_REPRESENTABLE_MODULE: &str = "next_representable";
     /// Single-pass interval and expansion arithmetic with a shared status flag.
     pub const INTERVAL_MODULE: &str = "interval";
+    /// Correctly rounded F64 `exp`, `log`, `log1p` and `pow`, compiled without fast math.
+    pub const CORRECTLY_ROUNDED_MODULE: &str = "correctly_rounded";
     /// Integer unary operations, which wrap in the dtype instead of computing
     /// in a float register
     pub const UNARY_INT_MODULE: &str = "unary_int";
