@@ -18,6 +18,13 @@ version. Every later entry is a delta against the one below it.
 
 - `HypotOps::hypot`: Adds scaled floating magnitudes on CPU, CUDA, and WebGPU. Use `HypotOps` for stable elementwise magnitudes.
 - `IntervalOps`, `ExpansionOps`: Run each outward interval or certified expansion operation in one pass with a shared status flag. Use them through `TensorOps` clients.
+- `CorrectlyRoundedOps`: Adds correctly rounded F64 `exp`, `log`, `log1p` and `pow_scalar` with the same bits on CPU and CUDA. Use them when F64 results must reproduce.
+- `numr::algorithm::correctly_rounded`: Adds host `exp`, `log`, `log1p` and `pow` with the tensor ops' bits. Use them for scalar values.
+- `require_correctly_rounded_contracts`: Checks the arithmetic a `CorrectlyRoundedOps` runtime needs. Call it in an external impl.
+
+### Changed
+
+- `license`: Now `Apache-2.0 AND MIT`, for bundled CORE-MATH code. Check your licence policy.
 
 ### Fixed
 

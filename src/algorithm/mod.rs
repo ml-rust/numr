@@ -19,7 +19,7 @@
 //! - `FftAlgorithms` - FFT, IFFT, RFFT using Stockham autosort algorithm
 //! - `SparseAlgorithms` - SpGEMM, SpMV, DSMM (requires `sparse` feature)
 //!
-//! [`correctly_rounded`] holds host functions: F64 `exp`, `log` and `log1p`, correctly
+//! [`correctly_rounded`] holds host functions: F64 `exp`, `log`, `log1p` and `pow`, correctly
 //! rounded, with the same bits on every platform.
 //!
 //! # Signal Processing

@@ -32,6 +32,10 @@ pub trait ScalarOps<R: Runtime>: TensorOps<R> {
     ///   `2 ** -1` is `0.5f64` and `9 ** 0.5` is `3.0f64`. The input is not
     ///   modified.
     ///
+    /// Float results promise no bit reproducibility across tensor length, instruction set,
+    /// runtime or host libm. For reproducible F64 results, use
+    /// [`CorrectlyRoundedOps::cr_pow_scalar`](super::CorrectlyRoundedOps::cr_pow_scalar).
+    ///
     /// The exponent is a host-side parameter, so the output dtype is known
     /// before the op runs. The tensor-tensor [`pow`](super::BinaryOps::pow)
     /// keeps the integer dtype instead, because its exponent is data and dtype

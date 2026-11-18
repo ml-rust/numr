@@ -8,6 +8,11 @@ use crate::tensor::Tensor;
 ///
 /// This trait defines element-wise unary operations on tensors.
 /// Each operation is applied independently to each element.
+///
+/// The exponential, logarithm, trigonometric and hyperbolic methods promise no bit
+/// reproducibility. Results can differ across tensor length, instruction set, runtime and
+/// host libm. For reproducible F64 `exp`, `log` and `log1p`, use
+/// [`CorrectlyRoundedOps`](super::CorrectlyRoundedOps).
 pub trait UnaryOps<R: Runtime> {
     // ===== Sign and Absolute =====
 
@@ -42,6 +47,11 @@ pub trait UnaryOps<R: Runtime> {
     // ===== Exponential and Logarithmic =====
 
     /// Exponential: e^a
+    ///
+    /// No bit reproducibility across tensor length, instruction set, runtime or host libm.
+    /// On CPU, F64 input shorter than 32 elements uses the host libm. Longer input uses
+    /// numr's SIMD polynomial. CUDA uses the CUDA math library. For reproducible F64
+    /// results, use [`CorrectlyRoundedOps::cr_exp`](super::CorrectlyRoundedOps::cr_exp).
     fn exp(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Base-2 exponential: 2^a
@@ -51,6 +61,11 @@ pub trait UnaryOps<R: Runtime> {
     fn expm1(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Natural logarithm: ln(a)
+    ///
+    /// No bit reproducibility across tensor length, instruction set, runtime or host libm.
+    /// On CPU, F64 input shorter than 32 elements uses the host libm. Longer input uses
+    /// numr's SIMD polynomial. CUDA uses the CUDA math library. For reproducible F64
+    /// results, use [`CorrectlyRoundedOps::cr_log`](super::CorrectlyRoundedOps::cr_log).
     fn log(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Base-2 logarithm: log2(a)
@@ -60,6 +75,10 @@ pub trait UnaryOps<R: Runtime> {
     fn log10(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     /// Natural log of 1+a: ln(1+a) (numerically stable for small a)
+    ///
+    /// No bit reproducibility across tensor length, instruction set, runtime or host libm.
+    /// For reproducible F64 results, use
+    /// [`CorrectlyRoundedOps::cr_log1p`](super::CorrectlyRoundedOps::cr_log1p).
     fn log1p(&self, a: &Tensor<R>) -> Result<Tensor<R>>;
 
     // ===== Trigonometric =====

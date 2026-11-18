@@ -76,6 +76,11 @@ pub trait CumulativeOps<R: Runtime> {
     /// This is commonly used in softmax computation and log-probability calculations.
     /// A nonempty row containing only negative infinity returns negative infinity.
     ///
+    /// The result promises no bit reproducibility across tensor length, instruction set,
+    /// runtime or host libm. [`CorrectlyRoundedOps`](super::CorrectlyRoundedOps) has no
+    /// logsumexp. Build a reproducible one from `cr_exp` and `cr_log` with a fixed
+    /// summation order.
+    ///
     /// # Arguments
     ///
     /// * `a` - Input tensor
