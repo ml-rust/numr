@@ -13,4 +13,11 @@ pub enum Path {
     Accurate,
     /// A listed input whose result the accurate path takes from the exception table.
     Exception,
+    /// An exact or midpoint `pow` result, found after a rounding test failed.
+    Exact,
+    /// The 256-bit `pow` path, run after the accurate-path rounding test failed.
+    Extended,
+    /// The 256-bit `pow` rounding test failed. No known input reaches this branch.
+    /// The result is the 256-bit approximation rounded to nearest.
+    Uncertified,
 }

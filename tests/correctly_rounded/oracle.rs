@@ -3,6 +3,7 @@
 use numr::algorithm::correctly_rounded::{self as cr, CANONICAL_NAN};
 use rug::Float;
 use rug::float::Round;
+use rug::ops::PowAssignRound;
 
 /// A function under test.
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +74,72 @@ pub fn check_all<I: IntoIterator<Item = f64>>(function: Function, inputs: I, lab
             shown.join("\n")
         );
     }
+}
+
+/// MPFR's correctly rounded binary64 `x^y`, with NaN canonical.
+///
+/// MPFR decides every special case: it follows C Annex F, so `pow(NaN, 0) = 1` and
+/// `pow(1, NaN) = 1`. It has no signalling NaN, so those cases give 1 for every NaN.
+pub fn pow_reference(x: f64, y: f64) -> f64 {
+    let mut z = Float::with_val(53, x);
+    let ternary = z.pow_assign_round(&Float::with_val(53, y), Round::Nearest);
+    z.subnormalize_ieee_round(ternary, Round::Nearest);
+    let value = z.to_f64();
+    if value.is_nan() { CANONICAL_NAN } else { value }
+}
+
+/// Compare `pow` on every pair against MPFR bit for bit and panic with the first mismatches.
+pub fn check_pow<I: IntoIterator<Item = (f64, f64)>>(pairs: I, label: &str) {
+    let mut checked = 0usize;
+    let mut mismatches = Vec::new();
+    for (x, y) in pairs {
+        checked += 1;
+        let got = cr::pow(x, y);
+        let want = pow_reference(x, y);
+        if got.to_bits() != want.to_bits() {
+            mismatches.push((x, y, got, want));
+        }
+    }
+    assert!(checked > 0, "{label}: no inputs");
+    if !mismatches.is_empty() {
+        let shown: Vec<String> = mismatches
+            .iter()
+            .take(10)
+            .map(|(x, y, got, want)| {
+                format!(
+                    "x={x:e} ({:#018x}) y={y:e} ({:#018x}) numr={:#018x} mpfr={:#018x}",
+                    x.to_bits(),
+                    y.to_bits(),
+                    got.to_bits(),
+                    want.to_bits()
+                )
+            })
+            .collect();
+        panic!(
+            "pow {label}: {} of {checked} pairs differ from MPFR. Fix the kernel; first cases:\n{}",
+            mismatches.len(),
+            shown.join("\n")
+        );
+    }
+}
+
+#[test]
+fn test_pow_oracle_returns_known_correctly_rounded_values() {
+    assert_eq!(pow_reference(2.0, 0.5), std::f64::consts::SQRT_2);
+    assert_eq!(pow_reference(f64::NAN, 0.0), 1.0);
+    assert_eq!(pow_reference(1.0, f64::NAN), 1.0);
+    assert_eq!(
+        pow_reference(-8.0, 1.0 / 3.0).to_bits(),
+        CANONICAL_NAN.to_bits()
+    );
+    assert_eq!(pow_reference(-0.0, -1.0), f64::NEG_INFINITY);
+    assert_eq!(pow_reference(-2.0, 3.0), -8.0);
+    assert_eq!(pow_reference(2.0, -1074.0).to_bits(), 1);
+    assert_eq!(pow_reference(2.0, -1075.0).to_bits(), 0);
+    assert_eq!(pow_reference(-2.0, -1075.0).to_bits(), 1 << 63);
+    assert_eq!(pow_reference(10.0, 400.0), f64::INFINITY);
+    // 3^34 is a 54-bit midpoint, rounded to even.
+    assert_eq!(pow_reference(3.0, 34.0), 16_677_181_699_666_568.0);
 }
 
 #[test]

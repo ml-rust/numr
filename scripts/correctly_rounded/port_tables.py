@@ -3,9 +3,14 @@
 
 Usage: port_tables.py <core-math checkout> <commit> <output .rs>
 
-The checkout must hold src/binary64/{exp/exp.c,log/log.c,log/dint.h,log1p/log1p.c}
-at <commit>. Every double literal is parsed exactly and rejected if binary64
-cannot hold it. Each table becomes one flat `pub static NAME: [u64; LEN]`.
+The checkout must hold src/binary64/{exp/exp.c,log/log.c,log/dint.h,log1p/log1p.c,
+pow/pow.h,pow/dint.h,pow/qint.h} at <commit>. Every double literal is parsed
+exactly and rejected if binary64 cannot hold it. Each table becomes one flat
+`pub static NAME: [u64; LEN]`.
+
+A pow table that equals one already emitted is checked and not emitted again:
+pow's `LOG2` and `M_ONE` equal log's, and the 256-bit reciprocal tables
+`_INVERSE_3_*`, `LOG2_INV_Q` and `M_ONE_Q` equal their 128-bit forms.
 """
 
 import re
@@ -78,6 +83,77 @@ DOUBLE_TABLES = [
      "`(hi, lo)` per entry: accurate-path coefficients after reduction."),
     ("log1p/log1p.c", "cl", 0, "LOG1P_REFINE_CL", 4,
      "Accurate-path low-order coefficients after reduction."),
+    ("pow/pow.h", "_INVERSE", 0, "POW_INVERSE", 182,
+     "`r[i - 181]`: a 9-bit approximation of `1/y` for `i * 2^-8 <= y < (i + 1) * 2^-8`, "
+     "`181 <= i <= 362`. `r * y - 1` is exact."),
+    ("pow/pow.h", "_LOG_INV", 0, "POW_LOG_INV", 364,
+     "`(h, l)` per entry: `-log(POW_INVERSE[i])`, `h` a multiple of `2^-42`."),
+    ("pow/pow.h", "T1", 0, "POW_T1", 128,
+     "`(hi, lo)` per entry: `2^(i/2^6)` for `0 <= i < 64`, error below `2^-107`."),
+    ("pow/pow.h", "T2", 0, "POW_T2", 128,
+     "`(hi, lo)` per entry: `2^(i/2^12)` for `0 <= i < 64`, error below `2^-107`."),
+    ("pow/pow.h", "P_1", 0, "POW_FAST_LOG_POLY", 6,
+     "Degree 3 to 8 coefficients of `log(1 + z) - z + z^2/2` for the fast path."),
+    ("pow/pow.h", "Q_1", 0, "POW_FAST_EXP_POLY", 5,
+     "Degree 0 to 4 coefficients of `exp(z)` for the fast path."),
+]
+
+DINT_LAYOUT = "`(hi, lo, ex, sgn)` per entry, value `(-1)^sgn * (hi + lo / 2^64) * 2^(ex - 63)`"
+
+# (C array name, Rust name, expected entry count, doc), from pow/dint.h
+POW_DINT_TABLES = [
+    ("_INVERSE_2_1", "POW_DINT_INVERSE_1", 92,
+     f"Accurate-path first reciprocals of `i / 2^7`, `90 <= i <= 181`: {DINT_LAYOUT}."),
+    ("_INVERSE_2_2", "POW_DINT_INVERSE_2", 129,
+     f"Accurate-path second reciprocals of `j / 2^13`, `8128 <= j <= 8256`, same layout."),
+    ("_LOG_INV_2_1", "POW_DINT_LOG_INV_1", 92,
+     "`-log` of each `POW_DINT_INVERSE_1` entry, same layout."),
+    ("_LOG_INV_2_2", "POW_DINT_LOG_INV_2", 129,
+     "`-log` of each `POW_DINT_INVERSE_2` entry, same layout."),
+    ("T1_2", "POW_DINT_T1", 64, "`2^(i/2^6)` for `0 <= i < 64`, same layout."),
+    ("T2_2", "POW_DINT_T2", 64, "`2^(i/2^12)` for `0 <= i < 64`, same layout."),
+    ("P_2", "POW_DINT_LOG_POLY", 9,
+     "Accurate-path polynomial for `log(1 + z)`, highest degree first, same layout."),
+    ("Q_2", "POW_DINT_EXP_POLY", 8,
+     "Accurate-path polynomial for `exp(z)`, highest degree first, same layout."),
+]
+
+# (C scalar name, Rust name, doc), from pow/dint.h
+POW_DINT_SCALARS = [
+    ("LOG2_INV", "POW_DINT_LOG2_INV",
+     "`2^12 / log(2)` in the dint layout, absolute error below `2^-52.96`."),
+]
+
+# (pow/dint.h scalar, log/dint.h scalar) pairs that must be equal
+POW_DINT_SHARED = [("LOG2", "LOG2"), ("M_ONE", "M_ONE")]
+
+QINT_LAYOUT = ("`(hh, hl, lh, ll, ex, sgn)` per entry, value "
+               "`(-1)^sgn * (hh + hl / 2^64 + lh / 2^128 + ll / 2^192) * 2^(ex - 63)`")
+
+# (C array name, Rust name, expected entry count, doc), from pow/qint.h
+QINT_TABLES = [
+    ("_LOG_INV_3_1", "POW_QINT_LOG_INV_1", 92,
+     f"Extended-path `-log` of each `POW_DINT_INVERSE_1` entry: {QINT_LAYOUT}."),
+    ("_LOG_INV_3_2", "POW_QINT_LOG_INV_2", 129,
+     "Extended-path `-log` of each `POW_DINT_INVERSE_2` entry, same layout."),
+    ("T1_3", "POW_QINT_T1", 64, "`2^(i/2^6)` for `0 <= i < 64`, same layout."),
+    ("T2_3", "POW_QINT_T2", 64, "`2^(i/2^12)` for `0 <= i < 64`, same layout."),
+    ("P_3", "POW_QINT_LOG_POLY", 18,
+     "Extended-path polynomial for `log(1 + z)`, highest degree first, same layout."),
+    ("Q_3", "POW_QINT_EXP_POLY", 15,
+     "Extended-path polynomial for `exp(z)`, highest degree first, same layout."),
+]
+
+QINT_SCALARS = [
+    ("LOG2_Q", "POW_QINT_LN2", "`log(2)` in the qint layout, absolute error below `2^-256.14`."),
+]
+
+# (qint.h name, dint.h name, is_array): the qint value equals the dint value padded with zero limbs
+QINT_FROM_DINT = [
+    ("_INVERSE_3_1", "_INVERSE_2_1", True),
+    ("_INVERSE_3_2", "_INVERSE_2_2", True),
+    ("LOG2_INV_Q", "LOG2_INV", False),
+    ("M_ONE_Q", "M_ONE", False),
 ]
 
 # (C array name, Rust name, expected entry count or None, doc)
@@ -158,8 +234,28 @@ def dint_entries(body):
     return words
 
 
-def dint_body(text, name, is_array):
-    marker = f"static const dint64_t {name}" + ("[] = {" if is_array else " = {")
+def qint_entries(body):
+    entry = re.compile(
+        r"\.hh\s*=\s*(0x[0-9a-fA-F]+)\s*,\s*\.hl\s*=\s*(0x[0-9a-fA-F]+)\s*,"
+        r"\s*\.lh\s*=\s*(0x[0-9a-fA-F]+)\s*,\s*\.ll\s*=\s*(0x[0-9a-fA-F]+)\s*,"
+        r"\s*\.ex\s*=\s*(-?\d+)\s*,\s*\.sgn\s*=\s*(0x[0-9a-fA-F]+)")
+    words = []
+    for hh, hl, lh, ll, ex, sgn in entry.findall(body):
+        words += [int(hh, 16), int(hl, 16), int(lh, 16), int(ll, 16),
+                  int(ex) & 0xFFFF_FFFF_FFFF_FFFF, int(sgn, 16)]
+    return words
+
+
+def dint_as_qint(words):
+    out = []
+    for pos in range(0, len(words), 4):
+        hi, lo, ex, sgn = words[pos:pos + 4]
+        out += [hi, lo, 0, 0, ex, sgn]
+    return out
+
+
+def dint_body(text, name, is_array, kind="dint64_t"):
+    marker = f"static const {kind} {name}" + ("[] = {" if is_array else " = {")
     start = text.index(marker) + len(marker) - 1
     end = text.index("};", start)
     return text[start:end + 1]
@@ -185,13 +281,17 @@ def main():
     out = [
         f"// @generated by scripts/correctly_rounded/port_tables.py from CORE-MATH commit {commit}",
         "// (https://gitlab.inria.fr/core-math/core-math), files src/binary64/exp/exp.c,",
-        "// src/binary64/log/log.c, src/binary64/log/dint.h and src/binary64/log1p/log1p.c.",
+        "// src/binary64/log/log.c, src/binary64/log/dint.h, src/binary64/log1p/log1p.c,",
+        "// src/binary64/pow/pow.h, src/binary64/pow/dint.h and src/binary64/pow/qint.h.",
         "// Do not edit by hand: rerun the generator.",
         "//",
         "// exp.c: Copyright (c) 2022-2026 Alexei Sibidanov <sibid@uvic.ca>.",
         "// log1p.c: Copyright (c) 2024-2026 Alexei Sibidanov <sibid@uvic.ca>.",
         "// log.c: Copyright (c) 2022-2026 INRIA and CERN. Authors: Paul Zimmermann and Tom Hubrecht.",
-        "// dint.h: Copyright (c) 2022 CERN. Author: Tom Hubrecht.",
+        "// log/dint.h: Copyright (c) 2022 CERN. Author: Tom Hubrecht.",
+        "// pow/pow.h: Copyright (c) 2022-2025 CERN and Inria. Authors: Tom Hubrecht and Paul Zimmermann.",
+        "// pow/dint.h, pow/qint.h: Copyright (c) 2022, 2023 CERN and Inria.",
+        "// Authors: Tom Hubrecht and Paul Zimmermann.",
         "// This file is part of the CORE-MATH project (https://core-math.gitlabpages.inria.fr/).",
         "//",
         MIT_NOTICE,
@@ -218,6 +318,39 @@ def main():
         if count is not None and len(words) != 4 * count:
             raise SystemExit(f"{rname}: {len(words) // 4} entries, expected {count}")
         emit(out, rname, words, doc, 4)
+    with open(f"{base}/pow/dint.h") as handle:
+        pow_dint = strip_comments(handle.read())
+    for pow_name, log_name in POW_DINT_SHARED:
+        if (dint_entries(dint_body(pow_dint, pow_name, False))
+                != dint_entries(dint_body(dint, log_name, False))):
+            raise SystemExit(f"pow/dint.h {pow_name} differs from log/dint.h {log_name}")
+    for cname, rname, doc in POW_DINT_SCALARS:
+        words = dint_entries(dint_body(pow_dint, cname, False))
+        if len(words) != 4:
+            raise SystemExit(f"{rname}: malformed scalar")
+        emit(out, rname, words, doc, 4)
+    for cname, rname, count, doc in POW_DINT_TABLES:
+        words = dint_entries(dint_body(pow_dint, cname, True))
+        if len(words) != 4 * count:
+            raise SystemExit(f"{rname}: {len(words) // 4} entries, expected {count}")
+        emit(out, rname, words, doc, 4)
+    with open(f"{base}/pow/qint.h") as handle:
+        qint = strip_comments(handle.read())
+    for qname, dname, is_array in QINT_FROM_DINT:
+        qwords = qint_entries(dint_body(qint, qname, is_array, "qint64_t"))
+        dwords = dint_entries(dint_body(pow_dint, dname, is_array))
+        if not qwords or qwords != dint_as_qint(dwords):
+            raise SystemExit(f"pow/qint.h {qname} differs from pow/dint.h {dname}")
+    for cname, rname, doc in QINT_SCALARS:
+        words = qint_entries(dint_body(qint, cname, False, "qint64_t"))
+        if len(words) != 6:
+            raise SystemExit(f"{rname}: malformed scalar")
+        emit(out, rname, words, doc, 6)
+    for cname, rname, count, doc in QINT_TABLES:
+        words = qint_entries(dint_body(qint, cname, True, "qint64_t"))
+        if len(words) != 6 * count:
+            raise SystemExit(f"{rname}: {len(words) // 6} entries, expected {count}")
+        emit(out, rname, words, doc, 6)
     with open(target, "w") as handle:
         handle.write("\n".join(out).rstrip("\n") + "\n")
 

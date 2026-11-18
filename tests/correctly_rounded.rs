@@ -17,5 +17,13 @@ mod dense;
 mod hard_cases;
 #[path = "correctly_rounded/oracle.rs"]
 mod oracle;
+#[path = "correctly_rounded/pow_boundaries.rs"]
+mod pow_boundaries;
+#[path = "correctly_rounded/pow_dense.rs"]
+mod pow_dense;
+#[path = "correctly_rounded/pow_hard_cases.rs"]
+mod pow_hard_cases;
+#[path = "correctly_rounded/pow_special.rs"]
+mod pow_special;
 #[path = "correctly_rounded/thresholds.rs"]
 mod thresholds;
