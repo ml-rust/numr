@@ -4,19 +4,22 @@ version = "0.15.2"
 edition = "2024"
 rust-version = "1.95"
 description = "Numerical computing and tensor library for Rust, in the role of NumPy: n-dimensional arrays, linear algebra, FFT, statistics and autograd on CPU, CUDA and WebGPU"
-license = "Apache-2.0"
+license = "Apache-2.0 AND MIT"
 repository = "https://github.com/ml-rust/numr"
 documentation = "https://docs.rs/numr"
 keywords = ["tensor", "ndarray", "numpy", "linear-algebra", "gpu"]
 categories = ["science", "mathematics", "data-structures"]
-# CI scripts, bench config, and the CUDA profiling binaries never build into
-# the crate. `build.rs` reads only `src/runtime/cuda/kernels`, which ships.
+# CI scripts, bench config, test fixtures, and the CUDA profiling binaries never
+# build into the crate. `build.rs` reads only `src/runtime/cuda/kernels`, which ships.
 exclude = [
   ".github/",
   "scripts/ci/",
   "flux.toml",
   ".gitignore",
   "examples/cuda_*_profile.rs",
+  # This test target reads CORE-MATH fixtures too large to ship.
+  "tests/correctly_rounded.rs",
+  "tests/correctly_rounded/",
 ]
 
 [package.metadata.docs.rs]
@@ -98,6 +101,11 @@ wgpu = { version = "30.0", optional = true, features = [
 fluxbench = "0.2"
 ndarray = "0.17"
 nalgebra = "0.35"
+
+# MPFR oracle for the correctly rounded functions. LGPL-3.0+, test binaries only.
+# gmp-mpfr-sys builds GMP and MPFR from source, which MSVC targets cannot do.
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+rug = { version = "1.30", default-features = false, features = ["float"] }
 
 [[bench]]
 name = "matmul"
