@@ -1,9 +1,9 @@
 //! CPU client and allocator implementation
 
 use super::device::CpuDevice;
-use super::runtime::CpuRuntime;
-use crate::runtime::{DefaultAllocator, RuntimeClient};
-use std::alloc::{Layout as AllocLayout, alloc_zeroed, dealloc};
+use super::runtime::{CpuRuntime, buffer_layout};
+use crate::runtime::{DefaultAllocator, Runtime, RuntimeClient};
+use std::alloc::{alloc_zeroed, dealloc};
 #[cfg(feature = "rayon")]
 use std::sync::Arc;
 
@@ -152,16 +152,16 @@ fn build_thread_pool(max_threads: Option<usize>) -> Option<Arc<rayon::ThreadPool
 fn create_cpu_allocator(device: CpuDevice) -> CpuAllocator {
     DefaultAllocator::new(
         device,
-        |size, _dev| {
-            // Non-null and aligned even at size 0: see `CpuRuntime::allocate`.
+        |size, dev| {
+            // Non-null and aligned even at size 0: see `CpuRuntime::allocate`,
+            // which also frees these buffers and so must agree on the layout.
             if size == 0 {
-                return Ok(64);
+                return CpuRuntime::allocate(0, dev);
             }
-            let align = 64; // AVX-512 alignment
-            // Fails when `size` rounded up to `align` exceeds isize::MAX — an
-            // allocation that can never succeed, so report it as OOM.
-            let layout = AllocLayout::from_size_align(size, align)
-                .map_err(|_| crate::error::Error::OutOfMemory { size })?;
+            // Fails when `size` rounded up to its alignment exceeds isize::MAX —
+            // an allocation that can never succeed, so report it as OOM.
+            let layout =
+                buffer_layout(size).ok_or_else(|| crate::error::Error::OutOfMemory { size })?;
             let ptr = unsafe { alloc_zeroed(layout) };
             if ptr.is_null() {
                 return Err(crate::error::Error::OutOfMemory { size });
@@ -172,10 +172,9 @@ fn create_cpu_allocator(device: CpuDevice) -> CpuAllocator {
             if ptr == 0 || size == 0 {
                 return;
             }
-            let align = 64;
             // Unrepresentable layout: the alloc closure above rejected this size,
             // so no live allocation matches it. Nothing to free.
-            let Ok(layout) = AllocLayout::from_size_align(size, align) else {
+            let Some(layout) = buffer_layout(size) else {
                 return;
             };
             unsafe {

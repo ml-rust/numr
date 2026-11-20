@@ -7,6 +7,50 @@ use crate::runtime::{
 };
 use std::alloc::{Layout as AllocLayout, alloc, dealloc};
 
+/// Alignment of a buffer at or above [`CACHE_LINE_MIN_BYTES`].
+const CACHE_LINE_ALIGN: usize = 64;
+
+/// Buffer size from which an allocation is aligned to a cache line.
+///
+/// Below this size the system allocator's native alignment applies. An
+/// over-aligned request takes the allocator's slower aligned path, and that
+/// cost dominates a small tensor. Large buffers keep cache-line alignment so
+/// SIMD rows do not straddle lines and streaming stores stay eligible.
+const CACHE_LINE_MIN_BYTES: usize = 4096;
+
+/// Largest alignment a buffer below [`CACHE_LINE_MIN_BYTES`] requests.
+///
+/// It covers every element type numr stores. The system allocator serves it
+/// without the aligned path on 64-bit targets.
+const SMALL_BUFFER_MAX_ALIGN: usize = 16;
+
+/// Address returned for a zero-byte allocation: non-null and aligned for any
+/// element type.
+const ZERO_SIZE_ADDRESS: u64 = CACHE_LINE_ALIGN as u64;
+
+/// Allocation layout of a CPU buffer of `size_bytes` bytes, or `None` when no
+/// layout of that size exists.
+///
+/// The alignment is a pure function of `size_bytes`, so `deallocate` rebuilds
+/// the exact layout `allocate` used. A buffer below [`CACHE_LINE_MIN_BYTES`]
+/// gets the largest power of two that is at most `size_bytes` and at most
+/// [`SMALL_BUFFER_MAX_ALIGN`]. A value of type `T` that fits in the buffer has
+/// `align_of::<T>() <= size_of::<T>() <= size_bytes`, so that alignment holds
+/// it. No kernel's result depends on the buffer address: SIMD loads and stores
+/// are unaligned, and the only aligned stores check the address first.
+///
+/// `size_bytes` must be nonzero. Callers handle the zero case first.
+pub(crate) fn buffer_layout(size_bytes: usize) -> Option<AllocLayout> {
+    debug_assert!(size_bytes > 0, "a zero-byte buffer has no layout");
+    let align = if size_bytes >= CACHE_LINE_MIN_BYTES {
+        CACHE_LINE_ALIGN
+    } else {
+        let floor_pow2 = 1usize << (usize::BITS - 1 - size_bytes.leading_zeros());
+        floor_pow2.min(SMALL_BUFFER_MAX_ALIGN)
+    };
+    AllocLayout::from_size_align(size_bytes, align).ok()
+}
+
 /// CPU compute runtime
 ///
 /// This is the default runtime that works on any platform.
@@ -58,17 +102,15 @@ impl Runtime for CpuRuntime {
         // `slice::from_raw_parts(ptr, 0)` is undefined behaviour on a null
         // pointer, and the kernels build slices from a tensor's pointer
         // unconditionally, so returning 0 here made every empty tensor UB.
-        // 64 is the alignment itself, which is what `NonNull::dangling()`
-        // yields for a 64-aligned type. `deallocate` skips `size_bytes == 0`,
-        // so this address is never passed to the allocator.
+        // `ZERO_SIZE_ADDRESS` is aligned for every element type. `deallocate`
+        // skips `size_bytes == 0`, so this address is never passed to the
+        // allocator.
         if size_bytes == 0 {
-            return Ok(64);
+            return Ok(ZERO_SIZE_ADDRESS);
         }
 
-        // Use aligned allocation for SIMD compatibility
-        let align = 64; // AVX-512 alignment
-        let layout = AllocLayout::from_size_align(size_bytes, align)
-            .map_err(|_| crate::error::Error::OutOfMemory { size: size_bytes })?;
+        let layout = buffer_layout(size_bytes)
+            .ok_or_else(|| crate::error::Error::OutOfMemory { size: size_bytes })?;
 
         // Use alloc (not alloc_zeroed) — Tensor::empty is explicitly uninitialized.
         // Operations that need zeroed memory (e.g. Tensor::zeros) handle zeroing themselves.
@@ -86,11 +128,10 @@ impl Runtime for CpuRuntime {
             return;
         }
 
-        let align = 64;
         // A layout this size could never have been allocated (allocate() rejects
         // it), so there is nothing to free. Returning is the only sound option —
         // panicking in a Drop path would abort the process.
-        let Ok(layout) = AllocLayout::from_size_align(size_bytes, align) else {
+        let Some(layout) = buffer_layout(size_bytes) else {
             return;
         };
 
@@ -263,5 +304,74 @@ mod tests {
         });
 
         assert!(result.is_err(), "error from the closure must be propagated");
+    }
+
+    #[test]
+    fn buffer_layout_small_sizes_take_floor_power_of_two_capped_at_16() {
+        let cases = [
+            (1, 1),
+            (2, 2),
+            (3, 2),
+            (4, 4),
+            (7, 4),
+            (8, 8),
+            (12, 8),
+            (16, 16),
+            (24, 16),
+            (512, 16),
+            (CACHE_LINE_MIN_BYTES - 1, 16),
+        ];
+        for (size, align) in cases {
+            let layout = buffer_layout(size).expect("representable size");
+            assert_eq!(layout.size(), size);
+            assert_eq!(layout.align(), align, "alignment for {size} bytes");
+        }
+    }
+
+    #[test]
+    fn buffer_layout_large_sizes_are_cache_line_aligned() {
+        for size in [CACHE_LINE_MIN_BYTES, CACHE_LINE_MIN_BYTES + 8, 1 << 20] {
+            let layout = buffer_layout(size).expect("representable size");
+            assert_eq!(
+                layout.align(),
+                CACHE_LINE_ALIGN,
+                "alignment for {size} bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn buffer_layout_holds_every_element_type_that_fits() {
+        use crate::dtype::{DType, DataType};
+        let dtypes = [
+            DType::F64,
+            DType::F32,
+            DType::I64,
+            DType::I32,
+            DType::U8,
+            DType::Bool,
+            DType::Complex64,
+            DType::Complex128,
+        ];
+        for dtype in dtypes {
+            for len in 1..=64usize {
+                let size = dtype.storage_bytes(len);
+                let ptr = CpuRuntime::allocate(size, &CpuDevice::new()).expect("allocate");
+                assert_eq!(
+                    ptr % dtype.size_in_bytes().min(SMALL_BUFFER_MAX_ALIGN) as u64,
+                    0,
+                    "{dtype:?} x {len} is misaligned"
+                );
+                CpuRuntime::deallocate(ptr, size, &CpuDevice::new());
+            }
+        }
+    }
+
+    #[test]
+    fn large_allocation_is_cache_line_aligned() {
+        let device = CpuDevice::new();
+        let ptr = CpuRuntime::allocate(CACHE_LINE_MIN_BYTES, &device).expect("allocate");
+        assert_eq!(ptr % CACHE_LINE_ALIGN as u64, 0);
+        CpuRuntime::deallocate(ptr, CACHE_LINE_MIN_BYTES, &device);
     }
 }
