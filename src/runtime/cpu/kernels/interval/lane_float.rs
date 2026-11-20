@@ -28,6 +28,8 @@ pub trait LaneFloat:
     const GUARD_MAX: Self;
     /// Half the largest finite value.
     const HALF_MAX: Self;
+    /// The largest finite value.
+    const MAX: Self;
 
     /// Nearest value of `value`, exact for every probe constant.
     fn of(value: f64) -> Self;
@@ -45,6 +47,8 @@ pub trait LaneFloat:
     fn fused(self, b: Self, c: Self) -> Self;
     /// `trunc`.
     fn truncated(self) -> Self;
+    /// The bit pattern of positive zero.
+    fn positive_zero(self) -> bool;
 }
 
 impl LaneFloat for f32 {
@@ -53,6 +57,7 @@ impl LaneFloat for f32 {
     const GUARD_MIN: Self = f32::from_bits((127 - 40) << 23);
     const GUARD_MAX: Self = f32::from_bits((127 + 40) << 23);
     const HALF_MAX: Self = f32::MAX * 0.5;
+    const MAX: Self = f32::MAX;
 
     #[inline(always)]
     fn of(value: f64) -> Self {
@@ -86,6 +91,10 @@ impl LaneFloat for f32 {
     fn truncated(self) -> Self {
         self.trunc()
     }
+    #[inline(always)]
+    fn positive_zero(self) -> bool {
+        self.to_bits() == 0
+    }
 }
 
 impl LaneFloat for f64 {
@@ -94,6 +103,7 @@ impl LaneFloat for f64 {
     const GUARD_MIN: Self = f64::from_bits((1023 - 450) << 52);
     const GUARD_MAX: Self = f64::from_bits((1023 + 450) << 52);
     const HALF_MAX: Self = f64::MAX * 0.5;
+    const MAX: Self = f64::MAX;
 
     #[inline(always)]
     fn of(value: f64) -> Self {
@@ -126,6 +136,10 @@ impl LaneFloat for f64 {
     #[inline(always)]
     fn truncated(self) -> Self {
         self.trunc()
+    }
+    #[inline(always)]
+    fn positive_zero(self) -> bool {
+        self.to_bits() == 0
     }
 }
 

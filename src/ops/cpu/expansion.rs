@@ -8,7 +8,7 @@ use crate::ops::impl_generic::interval::{
     validate,
 };
 use crate::ops::{ExpansionOperand, ExpansionOps, ExpansionTriple, IntervalOperand, IntervalPair};
-use crate::runtime::cpu::kernels::interval::drive::{Input, Output, raise, run_lanes};
+use crate::runtime::cpu::kernels::interval::drive::{Input, Output, dense_get, raise, run_lanes};
 use crate::runtime::cpu::kernels::interval::lane_division;
 use crate::runtime::cpu::kernels::interval::lane_expansion::{
     self, FlaggedParts, Parts, normalize, project,
@@ -68,6 +68,28 @@ where
     F: Fn(Parts<T>, Parts<T>) -> FlaggedParts<T> + Send + Sync,
 {
     let targets = out.each_ref().map(Output::of);
+    let dense = |source: [Input; 3]| -> Option<[usize; 3]> {
+        Some([source[0].dense()?, source[1].dense()?, source[2].dense()?])
+    };
+    if let (Some(a), Some(b)) = (dense(sources[0]), dense(sources[1])) {
+        let read_dense = |addr: [usize; 3], i: usize| unsafe {
+            Parts {
+                high: dense_get::<T>(addr[0], i),
+                low: dense_get::<T>(addr[1], i),
+                error: dense_get::<T>(addr[2], i),
+            }
+        };
+        return run_lanes(client, out[0].numel(), move |i| {
+            // Inputs address every lane, and outputs are fresh tensors of the lane count.
+            let (value, flag) = rule(read_dense(a, i), read_dense(b, i));
+            unsafe {
+                targets[0].put(i, value.high);
+                targets[1].put(i, value.low);
+                targets[2].put(i, value.error);
+            }
+            flag
+        });
+    }
     run_lanes(client, out[0].numel(), |i| {
         // Inputs address every lane, and outputs are fresh tensors of the lane count.
         unsafe {
@@ -80,14 +102,19 @@ where
     })
 }
 
-fn unary_parts(
+/// Run a one-operand lane rule. Generic rules inline into the lane loop.
+fn unary_parts<F32, F64>(
     client: &CpuClient,
     value: ExpansionOperand<'_, CpuRuntime>,
     status: &CpuTensor,
-    rule32: fn(Parts<f32>) -> FlaggedParts<f32>,
-    rule64: fn(Parts<f64>) -> FlaggedParts<f64>,
+    rule32: F32,
+    rule64: F64,
     op: &'static str,
-) -> Result<ExpansionTriple<CpuRuntime>> {
+) -> Result<ExpansionTriple<CpuRuntime>>
+where
+    F32: Fn(Parts<f32>) -> FlaggedParts<f32> + Send + Sync,
+    F64: Fn(Parts<f64>) -> FlaggedParts<f64> + Send + Sync,
+{
     let dtype = check_expansions(client, op, &[value], status)?;
     let out = outputs(client, value.high.shape(), dtype)?;
     if out[0].numel() > 0 {

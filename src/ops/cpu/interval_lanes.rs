@@ -4,7 +4,7 @@ use crate::dtype::DType;
 use crate::error::Result;
 use crate::ops::IntervalOperand;
 use crate::ops::impl_generic::interval::{LaneOperand, lane_operand};
-use crate::runtime::cpu::kernels::interval::drive::{Input, Output, raise, run_lanes};
+use crate::runtime::cpu::kernels::interval::drive::{Input, Output, dense_get, raise, run_lanes};
 use crate::runtime::cpu::kernels::interval::lane_float::{LaneFloat, positive as lane_positive};
 use crate::runtime::cpu::kernels::interval::lane_interval::{Span, sqrt_nonnegative};
 use crate::runtime::cpu::{CpuClient, CpuRuntime};
@@ -75,6 +75,30 @@ pub(super) fn capture_lanes<T: LaneFloat>(
     len: usize,
     same: bool,
 ) -> bool {
+    if let (Some(lower), Some(upper)) = (inputs[0].dense(), inputs[1].dense()) {
+        let (lower_out, upper_out) = (outputs[0], outputs[1]);
+        // Inputs address `len` lanes, and outputs are fresh `len`-element tensors.
+        return if same {
+            run_lanes(client, len, |i| unsafe {
+                let span = Span {
+                    lo: dense_get::<T>(lower, i),
+                    hi: dense_get::<T>(upper, i),
+                };
+                lower_out.put(i, span.lo);
+                span.invalid_by_compare()
+            })
+        } else {
+            run_lanes(client, len, |i| unsafe {
+                let span = Span {
+                    lo: dense_get::<T>(lower, i),
+                    hi: dense_get::<T>(upper, i),
+                };
+                lower_out.put(i, span.lo);
+                upper_out.put(i, span.hi);
+                span.invalid_by_compare()
+            })
+        };
+    }
     run_lanes(client, len, |i| {
         // Inputs address `len` lanes, and outputs are fresh `len`-element tensors.
         unsafe {

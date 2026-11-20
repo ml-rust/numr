@@ -36,6 +36,15 @@ impl<T: LaneFloat> Span<T> {
     pub fn invalid(self) -> bool {
         !self.lo.finite() || !self.hi.finite() || self.lo > self.hi
     }
+
+    /// `invalid` through float compares only, so dense lane loops can vectorize.
+    ///
+    /// A magnitude at most `MAX` is exactly a finite value, and NaN fails every compare.
+    #[inline(always)]
+    pub fn invalid_by_compare(self) -> bool {
+        let finite = (self.lo.magnitude() <= T::MAX) & (self.hi.magnitude() <= T::MAX);
+        !(finite & (self.lo <= self.hi))
+    }
 }
 
 /// Rounded result and status of one lane.
@@ -52,6 +61,50 @@ pub fn add_outward<T: LaneFloat>(a: Span<T>, b: Span<T>) -> Flagged<T> {
         hi: select(az, b.hi, select(bz, a.hi, hi)),
     };
     (out, out.invalid())
+}
+
+/// Upper endpoint and status of `add_outward` over two singletons.
+///
+/// The lower endpoint only feeds the status. Stepping down leaves the finite range only from
+/// the most negative finite value, so the status needs no second step.
+#[inline(always)]
+pub fn add_outward_upper<T: LaneFloat>(a: T, b: T) -> (T, bool) {
+    let (az, bz) = (a == T::ZERO, b == T::ZERO);
+    singleton_upper(az, b, bz, a, a + b)
+}
+
+/// Upper endpoint and status of `mul_outward` over two singletons.
+///
+/// Every corner of two singletons is the same product, so the status follows the sum rule.
+#[inline(always)]
+pub fn mul_outward_upper<T: LaneFloat>(a: T, b: T) -> (T, bool) {
+    let (az, bz) = (a == T::ZERO, b == T::ZERO);
+    // A zero operand is returned itself, the first one when both are zero.
+    singleton_upper(az, a, bz, b, a * b)
+}
+
+/// `first` returns `on_first`, then `second` returns `on_second`, else the step above `nominal`.
+#[inline(always)]
+fn singleton_upper<T: LaneFloat>(
+    first: bool,
+    on_first: T,
+    second: bool,
+    on_second: T,
+    nominal: T,
+) -> (T, bool) {
+    let edge = nominal.magnitude() == T::MAX;
+    let upper = select(first, on_first, select(second, on_second, nominal.up()));
+    let flag = select_flag(
+        first,
+        !on_first.finite(),
+        select_flag(second, !on_second.finite(), !nominal.finite() || edge),
+    );
+    (upper, flag)
+}
+
+#[inline(always)]
+fn select_flag(condition: bool, x: bool, y: bool) -> bool {
+    if condition { x } else { y }
 }
 
 /// Outward difference with exact-zero identities.
@@ -279,4 +332,77 @@ pub fn restrict_mul_sign<T: LaneFloat>(a: Span<T>, b: Span<T>, outward: Span<T>)
 #[inline(always)]
 pub fn restrict_div_sign<T: LaneFloat>(a: Span<T>, outward: Span<T>) -> Flagged<T> {
     restrict_sign(outward, a.lo >= T::ZERO, a.hi <= T::ZERO)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn singleton_uppers_match_the_span_rules() {
+        let values = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            0.5,
+            3.0,
+            f64::from_bits(1),
+            f64::MIN_POSITIVE,
+            f64::MAX,
+            -f64::MAX,
+            f64::MAX * 0.5,
+            f64::MAX.next_down(),
+            -f64::MAX.next_down(),
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+        ];
+        for &a in &values {
+            for &b in &values {
+                let (sum, sum_flag) = add_outward(Span::point(a), Span::point(b));
+                let (upper, flag) = add_outward_upper(a, b);
+                assert_eq!(
+                    (sum.hi.to_bits(), sum_flag),
+                    (upper.to_bits(), flag),
+                    "{a} + {b}"
+                );
+                let (product, product_flag) = mul_outward(Span::point(a), Span::point(b));
+                let (upper, flag) = mul_outward_upper(a, b);
+                assert_eq!(
+                    (product.hi.to_bits(), product_flag),
+                    (upper.to_bits(), flag),
+                    "{a} * {b}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compare_status_matches_the_bit_test_status() {
+        let values = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            f64::from_bits(1),
+            f64::MAX,
+            f64::MIN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NAN,
+            -f64::NAN,
+        ];
+        for &lo in &values {
+            for &hi in &values {
+                let span = Span { lo, hi };
+                assert_eq!(span.invalid(), span.invalid_by_compare(), "{lo} {hi}");
+                let narrow = Span {
+                    lo: lo as f32,
+                    hi: hi as f32,
+                };
+                assert_eq!(narrow.invalid(), narrow.invalid_by_compare(), "{lo} {hi}");
+            }
+        }
+    }
 }

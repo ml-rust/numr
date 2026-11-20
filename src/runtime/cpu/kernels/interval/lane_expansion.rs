@@ -1,7 +1,9 @@
 //! Per-lane certified expansion rules matching the composed reference.
 
 use super::lane_float::{LaneFloat, max, select, two_sum};
-use super::lane_interval::{Span, add_outward, mul_outward, residual_exact, sub_outward};
+use super::lane_interval::{
+    Span, add_outward, add_outward_upper, mul_outward_upper, residual_exact, sub_outward,
+};
 
 /// One lane of expansion components.
 #[derive(Debug, Clone, Copy)]
@@ -24,6 +26,22 @@ impl<T: LaneFloat> Parts<T> {
     #[inline(always)]
     fn exact_one(self) -> bool {
         self.high == T::ONE && self.low == T::ZERO && self.error == T::ZERO
+    }
+
+    /// Both trailing components hold the bit pattern of positive zero.
+    #[inline(always)]
+    pub(super) fn point(self) -> bool {
+        self.low.positive_zero() && self.error.positive_zero()
+    }
+
+    /// The same lane with its trailing components as constants.
+    #[inline(always)]
+    pub(super) fn as_point(self) -> Self {
+        Self {
+            high: self.high,
+            low: T::ZERO,
+            error: T::ZERO,
+        }
     }
 }
 
@@ -56,14 +74,13 @@ pub fn compress<T: LaneFloat, const N: usize>(terms: [T; N], radius: T) -> Flagg
         let (low_sum, discarded) = two_sum(low, residual);
         let (next_high, next_low) = two_sum(sum, low_sum);
         let discarded_magnitude = discarded.magnitude();
-        let (sum_radius, sum_flag) =
-            add_outward(Span::point(radius), Span::point(discarded_magnitude));
+        let (sum_radius, sum_flag) = add_outward_upper(radius, discarded_magnitude);
         flag = flag
             || !discarded.finite()
             || !radius.finite()
             || !discarded_magnitude.finite()
             || sum_flag;
-        radius = sum_radius.hi;
+        radius = sum_radius;
         high = next_high;
         low = next_low;
     }
@@ -76,16 +93,29 @@ pub fn compress<T: LaneFloat, const N: usize>(terms: [T; N], radius: T) -> Flagg
 }
 
 /// Center sum or difference.
+///
+/// A point operand takes a copy of the same rule with its zero components folded.
 #[inline(always)]
 pub fn sum<T: LaneFloat>(a: Parts<T>, b: Parts<T>, subtract: bool) -> FlaggedParts<T> {
-    let (radius, radius_flag) = add_outward(Span::point(a.error), Span::point(b.error));
+    if b.point() {
+        general_sum(a, b.as_point(), subtract)
+    } else if a.point() {
+        general_sum(a.as_point(), b, subtract)
+    } else {
+        general_sum(a, b, subtract)
+    }
+}
+
+#[inline(always)]
+fn general_sum<T: LaneFloat>(a: Parts<T>, b: Parts<T>, subtract: bool) -> FlaggedParts<T> {
+    let (radius, radius_flag) = add_outward_upper(a.error, b.error);
     let flag = !a.error.finite() || !b.error.finite() || radius_flag;
     let (b_high, b_low) = if subtract {
         (-b.high, -b.low)
     } else {
         (b.high, b.low)
     };
-    let (out, compress_flag) = compress([a.high, b_high, a.low, b_low], radius.hi);
+    let (out, compress_flag) = compress([a.high, b_high, a.low, b_low], radius);
     (out, flag || compress_flag)
 }
 
@@ -103,13 +133,32 @@ fn component_product<T: LaneFloat>(a: T, b: T) -> (T, T, T, bool) {
 #[inline(always)]
 fn radius_product<T: LaneFloat>(component: T, radius: T) -> (T, bool) {
     let magnitude = component.magnitude();
-    let (out, flag) = mul_outward(Span::point(magnitude), Span::point(radius));
-    (out.hi, flag || !magnitude.finite() || !radius.finite())
+    let (out, flag) = mul_outward_upper(magnitude, radius);
+    (out, flag || !magnitude.finite() || !radius.finite())
 }
 
 /// Center product with fused residual and radius enclosures.
+///
+/// An exact one returns the other operand. The general rule masks both operands to one there,
+/// so its own status is clear and only the returned lane can flag.
+/// A point operand takes a copy of the same rule with its zero components folded.
 #[inline(always)]
 pub fn product<T: LaneFloat>(a: Parts<T>, b: Parts<T>) -> FlaggedParts<T> {
+    let a_one = a.exact_one();
+    if a_one || b.exact_one() {
+        let out = if a_one { b } else { a };
+        (out, out.invalid())
+    } else if b.point() {
+        general_product(a, b.as_point())
+    } else if a.point() {
+        general_product(a.as_point(), b)
+    } else {
+        general_product(a, b)
+    }
+}
+
+#[inline(always)]
+fn general_product<T: LaneFloat>(a: Parts<T>, b: Parts<T>) -> FlaggedParts<T> {
     let (a_one, b_one) = (a.exact_one(), b.exact_one());
     let identity = a_one || b_one;
     let mask = |value: Parts<T>| Parts {
@@ -158,8 +207,19 @@ pub fn product<T: LaneFloat>(a: Parts<T>, b: Parts<T>) -> FlaggedParts<T> {
 }
 
 /// Outward projection around the rounded center.
+///
+/// A point lane takes a copy of the same rule with its zero components folded.
 #[inline(always)]
 pub fn project<T: LaneFloat>(value: Parts<T>) -> (Span<T>, bool) {
+    if value.point() {
+        general_project(value.as_point())
+    } else {
+        general_project(value)
+    }
+}
+
+#[inline(always)]
+fn general_project<T: LaneFloat>(value: Parts<T>) -> (Span<T>, bool) {
     let (center, center_flag) = add_outward(Span::point(value.high), Span::point(value.low));
     let radius = Span::point(value.error);
     let (lower, lower_flag) = sub_outward(center, radius);
@@ -176,4 +236,91 @@ pub fn project<T: LaneFloat>(value: Parts<T>) -> (Span<T>, bool) {
         || upper_flag
         || out.invalid();
     (out, flag)
+}
+
+#[cfg(test)]
+pub(super) mod tests {
+    use super::*;
+
+    /// Every lane built from a set of signed, special, and subnormal components.
+    pub(in super::super) fn lanes() -> Vec<Parts<f64>> {
+        let values = [
+            0.0,
+            -0.0,
+            1.0,
+            -1.0,
+            0.1,
+            3.0,
+            f64::from_bits(1),
+            f64::INFINITY,
+            f64::NAN,
+        ];
+        let mut out = Vec::new();
+        for &high in &values {
+            for &low in &values {
+                for &error in &values {
+                    out.push(Parts { high, low, error });
+                }
+            }
+        }
+        out
+    }
+
+    /// The result components and status as raw bits.
+    pub(in super::super) fn bits(value: FlaggedParts<f64>) -> [u64; 4] {
+        let (parts, flag) = value;
+        [
+            parts.high.to_bits(),
+            parts.low.to_bits(),
+            parts.error.to_bits(),
+            flag as u64,
+        ]
+    }
+
+    #[test]
+    fn product_shortcuts_match_the_general_rule_bit_for_bit() {
+        let lanes = lanes();
+        for &a in &lanes {
+            for &b in &lanes {
+                assert_eq!(
+                    bits(product(a, b)),
+                    bits(general_product(a, b)),
+                    "a={a:?} b={b:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn project_shortcut_matches_the_general_rule_bit_for_bit() {
+        for value in lanes() {
+            let (span, flag) = project(value);
+            let (general, general_flag) = general_project(value);
+            assert_eq!(
+                [span.lo.to_bits(), span.hi.to_bits(), flag as u64],
+                [
+                    general.lo.to_bits(),
+                    general.hi.to_bits(),
+                    general_flag as u64
+                ],
+                "{value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sum_shortcuts_match_the_general_rule_bit_for_bit() {
+        let lanes = lanes();
+        for &a in &lanes {
+            for &b in &lanes {
+                for subtract in [false, true] {
+                    assert_eq!(
+                        bits(sum(a, b, subtract)),
+                        bits(general_sum(a, b, subtract)),
+                        "a={a:?} b={b:?} subtract={subtract}"
+                    );
+                }
+            }
+        }
+    }
 }

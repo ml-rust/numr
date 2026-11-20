@@ -42,14 +42,29 @@ pub unsafe fn index_select_kernel<T: Element>(
     let outer_size: usize = shape[..dim].iter().product();
     let dim_size = shape[dim];
     let inner_size: usize = shape[dim + 1..].iter().product();
+    let selected = std::slice::from_raw_parts(indices, index_len);
+
+    // Single-element rows copy one value per index.
+    if inner_size == 1 {
+        for outer in 0..outer_size {
+            let src = a.add(outer * dim_size);
+            let dst = out.add(outer * index_len);
+            for (sel_idx, &idx) in selected.iter().enumerate() {
+                let idx = idx as usize;
+                *dst.add(sel_idx) = if idx < dim_size {
+                    *src.add(idx)
+                } else {
+                    T::zero()
+                };
+            }
+        }
+        return;
+    }
 
     // For each outer position
     for outer in 0..outer_size {
         // For each selected index
-        for (sel_idx, &idx_ptr) in std::slice::from_raw_parts(indices, index_len)
-            .iter()
-            .enumerate()
-        {
+        for (sel_idx, &idx_ptr) in selected.iter().enumerate() {
             let idx = idx_ptr as usize;
             if idx >= dim_size {
                 // Out of bounds - fill with zeros

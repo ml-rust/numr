@@ -29,6 +29,21 @@ impl Input {
     pub unsafe fn get<T: Copy>(self, index: usize) -> T {
         unsafe { *(self.addr as *const T).add(index * self.step) }
     }
+
+    /// The start address when every lane advances one element.
+    pub fn dense(self) -> Option<usize> {
+        (self.step == 1).then_some(self.addr)
+    }
+}
+
+/// Read lane `index` of a dense input address.
+///
+/// # Safety
+///
+/// The address holds more than `index` readable elements of `T`.
+#[inline(always)]
+pub unsafe fn dense_get<T: Copy>(addr: usize, index: usize) -> T {
+    unsafe { *(addr as *const T).add(index) }
 }
 
 /// One contiguous lane output.

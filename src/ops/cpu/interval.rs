@@ -11,7 +11,7 @@ use crate::ops::impl_generic::interval::{
     IntervalBinary, binary_shape, check_binary, interval_status_impl, lane_count, validate,
 };
 use crate::ops::{IntervalEnclosure, IntervalOperand, IntervalOps, IntervalPair};
-use crate::runtime::cpu::kernels::interval::drive::{Input, Output, raise, run_lanes};
+use crate::runtime::cpu::kernels::interval::drive::{Input, Output, dense_get, raise, run_lanes};
 use crate::runtime::cpu::kernels::interval::envelope::probe;
 use crate::runtime::cpu::kernels::interval::lane_float::LaneFloat;
 use crate::runtime::cpu::kernels::interval::lane_interval::Span;
@@ -30,34 +30,99 @@ fn run_binary<T: LaneFloat>(
     outputs: [Output; 2],
     len: usize,
 ) -> bool {
+    // Each rule and mode pair gets its own inlined lane loop.
+    macro_rules! modes {
+        ($rule:expr) => {{
+            let rule = $rule;
+            match (mode.tight, mode.fused) {
+                (true, true) => run_rule(client, inputs, outputs, len, rule, TIGHT_FUSED),
+                (true, false) => run_rule(client, inputs, outputs, len, rule, TIGHT_UNFUSED),
+                (false, true) => run_rule(client, inputs, outputs, len, rule, OUTWARD_FUSED),
+                (false, false) => run_rule(client, inputs, outputs, len, rule, OUTWARD_UNFUSED),
+            }
+        }};
+    }
+    match op {
+        IntervalBinary::Add => modes!(lane_public::add::<T>),
+        IntervalBinary::Sub => modes!(lane_public::sub::<T>),
+        IntervalBinary::Mul => modes!(lane_public::mul::<T>),
+        IntervalBinary::DivPositive => {
+            modes!(|a: Span<T>, b: Span<T>, mode| lane_public::div_positive(a, b.lo, mode))
+        }
+        IntervalBinary::DivPositiveInterval => modes!(lane_public::div_positive_interval::<T>),
+    }
+}
+
+const TIGHT_FUSED: LaneMode = LaneMode {
+    tight: true,
+    fused: true,
+};
+const TIGHT_UNFUSED: LaneMode = LaneMode {
+    tight: true,
+    fused: false,
+};
+const OUTWARD_FUSED: LaneMode = LaneMode {
+    tight: false,
+    fused: true,
+};
+const OUTWARD_UNFUSED: LaneMode = LaneMode {
+    tight: false,
+    fused: false,
+};
+
+#[inline(always)]
+fn run_rule<T, F>(
+    client: &CpuClient,
+    inputs: [Input; 4],
+    outputs: [Output; 2],
+    len: usize,
+    rule: F,
+    mode: LaneMode,
+) -> bool
+where
+    T: LaneFloat,
+    F: Fn(Span<T>, Span<T>, LaneMode) -> (Span<T>, bool) + Send + Sync,
+{
     let [a_lo, a_hi, b_lo, b_hi] = inputs;
     let [out_lo, out_hi] = outputs;
-    let run = |rule: fn(Span<T>, Span<T>, LaneMode) -> (Span<T>, bool)| {
-        run_lanes(client, len, |i| {
+    if let (Some(al), Some(ah), Some(bl), Some(bh)) =
+        (a_lo.dense(), a_hi.dense(), b_lo.dense(), b_hi.dense())
+    {
+        return run_lanes(client, len, move |i| {
             // Operands address `len` lanes, and outputs are fresh `len`-element tensors.
             unsafe {
                 let a = Span {
-                    lo: a_lo.get::<T>(i),
-                    hi: a_hi.get::<T>(i),
+                    lo: dense_get::<T>(al, i),
+                    hi: dense_get::<T>(ah, i),
                 };
                 let b = Span {
-                    lo: b_lo.get::<T>(i),
-                    hi: b_hi.get::<T>(i),
+                    lo: dense_get::<T>(bl, i),
+                    hi: dense_get::<T>(bh, i),
                 };
                 let (out, flag) = rule(a, b, mode);
                 out_lo.put(i, out.lo);
                 out_hi.put(i, out.hi);
                 flag
             }
-        })
-    };
-    match op {
-        IntervalBinary::Add => run(lane_public::add),
-        IntervalBinary::Sub => run(lane_public::sub),
-        IntervalBinary::Mul => run(lane_public::mul),
-        IntervalBinary::DivPositive => run(|a, b, mode| lane_public::div_positive(a, b.lo, mode)),
-        IntervalBinary::DivPositiveInterval => run(lane_public::div_positive_interval),
+        });
     }
+    run_lanes(client, len, move |i| {
+        // Operands address `len` lanes, and outputs are fresh `len`-element tensors.
+        unsafe {
+            let a = Span {
+                lo: a_lo.get::<T>(i),
+                hi: a_hi.get::<T>(i),
+            };
+            let b = Span {
+                lo: b_lo.get::<T>(i),
+                hi: b_hi.get::<T>(i),
+            };
+            let (out, flag) = rule(a, b, mode);
+            out_lo.put(i, out.lo);
+            out_hi.put(i, out.hi);
+            flag
+        }
+    })
 }
 
 fn binary(

@@ -15,8 +15,25 @@ const TIGHT: LaneMode = LaneMode {
 };
 
 /// Corrected quotient center certified through an independent residual enclosure.
+///
+/// A point divisor takes a copy of the same rule with its constant components folded.
 #[inline(always)]
 pub fn quotient<T: LaneFloat>(a: Parts<T>, b: Parts<T>) -> FlaggedParts<T> {
+    if b.point() {
+        let b = b.as_point();
+        if b.high == T::ONE {
+            let one = Parts { high: T::ONE, ..b };
+            general_quotient(a, one)
+        } else {
+            general_quotient(a, b)
+        }
+    } else {
+        general_quotient(a, b)
+    }
+}
+
+#[inline(always)]
+fn general_quotient<T: LaneFloat>(a: Parts<T>, b: Parts<T>) -> FlaggedParts<T> {
     let (den, mut flag) = project(b);
     let positive = den.lo > T::ZERO;
     let valid =
@@ -83,4 +100,24 @@ pub fn lift<T: LaneFloat>(value: Span<T>) -> FlaggedParts<T> {
     });
     let flag = value.invalid() || !center.finite() || f0 || f1 || f2;
     (out, flag)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::lane_expansion::tests::{bits, lanes};
+    use super::*;
+
+    #[test]
+    fn quotient_shortcuts_match_the_general_rule_bit_for_bit() {
+        let lanes = lanes();
+        for &a in &lanes {
+            for &b in &lanes {
+                assert_eq!(
+                    bits(quotient(a, b)),
+                    bits(general_quotient(a, b)),
+                    "a={a:?} b={b:?}"
+                );
+            }
+        }
+    }
 }

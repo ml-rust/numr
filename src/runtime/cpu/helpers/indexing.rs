@@ -277,14 +277,21 @@ pub fn index_select_impl(
     let dim_size = shape[dim];
     let index_data =
         unsafe { std::slice::from_raw_parts(index_contig.ptr() as *const i64, index_len) };
-    for &idx in index_data.iter() {
-        // Negative indices are not supported - must be in [0, dim_size)
-        if idx < 0 || idx as usize >= dim_size {
-            return Err(Error::IndexOutOfBounds {
-                index: if idx < 0 { 0 } else { idx as usize },
-                size: dim_size,
-            });
-        }
+    // Negative indices are not supported - must be in [0, dim_size).
+    // A negative index converts above every size, so one unsigned compare checks both ends.
+    let outside = index_data
+        .iter()
+        .fold(false, |any, &idx| any | (idx as u64 >= dim_size as u64));
+    if outside {
+        let idx = index_data
+            .iter()
+            .copied()
+            .find(|&idx| idx as u64 >= dim_size as u64)
+            .unwrap_or_default();
+        return Err(Error::IndexOutOfBounds {
+            index: if idx < 0 { 0 } else { idx as usize },
+            size: dim_size,
+        });
     }
 
     let out = Tensor::<CpuRuntime>::empty(&out_shape, dtype, &client.device)?;
